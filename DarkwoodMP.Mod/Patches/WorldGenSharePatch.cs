@@ -5,16 +5,32 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// After the host finishes generating a brand-new world (not a load), push save files
-    /// to every already-connected client so they share that world without manual file copy.
+    /// Host: after brand-new worldgen, push save share to connected clients.
+    /// Client: block finishing a brand-new gen while connected (divergent forests);
+    /// load / chapter-load paths still run.
     /// </summary>
     [HarmonyPatch(typeof(WorldGenerator), "onFinished")]
     public static class WorldGenSharePatch
     {
+        private static bool Prefix()
+        {
+            var net = ModRuntime.Network;
+            if (net != null && net.Role == NetworkRole.Client && net.IsConnected)
+            {
+                if (Core.loadingGame || Core.loadedGame || Core.doLoadChapterSave)
+                    return true;
+
+                ModLog.Warn(LogCat.World,
+                    "Client blocked new worldgen finish while connected — use host share / join pipeline "
+                    + "(prevents divergent landmark forests)");
+                return false;
+            }
+            return true;
+        }
+
         private static void Postfix()
         {
             // Load path / chapter reload: world came from disk — not a fresh generation.
-            // Matches WorldGenerator's own "save after new gen" conditions.
             if (Core.loadingGame || Core.loadedGame || Core.doLoadChapterSave)
                 return;
 

@@ -24,7 +24,7 @@ Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
 | Dual BepInEx deploy (Steam + SecondDarkwood) | **ported** | `DarkwoodMP.Mod.csproj` DeployToGameDirs. |
 | Dedicated server project | **deferred** | Tree keeps `DarkwoodMP.Server` + Ironbark protocol as **research / future bridge**. Horde LAN wire is protocol **19**, not Ironbark v2 — connecting them without a full re-protocol is unsafe. |
 | Ironbark typed wire as live load path | **deferred** | Live clients use **Horde NetMessageType protocol 19**. Ironbark sources remain under `DarkwoodMP.Protocol` for codec tests and future server bridge. |
-| Dual MelonLoader packaging | **deferred** | Horde is BepInEx-first; Melon dual-loader from 0.9 merge not carried into Path B load path. |
+| Dual MelonLoader packaging | **present** | `-p:Loader=MelonLoader` dual entry (`MelonModMain`); ship default remains BepInEx. |
 | Native **MULTIPLAYER** main-menu button (Yokyy) | **ported + fixed** | `MainMenuMultiplayerInject` — HOST/JOIN/SETTINGS/RESTORE/DISCONNECT/BACK; InputScript + menu ticks; config flush; join timeout. See `docs/YOKYY_FEATURE_AUDIT.md`. |
 | Chat / HUD overlay (Yokyy) | **ported + hardened** | `ChatHud` + `ChatMessage` (111); Ctrl+C; length/rate clamps; session status strip. |
 | SyncCheck (Yokyy digest correctives) | **deferred** | Horde relies on host authority + entity/state streams; full SyncCheck port needs careful design so it does not fight host authority. |

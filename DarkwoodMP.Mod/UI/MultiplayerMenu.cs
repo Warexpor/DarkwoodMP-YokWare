@@ -140,7 +140,7 @@ namespace DWMPHorde
                 GUILayout.Label(sessionLine, GUILayout.ExpandWidth(true));
             }
             GUILayout.Label(
-                "JOIN flow: Host must be IN the chapter (not title). Client stays on title → auto world download → loads profile slot 5.",
+                "JOIN flow: Host IN chapter → (1) world share → (2) client loads slot 5 offline → (3) auto reconnect co-op.",
                 GUILayout.ExpandWidth(true));
             GUILayout.Label(
                 "Host from title then load: clients already connected get world push when host Player.Start runs. F2 Resend if stuck.",

@@ -41,7 +41,7 @@ namespace DWMPHorde
         }
 
         private static bool _running;
-        private static Harmony _harmony;
+        private static HarmonyLib.Harmony _harmony;
 
         /// <summary>
         /// Called by <see cref="DWMPHordeEntry.Awake"/> once on plugin load.
@@ -54,11 +54,13 @@ namespace DWMPHorde
             try
             {
                 ModConfig.Bind(config);
+                // Allow dual-box path override to re-resolve after config bind.
+                PersistentDataPathPatch.ResetCache();
 
                 ModLog.Init(Log);
                 NetworkResetRegistry.Register(ModLog.ResetRateLimits);
 
-                _harmony = new Harmony(PluginInfo.Guid);
+                _harmony = new HarmonyLib.Harmony(PluginInfo.Guid);
                 _harmony.PatchAll();
 
                 // Register all static network resets so they fire when the

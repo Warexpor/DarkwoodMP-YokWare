@@ -52,7 +52,9 @@ namespace DWMPHorde.Patches
             // if host is slow. ApplySceneLoad is idempotent via _sceneLoadPending.
             LanNetworkManager.ApplySceneLoad("credits", delaySeconds: 8f);
 
-            ModRuntime.LegacyInfo($"[Epilogue] goToCredits multiplayer path role={net.Role}");
+            // Credits ends co-op permanently (ChapterSessionPolicy) — no CaptureForResume.
+            // Documented residual: post-credits is single-player epilogue, not a co-op chapter.
+            ModRuntime.LegacyInfo($"[Epilogue] goToCredits multiplayer path role={net.Role} (network stops — no resume)");
             return false; // skip vanilla (would LoadScene alone at 10s)
         }
     }

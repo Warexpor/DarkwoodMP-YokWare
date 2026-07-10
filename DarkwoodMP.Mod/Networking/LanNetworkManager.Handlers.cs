@@ -41,11 +41,21 @@ namespace DWMPHorde.Networking
                 _handshakeComplete = true;
                 _handshakedPeers.Clear();
                 _handshakedPeers.Add(1); // host is player 1
-                StatusText = "Connected — waiting for host world…";
-                ModLog.Event(LogCat.Network, $"Handshake OK — assigned PlayerId={_localPlayerId}");
-                if (Core.mainMenu)
-                    ModLog.Event(LogCat.Session,
-                        "On title menu: host will push save files if already in-world (auto load).");
+                if (ClientReportsAlreadyInWorld())
+                {
+                    StatusText = "Reconnected — co-op sync…";
+                    ModLog.Event(LogCat.Network,
+                        "Handshake OK — assigned PlayerId=" + _localPlayerId
+                        + " (phase 3 co-op reconnect)");
+                }
+                else
+                {
+                    StatusText = "Connected — waiting for host world…";
+                    ModLog.Event(LogCat.Network, "Handshake OK — assigned PlayerId=" + _localPlayerId);
+                    if (Core.mainMenu)
+                        ModLog.Event(LogCat.Session,
+                            "Join pipeline phase 1: transfer link up — waiting for world share, then offline load.");
+                }
             }
             else
             {
@@ -60,14 +70,27 @@ namespace DWMPHorde.Networking
                 // Sync current weather state to the newly connected client only
                 SendWeatherSyncTo(playerId);
 
-                // Late join from title menu: bulk state is not enough — client has no chapter loaded.
-                // Delay a few frames so the client finishes handshake + WorldSession before megabyte save stream.
+                // Join pipeline:
+                //   phase 1 title join  → share world (client offline-loads, disconnects)
+                //   phase 3 reconnect   → AlreadyInWorld: skip share, late-join bulk only
                 if (playerId > 0)
                 {
-                    if (HostHasShareableWorld())
+                    if (handshake.AlreadyInWorld)
+                    {
+                        ModLog.Event(LogCat.Session,
+                            "Join pipeline phase 3: peer " + playerId
+                            + " already in world — skip world share, queue late-join bulk");
+                        // Mute entity flood until first PlayerState (proxy/pos not ready yet).
+                        MarkPeerLoadingWorld(playerId);
+                        _peersCoopReconnect.Add(playerId);
+                        _awaitingLateJoinBulk[playerId] = 0f;
+                    }
+                    else if (HostHasShareableWorld())
                     {
                         ModLog.Event(LogCat.Save,
-                            "Client " + playerId + " handshaked while host in-world — scheduling auto world share");
+                            "Join pipeline phase 1: client " + playerId
+                            + " handshaked on title — scheduling world share");
+                        MarkPeerLoadingWorld(playerId);
                         StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
                     }
                     else
@@ -101,12 +124,78 @@ namespace DWMPHorde.Networking
                 yield break;
             }
             ModLog.Event(LogCat.Save, "Auto world share → player " + playerId + " starting now");
+            MarkPeerLoadingWorld(playerId);
             _worldSaveShare?.ScheduleHostShareToPlayer(playerId);
             // Mark bulk pending (settle clock starts on first valid PlayerState).
             _awaitingLateJoinBulk[playerId] = 0f;
             ModLog.Event(LogCat.Session,
                 "Player " + playerId + " queued for late-join bulk after "
                 + ClientBulkSettleSeconds.ToString("F0") + "s settled in-world");
+        }
+
+        private float _lastWorldRequestSentAt = -999f;
+        private const float WorldRequestMinIntervalSec = 12f;
+
+        /// <summary>
+        /// Client pull: ask host to push world share (Yokyy RequestWorld equivalent).
+        /// Rate-limited; only while on title and not already receiving.
+        /// </summary>
+        public bool RequestHostWorld(string reason = null)
+        {
+            if (_role != NetworkRole.Client || !IsConnected || !_handshakeComplete)
+                return false;
+            if (!Core.mainMenu)
+                return false;
+            if (_worldSaveShare != null && _worldSaveShare.IsClientReceivingOrApplying)
+                return false;
+            if (UnityEngine.Time.unscaledTime - _lastWorldRequestSentAt < WorldRequestMinIntervalSec)
+                return false;
+
+            _lastWorldRequestSentAt = UnityEngine.Time.unscaledTime;
+            Send(NetMessageType.WorldRequest,
+                w => new WorldRequestMessage { RequesterId = _localPlayerId }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+
+            ModLog.Event(LogCat.Save,
+                "WorldRequest → host (" + (reason ?? "manual") + ") localId=" + _localPlayerId);
+            StatusText = "Requesting host world…";
+            return true;
+        }
+
+        private void HandleWorldRequest(WorldRequestMessage msg)
+        {
+            if (_role != NetworkRole.Host)
+                return;
+
+            int playerId = _currentReceivePlayerId;
+            if (playerId <= 0)
+                playerId = msg.RequesterId;
+            if (playerId <= 0)
+            {
+                ModLog.Warn(LogCat.Save, "WorldRequest ignored — no player id");
+                return;
+            }
+            if (!_handshakedPeers.Contains(playerId))
+            {
+                ModLog.Warn(LogCat.Save, "WorldRequest from p" + playerId + " ignored — not handshaked");
+                return;
+            }
+
+            if (!HostHasShareableWorld())
+            {
+                ModLog.Warn(LogCat.Save,
+                    "WorldRequest from p" + playerId
+                    + " — host not in-world yet (mainMenu=" + Core.mainMenu
+                    + " player=" + (Player.Instance != null)
+                    + "). Will share when host enters chapter, or client retries.");
+                return;
+            }
+
+            ModLog.Event(LogCat.Save,
+                "WorldRequest from p" + playerId + " — scheduling share to that peer");
+            MarkPeerLoadingWorld(playerId);
+            _worldSaveShare?.ScheduleHostShareToPlayer(playerId);
+            _awaitingLateJoinBulk[playerId] = 0f;
         }
 
         /// <summary>
@@ -135,6 +224,7 @@ namespace DWMPHorde.Networking
                 return;
 
             _awaitingLateJoinBulk.Remove(playerId);
+            _peersCoopReconnect.Remove(playerId);
             ModLog.Event(LogCat.Session,
                 "Sending light late-join bulk → player " + playerId
                 + " (no deathbag/drop scans)");
@@ -166,16 +256,24 @@ namespace DWMPHorde.Networking
                 return;
 
             float now = Time.realtimeSinceStartup;
+            float settle = _peersCoopReconnect.Contains(playerId)
+                ? CoopReconnectBulkSettleSeconds
+                : ClientBulkSettleSeconds;
+
             if (firstSeen <= 0f)
             {
                 _awaitingLateJoinBulk[playerId] = now;
+                // Joiner is past LoadScene — re-enable high-rate gameplay packets to them.
+                MarkPeerGameplayReady(playerId);
                 ModLog.Event(LogCat.Session,
                     "Player " + playerId + " in-world — bulk in "
-                    + ClientBulkSettleSeconds.ToString("F0") + "s (settle)");
+                    + settle.ToString("F1") + "s (settle"
+                    + (_peersCoopReconnect.Contains(playerId) ? ", phase3 reconnect" : "")
+                    + ")");
                 return;
             }
 
-            if (now - firstSeen < ClientBulkSettleSeconds)
+            if (now - firstSeen < settle)
                 return;
 
             SendLateJoinGameplayBulk(playerId);
@@ -841,19 +939,22 @@ namespace DWMPHorde.Networking
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                     targetRb.isKinematic = true;
 
-                // Scrape: same immediacy as body-push (NotifyBodyPushStarted → NoteMoving).
-                // Old path waited one DragSync tick for motion delta → audible delay, then
-                // NoteStationary on slow frames faded the loop mid-drag.
+                // Scrape mirrors body-push (WorldPhysicsSyncService posDelta >= 0.02):
+                // start only on real motion, stop on quiet while still "grabbed".
+                // First DragSync is grab pose only — do NOT NoteMoving on grab.
                 ItemSounds dragSounds = item.GetComponent<ItemSounds>();
-                bool firstDragPacket = !_lastDragSyncPos.ContainsKey(msg.ObjectName);
-                bool moved = !firstDragPacket
-                    && Vector3.Distance(_lastDragSyncPos[msg.ObjectName], targetPos) > 0.005f;
-                if (firstDragPacket || moved)
+                bool hasPrev = _lastDragSyncPos.TryGetValue(msg.ObjectName, out Vector3 prevPos);
+                bool moved = hasPrev && Vector3.Distance(prevPos, targetPos) >= 0.02f;
+                if (moved)
                 {
                     DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(
                         item.gameObject, msg.ObjectName, dragSounds);
                 }
-                // While IsDragging, do NOT NoteStationary — keep loop alive like push.
+                else if (hasPrev)
+                {
+                    // Grabbed but not moving (or stopped mid-drag) — fade like push quiet tick.
+                    DWMPHorde.Audio.MovingObjectSoundService.NoteStationary(msg.ObjectName);
+                }
                 _lastDragSyncPos[msg.ObjectName] = targetPos;
             }
             else
@@ -1619,6 +1720,13 @@ namespace DWMPHorde.Networking
             if (inv == null)
             {
                 ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: no inventory at {pos} for {msg.Action} slot={msg.SlotIndex} type={msg.ItemType}");
+                // Host: peer took from missing inv — refund optimistic loot.
+                if (_role == NetworkRole.Host
+                    && (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
+                    && _currentReceivePlayerId > 0)
+                {
+                    DenyContainerTake(_currentReceivePlayerId, msg, "no inventory");
+                }
                 return;
             }
 
@@ -1626,11 +1734,36 @@ namespace DWMPHorde.Networking
 
             if (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
             {
+                // H6 host authority: only apply remove if slot still has matching item.
+                // Simultaneous dual-loot: second peer loses the race → deny + refund.
+                if (_role == NetworkRole.Host && !IsApplyingRemoteState)
+                {
+                    if (!TryHostValidateContainerTake(inv, msg, out string denyReason))
+                    {
+                        if (_currentReceivePlayerId > 0)
+                            DenyContainerTake(_currentReceivePlayerId, msg, denyReason);
+                        else
+                            ModLog.Warn(LogCat.Container,
+                                "[Container] local host take race: " + denyReason);
+                        return;
+                    }
+                }
+
                 if (msg.SlotIndex < inv.slots.Count)
                 {
                     InvSlot slot = inv.slots[msg.SlotIndex];
                     if (!InvItemClass.isNull(slot.invItem))
                     {
+                        // Soft type check on clients (host already validated).
+                        if (!string.IsNullOrEmpty(msg.ItemType)
+                            && !string.Equals(slot.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+                        {
+                            ModRuntime.Log?.LogWarning(
+                                $"[Container] HandleContainerItem: type mismatch slot {msg.SlotIndex} "
+                                + $"have={slot.invItem.type} msg={msg.ItemType}");
+                            return;
+                        }
+
                         if (msg.Amount >= slot.invItem.amount)
                         {
                             ModRuntime.LegacyInfo($"[Container] HandleContainerItem: removing {slot.invItem.type} x{slot.invItem.amount} from slot {msg.SlotIndex}");
@@ -1645,11 +1778,15 @@ namespace DWMPHorde.Networking
                     else
                     {
                         ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot {msg.SlotIndex} already empty (type={msg.ItemType})");
+                        if (_role == NetworkRole.Host && _currentReceivePlayerId > 0 && !IsApplyingRemoteState)
+                            DenyContainerTake(_currentReceivePlayerId, msg, "slot empty");
                     }
                 }
                 else
                 {
                     ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot index {msg.SlotIndex} >= slots count {inv.slots.Count}");
+                    if (_role == NetworkRole.Host && _currentReceivePlayerId > 0 && !IsApplyingRemoteState)
+                        DenyContainerTake(_currentReceivePlayerId, msg, "bad slot index");
                 }
             }
             else if (msg.Action == ContainerAction.PlaceItem)
@@ -1671,6 +1808,13 @@ namespace DWMPHorde.Networking
                         slot.invItem.amount += msg.Amount;
                         slot.invItem.refresh();
                     }
+                    else if (_role == NetworkRole.Host && !IsApplyingRemoteState)
+                    {
+                        // Place race: slot occupied by different type — do not overwrite.
+                        ModLog.Warn(LogCat.Container,
+                            "[Container] PlaceItem denied — slot occupied by " + slot.invItem.type);
+                        _suppressForwardThisMessage = true;
+                    }
                 }
             }
             else if (msg.Action == ContainerAction.Searched)
@@ -1684,6 +1828,149 @@ namespace DWMPHorde.Networking
                         c.searched = true;
                 }
             }
+        }
+
+        /// <summary>Host: slot still holds the claimed type/amount for a take/remove.</summary>
+        private static bool TryHostValidateContainerTake(Inventory inv, ContainerItemMessage msg, out string reason)
+        {
+            reason = null;
+            if (inv == null || inv.slots == null)
+            {
+                reason = "no inv";
+                return false;
+            }
+            if (msg.SlotIndex >= inv.slots.Count)
+            {
+                reason = "bad slot";
+                return false;
+            }
+            InvSlot slot = inv.slots[msg.SlotIndex];
+            if (InvItemClass.isNull(slot.invItem))
+            {
+                reason = "slot empty";
+                return false;
+            }
+            if (!string.IsNullOrEmpty(msg.ItemType)
+                && !string.Equals(slot.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+            {
+                reason = "type mismatch have=" + slot.invItem.type;
+                return false;
+            }
+            if (msg.Amount <= 0)
+            {
+                reason = "bad amount";
+                return false;
+            }
+            return true;
+        }
+
+        private void DenyContainerTake(int playerId, ContainerItemMessage msg, string reason)
+        {
+            _suppressForwardThisMessage = true;
+            ModLog.Event(LogCat.Container,
+                "[Container] H6 deny take p" + playerId + " slot=" + msg.SlotIndex
+                + " type=" + msg.ItemType + " amt=" + msg.Amount + " (" + reason + ")");
+
+            SendToPlayer(playerId, NetMessageType.ContainerTakeDenied, w =>
+            {
+                new ContainerTakeDeniedMessage
+                {
+                    PosX = msg.PosX,
+                    PosY = msg.PosY,
+                    PosZ = msg.PosZ,
+                    SlotIndex = msg.SlotIndex,
+                    ItemType = msg.ItemType ?? "",
+                    Amount = msg.Amount > 0 ? msg.Amount : 1
+                }.Serialize(w);
+            }, LiteNetLib.DeliveryMethod.ReliableOrdered);
+
+            // Push authoritative container snapshot so UI matches host.
+            try
+            {
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                Inventory inv = FindInventoryByPos(pos);
+                if (inv != null)
+                    SendContainerStateSnapshotTo(playerId, inv, pos);
+            }
+            catch { /* ignore */ }
+        }
+
+        private void SendContainerStateSnapshotTo(int playerId, Inventory inv, Vector3 pos)
+        {
+            if (inv == null || inv.slots == null) return;
+            var slots = new System.Collections.Generic.List<SlotStateEntry>();
+            for (int i = 0; i < inv.slots.Count; i++)
+            {
+                InvSlot s = inv.slots[i];
+                if (InvItemClass.isNull(s.invItem)) continue;
+                slots.Add(new SlotStateEntry
+                {
+                    SlotIndex = (byte)i,
+                    ItemType = s.invItem.type,
+                    Amount = s.invItem.amount,
+                    Durability = s.invItem.durability,
+                    Ammo = s.invItem.ammo
+                });
+            }
+            var sync = new ContainerStateSyncMessage
+            {
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                EntityHash = 0,
+                SlotCount = slots.Count,
+                Slots = slots.ToArray()
+            };
+            SendToPlayer(playerId, NetMessageType.ContainerStateSync,
+                w => sync.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        private void HandleContainerTakeDenied(ContainerTakeDeniedMessage msg)
+        {
+            if (_role != NetworkRole.Client)
+                return;
+
+            ModLog.Event(LogCat.Container,
+                "[Container] take denied by host — refunding " + msg.ItemType + " x" + msg.Amount);
+
+            // Remove optimistic loot from player inventory (best-effort by type).
+            try
+            {
+                Inventory pinv = Player.Instance != null ? Player.Instance.Inventory : null;
+                if (pinv != null && pinv.slots != null
+                    && !string.IsNullOrEmpty(msg.ItemType) && msg.Amount > 0)
+                {
+                    int left = msg.Amount;
+                    for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
+                    {
+                        InvSlot s = pinv.slots[i];
+                        if (InvItemClass.isNull(s.invItem)) continue;
+                        if (!string.Equals(s.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+                            continue;
+                        if (s.invItem.amount <= left)
+                        {
+                            left -= s.invItem.amount;
+                            s.removeItem();
+                        }
+                        else
+                        {
+                            s.invItem.removeAmount(left);
+                            left = 0;
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Container, "refund failed: " + ex.Message);
+            }
+
+            try
+            {
+                if (Player.Instance != null)
+                    Player.Instance.displayMessage("Already taken…");
+            }
+            catch { /* ignore */ }
         }
 
         /// <summary>
@@ -4733,14 +5020,8 @@ namespace DWMPHorde.Networking
                 _remoteProxies[playerId] = proxy;
                 proxy.OnFootstep += (pId, running) => HandleProxyFootstep(pId, running);
                 RemoveClonedEmitters(proxy.transform);
-
-                if (Player.Instance != null)
-                {
-                    var rb = proxy.GetComponent<Rigidbody>();
-                    if (rb != null)
-                        rb.position = Player.Instance.transform.position;
-                }
-
+                // Do NOT snap to local Player — that stacks bodies on join until the first
+                // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
             }
         }
@@ -4807,8 +5088,16 @@ namespace DWMPHorde.Networking
             if (!_remoteProxies.TryGetValue(playerId, out var proxy))
                 return;
 
-            Destroy(proxy.gameObject);
             _remoteProxies.Remove(playerId);
+            try
+            {
+                if (proxy != null && proxy.gameObject != null)
+                    Destroy(proxy.gameObject);
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "DestroyRemoteProxy p" + playerId + ": " + ex.Message);
+            }
             ModRuntime.LegacyInfo($"[Proxy] Destroyed proxy for player {playerId}");
         }
 
@@ -5515,7 +5804,8 @@ namespace DWMPHorde.Networking
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             if (_role == NetworkRole.Host)
             {
-                Sync.WorldPhysicsSyncService.TriggerExplosion(pos, msg.ObjectName, msg.Flaming);
+                // Pass SoundId so host still booms if Explodes is gone / explode() skips audio.
+                Sync.WorldPhysicsSyncService.TriggerExplosion(pos, msg.ObjectName, msg.Flaming, msg.SoundId);
             }
             else
             {
@@ -6585,6 +6875,8 @@ namespace DWMPHorde.Networking
             _pendingJournalBulk = default;
             _needsJournalWorldCleanup = false;
             _awaitingLateJoinBulk.Clear();
+            _peersLoadingWorld.Clear();
+            _peersCoopReconnect.Clear();
             _pendingTradeInventories.Clear();
             _constructedSites.Clear();
             _pendingConstructibles.Clear();

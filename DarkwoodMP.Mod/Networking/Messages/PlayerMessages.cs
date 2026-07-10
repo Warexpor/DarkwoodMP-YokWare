@@ -6,16 +6,30 @@ namespace DWMPHorde.Networking
     {
         public int ProtocolVersion;
         public short PlayerId;
+        /// <summary>
+        /// Client→host: true after join-pipeline offline load (or any reconnect already in chapter).
+        /// Host skips world share and only arms late-join bulk (phase 3 co-op connect).
+        /// </summary>
+        public bool AlreadyInWorld;
 
         public void Serialize(NetWriter writer)
         {
             writer.Put(ProtocolVersion);
             writer.Put(PlayerId);
+            writer.Put(AlreadyInWorld);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
         {
-            return new HandshakeMessage { ProtocolVersion = reader.GetInt(), PlayerId = reader.GetShort() };
+            var msg = new HandshakeMessage
+            {
+                ProtocolVersion = reader.GetInt(),
+                PlayerId = reader.GetShort(),
+            };
+            // Forward-compat: older peers omitted the bool (both boxes should be same DLL).
+            if (reader.AvailableBytes >= 1)
+                msg.AlreadyInWorld = reader.GetBool();
+            return msg;
         }
     }
 

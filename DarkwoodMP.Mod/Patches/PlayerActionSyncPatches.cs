@@ -286,8 +286,8 @@ namespace DWMPHorde.Patches
             string prefabName = "";
             try
             {
-                var prefab = (UnityEngine.Object)HarmonyLib.Traverse.Create(__instance).Field("explosionPrefab").GetValue();
-                if (prefab != null) prefabName = prefab.name;
+                if (__instance.explosionPrefab != null)
+                    prefabName = __instance.explosionPrefab.name;
             }
             catch (System.Exception)
             {
@@ -295,9 +295,10 @@ namespace DWMPHorde.Patches
                     ModRuntime.Log?.LogWarning("[Explosion] prefab name reflect failed");
             }
 
-            string soundId = "";
-            try { soundId = (string)HarmonyLib.Traverse.Create(__instance).Field("explodeSound").GetValue(); }
-            catch (System.Exception) { /* optional field */ }
+            // Public field — prefer direct read; resolve mushroom fallbacks if empty.
+            string soundId = __instance.explodeSound ?? "";
+            soundId = Sync.WorldPhysicsSyncService.ResolveExplosionSoundId(
+                soundId, __instance.name, __instance) ?? "";
 
             Vector3 pos = __instance.transform.position;
             // Local activation already ran spawnObjects — debounce host ExplosionSpawnObject
@@ -315,7 +316,9 @@ namespace DWMPHorde.Patches
                 SoundId = soundId
             });
 
-            ModRuntime.LegacyInfo("[ExplosionSync] sent explosion at " + pos + " name=" + __instance.name + " flaming=" + flaming);
+            ModRuntime.LegacyInfo("[ExplosionSync] sent explosion at " + pos
+                + " name=" + __instance.name + " sound=" + soundId + " prefab=" + prefabName
+                + " flaming=" + flaming);
         }
     }
 

@@ -246,6 +246,62 @@ public class AuditStructureTests
     }
 
     [Fact]
+    public void Join_WorldRequest_ClientPull_Present()
+    {
+        var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
+        Assert.Contains("WorldRequest = 114", netTypes);
+
+        var msgs = ReadMod("Networking", "Messages", "WorldSaveShareMessages.cs");
+        Assert.Contains("WorldRequestMessage", msgs);
+
+        var handlers = ReadMod("Networking", "LanNetworkManager.Handlers.cs");
+        Assert.Contains("HandleWorldRequest", handlers);
+        Assert.Contains("RequestHostWorld", handlers);
+        Assert.Contains("ScheduleHostShareToPlayer", handlers);
+
+        var ui = ReadMod("UI", "MainMenuMultiplayerInject.cs");
+        Assert.Contains("RequestHostWorld", ui);
+        Assert.Contains("title-wait-10s", ui);
+        Assert.Contains("REQUESTING WORLD", ui);
+
+        var share = ReadMod("Networking", "WorldSaveShareService.cs");
+        Assert.Contains("IsClientReceivingOrApplying", share);
+        // J16: path fix + native Continue + host mute loading peers
+        Assert.Contains("updateFilePaths", share);
+        Assert.Contains("initLoadGame", share);
+        // J17: share → offline load → reconnect (not load while connected)
+        Assert.Contains("CaptureForResume", share);
+        Assert.Contains("StopNetwork", share);
+        Assert.Contains("Join pipeline phase 2", share);
+
+        var lan = ReadMod("Networking", "LanNetworkManager.cs");
+        Assert.Contains("MarkPeerLoadingWorld", lan);
+        Assert.Contains("skipLoadingPeers", lan);
+        Assert.Contains("_peersLoadingWorld", lan);
+        Assert.Contains("ClientReportsAlreadyInWorld", lan);
+        Assert.Contains("AlreadyInWorld", lan);
+
+        var handshake = ReadMod("Networking", "Messages", "PlayerMessages.cs");
+        Assert.Contains("AlreadyInWorld", handshake);
+
+        Assert.Contains("Join pipeline phase 3", handlers);
+        Assert.Contains("AlreadyInWorld", handlers);
+        Assert.Contains("_peersCoopReconnect", handlers);
+
+        var resume = ReadMod("Sync", "ChapterSessionResume.cs");
+        Assert.Contains("IsLocalPlayableForCoopReconnect", resume);
+        Assert.Contains("waiting for offline load", resume);
+        Assert.Contains("loadingGame", resume);
+
+        // Residuals: dual-box path + H6 deny
+        Assert.Contains("SaveRootOverride", ReadMod("Config", "ModConfig.cs"));
+        Assert.Contains("get_persistentDataPath", ReadMod("Patches", "PersistentDataPathPatch.cs"));
+        Assert.Contains("ContainerTakeDenied", ReadMod("Networking", "Messages", "NetMessageType.cs"));
+        Assert.Contains("DenyContainerTake", handlers);
+        Assert.Contains("Client blocked new worldgen", ReadMod("Patches", "WorldGenSharePatch.cs"));
+    }
+
+    [Fact]
     public void DialogTree_YokyyPort_CloseFlushBulkAndCodec()
     {
         var close = ReadMod("Patches", "DialogTreeSyncPatches.cs");

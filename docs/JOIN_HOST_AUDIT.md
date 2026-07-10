@@ -1,11 +1,11 @@
 # Host / Join system audit (Path B Horde)
 
-## Intended happy path
+## Intended happy path (strict order)
 
-1. **Host:** MULTIPLAYER → HOST GAME → pick profile / new game → **enter chapter** (Player exists).
-2. **Client:** MULTIPLAYER → JOIN (IP/port/password match) → stay on title.
-3. Host detects handshake + in-world → **auto world share** (save files) → client.
-4. Client writes files to **profile slot 5** → `LoadScene(chapterN)` → co-op.
+1. **Host:** MULTIPLAYER → HOST GAME → enter chapter (Player exists). Stays in-world.
+2. **Phase 1 — share:** Client JOIN → transfer handshake → host **WorldSaveShare** → client writes **slot 5**.
+3. **Phase 2 — enter world:** Client **disconnects transfer link**, loads host world offline (`initLoadGame` / `LoadScene`). Host stays playable.
+4. **Phase 3 — co-op connection:** `ChapterSessionResume` reconnects; handshake `AlreadyInWorld=true` → host **skips re-share**, queues late-join bulk after first PlayerState.
 
 ## Bugs found (root causes)
 
@@ -26,21 +26,39 @@
 | J13 | P0 | Client LoadScene + host force-Save + late-join `FindObjectsOfType` + 500× proxy spawn spam → dual freeze, “event” hitch, stuck loading | Skip force Save if sav fresh; bulk only on first client PlayerState; gate proxy spawn during load; no afterNight clear from half-loaded packets |
 | J14 | P0 | Path B **auto share on join** force-`Save()` (`Save static`) + `removeAfterNightEffect` + scenario bulk + immediate heavy bulk ≠ Horde base (no auto-share). Host “unique event” + freeze | Late-join share = **disk files only, no Save**; no afterNight clear; no scenario bulk on join; 8s settle before light bulk; client mute net send until `coreStarted` |
 
-## Still fragile (not fully fixed)
+## Residual status (2026-07-10)
 
-- **Same-PC dual box** always shares one LocalLow tree — slot 5 mitigates overwrite; long-term need separate Windows users or save-root override.
-- **Password/IP mismatch** still fails at LiteNetLib AcceptIfKey — check SETTINGS both sides.
-- **Firewall** blocking UDP 7788.
-- **Protocol version** must match both DLLs.
+| Issue | Status |
+|-------|--------|
+| Dual-box AppData | **Fixed** — SecondDarkwood auto → `Darkwood_Second`; optional `Saves.SaveRootOverride` |
+| Container H6 dual-loot | **Fixed** — host validate + `ContainerTakeDenied` refund (msg 115) |
+| Landmark dual-gen | **Mitigated** — client cannot finish new worldgen while connected; full placement seed lock still L |
+| Credits ends co-op | **By design** — epilogue; no CaptureForResume |
+| Host migration / SyncCheck | **Deferred** (feature, not a one-patch residual) |
+| Password/IP/firewall | Config/ops |
+
+## Client pull (Yokyy RequestWorld equivalent) — shipped
+
+| ID | Status | Behavior |
+|----|--------|----------|
+| J15 | **Fixed** | Client on title after handshake with no download: auto `WorldRequest` (msg **114**) at **10s** and **25s**; JOIN while CONNECTED also sends request (12s rate limit). Host → `ScheduleHostShareToPlayer` if in-world; else log (no force Save). |
+| J16 | **Fixed** | Client apply wrote prof5 then `LoadScene` **without** `SaveManager.updateFilePaths()` → load used wrong paths → `getGOsFromID` NRE in `SaveManager.Load`; client wedged mid-load while still connected. Host kept blasting PlayerState/physics/entity to a peer that stopped PollEvents → dual-box host freeze until client killed. Fix: `updateFilePaths` + prefer `UI.initLoadGame`; host mutes gameplay flood to `_peersLoadingWorld` until first PlayerState. |
+| J17 | **Fixed** | Strict order: **share → offline enter world → co-op reconnect**. After share, client `CaptureForResume` + `StopNetwork` then load; reconnect handshake `AlreadyInWorld` → host skips re-share, only late-join bulk. |
+| J18 | **Fixed** | Phase-3 joined **before** save finished: `sceneLoaded` + 1.25s raced `SaveManager.Load` (reconnect then "Load game ver"). Proxy spawned at **local feet** (body stack). 8s bulk settle on already-playable reconnect. Fix: wait until playable Player; park proxy far below until first PlayerState; 1.5s settle for phase-3; skip mid-night death on expected transfer detach. |
 
 ## Verify in logs (Support preset)
 
 Host:
-- `Handshake OK from Player 2`
-- `scheduling auto world share` / `Auto world share → player 2 starting now`
-- `Sharing world → player 2` / `World save share complete`
+- `Join pipeline phase 1: client 2 handshaked on title — scheduling world share`
+- `World save share complete`
+- `Player 2 disconnected` (expected — client offline load)
+- later: `Join pipeline phase 3: peer N already in world — skip world share`
+- `gameplay-ready (first PlayerState)` / late-join bulk
 
 Client:
-- `Handshake OK — assigned PlayerId=2`
-- `Receiving host world for profile slot 5`
-- `Loading chapterN with host world on profile slot 5`
+- `Join pipeline phase 1: transfer link up`
+- `Receiving host world for profile slot 5` / wrote files
+- `Join pipeline phase 2: … disconnect transfer link` / `initLoadGame` or LoadScene offline
+- `[ChapterResume] waiting for offline load…` then `client playable after Ns — phase 3`
+- `co-op reconnect (AlreadyInWorld)` / Handshake OK phase 3
+- Host: bulk settle **1.5s** (`phase3 reconnect`), not 8s

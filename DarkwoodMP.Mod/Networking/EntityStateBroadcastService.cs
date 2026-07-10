@@ -159,10 +159,15 @@ namespace DWMPHorde.Networking
                 _buffer[i].Serialize(writer);
 
             byte[] data = writer.CopyData();
+            var net = LanNetworkManager.Instance;
             foreach (var kvp in _peers)
             {
-                if (kvp.Value.ConnectionState == ConnectionState.Connected)
-                    kvp.Value.Send(data, DeliveryMethod.Unreliable);
+                if (kvp.Value.ConnectionState != ConnectionState.Connected)
+                    continue;
+                // Skip joiners mid world LoadScene — dual-box host freeze when they stop PollEvents.
+                if (net != null && !net.IsPeerReadyForGameplay(kvp.Key))
+                    continue;
+                kvp.Value.Send(data, DeliveryMethod.Unreliable);
             }
 
             _sendCount++;

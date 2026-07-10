@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Reflection;
 using DWMPHorde;
 using DWMPHorde.Logging;
+using DWMPHorde.Sync;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -49,6 +50,8 @@ namespace DWMPHorde.Networking
         private int _chunksExpected;
 
         public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying;
+        /// <summary>Client is mid download or apply of host world package.</summary>
+        public bool IsClientReceivingOrApplying => _clientReceiving || _clientApplying;
         public string ProgressText { get; private set; } = string.Empty;
 
         public WorldSaveShareService(LanNetworkManager net)
@@ -143,6 +146,11 @@ namespace DWMPHorde.Networking
 
             _afterHostShare = afterShare;
             _shareTargetPlayerId = targetPlayerId;
+            // Mute high-rate gameplay flood to joiners until they send first PlayerState.
+            if (targetPlayerId > 0)
+                _net.MarkPeerLoadingWorld(targetPlayerId);
+            else
+                _net.MarkAllClientPeersLoadingWorld();
             _net.StartCoroutine(HostShareCoroutine(waitForGameSave));
         }
 
@@ -706,6 +714,21 @@ namespace DWMPHorde.Networking
             MergeProfileIntoMemoryOnly(target);
             Core.currentProfile = target;
 
+            // CRITICAL: SaveManager still has paths for whatever profile was last active
+            // (often empty on title). Without updateFilePaths(), Load/initLoadGame reads the
+            // wrong profN → getGOsFromID NRE mid SaveManager.Load and a wedged client that
+            // freezes the dual-box host until killed.
+            try
+            {
+                SaveManager sm = Singleton<SaveManager>.Instance;
+                if (sm != null)
+                    sm.updateFilePaths();
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Save, "updateFilePaths after world apply failed", ex);
+            }
+
             Sync.WorldPhysicsSyncService.Reset();
             Sync.DreamSyncManager.OnDisconnected();
             Sync.MultiplayerMapManager.Reset();
@@ -714,6 +737,58 @@ namespace DWMPHorde.Networking
 
             int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
 
+            ProgressText = "World ready — loading offline…";
+            _net.StatusText = ProgressText;
+            _chunkBuffers = null;
+
+            // Join pipeline (strict order):
+            //   1) world share (done) → 2) enter shared world offline → 3) co-op reconnect
+            // Stop the transfer link BEFORE LoadScene so the dual-box host is not frozen
+            // by a peer that stops PollEvents mid-load. ChapterSessionResume reconnects
+            // after chapterN is up (handshake AlreadyInWorld → host skips re-share).
+            try
+            {
+                ChapterSessionResume.EnsureSceneHook();
+                if (_net != null && _net.IsConnected)
+                {
+                    ChapterSessionResume.CaptureForResume(_net);
+                    ModLog.Event(LogCat.Session,
+                        "Join pipeline phase 2: world on disk (slot " + profileId
+                        + ") — disconnect transfer link, load offline, then phase-3 reconnect");
+                    // StopNetwork resets WorldSaveShare; coroutine locals already hold load state.
+                    _net.StopNetwork();
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Save, "Join pipeline disconnect-before-load failed", ex);
+            }
+
+            _clientApplying = false;
+            yield return null;
+
+            // Prefer vanilla Continue path (Yokyy): UI.initLoadGame with currentProfile set.
+            // Still on title menu — do not close MainMenu first.
+            UI ui = Singleton<UI>.Instance;
+            if (ui != null && Core.mainMenu)
+            {
+                try
+                {
+                    MainMenu menu = Singleton<MainMenu>.Instance;
+                    if (menu != null)
+                        menu.creatingProfile = false;
+                }
+                catch { /* ignore */ }
+
+                ModLog.Event(LogCat.Save,
+                    "Join pipeline phase 2: native initLoadGame → slot " + profileId
+                    + " ch" + chapterId + " (offline; profs.dat not rewritten)");
+                ProgressText = "Loading host world (offline)…";
+                yield return ui.StartCoroutine(ui.initLoadGame());
+                yield break;
+            }
+
+            // Fallback: direct chapter scene load (same flags as ManualSaveGUI continue).
             Core.coreStarted = false;
             Core.mainMenu = false;
             Core.loadingGame = true;
@@ -723,17 +798,11 @@ namespace DWMPHorde.Networking
             if (Singleton<MainMenu>.Instance != null)
                 Singleton<MainMenu>.Instance.close();
 
-            ProgressText = "Loading host world (profile " + profileId + ")…";
-            _net.StatusText = ProgressText;
             ModLog.Event(LogCat.Save,
-                "Loading chapter" + chapterId + " with host world on profile slot " + profileId
-                + " (profs.dat not rewritten — dual-box host-safe)");
+                "Join pipeline phase 2: LoadScene chapter" + chapterId
+                + " slot " + profileId + " (offline fallback)");
 
-            _chunkBuffers = null;
-            _clientApplying = false;
-
-            // Let host finish share + breathe before chapter load hammer
-            yield return null;
+            ProgressText = "Loading host world (offline)…";
             yield return null;
             yield return null;
             SceneManager.LoadScene("chapter" + chapterId);

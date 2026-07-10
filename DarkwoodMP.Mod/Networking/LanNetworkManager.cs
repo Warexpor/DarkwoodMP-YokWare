@@ -87,7 +87,24 @@ namespace DWMPHorde.Networking
         /// (0 = share done, not seen in-world yet). Bulk after ClientBulkSettleSeconds.
         /// </summary>
         private readonly Dictionary<int, float> _awaitingLateJoinBulk = new Dictionary<int, float>();
+        /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
         private const float ClientBulkSettleSeconds = 8f;
+        /// <summary>Phase-3 reconnect: client already finished offline load — short settle only.</summary>
+        private const float CoopReconnectBulkSettleSeconds = 1.5f;
+
+        /// <summary>
+        /// Host: peers mid world-download / LoadScene. Gameplay flood (PlayerState, physics,
+        /// entity snapshots) to these peers stalls dual-box host when the client stops
+        /// PollEvents during SaveManager.Load — kill-client-to-unfreeze symptom.
+        /// Cleared on first in-world PlayerState or disconnect.
+        /// </summary>
+        private readonly HashSet<int> _peersLoadingWorld = new HashSet<int>();
+
+        /// <summary>
+        /// Host: peers that reconnected with AlreadyInWorld (join pipeline phase 3).
+        /// Shorter late-join bulk settle; disconnect during load mute is not a "mid-night" leave.
+        /// </summary>
+        private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
 
         // Trader absolute stock arrived before NPC GameObject existed
         private readonly Dictionary<string, TradeInventorySyncMessage> _pendingTradeInventories =
@@ -204,6 +221,11 @@ namespace DWMPHorde.Networking
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
         internal static bool _isRemoteSaveInProgress;
+
+        /// <summary>
+        /// Host: set in HandleContainerItem when take/place loses a race — skip Forwardable fan-out.
+        /// </summary>
+        internal bool _suppressForwardThisMessage;
 
         /// <summary>Debounce rapid melee hits to the same door/window (e.g. shotgun
         /// pellets) to avoid 15Ã— particle/sound spam on the host.</summary>
@@ -590,7 +612,8 @@ namespace DWMPHorde.Networking
                     && Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap))
                 {
                     if (_role == NetworkRole.Host)
-                        Broadcast(NetMessageType.PhysicsState, w => snap.Serialize(w));
+                        Broadcast(NetMessageType.PhysicsState, w => snap.Serialize(w),
+                            skipLoadingPeers: true);
                     else
                         Send(NetMessageType.PhysicsState, w => snap.Serialize(w));
                 }
@@ -663,7 +686,9 @@ namespace DWMPHorde.Networking
 
             PackContinuousLights(ref msg, local);
 
-            Broadcast(NetMessageType.PlayerState, w => msg.Serialize(w));
+            // Host: skip joiners still in world download / LoadScene (dual-box freeze).
+            Broadcast(NetMessageType.PlayerState, w => msg.Serialize(w),
+                skipLoadingPeers: _role == NetworkRole.Host);
 
             // Detect OutsideLocation (basement/bunker) transitions
             if (Singleton<OutsideLocations>.Instance != null)
@@ -910,24 +935,36 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Send a message to all connected peers.</summary>
+        /// <param name="skipLoadingPeers">
+        /// When true, skip peers in <see cref="_peersLoadingWorld"/> (title join / LoadScene).
+        /// World share must pass false (default) so targeted broadcast resends still land.
+        /// </param>
         public void SendToAll(NetMessageType type, Action<NetWriter> writeBody,
-            DeliveryMethod method = DeliveryMethod.Unreliable)
+            DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (_peers.Count == 0) return;
-            byte[] data = BuildPacket(type, writeBody);
+            byte[] data = null;
             foreach (var kvp in _peers)
+            {
+                if (skipLoadingPeers && _peersLoadingWorld.Contains(kvp.Key))
+                    continue;
+                if (data == null)
+                    data = BuildPacket(type, writeBody);
                 kvp.Value.Send(data, method);
+            }
         }
 
         /// <summary>Send a message to all peers except one.</summary>
         public void SendToAllExcept(int excludePlayerId, NetMessageType type, Action<NetWriter> writeBody,
-            DeliveryMethod method = DeliveryMethod.Unreliable)
+            DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (_peers.Count == 0) return;
             byte[] data = null;
             foreach (var kvp in _peers)
             {
                 if (kvp.Key == excludePlayerId) continue;
+                if (skipLoadingPeers && _peersLoadingWorld.Contains(kvp.Key))
+                    continue;
                 if (data == null)
                     data = BuildPacket(type, writeBody);
                 kvp.Value.Send(data, method);
@@ -939,13 +976,75 @@ namespace DWMPHorde.Networking
         /// Use this in sender methods that can be called from both host and client roles.
         /// Host to clients: broadcast to all. Client to host: first peer only.
         /// </summary>
+        /// <param name="skipLoadingPeers">Host only: skip joiners still loading the world package.</param>
         public void Broadcast(NetMessageType type, Action<NetWriter> writeBody,
-            DeliveryMethod method = DeliveryMethod.Unreliable)
+            DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (_role == NetworkRole.Host)
-                SendToAll(type, writeBody, method);
+                SendToAll(type, writeBody, method, skipLoadingPeers);
             else
                 Send(type, writeBody, method);
+        }
+
+        /// <summary>Host: joiner is downloading / applying / LoadScene — do not flood them.</summary>
+        public void MarkPeerLoadingWorld(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 1)
+                return;
+            if (_peersLoadingWorld.Add(playerId))
+                ModLog.Event(LogCat.Session, "Peer " + playerId + " marked loading-world (gameplay flood muted)");
+        }
+
+        /// <summary>Host: mark every non-host peer as loading (broadcast world resend).</summary>
+        public void MarkAllClientPeersLoadingWorld()
+        {
+            if (_role != NetworkRole.Host)
+                return;
+            foreach (int id in _peers.Keys)
+            {
+                if (id > 1)
+                    MarkPeerLoadingWorld(id);
+            }
+        }
+
+        /// <summary>Host: joiner sent first in-world PlayerState — safe for gameplay traffic.</summary>
+        public void MarkPeerGameplayReady(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 1)
+                return;
+            if (_peersLoadingWorld.Remove(playerId))
+                ModLog.Event(LogCat.Session, "Peer " + playerId + " gameplay-ready (first PlayerState)");
+        }
+
+        /// <summary>Host: true if peer should receive high-rate gameplay packets.</summary>
+        public bool IsPeerReadyForGameplay(int playerId)
+        {
+            return playerId > 0 && !_peersLoadingWorld.Contains(playerId);
+        }
+
+        /// <summary>
+        /// Client handshake flag: we already materialised + entered the host world offline.
+        /// Prefer playable Player; also true mid-load if reconnect raced (legacy path).
+        /// Host uses this to skip a second WorldSaveShare.
+        /// </summary>
+        internal static bool ClientReportsAlreadyInWorld()
+        {
+            try
+            {
+                // Preferred: fully playable after offline load.
+                if (Sync.ChapterSessionResume.IsLocalPlayableForCoopReconnect())
+                    return true;
+                // Mid LoadScene / SaveManager.Load (should be rare once resume waits for playable).
+                if (Core.loadingGame || Core.loadedGame)
+                    return true;
+                if (!Core.mainMenu && Core.currentProfile != null)
+                    return true;
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>Legacy send to first connected peer (backward compat during migration).</summary>
@@ -1054,12 +1153,24 @@ namespace DWMPHorde.Networking
                 StatusText = "Connected to host";
                 ModLog.Event(LogCat.Network, "Connected to host");
 
+                // AlreadyInWorld: phase-3 reconnect after offline load (skip re-share on host).
+                bool alreadyInWorld = ClientReportsAlreadyInWorld();
                 Broadcast(NetMessageType.Handshake, w =>
                 {
-                    new HandshakeMessage { ProtocolVersion = PluginInfo.ProtocolVersion }.Serialize(w);
+                    new HandshakeMessage
+                    {
+                        ProtocolVersion = PluginInfo.ProtocolVersion,
+                        AlreadyInWorld = alreadyInWorld,
+                    }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 
-                EnsureRemoteProxy(1);
+                if (alreadyInWorld)
+                    ModLog.Event(LogCat.Session,
+                        "Join pipeline phase 3: co-op reconnect (AlreadyInWorld) — host should skip share");
+
+                // Do NOT EnsureRemoteProxy here — CanSpawnRemoteProxies may pass while the remote
+                // has no state yet, and Spawn clones at local feet (body stack). Proxy comes from
+                // first host PlayerState once CanSpawnRemoteProxies.
                 SyncCurrentLightState();
             }
 
@@ -1174,7 +1285,16 @@ namespace DWMPHorde.Networking
                 {
                     _peers.Remove(playerId);
                     _handshakedPeers.Remove(playerId);
+                    bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
+                        && !_peersCoopReconnect.Contains(playerId)
+                        && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
+                    // Phase-2 expected leave: client disconnects after share to load offline.
+                    bool expectedJoinDetach = _peersLoadingWorld.Contains(playerId)
+                        && !_peersCoopReconnect.Contains(playerId);
+
                     _awaitingLateJoinBulk.Remove(playerId); // Dictionary.Remove
+                    _peersLoadingWorld.Remove(playerId);
+                    _peersCoopReconnect.Remove(playerId);
                     if (_handshakedPeers.Count == 0)
                         _handshakeComplete = false;
                     DestroyRemoteProxy(playerId);
@@ -1184,8 +1304,17 @@ namespace DWMPHorde.Networking
                     PlayerPositionManager.RemovePlayer(playerId);
                     _remoteOutsideLocation.Remove(playerId);
                     Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
-                    DeathStateTracker.OnRemoteDisconnected(playerId);
-                    DeathStateTracker.TryResolveNightMorning("peer disconnect");
+                    // Don't treat transfer-link teardown / pre-PlayerState leave as night death.
+                    if (!expectedJoinDetach && !wasLoadingOnly)
+                    {
+                        DeathStateTracker.OnRemoteDisconnected(playerId);
+                        DeathStateTracker.TryResolveNightMorning("peer disconnect");
+                    }
+                    else
+                    {
+                        ModLog.Event(LogCat.Session,
+                            "Peer " + playerId + " detached during join pipeline (expected — offline load or pre-ready)");
+                    }
                     StatusText = $"Player {playerId} left ({_peers.Count} remaining, ready={_handshakedPeers.Count})";
                 }
             }
@@ -1456,6 +1585,9 @@ namespace DWMPHorde.Networking
                         case NetMessageType.ContainerStateSync:
                             HandleContainerStateSync(ContainerStateSyncMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.ContainerTakeDenied:
+                            HandleContainerTakeDenied(ContainerTakeDeniedMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.ReputationSync:
                             HandleReputationSync(ReputationSyncMessage.Deserialize(new NetReader(payload)));
                             break;
@@ -1527,6 +1659,9 @@ namespace DWMPHorde.Networking
                         case NetMessageType.WorldSaveEnd:
                             _worldSaveShare?.HandleEnd(WorldSaveEndMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.WorldRequest:
+                            HandleWorldRequest(WorldRequestMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.ChatMessage:
                             {
                                 var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
@@ -1562,6 +1697,12 @@ namespace DWMPHorde.Networking
             }
 
             // === Forward client messages to other clients (3+ support) ===
+            if (_suppressForwardThisMessage)
+            {
+                _suppressForwardThisMessage = false;
+                return;
+            }
+
             if (!_isForwardedMessage && _role == NetworkRole.Host && _currentReceivePlayerId > 0)
             {
                 if (_forwardableMap.TryGetValue(type, out var fwdKind))

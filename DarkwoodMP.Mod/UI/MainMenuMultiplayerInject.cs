@@ -29,6 +29,8 @@ namespace DWMPHorde
         private static float _joinStartedAt;
         private static float _handshakeAt;
         private static bool _loggedWaitingWorld;
+        private static bool _worldRequest10sSent;
+        private static bool _worldRequest25sSent;
         private static int _lastPoll;
 
         public static void OnUpdate()
@@ -342,6 +344,26 @@ namespace DWMPHorde
             var net = ModRuntime.Network;
             if (net == null || _joinPending)
                 return;
+
+            // Already connected on title and still waiting for share — explicit pull
+            // (Yokyy RequestWorld UX: press JOIN again).
+            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
+            {
+                var lan = net as LanNetworkManager;
+                if (lan != null && lan.RequestHostWorld("join-button"))
+                {
+                    SetLabel(_joinButton, "REQUESTING WORLD…");
+                    ModLog.Event(LogCat.Session, "JOIN while connected — WorldRequest sent to host.");
+                }
+                else
+                {
+                    SetLabel(_joinButton, "WAITING…");
+                    ModLog.Event(LogCat.Session,
+                        "JOIN while connected — request rate-limited or share already in progress.");
+                }
+                return;
+            }
+
             if (net.Role != NetworkRole.Offline)
             {
                 ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
@@ -360,6 +382,10 @@ namespace DWMPHorde
             net.ConnectToHost(ip, port);
             _joinPending = true;
             _joinStartedAt = Time.realtimeSinceStartup;
+            _handshakeAt = 0f;
+            _loggedWaitingWorld = false;
+            _worldRequest10sSent = false;
+            _worldRequest25sSent = false;
             SetLabel(_joinButton, "CONNECTING...");
             ModLog.Event(LogCat.Session, "Connecting to " + ip + ":" + port + " …");
         }
@@ -420,6 +446,8 @@ namespace DWMPHorde
                 {
                     _handshakeAt = Time.realtimeSinceStartup;
                     _loggedWaitingWorld = false;
+                    _worldRequest10sSent = false;
+                    _worldRequest25sSent = false;
                     ModLog.Event(LogCat.Session,
                         "Connected to host — waiting for world share / auto-load…");
                 }
@@ -454,7 +482,7 @@ namespace DWMPHorde
 
         private static void PollPostHandshakeWorldWait()
         {
-            var net = ModRuntime.Network;
+            var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role != NetworkRole.Client || !net.IsHandshakeComplete)
                 return;
             if (!Core.mainMenu)
@@ -462,23 +490,49 @@ namespace DWMPHorde
 
             UpdateJoinLabelFromShare(net);
 
-            if (!_loggedWaitingWorld && _handshakeAt > 0f
-                && Time.realtimeSinceStartup - _handshakeAt > 8f)
+            if (_handshakeAt <= 0f)
+                return;
+
+            float waited = Time.realtimeSinceStartup - _handshakeAt;
+            bool receiving = IsShareProgressActive(net);
+
+            if (!_loggedWaitingWorld && waited > 8f && !receiving)
             {
-                string prog = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : "";
-                bool receiving = !string.IsNullOrEmpty(prog)
-                    && (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
-                        || prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
-                        || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
-                        || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0);
-                if (!receiving)
-                {
-                    _loggedWaitingWorld = true;
-                    ModLog.Warn(LogCat.Session,
-                        "Still on title 8s after handshake with no world download. "
-                        + "Host must be IN the chapter (not title). Host F2 → Resend world, or rejoin after host loads.");
-                }
+                _loggedWaitingWorld = true;
+                ModLog.Warn(LogCat.Session,
+                    "Still on title 8s after handshake with no world download. "
+                    + "Host must be IN the chapter (not title). Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
             }
+
+            // Yokyy RequestWorld equivalent: pull if host push was missed.
+            if (!receiving && waited >= 10f && !_worldRequest10sSent)
+            {
+                _worldRequest10sSent = true;
+                if (net.RequestHostWorld("title-wait-10s"))
+                    SetLabel(_joinButton, "REQUESTING WORLD…");
+            }
+            else if (!receiving && waited >= 25f && !_worldRequest25sSent)
+            {
+                _worldRequest25sSent = true;
+                if (net.RequestHostWorld("title-wait-25s"))
+                    SetLabel(_joinButton, "REQUESTING WORLD…");
+            }
+        }
+
+        private static bool IsShareProgressActive(LanNetworkManager net)
+        {
+            if (net?.WorldSaveShare == null)
+                return false;
+            if (net.WorldSaveShare.IsClientReceivingOrApplying)
+                return true;
+            string prog = net.WorldSaveShare.ProgressText ?? "";
+            if (string.IsNullOrEmpty(prog))
+                return false;
+            return prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static void UpdateJoinLabelFromShare(LanNetworkManager net)
@@ -488,14 +542,17 @@ namespace DWMPHorde
             string prog = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : null;
             if (!string.IsNullOrEmpty(prog))
             {
-                if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
+                if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetLabel(_joinButton, "SHARE FAIL");
+                else if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "DOWNLOADING…");
                 else if (prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
                          || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "LOADING…");
-                else if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "SHARE FAIL");
+                else if (prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetLabel(_joinButton, "REQUESTING WORLD…");
                 else
                     SetLabel(_joinButton, "CONNECTED");
             }

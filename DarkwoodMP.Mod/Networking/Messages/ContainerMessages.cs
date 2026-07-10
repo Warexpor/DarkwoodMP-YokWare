@@ -61,6 +61,36 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>
+    /// Host→client (H6): take/remove lost the race — slot empty or type mismatch.
+    /// Client should remove the optimistic loot from player inventory.
+    /// </summary>
+    public struct ContainerTakeDeniedMessage
+    {
+        public float PosX, PosY, PosZ;
+        public byte SlotIndex;
+        public string ItemType;
+        public int Amount;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(SlotIndex);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+        }
+
+        public static ContainerTakeDeniedMessage Deserialize(NetReader r) => new ContainerTakeDeniedMessage
+        {
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            SlotIndex = r.GetByte(),
+            ItemType = r.GetString(),
+            Amount = r.GetInt()
+        };
+    }
+
     public struct SlotStateEntry
     {
         public byte SlotIndex;

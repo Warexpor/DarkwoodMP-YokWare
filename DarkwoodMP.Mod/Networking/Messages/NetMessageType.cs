@@ -218,7 +218,17 @@ namespace DWMPHorde.Networking
         /// Optional for older peers; protocol version stays 19.
         /// </summary>
         DialogTreeState = 113,
+        /// <summary>
+        /// Client→host: pull world save share (Yokyy RequestWorld equivalent).
+        /// Optional for older peers; protocol version stays 19.
+        /// </summary>
+        WorldRequest = 114,
+        /// <summary>
+        /// Host→client: simultaneous loot rejected (slot empty / type mismatch). Client refunds.
+        /// Optional for older peers; protocol version stays 19.
+        /// </summary>
+        ContainerTakeDenied = 115,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 113
+        _Highest = 115
     }
 }

@@ -67,10 +67,12 @@ namespace DWMPHorde.Players
                 return false;
             }
 
+            // Far below world until first PlayerState — Vector3.zero offset parks the clone
+            // on the local player's feet (body-stack on phase-3 join).
             GameObject clone = PlayerProxyBuilder.CreatePlayerClone(
                 source,
                 "RemotePlayer",
-                Vector3.zero,
+                new Vector3(0f, -2000f, 0f),
                 PlayerCloneKind.Remote,
                 log);
             if (clone == null)

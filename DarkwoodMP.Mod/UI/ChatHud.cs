@@ -2,22 +2,31 @@ using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using LiteNetLib;
 using UnityEngine;
 
 namespace DWMPHorde
 {
     /// <summary>
-    /// Yokyy product (ported to Horde wire): in-game chat overlay.
-    /// LeftCtrl+C opens input; Enter sends; Esc closes.
+    /// Yokyy-style in-game chat. Ctrl+C opens; Enter/KeypadEnter sends; Esc closes.
+    /// Send/close must work from both Update (raw input) and OnGUI (IMGUI events) —
+    /// IMGUI alone often swallows KeyDown so Enter appeared dead.
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
     {
+        private const string InputControlName = "YokWareChat";
+        private const float AntiSpamSec = 0.25f;
+
         private static ChatHud _instance;
         private readonly List<string> _lines = new List<string>(32);
         private bool _inputOpen;
         private string _draft = "";
         private float _lastLocalSend;
+        private bool _focusPending;
+        private int _lastSendFrame = -1;
+
+        public static bool IsInputOpen => _instance != null && _instance._inputOpen;
 
         public static void EnsureExists()
         {
@@ -44,17 +53,35 @@ namespace DWMPHorde
 
         private void Update()
         {
-            // LeftCtrl+C — same idea as Yokyy chat hotkey
-            if (Input.GetKey(KeyCode.LeftControl) && Input.GetKeyDown(KeyCode.C))
+            // Open/close toggle — either Ctrl works (Yokyy was Left only).
+            if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                && Input.GetKeyDown(KeyCode.C))
             {
-                _inputOpen = !_inputOpen;
-                if (_inputOpen) _draft = "";
+                ToggleInput(!_inputOpen);
             }
 
-            if (_inputOpen && Input.GetKeyDown(KeyCode.Escape))
+            // Raw input fallback: IMGUI Event.current KeyDown is unreliable while TextField focused.
+            if (!_inputOpen)
+                return;
+
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                TrySend();
+            else if (Input.GetKeyDown(KeyCode.Escape))
+                ToggleInput(false);
+        }
+
+        private void ToggleInput(bool open)
+        {
+            _inputOpen = open;
+            if (open)
             {
-                _inputOpen = false;
                 _draft = "";
+                _focusPending = true;
+            }
+            else
+            {
+                _draft = "";
+                _focusPending = false;
             }
         }
 
@@ -63,7 +90,6 @@ namespace DWMPHorde
             var net = ModRuntime.Network;
             bool session = net != null && net.Role != NetworkRole.Offline;
 
-            // Status strip (Yokyy HUD product, slim)
             if (session)
             {
                 string role = net.Role == NetworkRole.Host ? "HOST" : "CLIENT";
@@ -73,7 +99,6 @@ namespace DWMPHorde
                 GUI.Label(new Rect(8f, 4f, Screen.width - 16f, 22f), line);
             }
 
-            // Recent chat lines
             if (_lines.Count > 0)
             {
                 float y = session ? 28f : 8f;
@@ -84,31 +109,66 @@ namespace DWMPHorde
                 }
             }
 
-            if (!_inputOpen) return;
+            if (!_inputOpen)
+                return;
+
+            // IMGUI path (same keys as Update) — consume events so game doesn't eat them.
+            HandleGuiKeys();
 
             float w = Mathf.Min(520f, Screen.width - 40f);
-            float h = 54f;
+            float h = 64f;
             Rect box = new Rect(20f, Screen.height - h - 40f, w, h);
-            GUI.Box(box, "Chat (Enter send · Esc cancel)");
-            GUI.SetNextControlName("YokWareChat");
-            _draft = GUI.TextField(new Rect(box.x + 8f, box.y + 24f, box.width - 16f, 22f), _draft ?? "", 200);
-            GUI.FocusControl("YokWareChat");
+            GUI.Box(box, "Chat  —  ENTER send   ESC close");
+            GUI.SetNextControlName(InputControlName);
+            _draft = GUI.TextField(
+                new Rect(box.x + 8f, box.y + 28f, box.width - 88f, 24f),
+                _draft ?? "",
+                200);
 
-            var e = Event.current;
-            if (e != null && e.type == EventType.KeyDown && e.keyCode == KeyCode.Return)
+            if (GUI.Button(new Rect(box.x + box.width - 72f, box.y + 28f, 60f, 24f), "SEND"))
+                TrySend();
+
+            if (_focusPending)
+            {
+                GUI.FocusControl(InputControlName);
+                if (Event.current != null && Event.current.type == EventType.Repaint)
+                    _focusPending = false;
+            }
+        }
+
+        private void HandleGuiKeys()
+        {
+            Event e = Event.current;
+            if (e == null || e.type != EventType.KeyDown)
+                return;
+
+            if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
             {
                 TrySend();
+                e.Use();
+            }
+            else if (e.keyCode == KeyCode.Escape)
+            {
+                ToggleInput(false);
                 e.Use();
             }
         }
 
         private void TrySend()
         {
+            // Update + OnGUI can both fire the same keypress.
+            if (_lastSendFrame == Time.frameCount)
+                return;
+            _lastSendFrame = Time.frameCount;
+
             string msg = (_draft ?? "").Trim();
             _draft = "";
-            _inputOpen = false;
-            if (string.IsNullOrEmpty(msg)) return;
-            if (Time.unscaledTime - _lastLocalSend < 0.25f) return; // anti-spam (Yokyy had none)
+            ToggleInput(false);
+
+            if (string.IsNullOrEmpty(msg))
+                return;
+            if (Time.unscaledTime - _lastLocalSend < AntiSpamSec)
+                return;
             _lastLocalSend = Time.unscaledTime;
 
             var net = ModRuntime.Network as LanNetworkManager;
@@ -118,11 +178,12 @@ namespace DWMPHorde
                 return;
             }
 
-            // Length clamp — Yokyy allowed huge strings
-            if (msg.Length > 160) msg = msg.Substring(0, 160);
+            if (msg.Length > 160)
+                msg = msg.Substring(0, 160);
 
             string name = ModConfig.PlayerName != null ? ModConfig.PlayerName.Value : "Player";
-            if (string.IsNullOrWhiteSpace(name)) name = "Player";
+            if (string.IsNullOrWhiteSpace(name))
+                name = "Player";
 
             var payload = new ChatMessagePayload
             {
@@ -134,6 +195,7 @@ namespace DWMPHorde
             AddLine(payload.SenderName + ": " + payload.Message);
             TrySpeechBubble(payload.SenderId, payload.Message);
 
+            // Reliable + Forwardable: host fans out to other clients.
             net.Broadcast(NetMessageType.ChatMessage, w => payload.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModLog.Event(LogCat.UI, "[CHAT] " + payload.SenderName + ": " + payload.Message);
         }
@@ -149,19 +211,24 @@ namespace DWMPHorde
         {
             try
             {
-                // Local player
                 var net = ModRuntime.Network;
                 if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
                 {
                     Player.Instance.displayMessage(message);
                     return;
                 }
-                // Remote proxy (if registry exposes it)
-                // Best-effort: Core.displayMessage at player if available
+
+                // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
+                if (net is LanNetworkManager lnm)
+                {
+                    RemotePlayerProxy proxy = lnm.GetProxy(senderId);
+                    if (proxy != null && proxy.transform != null)
+                        Core.displayMessage(message, proxy.transform, 1f, false);
+                }
             }
             catch
             {
-                // never break chat on bubble failure (Yokyy design)
+                // never break chat on bubble failure
             }
         }
     }

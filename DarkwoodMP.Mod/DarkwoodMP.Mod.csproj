@@ -3,8 +3,16 @@
   <!-- Machine-specific game location (not committed). -->
   <Import Project="GamePath.local.props" Condition="Exists('GamePath.local.props')" />
 
+  <!-- Loader: BepInEx (default ship) | MelonLoader
+       dotnet build -c Release
+       dotnet build -c Release -p:Loader=MelonLoader -->
   <PropertyGroup>
+    <Loader Condition="'$(Loader)' == ''">BepInEx</Loader>
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(GameDir)\MelonLoader\net35\MelonLoader.dll')">$(GameDir)\MelonLoader\net35</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(MSBuildThisFileDirectory)..\libs\MelonLoader\MelonLoader.dll')">$(MSBuildThisFileDirectory)..\libs\MelonLoader</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == ''">$(MSBuildThisFileDirectory)..\libs\MelonLoader</MelonLoaderDir>
+
     <TargetFramework>net471</TargetFramework>
     <AssemblyName>DarkwoodMP.Mod</AssemblyName>
     <RootNamespace>DWMPHorde</RootNamespace>
@@ -18,26 +26,32 @@
     <Version>0.9.2</Version>
     <InformationalVersion>0.9.2-path-b-audit</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+    <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Loader)' == 'BepInEx'">
+    <DefineConstants>$(DefineConstants);BEPINEX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <Optimize>true</Optimize>
     <DebugType>portable</DebugType>
-    <OutputPath>bin\Release\</OutputPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
     <Optimize>false</Optimize>
     <DebugType>full</DebugType>
     <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
-    <OutputPath>bin\Debug\</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Game + BepInEx + LiteNetLib -->
-  <ItemGroup>
+  <!-- BepInEx: Harmony + plugin core from game install -->
+  <ItemGroup Condition="'$(Loader)' == 'BepInEx'">
     <Reference Include="0Harmony">
       <HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath>
       <Private>false</Private>
@@ -54,6 +68,26 @@
       <HintPath>$(GameDir)\BepInEx\core\HarmonyXInterop.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <!-- MelonLoader: Melon + Harmony + BepInEx types for ConfigFile/ManualLogSource only -->
+  <ItemGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderDir)\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(MelonLoaderDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Shared game + LiteNetLib -->
+  <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameDir)\Darkwood_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -132,15 +166,21 @@
     </Reference>
   </ItemGroup>
 
-  <Target Name="ValidateGameRefs" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
+  <Target Name="ValidateLoaderRefs" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(Loader)' != 'BepInEx' and '$(Loader)' != 'MelonLoader'"
+           Text="Loader must be BepInEx or MelonLoader (got '$(Loader)')." />
+    <Error Condition="'$(Loader)' == 'BepInEx' and !Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
            Text="BepInEx not found at $(GameDir). Set GameDir in GamePath.local.props." />
+    <Error Condition="'$(Loader)' == 'MelonLoader' and !Exists('$(MelonLoaderDir)\MelonLoader.dll')"
+           Text="MelonLoader.dll not found at $(MelonLoaderDir). Run scripts/fetch-melonloader-refs.ps1." />
+    <Error Condition="'$(Loader)' == 'MelonLoader' and !Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
+           Text="Melon Path B build still needs BepInEx.dll at $(GameDir)\BepInEx\core for ConfigFile/ManualLogSource (compile ref only)." />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\libs\LiteNetLib.dll')"
-           Text="LiteNetLib.dll missing under libs/. Copy from Horde parent libs or NuGet extract." />
+           Text="LiteNetLib.dll missing under libs/." />
   </Target>
 
-  <!-- Deploy to local playtest installs after build -->
-  <Target Name="DeployToGameDirs" AfterTargets="Build">
+  <!-- Deploy BepInEx build to local playtest installs -->
+  <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx'">
     <PropertyGroup>
       <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
       <SecondPlugins>C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
@@ -149,9 +189,14 @@
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
-    <!-- Remove obsolete Horde-named DLL so only product assembly loads -->
     <Delete Files="$(SteamPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SteamPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
     <Delete Files="$(SecondPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SecondPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
+  </Target>
+
+  <!-- Optional Melon Mods/ drop -->
+  <Target Name="DeployMelon" AfterTargets="Build" Condition="'$(Loader)' == 'MelonLoader' and Exists('$(GameDir)\Mods')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(GameDir)\Mods" Condition="Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
   </Target>
 
 </Project>

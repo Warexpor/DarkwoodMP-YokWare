@@ -7,8 +7,10 @@ using UnityEngine.SceneManagement;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Audit C3: after chapter LoadScene tears peers, auto rehost / reconnect
-    /// instead of permanent silent solo. Credits still end co-op permanently.
+    /// After chapter / join LoadScene tears the transfer link, auto rehost / reconnect.
+    /// Join pipeline phase 3: must wait until the local game is playable — sceneLoaded alone
+    /// fires before SaveManager.Load finishes (see Player.log: reconnect then "Load game ver").
+    /// Credits still end co-op permanently.
     /// </summary>
     public static class ChapterSessionResume
     {
@@ -31,7 +33,7 @@ namespace DWMPHorde.Sync
             _hostAddress = "127.0.0.1";
         }
 
-        /// <summary>Call before StopNetwork during chapter transition.</summary>
+        /// <summary>Call before StopNetwork during chapter transition or join offline load.</summary>
         public static void CaptureForResume(LanNetworkManager net)
         {
             if (net == null || !net.IsConnected)
@@ -74,10 +76,33 @@ namespace DWMPHorde.Sync
             if (scene.name != null
                 && scene.name.StartsWith("chapter", System.StringComparison.OrdinalIgnoreCase))
             {
-                // Delay slightly so Core/Controller exist and listen port is free.
+                // Do NOT ConnectToHost here — save load runs AFTER sceneLoaded.
                 var go = new GameObject("DWMP_ChapterResume");
                 Object.DontDestroyOnLoad(go);
-                go.AddComponent<ChapterResumeRunner>().Begin();
+                go.AddComponent<ChapterResumeRunner>().Begin(_wasHost);
+            }
+        }
+
+        /// <summary>
+        /// Client is ready for phase-3 co-op: not title, not mid SaveManager.Load, player alive.
+        /// </summary>
+        public static bool IsLocalPlayableForCoopReconnect()
+        {
+            try
+            {
+                if (Core.mainMenu)
+                    return false;
+                if (Core.loadingGame)
+                    return false;
+                Player p = Player.Instance;
+                if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)
+                    return false;
+                // coreStarted can lag a frame after Activate player; Player is enough.
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -105,8 +130,7 @@ namespace DWMPHorde.Sync
                 else
                 {
                     ModLog.Event(LogCat.Session,
-                        $"[ChapterResume] auto reconnect {_hostAddress}:{_port}");
-                    // Host needs a moment to bind after their LoadScene.
+                        $"[ChapterResume] auto reconnect {_hostAddress}:{_port} (playable={IsLocalPlayableForCoopReconnect()})");
                     net.ConnectToHost(_hostAddress, _port);
                     net.StatusText = "Chapter reconnect to " + _hostAddress + ":" + _port;
                 }
@@ -118,21 +142,84 @@ namespace DWMPHorde.Sync
         }
     }
 
+    /// <summary>
+    /// Waits until local world is playable (client) or a short bind delay (host), then resumes net.
+    /// </summary>
     internal sealed class ChapterResumeRunner : MonoBehaviour
     {
-        private float _delay = 1.25f;
-        private bool _started;
+        private const float HostMinDelaySec = 1.25f;
+        private const float ClientMinDelaySec = 0.5f;
+        private const float ClientMaxWaitSec = 180f;
+        private const float LogEverySec = 5f;
 
-        public void Begin()
+        private bool _wasHost;
+        private float _elapsed;
+        private float _nextLogAt;
+        private bool _started;
+        private bool _loggedWaiting;
+
+        public void Begin(bool wasHost)
         {
+            _wasHost = wasHost;
             _started = true;
+            _elapsed = 0f;
+            _nextLogAt = LogEverySec;
         }
 
         private void Update()
         {
             if (!_started) return;
-            _delay -= Time.unscaledDeltaTime;
-            if (_delay > 0f) return;
+            _elapsed += Time.unscaledDeltaTime;
+
+            if (_wasHost)
+            {
+                if (_elapsed < HostMinDelaySec)
+                    return;
+                Finish();
+                return;
+            }
+
+            // Client join / chapter: sceneLoaded ≠ save finished.
+            if (_elapsed < ClientMinDelaySec)
+                return;
+
+            if (ChapterSessionResume.IsLocalPlayableForCoopReconnect())
+            {
+                ModLog.Event(LogCat.Session,
+                    "[ChapterResume] client playable after " + _elapsed.ToString("F1")
+                    + "s — phase 3 co-op reconnect");
+                Finish();
+                return;
+            }
+
+            if (!_loggedWaiting)
+            {
+                _loggedWaiting = true;
+                ModLog.Event(LogCat.Session,
+                    "[ChapterResume] waiting for offline load to finish before phase 3 reconnect "
+                    + "(loadingGame=" + Core.loadingGame
+                    + " player=" + (Player.Instance != null)
+                    + " mainMenu=" + Core.mainMenu + ")");
+            }
+            else if (_elapsed >= _nextLogAt)
+            {
+                _nextLogAt = _elapsed + LogEverySec;
+                ModLog.Event(LogCat.Session,
+                    "[ChapterResume] still waiting for playable… t=" + _elapsed.ToString("F0")
+                    + "s loadingGame=" + Core.loadingGame);
+            }
+
+            if (_elapsed >= ClientMaxWaitSec)
+            {
+                ModLog.Warn(LogCat.Session,
+                    "[ChapterResume] timeout " + ClientMaxWaitSec
+                    + "s waiting for playable — reconnecting anyway");
+                Finish();
+            }
+        }
+
+        private void Finish()
+        {
             _started = false;
             try
             {

@@ -91,4 +91,20 @@ namespace DWMPHorde.Networking
             Success = r.GetBool()
         };
     }
+
+    /// <summary>
+    /// Client→host: request world save share (Yokyy RequestWorld equivalent).
+    /// Host uses receive-side player id; RequesterId is diagnostic only.
+    /// </summary>
+    public struct WorldRequestMessage
+    {
+        public int RequesterId;
+
+        public void Serialize(NetWriter w) => w.Put(RequesterId);
+
+        public static WorldRequestMessage Deserialize(NetReader r) => new WorldRequestMessage
+        {
+            RequesterId = r.GetInt()
+        };
+    }
 }

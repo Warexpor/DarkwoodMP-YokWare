@@ -54,6 +54,8 @@ namespace DWMPHorde.Networking
         public float GetFloat() => _inner.GetFloat();
         public bool GetBool() => _inner.GetBool();
         public string GetString() => _inner.GetString();
+        /// <summary>Remaining unread bytes (for optional trailing fields).</summary>
+        public int AvailableBytes => _inner.AvailableBytes;
         public byte[] GetBytes()
         {
             int len = _inner.GetInt();

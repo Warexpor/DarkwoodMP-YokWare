@@ -15,6 +15,11 @@ namespace DWMPHorde.Config
         public static ConfigEntry<string> ConnectAddress { get; private set; }
         public static ConfigEntry<int> ConnectPort { get; private set; }
         public static ConfigEntry<string> HostPassword { get; private set; }
+        /// <summary>
+        /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
+        /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
+        /// </summary>
+        public static ConfigEntry<string> SaveRootOverride { get; private set; }
         /// <summary>Display name in chat (Yokyy product port).</summary>
         public static ConfigEntry<string> PlayerName { get; private set; }
         public static ConfigEntry<bool> FriendlyFireEnabled { get; private set; }
@@ -94,6 +99,10 @@ namespace DWMPHorde.Config
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort, "Default UDP port for LAN connections.");
             HostPassword = config.Bind("Network", "HostPassword", "",
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match.");
+            SaveRootOverride = config.Bind("Saves", "SaveRootOverride", "",
+                "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
+                + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
+                + "Set manually if dual-box still shares a tree.");
             PlayerName = config.Bind("Network", "PlayerName", "Player",
                 "Name shown in co-op chat (Ctrl+C).");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");

@@ -2008,7 +2008,70 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo("[ThrowableSpawn] spawned " + msg.ItemType + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + msg.Distance + " vel=" + msg.VelX + "," + msg.VelY + "," + msg.VelZ + " visualOnly=" + visualOnly);
         }
 
-        public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false)
+        /// <summary>
+        /// Resolve explode audio ID for network apply. Mushrooms often rely on
+        /// explodeSound or clip ids like mushroom_explode_01 (Assets/AudioClip).
+        /// </summary>
+        public static string ResolveExplosionSoundId(string soundId, string objectName, Explodes target = null)
+        {
+            if (!string.IsNullOrEmpty(soundId))
+                return soundId;
+            if (target != null && !string.IsNullOrEmpty(target.explodeSound))
+                return target.explodeSound;
+
+            string n = (objectName ?? "").ToLowerInvariant();
+            if (n.Contains("mushroom") || n.Contains("expobj_m") || n.Contains("exp_mushroom")
+                || n.Contains("exp_bio") || n.Contains("nightmushroom"))
+            {
+                // Vanilla AudioToolkit ids matching exported clips.
+                return "mushroom_explode_01";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Always-play explosion one-shot for peers. Independent of Explodes lifetime /
+        /// already-activated state so mushrooms don't go silent when the object is gone.
+        /// </summary>
+        public static void PlayExplosionSound(Vector3 pos, string soundId, string objectName = null, Explodes target = null)
+        {
+            string id = ResolveExplosionSoundId(soundId, objectName, target);
+            if (string.IsNullOrEmpty(id))
+                return;
+
+            // Distance cull (same budget as other world SFX).
+            if (!LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
+                return;
+
+            bool prev = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                // Positional 3D play (parent null) — same API vanilla explode() uses.
+                AudioObject ao = AudioController.Play(id, pos, null, 1f);
+                if (ao == null && id == "mushroom_explode_01")
+                {
+                    // Alternate clip id seen in decompiled assets.
+                    ao = AudioController.Play("expObj_mushroom_01", pos, null, 1f);
+                    if (ao != null) id = "expObj_mushroom_01";
+                }
+                if (ao != null && ao.primaryAudioSource != null)
+                    ao.primaryAudioSource.spatialBlend = 1f;
+
+                ModRuntime.LegacyInfo("[ExplosionSound] play '" + id + "' at " + pos
+                    + (ao != null ? " ok" : " (AudioController returned null)"));
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ExplosionSound] failed: " + ex.Message);
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prev);
+            }
+        }
+
+        public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false, string soundId = null)
         {
             Collider[] nearby = Physics.OverlapSphere(pos, 1.5f);
             Explodes target = null;
@@ -2042,11 +2105,17 @@ namespace DWMPHorde.Sync
                         target.onActivate();
                 }
                 finally { _suppressBroadcast = false; }
+                // explode() plays explodeSound when effect is set. If effect is null,
+                // vanilla skips sound — force message/fallback audio.
+                if (target.effect == null)
+                    PlayExplosionSound(pos, soundId, objectName, target);
                 // Proxy damage handled by ExplosionFriendlyFirePatch.Postfix on Explodes.explode()
             }
             else
             {
                 ModRuntime.Log?.LogWarning("[ExplosionTrigger] no Explodes found at " + pos + " name=" + objectName);
+                // Object already destroyed / out of range — still boom for the host.
+                PlayExplosionSound(pos, soundId, objectName, null);
             }
         }
 
@@ -2079,15 +2148,19 @@ namespace DWMPHorde.Sync
                 }
             }
 
+            // Sound is independent of visual success — play first so already-activated /
+            // destroyed mushrooms still boom on peers.
+            PlayExplosionSound(pos, soundId, objectName, target);
+
             if (target != null)
             {
-                // Don't re-spawn if already activated on this side
+                // Don't re-spawn VFX if already activated on this side
                 try
                 {
                     bool activated = (bool)Traverse.Create(target).Field("activated").GetValue();
                     if (activated)
                     {
-                        ModRuntime.LegacyInfo("[ExplosionVisual] " + target.name + " already activated, skipping");
+                        ModRuntime.LegacyInfo("[ExplosionVisual] " + target.name + " already activated, VFX skip (sound already played)");
                         return;
                     }
                 }
@@ -2099,7 +2172,7 @@ namespace DWMPHorde.Sync
                     // run a second full onActivate path against this component.
                     Traverse.Create(target).Field("activated").SetValue(true);
 
-                    // 1) Secondary debris/FX (mushroom white spawnObject) — missing on remote before T1
+                    // 1) Secondary debris/FX (mushroom white spawnObject)
                     if (target.spawnObject != null)
                     {
                         Traverse.Create(target).Method("spawnObjects").GetValue();
@@ -2113,18 +2186,10 @@ namespace DWMPHorde.Sync
                         ModRuntime.LegacyInfo("[ExplosionVisual] spawned local prefab " + target.explosionPrefab.name + " at " + pos);
                     }
 
-                    // 3) Remote needs audio; host explode() sound is not reliably heard here
-                    string sound = !string.IsNullOrEmpty(soundId) ? soundId : target.explodeSound;
-                    if (!string.IsNullOrEmpty(sound))
-                    {
-                        AudioController.Play(sound, pos);
-                        ModRuntime.LegacyInfo("[ExplosionVisual] played sound " + sound + " at " + pos);
-                    }
-
                     // Dedupe host ExplosionSpawnObject for the secondaries we just spawned
                     DWMPHorde.Patches.ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
 
-                    // 4) Match vanilla destroy without calling explode() (no double damage)
+                    // 3) Match vanilla destroy without calling explode() (no double damage)
                     if (target.destroyOnExplode && target.gameObject != null)
                         target.gameObject.DestroyMe();
                 }
@@ -2137,7 +2202,6 @@ namespace DWMPHorde.Sync
             }
 
             // Fallback: no local Explodes (already destroyed / never loaded).
-            // Still spawn main boom prefab + sound so remotes get the full FX, not a snap.
             ModRuntime.LegacyInfo("[ExplosionVisual] no local Explodes for \"" + objectName + "\", using message data");
 
             if (!string.IsNullOrEmpty(prefabName))
@@ -2151,6 +2215,9 @@ namespace DWMPHorde.Sync
                         prefab = Resources.Load("Prefabs/" + prefixes[i] + prefabName);
                         if (prefab != null) break;
                     }
+                    // Also try particles/mushroom_explode style paths from ResourceManager.
+                    if (prefab == null)
+                        prefab = Resources.Load("Prefabs/Particles/" + prefabName);
                     if (prefab != null)
                     {
                         Core.AddPrefab(prefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
@@ -2166,12 +2233,6 @@ namespace DWMPHorde.Sync
                 {
                     ModRuntime.Log?.LogWarning("[ExplosionVisual] fallback prefab failed: " + ex.Message);
                 }
-            }
-
-            if (!string.IsNullOrEmpty(soundId))
-            {
-                AudioController.Play(soundId, pos);
-                ModRuntime.LegacyInfo("[ExplosionVisual] played sound " + soundId + " at " + pos);
             }
         }
 

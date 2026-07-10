@@ -1,7 +1,7 @@
 namespace DarkwoodMP.Packets;
 
 /// <summary>
-/// Ironbark Protocol (IBP) — united Yokyy house + Horde discipline.
+/// Ironbark Protocol (IBP) — Warexpor typed wire (registry, reliability, dedicated path).
 /// Product version (mod display) is independent; this int is the wire contract.
 /// </summary>
 public static class Ironbark

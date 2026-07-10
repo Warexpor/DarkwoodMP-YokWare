@@ -1,3 +1,4 @@
+#if BEPINEX
 using BepInEx;
 
 namespace DWMPHorde
@@ -19,3 +20,5 @@ namespace DWMPHorde
         }
     }
 }
+#endif
+
