@@ -1,0 +1,27 @@
+# Protocol + dedicated server (always). Full mod DLL needs Darkwood GameDir — local only.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  protocol-and-server:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Protocol tests
+        run: dotnet test DarkwoodMP.Protocol.Tests/DarkwoodMP.Protocol.Tests.csproj -c Release --verbosity minimal
+
+      - name: Dedicated server build
+        run: dotnet build DarkwoodMP.Server/DarkwoodMP.Server.csproj -c Release --verbosity minimal

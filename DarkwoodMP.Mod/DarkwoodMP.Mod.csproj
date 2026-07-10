@@ -1,0 +1,150 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Machine-specific game location (not committed). Create GamePath.local.props:
+       <Project><PropertyGroup>
+         <GameDir>…\Darkwood</GameDir>
+         <MelonLoaderDir Condition optional>path to ML net35 refs</MelonLoaderDir>
+       </PropertyGroup></Project> -->
+  <Import Project="GamePath.local.props" Condition="Exists('GamePath.local.props')" />
+
+  <!-- Loader: BepInEx (default) | MelonLoader
+       dotnet build -c Release
+       dotnet build -c Release -p:Loader=MelonLoader -->
+  <PropertyGroup>
+    <Loader Condition="'$(Loader)' == ''">BepInEx</Loader>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == ''">$(MSBuildThisFileDirectory)../Darkwood</GameDir>
+    <!-- MelonLoader 0.7 net35 refs: game install or vendored libs/ -->
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(GameDir)/MelonLoader/net35/MelonLoader.dll')">$(GameDir)/MelonLoader/net35</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(GameDir)/MelonLoader/MelonLoader.dll')">$(GameDir)/MelonLoader</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == ''">$(MSBuildThisFileDirectory)../libs/MelonLoader</MelonLoaderDir>
+
+    <TargetFramework>net472</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <NoWarn>CS8632</NoWarn>
+    <LangVersion>10.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AssemblyName>DarkwoodMP.Mod</AssemblyName>
+    <RootNamespace>DarkwoodMP</RootNamespace>
+    <Version>0.9.0</Version>
+    <InformationalVersion>0.9</InformationalVersion>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Loader)' == 'BepInEx'">
+    <DefineConstants>$(DefineConstants);BEPINEX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="LiteNetLib" Version="1.3.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\DarkwoodMP.Protocol\**\*.cs" LinkBase="Packets" />
+  </ItemGroup>
+
+  <!-- Shared Unity / game assemblies -->
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.JSONSerializeModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(GameDir)/Darkwood_Data/Managed/netstandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- BepInEx + HarmonyX from game install -->
+  <ItemGroup Condition="'$(Loader)' == 'BepInEx'">
+    <Reference Include="BepInEx">
+      <HintPath>$(GameDir)/BepInEx/core/BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameDir)/BepInEx/core/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- MelonLoader 0.7 + bundled Harmony (net35 for Mono Darkwood) -->
+  <ItemGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderDir)/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(MelonLoaderDir)/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateLoaderRefs" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(Loader)' != 'BepInEx' and '$(Loader)' != 'MelonLoader'"
+           Text="Loader must be BepInEx or MelonLoader (got '$(Loader)')." />
+    <Error Condition="'$(Loader)' == 'BepInEx' and !Exists('$(GameDir)/BepInEx/core/BepInEx.dll')"
+           Text="BepInEx not found at $(GameDir)/BepInEx/core. Set GameDir in GamePath.local.props." />
+    <Error Condition="'$(Loader)' == 'MelonLoader' and !Exists('$(MelonLoaderDir)/MelonLoader.dll')"
+           Text="MelonLoader.dll not found at $(MelonLoaderDir). Run scripts/fetch-melonloader-refs.ps1 or set MelonLoaderDir." />
+  </Target>
+
+  <!-- Install copy -->
+  <Target Name="CopyModToGameBepInEx" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx' and Exists('$(GameDir)/BepInEx/plugins')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)/BepInEx/plugins/" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(GameDir)/BepInEx/plugins/" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </Target>
+
+  <Target Name="CopyModToGameMelonLoader" AfterTargets="Build" Condition="'$(Loader)' == 'MelonLoader' and Exists('$(GameDir)/Mods')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)/Mods/" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(GameDir)/Mods/" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <!-- LiteNetLib must sit next to the mod for ML if not already in Managed -->
+    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(GameDir)/Mods/" Condition="Exists('$(TargetDir)LiteNetLib.dll')" />
+  </Target>
+
+</Project>

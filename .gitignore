@@ -1,0 +1,45 @@
+# Local machine
+GamePath.local.props
+**/GamePath.local.props
+*.user
+*.suo
+.vs/
+.idea/
+*.swp
+
+# Build
+bin/
+obj/
+artifacts/
+build/
+[Bb]in/
+[Oo]bj/
+
+# Loader reference binaries (fetch via scripts/fetch-melonloader-refs.ps1)
+libs/MelonLoader/*.dll
+libs/MelonLoader/**/*.dll
+libs/**/*.dll
+
+# Logs / temp
+*.log
+logs/
+**/logs/
+DarkwoodMP.Mod/logs/
+*.pdb
+!**/release-notes/**
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Secrets
+secrets.*
+*.pfx
+appsettings.*.local.json
+
+# Agent / editor local
+.claude/
+CLAUDE.md
+CLAUDE_old.md
+.grok/
