@@ -12,8 +12,8 @@ namespace DWMPHorde.Patches
     /// 4.8 Chapter progression (prolog→ch1→ch2→epilog):
     /// Vanilla <see cref="Controller.generateChapter"/> LoadScene alone leaves clients
     /// stranded. Host-authoritative: chapter flags + optional world share, then all peers
-    /// load <c>chapterN</c> together (clients also load via WorldSaveShare apply when
-    /// generateSave wrote empty chapter save).
+    /// load <c>chapterN</c> together. Network stops for the scene tear, then
+    /// <see cref="ChapterSessionResume"/> auto rehosts / reconnects (audit C3).
     /// </summary>
     [HarmonyPatch(typeof(Controller), "generateChapter")]
     public static class GenerateChapterPatch
@@ -70,18 +70,18 @@ namespace DWMPHorde.Patches
                 int chapterId = _chapterId;
                 bool loadSave = loadChapterSave;
                 ModLog.Event(LogCat.Session,
-                    $"[Chapter] Host ch{chapterId} generateSave — share world then load");
+                    $"[Chapter] Host ch{chapterId} generateSave — share world then load + resume");
 
                 // Push empty-chapter save to clients (they LoadScene in ClientApply), then host loads.
                 if (net.WorldSaveShare != null)
                 {
                     net.WorldSaveShare.ScheduleHostShareThen(
-                        () => ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, stopNetwork: true),
+                        () => ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, resumeAfter: true),
                         waitForGameSave: false);
                 }
                 else
                 {
-                    ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, stopNetwork: true);
+                    ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, resumeAfter: true);
                 }
 
                 return false;
@@ -97,9 +97,9 @@ namespace DWMPHorde.Patches
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
-            ChapterTransitionHelpers.ApplyChapterLoad(_chapterId, loadChapterSave, stopNetwork: true);
+            ChapterTransitionHelpers.ApplyChapterLoad(_chapterId, loadChapterSave, resumeAfter: true);
             ModLog.Event(LogCat.Session,
-                $"[Chapter] Host generateChapter({_chapterId}) coordinated scene load");
+                $"[Chapter] Host generateChapter({_chapterId}) coordinated scene load + resume");
             return false;
         }
     }
@@ -114,10 +114,10 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Set Core flags and LoadScene("chapterN"). Optionally stop multiplayer first.
-        /// Idempotent for a single transition wave.
+        /// Set Core flags and LoadScene("chapterN"). Stops multiplayer for the scene tear,
+        /// then schedules auto rehost/reconnect via <see cref="ChapterSessionResume"/>.
         /// </summary>
-        internal static void ApplyChapterLoad(int chapterId, bool loadChapterSave, bool stopNetwork)
+        internal static void ApplyChapterLoad(int chapterId, bool loadChapterSave, bool resumeAfter)
         {
             if (chapterId < 1) chapterId = 1;
             if (_chapterLoadPending) return;
@@ -125,7 +125,7 @@ namespace DWMPHorde.Patches
 
             string scene = "chapter" + chapterId;
             ModLog.Event(LogCat.Session,
-                $"[Chapter] ApplyChapterLoad {scene} loadChapterSave={loadChapterSave} stopNet={stopNetwork}");
+                $"[Chapter] ApplyChapterLoad {scene} loadChapterSave={loadChapterSave} resumeAfter={resumeAfter}");
 
             try
             {
@@ -148,8 +148,13 @@ namespace DWMPHorde.Patches
             {
                 try
                 {
-                    if (stopNetwork && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
-                        ModRuntime.Network.StopNetwork();
+                    var net = ModRuntime.Network as LanNetworkManager;
+                    if (net != null && net.IsConnected)
+                    {
+                        if (resumeAfter && ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter)
+                            ChapterSessionResume.CaptureForResume(net);
+                        net.StopNetwork();
+                    }
                 }
                 catch { /* ignore */ }
 
@@ -169,6 +174,7 @@ namespace DWMPHorde.Patches
                 {
                     ModLog.Error(LogCat.Session, "Chapter LoadScene failed", ex);
                     _chapterLoadPending = false;
+                    ChapterSessionResume.Reset();
                 }
             };
 
@@ -200,6 +206,11 @@ namespace DWMPHorde.Patches
                 ModLog.Event(LogCat.Session,
                     $"[Chapter] Client expect world share for ch{msg.ChapterId} — defer LoadScene to share apply");
 
+                // Capture resume early so share-apply LoadScene still rebinds.
+                var netEarly = ModRuntime.Network as LanNetworkManager;
+                if (netEarly != null && netEarly.IsConnected)
+                    ChapterSessionResume.CaptureForResume(netEarly);
+
                 // Fallback if share fails: load after 12s if still not loading.
                 var ctrl = Singleton<Controller>.Instance;
                 int ch = msg.ChapterId;
@@ -213,13 +224,13 @@ namespace DWMPHorde.Patches
                         // Still on old scene — share never completed.
                         ModLog.Warn(LogCat.Session,
                             $"[Chapter] World share timeout — fallback LoadScene chapter{ch}");
-                        ApplyChapterLoad(ch, loadSave, stopNetwork: true);
+                        ApplyChapterLoad(ch, loadSave, resumeAfter: true);
                     }, 12f, timeScaleDependent: false);
                 }
                 return;
             }
 
-            ApplyChapterLoad(msg.ChapterId, msg.LoadChapterSave, stopNetwork: true);
+            ApplyChapterLoad(msg.ChapterId, msg.LoadChapterSave, resumeAfter: true);
         }
     }
 }

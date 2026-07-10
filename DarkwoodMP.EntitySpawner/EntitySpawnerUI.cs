@@ -1,10 +1,13 @@
 using System.Collections.Generic;
-using DWMPHorde.Sync;
 using UnityEngine;
 
-namespace DWMPHorde.DebugTools
+namespace YokWare.EntitySpawner
 {
-    public class EntitySpawnerUI : MonoBehaviour
+    /// <summary>
+    /// From Horde remaster DebugTools — standalone, no multiplayer dependency.
+    /// F5 toggle. Spawns via Core.AddPrefab near the local player.
+    /// </summary>
+    public sealed class EntitySpawnerUI : MonoBehaviour
     {
         private bool _show;
         private Vector2 _scroll;
@@ -97,7 +100,7 @@ namespace DWMPHorde.DebugTools
             float w = 420f;
             float h = 600f;
             Rect rect = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
-            GUILayout.Window(999, rect, DrawWindow, "Entity Spawner (F5)");
+            GUILayout.Window(991155, rect, DrawWindow, PluginInfo.Name + " (F5)");
         }
 
         private void DrawWindow(int id)
@@ -123,7 +126,11 @@ namespace DWMPHorde.DebugTools
             GUILayout.Space(4f);
 
             var ctrl = Singleton<Controller>.Instance;
-            bool canFF = ctrl != null && !Singleton<Dreams>.Instance.dreaming && ctrl.CurrentTime < (int)ctrl.nightTime && ctrl.DoUpdateTime;
+            bool canFF = ctrl != null
+                && Singleton<Dreams>.Instance != null
+                && !Singleton<Dreams>.Instance.dreaming
+                && ctrl.CurrentTime < (int)ctrl.nightTime
+                && ctrl.DoUpdateTime;
 
             if (_confirmNight)
             {
@@ -161,7 +168,9 @@ namespace DWMPHorde.DebugTools
 
             ctrl.CurrentTime = (int)ctrl.nightTime;
             ctrl.refreshTime();
-            Singleton<SaveManager>.Instance.saveGameProfiles();
+            var save = Singleton<SaveManager>.Instance;
+            if (save != null)
+                save.saveGameProfiles();
         }
 
         private void SpawnEntity(string prefabPath)
@@ -177,10 +186,7 @@ namespace DWMPHorde.DebugTools
                 Quaternion rot = Quaternion.Euler(90f, Random.Range(0f, 360f), 0f);
                 GameObject go = Core.AddPrefab(prefabPath, pos, rot, null);
                 if (go != null)
-                {
-                    go.AddComponent<PushableEntity>();
-                    ModRuntime.LegacyInfo("[EntitySpawner] spawned " + prefabPath + " at " + pos);
-                }
+                    EntitySpawnerPlugin.Log?.LogInfo("[EntitySpawner] spawned " + prefabPath + " at " + pos);
             }
         }
     }

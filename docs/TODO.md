@@ -1,12 +1,16 @@
 # TODO / Bugliste
 
-**Product:** YokWare Branch **0.9** · Wire: Ironbark **v2**
+**Product:** YokWare Branch **0.9.2** Path B · Live wire: **Horde protocol 19** (not Ironbark)
 
 ## Open (actionable)
 
 - [x] **Host walk/run anim (#6)** — code: unreliable anim resend every 0.75s + pause/fps apply polish (`PlayerAnimSync`). **Live 2-box confirm still recommended.**
-- [ ] **Location/landmark placement residual (#5)** — pro-chunk content is seeded; *which* chunk gets a location can still diverge (order-dependent worldgen). Full fix = heavy worldgen rewrite. See README known limits.
-- [ ] **Live 2-instance / dedicated campaign playtest** — CI covers protocol + server only (mod needs game assemblies).
+- [x] **Audit C1–C4 / H1 / H3 / H5 (0.9.2)** — host-only time, dialog world-only, chapter auto-resume, fail-loud world share, client→host flags, night death world-mutation suppress, NPC talk lock. See CHANGELOG / README known limits.
+- [ ] **Location/landmark placement residual (#5)** — Path B identity is host **WorldSaveShare**, not dual per-chunk gen. *Which* chunk gets a location can still diverge if both generate without a successful share. Full fix = heavy worldgen rewrite. See README known limits.
+- [ ] **Live 2-instance / dedicated campaign playtest** — CI covers protocol + PathB structural/policy tests; full campaign still needs human 2-box.
+- [ ] **Credits continuous co-op** — residual by design: credits stop network permanently; chapter mid-campaign auto-resumes.
+- [ ] **Dedicated Ironbark ↔ Horde bridge** — `DarkwoodMP.Server` is not a Path B LAN peer.
+- [ ] **SyncCheck / full InteractionLock / ItemState upgrades** — deferred.
 
 ## Archive — Playtest-Durchgang (2-Instanz) — fixed items & history
 

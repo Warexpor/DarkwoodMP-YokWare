@@ -61,9 +61,9 @@ namespace DWMPHorde.Players
         {
             proxy = null;
             Player source = PlayerControlRouter.MainPlayer ?? Player.Instance;
-            if (source == null)
+            if (source == null || source.gameObject == null || !source.gameObject.activeInHierarchy)
             {
-                log?.LogWarning("Cannot spawn remote proxy: no local Player.");
+                // Caller should gate; silent fail avoids log spam during LoadScene.
                 return false;
             }
 

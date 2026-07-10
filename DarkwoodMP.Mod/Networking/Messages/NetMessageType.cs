@@ -205,7 +205,20 @@ namespace DWMPHorde.Networking
         [Forwardable] ChapterTransition = 109,
         /// <summary>Client→host request / host→all state: Examinable.examine (4.11). Protocol 17.</summary>
         [Forwardable] ExamineObject = 110,
+        /// <summary>Either peer: chat / system line (Yokyy product port). Host rebroadcasts via Forwardable.</summary>
+        [Forwardable] ChatMessage = 111,
+        /// <summary>
+        /// Client→host request / host→all grant|deny|release: one-speaker-per-NPC dialogue lock (0.9.2).
+        /// Optional for older peers (ignored if unhandled); protocol version stays 19.
+        /// </summary>
+        DialogNpcLock = 112,
+        /// <summary>
+        /// Either peer → host/all: CharacterDialogue consumed-node snapshot (Yokyy DialogueSync port).
+        /// Host fans out after apply (not auto-Forwardable — avoid double apply).
+        /// Optional for older peers; protocol version stays 19.
+        /// </summary>
+        DialogTreeState = 113,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 110
+        _Highest = 113
     }
 }

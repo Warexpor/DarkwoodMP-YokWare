@@ -300,6 +300,10 @@ namespace DWMPHorde.Patches
             catch (System.Exception) { /* optional field */ }
 
             Vector3 pos = __instance.transform.position;
+            // Local activation already ran spawnObjects — debounce host ExplosionSpawnObject
+            // so the stomper does not get a second set of secondary debris.
+            ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+
             net.SendExplosionTrigger(new ExplosionTriggerMessage
             {
                 PosX = pos.x,

@@ -237,8 +237,14 @@ namespace DWMPHorde.Logging
             if (_redactIps) body = RedactIps(body);
 
             int tagIdx = (int)cat;
-            string tag = tagIdx >= 0 && tagIdx < CatTags.Length ? CatTags[tagIdx] : "[DWMP]";
-            string line = tag + " " + body;
+            string tag = tagIdx >= 0 && tagIdx < CatTags.Length ? CatTags[tagIdx] : "[YokWare]";
+            // Level tag so Trace vs Event is filterable in BepInEx LogOutput.log
+            string lvl =
+                level == LogLevel.Error ? "ERROR" :
+                level == LogLevel.Warn ? "WARN" :
+                level == LogLevel.Trace ? "TRACE" :
+                level == LogLevel.Info ? "INFO" : "EVENT";
+            string line = tag + "[" + lvl + "] " + body;
 
             switch (level)
             {
@@ -248,10 +254,24 @@ namespace DWMPHorde.Logging
                 case LogLevel.Warn:
                     _log.LogWarning(line);
                     break;
+                case LogLevel.Trace:
+                    // Single write — dual Debug+Info doubled file weight for no gain.
+                    _log.LogInfo(line);
+                    break;
                 default:
                     _log.LogInfo(line);
                     break;
             }
+        }
+
+        /// <summary>Dev-only legacy dumps: max ~2 lines/sec per message prefix.</summary>
+        public static void LegacyRateLimited(string message)
+        {
+            if (_log == null || message == null) return;
+            if (_preset != LogPreset.Dev) return;
+            string key = message.Length > 48 ? message.Substring(0, 48) : message;
+            if (!PassRate("legacy:" + key, 0.5f)) return;
+            _log.LogInfo("[YokWare][LEGACY] " + message);
         }
 
         /// <summary>Always prints identity + bug-report instructions (forces Core Event for these lines).</summary>
@@ -273,8 +293,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Unity=" + Application.unityVersion
                     + " | " + SystemInfo.operatingSystem);
                 Event(LogCat.Core, "  Config: BepInEx/config/" + PluginInfo.Guid + ".cfg");
-                Event(LogCat.Core, "  Keys: F2=menu F3=save F4=spectator"
-                    + (ModConfig.EnableDebugTools != null && ModConfig.EnableDebugTools.Value ? " F5=debug" : ""));
+                Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | Ctrl+C=chat | F5=spawner");
                 Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log (this install)");
                 Event(LogCat.Core, "  Client log: second install's BepInEx/LogOutput.log");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client BepInEx/LogOutput.log");

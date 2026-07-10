@@ -101,6 +101,51 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>
+    /// NPC dialogue lock (0.9.2): client request or host grant/deny/release fan-out.
+    /// IsRequest=true only on client→host acquire attempts.
+    /// </summary>
+    public struct DialogNpcLockMessage
+    {
+        public string NpcName;
+        public int OwnerPlayerId;
+        public bool Granted;
+        public bool Release;
+        public bool IsRequest;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(OwnerPlayerId);
+            w.Put(Granted);
+            w.Put(Release);
+            w.Put(IsRequest);
+        }
+
+        public static DialogNpcLockMessage Deserialize(NetReader r) => new DialogNpcLockMessage
+        {
+            NpcName = r.GetString(),
+            OwnerPlayerId = r.GetInt(),
+            Granted = r.GetBool(),
+            Release = r.GetBool(),
+            IsRequest = r.GetBool()
+        };
+    }
+
+    /// <summary>
+    /// Yokyy DialogueSync v2 body: base64 tree snapshot (alreadyShown/disabled/specials/portrait + NPC wants/rep).
+    /// </summary>
+    public struct DialogTreeStateMessage
+    {
+        public string Payload;
+
+        public void Serialize(NetWriter w) => w.Put(Payload ?? "");
+        public static DialogTreeStateMessage Deserialize(NetReader r) => new DialogTreeStateMessage
+        {
+            Payload = r.GetString()
+        };
+    }
+
     public struct RemotePlayerForwardMessage
     {
         public int OriginalPlayerId;

@@ -26,12 +26,13 @@ namespace DWMPHorde.Patches
             _pendingBoolFlags.Clear();
         }
 
-        /// <summary>Flush pending flag updates whose cooldown has expired. Call from host tick.</summary>
+        /// <summary>Flush pending flag updates whose cooldown has expired. Call from host or client tick.</summary>
         public static void TickFlush()
         {
             if (_pendingBoolFlags.Count == 0) return;
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
+            if (net == null || !net.IsConnected) return;
+            if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
             var toSend = new List<string>();
@@ -68,7 +69,8 @@ namespace DWMPHorde.Patches
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host)
+            // Host broadcasts; client sends to host (audit H1 bidirectional story flags).
+            if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
             // Already successfully sent this value
@@ -93,7 +95,10 @@ namespace DWMPHorde.Patches
         {
             var msg = new FlagSyncMessage { Name = flagName, IsInt = false, BoolValue = newValue, IntValue = 0 };
             // Reliable: story/dialog flags must not be dropped mid-cooldown window
-            net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            if (net.Role == NetworkRole.Host)
+                net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            else
+                net.Send(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             _lastSentBoolFlags[flagName] = newValue;
             _lastSendTime[flagName] = now;
             _pendingBoolFlags.Remove(flagName);
@@ -120,7 +125,8 @@ namespace DWMPHorde.Patches
         {
             if (_pendingIntFlags.Count == 0) return;
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
+            if (net == null || !net.IsConnected) return;
+            if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
             var toSend = new List<string>();
@@ -156,7 +162,7 @@ namespace DWMPHorde.Patches
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
             if (_lastSentIntFlags.TryGetValue(flagName, out int lastValue) && lastValue == newValue)
@@ -178,7 +184,10 @@ namespace DWMPHorde.Patches
         private static void TrySend(LanNetworkManager net, string flagName, int newValue, float now)
         {
             var msg = new FlagSyncMessage { Name = flagName, IsInt = true, BoolValue = false, IntValue = newValue };
-            net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            if (net.Role == NetworkRole.Host)
+                net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            else
+                net.Send(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             _lastSentIntFlags[flagName] = newValue;
             _lastSendTime[flagName] = now;
             _pendingIntFlags.Remove(flagName);

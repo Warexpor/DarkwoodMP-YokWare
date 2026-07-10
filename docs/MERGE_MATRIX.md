@@ -1,9 +1,15 @@
 # YokWare Branch merge matrix
 
-**Product:** YokWare Branch `0.9`  
-**Wire:** **Ironbark Protocol v2** (`docs/IRONBARK_PROTOCOL.md`) — MessageId u16, ActionEvent extinct  
+**Product:** YokWare Branch **0.9.2** Path B  
+**Live LAN wire:** **Horde protocol 19** (`PluginInfo.ProtocolVersion`) — LiteNetLib  
+**Ironbark v2:** research / dedicated `DarkwoodMP.Server` only — **not** the BepInEx LAN path  
 **Path:** `C:\MyProjects\DarkwoodMP-YokWare`  
-**Doctrine:** Yokyy structure + Horde sync design + union of features.
+**Doctrine:** Path B = Horde host-authoritative sync as ship base; Yokyy product shell.
+
+> **Honesty (0.9.2):** Rows below that mention Ironbark ClockSync / WorldGenSeed / InteractionLock
+> snapshot describe archive/Yokyy or aspirational targets. Live Path B truth for time/dialog/chapter/world:
+> host TimeSync + client clock suppress; DialogHostApplyGuard; ChapterSessionResume; WorldSaveShare
+> (no per-chunk seed in tree). See `CHANGELOG.md` 0.9.2 and `DARKWOOD_MP_AUDIT.md`.
 
 Status key: **done** | **partial** | **yokyy-keep** | **deferred-product**
 
@@ -14,10 +20,10 @@ Status key: **done** | **partial** | **yokyy-keep** | **deferred-product**
 | ID | Domain | Status |
 |----|--------|--------|
 | 0.0 | YokWare Branch workspace | **done** |
-| 0.1 | Session / handshake / IDs | **done** |
-| 0.2 | Save / world share | **done** (WorldTransfer + ClientStateBackup chunks + savebeat) |
-| 0.3 | Time / day / night + isAfterNight | **done** (`ClockSync` + afterNight field) |
-| 0.4 | Flags bulk + delta | **done** |
+| 0.1 | Session / handshake / IDs | **done** (Horde 19) |
+| 0.2 | Save / world share | **partial** — Path B WorldSaveShare fail-loud; not Yokyy WorldTransfer |
+| 0.3 | Time / day / night + isAfterNight | **done** (0.9.2 host-only clock; TimeSync + refreshTimeNoLogic) |
+| 0.4 | Flags bulk + delta | **done** (0.9.2 bidirectional client→host + host fan-out) |
 | 0.5 | Apply guards / reset | **done** |
 | 0.6 | Pause / freeze | **done** (+ skill menus) |
 | 0.7 | Broadcast / ToPlayer / AllExcept | **done** |

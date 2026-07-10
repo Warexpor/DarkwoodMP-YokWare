@@ -60,7 +60,8 @@ namespace DWMPHorde.Audio
             return null;
         }
 
-        /// <summary>Object is moving — start/keep loop; cancel any fade.</summary>
+        /// <summary>Object is moving — start/keep loop; cancel any fade.
+        /// MOS path always means remote ownership: suppress native ItemSounds.</summary>
         public static void NoteMoving(GameObject go, string objectName, ItemSounds sounds)
         {
             if (go == null || string.IsNullOrEmpty(objectName) || sounds == null)
@@ -73,6 +74,7 @@ namespace DWMPHorde.Audio
             if (string.IsNullOrEmpty(soundId))
                 return;
 
+            ItemMovingSoundHelper.MarkRemoteScrape(objectName);
             float volume = Mathf.Clamp01(sounds.volumeModifier * LocalAudioService.GetItemVolumeScale(soundId));
             EnsurePlaying(go, objectName, soundId, volume);
         }
@@ -98,6 +100,9 @@ namespace DWMPHorde.Audio
                 return;
             if (ItemMovingSoundHelper.IsScrapeSuppressed(objectName))
                 return;
+
+            // MOS is the remote-owner path — keep native ItemSounds suppressed.
+            ItemMovingSoundHelper.MarkRemoteScrape(objectName);
 
             if (_byName.TryGetValue(objectName, out Entry existing) && existing != null)
             {
@@ -177,7 +182,10 @@ namespace DWMPHorde.Audio
             if (string.IsNullOrEmpty(objectName))
                 return;
             if (!_byName.TryGetValue(objectName, out Entry e))
+            {
+                ItemMovingSoundHelper.ClearRemoteScrape(objectName);
                 return;
+            }
 
             if (e?.Source != null)
             {
@@ -185,6 +193,15 @@ namespace DWMPHorde.Audio
                 UnityEngine.Object.Destroy(e.Source);
             }
             _byName.Remove(objectName);
+            ItemMovingSoundHelper.ClearRemoteScrape(objectName);
+        }
+
+        /// <summary>True if MOS currently owns a (possibly fading) source for this name.</summary>
+        public static bool IsPlaying(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return false;
+            return _byName.TryGetValue(objectName, out Entry e)
+                && e != null && e.Source != null && e.Source.isPlaying;
         }
 
         /// <summary>
@@ -267,7 +284,10 @@ namespace DWMPHorde.Audio
             if (remove != null)
             {
                 for (int i = 0; i < remove.Count; i++)
+                {
+                    ItemMovingSoundHelper.ClearRemoteScrape(remove[i]);
                     _byName.Remove(remove[i]);
+                }
             }
         }
 

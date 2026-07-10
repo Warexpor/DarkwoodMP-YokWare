@@ -41,9 +41,11 @@ namespace DWMPHorde.Networking
                 _handshakeComplete = true;
                 _handshakedPeers.Clear();
                 _handshakedPeers.Add(1); // host is player 1
-                StatusText = "Connected to host";
+                StatusText = "Connected — waiting for host world…";
                 ModLog.Event(LogCat.Network, $"Handshake OK — assigned PlayerId={_localPlayerId}");
-                StatusText += " — waiting for host world session";
+                if (Core.mainMenu)
+                    ModLog.Event(LogCat.Session,
+                        "On title menu: host will push save files if already in-world (auto load).");
             }
             else
             {
@@ -57,6 +59,170 @@ namespace DWMPHorde.Networking
 
                 // Sync current weather state to the newly connected client only
                 SendWeatherSyncTo(playerId);
+
+                // Late join from title menu: bulk state is not enough — client has no chapter loaded.
+                // Delay a few frames so the client finishes handshake + WorldSession before megabyte save stream.
+                if (playerId > 0)
+                {
+                    if (HostHasShareableWorld())
+                    {
+                        ModLog.Event(LogCat.Save,
+                            "Client " + playerId + " handshaked while host in-world — scheduling auto world share");
+                        StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
+                    }
+                    else
+                    {
+                        ModLog.Warn(LogCat.Save,
+                            "Client " + playerId + " joined but host is NOT in-world (mainMenu="
+                            + Core.mainMenu + " profile=" + (Core.currentProfile != null)
+                            + " player=" + (Player.Instance != null)
+                            + " loaded=" + Core.loadedGame
+                            + ") — no auto world share yet. Will share when host enters chapter, or use F2 Resend.");
+                    }
+                }
+            }
+        }
+
+        private System.Collections.IEnumerator DelayedWorldShareTo(int playerId, float delaySec)
+        {
+            float t = 0f;
+            while (t < delaySec)
+            {
+                t += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            if (_role != NetworkRole.Host) yield break;
+            if (!_handshakedPeers.Contains(playerId)) yield break;
+            if (!HostHasShareableWorld())
+            {
+                ModLog.Warn(LogCat.Save, "Delayed world share aborted — host left world before share for p" + playerId);
+                // Still try bulk — client may load a matching save manually.
+                SendLateJoinGameplayBulk(playerId);
+                yield break;
+            }
+            ModLog.Event(LogCat.Save, "Auto world share → player " + playerId + " starting now");
+            _worldSaveShare?.ScheduleHostShareToPlayer(playerId);
+            // Mark bulk pending (settle clock starts on first valid PlayerState).
+            _awaitingLateJoinBulk[playerId] = 0f;
+            ModLog.Event(LogCat.Session,
+                "Player " + playerId + " queued for late-join bulk after "
+                + ClientBulkSettleSeconds.ToString("F0") + "s settled in-world");
+        }
+
+        /// <summary>
+        /// After a broadcast world resend (host entered chapter), mark peers for bulk.
+        /// </summary>
+        public void ScheduleLateJoinBulkAfterWorldShare()
+        {
+            if (_role != NetworkRole.Host)
+                return;
+            foreach (int id in _handshakedPeers)
+            {
+                if (id > 1)
+                    _awaitingLateJoinBulk[id] = 0f;
+            }
+            ModLog.Event(LogCat.Session,
+                "Marked " + _awaitingLateJoinBulk.Count + " peer(s) for late-join bulk after settle");
+        }
+
+        /// <summary>
+        /// Light late-join dump only (no FindObjectsOfType bag/drop scans, no proxy spawn).
+        /// Heavy world object scans were freezing the host the frame a joiner finished loading.
+        /// </summary>
+        internal void SendLateJoinGameplayBulk(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0)
+                return;
+
+            _awaitingLateJoinBulk.Remove(playerId);
+            ModLog.Event(LogCat.Session,
+                "Sending light late-join bulk → player " + playerId
+                + " (no deathbag/drop scans)");
+
+            // Small reliable packets only — no scene-wide FindObjectsOfType.
+            SendJournalBulkSyncTo(playerId);
+            SendFlagBulkSyncTo(playerId);
+            // Dialogue tree after flags so Flags.dialogues exists when applying.
+            DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId);
+            SendReputationBulkSyncTo(playerId);
+            SendHideoutStateSyncTo(playerId);
+            SendWorkbenchLevelSyncTo(playerId);
+            SendMapStateSyncTo(playerId);
+            SendTimeSyncTo(playerId);
+            SyncCurrentLightState();
+            // Scenario bulk can re-fire night "unique events" on the client — skip on join.
+            // SendScenarioBulkSyncTo(playerId);
+            // Proxy is created from live PlayerState once CanSpawnRemoteProxies — not here.
+        }
+
+        /// <summary>
+        /// Host: bulk only after joiner has been sending PlayerState for ClientBulkSettleSeconds.
+        /// </summary>
+        private void TryFlushLateJoinBulkForPeer(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0)
+                return;
+            if (!_awaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
+                return;
+
+            float now = Time.realtimeSinceStartup;
+            if (firstSeen <= 0f)
+            {
+                _awaitingLateJoinBulk[playerId] = now;
+                ModLog.Event(LogCat.Session,
+                    "Player " + playerId + " in-world — bulk in "
+                    + ClientBulkSettleSeconds.ToString("F0") + "s (settle)");
+                return;
+            }
+
+            if (now - firstSeen < ClientBulkSettleSeconds)
+                return;
+
+            SendLateJoinGameplayBulk(playerId);
+        }
+
+        /// <summary>True when host is past the title screen and has a profile world worth sending.</summary>
+        private static bool HostHasShareableWorld()
+        {
+            try
+            {
+                if (Core.mainMenu)
+                    return false;
+                if (Player.Instance != null)
+                    return true;
+                if (Singleton<WorldGenerator>.Instance != null)
+                    return true;
+                if (Core.loadedGame || Core.loadingGame)
+                    return true;
+                if (Core.currentProfile != null && !Core.mainMenu)
+                    return true;
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Client may only apply journal/flags/world mutations once in a loaded chapter.
+        /// Title menu has UI.journal stubs that NRE inside addJournalEntry / Inventory.Start.
+        /// </summary>
+        private static bool ClientCanApplyWorldBulk()
+        {
+            try
+            {
+                if (Core.mainMenu)
+                    return false;
+                if (Core.loadingGame)
+                    return false;
+                if (Player.Instance == null)
+                    return false;
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -74,6 +240,9 @@ namespace DWMPHorde.Networking
 
             if (_role == NetworkRole.Host)
             {
+                // First in-world state from a joiner → dump deferred bulk (not during their LoadScene)
+                TryFlushLateJoinBulkForPeer(playerId);
+
                 // Host: update position manager per-player
                 PlayerPositionManager.UpdateRemotePlayer(playerId,
                     new Vector3(state.PosX, state.PosY, state.PosZ),
@@ -135,23 +304,19 @@ namespace DWMPHorde.Networking
                     if (playerId > 0)
                         SendToAllExcept(playerId, NetMessageType.PlayerState, w => state.Serialize(w));
 
-                    // Morning hideout freeze: if this client has left the hideout
-                    // (isAfterNight cleared), unfreeze time for everyone.
-                    if (!state.AfterNightActive)
-                    {
-                        var ctrl = Singleton<Controller>.Instance;
-                        if (ctrl != null && ctrl.isAfterNight)
-                        {
-                            ctrl.isAfterNight = false;
-                            ctrl.removeAfterNightEffect();
-                            ModRuntime.LegacyInfo($"[TimeSync] Player {playerId} left hideout — host clearing afterNight freeze");
-                        }
-                    }
+                    // DISABLED on join path: removeAfterNightEffect() is a full-screen native
+                    // morning/event sequence. A joining client's AfterNightActive=false packet
+                    // was firing it on the HOST mid-session ("unique event" + hitch).
+                    // Live hideout leave sync can return later with an explicit reliable message.
                 }
                 return;
             }
 
-            // Client receives forwarded player state (state.PlayerId identifies the source)
+            // Client receives host (or forwarded peer) state — ignore during LoadScene
+            // or title (EnsureRemoteProxy was spamming 500+ "Player is inactive" / frame).
+            if (!CanSpawnRemoteProxies())
+                return;
+
             {
                 int remotePlayerId = state.PlayerId > 0 ? state.PlayerId : 1;
                 PlayerPositionManager.UpdateRemotePlayer(remotePlayerId,
@@ -676,22 +841,20 @@ namespace DWMPHorde.Networking
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                     targetRb.isKinematic = true;
 
-                // Unified scrape loop (same service as body-push).
-                if (_lastDragSyncPos.TryGetValue(msg.ObjectName, out var __lastPos) &&
-                    Vector3.Distance(__lastPos, targetPos) > 0.01f)
+                // Scrape: same immediacy as body-push (NotifyBodyPushStarted → NoteMoving).
+                // Old path waited one DragSync tick for motion delta → audible delay, then
+                // NoteStationary on slow frames faded the loop mid-drag.
+                ItemSounds dragSounds = item.GetComponent<ItemSounds>();
+                bool firstDragPacket = !_lastDragSyncPos.ContainsKey(msg.ObjectName);
+                bool moved = !firstDragPacket
+                    && Vector3.Distance(_lastDragSyncPos[msg.ObjectName], targetPos) > 0.005f;
+                if (firstDragPacket || moved)
                 {
                     DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(
-                        item.gameObject, msg.ObjectName, item.GetComponent<ItemSounds>());
-                    _lastDragSyncPos[msg.ObjectName] = targetPos;
+                        item.gameObject, msg.ObjectName, dragSounds);
                 }
-                else if (!_lastDragSyncPos.ContainsKey(msg.ObjectName))
-                {
-                    _lastDragSyncPos[msg.ObjectName] = targetPos;
-                }
-                else
-                {
-                    DWMPHorde.Audio.MovingObjectSoundService.NoteStationary(msg.ObjectName);
-                }
+                // While IsDragging, do NOT NoteStationary — keep loop alive like push.
+                _lastDragSyncPos[msg.ObjectName] = targetPos;
             }
             else
             {
@@ -707,9 +870,9 @@ namespace DWMPHorde.Networking
 
         /// <summary>Bridge called from WorldPhysicsSyncService when host applies a
         /// client's PhysicsState update for a body-pushed object (not E-drag).
-        /// Plays scrape via MOS locally and broadcasts to peers.
-        /// Does NOT nudge velocity for native ItemSounds — that left vel&gt;11 after
-        /// the player stopped and was the bulk of the residual scrape tail.</summary>
+        /// Plays scrape via MOS locally only. Start is NOT broadcast as PlayerAudio —
+        /// PhysicsState fan-out already drives NoteMoving on observers (T2: single owner).
+        /// Reliable stop still uses <see cref="NotifyBodyPushStopped"/>.</summary>
         public static void NotifyBodyPushStarted(GameObject go)
         {
             if (Instance == null || go == null) return;
@@ -720,47 +883,12 @@ namespace DWMPHorde.Networking
             Item item = go.GetComponent<Item>();
             if (item == null) return;
 
+            // Remote ownership on this peer (host applying client push): MOS only.
             ItemSounds sounds = item.GetComponent<ItemSounds>();
             if (sounds != null)
                 DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(item.gameObject, item.gameObject.name, sounds);
-
-            Instance.BroadcastBodyPushSound(item);
-        }
-
-        /// <summary>Broadcasts body-push scrape to peers at the object position.</summary>
-        private void BroadcastBodyPushSound(Item item)
-        {
-            if (item == null || _role != NetworkRole.Host) return;
-            if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(item.gameObject.name))
-                return;
-            ItemSounds sounds = item.GetComponent<ItemSounds>();
-            if (sounds == null) return;
-
-            string soundId = sounds.movingSound;
-            if (string.IsNullOrEmpty(soundId))
-            {
-                soundId = sounds.movingSound_grass;
-                if (string.IsNullOrEmpty(soundId)) return;
-            }
-
-            Vector3 pos = item.transform.position;
-            void Write(NetWriter w) => new PlayerAudioMessage
-            {
-                SoundId = soundId,
-                Volume = sounds.volumeModifier,
-                PosX = pos.x,
-                PosY = pos.y,
-                PosZ = pos.z,
-                ObjectName = item.gameObject.name
-            }.Serialize(w);
-
-            // Exclude the client who is pushing (they hear local physics/MOS).
-            // If host is the pusher (_currentReceivePlayerId not set), send to all clients.
-            // Reliable: late Unreliable starts after a stop caused residual scrape (5.2).
-            if (_currentReceivePlayerId > 0)
-                SendToAllExcept(_currentReceivePlayerId, NetMessageType.PlayerAudio, Write, DeliveryMethod.ReliableOrdered);
-            else
-                Broadcast(NetMessageType.PlayerAudio, Write, DeliveryMethod.ReliableOrdered);
+            // ponytail: no BroadcastBodyPushSound — PhysicsState NoteMoving covers observers;
+            // dual start was the observer double-scrape.
         }
 
         /// <summary>Bridge called from WorldPhysicsSyncService when a body-pushed
@@ -772,6 +900,7 @@ namespace DWMPHorde.Networking
 
             // All roles: kill residual native ItemSounds + MOS immediately.
             DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(objectName);
+            Sync.WorldPhysicsSyncService.TryStopBodyPushSound(objectName);
 
             if (Instance._role == NetworkRole.Host)
             {
@@ -3750,14 +3879,34 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void HandleFlagSync(FlagSyncMessage msg)
         {
-            if (_role != NetworkRole.Client)
+            if (string.IsNullOrEmpty(msg.Name))
+                return;
+
+            // Host receives client→host story flag deltas (audit H1), applies, rebroadcasts.
+            if (_role == NetworkRole.Host)
             {
-                ModRuntime.Log?.LogWarning("[FlagSync] only client should receive flag syncs");
+                if (Singleton<Flags>.Instance == null)
+                {
+                    QueuePendingFlagDelta(msg);
+                    return;
+                }
+                ApplyFlagSyncMessage(msg);
+                // Fan-out to other clients (exclude originator if known).
+                int from = _currentReceivePlayerId;
+                if (from > 0)
+                    SendToAllExcept(from, NetMessageType.FlagSync, w => msg.Serialize(w),
+                        LiteNetLib.DeliveryMethod.ReliableOrdered);
+                else
+                    Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w),
+                        LiteNetLib.DeliveryMethod.ReliableOrdered);
                 return;
             }
 
-            if (string.IsNullOrEmpty(msg.Name))
+            if (_role != NetworkRole.Client)
+            {
+                ModRuntime.Log?.LogWarning("[FlagSync] unexpected role for flag sync");
                 return;
+            }
 
             if (Singleton<Flags>.Instance == null)
             {
@@ -3771,10 +3920,16 @@ namespace DWMPHorde.Networking
 
         private void ApplyFlagSyncMessage(FlagSyncMessage msg)
         {
-            if (msg.IsInt)
-                Singleton<Flags>.Instance.setFlag(msg.Name, msg.IntValue);
-            else
-                Singleton<Flags>.Instance.setFlag(msg.Name, msg.BoolValue);
+            // Always apply under NetworkApplyGuard so FlagSyncPatches Postfix does not
+            // re-Send/Broadcast (client echo / double fan-out). Intentional host fan-out
+            // in HandleFlagSync runs *after* this method returns.
+            using (new NetworkApplyGuard())
+            {
+                if (msg.IsInt)
+                    Singleton<Flags>.Instance.setFlag(msg.Name, msg.IntValue);
+                else
+                    Singleton<Flags>.Instance.setFlag(msg.Name, msg.BoolValue);
+            }
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[FlagSync] applied flag '{msg.Name}' isInt={msg.IsInt} boolVal={msg.BoolValue} intVal={msg.IntValue}");
@@ -3854,9 +4009,9 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client dialogue choice → host applies story outcomes authoritatively.
+        /// Client dialogue choice → host applies world story outcomes authoritatively.
         /// Prefer TargetDialogueName (works when host is not in the same UI);
-        /// fall back to button click if host has the matching conversation open.
+        /// personal give/remove item paths are suppressed (DialogHostApplyGuard / audit C2).
         /// </summary>
         private void HandleDialogOutcomeSync(DialogOutcomeSyncMessage msg)
         {
@@ -3883,13 +4038,30 @@ namespace DWMPHorde.Networking
                     Player.Instance.talkedToNPC = npc;
 
                 ModRuntime.LegacyInfo(
-                    $"[DialogOutcome] Host displayDialogue target={msg.TargetDialogueName} " +
+                    $"[DialogOutcome] Host world-only displayDialogue target={msg.TargetDialogueName} " +
                     $"NPC={msg.NpcName} (wasInTalk={hostWasInThisTalk})");
 
-                dw.displayDialogue(msg.TargetDialogueName);
+                DialogHostApplyGuard.BeginWorldOnly();
+                try
+                {
+                    dw.displayDialogue(msg.TargetDialogueName);
+                }
+                finally
+                {
+                    DialogHostApplyGuard.EndWorldOnly();
+                }
 
-                // If host wasn't conversing, close UI so we only apply story side-effects
-                // (flags / journal / items) without stealing the host's screen.
+                // Host Flags dialogue tree advanced — fan out tree so peers converge
+                // even if speaker's close packet races or is lost.
+                try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc); }
+                catch (System.Exception ex)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
+                }
+
+                // If host wasn't conversing, close UI so we only apply world side-effects
+                // without stealing the host's screen.
                 if (!hostWasInThisTalk && dw.displayingDialogue)
                 {
                     try { dw.close(); }
@@ -3902,7 +4074,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Path B: legacy index click when host UI matches exactly.
+            // Path B: legacy index click when host UI matches exactly (also world-only).
             if (dw.npc == null || dw.npc.name != msg.NpcName) return;
             if (dw.currentDialogue == null || dw.currentDialogue.fullName != msg.DialogueName) return;
 
@@ -3913,8 +4085,87 @@ namespace DWMPHorde.Networking
             var btn = dw.menuOptions[msg.DecisionIndex];
             if (btn != null)
             {
-                ModRuntime.LegacyInfo($"[DialogOutcome] Host click decision index={msg.DecisionIndex} NPC={msg.NpcName}");
-                btn.getClicked();
+                ModRuntime.LegacyInfo($"[DialogOutcome] Host world-only click decision index={msg.DecisionIndex} NPC={msg.NpcName}");
+                DialogHostApplyGuard.BeginWorldOnly();
+                try
+                {
+                    btn.getClicked();
+                }
+                finally
+                {
+                    DialogHostApplyGuard.EndWorldOnly();
+                }
+            }
+        }
+
+        private void HandleDialogTreeState(DialogTreeStateMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.Payload)) return;
+
+            DWMPHorde.Sync.DialogTreeSync.ApplyPayload(msg.Payload);
+
+            // Host: fan-out to other peers after apply.
+            if (_role == NetworkRole.Host)
+            {
+                int from = _currentReceivePlayerId;
+                if (from > 0)
+                {
+                    SendToAllExcept(from, NetMessageType.DialogTreeState,
+                        w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+                }
+            }
+        }
+
+        private void HandleDialogNpcLock(DialogNpcLockMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.NpcName)) return;
+
+            if (_role == NetworkRole.Host)
+            {
+                if (msg.Release)
+                {
+                    NpcDialogueLock.HostRelease(this, msg.NpcName, msg.OwnerPlayerId);
+                    return;
+                }
+                if (msg.IsRequest || !msg.Granted)
+                {
+                    int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _currentReceivePlayerId;
+                    NpcDialogueLock.HostTryGrant(this, msg.NpcName, owner);
+                }
+                return;
+            }
+
+            // Client: mirror host lock state (grant/deny/release).
+            if (msg.Release)
+            {
+                NpcDialogueLock.Release(msg.NpcName, msg.OwnerPlayerId);
+                return;
+            }
+
+            if (msg.Granted)
+            {
+                // Peer (or self) holds the lock — track so we block dual talk.
+                NpcDialogueLock.TryAcquire(msg.NpcName, msg.OwnerPlayerId);
+                return;
+            }
+
+            // Denied for the requestor only — other clients ignore.
+            if (msg.OwnerPlayerId != LocalPlayerId)
+                return;
+
+            NpcDialogueLock.Release(msg.NpcName, msg.OwnerPlayerId);
+            try
+            {
+                var dw = Singleton<UI>.Instance?.dialogueWindow;
+                if (dw != null && dw.npc != null && dw.npc.name == msg.NpcName && dw.opened)
+                    dw.close();
+                if (Player.Instance != null)
+                    Player.Instance.displayMessage("Someone is already talking to them…");
+            }
+            catch (System.Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DialogLock] deny close: " + ex.Message);
             }
         }
 
@@ -3981,23 +4232,46 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Client) return;
 
-            Journal journal = Singleton<UI>.Instance?.journal;
-            if (journal == null)
+            // Always queue while still on title / loading — journal exists as a stub and
+            // addJournalEntry NREs (user log: Journal.DMD addJournalEntry on title join).
+            if (!ClientCanApplyWorldBulk())
             {
-                // Join bulk can arrive before UI.journal exists (menu → load).
                 _pendingJournalBulk = msg;
                 _hasPendingJournalBulk = true;
-                ModRuntime.LegacyInfo("[BulkSync] Journal not ready — queued bulk");
+                ModLog.Event(LogCat.Session, "Journal bulk queued until client is in-world");
                 return;
             }
 
-            ApplyJournalBulkSync(msg);
+            try
+            {
+                Journal journal = Singleton<UI>.Instance?.journal;
+                if (journal == null || journal.notesDict == null || journal.keysDict == null
+                    || journal.itemsDict == null || journal.journalEntriesDict == null)
+                {
+                    _pendingJournalBulk = msg;
+                    _hasPendingJournalBulk = true;
+                    return;
+                }
+
+                ApplyJournalBulkSync(msg);
+            }
+            catch (Exception ex)
+            {
+                _pendingJournalBulk = msg;
+                _hasPendingJournalBulk = true;
+                ModLog.Warn(LogCat.Session, "Journal bulk deferred after error: " + ex.Message);
+            }
         }
 
         private void ApplyJournalBulkSync(JournalBulkSyncMessage msg)
         {
+            if (!ClientCanApplyWorldBulk())
+                return;
+
             Journal journal = Singleton<UI>.Instance?.journal;
-            if (journal == null) return;
+            if (journal == null || journal.notesDict == null || journal.keysDict == null
+                || journal.itemsDict == null || journal.journalEntriesDict == null)
+                return;
 
             if (msg.NoteTypes != null)
             {
@@ -4042,13 +4316,22 @@ namespace DWMPHorde.Networking
                 for (int i = 0; i < msg.JournalEntryTypes.Length; i++)
                 {
                     string type = msg.JournalEntryTypes[i];
-                    if (!string.IsNullOrEmpty(type))
+                    if (string.IsNullOrEmpty(type)) continue;
+                    if (journal.journalEntriesDict.ContainsKey(type)) continue;
+                    try
+                    {
+                        // Needs full in-game UI/Controller — never call on title.
                         journal.addJournalEntry(type, noPopup: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        ModLog.Warn(LogCat.Session,
+                            "addJournalEntry skipped for '" + type + "': " + ex.Message);
+                    }
                 }
             }
 
             // Late join: remove world pickups already claimed by the host journal.
-            // Scene objects may not exist yet — TryFlushPendingJournal retries.
             _needsJournalWorldCleanup = true;
             TryJournalWorldCleanup();
             ModRuntime.LegacyInfo(
@@ -4057,7 +4340,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Apply journal bulk queued before UI.journal, and despawn collected world pickups
+        /// Apply journal bulk queued while on title, and despawn collected world pickups
         /// once the client scene has spawned them.
         /// </summary>
         private void TryFlushPendingJournal()
@@ -4065,15 +4348,31 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Client)
                 return;
 
-            if (_hasPendingJournalBulk && Singleton<UI>.Instance?.journal != null)
+            if (_hasPendingJournalBulk && ClientCanApplyWorldBulk()
+                && Singleton<UI>.Instance?.journal != null)
             {
-                _hasPendingJournalBulk = false;
                 var pending = _pendingJournalBulk;
-                _pendingJournalBulk = default;
-                ApplyJournalBulkSync(pending);
+                try
+                {
+                    _hasPendingJournalBulk = false;
+                    _pendingJournalBulk = default;
+                    ApplyJournalBulkSync(pending);
+                    // If still not actually applied (gate / null), re-queue
+                    if (!ClientCanApplyWorldBulk())
+                    {
+                        _pendingJournalBulk = pending;
+                        _hasPendingJournalBulk = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _pendingJournalBulk = pending;
+                    _hasPendingJournalBulk = true;
+                    ModLog.Warn(LogCat.Session, "Journal flush retry later: " + ex.Message);
+                }
             }
 
-            if (_needsJournalWorldCleanup)
+            if (_needsJournalWorldCleanup && ClientCanApplyWorldBulk())
                 TryJournalWorldCleanup();
         }
 
@@ -4118,7 +4417,9 @@ namespace DWMPHorde.Networking
         private void SendJournalBulkSyncTo(int targetPlayerId)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
-            if (journal == null) return;
+            if (journal == null || journal.notesDict == null || journal.keysDict == null
+                || journal.itemsDict == null || journal.journalEntriesDict == null)
+                return;
 
             var msg = new JournalBulkSyncMessage();
 
@@ -4394,9 +4695,35 @@ namespace DWMPHorde.Networking
             Sync.WorldPhysicsSyncService.ApplyLightState(ls, fromPeer);
         }
 
+        /// <summary>
+        /// Local Player must be active in a loaded chapter. Title + LoadScene have an
+        /// inactive/null Player — cloning then spams logs and freezes both dual-box installs.
+        /// </summary>
+        private static bool CanSpawnRemoteProxies()
+        {
+            try
+            {
+                if (Core.mainMenu || Core.loadingGame)
+                    return false;
+                Player p = Player.Instance;
+                if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)
+                    return false;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void EnsureRemoteProxy(int playerId)
         {
+            if (playerId <= 0)
+                return;
             if (_remoteProxies.ContainsKey(playerId))
+                return;
+            // Silent skip — do not log every network tick during join load.
+            if (!CanSpawnRemoteProxies())
                 return;
 
             RemotePlayerProxy.Spawn(ModRuntime.Log, out RemotePlayerProxy proxy);
@@ -4407,8 +4734,6 @@ namespace DWMPHorde.Networking
                 proxy.OnFootstep += (pId, running) => HandleProxyFootstep(pId, running);
                 RemoveClonedEmitters(proxy.transform);
 
-                // Initialize proxy position to local player's position,
-                // so it doesn't sit at Vector3.zero until first state sync.
                 if (Player.Instance != null)
                 {
                     var rb = proxy.GetComponent<Rigidbody>();
@@ -4716,10 +5041,21 @@ namespace DWMPHorde.Networking
 
             ctrl.CurrentTime = msg.CurrentTime;
             ctrl.day = msg.Day;
-            ctrl.refreshTime();
+
+            // Audit C1: never call refreshTime() here — it fires startDay / startAfterNight /
+            // night scenario setMe on the client. Clock UI + ambient only.
+            if (CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync)
+            {
+                try { ctrl.refreshTimeNoLogic(); }
+                catch (System.Exception ex)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.Log?.LogWarning("[TimeSync] refreshTimeNoLogic: " + ex.Message);
+                }
+            }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight}");
+                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
         }
 
         private void HandleEntitySound(EntitySoundMessage msg)
@@ -5191,24 +5527,7 @@ namespace DWMPHorde.Networking
         {
             if (msg.IsStopSignal)
             {
-                // Stop AudioObjects: prefer SoundId, fall back to ObjectName lookup
-                string __ssid = null;
-                if (!string.IsNullOrEmpty(msg.SoundId))
-                    __ssid = msg.SoundId;
-                else if (!string.IsNullOrEmpty(msg.ObjectName))
-                {
-                    var __sgo = GameObject.Find(msg.ObjectName);
-                    if (__sgo != null)
-                    {
-                        var __ssnd = __sgo.GetComponent<ItemSounds>();
-                        if (__ssnd != null)
-                        {
-                            __ssid = __ssnd.movingSound;
-                            if (string.IsNullOrEmpty(__ssid)) __ssid = __ssnd.movingSound_grass;
-                        }
-                    }
-                }
-                // Intentional remote stop — snappy force-stop (not long residual fade).
+                // Intentional remote stop — force-stop native + MOS (vanilla 0.5s fade only).
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(msg.ObjectName);
                 Sync.WorldPhysicsSyncService.TryStopBodyPushSound(msg.ObjectName);
                 return;
@@ -5216,10 +5535,39 @@ namespace DWMPHorde.Networking
 
             if (string.IsNullOrEmpty(msg.SoundId)) return;
 
-            // Body-push / scrape: ignore start packets during post-ForceStop suppress window.
-            if (!string.IsNullOrEmpty(msg.ObjectName)
-                && DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
-                return;
+            // Body-push / scrape with ObjectName: single-owner path.
+            if (!string.IsNullOrEmpty(msg.ObjectName))
+            {
+                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
+                    return;
+                // Local free-body pusher hears native ItemSounds only — never arm MOS/PlayerAudio.
+                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName))
+                    return;
+                // Already playing via PhysicsState→MOS: ignore redundant start (T2).
+                if (DWMPHorde.Audio.MovingObjectSoundService.IsPlaying(msg.ObjectName))
+                    return;
+
+                Vector3 bodyPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                if (!float.IsNaN(msg.PosX)
+                    && !LocalAudioService.IsNearListener(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
+                    return;
+
+                GameObject go = GameObject.Find(msg.ObjectName);
+                if (go != null)
+                {
+                    ItemSounds sounds = go.GetComponent<ItemSounds>();
+                    if (sounds != null)
+                    {
+                        DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(go, msg.ObjectName, sounds);
+                        return;
+                    }
+                    // Fallback when ItemSounds missing: MOS EnsurePlaying by SoundId.
+                    float vol = Mathf.Clamp01(msg.Volume);
+                    DWMPHorde.Audio.MovingObjectSoundService.EnsurePlaying(go, msg.ObjectName, msg.SoundId, vol);
+                    return;
+                }
+                // Object not found locally — fall through to positional one-shot (legacy).
+            }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             bool hasPos = !float.IsNaN(msg.PosX);
@@ -5236,19 +5584,6 @@ namespace DWMPHorde.Networking
 
             if (!LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
                 return;
-
-            // Alive-check dedup: skip if an AudioObject is already playing for this sound
-            if (!string.IsNullOrEmpty(msg.ObjectName))
-            {
-                var __pa = AudioController.GetPlayingAudioObjects(msg.SoundId);
-                if (__pa != null && __pa.Count > 0)
-                {
-                    bool __alive = false;
-                    foreach (var __ao in __pa)
-                        if (__ao != null && __ao.IsPlaying()) { __alive = true; break; }
-                    if (__alive) return;
-                }
-            }
 
             TraverseHack.ApplyingFromNetwork = true;
             try
@@ -5277,12 +5612,6 @@ namespace DWMPHorde.Networking
                     audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
                     audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
                     audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-
-                    // Body-push sounds broadcast via PlayerAudio with ObjectName set.
-                    // Force loop so the AudioObject stays alive between 10Hz broadcasts
-                    // and the GetPlayingAudioObjects dedup finds it.
-                    if (!string.IsNullOrEmpty(msg.ObjectName))
-                        audioObj.primaryAudioSource.loop = true;
                 }
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
@@ -5476,6 +5805,29 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.PrefabName)) return;
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Local Explodes already ran spawnObjects (stomp or SpawnExplosionVisual) —
+            // skip host-echoed secondaries so the stomper/remote doesn't double debris.
+            if (ExplosionSpawnFlagTracker.ShouldSkipExplosionSpawnObject(pos))
+            {
+                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local FX recent) " + msg.PrefabName + " at " + pos);
+                return;
+            }
+            // SpawnObject often arrives before ExplosionTrigger (same-frame host onActivate).
+            // If a local Explodes with secondaries still exists, let SpawnExplosionVisual
+            // own spawnObjects() — applying both piles white debris twice on remotes.
+            Explodes localExpl = null;
+            Collider[] nearFx = Physics.OverlapSphere(pos, 1.5f);
+            for (int i = 0; i < nearFx.Length; i++)
+            {
+                if (nearFx[i] == null) continue;
+                Explodes e = nearFx[i].GetComponentInParent<Explodes>();
+                if (e != null) { localExpl = e; break; }
+            }
+            if (localExpl != null && localExpl.spawnObject != null)
+            {
+                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local Explodes owns secondaries) " + msg.PrefabName + " at " + pos);
+                return;
+            }
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
             bool prevHack = TraverseHack.GetExplicitFlag();
             TraverseHack.SetExplicitFlag(true);
@@ -5528,23 +5880,26 @@ namespace DWMPHorde.Networking
                         HarmonyLib.Traverse.Create(animComp).Method("PlayTorso", new object[] { msg.TorsoClip }).GetValue();
                     }
                     catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[Network] swallowed: " + ex.GetType().Name + ": " + ex.Message);
-            }
+                    {
+                        if (ModRuntime.VerboseLogging)
+                            ModRuntime.Log?.LogWarning("[Network] swallowed: " + ex.GetType().Name + ": " + ex.Message);
+                    }
                 }
 
-                if (!string.IsNullOrEmpty(msg.LegsClip))
+                // Don't restart walk legs while torso is vault/beartrap/etc. (vanilla hides legs).
+                bool hideLegs = !string.IsNullOrEmpty(msg.TorsoClip)
+                    && SecondPlayerAnimController.ShouldHideLegsForTorso(msg.TorsoClip);
+                if (!hideLegs && !string.IsNullOrEmpty(msg.LegsClip))
                 {
                     try
                     {
                         HarmonyLib.Traverse.Create(animComp).Method("PlayLegs", new object[] { msg.LegsClip }).GetValue();
                     }
                     catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[Network] swallowed: " + ex.GetType().Name + ": " + ex.Message);
-            }
+                    {
+                        if (ModRuntime.VerboseLogging)
+                            ModRuntime.Log?.LogWarning("[Network] swallowed: " + ex.GetType().Name + ": " + ex.Message);
+                    }
                 }
             }
             finally
@@ -5875,12 +6230,12 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Client)
                 return;
 
-            if (Singleton<Flags>.Instance == null)
+            if (!ClientCanApplyWorldBulk() || Singleton<Flags>.Instance == null)
             {
                 // Join bulk often arrives before the client has loaded into a world.
                 _pendingFlagBulk = msg;
                 _hasPendingFlagBulk = true;
-                ModRuntime.LegacyInfo($"[BulkSync] Flags not ready — queued {msg.FlagCount} flags");
+                ModRuntime.LegacyInfo($"[BulkSync] Flags queued (in-world=" + ClientCanApplyWorldBulk() + ")");
                 return;
             }
 
@@ -5912,11 +6267,14 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Apply flag bulk/deltas that arrived before <see cref="Flags"/> existed (menu/load).
-        /// Called every frame after network poll.
+        /// Called every frame after network poll. Gate: not on title menu.
         /// </summary>
         private void TryFlushPendingFlags()
         {
             if (_role != NetworkRole.Client)
+                return;
+            // Same gate as journal — Flags may exist on title but world not ready.
+            if (!ClientCanApplyWorldBulk())
                 return;
             if (Singleton<Flags>.Instance == null)
                 return;
@@ -5924,7 +6282,16 @@ namespace DWMPHorde.Networking
             if (_hasPendingFlagBulk)
             {
                 _hasPendingFlagBulk = false;
-                ApplyFlagBulkSync(_pendingFlagBulk);
+                try
+                {
+                    ApplyFlagBulkSync(_pendingFlagBulk);
+                }
+                catch (Exception ex)
+                {
+                    _hasPendingFlagBulk = true;
+                    ModLog.Warn(LogCat.Session, "Flag bulk flush retry later: " + ex.Message);
+                    return;
+                }
                 _pendingFlagBulk = default;
             }
 
@@ -6217,6 +6584,7 @@ namespace DWMPHorde.Networking
             _hasPendingJournalBulk = false;
             _pendingJournalBulk = default;
             _needsJournalWorldCleanup = false;
+            _awaitingLateJoinBulk.Clear();
             _pendingTradeInventories.Clear();
             _constructedSites.Clear();
             _pendingConstructibles.Clear();

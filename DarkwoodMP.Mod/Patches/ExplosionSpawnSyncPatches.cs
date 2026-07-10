@@ -15,6 +15,23 @@ namespace DWMPHorde.Patches
         /// <summary>Re-entrancy counter: increments on Prefix, decrements on Postfix.
         /// Prevents nested explosions from clearing flags prematurely.</summary>
         public static int ActivationDepth;
+
+        // After local Explodes already ran spawnObjects (local stomp or SpawnExplosionVisual),
+        // host may still send ExplosionSpawnObject for the same secondaries — debounce those.
+        private static float _localExplodeFxUntil;
+        private static Vector3 _localExplodeFxPos;
+
+        public static void NoteLocalExplodeFx(Vector3 pos)
+        {
+            _localExplodeFxPos = pos;
+            _localExplodeFxUntil = Time.time + 0.5f;
+        }
+
+        public static bool ShouldSkipExplosionSpawnObject(Vector3 pos)
+        {
+            if (Time.time >= _localExplodeFxUntil) return false;
+            return (pos - _localExplodeFxPos).sqrMagnitude < 4f; // 2 unit radius
+        }
     }
 
     /// <summary>

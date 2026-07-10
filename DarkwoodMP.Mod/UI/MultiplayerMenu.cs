@@ -25,8 +25,23 @@ namespace DWMPHorde
         {
             if (_instance == null) return;
             _instance._visible = !_instance._visible;
-            if (_instance._visible && ModConfig.HostPassword != null)
-                _instance._passwordText = ModConfig.HostPassword.Value ?? "";
+            if (_instance._visible)
+                _instance.PullFieldsFromConfig();
+        }
+
+        /// <summary>Open IMGUI settings (IP/port/password) — used by main-menu SETTINGS.</summary>
+        public static void ShowSettings()
+        {
+            if (_instance == null) return;
+            _instance._visible = true;
+            _instance.PullFieldsFromConfig();
+        }
+
+        /// <summary>Write typed IMGUI fields into BepInEx config before host/join.</summary>
+        public static void PushFieldsToConfig()
+        {
+            if (_instance == null) return;
+            _instance.WriteFieldsToConfig();
         }
 
         public static void EnsureExists()
@@ -38,6 +53,33 @@ namespace DWMPHorde
             Object.DontDestroyOnLoad(go);
             _instance = go.AddComponent<MultiplayerMenu>();
             _instance.ResetWindowRect();
+            _instance.PullFieldsFromConfig();
+        }
+
+        private void PullFieldsFromConfig()
+        {
+            if (ModConfig.ConnectAddress != null)
+                _connectAddress = ModConfig.ConnectAddress.Value ?? "127.0.0.1";
+            if (ModConfig.ConnectPort != null)
+                _portText = ModConfig.ConnectPort.Value.ToString();
+            if (ModConfig.HostPassword != null)
+                _passwordText = ModConfig.HostPassword.Value ?? "";
+        }
+
+        private void WriteFieldsToConfig()
+        {
+            if (ModConfig.ConnectAddress != null && _connectAddress != null)
+                ModConfig.ConnectAddress.Value = _connectAddress.Trim();
+            if (ModConfig.ConnectPort != null && int.TryParse(_portText, out int p))
+                ModConfig.ConnectPort.Value = p;
+            if (ModConfig.HostPassword != null && _passwordText != null)
+                ModConfig.HostPassword.Value = _passwordText;
+        }
+
+        private void Update()
+        {
+            // Native MULTIPLAYER button inject (Yokyy product feature on Horde base)
+            MainMenuMultiplayerInject.OnUpdate();
         }
 
         private void ResetWindowRect()
@@ -98,10 +140,10 @@ namespace DWMPHorde
                 GUILayout.Label(sessionLine, GUILayout.ExpandWidth(true));
             }
             GUILayout.Label(
-                "New world: connect first. Host generates → save files are pushed to the SAME profile slot on clients (host slot 5 → client prof5). Overwrites that slot.",
+                "JOIN flow: Host must be IN the chapter (not title). Client stays on title → auto world download → loads profile slot 5.",
                 GUILayout.ExpandWidth(true));
             GUILayout.Label(
-                "Existing-save co-op: load matching world first, or use Resend. Mid-session join still needs same day/chapter.",
+                "Host from title then load: clients already connected get world push when host Player.Start runs. F2 Resend if stuck.",
                 GUILayout.ExpandWidth(true));
             if (Network != null && Network.WorldSaveShare != null)
             {
@@ -125,25 +167,34 @@ namespace DWMPHorde
             GUILayout.Label("Password (optional, must match host config):", GUILayout.ExpandWidth(true));
             _passwordText = GUILayout.TextField(_passwordText ?? "", GUILayout.ExpandWidth(true));
 
+            GUILayout.Space(4f);
+            GUILayout.Label("Chat name:", GUILayout.ExpandWidth(true));
+            if (ModConfig.PlayerName != null)
+                ModConfig.PlayerName.Value = GUILayout.TextField(ModConfig.PlayerName.Value ?? "Player", GUILayout.ExpandWidth(true));
+
             if (!int.TryParse(_portText, out int port))
                 port = PluginInfo.DefaultPort;
+            if (port < 1 || port > 65535)
+                port = PluginInfo.DefaultPort;
 
-            // Sync menu password into live config so connect/host use the same key.
-            if (ModConfig.HostPassword != null && _passwordText != null
-                && ModConfig.HostPassword.Value != _passwordText)
-            {
-                ModConfig.HostPassword.Value = _passwordText;
-            }
+            // Keep BepInEx config in sync with typed fields
+            WriteFieldsToConfig();
 
             GUILayout.Space(10f);
 
             if (Network != null && Network.Role == NetworkRole.Offline)
             {
                 if (GUILayout.Button("Host LAN game (port " + port + ")", GUILayout.Height(32f)))
+                {
+                    WriteFieldsToConfig();
                     Network.StartHost(port);
+                }
 
                 if (GUILayout.Button("Connect to host", GUILayout.Height(32f)))
+                {
+                    WriteFieldsToConfig();
                     Network.ConnectToHost(_connectAddress.Trim(), port);
+                }
             }
             else if (Network != null)
             {
@@ -172,9 +223,7 @@ namespace DWMPHorde
             GUILayout.Label("v" + PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion, GUILayout.ExpandWidth(true));
             GUILayout.Label("Config: BepInEx/config/" + PluginInfo.Guid + ".cfg  (restart after LogPreset change)", GUILayout.ExpandWidth(true));
             GUILayout.Label("LogPreset=" + ModLog.CurrentPreset + " (default full Trace; Public=quiet)", GUILayout.ExpandWidth(true));
-            GUILayout.Label("F2=menu F3=save F4=spectator" +
-                (ModConfig.EnableDebugTools != null && ModConfig.EnableDebugTools.Value
-                    ? " F5=debug" : ""), GUILayout.ExpandWidth(true));
+            GUILayout.Label("Title: MULTIPLAYER  |  F2=this  F3=save  F4=spectate  Ctrl+C=chat  F5=spawner", GUILayout.ExpandWidth(true));
             GUILayout.Label("Bugs: quit → send BOTH host+client BepInEx/LogOutput.log", GUILayout.ExpandWidth(true));
 
             GUILayout.EndScrollView();

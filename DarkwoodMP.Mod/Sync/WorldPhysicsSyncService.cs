@@ -32,10 +32,9 @@ namespace DWMPHorde.Sync
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
         // updates. Key = InstanceID, value = Rigidbody + time to release.
         private static readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> _clientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
-        // Stops body-push scrape shortly after the last real position change.
-        // Hold is one PhysicsState tick (0.1s) so decision lag stays under a frame
-        // of net physics; remaining audible tail is mostly vanilla Stop(0.5f) fade.
-        private const float BodyPushSoundHold = 0.1f;
+        // Residual hold only for jitter between quiet detection paths that still
+        // use the timer (kinematic release). Primary stop is first quiet packet.
+        private const float BodyPushSoundHold = 0.05f;
         private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>();
         // Manually-managed AudioSource for host->client body-push sound.
@@ -804,10 +803,9 @@ namespace DWMPHorde.Sync
                                 _clientKinematic[goId] = (rb, Time.time + 0.5f, obj.Name);
                             }
 
-                            // Scrape: start once on real motion, extend stop deadline while moving.
+                            // Scrape: start once on real motion. First quiet packet stops
+                            // immediately (T3) — no multi-hold residual slide lag.
                             // Never re-NotifyStarted on every tick (was restarting loops constantly).
-                            // Stationary packets arm a short stop — do not keep a long hold from
-                            // residual micro-slides that barely clear posChanged.
                             if (posChanged && !gated)
                             {
                                 if (_bodyPushSoundActive.Add(obj.Name))
@@ -815,19 +813,19 @@ namespace DWMPHorde.Sync
                                     ModRuntime.LegacyInfo("[SND] body-push start " + obj.Name + " d=" + posDelta.ToString("F3"));
                                     LanNetworkManager.NotifyBodyPushStarted(go);
                                 }
-                                _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
+                                // Keep a tiny timer only as a safety net if quiet packets stop arriving.
+                                _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold + 0.1f;
                                 _pushNameToGid[obj.Name] = goId;
                                 _pushGidToName[goId] = obj.Name;
                             }
-                            else if (!gated && _bodyPushSoundActive.Contains(obj.Name))
+                            else if (!gated && _bodyPushSoundActive.Remove(obj.Name))
                             {
-                                // First quiet tick after motion: pull deadline in if residual
-                                // earlier motion left a longer timer, or arm one if missing.
-                                float quietDeadline = Time.time + BodyPushSoundHold;
-                                if (!_bodyPushSoundTimer.TryGetValue(goId, out float existing) || existing > quietDeadline)
-                                    _bodyPushSoundTimer[goId] = quietDeadline;
-                                _pushNameToGid[obj.Name] = goId;
-                                _pushGidToName[goId] = obj.Name;
+                                // First quiet tick → stop decision now (≤ one PhysicsState interval).
+                                ModRuntime.LegacyInfo("[SND] body-push stop (quiet) " + obj.Name);
+                                LanNetworkManager.NotifyBodyPushStopped(obj.Name);
+                                _bodyPushSoundTimer.Remove(goId);
+                                _pushNameToGid.Remove(obj.Name);
+                                _pushGidToName.Remove(goId);
                             }
 
                             SetObjectTarget(go, objPos, rotVec);
@@ -858,15 +856,23 @@ namespace DWMPHorde.Sync
                                 {
                                     if (__pd >= 0.03f)
                                     {
+                                        // Remote host→client motion: MOS only (MarkRemoteScrape inside NoteMoving).
                                         MovingObjectSoundService.NoteMoving(__ic.gameObject, obj.Name, __isnd);
                                         _pushNameToGid[obj.Name] = __gid;
                                         _pushGidToName[__gid] = obj.Name;
                                         _lastPushSoundTime[__gid] = Time.time;
                                         _pushStationaryCount[__gid] = 0;
                                     }
-                                    else
+                                    else if (_lastPushSoundTime.ContainsKey(__gid)
+                                        || ItemMovingSoundHelper.IsRemoteScrape(obj.Name))
                                     {
-                                        MovingObjectSoundService.NoteStationary(obj.Name);
+                                        // First quiet net tick after motion — stop promptly (not multi-hold).
+                                        // ForceStop keeps remote suppress until MOS dies + sleeps residual RB.
+                                        ItemMovingSoundHelper.ForceStopByName(obj.Name);
+                                        _lastPushSoundTime.Remove(__gid);
+                                        _pushStationaryCount.Remove(__gid);
+                                        _pushNameToGid.Remove(obj.Name);
+                                        _pushGidToName.Remove(__gid);
                                     }
                                 }
                             }
@@ -1587,8 +1593,11 @@ namespace DWMPHorde.Sync
             // Unified scrape-loop fades + occlusion (drag + body-push).
             MovingObjectSoundService.Tick();
 
+            // Local free-body push: ForceStop when player stops / leaves contact (T3).
+            ItemMovingSoundHelper.TickLocalPushScrapeStop();
+
             // If PhysicsState stops reporting motion, decide stop promptly.
-            // One physics interval (0.1s) + a small cushion — not a long hang.
+            // One physics interval (~0.1s) cushion for dropped packets — not a long hang.
             // Remaining tail is vanilla-style 0.5s fade in StopNetwork.
             float __srcCleanupNow = Time.time;
             List<int> __staleSrcKeys = null;
@@ -1605,7 +1614,7 @@ namespace DWMPHorde.Sync
                 {
                     if (_pushGidToName.TryGetValue(__k, out var __akn))
                     {
-                        MovingObjectSoundService.StopNetwork(__akn);
+                        ItemMovingSoundHelper.ForceStopByName(__akn);
                         _pushNameToGid.Remove(__akn);
                     }
                     _lastPushSoundTime.Remove(__k);
@@ -2042,9 +2051,9 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Spawns the explosion visual effect (prefab + sound) on the client side.
-        /// Tries to find the Explodes component locally first; if not found, falls back
-        /// to spawning the prefab by name and playing the sound from the message fields.
+        /// Client-side explosion VFX without damage: mirrors vanilla onActivate visual half
+        /// (spawnObjects + explosionPrefab + sound + optional destroy), never explode().
+        /// Host ExplosionSpawnObject remains fallback when no local Explodes exists.
         /// </summary>
         public static void SpawnExplosionVisual(Vector3 pos, string objectName, string prefabName, string soundId)
         {
@@ -2084,27 +2093,80 @@ namespace DWMPHorde.Sync
                 }
                 catch { if (ModRuntime.VerboseLogging) ModRuntime.Log?.LogWarning("[WPSS] caught exception"); }
 
-                // Spawn the local Explodes' own prefab (exact visual match)
                 try
                 {
-                    UnityEngine.Object prefab = (UnityEngine.Object)Traverse.Create(target).Field("explosionPrefab").GetValue();
-                    if (prefab != null)
-                    {
-                        Core.AddPrefab(prefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
-                        ModRuntime.LegacyInfo("[ExplosionVisual] spawned local prefab " + prefab.name + " at " + pos);
-                    }
-                }
-                catch { if (ModRuntime.VerboseLogging) ModRuntime.Log?.LogWarning("[WPSS] caught exception"); }
+                    // Vanilla order: activated first so re-entry / ExplosionSpawnObject won't
+                    // run a second full onActivate path against this component.
+                    Traverse.Create(target).Field("activated").SetValue(true);
 
-                // Sound is already forwarded via PlayerAudio from the host's
-                // Play() call — skip local replay to prevent double-audio.
+                    // 1) Secondary debris/FX (mushroom white spawnObject) — missing on remote before T1
+                    if (target.spawnObject != null)
+                    {
+                        Traverse.Create(target).Method("spawnObjects").GetValue();
+                        ModRuntime.LegacyInfo("[ExplosionVisual] spawnObjects() for " + target.name + " at " + pos);
+                    }
+
+                    // 2) Main boom VFX
+                    if (target.explosionPrefab != null)
+                    {
+                        Core.AddPrefab(target.explosionPrefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
+                        ModRuntime.LegacyInfo("[ExplosionVisual] spawned local prefab " + target.explosionPrefab.name + " at " + pos);
+                    }
+
+                    // 3) Remote needs audio; host explode() sound is not reliably heard here
+                    string sound = !string.IsNullOrEmpty(soundId) ? soundId : target.explodeSound;
+                    if (!string.IsNullOrEmpty(sound))
+                    {
+                        AudioController.Play(sound, pos);
+                        ModRuntime.LegacyInfo("[ExplosionVisual] played sound " + sound + " at " + pos);
+                    }
+
+                    // Dedupe host ExplosionSpawnObject for the secondaries we just spawned
+                    DWMPHorde.Patches.ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+
+                    // 4) Match vanilla destroy without calling explode() (no double damage)
+                    if (target.destroyOnExplode && target.gameObject != null)
+                        target.gameObject.DestroyMe();
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[ExplosionVisual] failed: " + ex.Message);
+                }
 
                 return;
             }
 
-            // Fallback: no local Explodes found — try spawning via Resources if prefabName is a path,
-            // then at minimum play the explosion sound for audio feedback.
+            // Fallback: no local Explodes (already destroyed / never loaded).
+            // Still spawn main boom prefab + sound so remotes get the full FX, not a snap.
             ModRuntime.LegacyInfo("[ExplosionVisual] no local Explodes for \"" + objectName + "\", using message data");
+
+            if (!string.IsNullOrEmpty(prefabName))
+            {
+                try
+                {
+                    string[] prefixes = { "", "Items/", "FX/", "Environment/", "Particles/", "Dummies/", "Fire/", "Weapons/" };
+                    UnityEngine.Object prefab = null;
+                    for (int i = 0; i < prefixes.Length; i++)
+                    {
+                        prefab = Resources.Load("Prefabs/" + prefixes[i] + prefabName);
+                        if (prefab != null) break;
+                    }
+                    if (prefab != null)
+                    {
+                        Core.AddPrefab(prefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
+                        ModRuntime.LegacyInfo("[ExplosionVisual] fallback prefab " + prefabName + " at " + pos);
+                    }
+                    else
+                    {
+                        Core.AddPrefab(prefabName, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
+                    }
+                    DWMPHorde.Patches.ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[ExplosionVisual] fallback prefab failed: " + ex.Message);
+                }
+            }
 
             if (!string.IsNullOrEmpty(soundId))
             {

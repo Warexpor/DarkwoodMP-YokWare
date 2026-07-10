@@ -32,7 +32,7 @@ public class PathBStructureTests
         var text = File.ReadAllText(Path.Combine(ModDir, "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
-        Assert.Contains("0.9.1", text);
+        Assert.Contains("0.9.2", text);
         Assert.Contains("ProtocolVersion = 19", text);
         Assert.Contains("Horde", text);
     }
@@ -118,5 +118,26 @@ public class PathBStructureTests
         Assert.Contains("BepInPlugin", File.ReadAllText(entry));
         Assert.False(File.Exists(Path.Combine(ModDir, "ModMain.cs")),
             "Yokyy ModMain.cs must not be the shipped entry under DarkwoodMP.Mod");
+    }
+
+    [Fact]
+    public void MainMenuMultiplayerInject_AndChat_ArePresent()
+    {
+        Assert.True(File.Exists(Path.Combine(ModDir, "UI", "MainMenuMultiplayerInject.cs")));
+        Assert.True(File.Exists(Path.Combine(ModDir, "UI", "ChatHud.cs")));
+        var inject = File.ReadAllText(Path.Combine(ModDir, "UI", "MainMenuMultiplayerInject.cs"));
+        Assert.Contains("MULTIPLAYER", inject);
+        Assert.Contains("PushFieldsToConfig", inject);
+        Assert.Contains("DISCONNECT", inject);
+        Assert.Contains("displayProfilesMenu", inject);
+
+        var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
+        Assert.Contains("ChatMessage = 111", netTypes);
+
+        var writer = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetWriter.cs"));
+        Assert.Contains("PutRaw", writer);
+        var lan = File.ReadAllText(Path.Combine(ModDir, "Networking", "LanNetworkManager.cs"));
+        Assert.Contains("PutRaw(payload)", lan);
+        Assert.DoesNotContain("w => w.Put(payload)", lan); // length-prefixed forward was the 3+ peer bug
     }
 }

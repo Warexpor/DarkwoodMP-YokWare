@@ -94,7 +94,9 @@ namespace DWMPHorde.Networking
                 + session.ChapterId
                 + ", day "
                 + session.DayIndex
-                + ". New worlds are auto-shared when the host generates them while you are connected.";
+                + ". Stay on title — host auto-pushes world when in-game; loads into profile slot "
+                + WorldSaveShareService.ClientReceiveProfileId
+                + ".";
         }
 
         /// <summary>

@@ -1,7 +1,6 @@
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using DWMPHorde.Config;
-using DWMPHorde.DebugTools;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Patches;
@@ -28,16 +27,17 @@ namespace DWMPHorde
         public static bool VerboseLogging { get; set; }
 
         /// <summary>
-        /// Legacy uncategorized LogInfo: silent on Public/Support presets.
-        /// Prefer ModLog.Event/Trace with a LogCat. Enabled only for Dev/Trace presets.
+        /// Legacy high-frequency dumps (entity/physics/container).
+        /// <b>Dev only</b> — Trace still gets ModLog.Event join/session lines without
+        /// multi-MB LogOutput.log spam (Physics/HostEntitySync were ~10MB in minutes).
         /// </summary>
         public static void LegacyInfo(string message)
         {
             if (Log == null || message == null) return;
-            var preset = Logging.ModLog.CurrentPreset;
-            if (preset != Logging.LogPreset.Dev && preset != Logging.LogPreset.Trace)
+            if (Logging.ModLog.CurrentPreset != Logging.LogPreset.Dev)
                 return;
-            Log.LogInfo(message);
+            // Rate-limit even on Dev: same message prefix at most ~2/sec
+            Logging.ModLog.LegacyRateLimited(message);
         }
 
         private static bool _running;
@@ -103,6 +103,12 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(DroppedItemIdentifier.ClearRegistry);
                 NetworkResetRegistry.Register(DialogOutcomeIndexPatch.ResetCounter);
                 NetworkResetRegistry.Register(PauseSuppression.Reset);
+                NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
+                NetworkResetRegistry.Register(NpcDialogueLock.Reset);
+                // Chapter resume pending must survive StopNetwork during chapter tear —
+                // do NOT register ChapterSessionResume.Reset on network stop.
+
+                ChapterSessionResume.EnsureSceneHook();
 
                 ModLog.BannerSessionStart();
 
@@ -130,10 +136,10 @@ namespace DWMPHorde
             Object.DontDestroyOnLoad(root);
 
             Network = root.AddComponent<LanNetworkManager>();
-            if (ModConfig.EnableDebugTools != null && ModConfig.EnableDebugTools.Value)
-                root.AddComponent<EntitySpawnerUI>();
+            // Entity spawner is a separate plugin: YokWare.EntitySpawner (F5).
 
             MultiplayerMenu.EnsureExists();
+            ChatHud.EnsureExists();
             Spectator.SpectatorModeController.EnsureExists();
             ManualSaveGUI.EnsureExists();
         }

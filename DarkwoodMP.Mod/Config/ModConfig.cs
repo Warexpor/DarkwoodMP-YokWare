@@ -15,6 +15,8 @@ namespace DWMPHorde.Config
         public static ConfigEntry<string> ConnectAddress { get; private set; }
         public static ConfigEntry<int> ConnectPort { get; private set; }
         public static ConfigEntry<string> HostPassword { get; private set; }
+        /// <summary>Display name in chat (Yokyy product port).</summary>
+        public static ConfigEntry<string> PlayerName { get; private set; }
         public static ConfigEntry<bool> FriendlyFireEnabled { get; private set; }
         public static ConfigEntry<bool> DoubleItemsEnabled { get; private set; }
         public static ConfigEntry<string> LootShareModeSetting { get; private set; }
@@ -27,7 +29,6 @@ namespace DWMPHorde.Config
         public static ConfigEntry<bool> VerboseLightSync { get; private set; }
         public static ConfigEntry<int> MaxPlayers { get; private set; }
         public static ConfigEntry<bool> AllowJoinDuringDream { get; private set; }
-        public static ConfigEntry<bool> EnableDebugTools { get; private set; }
         public static ConfigEntry<int> MaxPeerDamage { get; private set; }
 
         /// <summary>
@@ -93,6 +94,8 @@ namespace DWMPHorde.Config
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort, "Default UDP port for LAN connections.");
             HostPassword = config.Bind("Network", "HostPassword", "",
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match.");
+            PlayerName = config.Bind("Network", "PlayerName", "Player",
+                "Name shown in co-op chat (Ctrl+C).");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
@@ -106,30 +109,31 @@ namespace DWMPHorde.Config
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max (anti-grief). No per-message rate limit — multi-hit weapons need every pellet to apply.");
-            EnableDebugTools = config.Bind("Debug", "EnableDebugTools", false,
-                "If true, F5 entity spawner UI is available. Leave false for release play.");
+            // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
 
-            LogPresetSetting = config.Bind("Logging", "LogPreset", "Trace",
-                "Default Trace=full (all categories + high-freq). Public=quiet. Support=bug-sized Event set. Dev=all Event no Trace spam. Restart after change.");
-            LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Trace",
-                "Error | Warn | Event | Info | Trace. Levels above this are dropped. Trace preset also forces Trace.");
+            // Support = join/session/combat Events without Physics/entity frame spam (Trace/Dev can fill 10MB+).
+            LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
+                "Public=quiet. Support=session/join/combat Events (default playtest). Trace=all cats + high-freq. Dev=LegacyInfo dumps (huge logs). Restart after change.");
+            LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
+                "Error | Warn | Event | Info | Trace. Levels above this are dropped.");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
                 "Optional Event categories on top of preset (comma): Core,Network,Session,Combat,Entity,Physics,Container,World,AI,Dream,Death,Audio,UI,Save.");
             LogTraceCategories = config.Bind("Logging", "LogTraceCategories", "none",
                 "Categories allowed for Trace when not full Trace preset, or 'none'.");
             LogRateLimitSeconds = config.Bind("Logging", "LogRateLimitSeconds", 1f,
                 "Minimum seconds between identical TraceRate keys (spam guard).");
-            LogRedactPaths = config.Bind("Logging", "LogRedactPaths", true,
+            // Local dual-box default: full lines in BepInEx/LogOutput.log (set true for public pastebins).
+            LogRedactPaths = config.Bind("Logging", "LogRedactPaths", false,
                 "Strip absolute paths to filenames in log lines (safer pastebins).");
-            LogRedactIPs = config.Bind("Logging", "LogRedactIPs", true,
+            LogRedactIPs = config.Bind("Logging", "LogRedactIPs", false,
                 "Mask IPv4 in logs (Public always; leave true when sharing Support logs).");
-            LogIncludeStacks = config.Bind("Logging", "LogIncludeStacks", false,
+            LogIncludeStacks = config.Bind("Logging", "LogIncludeStacks", true,
                 "Include full exception stacks on Error (also on for Dev/Trace).");
 
             VerboseLogging = config.Bind("Debug", "VerboseLogging", false,
-                "DEPRECATED: true forces LogPreset=Trace when preset is Public. Prefer [Logging] LogPreset=Trace.");
+                "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
-                "Transition-only light sync logs (flare/flash on/off, join bulk). Independent of LogPreset; leave false for public tests.");
+                "Transition light sync logs. Leave false unless debugging lights.");
         }
 
         /// <summary>True when VerboseLightSync is enabled (safe if unbound).</summary>

@@ -82,6 +82,13 @@ namespace DWMPHorde.Networking
         private JournalBulkSyncMessage _pendingJournalBulk;
         private bool _needsJournalWorldCleanup;
 
+        /// <summary>
+        /// Peers awaiting late-join bulk. Value = realtime of first in-world PlayerState
+        /// (0 = share done, not seen in-world yet). Bulk after ClientBulkSettleSeconds.
+        /// </summary>
+        private readonly Dictionary<int, float> _awaitingLateJoinBulk = new Dictionary<int, float>();
+        private const float ClientBulkSettleSeconds = 8f;
+
         // Trader absolute stock arrived before NPC GameObject existed
         private readonly Dictionary<string, TradeInventorySyncMessage> _pendingTradeInventories =
             new Dictionary<string, TradeInventorySyncMessage>();
@@ -529,8 +536,8 @@ namespace DWMPHorde.Networking
             if (!IsConnected || !_handshakeComplete)
                 return;
 
-            // Flush flag updates that were deferred by cooldown (P0.2)
-            if (_role == NetworkRole.Host)
+            // Flush flag updates that were deferred by cooldown (host + client→host H1)
+            if (_role == NetworkRole.Host || _role == NetworkRole.Client)
             {
                 Patches.FlagSyncBoolPatch.TickFlush();
                 Patches.FlagSyncIntPatch.TickFlush();
@@ -538,8 +545,11 @@ namespace DWMPHorde.Networking
 
             _sendTimer += Time.deltaTime;
 
+            // Packing/sending world share — pause entity/physics spam so host can breathe.
+            bool shareBusy = _worldSaveShare != null && _worldSaveShare.IsBusy;
+
             // Host: broadcast entity states to clients
-            if (_role == NetworkRole.Host)
+            if (_role == NetworkRole.Host && !shareBusy)
             {
                 EntityStateBroadcastService.Tick();
 
@@ -571,10 +581,13 @@ namespace DWMPHorde.Networking
             // Skip while local player is in a dream -- dream objects don't exist
             // in the shared world and would cause phantom spawns on the other side.
             _physicsSendTimer += Time.deltaTime;
-            if (_physicsSendTimer >= PhysicsSendInterval && !Sync.DreamSyncManager.IsLocalDreamActive)
+            if (_physicsSendTimer >= PhysicsSendInterval && !Sync.DreamSyncManager.IsLocalDreamActive && !shareBusy)
             {
                 _physicsSendTimer = 0f;
-                if (Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap))
+                bool clientNotReady = _role == NetworkRole.Client
+                    && (Core.mainMenu || Core.loadingGame || !Core.coreStarted);
+                if (!clientNotReady
+                    && Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap))
                 {
                     if (_role == NetworkRole.Host)
                         Broadcast(NetMessageType.PhysicsState, w => snap.Serialize(w));
@@ -583,11 +596,21 @@ namespace DWMPHorde.Networking
                 }
             }
 
+            // Host still needs light PlayerState for proxies, but not mid-share
+            if (shareBusy && _role == NetworkRole.Host)
+                return;
+
             if (_sendTimer < SendInterval)
                 return;
 
             Player local = Player.Instance;
             if (local == null)
+                return;
+
+            // Client join: do not emit PlayerState during title / LoadScene / before core
+            // is ready — host treated first packet as "in world" and dumped heavy bulk.
+            if (_role == NetworkRole.Client
+                && (Core.mainMenu || Core.loadingGame || !Core.coreStarted))
                 return;
 
             // Don't send position updates while dead in a dream (freezes proxy at death position)
@@ -1001,38 +1024,27 @@ namespace DWMPHorde.Networking
 
                 EntityStateBroadcastService.SetPeers(_peers);
                 WorldSessionMessage session = _worldSync.BuildHostSession();
-                // Bulk sync only needs to reach the new peer (not re-blast everyone).
+                // Session metadata only here — identity + "which world". Heavy bulk is
+                // deferred when host is already in-chapter: client is usually still on the
+                // title menu and journal/inventory/entity apply NREs without a Player.
                 SendToPlayer(playerId, NetMessageType.WorldSession, w => session.Serialize(w),
                     DeliveryMethod.ReliableOrdered);
-                SendJournalBulkSyncTo(playerId);
-                SendFlagBulkSyncTo(playerId);
-                SendReputationBulkSyncTo(playerId);
-                SendTradeInventoriesTo(playerId);
-                SendScenarioBulkSyncTo(playerId);
-                SendHideoutStateSyncTo(playerId);
-                SendWorkbenchLevelSyncTo(playerId);
-                SendConstructedSitesTo(playerId);
-                SendSawStatesTo(playerId);
-                SendGasStateTo(playerId);
-                SendBarricadeStateTo(playerId);
-                SendShadowsTo(playerId);
-                SendMapStateSyncTo(playerId);
-                // Immediate day/time/after-night — do not wait for periodic 2s tick
-                SendTimeSyncTo(playerId);
 
-                EnsureRemoteProxy(playerId);
-                SyncCurrentLightState();
-
-                // Sync existing death bags to the newly connected player
-                SyncExistingDeathBags(playerId);
-                // Networked ground drops (GUID) so late join sees them
-                SyncExistingDroppedItems(playerId);
-                // Unlocked padlocks/doors + interactive isOn (levers/wells)
-                SyncExistingLocksAndInteractives(playerId);
-                // World lamps already on before join (hideout generators, etc.)
-                SyncExistingWorldLightsTo(playerId);
-                // OutsideLocation membership (basement/bunker/village cellars)
-                SyncExistingLocationsTo(playerId);
+                if (HostHasShareableWorld())
+                {
+                    // Title-menu join path: Handshake already schedules world file share.
+                    // Gameplay bulk (journal, bags, flags, …) is sent after share completes
+                    // so the client can queue until Player exists (see SendLateJoinGameplayBulk).
+                    ModLog.Event(LogCat.Session,
+                        "Peer " + playerId + " connected while host in-world — "
+                        + "deferring gameplay bulk until after world share");
+                }
+                else
+                {
+                    // Host still on title / no chapter — safe enough to send bulk now
+                    // (mostly empty); world share will run when host enters chapter.
+                    SendLateJoinGameplayBulk(playerId);
+                }
             }
             else
             {
@@ -1162,6 +1174,7 @@ namespace DWMPHorde.Networking
                 {
                     _peers.Remove(playerId);
                     _handshakedPeers.Remove(playerId);
+                    _awaitingLateJoinBulk.Remove(playerId); // Dictionary.Remove
                     if (_handshakedPeers.Count == 0)
                         _handshakeComplete = false;
                     DestroyRemoteProxy(playerId);
@@ -1514,6 +1527,25 @@ namespace DWMPHorde.Networking
                         case NetMessageType.WorldSaveEnd:
                             _worldSaveShare?.HandleEnd(WorldSaveEndMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.ChatMessage:
+                            {
+                                var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
+                                // Sanitize peer input (Yokyy had no length/content clamp)
+                                if (chat.Message != null && chat.Message.Length > 160)
+                                    chat.Message = chat.Message.Substring(0, 160);
+                                if (chat.SenderName != null && chat.SenderName.Length > 32)
+                                    chat.SenderName = chat.SenderName.Substring(0, 32);
+                                // Skip echo of our own send (we already drew locally)
+                                if (chat.SenderId != _localPlayerId)
+                                    ChatHud.OnRemote(chat);
+                                break;
+                            }
+                        case NetMessageType.DialogNpcLock:
+                            HandleDialogNpcLock(DialogNpcLockMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.DialogTreeState:
+                            HandleDialogTreeState(DialogTreeStateMessage.Deserialize(new NetReader(payload)));
+                            break;
                         default:
                             ModRuntime.Log?.LogWarning($"[Network] Unhandled message type: {type}");
                             break;
@@ -1537,7 +1569,8 @@ namespace DWMPHorde.Networking
                     if (fwdKind == ForwardableKind.Direct)
                     {
                         // Direct rebroadcast must be reliable (default SendToAllExcept is Unreliable).
-                        SendToAllExcept(_currentReceivePlayerId, type, w => w.Put(payload),
+                        // PutRaw: payload is already the message body — length-prefix would break deserializers (3+ peers).
+                        SendToAllExcept(_currentReceivePlayerId, type, w => w.PutRaw(payload),
                             DeliveryMethod.ReliableOrdered);
                     }
                     else

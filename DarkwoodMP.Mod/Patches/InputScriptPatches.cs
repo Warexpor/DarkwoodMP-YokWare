@@ -10,6 +10,8 @@ namespace DWMPHorde.Patches
         private static void Postfix()
         {
             ModRuntime.EnsureRunning();
+            // Native title MULTIPLAYER inject + join timeout (must run even if IMGUI closed)
+            MainMenuMultiplayerInject.OnUpdate();
             if (Input.GetKeyDown(KeyCode.F2))
                 MultiplayerMenu.ToggleVisible();
         }

@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.Protocol.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.PathB.Tests", "DarkwoodMP.PathB.Tests\DarkwoodMP.PathB.Tests.csproj", "{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.EntitySpawner", "DarkwoodMP.EntitySpawner\DarkwoodMP.EntitySpawner.csproj", "{77EF8F05-6786-6F41-AF01-2245155EE1FE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,10 @@ Global
 		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x64.Build.0 = Release|Any CPU
 		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x86.ActiveCfg = Release|Any CPU
 		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x86.Build.0 = Release|Any CPU
+		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

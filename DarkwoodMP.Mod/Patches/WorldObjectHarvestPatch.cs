@@ -48,6 +48,12 @@ namespace DWMPHorde.Patches
             if (go.GetComponent<ProxyItem>() != null)
                 return;
 
+            // Explodes (mushrooms, barrels, tanks): ExplosionTrigger + SpawnExplosionVisual
+            // own the FX. Sending WorldObjectRemoved first snaps the peer object away
+            // before FX can run (no boom anim / debris). Let explosion path destroy.
+            if (go.GetComponent<Explodes>() != null || go.GetComponentInParent<Explodes>() != null)
+                return;
+
             // Skip objects that are children of the player (held inventory visuals)
             Player localPlayer = Player.Instance;
             if (localPlayer != null && go.transform.IsChildOf(localPlayer.transform))

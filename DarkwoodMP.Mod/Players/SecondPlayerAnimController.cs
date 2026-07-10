@@ -209,6 +209,8 @@ namespace DWMPHorde.Players
             }
             SetLegsWalkFps(dragging);
 
+            bool hideLegs = ShouldHideLegsForTorso(torsoClip);
+
             if (!string.IsNullOrEmpty(torsoClip))
             {
                 PlayTorso(torsoClip);
@@ -225,20 +227,31 @@ namespace DWMPHorde.Players
                     && _torsoAnimator.CurrentClip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Once;
                 if (!transientPlaying)
                     PlayTorso("Idle");
+                else if (_torsoAnimator.CurrentClip != null)
+                    hideLegs = ShouldHideLegsForTorso(_torsoAnimator.CurrentClip.name);
             }
             else
                 ApplyLocomotion(state, Vector3.zero, legFacingY, reverseLegs);
 
-            if (!string.IsNullOrEmpty(legsClip))
+            // Vanilla ProcessAnims: when jumping / beartrap / dodge / etc., legs
+            // renderer is disabled and walk clips must not keep playing on the proxy.
+            if (hideLegs)
             {
+                SetLegsHidden(true);
+            }
+            else if (!string.IsNullOrEmpty(legsClip))
+            {
+                SetLegsHidden(false);
                 PlayLegs(legsClip);
             }
             else if (state == LocomotionState.Walk)
             {
+                SetLegsHidden(false);
                 PlayLegs(reverseLegs ? "LegsWalkReverse" : "LegsWalk");
             }
             else if (state == LocomotionState.Run)
             {
+                SetLegsHidden(false);
                 PlayLegs("LegsRun");
             }
             else if (wasMoving && !isMoving && _legsAnimator != null && _legsAnimator.Playing)
@@ -391,20 +404,56 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Hides legs renderer during animations that don't show the lower body
-        /// (e.g. crawling, window vaulting, sleeping), matching vanilla Player behavior.
+        /// Vanilla Player.ProcessAnims (non-locomotion branch) disables legs renderer
+        /// for vault, beartrap, dodge, crawl, death, etc. Mirror that on the proxy.
         /// </summary>
+        internal static bool ShouldHideLegsForTorso(string torsoClipName)
+        {
+            if (string.IsNullOrEmpty(torsoClipName)) return false;
+            if (torsoClipName == "Idle" || torsoClipName == "Run") return false;
+            if (torsoClipName.IndexOf("Pushing", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+            if (torsoClipName.IndexOf("Walk", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+
+            // Explicit vanilla specials + prefixes
+            if (torsoClipName == "JumpWindow"
+                || torsoClipName == "Dodge"
+                || torsoClipName == "Sleep"
+                || torsoClipName == "Fight"
+                || torsoClipName == "Death1"
+                || torsoClipName == "Death2"
+                || torsoClipName == "DeathFake"
+                || torsoClipName == "WeaponStuck"
+                || torsoClipName == "PetDog"
+                || torsoClipName == "DiveIn"
+                || torsoClipName == "DiveOut"
+                || torsoClipName == "GetUpFromBed"
+                || torsoClipName == "BeartrapStart"
+                || torsoClipName == "BeartrapLoop"
+                || torsoClipName == "BeartrapStop"
+                || torsoClipName.StartsWith("Crawl", System.StringComparison.Ordinal)
+                || torsoClipName.StartsWith("Inventory", System.StringComparison.Ordinal)
+                || torsoClipName.StartsWith("Beartrap", System.StringComparison.Ordinal))
+                return true;
+
+            return false;
+        }
+
         private void UpdateLegVisibility(string torsoClipName)
         {
-            if (_legsRenderer == null) return;
+            SetLegsHidden(ShouldHideLegsForTorso(torsoClipName));
+        }
 
-            bool hide = torsoClipName == "JumpWindow"
-                || torsoClipName.StartsWith("Crawl")
-                || torsoClipName == "Sleep"
-                || torsoClipName == "Death1"
-                || torsoClipName == "Death2";
-
-            _legsRenderer.enabled = !hide;
+        private void SetLegsHidden(bool hide)
+        {
+            if (_legsRenderer != null)
+                _legsRenderer.enabled = !hide;
+            if (hide && _legsAnimator != null && _legsAnimator.Playing)
+            {
+                _legsAnimator.Stop();
+                _feetNeutralReached = true;
+            }
         }
 
         private void PlayLegs(string clipName)

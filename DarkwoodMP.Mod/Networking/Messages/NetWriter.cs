@@ -14,11 +14,22 @@ namespace DWMPHorde.Networking
         public void Put(bool value) => _inner.Put(value);
         public void Put(string value) => _inner.Put(value ?? string.Empty);
 
+        /// <summary>Length-prefixed blob (explicit sized arrays).</summary>
         public void Put(byte[] value)
         {
             if (value == null) { _inner.Put(0); return; }
             _inner.Put(value.Length);
             _inner.Put(value);
+        }
+
+        /// <summary>
+        /// Raw bytes with no length prefix — used when rebroadcasting an already-framed payload
+        /// (host Forwardable Direct path). Length-prefixing here corrupted 3+ peer fan-out.
+        /// </summary>
+        public void PutRaw(byte[] value)
+        {
+            if (value == null || value.Length == 0) return;
+            _inner.Put(value, 0, value.Length);
         }
 
         public void Reset() => _inner.Reset();

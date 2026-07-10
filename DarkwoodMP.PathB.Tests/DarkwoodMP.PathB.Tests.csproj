@@ -14,4 +14,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  <!-- Compile shipped pure helpers without Unity/game references. -->
+  <ItemGroup>
+    <Compile Include="..\DarkwoodMP.Mod\CoopPolicy.cs" Link="Shipped\CoopPolicy.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Sync\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
+  </ItemGroup>
 </Project>

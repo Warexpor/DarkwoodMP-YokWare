@@ -25,6 +25,8 @@ namespace DWMPHorde.Players
         /// </summary>
         public static bool IsSpawningCoopClone { get; private set; }
 
+        private static float _lastInactiveLog = -999f;
+
         /// <summary>
         /// Creates a clone of sourcePlayer, strips unwanted components, and attaches the appropriate controller.
         /// </summary>
@@ -43,14 +45,23 @@ namespace DWMPHorde.Players
         {
             if (sourcePlayer == null)
             {
-                log?.LogWarning("Cannot spawn player clone: source Player is null.");
+                // Rate-limit: join load used to spam this every packet → multi-MB logs + freeze
+                if (Time.unscaledTime - _lastInactiveLog > 5f)
+                {
+                    _lastInactiveLog = Time.unscaledTime;
+                    log?.LogWarning("Cannot spawn player clone: source Player is null.");
+                }
                 return null;
             }
 
             GameObject original = sourcePlayer.gameObject;
             if (!original.activeInHierarchy)
             {
-                log?.LogWarning("Cannot spawn player clone: source Player is inactive.");
+                if (Time.unscaledTime - _lastInactiveLog > 5f)
+                {
+                    _lastInactiveLog = Time.unscaledTime;
+                    log?.LogWarning("Cannot spawn player clone: source Player is inactive (loading?).");
+                }
                 return null;
             }
 

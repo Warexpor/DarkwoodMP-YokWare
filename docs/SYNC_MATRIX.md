@@ -1,9 +1,10 @@
 # Darkwood Multiplayer — Vollständige Synchronisations-Matrix
 
-> **HISTORICAL (v0.6 era).** ActionEvent string tags (`pvp:`, `espawn:`, `clock:`, …)
-> are **obsolete**. Live wire = **Ironbark Protocol v2** (`IRONBARK_PROTOCOL.md`,
-> `IRONBARK_MESSAGES.md`). Feature coverage = `MERGE_MATRIX.md`. Product = YokWare **0.9**.
-> Keep this file as interaction *taxonomy* (S/E/K/P/A categories); do not treat tag names as wire truth.
+> **HISTORICAL taxonomy (v0.6 era).** ActionEvent string tags (`pvp:`, `espawn:`, `clock:`, …)
+> are **obsolete**. **Live Path B LAN wire = Horde protocol 19** (not Ironbark).
+> Ironbark v2 remains research/dedicated-server only. Product = YokWare **0.9.2**.
+> Keep this file as interaction *categories*; do not treat tag names or “WorldGenSeed done”
+> claims as Path B wire truth. Current audit closure: `CHANGELOG.md` 0.9.2 / `DARKWOOD_MP_AUDIT.md`.
 
 Stand: v0.6.0 (2026-07-06). Dieses Dokument war die **vollständige Liste aller
 Spielerinteraktionen** mit Kategorie, Mechanismus und Log-Tag.
