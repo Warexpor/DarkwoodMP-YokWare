@@ -19,32 +19,41 @@ Deep audit: **[docs/DARKWOOD_MP_AUDIT.md](docs/DARKWOOD_MP_AUDIT.md)** · Join: 
 
 ---
 
-## Two wires (do not mix)
+## Two wires — one ships, one doesn’t
 
-### Live: Horde protocol 19
+### Ship: Horde protocol 19
 
-What peers speak **today** in co-op:
+What peers actually speak in co-op:
 
 - LiteNetLib UDP, connection key (`HostPassword` / open LAN)
-- `NetMessageType` byte ids (handshake, PlayerState, containers, world share, chat, …)
+- `NetMessageType : byte` message IDs (~115 types)
 - Host-authoritative simulation; clients mute local AI/time where patched
+- `[Forwardable]` attribute for fan-out, handlers in `LanNetworkManager`
 - **Same mod build on every peer** (same protocol 19 + feature msgs)
 
-### Research: Ironbark (IBP) v2
+### Redundant: Ironbark v2
 
-**Ironbark** is **Warexpor’s** typed packet protocol (IBP), still in-tree for codecs, tests, and a **dedicated server** path — **not** what Path B LAN clients use to talk to each other.
+Ironbark is a typed-packet protocol sitting in `DarkwoodMP.Protocol/` with
+`IronbarkRegistry`, `ITransport` abstraction, `u16` message IDs (~156 types),
+capability handshake bits, and a dedicated server (`DarkwoodMP.Server/`).
 
-| | Ironbark v2 | Horde 19 (live) |
-|--|-------------|-----------------|
-| Framing | Outer reliable envelope `0xE0`/`0xE1` + inner **`MessageId : u16`** + payload | LiteNetLib + **`NetMessageType : byte`** body |
-| Registry | `IronbarkRegistry` (codec, reliability, fan-out) | Horde handlers + `[Forwardable]` |
-| Handshake | `ConnectRequest`/`Response` + **`IronbarkVersion == 2`** + **capabilities u32** | Horde Handshake + product protocol 19 |
-| Home | `DarkwoodMP.Protocol/`, `DarkwoodMP.Server/` | `DarkwoodMP.Mod/` LAN |
-| Status | Green unit tests; **no live client↔client bridge to Horde 19** | Ship |
+It has **no live bridge** to Horde 19. None of it runs in co-op. It’s ~3k lines
+of codecs, tests, and server plumbing that do nothing at runtime.
 
-Details: **[docs/IRONBARK_PROTOCOL.md](docs/IRONBARK_PROTOCOL.md)** · message table: **[docs/IRONBARK_MESSAGES.md](docs/IRONBARK_MESSAGES.md)**.
+| | Horde 19 (ship) | Ironbark v2 (redundant) |
+|--|-----------------|------------------------|
+| Message IDs | `byte` (115 types) | `u16` (156 typed packets) |
+| Code footprint | ~40k LOC in Mod | ~3k LOC in Protocol + ~2k in Server |
+| Transport | LiteNetLib direct | `ITransport` abstraction |
+| Routing | `[Forwardable]` attributes | `IronbarkRegistry` entries |
+| Capability negotiation | Protocol version only | Capability bits at handshake |
+| Live co-op play | Yes | No bridge exists |
+| Status | Ship | Green tests, zero gameplay use |
 
-Connecting Ironbark and Horde without a deliberate re-protocol is **unsafe** — keep them separate until a bridge is designed.
+Still in-tree because the dedicated server tree shares the Protocol project,
+and removing it is more churn than it’s worth. Don’t mistake it for the live wire.
+
+Details: **[docs/IRONBARK_PROTOCOL.md](docs/IRONBARK_PROTOCOL.md)** · message table: **[docs/IRONBARK_MESSAGES.md](docs/IRONBARK_MESSAGES.md)**
 
 ---
 
