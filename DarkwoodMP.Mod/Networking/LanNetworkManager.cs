@@ -173,6 +173,24 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Records the player inventory count of an item type before a container take
+        /// was sent. Used by HandleContainerTakeDenied for precise refund (H6).
+        /// Key = container position + slot index, Value = player's pre-take count of that item type.
+        /// </summary>
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
+            _pendingTakePreCounts[key] = preCount;
+        }
+
+        /// <summary>Removes a pending take pre-count entry after it's consumed or stale.</summary>
+        internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
+            _pendingTakePreCounts.Remove(key);
+        }
+
+        /// <summary>
         /// Tracks which player (by peer ID) currently claims each dragged object.
         /// Key = ObjectName from the drag sync, Value = player ID (-1 = unclaimed).
         /// Prevents two players from dragging the same object simultaneously.
@@ -218,6 +236,11 @@ namespace DWMPHorde.Networking
         /// slot indices. Prevents HandleContainerStateSync from re-adding items the
         /// player already took (infinite loot dupe fix).</summary>
         internal readonly Dictionary<string, HashSet<int>> _pendingContainerRemoves = new Dictionary<string, HashSet<int>>();
+
+        /// <summary>Tracks player inventory item count before each pending container take.
+        /// Key = "$pos_{slotIdx}", Value = pre-take count. Used for precise H6 refund
+        /// so ContainerTakeDenied doesn't over-remove when player already had items of that type.</summary>
+        internal readonly Dictionary<string, int> _pendingTakePreCounts = new Dictionary<string, int>();
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
         internal static bool _isRemoteSaveInProgress;

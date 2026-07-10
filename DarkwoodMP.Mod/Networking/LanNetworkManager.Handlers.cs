@@ -1930,33 +1930,63 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Client)
                 return;
 
-            ModLog.Event(LogCat.Container,
-                "[Container] take denied by host — refunding " + msg.ItemType + " x" + msg.Amount);
+            // Build the pending pre-count key from the denied message (matches
+            // the key format in RecordPendingTakePreCount).
+            string preKey = $"{msg.PosX:F2}_{msg.PosY:F2}_{msg.PosZ:F2}_{msg.SlotIndex}";
+            _pendingTakePreCounts.TryGetValue(preKey, out int preTakeCount);
+            _pendingTakePreCounts.Remove(preKey);
 
-            // Remove optimistic loot from player inventory (best-effort by type).
+            ModLog.Event(LogCat.Container,
+                "[Container] take denied by host — refunding " + msg.ItemType + " x" + msg.Amount
+                + " (preTakeCount=" + preTakeCount + ")");
+
             try
             {
                 Inventory pinv = Player.Instance != null ? Player.Instance.Inventory : null;
-                if (pinv != null && pinv.slots != null
-                    && !string.IsNullOrEmpty(msg.ItemType) && msg.Amount > 0)
+                if (pinv == null || pinv.slots == null || string.IsNullOrEmpty(msg.ItemType) || msg.Amount <= 0)
+                    return;
+
+                int totalNow = ContainerSyncHelpers.CountPlayerItemType(msg.ItemType);
+
+                int toRemove;
+                if (preTakeCount >= 0)
                 {
-                    int left = msg.Amount;
-                    for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
+                    // Precise refund: calculate what the take actually added.
+                    // If the player already had some of this type, only
+                    // remove the surplus, not the pre-existing items.
+                    toRemove = Math.Max(0, totalNow - preTakeCount);
+                }
+                else
+                {
+                    // No pre-count recorded (e.g. legacy or cross-session) —
+                    // fall back to the old type-scan behavior.
+                    toRemove = msg.Amount;
+                }
+
+                if (toRemove <= 0)
+                {
+                    ModLog.Warn(LogCat.Container,
+                        "[Container] refund: nothing to remove (totalNow=" + totalNow
+                        + " preTakeCount=" + preTakeCount + ")");
+                    return;
+                }
+
+                int left = Math.Min(toRemove, totalNow);
+                for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
+                {
+                    InvSlot s = pinv.slots[i];
+                    if (InvItemClass.isNull(s.invItem)) continue;
+                    if (!string.Equals(s.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+                        continue;
+                    if (s.invItem.amount <= left)
                     {
-                        InvSlot s = pinv.slots[i];
-                        if (InvItemClass.isNull(s.invItem)) continue;
-                        if (!string.Equals(s.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
-                            continue;
-                        if (s.invItem.amount <= left)
-                        {
-                            left -= s.invItem.amount;
-                            s.removeItem();
-                        }
-                        else
-                        {
-                            s.invItem.removeAmount(left);
-                            left = 0;
-                        }
+                        left -= s.invItem.amount;
+                        s.removeItem();
+                    }
+                    else
+                    {
+                        s.invItem.removeAmount(left);
+                        left = 0;
                     }
                 }
             }
@@ -2210,6 +2240,10 @@ namespace DWMPHorde.Networking
             // the host's state will correctly reflect the removed items.
             if (pendingSlots != null)
                 _pendingContainerRemoves.Remove(containerKey);
+
+            // Clear any pending take pre-counts for this container —
+            // the state sync is now the authoritative view.
+            _pendingTakePreCounts.Clear();
 
             // Play container sound on remote so they hear the open
             AudioController.Play("open_drawer", new Vector3(msg.PosX, msg.PosY, msg.PosZ));
@@ -6868,6 +6902,7 @@ namespace DWMPHorde.Networking
             if (_clientShadowLookups != null)
                 _clientShadowLookups.Clear();
             _pendingContainerRemoves.Clear();
+            _pendingTakePreCounts.Clear();
             _hasPendingFlagBulk = false;
             _pendingFlagBulk = default;
             _pendingFlagDeltas.Clear();

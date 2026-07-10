@@ -6,7 +6,8 @@
 
 - [x] **Host walk/run anim (#6)** — code: unreliable anim resend every 0.75s + pause/fps apply polish (`PlayerAnimSync`). **Live 2-box confirm still recommended.**
 - [x] **Audit C1–C4 / H1 / H3 / H5 (0.9.2)** — host-only time, dialog world-only, chapter auto-resume, fail-loud world share, client→host flags, night death world-mutation suppress, NPC talk lock. See CHANGELOG / README known limits.
-- [ ] **Location/landmark placement residual (#5)** — Path B identity is host **WorldSaveShare**, not dual per-chunk gen. *Which* chunk gets a location can still diverge if both generate without a successful share. Full fix = heavy worldgen rewrite. See README known limits.
+- [x] **H6 container loot race: precise refund** — HandleContainerTakeDenied now uses pre-take player inventory count to refund only the optimistically-added items instead of blindly removing by type. No more over-removing when player already had items of that type.
+- [ ] **Location/landmark placement residual (#5)** — mitigated: `WorldGenSharePatch` blocks client `WorldGenerator.onFinished` while connected (client cannot generate divergent worlds). Full determinism requires a heavy worldgen rewrite (location assignment depends on processing order). Only a real risk if the initial world share fails before either side generates.
 - [ ] **Live 2-instance / dedicated campaign playtest** — CI covers protocol + PathB structural/policy tests; full campaign still needs human 2-box.
 - [ ] **Credits continuous co-op** — residual by design: credits stop network permanently; chapter mid-campaign auto-resumes.
 - [ ] **Dedicated Ironbark ↔ Horde bridge** — `DarkwoodMP.Server` is not a Path B LAN peer.

@@ -26,7 +26,21 @@ namespace DWMPHorde.Patches
                  inv.invType == Inventory.InvType.deathDrop);
         }
 
-        internal static void SendContainerAction(ContainerAction action, Vector3 pos, int slotIdx, string itemType, int amount, float durability, int ammo, bool isPlayerPlaced = false)
+        /// <summary>Count total amount of <paramref name="itemType"/> in the local player's inventory.</summary>
+        internal static int CountPlayerItemType(string itemType)
+        {
+            var pinv = Player.Instance?.Inventory;
+            if (pinv == null || pinv.slots == null || string.IsNullOrEmpty(itemType)) return 0;
+            int count = 0;
+            foreach (var slot in pinv.slots)
+            {
+                if (!InvItemClass.isNull(slot.invItem) && slot.invItem.type == itemType)
+                    count += slot.invItem.amount;
+            }
+            return count;
+        }
+
+        internal static void SendContainerAction(ContainerAction action, Vector3 pos, int slotIdx, string itemType, int amount, float durability, int ammo, bool isPlayerPlaced = false, int preTakePlayerCount = -1)
         {
             if (LanNetworkManager.IsApplyingRemoteState)
             {
@@ -68,6 +82,10 @@ namespace DWMPHorde.Patches
             if (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem)
                 net.RecordPendingContainerRemove(pos, slotIdx);
 
+            // Track pre-take player inventory count for precise H6 refund.
+            if (preTakePlayerCount >= 0 && (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem))
+                net.RecordPendingTakePreCount(pos, slotIdx, preTakePlayerCount);
+
             // Dream item pickup visual for spectators / other peers (host → all via Broadcast).
             if (Sync.DreamSyncManager.IsDreamActive && (action == ContainerAction.TakeItem || action == ContainerAction.RemoveItem))
             {
@@ -95,6 +113,9 @@ namespace DWMPHorde.Patches
         public int Ammo;
         public Vector3 Pos;
         public int Idx;
+        /// <summary>Player inventory count of <see cref="Type"/> before the take.
+        /// Used by H6 refund to remove only what the take added, not pre-existing items.</summary>
+        public int PreTakePlayerCount;
     }
 
     /// <summary>
@@ -122,6 +143,7 @@ namespace DWMPHorde.Patches
             __state.Ammo = __instance.invItem.ammo;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
+            __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[Container] GrabItem: IS container (invType={__instance.inventory.invType}) idx={__state.Idx} type={__state.Type}");
         }
@@ -129,7 +151,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
         }
     }
 
@@ -153,12 +175,13 @@ namespace DWMPHorde.Patches
             __state.Ammo = __instance.invItem.ammo;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
+            __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
         }
 
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.TakeItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.TakeItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
         }
     }
 
@@ -182,12 +205,13 @@ namespace DWMPHorde.Patches
             __state.Ammo = __instance.invItem.ammo;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
+            __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
         }
 
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
         }
     }
 
