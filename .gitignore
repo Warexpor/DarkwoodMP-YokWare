@@ -15,10 +15,13 @@ build/
 [Bb]in/
 [Oo]bj/
 
-# Loader reference binaries (fetch via scripts/fetch-melonloader-refs.ps1)
+# Loader / game reference binaries (never commit MelonLoader or game assemblies)
 libs/MelonLoader/*.dll
 libs/MelonLoader/**/*.dll
 libs/**/*.dll
+# Exception: LiteNetLib is required for Horde-based mod builds (not a game assembly)
+!libs/LiteNetLib.dll
+!libs/README.md
 
 # Logs / temp
 *.log

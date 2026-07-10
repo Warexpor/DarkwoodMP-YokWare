@@ -1,28 +1,25 @@
 # Changelog
 
-All notable changes to **YokWare Branch** (product version **0.9**).
+## 0.9.1 — Path B (Horde base) — 2026-07-10
 
-## 0.9 — release-ready (theoretical 1.0 polish)
+### Breaking / load path
 
-### Wire
-- **Ironbark Protocol v2** — `MessageId` u16 LE, registry, capabilities, ActionEvent removed
-- Wave G: entity/player burn, explosion secondary FX, reliable `EntitySpawn`, liquid stop-burn
-- Honest `Caps.Local` (no false PhysicsState claim)
+- **Path B rebase:** shippable mod is **Horde remaster** host-authoritative sync, not the Yokyy-core merge.
+- Prior Yokyy+partial-port tree moved to `archive/yokyy-merge-0.9/` (do not load).
+- Live wire: **Horde protocol 19** (LiteNetLib). Ironbark remains in-repo for tests / future dedicated bridge only.
 
-### Play / loaders
-- Dual build: **BepInEx** (default) and **MelonLoader 0.7.0** (`-p:Loader=MelonLoader`)
-- Shared `ModBootstrap`; config default WorldSeed 12345 for first-session comfort
-- Dedicated server: reliable relay; enemy truth = client EntityState/EntitySpawn
+### Product
 
-### Polish
-- **Logging overhaul** — `[YokWare][LEVEL][Category]` filterable lines; `VerboseLogging` config; boot banner
-- Player anim: unreliable self-heal resend + pause/fps apply hardening
-- InteractionLock join bulk; docs/GPLv3/CONTRIBUTORS/PUSH prep
-- CI: protocol tests + dedicated server build (mod needs local game assemblies)
+- Identity: **YokWare Branch** `0.9.1`, GUID `com.yokware.branch`, GPLv3, Warexpor & Yokyy credit.
+- Log tags: `[YokWare/…]`; boot banner documents Path B.
+- BepInEx Release build deploys to Steam + SecondDarkwood plugins; removes stale `DWMP_HordeRemaster.dll` if present.
+- Feature inventory: `docs/PATH_B_FEATURE_INVENTORY.md`.
+- Structural tests: `DarkwoodMP.PathB.Tests`.
 
-### License
-- **GNU GPLv3**
+### Deferred (documented, not silent)
 
-## Earlier
+- Ironbark live client wire, dedicated server↔Horde bridge, MelonLoader dual pack, Yokyy chat, SyncCheck, ItemState, full InteractionLock matrix, IsTimeAuthority elect.
 
-Prior work lived as Yokyy vessel + Horde design merge (trade C, spectator, ClientStateBackup, hop reliability, campaign typed domains). See `docs/MERGE_MATRIX.md` and `docs/TODO.md` archive.
+## 0.9.0 — YokWare Branch (Path A merge) — archived
+
+Ironbark v2, dual loader packaging, gap-closure patches on Yokyy structure. Superseded as load path by 0.9.1 Path B after brief testing showed Yokyy residual bugs and sound/sync regressions versus pure Horde.

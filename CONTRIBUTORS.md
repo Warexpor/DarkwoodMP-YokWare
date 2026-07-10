@@ -4,15 +4,16 @@
 
 | Credit | Role |
 |--------|------|
-| **Warexpor** | Maintainer of this branch; Horde / sync-design lineage; Ironbark protocol; public repo owner |
-| **Yokyy** | Original co-op house (Mod / Protocol / Server structure, reliability hop, dedicated server path, SyncCheck, chat/HUD patterns) |
+| **Warexpor** | Maintainer; **Horde remaster** sync design (Path B load path); public repo owner |
+| **Yokyy** | Original co-op house (structure, reliability hop, dedicated server path, SyncCheck, chat/HUD patterns) — archived reference under `archive/yokyy-merge-0.9/` |
 
 ## Lineage
 
-- **DWMP Horde Remaster** (Warexpor / design donor): spectator, trade absolute stock, client state backup, dream/story depth, entity stream patterns, and many campaign sync ideas merged into Yokyy’s vessel.
-- **LiteNetLib** — network transport library (third-party; own license).
-- **BepInEx** / **MelonLoader** / **Harmony** — mod loaders and patching (third-party).
+- **DWMP Horde Remaster** — **current shippable sync base** (host-authoritative combat, entity stream, audio, campaign domains).
+- Prior **YokWare 0.9 Path A** merge (Yokyy vessel + Ironbark + partial ports) is archived; not the load path.
+- **LiteNetLib** — network transport (third-party).
+- **BepInEx** / **Harmony** — mod loader and patching (third-party).
 
 ## Contributing
 
-Pull requests welcome under **GPLv3**. Keep product version **0.9** unless maintainers bump it. Wire protocol bumps use `Ironbark.Version` independently.
+Pull requests welcome under **GPLv3**. Product version **0.9.x** Path B unless maintainers bump. Live wire is **Horde protocol 19** until an Ironbark bridge is intentionally reintroduced.

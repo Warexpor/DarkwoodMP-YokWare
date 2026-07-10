@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.Server", "Darkwo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.Protocol.Tests", "DarkwoodMP.Protocol.Tests\DarkwoodMP.Protocol.Tests.csproj", "{55CF6EF3-4564-4D2F-8DC9-0023933CCFEC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.PathB.Tests", "DarkwoodMP.PathB.Tests\DarkwoodMP.PathB.Tests.csproj", "{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{55CF6EF3-4564-4D2F-8DC9-0023933CCFEC}.Release|x64.Build.0 = Release|Any CPU
 		{55CF6EF3-4564-4D2F-8DC9-0023933CCFEC}.Release|x86.ActiveCfg = Release|Any CPU
 		{55CF6EF3-4564-4D2F-8DC9-0023933CCFEC}.Release|x86.Build.0 = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|x64.Build.0 = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Debug|x86.Build.0 = Debug|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x64.ActiveCfg = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x64.Build.0 = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x86.ActiveCfg = Release|Any CPU
+		{66DF7EF4-5675-5E30-9ED0-1134044DD0FD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
