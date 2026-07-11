@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde.Audio;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -79,9 +80,17 @@ namespace DWMPHorde.Sync
         private static float _objInterpLastLogTime;
         private static float _scanRadius = 40f;
         private static float _fullResyncTimer;
-        private static readonly float FullResyncInterval = 3f;
+        // Drift correct every 5s (was 3s) — full resync forces every free-body in range into the packet.
+        private static readonly float FullResyncInterval = 5f;
         private static float _lastFullRbScanTime = -999f;
         private const float FullRbScanMinInterval = 0.5f;
+        /// <summary>
+        /// After real motion stops, include the object for this long so peers get a final quiet
+        /// sample. Must NOT refresh <see cref="_lastMoveTime"/> on those quiet samples — old 2.5s
+        /// window + refresh made any nudged free-body stream forever at 10 Hz (client FPS crater
+        /// while connected; recovered when host left and PhysicsState stopped).
+        /// </summary>
+        private const float QuietConfirmWindow = 0.15f;
         private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>();
         private static readonly Dictionary<int, bool> _trapResultCache = new Dictionary<int, bool>();
 
@@ -113,6 +122,9 @@ namespace DWMPHorde.Sync
             public float TargetTime;
             public Vector3 PrevRot;
             public Vector3 TargetRot;
+            public Rigidbody CachedRb;
+            public Item CachedItem;
+            public bool CachedComps;
         }
         private static readonly Dictionary<int, ObjectInterpState> _objectInterp = new Dictionary<int, ObjectInterpState>();
         private static readonly List<int> _objectInterpDeadKeys = new List<int>();
@@ -123,6 +135,7 @@ namespace DWMPHorde.Sync
         /// <summary>
         /// OverlapSphere around one center; adds free rigidbodies + detects traps.
         /// Dedupes by GameObject instance id across multi-center host scans.
+        /// Hot path: cheap name + motion gate first; heavy GetComponent only for candidates.
         /// </summary>
         private static void ScanPhysicsAround(Vector3 center, LanNetworkManager net)
         {
@@ -130,6 +143,9 @@ namespace DWMPHorde.Sync
                 return;
 
             int hitCount = Physics.OverlapSphereNonAlloc(center, _scanRadius, _overlap3D);
+            float now = Time.time;
+            bool fullResync = (now - _fullResyncTimer) >= FullResyncInterval;
+
             for (int i = 0; i < hitCount && i < _overlap3D.Length; i++)
             {
                 Collider col = _overlap3D[i];
@@ -151,18 +167,39 @@ namespace DWMPHorde.Sync
                 if (!_scannedObjectIds.Add(rootId))
                     continue; // already processed from another scan center
 
-                bool isPlayer = rootGo.GetComponent<Player>() != null;
-                bool isRemoteProxy = rootGo.GetComponent<RemotePlayerProxy>() != null;
                 string rootName = rootGo.name;
-
-                if (isPlayer) continue;
-                if (isRemoteProxy) continue;
                 if (rootName == "Player" || rootName == "PlayerLegs" || rootName == "RemotePlayer") continue;
-                if (rootName.Contains("DoorSensor")) continue;
+                if (rootName.IndexOf("DoorSensor", StringComparison.Ordinal) >= 0) continue;
+                // Cheap name reject for common non-freebodies (avoids Character GetComponent).
+                if (rootName.IndexOf("RemotePlayer", StringComparison.Ordinal) >= 0) continue;
 
-                // Skip AI characters — entity interpolation owns them.
+                // Motion gate BEFORE component spam — idle free-bodies dominate hideout OverlapSphere.
+                string trackingKey = rootName + "_" + rootId;
+                Vector3 pos = rootGo.transform.position;
+
+                if (!_lastPos.TryGetValue(trackingKey, out Vector3 last))
+                {
+                    _lastPos[trackingKey] = pos;
+                    // Seed as "already quiet" so first sighting does not force a 10 Hz stream.
+                    _lastMoveTime[trackingKey] = now - QuietConfirmWindow - 1f;
+                    continue;
+                }
+
+                float distSq = Vector3.SqrMagnitude(pos - last);
+                bool reallyMoved = distSq >= 0.0009f;
+                _lastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
+                bool inQuietConfirm = !reallyMoved
+                    && (now - timeSinceMoved) < QuietConfirmWindow;
+                if (!reallyMoved && !inQuietConfirm && !fullResync)
+                    continue;
+
+                if (_lastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
+                    continue;
+
+                // Heavy filters only for objects we are about to serialize.
+                if (rootGo.GetComponent<Player>() != null) continue;
+                if (rootGo.GetComponent<RemotePlayerProxy>() != null) continue;
                 if (rootGo.GetComponent<Character>() != null) continue;
-
                 if (rootGo.GetComponent<DroppedItemIdentifier>() != null) continue;
                 if (rootGo.GetComponent<DeathDrop>() != null) continue;
 
@@ -185,32 +222,11 @@ namespace DWMPHorde.Sync
                 if (!DreamSyncManager.ShouldSyncPhysicsObject(rootGo.transform))
                     continue;
 
-                string trackingKey = rootName + "_" + rootId;
-                Vector3 pos = rootGo.transform.position;
                 Vector3 rot = rootGo.transform.eulerAngles;
-
-                if (!_lastPos.TryGetValue(trackingKey, out Vector3 last))
-                {
-                    _lastPos[trackingKey] = pos;
-                    _lastMoveTime[trackingKey] = Time.time;
-                    continue;
-                }
-
-                float timeSinceMoved = 0f;
-                _lastMoveTime.TryGetValue(trackingKey, out timeSinceMoved);
-                bool fullResync = (Time.time - _fullResyncTimer) >= FullResyncInterval;
-                float distSq = Vector3.SqrMagnitude(pos - last);
-                bool moved = distSq >= 0.0009f || fullResync;
-                if (!moved && (Time.time - timeSinceMoved) < 2.5f)
-                    moved = true;
-                if (!moved)
-                    continue;
-
-                if (_lastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (Time.time - lastClient) < 0.5f)
-                    continue;
-
                 _lastPos[trackingKey] = pos;
-                _lastMoveTime[trackingKey] = Time.time;
+                // Only real motion extends quiet window — quiet confirms must not refresh it.
+                if (reallyMoved)
+                    _lastMoveTime[trackingKey] = now;
 
                 if (net == null || net.Role == NetworkRole.Host)
                     _objectInterp.Remove(rootId);
@@ -1245,6 +1261,8 @@ namespace DWMPHorde.Sync
             if (nowScan - _lastFullRbScanTime >= FullRbScanMinInterval)
             {
                 _lastFullRbScanTime = nowScan;
+                DWMPHorde.Logging.ClientPerfProbe.NoteFullRbScan();
+                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType();
                 Rigidbody[] allRbs = UnityEngine.Object.FindObjectsOfType<Rigidbody>();
                 GameObject best = null;
                 float bestDist = float.MaxValue;
@@ -1323,11 +1341,33 @@ namespace DWMPHorde.Sync
             return spawned;
         }
 
-        /// <summary>Finds a trap GameObject by position using collider overlap, Trigger component, and name-based fallback.</summary>
+        /// <summary>
+        /// Finds a trap by position via OverlapSphere only — no FindObjectsOfType / GameObject.Find
+        /// (those caused periodic maxMs=50–60 stutters with 1 pending trap).
+        /// </summary>
         internal static GameObject FindTrapByPos(Vector3 pos, string objectName = null)
         {
-            // Primary: collider-based search
-            Collider[] nearby = Physics.OverlapSphere(pos, 1.5f);
+            GameObject hit = FindTrapInSphere(pos, 1.5f);
+            if (hit != null) return hit;
+            hit = FindTrapInSphere(pos, 8f);
+            if (hit != null) return hit;
+            hit = FindTrapInSphere(pos, 20f);
+            if (hit != null) return hit;
+
+            // Optional name — only if an instance is already active (no full-scene FoT).
+            if (!string.IsNullOrEmpty(objectName))
+            {
+                GameObject named = GameObject.Find(objectName);
+                if (named != null && HasTrapField(named))
+                    return named;
+            }
+
+            return null;
+        }
+
+        private static GameObject FindTrapInSphere(Vector3 pos, float radius)
+        {
+            Collider[] nearby = Physics.OverlapSphere(pos, radius);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
@@ -1338,48 +1378,6 @@ namespace DWMPHorde.Sync
                 if (HasTrapField(root))
                     return root;
             }
-
-            // Fallback: search Trigger components by position (Y-tolerant)
-            Trigger[] triggers = UnityEngine.Object.FindObjectsOfType<Trigger>();
-            Vector3 rounded = new Vector3((float)Math.Round(pos.x, 1), (float)Math.Round(pos.y, 1), (float)Math.Round(pos.z, 1));
-            foreach (Trigger t in triggers)
-            {
-                if (t == null) continue;
-                Vector3 tp = t.transform.position;
-                float tx = (float)Math.Round(tp.x, 1);
-                float tz = (float)Math.Round(tp.z, 1);
-                if (tx == rounded.x && tz == rounded.z)
-                {
-                    float ty = (float)Math.Round(tp.y, 1);
-                    if (Mathf.Abs(ty - rounded.y) <= 5f)
-                        return t.gameObject;
-                }
-            }
-
-            // Last resort: wider search by name + position
-            Collider[] wide = Physics.OverlapSphere(pos, 5f);
-            for (int i = 0; i < wide.Length; i++)
-            {
-                if (wide[i] == null) continue;
-                GameObject root = wide[i].gameObject;
-                Rigidbody rb = wide[i].attachedRigidbody;
-                if (rb != null) root = rb.gameObject;
-                if (root == null) continue;
-                Vector3 rp = root.transform.position;
-                Vector3 rk = new Vector3((float)Math.Round(rp.x, 1), (float)Math.Round(rp.y, 1), (float)Math.Round(rp.z, 1));
-                if (Mathf.Abs(rk.x - rounded.x) <= 0.2f && Mathf.Abs(rk.z - rounded.z) <= 0.2f && Mathf.Abs(rk.y - rounded.y) <= 5f
-                    && (root.name.ToLowerInvariant().Contains("mushroom") || root.name.ToLowerInvariant().Contains("trap") || root.name.ToLowerInvariant().Contains("bear")))
-                    return root;
-            }
-
-            // Final fallback: name-based if provided
-            if (!string.IsNullOrEmpty(objectName))
-            {
-                GameObject named = GameObject.Find(objectName);
-                if (named != null && HasTrapField(named))
-                    return named;
-            }
-
             return null;
         }
 
@@ -1645,16 +1643,24 @@ namespace DWMPHorde.Sync
                     continue;
                 }
 
+                if (!s.CachedComps || s.CachedRb == null && s.CachedItem == null)
+                {
+                    s.CachedRb = s.Target.GetComponent<Rigidbody>();
+                    s.CachedItem = s.Target.GetComponent<Item>();
+                    s.CachedComps = true;
+                    _objectInterp[key] = s;
+                }
+
                 // Skip objects being dragged by the local player — local physics
                 // (HingeJoint) already drives the correct position. Interpolation
                 // would fight the joint and cause jitter.
-                Item item = s.Target.GetComponent<Item>();
+                Item item = s.CachedItem;
                 if (item != null && item.beingDragged)
                 {
                     // Don't remove from interpolation yet; the drag might end
                     // and we want to resume smoothly. Just skip position update.
                     // Release kinematic so the local HingeJoint can drive position.
-                    Rigidbody dragRb = s.Target.GetComponent<Rigidbody>();
+                    Rigidbody dragRb = s.CachedRb;
                     if (dragRb != null && dragRb.isKinematic)
                         dragRb.isKinematic = false;
                     continue;
@@ -1680,7 +1686,7 @@ namespace DWMPHorde.Sync
                 Quaternion targetRotQ = Quaternion.Euler(s.TargetRot);
                 Quaternion lerpRot = Quaternion.Slerp(prevRotQ, targetRotQ, t);
 
-                Rigidbody rb = s.Target.GetComponent<Rigidbody>();
+                Rigidbody rb = s.CachedRb;
                 if (t < 1f)
                 {
                     // During active interpolation: drive position, keep kinematic
@@ -1852,29 +1858,79 @@ namespace DWMPHorde.Sync
             ApplyLightStateCore(ls, fromPeer, queueIfMissing: true);
         }
 
-        /// <summary>Retry queued LightState after location/grid load.</summary>
+        private static float _nextPendingLightFlushTime;
+        private const float PendingLightFlushInterval = 3f;
+        private static float _pendingLightQueuedAt = -1f;
+
+        /// <summary>
+        /// Retry queued LightState after location/grid load.
+        /// OverlapSphere only — no FindObjectsOfType (logs: findOfType=2 / 2s → maxMs=50–60 stutters).
+        /// </summary>
         public static void TryFlushPendingLights()
         {
-            if (_pendingLights.Count == 0) return;
+            if (_pendingLights.Count == 0)
+            {
+                _pendingLightQueuedAt = -1f;
+                return;
+            }
             if (Player.Instance == null || Core.mainMenu || Core.loadingGame) return;
+
+            float now = Time.unscaledTime;
+            if (now < _nextPendingLightFlushTime) return;
+            _nextPendingLightFlushTime = now + PendingLightFlushInterval;
+
+            if (_pendingLightQueuedAt < 0f)
+                _pendingLightQueuedAt = now;
+            if (now - _pendingLightQueuedAt > 30f)
+            {
+                ModLog.Event(LogCat.World,
+                    "[LightApply] dropping " + _pendingLights.Count
+                    + " pending light(s) after timeout (not in loaded grid)");
+                _pendingLights.Clear();
+                _pendingLightQueuedAt = -1f;
+                return;
+            }
 
             for (int i = _pendingLights.Count - 1; i >= 0; i--)
             {
                 LightStateMessage ls = _pendingLights[i];
+                Vector3 p = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
+                // Far map lights stay unloaded — drop until player walks near (re-bulk not needed).
+                if (!Networking.ClientEntityInterpolationService.IsInClientInterest(p))
+                {
+                    _pendingLights.RemoveAt(i);
+                    continue;
+                }
                 if (ApplyLightStateCore(ls, "pending", queueIfMissing: false))
                     _pendingLights.RemoveAt(i);
             }
+            if (_pendingLights.Count == 0)
+                _pendingLightQueuedAt = -1f;
         }
 
         /// <returns>True if applied or already matching; false if still missing.</returns>
         private static bool ApplyLightStateCore(LightStateMessage ls, string fromPeer, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
+
+            // Late-join bulk sends every on-lamp on the map. Far ones are not in the client
+            // grid — do not queue (was 30+ pending → periodic FoT stutters every few seconds).
+            bool clientSide = ModRuntime.Network != null
+                && ModRuntime.Network.Role == Networking.NetworkRole.Client;
+            if (clientSide && !Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
+                return true; // treat as done — host will re-send if player enters area via live LightState
+
             Item item = FindLightByPos(pos, ls.ItemName);
             if (item == null)
             {
                 // Scene lamps only — do not spawn random prefabs from ItemType (duplicates).
-                if (queueIfMissing)
+                if (queueIfMissing && clientSide
+                    && Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
+                {
+                    QueuePendingLight(ls);
+                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
+                }
+                else if (queueIfMissing && !clientSide)
                 {
                     QueuePendingLight(ls);
                     ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
@@ -1940,12 +1996,23 @@ namespace DWMPHorde.Sync
             _pendingLights.Add(ls);
         }
 
-        /// <summary>Finds a light Item by position and optional name within a 1.5 unit radius.</summary>
+        /// <summary>
+        /// Finds a light Item by position (+ optional name). OverlapSphere only —
+        /// never FindObjectsOfType (periodic hitch source on dual-box client).
+        /// </summary>
         private static Item FindLightByPos(Vector3 pos, string name)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, 5f);
+            // Prefer tight sphere; widen once if miss (still O(nearby), not full scene).
+            Item best = FindLightInSphere(pos, name, 5f);
+            if (best != null) return best;
+            return FindLightInSphere(pos, name, 20f);
+        }
+
+        private static Item FindLightInSphere(Vector3 pos, string name, float radius)
+        {
+            Collider[] nearby = Physics.OverlapSphere(pos, radius);
             Item best = null;
-            float bestDist = 5f;
+            float bestDist = radius;
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
@@ -1962,27 +2029,7 @@ namespace DWMPHorde.Sync
                     best = item;
                 }
             }
-            if (best != null)
-                return best;
-
-            // Fallback: search all items by name when position-based lookup fails.
-            // Some lights may be at different positions between host and client
-            // due to world grid loading differences.
-            if (!string.IsNullOrEmpty(name))
-            {
-                Item[] all = UnityEngine.Object.FindObjectsOfType<Item>();
-                for (int i = 0; i < all.Length; i++)
-                {
-                    Item item = all[i];
-                    if (item == null) continue;
-                    if (!item.name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (!item.isLight && !item.switchable)
-                        continue;
-                    return item;
-                }
-            }
-            return null;
+            return best;
         }
 
         /// <summary>Called from HandlePlayerAudio's IsStopSignal handler when the

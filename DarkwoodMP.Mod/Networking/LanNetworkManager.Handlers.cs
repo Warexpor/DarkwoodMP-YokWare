@@ -1006,13 +1006,22 @@ namespace DWMPHorde.Networking
 
         private void HandleEntityState(EntityStateMessage msg)
         {
-            if (_role == NetworkRole.Client)
-            {
-                ClientEntityInterpolationService.ApplySnapshot(msg);
-                // Ensure dead NPCs have corpses set up on the client
-                EnsureDeadNpcCorpses();
-            }
+            if (_role != NetworkRole.Client)
+                return;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            ClientEntityInterpolationService.ApplySnapshot(msg);
+            sw.Stop();
+            ClientPerfProbe.NoteEntityApply(
+                ClientEntityInterpolationService.LastApplyCount,
+                ClientEntityInterpolationService.LastSkippedCount,
+                sw.Elapsed.TotalMilliseconds);
+
+            // Rate-limited: was every 10 Hz entity snap → GetAll + GetComponent all chars (FPS death).
+            EnsureDeadNpcCorpses();
         }
+
+        private float _nextDeadCorpseScanTime;
 
         /// <summary>
         /// On the client, ensures that dead NPCs have the Item component and
@@ -1024,6 +1033,8 @@ namespace DWMPHorde.Networking
         private void EnsureDeadNpcCorpses()
         {
             if (_role != NetworkRole.Client) return;
+            if (Time.unscaledTime < _nextDeadCorpseScanTime) return;
+            _nextDeadCorpseScanTime = Time.unscaledTime + 2f;
 
             Character[] all = CharacterTracker.GetAll();
             if (all == null || all.Length == 0) return;
@@ -4196,7 +4207,11 @@ namespace DWMPHorde.Networking
         private const float PhysicsSendInterval = 0.1f;
 
         private float _timeSyncTimer;
-        private const float TimeSyncInterval = 2f;
+        /// <summary>
+        /// Host clock fan-out. Was 2s — client freezes CurrentTime between snaps (DoUpdateTime off)
+        /// so day/night lighting lagged visibly. 0.5s keeps peers tight without flooding.
+        /// </summary>
+        private const float TimeSyncInterval = 0.5f;
 
         private short _nextShadowId;
         private readonly Dictionary<short, ShadowCreature> _shadowTracked = new Dictionary<short, ShadowCreature>();
@@ -4898,48 +4913,43 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Handles a save-sync trigger from the remote peer.</summary>
+        /// <summary>
+        /// Host Save notify. Clients must not rewrite sav.dat/savs.dat with network-diverged
+        /// world state (that was the slot-5 corruption path). Host ignores peer SaveSync.
+        /// </summary>
         private void HandleSaveSync()
         {
+            if (_role == NetworkRole.Host)
+            {
+                ModLog.Event(LogCat.Save, "SaveSync from peer ignored on host (host already owns world)");
+                return;
+            }
+
+            if (_role != NetworkRole.Client)
+                return;
+
             if (_isRemoteSaveInProgress) return;
-            ModRuntime.LegacyInfo("[SaveSync] received save trigger from remote, saving locally");
             _isRemoteSaveInProgress = true;
             try
             {
-                // Show saving indicator immediately so the local player sees feedback
+                ModLog.Event(LogCat.Save,
+                    "SaveSync from host: personal ClientStateBackup only (world Save blocked on client)");
+
+                // Touch lastTimeSaved so UI "time since save" does not look stuck — no disk write.
                 try
                 {
-                    if (Singleton<UI>.Instance != null)
-                        Singleton<UI>.Instance.showSavingIndicator();
+                    SaveManager save = Singleton<SaveManager>.Instance;
+                    if (save != null)
+                    {
+                        var t = HarmonyLib.Traverse.Create(save);
+                        t.Field("lastTimeSaved").SetValue(System.DateTime.Now);
+                    }
+                    if (Core.currentProfile != null)
+                        Core.currentProfile.timeSaved = System.DateTime.Now.ToString();
                 }
-                catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[Network] swallowed: " + ex.GetType().Name + ": " + ex.Message);
-            }
+                catch { /* cosmetic only */ }
 
-                // Perform the actual save. The showSavingIndicator parameter defaults to true
-                // so finishSaving will also call it, but we already showed it above.
-                SaveManager save = Singleton<SaveManager>.Instance;
-                if (save != null)
-                {
-                    save.Save(doJson: false, doSaveProfile: true, force: true);
-
-                    // Ensure lastTimeSaved is updated so the "time since last save" timer
-                    // on both sides shows roughly the same value.
-                    // (SaveManager sets this only inside the non-early-return path.)
-                    var t = HarmonyLib.Traverse.Create(save);
-                    t.Field("lastTimeSaved").SetValue(System.DateTime.Now);
-                }
-
-                // Also sync the profile's timeSaved string so the save selection screen
-                // shows consistent timestamps across players.
-                if (Core.currentProfile != null)
-                    Core.currentProfile.timeSaved = System.DateTime.Now.ToString();
-
-                // Client just saved (triggered by host) — send backup to host
-                if (_role == NetworkRole.Client)
-                    SendClientStateBackup();
+                SendClientStateBackup();
             }
             finally
             {
@@ -5759,7 +5769,18 @@ namespace DWMPHorde.Networking
             int gc = state.Generators?.Length ?? 0;
             if ((oc > 0 || dc > 0 || tc > 0 || gc > 0) && ++_physicsRecvLogCounter % 30 == 0 && ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo("[Physics] objects=" + oc + " doors=" + dc + " traps=" + tc + " gens=" + gc + " from " + fromPeer);
-            Sync.WorldPhysicsSyncService.ApplySnapshot(state, fromPeer);
+
+            if (_role == NetworkRole.Client)
+            {
+                var psw = System.Diagnostics.Stopwatch.StartNew();
+                Sync.WorldPhysicsSyncService.ApplySnapshot(state, fromPeer);
+                psw.Stop();
+                ClientPerfProbe.NotePhysApply(oc, psw.Elapsed.TotalMilliseconds);
+            }
+            else
+            {
+                Sync.WorldPhysicsSyncService.ApplySnapshot(state, fromPeer);
+            }
 
             // Forward client-originated free-body physics and event-style door/trap/gen
             // snapshots to other clients (3+ support).
@@ -6131,6 +6152,7 @@ namespace DWMPHorde.Networking
             if (ctrl == null) return;
 
             int prevDay = ctrl.day;
+            float prevTime = ctrl.CurrentTime;
             bool wasAfterNight = ctrl.isAfterNight;
 
             // Apply full isAfterNight from host (true and false).
@@ -6198,8 +6220,22 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (ModRuntime.VerboseLogging)
+            float delta = msg.CurrentTime - prevTime;
+            bool dayChange = msg.Day != prevDay;
+            bool afterNightFlip = msg.IsAfterNight != wasAfterNight;
+            // Always log real jumps so dual-box clock desync is visible without Trace.
+            if (dayChange || afterNightFlip || Mathf.Abs(delta) >= 2f)
+            {
+                ModLog.Event(LogCat.Session,
+                    "[TimeSync] client clock day " + prevDay + "→" + msg.Day
+                    + " time " + prevTime.ToString("F0") + "→" + msg.CurrentTime.ToString("F0")
+                    + " (Δ=" + delta.ToString("F1") + ")"
+                    + " afterNight " + wasAfterNight + "→" + msg.IsAfterNight);
+            }
+            else if (ModRuntime.VerboseLogging)
+            {
                 ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
+            }
         }
 
         /// <summary>

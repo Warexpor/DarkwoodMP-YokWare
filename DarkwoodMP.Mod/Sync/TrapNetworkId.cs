@@ -140,14 +140,22 @@ namespace DWMPHorde.Sync
             });
         }
 
+        private static float _nextPendingFlushTime;
+        private const float PendingFlushInterval = 3f;
+
         public static int FlushPending(System.Func<Vector3, string, GameObject> findByPos, System.Action<GameObject, bool> apply)
         {
             if (Pending.Count == 0) return 0;
+            // findByPos is OverlapSphere-only now, but still rate-limit retries.
+            float now = Time.unscaledTime;
+            if (now < _nextPendingFlushTime) return 0;
+            _nextPendingFlushTime = now + PendingFlushInterval;
+
             int applied = 0;
             for (int i = Pending.Count - 1; i >= 0; i--)
             {
                 var p = Pending[i];
-                if (Time.time - p.QueuedAt > 60f)
+                if (Time.time - p.QueuedAt > 30f)
                 {
                     Pending.RemoveAt(i);
                     continue;

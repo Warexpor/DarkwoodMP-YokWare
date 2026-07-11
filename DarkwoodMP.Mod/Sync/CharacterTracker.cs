@@ -31,6 +31,8 @@ namespace DWMPHorde.Sync
     {
         private static readonly List<Character> _characters = new List<Character>(64);
         private static readonly Dictionary<Character, short> _stableIdCache = new Dictionary<Character, short>(64);
+        /// <summary>Reverse map for O(1) FindByStableId (client LateUpdate walks every driven id every frame).</summary>
+        private static readonly Dictionary<short, Character> _byId = new Dictionary<short, Character>(64);
         private static readonly HashSet<short> _activeIds = new HashSet<short>();
         private static readonly object _lock = new object();
         private static short _nextId = 1;
@@ -70,6 +72,7 @@ namespace DWMPHorde.Sync
                 short id = GetCollisionFreeId();
                 if (id == 0) return 0;
                 _stableIdCache[c] = id;
+                _byId[id] = c;
                 _activeIds.Add(id);
                 if (!_characters.Contains(c))
                     _characters.Add(c);
@@ -90,6 +93,8 @@ namespace DWMPHorde.Sync
                 {
                     _activeIds.Remove(oldId);
                     _stableIdCache.Remove(c);
+                    if (_byId.TryGetValue(oldId, out Character mapped) && mapped == c)
+                        _byId.Remove(oldId);
                 }
             }
         }
@@ -205,26 +210,22 @@ namespace DWMPHorde.Sync
             {
                 // Free the character's old ID before assigning a new one to prevent stale-ID leaks
                 if (_stableIdCache.TryGetValue(c, out short oldId))
+                {
                     _activeIds.Remove(oldId);
+                    if (_byId.TryGetValue(oldId, out Character mapped) && mapped == c)
+                        _byId.Remove(oldId);
+                }
 
                 // If another character already holds this host id, clear it first
-                Character conflict = null;
-                for (int i = 0; i < _characters.Count; i++)
-                {
-                    Character other = _characters[i];
-                    if (other != null && other != c && _stableIdCache.TryGetValue(other, out short sid) && sid == id)
-                    {
-                        conflict = other;
-                        break;
-                    }
-                }
-                if (conflict != null)
+                if (_byId.TryGetValue(id, out Character conflict) && conflict != null && conflict != c)
                 {
                     _stableIdCache.Remove(conflict);
                     _activeIds.Remove(id);
+                    _byId.Remove(id);
                 }
 
                 _stableIdCache[c] = id;
+                _byId[id] = c;
                 _activeIds.Add(id);
                 if (!_characters.Contains(c))
                     _characters.Add(c);
@@ -245,13 +246,22 @@ namespace DWMPHorde.Sync
         /// <summary>Finds a character by its stable network ID.</summary>
         public static Character FindByStableId(short id)
         {
+            if (id == 0) return null;
             lock (_lock)
             {
+                if (_byId.TryGetValue(id, out Character c) && c != null)
+                    return c;
+                // Stale reverse entry or pre-map list — fall back once and repair.
                 for (int i = 0; i < _characters.Count; i++)
                 {
-                    if (_characters[i] != null && _stableIdCache.TryGetValue(_characters[i], out short sid) && sid == id)
-                        return _characters[i];
+                    Character ch = _characters[i];
+                    if (ch != null && _stableIdCache.TryGetValue(ch, out short sid) && sid == id)
+                    {
+                        _byId[id] = ch;
+                        return ch;
+                    }
                 }
+                _byId.Remove(id);
             }
             return null;
         }
@@ -295,6 +305,7 @@ namespace DWMPHorde.Sync
                 if (id != 0)
                 {
                     _stableIdCache[c] = id;
+                    _byId[id] = c;
                     _activeIds.Add(id);
                 }
             }
@@ -320,7 +331,11 @@ namespace DWMPHorde.Sync
             lock (_lock)
             {
                 if (_stableIdCache.TryGetValue(c, out short sid))
+                {
                     _activeIds.Remove(sid);
+                    if (_byId.TryGetValue(sid, out Character mapped) && mapped == c)
+                        _byId.Remove(sid);
+                }
                 _characters.Remove(c);
                 _stableIdCache.Remove(c);
             }
@@ -333,6 +348,7 @@ namespace DWMPHorde.Sync
             {
                 _characters.Clear();
                 _stableIdCache.Clear();
+                _byId.Clear();
                 _activeIds.Clear();
                 _nextId = 1;
             }
@@ -353,6 +369,7 @@ namespace DWMPHorde.Sync
                         _characters.RemoveAt(i);
                 }
                 _stableIdCache.Clear();
+                _byId.Clear();
                 _activeIds.Clear();
                 _nextId = 1;
             }

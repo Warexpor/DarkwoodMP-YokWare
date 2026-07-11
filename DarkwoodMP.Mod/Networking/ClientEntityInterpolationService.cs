@@ -34,6 +34,9 @@ namespace DWMPHorde.Networking
         private const float MatchRadius = 15f;
         private const float PhantomCleanupDelay = 5f;
         private const float UnmatchedCleanupDelay = 1f;
+        /// <summary>Unmatched ghost scan is not a per-frame job (was GetAll+ToArray every LateUpdate).</summary>
+        private const float UnmatchedCleanupInterval = 2f;
+        private static float _nextUnmatchedCleanupTime;
 
         /// <summary>
         /// Host entity broadcast radius is ~3500. Applying those far snapshots called
@@ -49,6 +52,10 @@ namespace DWMPHorde.Networking
         private static int _totalApplied;
         private static int _totalSkipped;
         private static int _snapshotCount;
+
+        /// <summary>Last ApplySnapshot applied/skipped counts (for ClientPerfProbe).</summary>
+        public static int LastApplyCount => _lastApplyCount;
+        public static int LastSkippedCount => _lastSkippedCount;
 
         private static readonly HashSet<short> _hostSyncedIds = new HashSet<short>();
         private static readonly HashSet<short> _spawnedPhantomIds = new HashSet<short>();
@@ -88,14 +95,17 @@ namespace DWMPHorde.Networking
             return false;
         }
 
-        /// <summary>True if worldPos is near the local listen camera/player (client interest).</summary>
+        /// <summary>
+        /// True if worldPos is near the local listen camera/player (client interest).
+        /// XZ only — Darkwood player Y is often ~-1984 while NPC/object Y differs by thousands;
+        /// 3D distance was skipping every entity snap (logs: applied=0 skip=N while co-op live).
+        /// </summary>
         public static bool IsInClientInterest(Vector3 worldPos)
         {
             Vector3 listen = LocalAudioService.GetListenPosition();
             float dx = worldPos.x - listen.x;
-            float dy = worldPos.y - listen.y;
             float dz = worldPos.z - listen.z;
-            return dx * dx + dy * dy + dz * dz <= ClientInterestDistanceSq;
+            return dx * dx + dz * dz <= ClientInterestDistanceSq;
         }
 
         public static void ApplySnapshot(EntityStateMessage msg)
@@ -774,12 +784,14 @@ namespace DWMPHorde.Networking
                 _states.Remove(_staleKeys[i]);
             }
 
-            // 3. Clean up unmatched client-only entities
+            // 3. Clean up unmatched client-only entities (rate-limited).
             // After receiving the first host snapshot + grace period, destroy any
             // character that exists only on the client (not in host's save/night spawns).
-            // This prevents ghost entities when host and client have divergent saves.
+            // Running this every LateUpdate allocated CharacterTracker.GetAll() forever while connected.
             if (!_receivedFirstSnapshot) return;
             if (now - _firstSnapshotTime < UnmatchedCleanupDelay) return;
+            if (now < _nextUnmatchedCleanupTime) return;
+            _nextUnmatchedCleanupTime = now + UnmatchedCleanupInterval;
 
             Player localPlayer = Player.Instance;
             Character[] allChars = CharacterTracker.GetAll();
@@ -833,6 +845,21 @@ namespace DWMPHorde.Networking
             if (c == null) return;
 
             GameObject go = c.gameObject;
+            // Fast path: already fully live — skip GetComponent thrash (called every 10 Hz snap).
+            if (go.activeSelf && c.enabled && c.isActive)
+            {
+                tk2dBaseSprite sp = c.sprite;
+                if (sp != null)
+                {
+                    Color col = sp.color;
+                    if (col.a > 0f)
+                        return;
+                    sp.color = new Color(col.r, col.g, col.b, 1f);
+                    return;
+                }
+                // No sprite ref yet — fall through once to wire anim/renderer.
+            }
+
             if (!go.activeSelf)
                 go.SetActive(true);
 
@@ -868,16 +895,26 @@ namespace DWMPHorde.Networking
         /// of <paramref name="position"/>.  This avoids spawning phantom duplicates when
         /// a save-related entity exists in the scene but is deactivated by WorldGrid culling.
         /// </summary>
+        private static Character[] _inactiveScanCache;
+        private static float _inactiveScanCacheTime = -999f;
+        private const float InactiveScanCacheTtl = 0.5f;
+
         private static Character FindInactiveCharacter(string entityName, Vector3 position, float radius)
         {
             string searchName = entityName;
             if (searchName.EndsWith("(Clone)"))
                 searchName = searchName.Substring(0, searchName.Length - 7);
 
-            // findObjectsOfType includes ALL loaded Characters, even inactive ones.
-            // Guard: only search if there are pending entities; this is called at most
-            // once per entity before spawning.
-            Character[] all = GameObject.FindObjectsOfType<Character>(true);
+            // Scene-wide FindObjectsOfType is expensive; share one scan across pending ids for 0.5s.
+            float now = Time.time;
+            if (_inactiveScanCache == null || now - _inactiveScanCacheTime >= InactiveScanCacheTtl)
+            {
+                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType();
+                _inactiveScanCache = GameObject.FindObjectsOfType<Character>(true);
+                _inactiveScanCacheTime = now;
+            }
+
+            Character[] all = _inactiveScanCache;
             float radiusSq = radius * radius;
             Character best = null;
             float bestDistSq = float.MaxValue;
@@ -987,6 +1024,9 @@ namespace DWMPHorde.Networking
             _audioStoppedIds.Clear();
             _deathAnimationPlayed.Clear();
             _everHostSyncedIds.Clear();
+            _nextUnmatchedCleanupTime = 0f;
+            _inactiveScanCache = null;
+            _inactiveScanCacheTime = -999f;
             _unmatchedSince.Clear();
             _pendingMatches.Clear();
             _lastApplyCount = 0;

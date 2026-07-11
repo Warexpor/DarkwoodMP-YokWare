@@ -1,11 +1,12 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using HarmonyLib;
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Patches <see cref="SaveManager.Save"/> to trigger a save on the remote peer
-    /// so that both sides persist their state simultaneously.
+    /// Host Save → notify peers. Clients must NOT full-world Save (see ClientCoopSaveBlockPatch);
+    /// they only push ClientStateBackup. Old "both sides Save" design corrupted client slot 5.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
@@ -17,11 +18,19 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            // Client sends inventory/skills/state backup to host on local save
+            // Client world Save is blocked; if we ever reach here Role is Host (or offline).
             if (ModRuntime.Network.Role == NetworkRole.Client)
+            {
+                // Safety: should not run after ClientCoopSaveBlockPatch — keep backup only.
                 ModRuntime.Network.SendClientStateBackup();
+                return;
+            }
 
-            ModRuntime.Network.SendSaveSync();
+            if (ModRuntime.Network.Role == NetworkRole.Host)
+            {
+                ModLog.Event(LogCat.Save, "Host Save → SaveSync notify peers (clients will NOT rewrite world files)");
+                ModRuntime.Network.SendSaveSync();
+            }
         }
     }
 }

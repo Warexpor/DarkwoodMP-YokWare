@@ -681,7 +681,12 @@ namespace DWMPHorde.Networking
 
         private void Update()
         {
+            bool perf = _role == NetworkRole.Client && IsConnected && _handshakeComplete;
+            ClientPerfProbe.SetActive(perf);
+            if (perf) ClientPerfProbe.FrameBegin();
+
             _net?.PollEvents();
+            if (perf) ClientPerfProbe.MarkPoll();
 
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             TryFlushPendingFlags();
@@ -727,7 +732,10 @@ namespace DWMPHorde.Networking
             }
 
             if (!IsConnected || !_handshakeComplete)
+            {
+                if (perf) ClientPerfProbe.MarkUpdateRest();
                 return;
+            }
 
             // Flush flag updates that were deferred by cooldown (host + client→host H1)
             if (_role == NetworkRole.Host || _role == NetworkRole.Client)
@@ -780,15 +788,24 @@ namespace DWMPHorde.Networking
                 _physicsSendTimer = 0f;
                 bool clientNotReady = _role == NetworkRole.Client
                     && (Core.mainMenu || Core.loadingGame || !Core.coreStarted);
-                if (!clientNotReady
-                    && Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap))
+                if (!clientNotReady)
                 {
-                    if (_role == NetworkRole.Host)
-                        Broadcast(NetMessageType.PhysicsState, w => snap.Serialize(w),
-                            skipLoadingPeers: true);
-                    else
-                        Send(NetMessageType.PhysicsState, w => snap.Serialize(w));
+                    if (perf) ClientPerfProbe.MarkUpdateRest();
+                    bool built = Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap);
+                    if (perf) ClientPerfProbe.MarkPhysBuild();
+                    if (built)
+                    {
+                        if (_role == NetworkRole.Host)
+                            Broadcast(NetMessageType.PhysicsState, w => snap.Serialize(w),
+                                skipLoadingPeers: true);
+                        else
+                            Send(NetMessageType.PhysicsState, w => snap.Serialize(w));
+                    }
                 }
+            }
+            else if (perf)
+            {
+                ClientPerfProbe.MarkUpdateRest();
             }
 
             // Host still needs light PlayerState for proxies, but not mid-share
@@ -1142,14 +1159,21 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected || !_handshakeComplete) return;
 
+            bool perf = _role == NetworkRole.Client;
+            if (perf) ClientPerfProbe.LateBegin();
+
             // Both sides: interpolate world physics objects
             Sync.WorldPhysicsSyncService.UpdateObjectInterpolation();
+            if (perf) ClientPerfProbe.MarkObjInterp();
 
             // Client only: interpolate remote entity positions for smooth movement
             if (_role == NetworkRole.Client)
             {
                 ClientEntityInterpolationService.TickLateUpdate();
+                if (perf) ClientPerfProbe.MarkEntityTick();
             }
+
+            if (perf) ClientPerfProbe.LateEnd();
         }
 
         /// <summary>
@@ -1586,6 +1610,13 @@ namespace DWMPHorde.Networking
         }
 
         public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod)
+        {
+            if (_role == NetworkRole.Client && IsConnected)
+                ClientPerfProbe.NotePacketRx();
+            OnNetworkReceiveBody(peer, reader, channelNumber, deliveryMethod);
+        }
+
+        private void OnNetworkReceiveBody(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod)
         {
             if (!reader.TryGetByte(out byte messageType))
                 return;
