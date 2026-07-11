@@ -54,7 +54,10 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
         }
 
-        /// <summary>Rebuild remote participant set from live proxies (proxies may spawn after session start).</summary>
+        /// <summary>
+        /// Rebuild remote participant set from live proxies + handshaked peers (D7).
+        /// Proxies may spawn after session start; peers table is more complete.
+        /// </summary>
         public static void RefreshConnectedPlayers()
         {
             _connectedPlayerIds.Clear();
@@ -64,6 +67,12 @@ namespace DWMPHorde.Sync
             {
                 if (proxy != null && proxy.PlayerId > 0)
                     _connectedPlayerIds.Add(proxy.PlayerId);
+            }
+            // Include handshaked peer ids even if proxy not yet spawned.
+            foreach (int id in net.GetHandshakedPeerIds())
+            {
+                if (id > 0 && id != net.LocalPlayerId)
+                    _connectedPlayerIds.Add(id);
             }
         }
 
@@ -224,7 +233,7 @@ namespace DWMPHorde.Sync
             if (net != null && net.IsConnected && DreamSyncManager.IsLocalDreamActive)
             {
                 net.Broadcast(NetMessageType.DreamEnded,
-                    w => new DreamEndedMessage { PresetName = "", OutcomeName = "allDead" }.Serialize(w),
+                    w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", "allDead").Serialize(w),
                     DeliveryMethod.ReliableOrdered);
             }
 

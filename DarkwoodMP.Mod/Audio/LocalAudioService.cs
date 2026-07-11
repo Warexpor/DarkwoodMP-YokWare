@@ -11,9 +11,11 @@ namespace DWMPHorde.Audio
     /// </summary>
     public static class LocalAudioService
     {
-        public const float DefaultMaxAudioDistance = 500f;
+        // Peer SFX cull + Unity spatial falloff (player footsteps/guns/equip, entity, MOS).
+        // 500 was tight for hideout↔yard; +30% so peers stay audible a bit farther.
+        public const float DefaultMaxAudioDistance = 650f;
         public const float DefaultMinSpatialDistance = 30f;
-        public const float DefaultMaxSpatialDistance = 500f;
+        public const float DefaultMaxSpatialDistance = 650f;
         public const float ForwardMinIntervalSec = 0.08f;
 
         private static readonly Dictionary<string, float> _lastForwardTime =
@@ -126,6 +128,25 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// Vanilla <c>Player.getHit</c> plays these parentless (2D SP feedback).
+        /// Peers must hear them as spatial SFX at the victim proxy — never as a
+        /// second local hit on their own character.
+        /// </summary>
+        public static bool IsPlayerHitFeedbackSound(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            if (string.Equals(audioID, "player_melee_hit", StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Blocked hit (stamina absorbed)
+            if (string.Equals(audioID, "door_hit_metal", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(audioID, "shadow_hit", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        /// <summary>
         /// Intentional no-parent <c>Play(string)</c> sounds that should still reach peers
         /// (e.g. molotov lighting). Everything else is local-only.
         /// </summary>
@@ -137,7 +158,7 @@ namespace DWMPHorde.Audio
             // Fixed co-op presence one-shots (vanilla often uses parentless Play(string)).
             // Note: UI_selectItem (hotbar slot click) is intentionally NOT shared —
             // peers still hear get/hide when the item is actually pulled out.
-            if (string.Equals(audioID, "player_melee_hit", StringComparison.OrdinalIgnoreCase))
+            if (IsPlayerHitFeedbackSound(audioID))
                 return true;
             if (string.Equals(audioID, "door_locked", StringComparison.OrdinalIgnoreCase))
                 return true;
@@ -232,6 +253,59 @@ namespace DWMPHorde.Audio
                 return true;
             if (audioID.IndexOf("player_tired", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
+            return false;
+        }
+
+        /// <summary>
+        /// World ambients/loops that vanilla parents to <see cref="Player"/> only so the
+        /// listener carries them (SoundArea onlyOneInstance, RandomWorldSounds global,
+        /// forest outside beds). Must stay local — networking them makes the remote
+        /// player hear forest ambients from the host proxy position.
+        /// </summary>
+        public static bool IsWorldAmbientLocalOnly(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return true;
+
+            if (audioID.IndexOf("ambient", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("ambience", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("outside", StringComparison.OrdinalIgnoreCase) >= 0
+                && audioID.IndexOf("sound", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            try
+            {
+                AudioItem item = AudioController.GetAudioItem(audioID);
+                if (item == null)
+                    return false;
+
+                // Forest / day-night beds are tagged isOutsideSound and parented to Player.
+                if (item.isOutsideSound)
+                    return true;
+
+                // Continuous loops parented to Player are almost always world/area ambience
+                // (fire, banshee, forest). One-shots (attacks, hits) use DoNotLoop.
+                if (item.Loop != AudioItem.LoopMode.DoNotLoop)
+                    return true;
+
+                if (item.category != null && !string.IsNullOrEmpty(item.category.Name))
+                {
+                    string cat = item.category.Name;
+                    if (cat.IndexOf("ambient", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                    if (cat.IndexOf("ambi", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                    if (cat.IndexOf("music", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                }
+            }
+            catch
+            {
+                // Audio system not ready — do not block (fail open for real player SFX).
+            }
+
             return false;
         }
 

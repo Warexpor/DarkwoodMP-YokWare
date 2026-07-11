@@ -4,8 +4,8 @@
 
 1. **Host:** MULTIPLAYER → HOST GAME → enter chapter (Player exists). Stays in-world.
 2. **Phase 1 — share:** Client JOIN → transfer handshake → host **WorldSaveShare** → client writes **slot 5**.
-3. **Phase 2 — enter world:** Client **disconnects transfer link**, loads host world offline (`initLoadGame` / `LoadScene`). Host stays playable.
-4. **Phase 3 — co-op connection:** `ChapterSessionResume` reconnects; handshake `AlreadyInWorld=true` → host **skips re-share**, queues late-join bulk after first PlayerState.
+3. **Phase 2 — enter world:** Client shows **ENTER WORLD**, then **disconnects transfer link**, loads host world offline (`initLoadGame` / `LoadScene`). Host stays playable.
+4. **Phase 3 — co-op connection:** `ChapterSessionResume` soft reconnects; handshake `AlreadyInWorld=true` → host **skips re-share**, queues late-join bulk after first PlayerState (light dump + staggered heavy sticky world).
 
 ## Bugs found (root causes)
 
@@ -24,9 +24,12 @@
 | J11 | P0 | Client `saveGameProfiles()` with partial `Core.profiles` **nuked `profs.dat`** — only one slot left; PLAY + HOST showed almost no worlds | Merge on-disk profile index first, re-register orphan `profN` with `sav.dat`, then save; one-time restore of user's index from disk + May backup |
 | J12 | P0 | Host sent **journal/flags/bags bulk on connect** while client still on title → `Journal.addJournalEntry` NRE, inventory “No item type …”, broken load | Defer gameplay bulk until after world share; client queues until `Player` exists (`ClientCanApplyWorldBulk`) |
 | J13 | P0 | Client LoadScene + host force-Save + late-join `FindObjectsOfType` + 500× proxy spawn spam → dual freeze, “event” hitch, stuck loading | Skip force Save if sav fresh; bulk only on first client PlayerState; gate proxy spawn during load; no afterNight clear from half-loaded packets |
-| J14 | P0 | Path B **auto share on join** force-`Save()` (`Save static`) + `removeAfterNightEffect` + scenario bulk + immediate heavy bulk ≠ Horde base (no auto-share). Host “unique event” + freeze | Late-join share = **disk files only, no Save**; no afterNight clear; no scenario bulk on join; 8s settle before light bulk; client mute net send until `coreStarted` |
+| J14 | P0 | Path B **auto share on join** force-`Save()` (`Save static`) + `removeAfterNightEffect` + scenario bulk + immediate heavy bulk ≠ Horde base (no auto-share). Host “unique event” + freeze | Late-join share = **disk files only, no Save** (skewed sav/savs still force-save once); no afterNight clear; no scenario bulk on join; 8s settle before bulk; client mute net send until `coreStarted` |
+| J19 | P1 | sav/savs on-disk skew after long host session → client SaveManager NRE / stuck `loadingGame` | Late-join pack force-saves once when pair incomplete or mtime skew &gt; 30s |
+| J20 | P1 | Light late-join dump skipped sticky world (bags/drops/barricades/gas/locks/construct/trade/weather) | Light dump + registry; heavy FindObjects **staggered one phase/frame** (`TickHeavyLateJoinBulk`); scenario still skipped |
+| J21 | P1 | Phase-3 full StopNetwork re-purged entities / FPS crater | Soft `ConnectToHost` when already in-chapter; client entity interest cull |
 
-## Residual status (2026-07-10)
+## Residual status (2026-07-11)
 
 | Issue | Status |
 |-------|--------|
@@ -34,7 +37,8 @@
 | Container H6 dual-loot | **Fixed** — host validate + `ContainerTakeDenied` refund (msg 115) |
 | Landmark dual-gen | **Mitigated** — client cannot finish new worldgen while connected; full placement seed lock still L |
 | Credits ends co-op | **By design** — epilogue; no CaptureForResume |
-| Host migration / SyncCheck | **Deferred** (feature, not a one-patch residual) |
+| Host grant on host crash (LAN) | **Fixed (v1)** — PeerRoster 123 / HostHandoff 124; elect lowest id (`HostMigrationEnabled`) |
+| SyncCheck (Yokyy digest) | **Deferred** (feature, not a one-patch residual) |
 | Password/IP/firewall | Config/ops |
 
 ## Client pull (Yokyy RequestWorld equivalent) — shipped
@@ -61,4 +65,4 @@ Client:
 - `Join pipeline phase 2: … disconnect transfer link` / `initLoadGame` or LoadScene offline
 - `[ChapterResume] waiting for offline load…` then `client playable after Ns — phase 3`
 - `co-op reconnect (AlreadyInWorld)` / Handshake OK phase 3
-- Host: bulk settle **1.5s** (`phase3 reconnect`), not 8s
+- Host: bulk settle **1.5s** (`phase3 reconnect`), not 8s; then light bulk + staggered heavy (`Late-join heavy bulk complete`)

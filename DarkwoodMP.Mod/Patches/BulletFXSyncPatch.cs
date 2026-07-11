@@ -47,25 +47,51 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
     public static class HitscanBloodPatch
     {
+        private static float _lastBloodForwardTime = -1f;
+        private static Vector3 _lastBloodForwardPos;
+        private static string _lastBloodForwardPrefab;
+
         private static void Prefix(string prefab, Vector3 position, Quaternion quaternion)
+        {
+            TryForwardBlood(prefab, position, quaternion);
+        }
+
+        /// <summary>
+        /// Shared by Core.AddPrefab prefix and Character.getHit postfix so melee/hitscan
+        /// entity blood (Shotsplat_stay) always reaches peers even if one path is skipped.
+        /// </summary>
+        internal static void TryForwardBlood(string prefab, Vector3 position, Quaternion quaternion)
         {
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (prefab == null) return;
-            if (!prefab.StartsWith("FX/Bloodsplats/")) return;
+            if (string.IsNullOrEmpty(prefab)) return;
+            if (!prefab.StartsWith("FX/Bloodsplats/", System.StringComparison.OrdinalIgnoreCase)
+                && !prefab.Equals("Shotsplat1", System.StringComparison.OrdinalIgnoreCase))
+                return;
 
-            // Only forward blood FX that's near a player-controlled entity.
-            // Blood from environmental damage (save-loaded dog collision, etc.)
-            // on phantom characters far from players should NOT be forwarded.
-            const float MAX_BLOOD_DISTANCE = 60f;
+            // Full path for Character.getHit; short pool name for projectile Shotsplat1.
+            string fullPrefab = prefab.StartsWith("FX/", System.StringComparison.OrdinalIgnoreCase)
+                ? prefab
+                : "FX/Bloodsplats/" + prefab;
+
+            // Dedupe AddPrefab prefix + getHit postfix for the same splat.
+            float now = Time.unscaledTime;
+            if (fullPrefab == _lastBloodForwardPrefab
+                && now - _lastBloodForwardTime < 0.05f
+                && Vector3.SqrMagnitude(position - _lastBloodForwardPos) < 4f)
+                return;
+
+            const float MAX_BLOOD_DISTANCE = 120f;
             bool nearPlayer = false;
-            if (Player.Instance != null && Vector3.Distance(position, Player.Instance.transform.position) <= MAX_BLOOD_DISTANCE)
+            if (Player.Instance != null
+                && Vector3.Distance(position, Player.Instance.transform.position) <= MAX_BLOOD_DISTANCE)
                 nearPlayer = true;
             if (!nearPlayer)
             {
                 foreach (var proxy in net.GetAllProxies())
                 {
+                    if (proxy == null) continue;
                     if (Vector3.Distance(position, proxy.transform.position) <= MAX_BLOOD_DISTANCE)
                     {
                         nearPlayer = true;
@@ -80,9 +106,13 @@ namespace DWMPHorde.Patches
                 return;
             }
 
+            _lastBloodForwardTime = now;
+            _lastBloodForwardPos = position;
+            _lastBloodForwardPrefab = fullPrefab;
+
             net.SendBulletImpact(new BulletImpactMessage
             {
-                PrefabName = prefab,
+                PrefabName = fullPrefab,
                 PoolName = "",
                 PosX = position.x,
                 PosY = position.y,
@@ -91,6 +121,40 @@ namespace DWMPHorde.Patches
                 RotY = quaternion.eulerAngles.y,
                 RotZ = quaternion.eulerAngles.z
             });
+        }
+    }
+
+    /// <summary>
+    /// Explicit blood relay on entity getHit (melee + firearm). Host dog kills spawn
+    /// FX/Bloodsplats/* here; relying only on Core.AddPrefab prefix missed some paths.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "getHit", new[] {
+        typeof(float), typeof(Transform), typeof(bool), typeof(bool), typeof(bool),
+        typeof(bool), typeof(bool), typeof(bool), typeof(bool) })]
+    public static class CharacterGetHitBloodForwardPatch
+    {
+        private static void Postfix(Character __instance, Transform attackerTransform, bool byPlayer, bool normalHit)
+        {
+            if (__instance == null || !normalHit) return;
+            if (__instance.isNightTrader) return;
+            if (!byPlayer && attackerTransform == null) return;
+
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            // Mirror vanilla Character.getHit blood spawn for the wire (local already spawned).
+            float y = __instance.transform.eulerAngles.y + Random.Range(-40f, 40f);
+            if (attackerTransform != null)
+                y = (attackerTransform.rotation * Quaternion.Euler(90f, 180f, 0f)).eulerAngles.y;
+
+            string prefab = __instance.inWater
+                ? "FX/Bloodsplats/Shotsplat"
+                : "FX/Bloodsplats/Shotsplat_stay";
+            HitscanBloodPatch.TryForwardBlood(
+                prefab,
+                __instance.transform.position,
+                Quaternion.Euler(90f, y, 0f));
         }
     }
 

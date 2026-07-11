@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using DWMPHorde;
 using DWMPHorde.Sync;
+using LiteNetLib;
 
 namespace DWMPHorde.Networking
 {
@@ -11,11 +12,21 @@ namespace DWMPHorde.Networking
         {
             Vector3 locPos = new Vector3(msg.LocPosX, msg.LocPosY, msg.LocPosZ);
             int playerId = _currentReceivePlayerId;
-            // Shared session: every peer fully enters this dream
-            if (!Sync.DreamSession.IsActive)
-                Sync.DreamSession.TryBegin(msg.PresetName);
-            Sync.DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
-            Sync.DreamSession.MarkActive();
+
+            // Merge host completed + lvl flags before entry.
+            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+
+            if (!DreamSession.IsActive)
+                DreamSession.TryBegin(msg.PresetName);
+            else if (!string.IsNullOrEmpty(msg.PresetName)
+                && !string.Equals(DreamSession.PresetName, msg.PresetName, StringComparison.OrdinalIgnoreCase))
+            {
+                // Host chain may arrive as DreamStarted after ChainStart; keep session.
+                DreamSession.SetChainedPreset(msg.PresetName);
+            }
+
+            DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
+            DreamSession.MarkActive();
         }
 
         /// <summary>
@@ -28,22 +39,27 @@ namespace DWMPHorde.Networking
             if (_remotePlayers.TryGetValue(playerId, out var deadState))
                 deadState.IsDeadInDream = false;
 
-            // Client story completion → host ends the shared session authoritatively
+            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+
+            // Client story completion → host runs full initiateEndDreaming (transition + end).
             if (_role == NetworkRole.Host
                 && !string.IsNullOrEmpty(msg.OutcomeName)
                 && msg.OutcomeName != "playerDeath"
                 && Dreams.Instance != null
                 && Dreams.Instance.dreaming)
             {
-                ModRuntime.LegacyInfo($"[DreamSession] Host applying client story end: {msg.OutcomeName}");
-                // Set outcome then end — DreamEndPatch broadcasts to remaining peers
+                ModRuntime.LegacyInfo(
+                    $"[DreamSession] Host applying client story end via initiateEndDreaming: {msg.OutcomeName}");
                 Dreams.Instance.outcome = msg.OutcomeName;
-                Dreams.Instance.endDreaming();
+                // Vanilla: transition video/fade then endDreaming. Do not hard-cut.
+                Dreams.Instance.initiateEndDreaming();
                 return;
             }
 
-            Sync.DreamSession.End(msg.OutcomeName);
-            Sync.DreamSyncManager.OnRemoteDreamEnded(playerId, msg.OutcomeName);
+            // Avoid double-end if we already Idle.
+            if (DreamSession.IsActive)
+                DreamSession.End(msg.OutcomeName);
+            DreamSyncManager.OnRemoteDreamEnded(playerId, msg.OutcomeName);
         }
 
         private void HandleDreamStartRequest(DreamStartRequestMessage msg)
@@ -52,20 +68,64 @@ namespace DWMPHorde.Networking
                 return;
             if (string.IsNullOrEmpty(msg.PresetName))
                 return;
-            if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
+
+            if (DreamSession.IsActive)
             {
-                ModRuntime.LegacyInfo($"[DreamSync] Ignoring dream start request — already in a dream: {msg.PresetName}");
+                if (DreamSession.IsStarting
+                    && string.Equals(DreamSession.PresetName, msg.PresetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[DreamSync] Ignoring duplicate start request (already Starting): {msg.PresetName}");
+                    return;
+                }
+                ModRuntime.LegacyInfo(
+                    $"[DreamSync] Ignoring dream start request — already in a dream: {msg.PresetName}");
                 return;
             }
-            if (Sync.DreamSession.IsPresetCompleted(msg.PresetName))
+            if (DreamSession.IsPresetCompleted(msg.PresetName))
             {
-                ModRuntime.LegacyInfo($"[DreamSync] Ignoring dream start request — already completed: {msg.PresetName}");
+                ModRuntime.LegacyInfo(
+                    $"[DreamSync] Ignoring dream start request — already completed: {msg.PresetName}");
+                return;
+            }
+
+            if (!DreamSession.TryBegin(msg.PresetName))
+            {
+                ModRuntime.LegacyInfo($"[DreamSync] TryBegin failed for request: {msg.PresetName}");
                 return;
             }
 
             ModRuntime.LegacyInfo($"[DreamSync] Host handling dream start request: {msg.PresetName}");
-            Singleton<Controller>.Instance.StartCoroutine(
-                Singleton<Dreams>.Instance.prepareDream(msg.PresetName));
+            try
+            {
+                Singleton<Controller>.Instance.StartCoroutine(
+                    Singleton<Dreams>.Instance.prepareDream(msg.PresetName));
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogError("[DreamSync] prepareDream failed: " + ex);
+                DreamSession.AbortStarting(ex.Message);
+            }
+        }
+
+        private void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
+        {
+            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            ModRuntime.LegacyInfo(
+                $"[DreamSync] Session bulk: completed={msg.CompletedPresets?.Length ?? 0} "
+                + $"active={msg.SessionActive} preset={msg.ActivePreset}");
+        }
+
+        private void HandleDreamChainStart(DreamChainStartMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.NextPresetName))
+                return;
+            if (_role == NetworkRole.Host)
+                return; // host already preparing
+
+            ModRuntime.LegacyInfo($"[DreamSync] DreamChainStart → {msg.NextPresetName}");
+            DreamSession.SetChainedPreset(msg.NextPresetName);
+            DreamSyncManager.OnDreamChain(msg.NextPresetName);
         }
 
         /// <summary>
@@ -79,8 +139,6 @@ namespace DWMPHorde.Networking
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             ModRuntime.LegacyInfo($"[DreamSync] Dreamer picked up: {msg.ItemType} x{msg.Amount} at {pos}");
 
-            // Best-effort visual: destroy nearest matching world item so spectators
-            // do not keep seeing a looted object floating in the dream.
             try
             {
                 Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ItemType);
@@ -99,12 +157,22 @@ namespace DWMPHorde.Networking
         private void HandleDreamEntered(DreamEnteredMessage msg)
         {
             int playerId = _currentReceivePlayerId;
+            FinalDreamsceneManager.RefreshConnectedPlayers();
             var proxy = GetProxy(playerId);
             if (proxy != null)
             {
                 proxy.FreezePosition = false;
                 ModRuntime.LegacyInfo($"[DreamSync] Player {playerId} entered dream — proxy unfrozen");
             }
+        }
+
+        /// <summary>Host: late-join dream completed + level flags.</summary>
+        internal void SendDreamSessionBulkTo(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0) return;
+            var bulk = DreamSessionBulkMessage.FromLocal();
+            SendToPlayer(playerId, NetMessageType.DreamSessionBulk,
+                w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }

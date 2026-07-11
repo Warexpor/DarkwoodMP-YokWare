@@ -11,12 +11,18 @@ namespace DWMPHorde.Networking
         /// Host skips world share and only arms late-join bulk (phase 3 co-op connect).
         /// </summary>
         public bool AlreadyInWorld;
+        /// <summary>
+        /// Host→client: host's stable player id (may be ≠1 after host-grant migration).
+        /// Client→host: unused (0).
+        /// </summary>
+        public short HostPlayerId;
 
         public void Serialize(NetWriter writer)
         {
             writer.Put(ProtocolVersion);
             writer.Put(PlayerId);
             writer.Put(AlreadyInWorld);
+            writer.Put(HostPlayerId);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -26,9 +32,11 @@ namespace DWMPHorde.Networking
                 ProtocolVersion = reader.GetInt(),
                 PlayerId = reader.GetShort(),
             };
-            // Forward-compat: older peers omitted the bool (both boxes should be same DLL).
+            // Forward-compat: older peers omitted trailers (both boxes should be same DLL).
             if (reader.AvailableBytes >= 1)
                 msg.AlreadyInWorld = reader.GetBool();
+            if (reader.AvailableBytes >= 2)
+                msg.HostPlayerId = reader.GetShort();
             return msg;
         }
     }
@@ -82,16 +90,21 @@ namespace DWMPHorde.Networking
         public short CurrentFrame;
 
         // Protocol 19 continuous lights — conditional payload via LightFlags.
-        // bit0 FlareActive | bit1 FlashlightActive | bit2 FlareParams | bit3 FlashParams | bit4 FlareItemType
+        // bit0 Flare/Match held | bit1 Flashlight | bit2 FlareParams | bit3 FlashParams | bit4 ItemType
+        // bit5 MatchKind (held is match not flare) | bit6 Remain01 present | bit7 FlashAim present
         public const byte LightFlagFlare = 1;
         public const byte LightFlagFlashlight = 2;
         public const byte LightFlagFlareParams = 4;
         public const byte LightFlagFlashParams = 8;
         public const byte LightFlagFlareItemType = 16;
+        public const byte LightFlagMatch = 32;
+        public const byte LightFlagRemain = 64;
+        public const byte LightFlagFlashAim = 128;
 
         public byte LightFlags;
         public bool FlareActive;
         public bool FlashlightActive;
+        public bool MatchActive;
         public bool FlareHasParams;
         public bool FlashHasParams;
         public bool FlareHasItemType;
@@ -101,10 +114,17 @@ namespace DWMPHorde.Networking
         public float FlareIntensity;
         public float FlareColorR, FlareColorG, FlareColorB;
         public string FlareItemType;
+        /// <summary>0–255 remaining life for flare/match; only valid when LightFlagRemain set.</summary>
+        public byte HeldLightRemain01;
 
         public float FlashRadius;
         public float FlashIntensity;
         public float FlashColorR, FlashColorG, FlashColorB;
+        /// <summary>Flashlight cone yaw degrees (0–360); valid when LightFlagFlashAim set.</summary>
+        public short FlashAimY;
+
+        /// <summary>Trap instance this player occupies (0 = none). Trailer after AfterNightActive.</summary>
+        public int TrapNetId;
 
         public void Serialize(NetWriter writer)
         {
@@ -145,6 +165,10 @@ namespace DWMPHorde.Networking
                 }
             }
             writer.Put(AfterNightActive);
+            // Optional trailer (proto 19 extend): TrapNetId + remain + flash aim
+            writer.Put(TrapNetId);
+            writer.Put(HeldLightRemain01);
+            writer.Put(FlashAimY);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -171,13 +195,16 @@ namespace DWMPHorde.Networking
                 LightFlags = reader.GetByte()
             };
 
-            msg.FlareActive = (msg.LightFlags & LightFlagFlare) != 0;
+            msg.FlareActive = (msg.LightFlags & LightFlagFlare) != 0
+                && (msg.LightFlags & LightFlagMatch) == 0;
+            msg.MatchActive = (msg.LightFlags & LightFlagFlare) != 0
+                && (msg.LightFlags & LightFlagMatch) != 0;
             msg.FlashlightActive = (msg.LightFlags & LightFlagFlashlight) != 0;
             msg.FlareHasParams = (msg.LightFlags & LightFlagFlareParams) != 0;
             msg.FlashHasParams = (msg.LightFlags & LightFlagFlashParams) != 0;
             msg.FlareHasItemType = (msg.LightFlags & LightFlagFlareItemType) != 0;
 
-            if (msg.FlareActive)
+            if ((msg.LightFlags & LightFlagFlare) != 0)
             {
                 msg.FlareLocalX = reader.GetFloat();
                 msg.FlareLocalY = reader.GetFloat();
@@ -203,6 +230,13 @@ namespace DWMPHorde.Networking
             }
 
             msg.AfterNightActive = reader.GetBool();
+            // Trailer: TrapNetId(int) + Remain(byte) + FlashAimY(short) = 7 bytes
+            if (reader.AvailableBytes >= 7)
+            {
+                msg.TrapNetId = reader.GetInt();
+                msg.HeldLightRemain01 = reader.GetByte();
+                msg.FlashAimY = reader.GetShort();
+            }
             return msg;
         }
     }

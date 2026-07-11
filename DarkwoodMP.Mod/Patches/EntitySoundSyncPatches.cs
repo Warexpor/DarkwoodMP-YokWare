@@ -7,24 +7,26 @@ using LiteNetLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Intercepts AI-driven CharacterSounds calls on the host and broadcasts
-    /// them to the client. Covers sounds NOT already played by animation events
-    /// or the existing hit/death sync.
+    /// Host AI <see cref="CharacterSounds"/> → clients (vanilla API surface from decompile):
+    /// playGrowl, playSingleInstance (curious/aggressive/defensive), playIdleLoop,
+    /// destroySounds, playEscapingLoop, play(attack1/2/death), playGetHitByAxe1.
     ///
-    /// What the client plays locally without host sync:
-    ///   - Footstep sounds (animation event → checkFrameTrigger)
-    ///   - Attack1/Attack2 (animation event → checkFrameTrigger)
-    ///   - GetHit (ClientMeleeSensorPatch → sounds.playGetHitByAxe1)
-    ///   - Death (ClientEntityInterpolationService → c.die → die2)
+    /// Client entity AI is frozen, so peers never fire these locally — host must Broadcast.
+    /// Prefix sets <see cref="TraverseHack.InsideCharacterSounds"/> so PlayerAudio
+    /// AudioController hooks do not double-forward the same clip as a generic SFX.
     ///
-    /// What this file syncs:
-    ///   - Growl (AI behavior, not animation-tied)
-    ///   - Curious (onHearSomething, AI behavior)
-    ///   - Aggressive/Defensive state sounds
-    ///   - Escaping (runAway/flee behavior)
+    /// Enemy footsteps that call AudioController.Play outside CharacterSounds
+    /// (playFootHitGround) go via PlayerAudio (enemy transform path) instead.
     /// </summary>
     internal static class EntitySoundSyncHelper
     {
+        /// <summary>
+        /// Same radius as client entity visual interest so mid-range dogs are not
+        /// silent while still pose-synced (was DefaultMaxAudioDistance 650 vs 1400).
+        /// </summary>
+        private static float EntitySoundRange =>
+            ClientEntityInterpolationService.ClientInterestDistance;
+
         internal static void Broadcast(CharacterSounds sounds, EntitySoundType type)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
@@ -36,8 +38,8 @@ namespace DWMPHorde.Patches
             if (c == null) return;
             if (!CharacterTracker.TryGetStableId(c, out short hostId)) return;
 
-            // Cull far SFX on send side (matches client listen range).
-            if (!LocalAudioService.IsNearAnyListener(c.transform.position))
+            // Cull far SFX: near host OR any remote proxy (3+), interest-sized radius.
+            if (!LocalAudioService.IsNearAnyListener(c.transform.position, EntitySoundRange))
                 return;
 
             var msg = new EntitySoundMessage { HostId = hostId, SoundType = type };
@@ -57,7 +59,7 @@ namespace DWMPHorde.Patches
 
             // Idle stop (empty name) always send so distant loops don't stick.
             bool isStop = string.IsNullOrEmpty(loopName);
-            if (!isStop && !LocalAudioService.IsNearAnyListener(c.transform.position))
+            if (!isStop && !LocalAudioService.IsNearAnyListener(c.transform.position, EntitySoundRange))
                 return;
 
             var msg = new EntitySoundMessage { HostId = hostId, SoundType = EntitySoundType.Idle, LoopName = loopName ?? "" };

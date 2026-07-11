@@ -107,6 +107,8 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(PauseSuppression.Reset);
                 NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
                 NetworkResetRegistry.Register(NpcDialogueLock.Reset);
+                NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);
+                NetworkResetRegistry.Register(StationSyncHelpers.Reset);
                 // Chapter resume pending must survive StopNetwork during chapter tear —
                 // do NOT register ChapterSessionResume.Reset on network stop.
 

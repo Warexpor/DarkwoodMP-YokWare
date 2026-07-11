@@ -228,7 +228,53 @@ namespace DWMPHorde.Networking
         /// Optional for older peers; protocol version stays 19.
         /// </summary>
         ContainerTakeDenied = 115,
+        /// <summary>
+        /// Either peer: feeder used (absolute inactive state). Optional; protocol stays 19.
+        /// </summary>
+        [Forwardable] FeederState = 116,
+        /// <summary>
+        /// Either peer: lure bait absolute health. Optional; protocol stays 19.
+        /// </summary>
+        [Forwardable] LureState = 117,
+        /// <summary>
+        /// Client→host: post-sleep clock snapshot for host-authority adopt. Optional; protocol stays 19.
+        /// </summary>
+        SleepEndRequest = 118,
+        /// <summary>
+        /// Client→host request / host→all grant|deny|release: exclusive workbench open. Optional; protocol stays 19.
+        /// </summary>
+        WorkbenchLock = 119,
+        /// <summary>
+        /// Host→peer: dream session snapshot (completed presets + hadDreamAtLvl*). Late-join bulk. Optional; protocol 19.
+        /// </summary>
+        DreamSessionBulk = 120,
+        /// <summary>
+        /// Host→all: transferToDream next preset (chain). Optional; protocol 19.
+        /// </summary>
+        [Forwardable] DreamChainStart = 121,
+        /// <summary>
+        /// Client→host: left hideout / wants morning freeze cleared (host runs endAfterNight once).
+        /// Optional; protocol stays 19.
+        /// </summary>
+        AfterNightEndRequest = 122,
+        /// <summary>
+        /// Host→all: peer LAN roster (playerId + address + session port) for host-crash migration.
+        /// Optional; protocol stays 19.
+        /// </summary>
+        PeerRoster = 123,
+        /// <summary>
+        /// Host→all: graceful leave — elect player id becomes host. Optional; protocol stays 19.
+        /// </summary>
+        HostHandoff = 124,
+        /// <summary>
+        /// Host→all: thrown projectile/light expired (flare burnout). Optional; protocol 19.
+        /// </summary>
+        [Forwardable] ThrowableDespawn = 125,
+        /// <summary>
+        /// Host→peer: trap table bulk (id + triggered + occupant). Late-join. Optional; protocol 19.
+        /// </summary>
+        TrapBulk = 126,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 115
+        _Highest = 126
     }
 }

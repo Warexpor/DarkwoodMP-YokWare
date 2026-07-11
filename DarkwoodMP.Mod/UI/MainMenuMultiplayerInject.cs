@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
@@ -7,17 +8,28 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Native tk2d title-screen MULTIPLAYER button (Yokyy product path, Horde network).
+    /// Native tk2d title MULTIPLAYER button — <b>Yokyy presentation</b>, hardened lifecycle.
     ///
-    /// Construction is deliberately the proven Yokyy approach:
-    /// clone quitBtn → OnFire + empty function → hide sprite → tk2dTextMesh label
-    /// sized against the button collider in world space → PositionMe.offset + init().
-    /// PositionMe already tracks resolution; do not reinvent that.
+    /// Presentation (do not freestyle):
+    ///   clone quitBtn → strip LocalizedText/sprites → root collider only →
+    ///   tk2dTextMesh label from MainMenu.CurrentVersion → PositionMe.offset + init().
+    ///
+    /// Lifecycle (this overhaul):
+    ///   edge-triggered inject when Menu0 becomes showable; one owned GO;
+    ///   DestroyImmediate purge of our tags only (no scene-wide Find spam);
+    ///   never stack; heal wiring without rebuilding when still interactive.
     /// </summary>
     public static class MainMenuMultiplayerInject
     {
+        private const string MpButtonName = "YokWare_MultiplayerBtn";
+        private const string PanelName = "YokWare_MenuPanel";
+        private const string LabelName = "YokWare_Label";
+        private const string TagKindMp = "mp";
+        private const string TagKindPanel = "panel";
+        private const string TagKindRow = "row";
+
         private const float RowSpacing = 60f;
-        private const int PollInterval = 15;
+        private const int UiPollInterval = 15;
         private const float JoinTimeoutSec = 15f;
 
         private static MainMenu _menu;
@@ -25,13 +37,20 @@ namespace DWMPHorde
         private static GameObject _panel;
         private static GameObject _joinButton;
         private static GameObject _disconnectButton;
+
         private static bool _joinPending;
         private static float _joinStartedAt;
         private static float _handshakeAt;
         private static bool _loggedWaitingWorld;
         private static bool _worldRequest10sSent;
         private static bool _worldRequest25sSent;
-        private static int _lastPoll;
+        private static int _lastUiPoll;
+
+        /// <summary>Menu0 instance id we last injected for (scene rebuild → re-inject).</summary>
+        private static int _boundMenu0Id;
+        private static int _lastScreenW;
+        private static int _lastScreenH;
+        private static bool _menu0WasActive;
 
         public static void OnUpdate()
         {
@@ -47,13 +66,13 @@ namespace DWMPHorde
                 ModLog.Error(LogCat.Session, "join poll: " + ex.Message, ex);
             }
 
-            if (Time.frameCount - _lastPoll < PollInterval)
+            if (Time.frameCount - _lastUiPoll < UiPollInterval)
                 return;
-            _lastPoll = Time.frameCount;
+            _lastUiPoll = Time.frameCount;
 
             try
             {
-                TickMenu();
+                TickUiLifecycle();
             }
             catch (Exception ex)
             {
@@ -61,95 +80,288 @@ namespace DWMPHorde
             }
         }
 
-        private static void TickMenu()
+        // ------------------------------------------------------------------
+        // Lifecycle (ownership, no inject storms)
+        // ------------------------------------------------------------------
+
+        private static void TickUiLifecycle()
         {
             if (!Core.mainMenu)
             {
-                // Scene objects die on load; drop stale refs (keep join pending across load).
-                _mpButton = null;
-                _panel = null;
-                _joinButton = null;
-                _disconnectButton = null;
-                _menu = null;
+                // In-chapter: keep owned GOs (Menu0 often survives for ESC). Drop menu cache only.
+                SoftClearMenuCache();
+                _menu0WasActive = false;
                 return;
             }
 
-            if (_menu == null)
-                _menu = UnityEngine.Object.FindObjectOfType(typeof(MainMenu)) as MainMenu;
-            if (_menu == null || _menu.Menu0 == null)
+            if (!ResolveMenu())
                 return;
 
-            if (_mpButton == null && _menu.Menu0.activeInHierarchy)
-                Inject();
+            bool menu0Active = _menu.Menu0 != null && _menu.Menu0.activeInHierarchy;
+            bool panelActive = _panel != null && _panel && _panel.activeSelf;
 
-            // Game re-showed Menu0 (ESC) while our panel was open — yield
-            if (_panel != null && _panel.activeSelf && _menu.Menu0.activeSelf)
+            // ESC re-showed Menu0 while panel still open — yield to vanilla menu
+            if (panelActive && menu0Active)
+            {
                 _panel.SetActive(false);
+                panelActive = false;
+            }
 
-            if (_panel != null && _panel.activeSelf)
+            if (menu0Active)
+            {
+                bool becameActive = !_menu0WasActive;
+                int menu0Id = _menu.Menu0.GetInstanceID();
+                bool menuRebuilt = menu0Id != _boundMenu0Id;
+                bool resChanged = Screen.width != _lastScreenW || Screen.height != _lastScreenH;
+
+                if (becameActive || menuRebuilt || !IsOwnedInteractive(_mpButton, TagKindMp))
+                    EnsureMultiplayerButton(forceRebuild: menuRebuilt || !IsOwnedInteractive(_mpButton, TagKindMp));
+                else if (resChanged)
+                    RelayoutMultiplayerButton();
+
+                _menu0WasActive = true;
+            }
+            else
+            {
+                _menu0WasActive = false;
+            }
+
+            if (panelActive)
                 RefreshSessionButtons();
         }
 
+        private static void SoftClearMenuCache()
+        {
+            if (_mpButton != null && !_mpButton)
+                _mpButton = null;
+            if (_panel != null && !_panel)
+            {
+                _panel = null;
+                _joinButton = null;
+                _disconnectButton = null;
+            }
+            _menu = null;
+        }
+
+        private static bool ResolveMenu()
+        {
+            if (_menu == null)
+                _menu = UnityEngine.Object.FindObjectOfType(typeof(MainMenu)) as MainMenu;
+            return _menu != null && _menu.Menu0 != null && _menu.quitBtn != null;
+        }
+
+        /// <summary>
+        /// One interactive MULTIPLAYER row under quitBtn's parent. Presentation = Yokyy.
+        /// </summary>
+        private static void EnsureMultiplayerButton(bool forceRebuild)
+        {
+            if (!ResolveMenu())
+                return;
+
+            if (!forceRebuild && IsOwnedInteractive(_mpButton, TagKindMp))
+            {
+                WireButton(_mpButton, OpenPanel);
+                return;
+            }
+
+            // Scoped purge — only our tagged/named nodes near this menu (no full-scene scan).
+            int purged = PurgeOurUiNearMenu();
+            _mpButton = null;
+
+            InjectMultiplayerButton();
+            _boundMenu0Id = _menu.Menu0.GetInstanceID();
+            _lastScreenW = Screen.width;
+            _lastScreenH = Screen.height;
+
+            if (purged > 0)
+            {
+                ModLog.Event(LogCat.Session,
+                    "MULTIPLAYER rebuilt (purged " + purged + " stale node(s))");
+            }
+        }
+
+        private static void RelayoutMultiplayerButton()
+        {
+            if (!IsOwnedInteractive(_mpButton, TagKindMp) || _menu?.Menu0 == null)
+                return;
+            float y = ComputeVanillaLowestOffsetY() - RowSpacing;
+            SetRow(_mpButton, y);
+            _lastScreenW = Screen.width;
+            _lastScreenH = Screen.height;
+        }
+
+        private static bool IsOwnedInteractive(GameObject go, string kind)
+        {
+            if (go == null || !go)
+                return false;
+            if (!go.activeInHierarchy)
+                return false;
+            var tag = go.GetComponent<YokWareUiTag>();
+            if (tag == null || tag.Kind != kind)
+                return false;
+            Button btn = go.GetComponent<Button>();
+            if (btn == null || btn.disabled)
+                return false;
+            Collider col = go.GetComponent<Collider>();
+            return col != null && col.enabled;
+        }
+
+        /// <summary>
+        /// DestroyImmediate only YokWare_* under Menu0 / quit parent / panel parent.
+        /// Avoids FindObjectsOfType thrash and never touches vanilla buttons.
+        /// </summary>
+        private static int PurgeOurUiNearMenu()
+        {
+            int n = 0;
+            var roots = new List<Transform>(4);
+            if (_menu?.Menu0 != null)
+                roots.Add(_menu.Menu0.transform);
+            if (_menu?.quitBtn != null && _menu.quitBtn.transform.parent != null)
+                roots.Add(_menu.quitBtn.transform.parent);
+            if (_menu?.Menu0 != null && _menu.Menu0.transform.parent != null)
+                roots.Add(_menu.Menu0.transform.parent);
+
+            var seen = new HashSet<int>();
+            for (int r = 0; r < roots.Count; r++)
+            {
+                Transform root = roots[r];
+                if (root == null)
+                    continue;
+                int rid = root.GetInstanceID();
+                if (!seen.Add(rid))
+                    continue;
+
+                // Children first — collect, then destroy
+                var kill = new List<GameObject>(8);
+                CollectOurNodes(root, kill);
+                for (int i = 0; i < kill.Count; i++)
+                {
+                    if (kill[i] == null || !kill[i])
+                        continue;
+                    try
+                    {
+                        UnityEngine.Object.DestroyImmediate(kill[i]);
+                        n++;
+                    }
+                    catch
+                    {
+                        try { UnityEngine.Object.Destroy(kill[i]); n++; }
+                        catch { /* ignore */ }
+                    }
+                }
+            }
+
+            _panel = null;
+            _joinButton = null;
+            _disconnectButton = null;
+            return n;
+        }
+
+        private static void CollectOurNodes(Transform root, List<GameObject> kill)
+        {
+            if (root == null)
+                return;
+            // Depth-first: destroy leaves via list (DestroyImmediate on parent kills children)
+            YokWareUiTag[] tags = root.GetComponentsInChildren<YokWareUiTag>(true);
+            for (int i = 0; i < tags.Length; i++)
+            {
+                if (tags[i] == null || tags[i].gameObject == null)
+                    continue;
+                // Only top-level owned roots (mp button, panel) — not labels (children of button)
+                if (tags[i].Kind == TagKindMp || tags[i].Kind == TagKindPanel)
+                    kill.Add(tags[i].gameObject);
+            }
+
+            // Legacy name-only clones from older builds (no tag)
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform t = all[i];
+                if (t == null)
+                    continue;
+                if (t.name != MpButtonName && t.name != PanelName)
+                    continue;
+                if (t.GetComponent<YokWareUiTag>() != null)
+                    continue; // already queued via tag
+                kill.Add(t.gameObject);
+            }
+        }
+
         // ------------------------------------------------------------------
-        // Construction (Yokyy-proven — leave this path alone)
+        // Presentation (Yokyy — clone quit, label, PositionMe)
         // ------------------------------------------------------------------
 
-        private static void Inject()
+        private static void InjectMultiplayerButton()
         {
-            var template = _menu.quitBtn;
+            GameObject template = _menu.quitBtn;
             if (template == null || template.GetComponent<Button>() == null)
                 return;
 
-            // Destroy any half-broken orphan from older inject attempts
-            var orphan = _menu.Menu0.transform.Find("YokWare_MultiplayerBtn");
-            if (orphan != null)
-                UnityEngine.Object.Destroy(orphan.gameObject);
-
             _mpButton = CloneButton(template, template.transform.parent,
-                "YokWare_MultiplayerBtn", "MULTIPLAYER", OpenPanel);
+                MpButtonName, "MULTIPLAYER", OpenPanel, TagKindMp);
 
-            // One row below the lowest Menu0 button (same as Yokyy).
-            // PositionMe.offset is resolution-independent; init() applies scale.
+            float y = ComputeVanillaLowestOffsetY() - RowSpacing;
+            SetRow(_mpButton, y);
+            WireButton(_mpButton, OpenPanel);
+            if (_mpButton != null)
+                _mpButton.transform.SetAsLastSibling();
+
+            ModLog.Event(LogCat.Session,
+                "Injected MULTIPLAYER button @ " + Screen.width + "x" + Screen.height
+                + " offsetY=" + y.ToString("F1"));
+        }
+
+        private static float ComputeVanillaLowestOffsetY()
+        {
             float lowest = 0f;
-            foreach (var pm in _menu.Menu0.GetComponentsInChildren<PositionMe>(false))
+            if (_menu?.Menu0 == null)
+                return lowest;
+            PositionMe[] pms = _menu.Menu0.GetComponentsInChildren<PositionMe>(false);
+            for (int i = 0; i < pms.Length; i++)
             {
+                PositionMe pm = pms[i];
                 if (pm == null || pm.gameObject == _mpButton)
+                    continue;
+                if (pm.GetComponent<YokWareUiTag>() != null)
+                    continue;
+                string n = pm.gameObject != null ? pm.gameObject.name : "";
+                if (n.StartsWith("YokWare_", StringComparison.Ordinal))
                     continue;
                 if (pm.offset.y < lowest)
                     lowest = pm.offset.y;
             }
-            SetRow(_mpButton, lowest - RowSpacing);
-
-            ModLog.Event(LogCat.Session,
-                "Injected MULTIPLAYER button @ " + Screen.width + "x" + Screen.height
-                + " offsetY=" + (lowest - RowSpacing).ToString("F1"));
+            return lowest;
         }
 
         private static void BuildPanel()
         {
-            if (_panel != null)
+            if (_panel != null && _panel)
             {
-                UnityEngine.Object.Destroy(_panel);
-                _panel = null;
+                try { UnityEngine.Object.DestroyImmediate(_panel); }
+                catch { UnityEngine.Object.Destroy(_panel); }
             }
+            _panel = null;
+            _joinButton = null;
+            _disconnectButton = null;
 
-            var template = _menu.quitBtn;
+            if (!ResolveMenu())
+                return;
+            GameObject template = _menu.quitBtn;
             if (template == null)
                 return;
 
-            _panel = new GameObject("YokWare_MenuPanel");
-            // Sibling of Menu0 so toggling Menu0 does not hide us
+            _panel = new GameObject(PanelName);
             _panel.transform.SetParent(_menu.Menu0.transform.parent, false);
+            Tag(_panel, TagKindPanel);
 
-            var host = CloneButton(template, _panel.transform, "YokWare_HostBtn", "HOST GAME", OnHostClicked);
-            _joinButton = CloneButton(template, _panel.transform, "YokWare_JoinBtn", "JOIN GAME", OnJoinClicked);
-            var settings = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked);
-            var restore = CloneButton(template, _panel.transform, "YokWare_RestoreBtn", "RESTORE SELF", OnRestoreClicked);
-            _disconnectButton = CloneButton(template, _panel.transform, "YokWare_DiscBtn", "DISCONNECT", OnDisconnectClicked);
-            var back = CloneButton(template, _panel.transform, "YokWare_BackBtn", "BACK", ClosePanel);
+            GameObject host = CloneButton(template, _panel.transform, "YokWare_HostBtn", "HOST GAME", OnHostClicked, TagKindRow);
+            _joinButton = CloneButton(template, _panel.transform, "YokWare_JoinBtn", "JOIN GAME", OnJoinClicked, TagKindRow);
+            GameObject settings = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked, TagKindRow);
+            GameObject restore = CloneButton(template, _panel.transform, "YokWare_RestoreBtn", "RESTORE SELF", OnRestoreClicked, TagKindRow);
+            _disconnectButton = CloneButton(template, _panel.transform, "YokWare_DiscBtn", "DISCONNECT", OnDisconnectClicked, TagKindRow);
+            GameObject back = CloneButton(template, _panel.transform, "YokWare_BackBtn", "BACK", ClosePanel, TagKindRow);
 
-            // Order: CloneButton lays out label at current world pose, then SetRow moves
-            // the parent (label is a child — keeps correct local offset). Yokyy order.
+            // Yokyy order: label laid out at current pose, then SetRow moves parent.
             SetRow(host, 0f);
             SetRow(_joinButton, -RowSpacing);
             SetRow(settings, -RowSpacing * 2f);
@@ -161,28 +373,47 @@ namespace DWMPHorde
         }
 
         private static GameObject CloneButton(GameObject template, Transform parent,
-            string name, string label, Action onFire)
+            string name, string label, Action onFire, string tagKind)
         {
-            var go = UnityEngine.Object.Instantiate(template, parent);
+            GameObject go = UnityEngine.Object.Instantiate(template, parent);
             go.name = name;
             go.SetActive(true);
+            Tag(go, tagKind);
 
-            // Title buttons are texture/sprite words (LocalizedText), not editable text.
-            // DestroyImmediate so deferred Destroy cannot re-stamp the EXIT sprite.
-            foreach (var loc in go.GetComponentsInChildren<LocalizedText>(true))
-                UnityEngine.Object.DestroyImmediate(loc);
-            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                r.enabled = false;
+            // Texture-word title buttons → strip art, use editable label (Yokyy).
+            LocalizedText[] locs = go.GetComponentsInChildren<LocalizedText>(true);
+            for (int i = 0; i < locs.Length; i++)
+            {
+                if (locs[i] != null)
+                    UnityEngine.Object.DestroyImmediate(locs[i]);
+            }
+            Renderer[] rends = go.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                if (rends[i] != null)
+                    rends[i].enabled = false;
+            }
 
-            var btn = go.GetComponent<Button>();
-            btn.function = "";
-            btn.popupType = "";
-            btn.localized = false;
-            btn.sprite = null;
-            btn.OnFire = () => Guarded(onFire);
+            // Only root collider — child colliders steal hover (dead button symptom).
+            StripChildColliders(go);
+            Collider rootCol = go.GetComponent<Collider>();
+            if (rootCol != null)
+                rootCol.enabled = true;
 
-            var tm = CreateLabel(go.transform, label);
-            if (tm != null)
+            Button btn = go.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.function = "";
+                btn.popupType = "";
+                btn.localized = false;
+                btn.sprite = null;
+                btn.disabled = false;
+                btn.noRollover = false;
+                btn.OnFire = () => Guarded(onFire);
+            }
+
+            tk2dTextMesh tm = CreateLabel(go.transform, label);
+            if (btn != null && tm != null)
             {
                 btn.textMesh = tm;
                 btn.baseColor = tm.color;
@@ -190,35 +421,89 @@ namespace DWMPHorde
             return go;
         }
 
+        private static void WireButton(GameObject go, Action onFire)
+        {
+            if (go == null || !go)
+                return;
+            Button btn = go.GetComponent<Button>();
+            if (btn == null)
+                return;
+            btn.disabled = false;
+            btn.noRollover = false;
+            btn.function = "";
+            btn.popupType = "";
+            btn.localized = false;
+            btn.OnFire = () => Guarded(onFire);
+            StripChildColliders(go);
+            Collider rootCol = go.GetComponent<Collider>();
+            if (rootCol != null)
+                rootCol.enabled = true;
+            if (btn.textMesh == null)
+            {
+                tk2dTextMesh tm = go.GetComponentInChildren<tk2dTextMesh>(true);
+                if (tm != null)
+                {
+                    btn.textMesh = tm;
+                    btn.baseColor = tm.color;
+                }
+            }
+        }
+
+        private static void StripChildColliders(GameObject root)
+        {
+            if (root == null)
+                return;
+            Collider[] cols = root.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < cols.Length; i++)
+            {
+                Collider c = cols[i];
+                if (c == null || c.gameObject == root)
+                    continue;
+                try { UnityEngine.Object.DestroyImmediate(c); }
+                catch { c.enabled = false; }
+            }
+        }
+
+        private static void Tag(GameObject go, string kind)
+        {
+            if (go == null)
+                return;
+            YokWareUiTag tag = go.GetComponent<YokWareUiTag>();
+            if (tag == null)
+                tag = go.AddComponent<YokWareUiTag>();
+            tag.Kind = kind;
+        }
+
         /// <summary>
-        /// Label = clone of MainMenu.CurrentVersion (game font). Strip PositionMe so it
-        /// does not re-anchor to the version corner. Size/place against the button collider
-        /// in world space (Yokyy); as a child it then rides PositionMe moves.
+        /// Label = clone of MainMenu.CurrentVersion (game font). Strip PositionMe.
+        /// Size/place against button collider in world space (Yokyy).
         /// </summary>
         private static tk2dTextMesh CreateLabel(Transform parent, string text)
         {
-            var source = _menu != null ? _menu.CurrentVersion : null;
+            tk2dTextMesh source = _menu != null ? _menu.CurrentVersion : null;
             if (source == null)
             {
                 ModLog.Warn(LogCat.Session, "MainMenu.CurrentVersion missing — button label blank");
                 return null;
             }
 
-            var labelGo = UnityEngine.Object.Instantiate(source.gameObject, parent);
-            labelGo.name = "YokWare_Label";
+            GameObject labelGo = UnityEngine.Object.Instantiate(source.gameObject, parent);
+            labelGo.name = LabelName;
 
-            foreach (var mb in labelGo.GetComponentsInChildren<MonoBehaviour>(true))
+            MonoBehaviour[] mbs = labelGo.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < mbs.Length; i++)
             {
-                if (mb is tk2dTextMesh)
+                if (mbs[i] == null || mbs[i] is tk2dTextMesh)
                     continue;
-                try { UnityEngine.Object.DestroyImmediate(mb); }
+                try { UnityEngine.Object.DestroyImmediate(mbs[i]); }
                 catch { /* ignore */ }
             }
-
-            // Colliders on the version string would steal clicks from the button root.
-            foreach (var c in labelGo.GetComponentsInChildren<Collider>(true))
+            Collider[] cols = labelGo.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < cols.Length; i++)
             {
-                try { UnityEngine.Object.DestroyImmediate(c); }
+                if (cols[i] == null)
+                    continue;
+                try { UnityEngine.Object.DestroyImmediate(cols[i]); }
                 catch { /* ignore */ }
             }
 
@@ -227,15 +512,15 @@ namespace DWMPHorde
             labelGo.transform.localScale = source.transform.localScale;
             labelGo.SetActive(true);
 
-            var tm = labelGo.GetComponent<tk2dTextMesh>();
+            tk2dTextMesh tm = labelGo.GetComponent<tk2dTextMesh>();
             if (tm == null)
                 return null;
             tm.anchor = TextAnchor.MiddleCenter;
             tm.text = text;
             tm.Commit();
 
-            var col = parent.GetComponent<Collider>();
-            var rend = labelGo.GetComponent<Renderer>();
+            Collider col = parent.GetComponent<Collider>();
+            Renderer rend = labelGo.GetComponent<Renderer>();
             if (rend != null)
                 rend.enabled = true;
 
@@ -247,9 +532,9 @@ namespace DWMPHorde
                 float factor = Mathf.Clamp(Mathf.Min(fitH, fitW), 0.02f, 50f);
                 labelGo.transform.localScale *= factor;
 
-                var pos = col.bounds.center;
-                var camObj = Core.CamUI;
-                var cam = camObj != null ? camObj.GetComponent<Camera>() : null;
+                Vector3 pos = col.bounds.center;
+                GameObject camObj = Core.CamUI;
+                Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
                 if (cam != null)
                     pos -= cam.transform.forward * 1f;
                 labelGo.transform.position = pos;
@@ -261,7 +546,7 @@ namespace DWMPHorde
         {
             if (go == null)
                 return;
-            var pm = go.GetComponent<PositionMe>();
+            PositionMe pm = go.GetComponent<PositionMe>();
             if (pm == null)
                 return;
             pm.offset = new Vector2(pm.offset.x, y);
@@ -285,7 +570,7 @@ namespace DWMPHorde
         {
             ModLog.Event(LogCat.Session, "MULTIPLAYER menu opened");
             MultiplayerMenu.PushFieldsToConfig();
-            if (_panel == null)
+            if (_panel == null || !_panel)
                 BuildPanel();
             if (_panel == null || _menu == null)
                 return;
@@ -296,7 +581,7 @@ namespace DWMPHorde
 
         private static void ClosePanel()
         {
-            if (_panel != null)
+            if (_panel != null && _panel)
                 _panel.SetActive(false);
             if (_menu != null && _menu.Menu0 != null)
                 _menu.Menu0.SetActive(true);
@@ -345,11 +630,27 @@ namespace DWMPHorde
             if (net == null || _joinPending)
                 return;
 
-            // Already connected on title and still waiting for share — explicit pull
-            // (Yokyy RequestWorld UX: press JOIN again).
+            // Phase 1 done: world files on disk — explicit ENTER WORLD starts offline load (phase 2).
+            var lanReady = net as LanNetworkManager;
+            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
+            {
+                if (lanReady.WorldSaveShare.TryBeginEnterWorld())
+                {
+                    SetLabel(_joinButton, "LOADING…");
+                    ModLog.Event(LogCat.Session, "ENTER WORLD — starting offline load (phase 2)");
+                }
+                return;
+            }
+
             if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
             {
                 var lan = net as LanNetworkManager;
+                // Still downloading — JOIN pulls share (or no-ops if already in progress).
+                if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
+                {
+                    SetLabel(_joinButton, "DOWNLOADING…");
+                    return;
+                }
                 if (lan != null && lan.RequestHostWorld("join-button"))
                 {
                     SetLabel(_joinButton, "REQUESTING WORLD…");
@@ -415,10 +716,17 @@ namespace DWMPHorde
 
         private static void OnDisconnectClicked()
         {
-            var net = ModRuntime.Network;
+            var net = ModRuntime.Network as LanNetworkManager;
             if (net == null)
                 return;
             _joinPending = false;
+            if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
+            {
+                SetLabel(_joinButton, "JOIN GAME");
+                RefreshSessionButtons();
+                ModLog.Event(LogCat.Session, "Host disconnect — handing off to elect…");
+                return;
+            }
             net.StopNetwork();
             SetLabel(_joinButton, "JOIN GAME");
             RefreshSessionButtons();
@@ -504,7 +812,6 @@ namespace DWMPHorde
                     + "Host must be IN the chapter (not title). Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
             }
 
-            // Yokyy RequestWorld equivalent: pull if host push was missed.
             if (!receiving && waited >= 10f && !_worldRequest10sSent)
             {
                 _worldRequest10sSent = true;
@@ -539,14 +846,24 @@ namespace DWMPHorde
         {
             if (net == null)
                 return;
+            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
+            {
+                SetLabel(_joinButton, "ENTER WORLD");
+                return;
+            }
             string prog = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : null;
             if (!string.IsNullOrEmpty(prog))
             {
                 if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "SHARE FAIL");
+                else if (prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("World ready", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetLabel(_joinButton, "ENTER WORLD");
                 else if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0)
+                    || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("Writ", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("Inflat", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "DOWNLOADING…");
                 else if (prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
                          || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -567,15 +884,17 @@ namespace DWMPHorde
             var net = ModRuntime.Network as LanNetworkManager;
             bool online = net != null && net.Role != NetworkRole.Offline;
 
-            if (_disconnectButton != null)
+            if (_disconnectButton != null && _disconnectButton)
                 _disconnectButton.SetActive(online);
 
             if (_joinPending)
                 return;
-            if (_joinButton == null || net == null)
+            if (_joinButton == null || !_joinButton || net == null)
                 return;
 
-            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
+            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
+                SetLabel(_joinButton, "ENTER WORLD");
+            else if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
                 UpdateJoinLabelFromShare(net);
             else if (net.Role == NetworkRole.Host)
                 SetLabel(_joinButton, "HOSTING");
@@ -585,15 +904,21 @@ namespace DWMPHorde
 
         private static void SetLabel(GameObject buttonGo, string text)
         {
-            if (buttonGo == null)
+            if (buttonGo == null || !buttonGo)
                 return;
-            var tm = buttonGo.GetComponentInChildren<tk2dTextMesh>(true);
+            tk2dTextMesh tm = buttonGo.GetComponentInChildren<tk2dTextMesh>(true);
             if (tm == null)
                 return;
             if (tm.text == text)
                 return;
             tm.text = text;
             tm.Commit();
+        }
+
+        /// <summary>Marks our UI roots so purge never touches vanilla menu buttons.</summary>
+        private sealed class YokWareUiTag : MonoBehaviour
+        {
+            public string Kind;
         }
     }
 }

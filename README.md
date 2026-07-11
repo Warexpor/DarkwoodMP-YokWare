@@ -4,9 +4,9 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.9.2** (Path B — audit + join/playtest fixes; 1.0-class, not labeled 1.0) |
+| **Product** | YokWare Branch **0.9.2** (Path B; unreleased **0.9.2+** playtest/audit work in [CHANGELOG](CHANGELOG.md)) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
-| **Live wire** | Horde protocol **19** (LiteNetLib `NetMessageType`) |
+| **Live wire** | Horde protocol **19** (LiteNetLib `NetMessageType`, IDs through **126**, optional **112–126**) |
 | **Research wire** | **Ironbark v2** (`DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
 | **License** | **GPLv3** — see [LICENSE](LICENSE) |
@@ -26,7 +26,7 @@ Deep audit: **[docs/DARKWOOD_MP_AUDIT.md](docs/DARKWOOD_MP_AUDIT.md)** · Join: 
 What peers actually speak in co-op:
 
 - LiteNetLib UDP, connection key (`HostPassword` / open LAN)
-- `NetMessageType : byte` message IDs (~115 types)
+- `NetMessageType : byte` message IDs (through **126**; reserved holes; optional trailers **112–126**)
 - Host-authoritative simulation; clients mute local AI/time where patched
 - `[Forwardable]` attribute for fan-out, handlers in `LanNetworkManager`
 - **Same mod build on every peer** (same protocol 19 + feature msgs)
@@ -42,7 +42,7 @@ of codecs, tests, and server plumbing that do nothing at runtime.
 
 | | Horde 19 (ship) | Ironbark v2 (redundant) |
 |--|-----------------|------------------------|
-| Message IDs | `byte` (115 types) | `u16` (156 typed packets) |
+| Message IDs | `byte` (through 126) | `u16` (156 typed packets) |
 | Code footprint | ~40k LOC in Mod | ~3k LOC in Protocol + ~2k in Server |
 | Transport | LiteNetLib direct | `ITransport` abstraction |
 | Routing | `[Forwardable]` attributes | `IronbarkRegistry` entries |
@@ -111,7 +111,7 @@ dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
 
 ## What Path B is / is not (0.9.2)
 
-**Is:** Horde combat/entity/AI mute, containers (host take-deny H6), dreams, spectator, **world save share** (dual-box safe), join pipeline **share → offline load → co-op reconnect**, host-only time, world-only remote dialog outcomes, dialogue tree sync, client→host flags, NPC talk lock, night-death mutation suppress, chapter auto rehost/reconnect, chat, drag/push scrape motion-gated, dual-box save root isolation, BepInEx + MelonLoader dual entry.
+**Is:** Horde combat/entity/AI mute, containers (host take-deny H6), dreams, spectator, **world save share** (dual-box safe), join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk (light + staggered heavy), host-only time, world-only remote dialog outcomes, dialogue tree sync, client→host flags, NPC talk lock, night-death mutation suppress, chapter auto rehost/reconnect, host grant on crash (PeerRoster/HostHandoff), traps/lights occupancy+remain, chat, drag/push scrape motion-gated, dual-box save root isolation, BepInEx + MelonLoader dual entry. Detail: **CHANGELOG 0.9.2+**.
 
 **Is not (yet / residual):**
 

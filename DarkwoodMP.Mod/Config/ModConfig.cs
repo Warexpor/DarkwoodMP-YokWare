@@ -35,6 +35,11 @@ namespace DWMPHorde.Config
         public static ConfigEntry<int> MaxPlayers { get; private set; }
         public static ConfigEntry<bool> AllowJoinDuringDream { get; private set; }
         public static ConfigEntry<int> MaxPeerDamage { get; private set; }
+        /// <summary>
+        /// On host crash/timeout, survivors elect lowest player id as new host (n+ LAN).
+        /// Requires PeerRoster gossip; keep true for dual-box crash recovery.
+        /// </summary>
+        public static ConfigEntry<bool> HostMigrationEnabled { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -118,6 +123,8 @@ namespace DWMPHorde.Config
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max (anti-grief). No per-message rate limit — multi-hit weapons need every pellet to apply.");
+            HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
+                "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
 
             // Support = join/session/combat Events without Physics/entity frame spam (Trace/Dev can fill 10MB+).

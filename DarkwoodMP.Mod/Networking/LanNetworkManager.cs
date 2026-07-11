@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+// IEnumerable for GetHandshakedPeerIds
 using DWMPHorde;
 using DWMPHorde.Audio;
 using DWMPHorde.Config;
@@ -34,6 +35,12 @@ namespace DWMPHorde.Networking
         private Vector3 _lastSentPosition;
         private bool _wasDragging;
         private string _lastDraggedItemName;
+        /// <summary>Local E-drag scrape intent (player walking). False → reliable quiet stop for peers.</summary>
+        private bool _dragScrapeActive;
+        private float _dragScrapeQuietSince = -1f;
+        /// <summary>Matches body-push <see cref="ItemMovingSoundHelper"/> local stop speed.</summary>
+        private const float DragScrapeStopSpeed = 1f;
+        private const float DragScrapeStopGrace = 0.05f;
 
         /// <summary>
         /// Local side is ready to exchange gameplay traffic.
@@ -60,13 +67,17 @@ namespace DWMPHorde.Networking
         // Protocol 19 continuous light dirty cache (local send path)
         private bool _prevSentFlareActive;
         private bool _prevSentFlashActive;
+        private bool _prevSentMatchActive;
         private float _lastSentFlareRadius, _lastSentFlareIntensity;
         private float _lastSentFlareColorR, _lastSentFlareColorG, _lastSentFlareColorB;
         private float _lastSentFlashRadius, _lastSentFlashIntensity;
         private float _lastSentFlashColorR, _lastSentFlashColorG, _lastSentFlashColorB;
         private string _lastSentFlareItemType;
         private float _lightParamsForceTimer;
-        private const float LightParamsForceInterval = 1f;
+        private float _localHeldLightStartTime = -1f;
+        private float _localHeldLightLongevity = 3f;
+        private int _nextThrowId = 1;
+        private const float LightParamsForceInterval = 0.15f; // ~6.6 Hz while active (was 1 Hz)
         private const float LightRadiusDirtyEps = 5f;
         private const float LightIntensityDirtyEps = 0.02f;
         private const float LightColorDirtyEps = 0.02f;
@@ -87,6 +98,13 @@ namespace DWMPHorde.Networking
         /// (0 = share done, not seen in-world yet). Bulk after ClientBulkSettleSeconds.
         /// </summary>
         private readonly Dictionary<int, float> _awaitingLateJoinBulk = new Dictionary<int, float>();
+
+        /// <summary>
+        /// Heavy sticky-world bulk after the light dump (FindObjects scans). Value = next phase index.
+        /// One phase per peer per frame so host join frame does not freeze.
+        /// </summary>
+        private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
+        private const int HeavyLateJoinPhaseCount = 7; // weather…deathbags (phases 0–6)
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
         private const float ClientBulkSettleSeconds = 8f;
         /// <summary>Phase-3 reconnect: client already finished offline load — short settle only.</summary>
@@ -120,6 +138,11 @@ namespace DWMPHorde.Networking
         private readonly List<SawStateMessage> _pendingSawStates = new List<SawStateMessage>();
         private const int MaxPendingSawStates = 16;
 
+        // Feeder / Lure state before component exists in scene
+        private readonly List<FeederStateMessage> _pendingFeederStates = new List<FeederStateMessage>();
+        private readonly List<LureStateMessage> _pendingLureStates = new List<LureStateMessage>();
+        private const int MaxPendingStationStates = 16;
+
         // Barricade/door/window events before target exists in the scene
         private readonly List<BarricadeEventMessage> _pendingBarricadeEvents = new List<BarricadeEventMessage>();
         private const int MaxPendingBarricadeEvents = 64;
@@ -141,6 +164,9 @@ namespace DWMPHorde.Networking
         public string StatusText { get; internal set; } = "Offline";
         public WorldSyncService WorldSync => _worldSync;
         public IReadOnlyCollection<int> ConnectedPlayerIds => _peers.Keys;
+
+        /// <summary>Handshaked peer ids (host: clients; client: usually {1}). For dream all-dead set (D7).</summary>
+        public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
 
         public static bool IsApplyingRemoteState { get; internal set; }
 
@@ -276,6 +302,9 @@ namespace DWMPHorde.Networking
         {
             StopNetwork();
             _role = NetworkRole.Host;
+            _localPlayerId = 1;
+            _hostPlayerId = 1;
+            NoteSessionPort(port);
             _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
             if (!_net.Start(port))
             {
@@ -295,8 +324,41 @@ namespace DWMPHorde.Networking
 
         public void ConnectToHost(string address, int port)
         {
-            StopNetwork();
+            // Phase-3 / migration: already in chapter with a live Player. Full StopNetwork
+            // runs NetworkResetRegistry (entity interp reset + CharacterTracker scene scan)
+            // then first snapshot re-purges ~60 chars → client FPS crater right after enter.
+            // Soft transport tear keeps world + host entity maps; only rebuild the socket.
+            bool softReconnect = false;
+            try
+            {
+                softReconnect = !Core.mainMenu && Player.Instance != null && !Core.loadingGame;
+            }
+            catch { softReconnect = false; }
+
+            if (softReconnect)
+            {
+                ModLog.Event(LogCat.Network,
+                    "ConnectToHost soft reconnect (keep world / entity state) → " + address + ":" + port);
+                StopTransportOnly("phase3 soft reconnect");
+                foreach (int id in new List<int>(_remoteProxies.Keys))
+                    DestroyRemoteProxy(id);
+                _remoteProxies.Clear();
+                _remotePlayers.Clear();
+                _handshakeComplete = false;
+                _handshakedPeers.Clear();
+                _awaitingLateJoinBulk.Clear();
+                _pendingHeavyLateJoinBulk.Clear();
+                _peersLoadingWorld.Clear();
+                _peersCoopReconnect.Clear();
+            }
+            else
+            {
+                StopNetwork();
+            }
+
             _role = NetworkRole.Client;
+            _hostPlayerId = 1;
+            NoteSessionPort(port);
             _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
             _net.Start();
             string key = Config.ModConfig.GetConnectionKey();
@@ -304,12 +366,16 @@ namespace DWMPHorde.Networking
             StatusText = "Connecting to " + address + ":" + port;
             // Event line is IP-redacted under Public; Trace keeps detail for Dev/Trace only.
             ModLog.Event(LogCat.Network, "Connecting to " + address + ":" + port
-                + " | v" + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion);
+                + " | v" + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
+                + (softReconnect ? " (soft)" : ""));
             ModLog.Trace(LogCat.Network, () => "Connect target detail: " + address + ":" + port);
         }
 
         public void StopNetwork()
         {
+            // Intentional tear — never treat ensuing peer-down as host-crash migration.
+            _suppressHostMigration = true;
+
             // Snapshot for public session-stop line before we wipe peers/ids
             NetworkRole wasRole = _role;
             int wasLocalId = _localPlayerId;
@@ -323,6 +389,8 @@ namespace DWMPHorde.Networking
             _remoteProxies.Clear();
             _wasDragging = false;
             _lastDraggedItemName = null;
+            _dragScrapeActive = false;
+            _dragScrapeQuietSince = -1f;
             _spawnedDragProxyItems.Clear();
             _lastDragSyncPos.Clear();
             _dragClaims.Clear();
@@ -358,6 +426,8 @@ namespace DWMPHorde.Networking
 
             _nextPlayerId = 2;
             _localPlayerId = 1;
+            ResetMigrationState();
+            _suppressHostMigration = false;
 
             if (wasRole != NetworkRole.Offline)
             {
@@ -373,6 +443,9 @@ namespace DWMPHorde.Networking
         {
             _prevSentFlareActive = false;
             _prevSentFlashActive = false;
+            _prevSentMatchActive = false;
+            _localHeldLightStartTime = -1f;
+            _localHeldLightLongevity = 3f;
             _lastSentFlareRadius = 0f;
             _lastSentFlareIntensity = 0f;
             _lastSentFlareColorR = _lastSentFlareColorG = _lastSentFlareColorB = 0f;
@@ -384,8 +457,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Protocol 19: pack continuous flare/flashlight into LightFlags + conditional payload.
-        /// Off = 1 byte; active sends local offset every tick and params when dirty / rising edge / 1 Hz force.
+        /// Protocol 19: pack continuous flare/match/flashlight into LightFlags + conditional payload.
+        /// Active: offset every tick; params dirty / rising / ~6 Hz force; remain + flash aim trailer.
         /// </summary>
         private void PackContinuousLights(ref PlayerStateMessage msg, Player local)
         {
@@ -395,29 +468,36 @@ namespace DWMPHorde.Networking
                 _lightParamsForceTimer = 0f;
 
             byte flags = 0;
-            bool flareActive = local.currentItem != null && local.currentItem.type != null &&
-                local.currentItem.type.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool flashActive = !flareActive
+            string curType = local.currentItem != null ? local.currentItem.type : null;
+            bool flareActive = !string.IsNullOrEmpty(curType)
+                && curType.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool matchActive = !flareActive && IsMatchLightItem(local);
+            bool heldBurnLight = flareActive || matchActive;
+            bool flashActive = !heldBurnLight
                 && !InvItemClass.isNull(local.currentItem)
                 && local.currentItem.baseClass != null
                 && local.currentItem.baseClass.isFlashlight
                 && local.currentItem.activated;
 
-            if (flareActive)
+            if (heldBurnLight)
             {
                 flags |= PlayerStateMessage.LightFlagFlare;
-                msg.FlareActive = true;
-                msg.FlareItemType = local.currentItem.type ?? "flare";
-                msg.FlareRadius = 650f;
-                msg.FlareIntensity = 1f;
+                if (matchActive)
+                    flags |= PlayerStateMessage.LightFlagMatch;
+                msg.FlareActive = flareActive;
+                msg.MatchActive = matchActive;
+                msg.FlareItemType = curType ?? (matchActive ? "match" : "flare");
+                msg.FlareRadius = matchActive ? 180f : 650f;
+                msg.FlareIntensity = matchActive ? 0.85f : 1f;
                 msg.FlareColorR = 1f;
-                msg.FlareColorG = 0.5f;
-                msg.FlareColorB = 0.1f;
+                msg.FlareColorG = matchActive ? 0.65f : 0.5f;
+                msg.FlareColorB = matchActive ? 0.2f : 0.1f;
 
                 Light2D itemLight = null;
+                Flare flareComp = null;
                 if (local.heldItem != null)
                 {
-                    Flare flareComp = local.heldItem.GetComponent<Flare>()
+                    flareComp = local.heldItem.GetComponent<Flare>()
                         ?? local.heldItem.GetComponentInChildren<Flare>(true);
                     if (flareComp != null && flareComp.light2D != null)
                         itemLight = flareComp.light2D;
@@ -429,8 +509,8 @@ namespace DWMPHorde.Networking
                 {
                     if (itemLight.isActiveAndEnabled || itemLight.LightRadius > 0f)
                     {
-                        msg.FlareRadius = itemLight.LightRadius > 0f ? itemLight.LightRadius : 650f;
-                        msg.FlareIntensity = itemLight.LightIntensity > 0f ? itemLight.LightIntensity : 1f;
+                        msg.FlareRadius = itemLight.LightRadius > 0f ? itemLight.LightRadius : msg.FlareRadius;
+                        msg.FlareIntensity = itemLight.LightIntensity > 0f ? itemLight.LightIntensity : msg.FlareIntensity;
                         msg.FlareColorR = itemLight.LightColor.r;
                         msg.FlareColorG = itemLight.LightColor.g;
                         msg.FlareColorB = itemLight.LightColor.b;
@@ -448,7 +528,23 @@ namespace DWMPHorde.Networking
                     msg.FlareLocalZ = delta.z;
                 }
 
-                bool rising = !_prevSentFlareActive;
+                bool rising = flareActive ? !_prevSentFlareActive : !_prevSentMatchActive;
+                if (rising)
+                {
+                    _localHeldLightStartTime = Time.time;
+                    _localHeldLightLongevity = flareComp != null && flareComp.longevity > 0.05f
+                        ? flareComp.longevity + 2f // waitToDie + fade
+                        : (matchActive ? 8f : 5f);
+                }
+
+                // Host-side remain for peers (clients stream local estimate; host is visual authority on expire).
+                if (_localHeldLightStartTime > 0f && _localHeldLightLongevity > 0.01f)
+                {
+                    float rem = 1f - (Time.time - _localHeldLightStartTime) / _localHeldLightLongevity;
+                    msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
+                    flags |= PlayerStateMessage.LightFlagRemain;
+                }
+
                 bool typeChanged = !string.Equals(_lastSentFlareItemType, msg.FlareItemType, StringComparison.Ordinal);
                 bool dirty = rising || forceParams
                     || Mathf.Abs(msg.FlareRadius - _lastSentFlareRadius) > LightRadiusDirtyEps
@@ -476,11 +572,12 @@ namespace DWMPHorde.Networking
                 }
 
                 if (rising && Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo("[LightSync] local flare ON type=" + msg.FlareItemType);
+                    ModRuntime.LegacyInfo("[LightSync] local " + (matchActive ? "match" : "flare")
+                        + " ON type=" + msg.FlareItemType);
             }
-            else if (_prevSentFlareActive && Config.ModConfig.IsVerboseLightSync)
+            else if ((_prevSentFlareActive || _prevSentMatchActive) && Config.ModConfig.IsVerboseLightSync)
             {
-                ModRuntime.LegacyInfo("[LightSync] local flare OFF");
+                ModRuntime.LegacyInfo("[LightSync] local held burn light OFF");
             }
 
             if (flashActive)
@@ -495,6 +592,9 @@ namespace DWMPHorde.Networking
                     msg.FlashColorR = flash.LightColor.r;
                     msg.FlashColorG = flash.LightColor.g;
                     msg.FlashColorB = flash.LightColor.b;
+                    // Cone aim follows Flashlight child rotation (SP aims with body/mouse).
+                    msg.FlashAimY = (short)Mathf.RoundToInt(flash.transform.eulerAngles.y);
+                    flags |= PlayerStateMessage.LightFlagFlashAim;
                 }
                 else
                 {
@@ -503,6 +603,8 @@ namespace DWMPHorde.Networking
                     msg.FlashColorR = 0.3f;
                     msg.FlashColorG = 0.3f;
                     msg.FlashColorB = 0.3f;
+                    msg.FlashAimY = (short)Mathf.RoundToInt(local.transform.eulerAngles.y);
+                    flags |= PlayerStateMessage.LightFlagFlashAim;
                 }
 
                 bool rising = !_prevSentFlashActive;
@@ -532,14 +634,49 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo("[LightSync] local flashlight OFF");
             }
 
-            if (!flareActive)
+            if (!heldBurnLight)
             {
                 _lastSentFlareItemType = null;
+                _localHeldLightStartTime = -1f;
             }
 
             msg.LightFlags = flags;
             _prevSentFlareActive = flareActive;
+            _prevSentMatchActive = matchActive;
             _prevSentFlashActive = flashActive;
+        }
+
+        /// <summary>Match / short-lived held light (not flashlight, not flare, not torch emitter).</summary>
+        internal static bool IsMatchLightItem(Player local)
+        {
+            if (local == null || InvItemClass.isNull(local.currentItem) || local.currentItem.baseClass == null)
+                return false;
+            if (!local.currentItem.activated)
+                return false;
+            string t = local.currentItem.type ?? "";
+            if (t.IndexOf("match", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+            if (local.currentItem.baseClass.isFlashlight)
+                return false;
+            if (local.currentItem.baseClass.lightEmitter != null)
+                return false;
+            // Short ambient / item light with small radius while activated.
+            if (local.currentItem.baseClass.lightRadius > 0f
+                && local.currentItem.baseClass.lightRadius < 350f
+                && local.heldItem != null
+                && local.heldItem.GetComponentInChildren<Light2D>(true) != null)
+                return true;
+            return false;
+        }
+
+        /// <summary>Mint a stable throw id (host and thrower both may call; host authoritative expire).</summary>
+        public int MintThrowId()
+        {
+            int id = _nextThrowId++;
+            if (_nextThrowId <= 0) _nextThrowId = 1;
+            return id;
         }
 
         private void Update()
@@ -552,9 +689,20 @@ namespace DWMPHorde.Networking
             TryFlushPendingTradeInventories();
             TryFlushPendingConstructibles();
             TryFlushPendingSawStates();
+            TryFlushPendingFeederStates();
+            TryFlushPendingLureStates();
+            Sync.StationSyncHelpers.FlushLureOutbox(force: false);
             TryFlushPendingBarricadeEvents();
             TryFlushPendingScenario();
             TryFlushPendingLocks();
+            Sync.WorldPhysicsSyncService.TryFlushPendingLights();
+            Sync.TrapNetworkId.FlushPending(
+                (p, n) => Sync.WorldPhysicsSyncService.FindTrapByPos(p, n),
+                (go, trig) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig));
+            Sync.WorldPhysicsSyncService.TickThrownLightExpiry(this);
+            TickHeavyLateJoinBulk();
+            TickPeerRosterGossip();
+            TickHostMigrationRetry();
             if (_hasPendingScenarioEvent && Singleton<NightScenarios>.Instance != null)
             {
                 _hasPendingScenarioEvent = false;
@@ -626,7 +774,8 @@ namespace DWMPHorde.Networking
             // Skip while local player is in a dream -- dream objects don't exist
             // in the shared world and would cause phantom spawns on the other side.
             _physicsSendTimer += Time.deltaTime;
-            if (_physicsSendTimer >= PhysicsSendInterval && !Sync.DreamSyncManager.IsLocalDreamActive && !shareBusy)
+            // Physics: always while awake; dream free-bodies allowed (D12 — not full forest).
+            if (_physicsSendTimer >= PhysicsSendInterval && !shareBusy)
             {
                 _physicsSendTimer = 0f;
                 bool clientNotReady = _role == NetworkRole.Client
@@ -704,7 +853,10 @@ namespace DWMPHorde.Networking
                 CurrentFrame = PlayerAnimationSnapshot.ReadCurrentFrame(local),
                 InBearTrap = local.inBearTrap,
                 HasLightProtection = local.isInLight,
-                AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight
+                AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
+                TrapNetId = local.inBearTrap
+                    ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
+                    : 0
             };
 
             PackContinuousLights(ref msg, local);
@@ -769,6 +921,29 @@ namespace DWMPHorde.Networking
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
                 _dragClaims[_lastDraggedItemName] = _localPlayerId;
+
+                // Scrape intent = player walking (same gate as body-push). Not object pos delta —
+                // hinge jitter kept scrape armed for observers after the host stopped walking.
+                float hSpeed = 0f;
+                if (local.Rigidbody != null)
+                {
+                    Vector3 v = local.Rigidbody.velocity;
+                    hSpeed = new Vector3(v.x, 0f, v.z).magnitude;
+                }
+                bool playerMoving = hSpeed >= DragScrapeStopSpeed;
+                if (playerMoving)
+                {
+                    _dragScrapeQuietSince = -1f;
+                    _dragScrapeActive = true;
+                }
+                else
+                {
+                    if (_dragScrapeQuietSince < 0f)
+                        _dragScrapeQuietSince = Time.unscaledTime;
+                    if (Time.unscaledTime - _dragScrapeQuietSince >= DragScrapeStopGrace)
+                        _dragScrapeActive = false;
+                }
+
                 var dragMsg = new DragSyncMessage
                 {
                     PosX = dragged.transform.position.x,
@@ -780,28 +955,69 @@ namespace DWMPHorde.Networking
                     IsDragging = true,
                     ObjectName = _lastDraggedItemName,
                     ItemType = dragged.invItem != null ? dragged.invItem.type : "",
-                    ClaimedByPlayerId = _localPlayerId
+                    ClaimedByPlayerId = _localPlayerId,
+                    ScrapeActive = _dragScrapeActive
                 };
-                Broadcast(NetMessageType.DragSync, w => dragMsg.Serialize(w));
+                // Quiet scrape stop must be reliable — Unreliable quiet ticks were lost and
+                // observers kept the last NoteMoving loop until full release.
+                var dragDelivery = _dragScrapeActive
+                    ? DeliveryMethod.Unreliable
+                    : DeliveryMethod.ReliableOrdered;
+                Broadcast(NetMessageType.DragSync, w => dragMsg.Serialize(w), dragDelivery);
                 _wasDragging = true;
             }
             else if (_wasDragging)
             {
-                // Drag ended -- reliable so peers release claim + stop scrape.
-                _wasDragging = false;
-                string endedName = _lastDraggedItemName ?? "";
-                if (!string.IsNullOrEmpty(endedName) && _dragClaims.TryGetValue(endedName, out int cid) && cid == _localPlayerId)
-                    _dragClaims.Remove(endedName);
-                var dragMsg = new DragSyncMessage
-                {
-                    IsDragging = false,
-                    ObjectName = endedName,
-                    ClaimedByPlayerId = _localPlayerId
-                };
-                Broadcast(NetMessageType.DragSync, w => dragMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+                // Backup if stopDragging never ran (edge cases). Prefer NotifyLocalDragEnded.
+                NotifyLocalDragEnded(_lastDraggedItemName);
+            }
+        }
+
+        /// <summary>
+        /// Intentional E-drag release — same frame as vanilla <c>Item.stopDragging</c>.
+        /// Push stop is frame-perfect via <see cref="ItemMovingSoundHelper.TickLocalPushScrapeStop"/>;
+        /// drag used to wait for the next 30 Hz PlayerState tick, so observers heard scrape longer.
+        /// Reliable DragSync stop + local ForceStop; host also emits body-push stop signal so
+        /// residual PhysicsState cannot re-arm MOS after claim clears.
+        /// </summary>
+        public void NotifyLocalDragEnded(string objectName)
+        {
+            if (!_wasDragging && string.IsNullOrEmpty(objectName) && string.IsNullOrEmpty(_lastDraggedItemName))
+                return;
+
+            string endedName = !string.IsNullOrEmpty(objectName) ? objectName : (_lastDraggedItemName ?? "");
+            _wasDragging = false;
+            _lastDraggedItemName = null;
+            _dragScrapeActive = false;
+            _dragScrapeQuietSince = -1f;
+
+            if (!string.IsNullOrEmpty(endedName)
+                && _dragClaims.TryGetValue(endedName, out int cid)
+                && cid == _localPlayerId)
+                _dragClaims.Remove(endedName);
+
+            if (!IsConnected)
+            {
                 if (!string.IsNullOrEmpty(endedName))
                     DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(endedName);
-                _lastDraggedItemName = null;
+                return;
+            }
+
+            var dragMsg = new DragSyncMessage
+            {
+                IsDragging = false,
+                ObjectName = endedName,
+                ClaimedByPlayerId = _localPlayerId
+            };
+            Broadcast(NetMessageType.DragSync, w => dragMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+
+            if (!string.IsNullOrEmpty(endedName))
+            {
+                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(endedName);
+                // Host: dual-path intentional stop (PlayerAudio IsStopSignal) so residual
+                // PhysicsState after claim release cannot keep scrape armed on peers.
+                if (_role == NetworkRole.Host)
+                    NotifyBodyPushStopped(endedName);
             }
         }
 
@@ -1141,7 +1357,12 @@ namespace DWMPHorde.Networking
                 // Lost handshake leaves client with LocalPlayerId=1 (host id) → multi-peer chaos.
                 SendToPlayer(playerId, NetMessageType.Handshake, w =>
                 {
-                    new HandshakeMessage { ProtocolVersion = PluginInfo.ProtocolVersion, PlayerId = (short)playerId }.Serialize(w);
+                    new HandshakeMessage
+                    {
+                        ProtocolVersion = PluginInfo.ProtocolVersion,
+                        PlayerId = (short)playerId,
+                        HostPlayerId = (short)_localPlayerId
+                    }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 
                 EntityStateBroadcastService.SetPeers(_peers);
@@ -1177,12 +1398,15 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Network, "Connected to host");
 
                 // AlreadyInWorld: phase-3 reconnect after offline load (skip re-share on host).
-                bool alreadyInWorld = ClientReportsAlreadyInWorld();
+                // PlayerId = preferred stable id (migration reconnect / phase 3).
+                bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
+                short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;
                 Broadcast(NetMessageType.Handshake, w =>
                 {
                     new HandshakeMessage
                     {
                         ProtocolVersion = PluginInfo.ProtocolVersion,
+                        PlayerId = preferredId,
                         AlreadyInWorld = alreadyInWorld,
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
@@ -1316,6 +1540,7 @@ namespace DWMPHorde.Networking
                         && !_peersCoopReconnect.Contains(playerId);
 
                     _awaitingLateJoinBulk.Remove(playerId); // Dictionary.Remove
+                    _pendingHeavyLateJoinBulk.Remove(playerId);
                     _peersLoadingWorld.Remove(playerId);
                     _peersCoopReconnect.Remove(playerId);
                     if (_handshakedPeers.Count == 0)
@@ -1343,7 +1568,14 @@ namespace DWMPHorde.Networking
             }
             else
             {
-                StopNetwork();
+                // Client lost the only peer (host). Grant host to elect if mid-coop play.
+                // Intentional StopNetwork / join offline-load sets _suppressHostMigration.
+                if (_suppressHostMigration)
+                {
+                    // Already tearing or intentional; do not nest StopNetwork.
+                    return;
+                }
+                TryBeginHostMigration(disconnectInfo.Reason.ToString());
             }
         }
 
@@ -1488,6 +1720,27 @@ namespace DWMPHorde.Networking
                         case NetMessageType.SawState:
                             HandleSawState(SawStateMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.FeederState:
+                            HandleFeederState(FeederStateMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.LureState:
+                            HandleLureState(LureStateMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.SleepEndRequest:
+                            HandleSleepEndRequest(SleepEndRequestMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.AfterNightEndRequest:
+                            HandleAfterNightEndRequest(AfterNightEndRequestMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.PeerRoster:
+                            HandlePeerRoster(PeerRosterMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.HostHandoff:
+                            HandleHostHandoff(HostHandoffMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.WorkbenchLock:
+                            HandleWorkbenchLock(WorkbenchLockMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.ShadowEvent:
                             HandleShadowEvent(ShadowEventMessage.Deserialize(new NetReader(payload)));
                             break;
@@ -1544,6 +1797,12 @@ namespace DWMPHorde.Networking
                             break;
                         case NetMessageType.DreamEntered:
                             HandleDreamEntered(DreamEnteredMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.DreamSessionBulk:
+                            HandleDreamSessionBulk(DreamSessionBulkMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.DreamChainStart:
+                            HandleDreamChainStart(DreamChainStartMessage.Deserialize(new NetReader(payload)));
                             break;
                         case NetMessageType.FinalDreamsceneDeath:
                             HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage.Deserialize(new NetReader(payload)));
@@ -1628,6 +1887,12 @@ namespace DWMPHorde.Networking
                             break;
                         case NetMessageType.TrapTriggered:
                             HandleTrapTriggered(TrapTriggeredMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.TrapBulk:
+                            HandleTrapBulk(TrapBulkMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.ThrowableDespawn:
+                            HandleThrowableDespawn(ThrowableDespawnMessage.Deserialize(new NetReader(payload)));
                             break;
                         case NetMessageType.RemotePlayerForward:
                             {

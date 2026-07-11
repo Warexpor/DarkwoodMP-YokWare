@@ -185,6 +185,19 @@ namespace DWMPHorde.Sync
 
             if (ChapterSessionResume.IsLocalPlayableForCoopReconnect())
             {
+                // Join offline load can leave a fat WorldGrid active set (Player.log ~500k objects).
+                // Force a cull pass around the player before co-op traffic starts.
+                try
+                {
+                    Player p = Player.Instance;
+                    if (p != null && Singleton<WorldGrid>.Instance != null)
+                    {
+                        Vector3 pos = p._transform != null ? p._transform.position : p.transform.position;
+                        Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
+                    }
+                }
+                catch { /* optional */ }
+
                 ModLog.Event(LogCat.Session,
                     "[ChapterResume] client playable after " + _elapsed.ToString("F1")
                     + "s — phase 3 co-op reconnect");
@@ -206,7 +219,20 @@ namespace DWMPHorde.Sync
                 _nextLogAt = _elapsed + LogEverySec;
                 ModLog.Event(LogCat.Session,
                     "[ChapterResume] still waiting for playable… t=" + _elapsed.ToString("F0")
-                    + "s loadingGame=" + Core.loadingGame);
+                    + "s loadingGame=" + Core.loadingGame
+                    + " player=" + (Player.Instance != null)
+                    + " mainMenu=" + Core.mainMenu);
+            }
+
+            // SaveManager.Load NRE leaves loadingGame=true forever (see Player.log
+            // "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"). Unstick so phase-3 can run
+            // or user can quit; world may still be broken — host must re-share consistent pair.
+            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !Core.mainMenu)
+            {
+                ModLog.Warn(LogCat.Session,
+                    "[ChapterResume] loadingGame stuck 45s after scene (likely failed sav/savs load) — clearing flag");
+                try { Core.loadingGame = false; }
+                catch { /* ignore */ }
             }
 
             if (_elapsed >= ClientMaxWaitSec)

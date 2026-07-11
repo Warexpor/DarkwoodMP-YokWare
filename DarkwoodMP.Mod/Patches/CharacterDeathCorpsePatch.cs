@@ -1,30 +1,33 @@
+using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Replicates the corpse-interaction setup that vanilla does in
-    /// processAnims() -> setDeathCollider()/destroyComponents() when the
-    /// death animation clip is detected. On the client, processAnims() is
-    /// blocked by the AI-disable Update patch, so this never runs — corpses
-    /// never become searchable.
+    /// Client-only: replicates corpse-interaction setup that vanilla does in
+    /// processAnims() → setDeathCollider()/destroyComponents() when the death
+    /// animation ends. On the client, Character.Update is AI-suppressed so
+    /// processAnims never runs — without this, corpses never become searchable.
     ///
-    /// By running immediately after die() (which already calls die2()), we
-    /// ensure the Item component and deathDrop inventory type are present
-    /// regardless of whether processAnims() ever fires.
+    /// MUST NOT run on host: setting isActive=false makes Character.Update
+    /// early-out before processAnims, freezing the death pose (host killer bug).
+    /// Host keeps vanilla death anim → setDeathCollider at clip end.
     /// </summary>
     [HarmonyPatch(typeof(Character), "die")]
     public static class CharacterDeathCorpsePatch
     {
         private static void Postfix(Character __instance)
         {
-            // Only needed when the local AI-skip patches block processAnims().
             // Player.die() is a separate method (not override), so this won't fire for players.
             if (__instance == null) return;
 
-            // Equivalent of setDeathCollider() line 5451-5458:
-            // Add Item component if missing (so the corpse can be searched).
+            var net = ModRuntime.Network;
+            // Offline / host: vanilla processAnims owns death presentation + corpse.
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
+                return;
+
+            // Equivalent of setDeathCollider(): Item component so corpse is searchable.
             if (__instance.GetComponent<Item>() == null)
             {
                 Item item = __instance.gameObject.AddComponent<Item>();
@@ -33,20 +36,13 @@ namespace DWMPHorde.Patches
                     item.searched = true;
             }
 
-            // Equivalent of destroyComponents() line 5538-5541:
-            // Mark the inventory as a death drop so it opens as a container.
             if (__instance.inventory != null)
                 __instance.inventory.invType = Inventory.InvType.deathDrop;
 
-            // Equivalent of destroyComponents2() line 5547:
-            // Deactivate the character so its Update() returns early
-            // (harmless on client where Update is blocked, but keeps state clean).
+            // Client Update is already skipped; keep flag consistent with destroyComponents2.
             __instance.isActive = false;
 
-            // Transfer NPC deathInventory items into the corpse's inventory,
-            // mirroring Character.die2() behavior. On clients where AI-skip
-            // patches block die2()'s Update-driven effects, this ensures
-            // the corpse has the correct death loot.
+            // Transfer NPC deathInventory (die2 path can miss when AI Update is blocked).
             NPC npc = __instance.GetComponent<NPC>();
             if (npc != null)
             {

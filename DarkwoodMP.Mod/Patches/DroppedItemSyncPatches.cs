@@ -143,14 +143,14 @@ namespace DWMPHorde.Patches
         {
             ModRuntime.LegacyInfo("[PickupPrefix] getDroppedItem called on " + __instance.name);
 
-            // Block pickup when a remote player is trapped in this bear trap
-            if (ModRuntime.Network is LanNetworkManager net && net.HasAnyTrappedPlayer)
+            // Block pickup only when THIS trap is occupied (per-trap, not global).
+            if (ModRuntime.Network is LanNetworkManager net && net.IsConnected)
             {
                 string name = __instance.name.ToLowerInvariant();
-                if (TrapNameHelper.IsTrap(name))
+                if (TrapNameHelper.IsTrap(name) && net.IsTrapOccupied(__instance.gameObject))
                 {
                     ModRuntime.LegacyInfo("[PickupPrefix] blocked pickup of \""
-                        + __instance.name + "\" — remote player still trapped");
+                        + __instance.name + "\" — player still trapped in this trap");
                     return false;
                 }
             }

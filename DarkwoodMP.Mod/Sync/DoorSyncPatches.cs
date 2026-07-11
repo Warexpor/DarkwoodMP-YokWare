@@ -122,14 +122,28 @@ namespace DWMPHorde.Sync
             Vector3 p = __instance.transform.position;
             Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
 
+            int trapId = 0;
+            if (ModRuntime.Network.Role == NetworkRole.Host)
+                trapId = TrapNetworkId.GetOrMintHost(__instance.gameObject);
+            else
+                trapId = TrapNetworkId.GetId(__instance.gameObject);
+
+            // Host owns world mutation broadcast; client fires TrapTriggered instead.
+            if (ModRuntime.Network.Role != NetworkRole.Host)
+                return;
+
+            short occupant = WorldPhysicsSyncService.ResolveTrapOccupant(trapId, key);
             ModRuntime.Network.SendTrapState(new TrapState
             {
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
-                Triggered = true
+                Triggered = true,
+                TrapNetId = trapId,
+                OccupantPlayerId = occupant
             });
-            ModRuntime.LegacyInfo("[TrapSync] send triggered " + __instance.name + " at " + key);
+            ModRuntime.LegacyInfo("[TrapSync] send triggered " + __instance.name
+                + " id=" + trapId + " at " + key);
         }
     }
 
@@ -277,92 +291,16 @@ namespace DWMPHorde.Sync
             });
             ModRuntime.LegacyInfo("[GeneratorSync] send powerDown at " + key + " type=" + itemType);
 
-            // Also send LightStateMessage for every connected light so the remote peer
-            // turns them off too (the vanilla powerDown path bypasses Item.turnOff).
-            if (__instance.powerItems != null)
-            {
-                foreach (Item li in __instance.powerItems)
-                {
-                    if (li == null || !li.isLight) continue;
-                    Vector3 lp = li.transform.position;
-                    string liType = li.invItem != null ? li.invItem.type : "";
-                    ModRuntime.Network.SendLightState(new LightStateMessage
-                    {
-                        PosX = lp.x,
-                        PosY = lp.y,
-                        PosZ = lp.z,
-                        IsOn = false,
-                        ItemName = li.name,
-                        ItemType = liType
-                    });
-                }
-            }
+            // Do NOT fan-out LightState IsOn=false for powerItems.
+            // Vanilla powerDown/cutPower keeps lamp isOn and only drops hasPower / visuals;
+            // LightState turnOff stomped isOn and broke gen re-start (restorePower needs isOn).
+            // Peers apply GeneratorState → gen.turnOff/powerDown → cutPower/powerDown locally.
         }
     }
 
-    /// <summary>Harmony patch: intercepts Generator.turnOn() and broadcasts light-on for connected lights.</summary>
-    [HarmonyPatch(typeof(Generator), "turnOn")]
-    public static class GeneratorTurnOnLightSyncPatch
-    {
-        private static void Postfix(Generator __instance)
-        {
-            if (ModRuntime.Network == null)
-                return;
-            if (TraverseHack.ApplyingFromNetwork)
-                return;
-
-            if (__instance.powerItems != null)
-            {
-                foreach (Item li in __instance.powerItems)
-                {
-                    if (li == null || !li.isLight) continue;
-                    Vector3 lp = li.transform.position;
-                    string liType = li.invItem != null ? li.invItem.type : "";
-                    ModRuntime.Network.SendLightState(new LightStateMessage
-                    {
-                        PosX = lp.x,
-                        PosY = lp.y,
-                        PosZ = lp.z,
-                        IsOn = true,
-                        ItemName = li.name,
-                        ItemType = liType
-                    });
-                }
-            }
-        }
-    }
-
-    /// <summary>Harmony patch: intercepts Generator.turnOff() and broadcasts light-off for connected lights.</summary>
-    [HarmonyPatch(typeof(Generator), "turnOff")]
-    public static class GeneratorTurnOffLightSyncPatch
-    {
-        private static void Postfix(Generator __instance)
-        {
-            if (ModRuntime.Network == null)
-                return;
-            if (TraverseHack.ApplyingFromNetwork)
-                return;
-
-            if (__instance.powerItems != null)
-            {
-                foreach (Item li in __instance.powerItems)
-                {
-                    if (li == null || !li.isLight) continue;
-                    Vector3 lp = li.transform.position;
-                    string liType = li.invItem != null ? li.invItem.type : "";
-                    ModRuntime.Network.SendLightState(new LightStateMessage
-                    {
-                        PosX = lp.x,
-                        PosY = lp.y,
-                        PosZ = lp.z,
-                        IsOn = false,
-                        ItemName = li.name,
-                        ItemType = liType
-                    });
-                }
-            }
-        }
-    }
+    // Generator turnOn/turnOff no longer emit LightState for connected lamps.
+    // Vanilla only restorePower/cutPower (isOn sticky). GeneratorState is enough.
+    // Per-lamp player toggles still go through Item.turnOn/turnOff → LightState.
 
     /// <summary>Harmony patch: intercepts Item.turnOn (lights, switchable items) and broadcasts the state.</summary>
     [HarmonyPatch(typeof(Item), "turnOn")]
@@ -494,6 +432,8 @@ namespace DWMPHorde.Sync
         private static void Postfix(Item __instance)
         {
             if (ModRuntime.Network == null)
+                return;
+            if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
             if (__instance.GetComponent<Generator>() != null)
                 return;

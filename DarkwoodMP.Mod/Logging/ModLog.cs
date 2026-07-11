@@ -79,9 +79,11 @@ namespace DWMPHorde.Logging
                 _preset = LogPreset.Trace;
             }
 
-            // Bridge old gates that still check ModRuntime.VerboseLogging
-            ModRuntime.VerboseLogging = _preset == LogPreset.Trace
-                || (_preset == LogPreset.Dev && _minLevel >= LogLevel.Trace);
+            // Bridge old gates that still check ModRuntime.VerboseLogging.
+            // Dev + LogMinLevel=Trace used to flip this on and flood Entity dumps on
+            // the client only (host does not ApplySnapshot) → dual-box FPS crater.
+            // High-freq dumps: Trace preset only. Dev still gets LegacyRateLimited Events.
+            ModRuntime.VerboseLogging = _preset == LogPreset.Trace;
 
             Array.Clear(_catEvent, 0, _catEvent.Length);
             Array.Clear(_catTrace, 0, _catTrace.Length);
@@ -293,7 +295,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Unity=" + Application.unityVersion
                     + " | " + SystemInfo.operatingSystem);
                 Event(LogCat.Core, "  Config: BepInEx/config/" + PluginInfo.Guid + ".cfg");
-                Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | Ctrl+C=chat | F5=spawner");
+                Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | F5=spawner");
                 Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log (this install)");
                 Event(LogCat.Core, "  Client log: second install's BepInEx/LogOutput.log");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client BepInEx/LogOutput.log");

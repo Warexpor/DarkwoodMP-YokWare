@@ -5,22 +5,36 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Audit C1: host is sole day/night clock authority.
-    /// Client FixedUpdate must not advance CurrentTime / fire refreshTime edges.
+    /// Client must not advance CurrentTime / fire refreshTime edges, but must still
+    /// run FixedUpdate inventory refresh (hotbar durability timers, etc.).
     /// </summary>
     [HarmonyPatch(typeof(Controller), "FixedUpdate")]
     public static class ClientTimeFixedUpdateSuppressPatch
     {
-        private static bool Prefix()
+        private static bool _forcedDoUpdateTimeOff;
+
+        private static void Prefix(Controller __instance)
         {
             var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
-                return true;
-            if (!CoopTimePolicy.ShouldSuppressClientClock(net.IsConnected, net.Role == NetworkRole.Client))
-                return true;
+            if (net == null || !net.IsConnected
+                || !CoopTimePolicy.ShouldSuppressClientClock(net.IsConnected, net.Role == NetworkRole.Client))
+            {
+                // Restore if we left co-op while forced off.
+                if (_forcedDoUpdateTimeOff && __instance != null)
+                {
+                    __instance.DoUpdateTime = true;
+                    _forcedDoUpdateTimeOff = false;
+                }
+                return;
+            }
 
-            // Skip entire FixedUpdate time tick on client (incl. inventory refresh interval).
-            // Host TimeSync + refreshTimeNoLogic keep clock UI / ambient in sync.
-            return false;
+            if (__instance == null) return;
+            // Keep refreshActiveItemsInInventories; only block CurrentTime++ / refreshTime.
+            if (__instance.DoUpdateTime)
+            {
+                __instance.DoUpdateTime = false;
+                _forcedDoUpdateTimeOff = true;
+            }
         }
     }
 

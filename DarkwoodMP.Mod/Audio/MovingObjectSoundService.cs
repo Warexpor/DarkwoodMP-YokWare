@@ -110,6 +110,7 @@ namespace DWMPHorde.Audio
                 {
                     existing.Source.volume = existing.BaseVolume > 0f ? existing.BaseVolume : volume;
                     existing.Fading = false;
+                    ModLog.Info(LogCat.Audio, "[MOS] re-arm canceled fade for " + objectName);
                 }
 
                 existing.StationaryTicks = 0;
@@ -202,6 +203,14 @@ namespace DWMPHorde.Audio
             if (string.IsNullOrEmpty(objectName)) return false;
             return _byName.TryGetValue(objectName, out Entry e)
                 && e != null && e.Source != null && e.Source.isPlaying;
+        }
+
+        /// <summary>True while a scrape fade-out is in progress (not fully stopped).</summary>
+        public static bool IsFading(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return false;
+            return _byName.TryGetValue(objectName, out Entry e)
+                && e != null && e.Fading && e.Source != null;
         }
 
         /// <summary>

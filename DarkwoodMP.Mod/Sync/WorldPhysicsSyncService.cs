@@ -80,8 +80,20 @@ namespace DWMPHorde.Sync
         private static float _scanRadius = 40f;
         private static float _fullResyncTimer;
         private static readonly float FullResyncInterval = 3f;
+        private static float _lastFullRbScanTime = -999f;
+        private const float FullRbScanMinInterval = 0.5f;
         private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>();
         private static readonly Dictionary<int, bool> _trapResultCache = new Dictionary<int, bool>();
+
+        private struct ThrownLightTrack
+        {
+            public int ThrowId;
+            public GameObject Go;
+            public float ExpireAt;
+            public string ItemType;
+        }
+        private static readonly List<ThrownLightTrack> _thrownLights = new List<ThrownLightTrack>(16);
+        private static readonly Dictionary<int, ThrownLightTrack> _thrownById = new Dictionary<int, ThrownLightTrack>(16);
 
         private static readonly List<GeneratorState> _generators = new List<GeneratorState>();
         private static readonly Dictionary<Vector3, bool> _lastGeneratorOn = new Dictionary<Vector3, bool>();
@@ -167,6 +179,10 @@ namespace DWMPHorde.Sync
                 if (rootGo.GetComponentInParent<Jumpable>() != null)
                     continue;
                 if (rootGo.GetComponentInChildren<ConfigurableJoint>() != null)
+                    continue;
+
+                // D12: while dreaming, only free bodies in the dream pocket.
+                if (!DreamSyncManager.ShouldSyncPhysicsObject(rootGo.transform))
                     continue;
 
                 string trackingKey = rootName + "_" + rootId;
@@ -545,9 +561,44 @@ namespace DWMPHorde.Sync
                 {
                     _lastTrapTriggered[key] = triggered;
                     if (_traps.Count < 32)
-                        _traps.Add(new TrapState { PosX = key.x, PosY = key.y, PosZ = key.z, Triggered = triggered });
+                    {
+                        int trapId = TrapNetworkId.GetOrMintHost(go);
+                        short occupant = ResolveTrapOccupant(trapId, key);
+                        _traps.Add(new TrapState
+                        {
+                            PosX = key.x, PosY = key.y, PosZ = key.z,
+                            Triggered = triggered,
+                            TrapNetId = trapId,
+                            OccupantPlayerId = occupant
+                        });
+                    }
                 }
             }
+        }
+
+        /// <summary>Who is currently locked to this trap (local + remotes).</summary>
+        internal static short ResolveTrapOccupant(int trapNetId, Vector3 trapPos)
+        {
+            if (trapNetId <= 0) return 0;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null) return 0;
+
+            Player local = Player.Instance;
+            if (local != null && local.inBearTrap)
+            {
+                int localTrap = TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
+                    hostMint: net.Role == NetworkRole.Host);
+                if (localTrap == trapNetId)
+                    return (short)net.LocalPlayerId;
+            }
+
+            foreach (var kv in net.EnumerateRemoteTrapOccupancy())
+            {
+                if (kv.Value == trapNetId)
+                    return (short)kv.Key;
+            }
+
+            return 0;
         }
 
         /// <summary>
@@ -662,6 +713,11 @@ namespace DWMPHorde.Sync
             {
                 _trapResultCache[id] = true;
                 _knownTraps[id] = root;
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net != null && net.Role == NetworkRole.Host)
+                    TrapNetworkId.GetOrMintHost(root);
+                else
+                    TrapNetworkId.RegisterKnown(root);
             }
             else
             {
@@ -734,6 +790,11 @@ namespace DWMPHorde.Sync
         public static void ApplySnapshot(PhysicsStateMessage state, string fromPeer = "host")
         {
             int objApplied = 0, objSkipped = 0, objFailed = 0;
+            bool clientRecv = fromPeer != null
+                && fromPeer.Equals("host", System.StringComparison.OrdinalIgnoreCase)
+                && ModRuntime.Network != null
+                && ModRuntime.Network.Role == Networking.NetworkRole.Client;
+
             if (state.Objects != null)
             {
                 foreach (WorldObjectState obj in state.Objects)
@@ -742,6 +803,17 @@ namespace DWMPHorde.Sync
                     {
                         objSkipped++;
                         continue;
+                    }
+
+                    // Client: skip far free-bodies (FindOrSpawn / full RB scan was dual-box thrash).
+                    if (clientRecv)
+                    {
+                        Vector3 opos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
+                        if (!Networking.ClientEntityInterpolationService.IsInClientInterest(opos))
+                        {
+                            objSkipped++;
+                            continue;
+                        }
                     }
 
                     GameObject go = FindOrSpawnObject(obj);
@@ -934,15 +1006,27 @@ namespace DWMPHorde.Sync
                     foreach (TrapState ts in state.Traps)
                     {
                         Vector3 tPos = new Vector3(ts.PosX, ts.PosY, ts.PosZ);
-                        GameObject go = FindTrapByPos(tPos);
+                        GameObject go = ts.TrapNetId > 0
+                            ? TrapNetworkId.FindById(ts.TrapNetId)
+                            : null;
+                        if (go == null)
+                            go = FindTrapByPos(tPos);
                         if (go == null)
                         {
+                            TrapNetworkId.QueuePending(ts.TrapNetId, tPos, ts.Triggered);
                             trapSkipped++;
                             continue;
                         }
 
+                        if (ts.TrapNetId > 0)
+                            TrapNetworkId.Ensure(go, ts.TrapNetId);
+                        else if (ModRuntime.Network is LanNetworkManager n
+                                 && n.Role == NetworkRole.Host)
+                            TrapNetworkId.GetOrMintHost(go);
+
                         if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo("[TrapApply] " + go.name + " at " + tPos + " triggered=" + ts.Triggered);
+                            ModRuntime.LegacyInfo("[TrapApply] " + go.name + " id=" + ts.TrapNetId
+                                + " at " + tPos + " triggered=" + ts.Triggered);
                         ApplyTrapState(go, ts.Triggered);
                         trapApplied++;
                     }
@@ -1130,10 +1214,37 @@ namespace DWMPHorde.Sync
                 return candidate;
             }
 
-            // Strategy 2: search ALL Rigidbodies by name, pick closest to target.
-            // This handles objects pushed far from their reported position (more than 1.5u).
-            // GameObject.Find is unreliable when multiple objects share the same name.
+            // Strategy 1b: wider sphere before full-scene scan (client stutter when host
+            // pushes objects 2–15u away — OverlapSphere 1.5 miss then FindObjectsOfType).
             {
+                Collider[] wide = Physics.OverlapSphere(targetPos, 15f);
+                GameObject bestWide = null;
+                float bestWideDist = float.MaxValue;
+                for (int i = 0; i < wide.Length; i++)
+                {
+                    if (wide[i] == null || wide[i].attachedRigidbody == null) continue;
+                    GameObject candidate = wide[i].attachedRigidbody.gameObject;
+                    if (candidate.name != obj.Name) continue;
+                    if (candidate.GetComponent<Character>() != null) continue;
+                    if (candidate.GetComponent<DroppedItemIdentifier>() != null) continue;
+                    if (candidate.GetComponent<DeathDrop>() != null) continue;
+                    float d = Vector3.Distance(candidate.transform.position, targetPos);
+                    if (d < bestWideDist)
+                    {
+                        bestWideDist = d;
+                        bestWide = candidate;
+                    }
+                }
+                if (bestWide != null)
+                    return bestWide;
+            }
+
+            // Strategy 2: full Rigidbody scan — rate-limited (scene-wide FindObjectsOfType
+            // every PhysicsState packet was a dual-box hitch source).
+            float nowScan = Time.time;
+            if (nowScan - _lastFullRbScanTime >= FullRbScanMinInterval)
+            {
+                _lastFullRbScanTime = nowScan;
                 Rigidbody[] allRbs = UnityEngine.Object.FindObjectsOfType<Rigidbody>();
                 GameObject best = null;
                 float bestDist = float.MaxValue;
@@ -1143,7 +1254,6 @@ namespace DWMPHorde.Sync
                     if (rb == null) continue;
                     if (rb.name != obj.Name) continue;
                     if (rb.GetComponent<Character>() != null) continue;
-                    // Skip objects handled by dedicated sync systems
                     if (rb.GetComponent<DroppedItemIdentifier>() != null) continue;
                     if (rb.GetComponent<DeathDrop>() != null) continue;
                     float d = Vector3.Distance(rb.transform.position, targetPos);
@@ -1303,10 +1413,26 @@ namespace DWMPHorde.Sync
             {
                 bool isHarvestable = go.name.ToLowerInvariant().Contains("mushroom");
                 Trigger trig = go.GetComponent<Trigger>();
+                Explodes expl = go.GetComponent<Explodes>();
 
-                if (!isHarvestable)
+                // Diagnostic: confirm what actually owns this mushroom's boom. World
+                // mushrooms (expObj_mushroom_interior_01) have a Trigger but NO Explodes —
+                // their blast is the Trigger's prefabToSpawn, which the old isHarvestable
+                // skip was hiding.
+                if (isHarvestable && ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[TrapApply] mushroom comps name=" + go.name
+                        + " hasExplodes=" + (expl != null)
+                        + " prefabToSpawn=" + (trig != null && trig.prefabToSpawn != null ? trig.prefabToSpawn.name : "null")
+                        + " activateSound=" + (trig != null ? trig.activateSound : ""));
+
+                if (expl == null || !isHarvestable)
                 {
-                    // Play activation sound
+                    // Generic trap VFX: activateSound + prefabToSpawn. Runs for every
+                    // non-mushroom trap (unchanged) AND for mushrooms without an Explodes
+                    // component — world mushrooms like expObj_mushroom_interior_01, whose
+                    // boom is the Trigger's prefabToSpawn. The old `!isHarvestable`-only
+                    // gate skipped the latter on the false assumption they used Explodes,
+                    // which caused the silent snap.
                     if (trig != null && !string.IsNullOrEmpty(trig.activateSound))
                         AudioController.Play(trig.activateSound, go.transform);
 
@@ -1333,6 +1459,20 @@ namespace DWMPHorde.Sync
                             UnityEngine.Object.Instantiate(trig.prefabToSpawn, spawnPos, Quaternion.Euler(90f, 0f, 0f));
                         }
                     }
+                }
+                else if (isHarvestable)
+                {
+                    // Explodes-based mushroom (rare): render the blast via the explosion
+                    // visual path and own the end state (destroyOnExplode).
+                    string prefabName = expl.explosionPrefab != null ? expl.explosionPrefab.name : "";
+                    string soundId = ResolveExplosionSoundId(expl.explodeSound ?? "", go.name, expl) ?? "";
+                    ModRuntime.LegacyInfo("[TrapApply] mushroom blast VFX (Explodes) " + go.name
+                        + " prefab=" + prefabName + " sound=" + soundId + " at " + go.transform.position);
+                    SpawnExplosionVisual(go.transform.position, go.name, prefabName, soundId);
+
+                    if (trig != null && trig.alertRadius > 0f)
+                        Character.alertInArea(go.transform.position, trig.alertRadius, dangerousSound: false, 1f);
+                    return;
                 }
 
                 // Alert characters in radius
@@ -1695,6 +1835,13 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// LightState that arrived before the Item existed (unloaded location grid).
+        /// Flushed by <see cref="TryFlushPendingLights"/> once the world is ready.
+        /// </summary>
+        private static readonly List<LightStateMessage> _pendingLights = new List<LightStateMessage>(32);
+        private const int MaxPendingLights = 64;
+
+        /// <summary>
         /// Applies a received light on/off state change from a remote peer.
         /// Looks up the light Item by position and name, then toggles it if needed.
         /// </summary>
@@ -1702,47 +1849,95 @@ namespace DWMPHorde.Sync
         /// <param name="fromPeer">Sender identifier for logging.</param>
         public static void ApplyLightState(LightStateMessage ls, string fromPeer)
         {
+            ApplyLightStateCore(ls, fromPeer, queueIfMissing: true);
+        }
+
+        /// <summary>Retry queued LightState after location/grid load.</summary>
+        public static void TryFlushPendingLights()
+        {
+            if (_pendingLights.Count == 0) return;
+            if (Player.Instance == null || Core.mainMenu || Core.loadingGame) return;
+
+            for (int i = _pendingLights.Count - 1; i >= 0; i--)
+            {
+                LightStateMessage ls = _pendingLights[i];
+                if (ApplyLightStateCore(ls, "pending", queueIfMissing: false))
+                    _pendingLights.RemoveAt(i);
+            }
+        }
+
+        /// <returns>True if applied or already matching; false if still missing.</returns>
+        private static bool ApplyLightStateCore(LightStateMessage ls, string fromPeer, bool queueIfMissing)
+        {
             Vector3 pos = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
             Item item = FindLightByPos(pos, ls.ItemName);
             if (item == null)
             {
-                // Try to spawn the light on-demand from ItemType
-                if (!string.IsNullOrEmpty(ls.ItemType))
+                // Scene lamps only — do not spawn random prefabs from ItemType (duplicates).
+                if (queueIfMissing)
                 {
-                    var objState = new WorldObjectState
-                    {
-                        Name = ls.ItemName,
-                        PosX = ls.PosX,
-                        PosY = ls.PosY,
-                        PosZ = ls.PosZ,
-                        ItemType = ls.ItemType
-                    };
-                    GameObject go = FindOrSpawnObject(objState);
-                    if (go != null)
-                        item = go.GetComponent<Item>();
+                    QueuePendingLight(ls);
+                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
                 }
-
-                if (item == null)
-                {
-                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos);
-                    return;
-                }
+                return false;
             }
+
+            // Already matching: treat as success (drop pending).
+            if (ls.IsOn == item.isOn)
+                return true;
 
             ModRuntime.LegacyInfo("[LightApply] " + item.name + " isOn=" + ls.IsOn + " from " + fromPeer);
 
+            // Vanilla player path is Item.switchMe(): playSwitch() then turnOn/turnOff.
+            // Remote only had turnOn/turnOff — many lamps put the click in switchSound only
+            // (startSound/endSound empty), so peers saw the light change with no SFX.
             TraverseHack.ApplyingFromNetwork = true;
             try
             {
-                if (ls.IsOn && !item.isOn)
+                ItemSounds sounds = item.GetComponent<ItemSounds>();
+                if (sounds != null)
+                    sounds.playSwitch();
+
+                if (ls.IsOn)
                     item.turnOn();
-                else if (!ls.IsOn && item.isOn)
+                else
                     item.turnOff();
+
+                // turnOff only calls playStop when hasPower — unpowered lamps still need
+                // the end one-shot if switchSound was empty and endSound is set.
+                if (!ls.IsOn && sounds != null && !item.hasPower
+                    && !string.IsNullOrEmpty(sounds.endSound)
+                    && string.IsNullOrEmpty(sounds.switchSound))
+                {
+                    AudioController.Play(sounds.endSound, item.transform, sounds.volumeModifier);
+                }
             }
             finally
             {
                 TraverseHack.ApplyingFromNetwork = false;
             }
+            return true;
+        }
+
+        private static void QueuePendingLight(LightStateMessage ls)
+        {
+            // Dedupe by name+rounded pos — keep latest isOn.
+            string key = (ls.ItemName ?? "") + "@"
+                + Mathf.Round(ls.PosX) + "," + Mathf.Round(ls.PosY) + "," + Mathf.Round(ls.PosZ);
+            for (int i = 0; i < _pendingLights.Count; i++)
+            {
+                var p = _pendingLights[i];
+                string pk = (p.ItemName ?? "") + "@"
+                    + Mathf.Round(p.PosX) + "," + Mathf.Round(p.PosY) + "," + Mathf.Round(p.PosZ);
+                if (pk == key)
+                {
+                    _pendingLights[i] = ls;
+                    return;
+                }
+            }
+            if (_pendingLights.Count >= MaxPendingLights)
+                _pendingLights.RemoveAt(0);
+            _pendingLights.Add(ls);
         }
 
         /// <summary>Finds a light Item by position and optional name within a 1.5 unit radius.</summary>
@@ -1818,6 +2013,9 @@ namespace DWMPHorde.Sync
             _lastTrapTriggered.Clear();
             _knownTraps.Clear();
             _trapResultCache.Clear();
+            _thrownLights.Clear();
+            _thrownById.Clear();
+            TrapNetworkId.ResetSession();
             _lastGeneratorOn.Clear();
             _scanCenters.Clear();
             _scannedObjectIds.Clear();
@@ -1844,6 +2042,7 @@ namespace DWMPHorde.Sync
             _lastGeneratorFuel.Clear();
             _lastClientUpdateTime.Clear();
             _destroyDebounce.Clear();
+            _pendingLights.Clear();
             MovingObjectSoundService.Reset();
             DoorTracker.Clear();
             GeneratorTracker.Clear();
@@ -2003,9 +2202,184 @@ namespace DWMPHorde.Sync
             // Thrown flare: ensure ground light is visible on peers (prefab may arrive disabled).
             EnsureThrownFlareLight(go, msg.ItemType);
 
+            // Lifetime parity: track expire for flare lights (host despawns for all).
+            if (!string.IsNullOrEmpty(msg.ItemType)
+                && msg.ItemType.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                float life = msg.LongevitySec > 0.05f ? msg.LongevitySec : 5f;
+                int throwId = msg.ThrowId;
+                var track = new ThrownLightTrack
+                {
+                    ThrowId = throwId,
+                    Go = go,
+                    ExpireAt = Time.time + life,
+                    ItemType = msg.ItemType
+                };
+                _thrownLights.Add(track);
+                if (throwId > 0)
+                    _thrownById[throwId] = track;
+
+                // Strip local Flare waitToDie so host expire owns the timeline on remotes.
+                if (visualOnly)
+                {
+                    foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+                        UnityEngine.Object.Destroy(fl);
+                }
+            }
+
             if (!visualOnly)
                 Core.addToSaveable(go, isDynamic: true);
-            ModRuntime.LegacyInfo("[ThrowableSpawn] spawned " + msg.ItemType + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + msg.Distance + " vel=" + msg.VelX + "," + msg.VelY + "," + msg.VelZ + " visualOnly=" + visualOnly);
+            ModRuntime.LegacyInfo("[ThrowableSpawn] spawned " + msg.ItemType
+                + " throwId=" + msg.ThrowId + " life=" + msg.LongevitySec
+                + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + msg.Distance
+                + " visualOnly=" + visualOnly);
+        }
+
+        /// <summary>Host: expire tracked thrown lights and broadcast despawn.</summary>
+        public static void TickThrownLightExpiry(LanNetworkManager net)
+        {
+            if (net == null || !net.IsConnected) return;
+            if (net.Role != NetworkRole.Host) return;
+            if (_thrownLights.Count == 0) return;
+
+            float now = Time.time;
+            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            {
+                var t = _thrownLights[i];
+                if (t.Go == null)
+                {
+                    if (t.ThrowId > 0) _thrownById.Remove(t.ThrowId);
+                    _thrownLights.RemoveAt(i);
+                    continue;
+                }
+                if (now < t.ExpireAt)
+                    continue;
+
+                Vector3 pos = t.Go.transform.position;
+                ExtinguishThrownLight(t.Go);
+                if (t.ThrowId > 0)
+                {
+                    net.SendThrowableDespawn(new ThrowableDespawnMessage
+                    {
+                        ThrowId = t.ThrowId,
+                        PosX = pos.x,
+                        PosY = pos.y,
+                        PosZ = pos.z
+                    });
+                    _thrownById.Remove(t.ThrowId);
+                }
+                _thrownLights.RemoveAt(i);
+                ModRuntime.LegacyInfo("[ThrowableDespawn] host expired throwId=" + t.ThrowId
+                    + " type=" + t.ItemType);
+            }
+        }
+
+        public static void ApplyThrownDespawn(ThrowableDespawnMessage msg)
+        {
+            GameObject go = null;
+            if (msg.ThrowId > 0 && _thrownById.TryGetValue(msg.ThrowId, out var track))
+            {
+                go = track.Go;
+                _thrownById.Remove(msg.ThrowId);
+            }
+            if (go == null)
+            {
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                // Nearest flare-like light near reported pos
+                Collider[] hits = Physics.OverlapSphere(pos, 3f);
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    if (hits[i] == null) continue;
+                    GameObject root = hits[i].attachedRigidbody != null
+                        ? hits[i].attachedRigidbody.gameObject
+                        : hits[i].gameObject;
+                    string n = root.name.ToLowerInvariant();
+                    if (n.Contains("flare") || root.GetComponentInChildren<Light2D>(true) != null)
+                    {
+                        go = root;
+                        break;
+                    }
+                }
+            }
+
+            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            {
+                if (_thrownLights[i].ThrowId == msg.ThrowId || _thrownLights[i].Go == go)
+                    _thrownLights.RemoveAt(i);
+            }
+
+            if (go != null)
+                ExtinguishThrownLight(go);
+            else
+                ModRuntime.LegacyInfo("[ThrowableDespawn] no go for throwId=" + msg.ThrowId);
+        }
+
+        private static void ExtinguishThrownLight(GameObject go)
+        {
+            if (go == null) return;
+            foreach (var lt in go.GetComponentsInChildren<Light2D>(true))
+            {
+                try
+                {
+                    lt.unlightGraphNodes();
+                    var ctrl = Singleton<Controller>.Instance;
+                    if (ctrl != null)
+                        ctrl.logicLights.Remove(lt);
+                }
+                catch { /* ignore */ }
+                lt.LightIntensity = 0f;
+                lt.gameObject.SetActive(false);
+            }
+            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+                UnityEngine.Object.Destroy(fl);
+            foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (ps != null)
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
+        }
+
+        /// <summary>Late-join: re-send still-burning thrown flares to peer.</summary>
+        public static void SendActiveThrownLightsTo(LanNetworkManager net, int playerId)
+        {
+            if (net == null || net.Role != NetworkRole.Host || playerId <= 0)
+                return;
+            int sent = 0;
+            float now = Time.time;
+            for (int i = 0; i < _thrownLights.Count; i++)
+            {
+                var t = _thrownLights[i];
+                if (t.Go == null || now >= t.ExpireAt) continue;
+                Vector3 p = t.Go.transform.position;
+                float remain = Mathf.Max(0.1f, t.ExpireAt - now);
+                var msg = new ThrowableSpawnMessage
+                {
+                    ItemType = t.ItemType ?? "flare",
+                    PosX = p.x,
+                    PosY = p.y,
+                    PosZ = p.z,
+                    AimY = 0f,
+                    Distance = 0f,
+                    VelX = 0f,
+                    VelY = 0f,
+                    VelZ = 0f,
+                    ThrowId = t.ThrowId,
+                    LongevitySec = remain
+                };
+                net.SendToPlayer(playerId, NetMessageType.ThrowableSpawn, w => msg.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+            if (sent > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Thrown lights → p" + playerId + ": " + sent);
+        }
+
+        internal static List<GameObject> GetKnownTrapsSnapshot()
+        {
+            var list = new List<GameObject>(_knownTraps.Count);
+            foreach (var go in _knownTraps.Values)
+                if (go != null) list.Add(go);
+            return list;
         }
 
         /// <summary>
@@ -2433,12 +2807,18 @@ namespace DWMPHorde.Sync
         public float PosZ;
         /// <summary>Whether the trap has been triggered (sprung/snapped).</summary>
         public bool Triggered;
+        /// <summary>Stable trap net id (0 = position-only legacy).</summary>
+        public int TrapNetId;
+        /// <summary>Player occupying this trap (0 = none).</summary>
+        public short OccupantPlayerId;
 
         /// <summary>Serializes this trap state into a network writer.</summary>
         /// <param name="w">The network writer.</param>
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(Triggered);
+            w.Put(TrapNetId);
+            w.Put(OccupantPlayerId);
         }
         /// <summary>Deserializes a trap state from a network reader.</summary>
         /// <param name="r">The network reader.</param>
@@ -2447,7 +2827,9 @@ namespace DWMPHorde.Sync
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
-            Triggered = r.GetBool()
+            Triggered = r.GetBool(),
+            TrapNetId = r.GetInt(),
+            OccupantPlayerId = r.GetShort()
         };
     }
 

@@ -22,6 +22,10 @@ namespace DWMPHorde.Patches
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: fromPlayer)) return;
             // Never network menu / BGM tracks (5.3).
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
+            // Forest / SoundArea / RandomWorldSounds loops parent to Player for listener
+            // follow only — not player SFX. Forwarding them makes peers hear ambients
+            // from the remote proxy (host walks outside → client hears forest from host).
+            if (LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
 
             // Dream session: DreamAudioPatches owns _PlayAsSound/music forward.
             // Avoid double-send (PlayerAudio + DreamAudio) for the same one-shot (5.1).
@@ -164,7 +168,11 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Local inventory open SFX; AudioPlayStrTrans forwards with player position.</summary>
+    /// <summary>
+    /// Personal bag open SFX only. World containers already play open_drawer in
+    /// Item.openInventory — playing here too doubled loot sound on client
+    /// (initiateOpenCloseInventory → Player.openInventory → this patch + Item.Play).
+    /// </summary>
     [HarmonyPatch(typeof(Player), "openInventory")]
     public static class PlayerOpenInventorySoundPatch
     {
@@ -173,6 +181,9 @@ namespace DWMPHorde.Patches
         {
             if (TraverseHack.ApplyingFromNetwork) return;
             if (__instance == null) return;
+            // Container / corpse open sets openedItemInventory before openInventory().
+            if (__instance.openedItemInventory != null)
+                return;
             AudioController.Play("open_drawer", __instance._transform);
         }
     }
@@ -196,14 +207,27 @@ namespace DWMPHorde.Patches
             if (!LocalAudioService.IsAllowlistedNoParentSound(audioID)) return;
             if (!LocalAudioService.TryAllowForward(audioID)) return;
 
-            // NaN → receiver parents to remote proxy for correct spatial location.
+            // Hit feedback (Player.getHit) is parentless/2D in vanilla. Peers must get a
+            // world position so HandlePlayerAudio spatializes on the victim proxy —
+            // NaN alone made some AudioItems play full-volume "on me" for bystanders.
+            float px = float.NaN, py = float.NaN, pz = float.NaN;
+            if (LocalAudioService.IsPlayerHitFeedbackSound(audioID) && Player.Instance != null)
+            {
+                Vector3 p = Player.Instance._transform != null
+                    ? Player.Instance._transform.position
+                    : Player.Instance.transform.position;
+                px = p.x;
+                py = p.y;
+                pz = p.z;
+            }
+
             net.SendPlayerAudio(new PlayerAudioMessage
             {
                 SoundId = audioID,
                 Volume = 1f,
-                PosX = float.NaN,
-                PosY = float.NaN,
-                PosZ = float.NaN
+                PosX = px,
+                PosY = py,
+                PosZ = pz
             });
         }
     }

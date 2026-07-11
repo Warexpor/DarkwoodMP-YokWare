@@ -38,20 +38,46 @@ namespace DWMPHorde.Networking
                 // Client: store our assigned playerId from host's Handshake
                 if (handshake.PlayerId > 0)
                     _localPlayerId = handshake.PlayerId;
+                if (handshake.HostPlayerId > 0)
+                    _hostPlayerId = handshake.HostPlayerId;
                 _handshakeComplete = true;
                 _handshakedPeers.Clear();
-                _handshakedPeers.Add(1); // host is player 1
+                // Host id may not be 1 after host-grant migration.
+                int hostId = _hostPlayerId > 0 ? _hostPlayerId : 1;
+                _handshakedPeers.Add(hostId);
+                // Rebind provisional peer slot if host id changed.
+                if (_currentReceivePeer != null)
+                {
+                    int oldKey = -1;
+                    foreach (var kvp in _peers)
+                    {
+                        if (kvp.Value == _currentReceivePeer) { oldKey = kvp.Key; break; }
+                    }
+                    if (oldKey > 0 && oldKey != hostId)
+                    {
+                        _peers.Remove(oldKey);
+                        _peers[hostId] = _currentReceivePeer;
+                    }
+                    else if (oldKey < 0)
+                        _peers[hostId] = _currentReceivePeer;
+                }
+
+                _migrationInProgress = false;
+                _migrationRetryCount = 0;
+
                 if (ClientReportsAlreadyInWorld())
                 {
                     StatusText = "Reconnected — co-op sync…";
                     ModLog.Event(LogCat.Network,
                         "Handshake OK — assigned PlayerId=" + _localPlayerId
-                        + " (phase 3 co-op reconnect)");
+                        + " hostId=" + hostId
+                        + " (phase 3 / migration reconnect)");
                 }
                 else
                 {
                     StatusText = "Connected — waiting for host world…";
-                    ModLog.Event(LogCat.Network, "Handshake OK — assigned PlayerId=" + _localPlayerId);
+                    ModLog.Event(LogCat.Network, "Handshake OK — assigned PlayerId=" + _localPlayerId
+                        + " hostId=" + hostId);
                     if (Core.mainMenu)
                         ModLog.Event(LogCat.Session,
                             "Join pipeline phase 1: transfer link up — waiting for world share, then offline load.");
@@ -60,6 +86,27 @@ namespace DWMPHorde.Networking
             else
             {
                 int playerId = _currentReceivePlayerId;
+                // Migration reconnect: client put preferred id in Handshake.PlayerId.
+                if (handshake.AlreadyInWorld && handshake.PlayerId > 0 && _currentReceivePeer != null)
+                {
+                    int rebound = TryRebindPreferredPlayerId(playerId, handshake.PlayerId, _currentReceivePeer);
+                    if (rebound != playerId)
+                    {
+                        playerId = rebound;
+                        _currentReceivePlayerId = rebound;
+                        // Confirm preferred id to client (same wire as assign).
+                        SendToPlayer(playerId, NetMessageType.Handshake, w =>
+                        {
+                            new HandshakeMessage
+                            {
+                                ProtocolVersion = PluginInfo.ProtocolVersion,
+                                PlayerId = (short)playerId,
+                                HostPlayerId = (short)_localPlayerId
+                            }.Serialize(w);
+                        }, DeliveryMethod.ReliableOrdered);
+                    }
+                }
+
                 if (playerId > 0)
                     _handshakedPeers.Add(playerId);
                 // Host gameplay traffic stays up for already-ready peers; first ready peer enables send loop.
@@ -69,6 +116,9 @@ namespace DWMPHorde.Networking
 
                 // Sync current weather state to the newly connected client only
                 SendWeatherSyncTo(playerId);
+                // Roster ASAP so survivors can migrate if *this* host later dies.
+                BroadcastPeerRoster();
+                _peerRosterTimer = 0f;
 
                 // Join pipeline:
                 //   phase 1 title join  → share world (client offline-loads, disconnects)
@@ -215,8 +265,9 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Light late-join dump only (no FindObjectsOfType bag/drop scans, no proxy spawn).
-        /// Heavy world object scans were freezing the host the frame a joiner finished loading.
+        /// Late-join sticky world dump (host-auth only). Light packets this frame;
+        /// heavy FindObjects scans are queued one phase/frame via <see cref="TickHeavyLateJoinBulk"/>.
+        /// Scenario bulk still skipped (re-fires night unique events).
         /// </summary>
         internal void SendLateJoinGameplayBulk(int playerId)
         {
@@ -226,23 +277,109 @@ namespace DWMPHorde.Networking
             _awaitingLateJoinBulk.Remove(playerId);
             _peersCoopReconnect.Remove(playerId);
             ModLog.Event(LogCat.Session,
-                "Sending light late-join bulk → player " + playerId
-                + " (no deathbag/drop scans)");
+                "Sending late-join bulk → player " + playerId
+                + " (light now; heavy sticky world staggered)");
 
-            // Small reliable packets only — no scene-wide FindObjectsOfType.
+            // Light / already-capped / no full-scene bag thrash.
             SendJournalBulkSyncTo(playerId);
             SendFlagBulkSyncTo(playerId);
-            // Dialogue tree after flags so Flags.dialogues exists when applying.
             DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId);
             SendReputationBulkSyncTo(playerId);
             SendHideoutStateSyncTo(playerId);
             SendWorkbenchLevelSyncTo(playerId);
             SendMapStateSyncTo(playerId);
             SendTimeSyncTo(playerId);
+            SendSawStatesTo(playerId);
+            SendFeederStatesTo(playerId);
+            SendLureStatesTo(playerId);
+            SendDreamSessionBulkTo(playerId);
             SyncCurrentLightState();
-            // Scenario bulk can re-fire night "unique events" on the client — skip on join.
-            // SendScenarioBulkSyncTo(playerId);
-            // Proxy is created from live PlayerState once CanSpawnRemoteProxies — not here.
+            SyncExistingWorldLightsTo(playerId);
+            SyncExistingGeneratorsTo(playerId);
+            SendTrapBulkTo(playerId);
+            Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId);
+            // Registry-cheap (no FindObjectsOfType scene thrash).
+            SyncExistingLocationsTo(playerId);
+            SendShadowsTo(playerId);
+            SyncExistingDroppedItems(playerId);
+            // Scenario bulk skipped — re-fires night "unique events" on joiner.
+            // Proxy from live PlayerState once CanSpawnRemoteProxies.
+
+            // Heavy sticky world: weather/trade/construct/locks/barricades/gas/deathbags.
+            _pendingHeavyLateJoinBulk[playerId] = 0;
+        }
+
+        /// <summary>
+        /// Host: one heavy late-join phase per peer per frame (FindObjects / large scans).
+        /// </summary>
+        private void TickHeavyLateJoinBulk()
+        {
+            if (_role != NetworkRole.Host || _pendingHeavyLateJoinBulk.Count == 0)
+                return;
+
+            // Snapshot keys — dictionary mutates as peers finish.
+            var peers = new List<int>(_pendingHeavyLateJoinBulk.Keys);
+            for (int p = 0; p < peers.Count; p++)
+            {
+                int playerId = peers[p];
+                if (!_peers.ContainsKey(playerId))
+                {
+                    _pendingHeavyLateJoinBulk.Remove(playerId);
+                    continue;
+                }
+                if (!_pendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
+                    continue;
+
+                try
+                {
+                    switch (phase)
+                    {
+                        case 0:
+                            SendWeatherSyncTo(playerId);
+                            break;
+                        case 1:
+                            SendTradeInventoriesTo(playerId);
+                            break;
+                        case 2:
+                            SendConstructedSitesTo(playerId);
+                            break;
+                        case 3:
+                            SyncExistingLocksAndInteractives(playerId);
+                            break;
+                        case 4:
+                            SendBarricadeStateTo(playerId);
+                            break;
+                        case 5:
+                            SendGasStateTo(playerId);
+                            break;
+                        case 6:
+                            SyncExistingDeathBags(playerId);
+                            break;
+                        default:
+                            _pendingHeavyLateJoinBulk.Remove(playerId);
+                            ModLog.Event(LogCat.Session,
+                                "Late-join heavy bulk complete → player " + playerId);
+                            continue;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[BulkSync] heavy phase " + phase + " p" + playerId + ": " + ex.Message);
+                }
+
+                phase++;
+                if (phase >= HeavyLateJoinPhaseCount)
+                {
+                    _pendingHeavyLateJoinBulk.Remove(playerId);
+                    ModLog.Event(LogCat.Session,
+                        "Late-join heavy bulk complete → player " + playerId);
+                }
+                else
+                {
+                    _pendingHeavyLateJoinBulk[playerId] = phase;
+                }
+            }
         }
 
         /// <summary>
@@ -348,12 +485,14 @@ namespace DWMPHorde.Networking
 
                 if (playerId > 0)
                 {
-                    GetOrCreateState(playerId).InBearTrap = state.InBearTrap;
-                    GetOrCreateState(playerId).BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
-                    GetOrCreateState(playerId).HasLightProtection = state.HasLightProtection;
+                    var hostSt = GetOrCreateState(playerId);
+                    hostSt.InBearTrap = state.InBearTrap;
+                    hostSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
+                    hostSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
+                    hostSt.HasLightProtection = state.HasLightProtection;
                     if (state.InBearTrap)
                         if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped at {GetOrCreateState(playerId).BearTrapPos}");
+                            ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
 
                     EnsureRemoteProxy(playerId);
                     RemotePlayerProxy proxy = GetProxy(playerId);
@@ -423,12 +562,14 @@ namespace DWMPHorde.Networking
                 EnsureRemoteProxy(remotePlayerId);
                 RemotePlayerProxy proxy = GetProxy(remotePlayerId);
 
-                GetOrCreateState(remotePlayerId).InBearTrap = state.InBearTrap;
-                GetOrCreateState(remotePlayerId).BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
-                GetOrCreateState(remotePlayerId).HasLightProtection = state.HasLightProtection;
+                var cliSt = GetOrCreateState(remotePlayerId);
+                cliSt.InBearTrap = state.InBearTrap;
+                cliSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
+                cliSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
+                cliSt.HasLightProtection = state.HasLightProtection;
                 if (state.InBearTrap)
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped at {GetOrCreateState(remotePlayerId).BearTrapPos}");
+                        ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");
 
                 if (proxy == null) return;
 
@@ -487,9 +628,18 @@ namespace DWMPHorde.Networking
 
         private void HandleRemoteFlareLight(PlayerStateMessage state, int playerId)
         {
-            if (state.FlareActive)
+            // Flare or match continuous held burn light (LightFlagFlare).
+            bool heldOn = (state.LightFlags & PlayerStateMessage.LightFlagFlare) != 0
+                || state.FlareActive || state.MatchActive;
+
+            // Host-authoritative expire: remain 0 while flagged means extinguish.
+            if (heldOn && (state.LightFlags & PlayerStateMessage.LightFlagRemain) != 0
+                && state.HeldLightRemain01 == 0)
+                heldOn = false;
+
+            if (heldOn)
             {
-                // Mutex: continuous flare owns light — never keep event-path item light.
+                // Mutex: continuous flare/match owns light — never keep event-path item light.
                 DestroyRemoteItemLight(playerId);
 
                 RemotePlayerProxy proxy = GetProxy(playerId);
@@ -502,8 +652,9 @@ namespace DWMPHorde.Networking
 
                 if (rising)
                 {
+                    string kind = state.MatchActive ? "match" : "flare";
                     if (Config.ModConfig.IsVerboseLightSync)
-                        ModRuntime.LegacyInfo($"[LightSync] remote flare ON p{playerId} type={remoteState.FlareItemType ?? "?"}");
+                        ModRuntime.LegacyInfo($"[LightSync] remote {kind} ON p{playerId} type={remoteState.FlareItemType ?? "?"}");
 
                     Light2D template = null;
                     Transform lightDotT = Player.Instance?.transform.Find("PlayerLightDot");
@@ -554,7 +705,9 @@ namespace DWMPHorde.Networking
                             ctrl.logicLights.Add(light);
                     }
 
-                    SpawnRemoteFlareFx(playerId, remoteState, proxy, localOff);
+                    // Matches: light only (no flare FX prefab). Flares get residual FX clone.
+                    if (!state.MatchActive)
+                        SpawnRemoteFlareFx(playerId, remoteState, proxy, localOff);
                 }
                 else
                 {
@@ -582,7 +735,7 @@ namespace DWMPHorde.Networking
                      && (existingState.FlareLight != null || existingState.FlareFx != null))
             {
                 if (Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo($"[LightSync] remote flare OFF p{playerId}");
+                    ModRuntime.LegacyInfo($"[LightSync] remote held burn light OFF p{playerId}");
                 DestroyRemoteFlareLight(playerId);
             }
         }
@@ -677,7 +830,21 @@ namespace DWMPHorde.Networking
             if (proxy == null) return;
 
             Transform flashT = proxy.transform.Find("Flashlight");
-            if (flashT == null) return;
+            if (flashT == null)
+            {
+                // Guarantee cone child so stream can apply (proxy may strip lights).
+                var flashGo = new GameObject("Flashlight");
+                flashGo.transform.SetParent(proxy.transform, false);
+                flashGo.transform.localPosition = Vector3.zero;
+                var created = flashGo.AddComponent<Light2D>();
+                if (created.LightMaterial == null)
+                    created.LightMaterial = Resources.Load("RadialLight") as Material;
+                created.LightRadius = 400f;
+                created.LightIntensity = 1f;
+                created.LightColor = new Color(0.3f, 0.3f, 0.3f, 0f);
+                flashGo.SetActive(false);
+                flashT = flashGo.transform;
+            }
 
             if (state.FlashlightActive)
             {
@@ -685,6 +852,10 @@ namespace DWMPHorde.Networking
                 flashT.gameObject.SetActive(true);
                 if (wasOff && Config.ModConfig.IsVerboseLightSync)
                     ModRuntime.LegacyInfo($"[LightSync] remote flashlight ON p{playerId}");
+
+                // Aim: streamed Flashlight yaw (SP cone direction).
+                if ((state.LightFlags & PlayerStateMessage.LightFlagFlashAim) != 0)
+                    flashT.rotation = Quaternion.Euler(90f, state.FlashAimY, 0f);
 
                 Light2D lt = flashT.GetComponent<Light2D>();
                 if (lt != null)
@@ -766,24 +937,71 @@ namespace DWMPHorde.Networking
             state.ItemLight = null;
         }
 
-        /// <summary>
-        /// Returns true if the remote player is currently trapped in a bear trap.
-        /// Removed distance check because the client's bear trap GameObject may be
-        /// at a different position than the trapped player (e.g. dropped item vs
-        /// world pool trap), making the distance check unreliable.
-        /// </summary>
+        /// <summary>Any remote currently reports InBearTrap (legacy helper; prefer <see cref="IsTrapOccupied"/>).</summary>
         public bool HasAnyTrappedPlayer => _remotePlayers.Values.Any(s => s.InBearTrap);
 
         /// <summary>True when the remote peer has shadow protection (torch, lantern, LightArea, etc.).</summary>
         public bool IsRemotePlayerHasLightProtection(int playerId) => _remotePlayers.TryGetValue(playerId, out var state) && state.HasLightProtection;
 
+        /// <summary>playerId → TrapNetId for remotes currently in a trap.</summary>
+        public System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<int, int>> EnumerateRemoteTrapOccupancy()
+        {
+            foreach (var kv in _remotePlayers)
+            {
+                if (kv.Value != null && kv.Value.InBearTrap && kv.Value.TrapNetId > 0)
+                    yield return new System.Collections.Generic.KeyValuePair<int, int>(kv.Key, kv.Value.TrapNetId);
+            }
+        }
+
+        /// <summary>
+        /// Per-trap occupancy: block loot/disarm only for the trap a player is locked in.
+        /// Local + remotes; falls back to position proximity if TrapNetId missing.
+        /// </summary>
+        public bool IsTrapOccupied(GameObject trapGo)
+        {
+            if (trapGo == null) return false;
+
+            int trapId = Sync.TrapNetworkId.GetId(trapGo);
+            Vector3 trapPos = trapGo.transform.position;
+
+            Player local = Player.Instance;
+            if (local != null && local.inBearTrap)
+            {
+                int localTrap = Sync.TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
+                    hostMint: _role == NetworkRole.Host);
+                if (trapId > 0 && localTrap == trapId)
+                    return true;
+                if (trapId <= 0 && (local.transform.position - trapPos).sqrMagnitude < 4f)
+                    return true;
+            }
+
+            foreach (var kv in _remotePlayers)
+            {
+                var st = kv.Value;
+                if (st == null || !st.InBearTrap)
+                    continue;
+                if (trapId > 0 && st.TrapNetId == trapId)
+                    return true;
+                if (st.TrapNetId <= 0 && (st.BearTrapPos - trapPos).sqrMagnitude < 6.25f)
+                    return true;
+            }
+
+            return false;
+        }
+
         public bool IsRemotePlayerTrappedNear(Vector3 trapPos)
         {
-            if (!HasAnyTrappedPlayer)
-                return false;
+            // Prefer GO-based occupancy when a trap exists at pos.
+            GameObject go = Sync.WorldPhysicsSyncService.FindTrapByPos(trapPos);
+            if (go != null)
+                return IsTrapOccupied(go);
 
-            ModRuntime.LegacyInfo("[Trap] remote trapped, blocking interaction");
-            return true;
+            foreach (var st in _remotePlayers.Values)
+            {
+                if (st != null && st.InBearTrap && (st.BearTrapPos - trapPos).sqrMagnitude < 6.25f)
+                    return true;
+            }
+            return false;
         }
 
         private void HandleEntityState(EntityStateMessage msg)
@@ -865,6 +1083,11 @@ namespace DWMPHorde.Networking
             {
                 // Intentional end: kill native ItemSounds residual + MOS with snappy fade.
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(msg.ObjectName);
+                // Host: same intentional stop signal as body-push so residual PhysicsState
+                // after claim clear cannot re-arm scrape on observers.
+                if (_role == NetworkRole.Host && !string.IsNullOrEmpty(msg.ObjectName))
+                    NotifyBodyPushStopped(msg.ObjectName);
+                ModRuntime.LegacyInfo("[DragSync] STOP IsDragging=false for " + msg.ObjectName + " — ForceStopByName issued");
                 _lastDragSyncPos.Remove(msg.ObjectName);
                 CleanupSpawnedDragProxy(msg.ObjectName);
                 // Remove remote-drag tracking for items of this name so
@@ -939,20 +1162,31 @@ namespace DWMPHorde.Networking
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                     targetRb.isKinematic = true;
 
-                // Scrape mirrors body-push (WorldPhysicsSyncService posDelta >= 0.02):
-                // start only on real motion, stop on quiet while still "grabbed".
-                // First DragSync is grab pose only — do NOT NoteMoving on grab.
+                // Scrape: sender sets ScrapeActive from *player walk intent* (body-push style).
+                // When false (reliable), stop fade *now* — do not wait for posDelta quiet or
+                // Unreliable packet loss. First grab packet may still have ScrapeActive false.
                 ItemSounds dragSounds = item.GetComponent<ItemSounds>();
                 bool hasPrev = _lastDragSyncPos.TryGetValue(msg.ObjectName, out Vector3 prevPos);
-                bool moved = hasPrev && Vector3.Distance(prevPos, targetPos) >= 0.02f;
-                if (moved)
+                float dist = hasPrev ? Vector3.Distance(prevPos, targetPos) : 0f;
+                const float dragMoveStart = 0.02f;
+                const float dragRearmWhileFading = 0.08f;
+                bool fading = DWMPHorde.Audio.MovingObjectSoundService.IsFading(msg.ObjectName);
+                bool moved = hasPrev && dist >= (fading ? dragRearmWhileFading : dragMoveStart);
+
+                if (!msg.ScrapeActive)
+                {
+                    // Intentional quiet while still grabbed — start vanilla fade immediately.
+                    // No ForceStop/Sleep (still remote-kinematic); no suppress so walk-resume re-arms.
+                    DWMPHorde.Audio.MovingObjectSoundService.StopNetwork(msg.ObjectName);
+                }
+                else if (moved)
                 {
                     DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(
                         item.gameObject, msg.ObjectName, dragSounds);
                 }
                 else if (hasPrev)
                 {
-                    // Grabbed but not moving (or stopped mid-drag) — fade like push quiet tick.
+                    // ScrapeActive but object barely moved (turning in place) — soft fade.
                     DWMPHorde.Audio.MovingObjectSoundService.NoteStationary(msg.ObjectName);
                 }
                 _lastDragSyncPos[msg.ObjectName] = targetPos;
@@ -1625,6 +1859,62 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo($"[BulkSync] World lights → p{targetPlayerId}: on={sent}");
         }
 
+        /// <summary>
+        /// Host → peer: generator isOn/fuel so restorePower/cutPower matches before lamp bulk applies.
+        /// Vanilla gen cycles power only — they must not stomp per-lamp isOn via LightState.
+        /// </summary>
+        private void SyncExistingGeneratorsTo(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
+
+            IList<Generator> gens = Sync.GeneratorTracker.GetAll();
+            int sent = 0;
+            const int maxSend = 32;
+            for (int i = 0; i < gens.Count && sent < maxSend; i++)
+            {
+                Generator gen = gens[i];
+                if (gen == null || gen.gameObject == null || !gen.gameObject.scene.IsValid())
+                    continue;
+
+                Vector3 p = gen.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(p.x * 10f) / 10f,
+                    Mathf.Round(p.y * 10f) / 10f,
+                    Mathf.Round(p.z * 10f) / 10f);
+                Item itemComp = gen.GetComponent<Item>();
+                string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
+
+                var gs = new Sync.GeneratorState
+                {
+                    PosX = key.x,
+                    PosY = key.y,
+                    PosZ = key.z,
+                    IsOn = gen.isOn,
+                    Fuel = gen.fuel,
+                    LowPower = gen.lowPower,
+                    ItemType = itemType
+                };
+                var msg = new Sync.PhysicsStateMessage { Generators = new[] { gs } };
+                SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
+                    w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+
+            if (sent > 0 || Config.ModConfig.IsVerboseLightSync)
+                ModRuntime.LegacyInfo($"[BulkSync] Generators → p{targetPlayerId}: {sent}");
+        }
+
+        /// <summary>
+        /// Host: re-push isOn world lights (and gens) after a peer enters a location so
+        /// LightState that missed while the grid was unloaded is recovered.
+        /// </summary>
+        internal void ResyncWorldLightsForPeer(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
+            SyncExistingGeneratorsTo(targetPlayerId);
+            SyncExistingWorldLightsTo(targetPlayerId);
+        }
+
         private void HandleGameEventsFired(GameEventsFiredMessage msg)
         {
             if (_role != NetworkRole.Client)
@@ -2245,8 +2535,8 @@ namespace DWMPHorde.Networking
             // the state sync is now the authoritative view.
             _pendingTakePreCounts.Clear();
 
-            // Play container sound on remote so they hear the open
-            AudioController.Play("open_drawer", new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+            // ponytail: no open_drawer here — local Item.openInventory already played it
+            // (and PlayerOpenInventorySoundPatch used to double it). State sync is silent.
         }
 
         /// <summary>
@@ -2307,7 +2597,16 @@ namespace DWMPHorde.Networking
 
             if (door.opened) return;
 
-            door.open(pos, null);
+            // Suppress DoorOpenSyncPatch re-Broadcast (dream doors are bidirectional).
+            IsApplyingRemoteState = true;
+            try
+            {
+                door.open(pos, null);
+            }
+            finally
+            {
+                IsApplyingRemoteState = false;
+            }
 
             ModRuntime.LegacyInfo($"[DoorSync] opened door '{msg.DoorName}' at {pos}");
         }
@@ -2353,6 +2652,11 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo(
                         $"[LocationSync] first enter — teleported p{playerId} proxy to {loc.name} playerSpawn");
                 }
+
+                // Peer just got location geometry — re-push sticky lamp/gen state that
+                // may have been applied (or dropped) while the grid was unloaded.
+                if (_role == NetworkRole.Host && firstEnterThisLoc && playerId != _localPlayerId)
+                    ResyncWorldLightsForPeer(playerId);
             }
             else
             {
@@ -2465,7 +2769,9 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host) return;
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            string debounceKey = $"{msg.PosX:F1}_{msg.PosY:F1}_{msg.PosZ:F1}";
+            string debounceKey = msg.TrapNetId > 0
+                ? "id:" + msg.TrapNetId
+                : $"{msg.PosX:F1}_{msg.PosY:F1}_{msg.PosZ:F1}";
             float now = Time.time;
             if (_trapTriggerDebounce.TryGetValue(debounceKey, out float last) && now - last < TrapTriggerDebounceSec)
             {
@@ -2482,21 +2788,43 @@ namespace DWMPHorde.Networking
                 foreach (var k in stale) _trapTriggerDebounce.Remove(k);
             }
 
-            GameObject go = WorldPhysicsSyncService.FindTrapByPos(pos);
+            GameObject go = msg.TrapNetId > 0
+                ? Sync.TrapNetworkId.FindById(msg.TrapNetId)
+                : null;
+            if (go == null)
+                go = WorldPhysicsSyncService.FindTrapByPos(pos);
             if (go == null)
             {
-                ModRuntime.LegacyInfo($"[TrapTrigger] Host: no trap found at {pos} (may be outside loaded range)");
+                Sync.TrapNetworkId.QueuePending(msg.TrapNetId, pos, triggered: true);
+                ModRuntime.LegacyInfo($"[TrapTrigger] Host: no trap at {pos} id={msg.TrapNetId} — queued pending");
                 return;
             }
 
-            // Apply triggered state — the next SyncTraps() broadcast will
-            // pick up the change and relay it to both sides.
+            int trapId = msg.TrapNetId > 0
+                ? msg.TrapNetId
+                : Sync.TrapNetworkId.GetOrMintHost(go);
+            Sync.TrapNetworkId.Ensure(go, trapId);
+
             WorldPhysicsSyncService.ApplyTrapState(go, triggered: true);
-            // Broadcast trap activation sound to remote peers
             var triggerSnd = go.GetComponent<Trigger>();
             if (triggerSnd != null && !string.IsNullOrEmpty(triggerSnd.activateSound))
                 AudioController.Play(triggerSnd.activateSound, pos);
-            ModRuntime.LegacyInfo($"[TrapTrigger] Host: applied triggered=true to {go.name} at {pos}");
+
+            Vector3 key = new Vector3(
+                Mathf.Round(pos.x * 10f) / 10f,
+                Mathf.Round(pos.y * 10f) / 10f,
+                Mathf.Round(pos.z * 10f) / 10f);
+            short occupant = WorldPhysicsSyncService.ResolveTrapOccupant(trapId, key);
+            SendTrapState(new TrapState
+            {
+                PosX = key.x,
+                PosY = key.y,
+                PosZ = key.z,
+                Triggered = true,
+                TrapNetId = trapId,
+                OccupantPlayerId = occupant
+            });
+            ModRuntime.LegacyInfo($"[TrapTrigger] Host: applied triggered=true to {go.name} id={trapId} at {pos}");
         }
 
         private void HandleBarricadeEvent(BarricadeEventMessage msg)
@@ -3250,6 +3578,346 @@ namespace DWMPHorde.Networking
             }
         }
 
+        private void HandleFeederState(FeederStateMessage msg)
+        {
+            ApplyFeederState(msg, queueIfMissing: true);
+        }
+
+        private void ApplyFeederState(FeederStateMessage msg, bool queueIfMissing)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            Feeder feeder = WorldQueryHelper.FindNearest<Feeder>(pos, 2f);
+            if (feeder == null)
+            {
+                if (queueIfMissing)
+                {
+                    for (int i = _pendingFeederStates.Count - 1; i >= 0; i--)
+                    {
+                        var p = _pendingFeederStates[i];
+                        if (Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
+                            Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
+                            _pendingFeederStates.RemoveAt(i);
+                    }
+                    if (_pendingFeederStates.Count >= MaxPendingStationStates)
+                        _pendingFeederStates.RemoveAt(0);
+                    _pendingFeederStates.Add(msg);
+                    ModRuntime.LegacyInfo("[FeederSync] queued (feeder not loaded) at " + pos);
+                }
+                return;
+            }
+
+            // Only share inactive flip (buff is personal). Remote apply must not re-broadcast.
+            if (!msg.Active && feeder.Active)
+            {
+                using (new NetworkApplyGuard())
+                {
+                    try { feeder.makeInactive(); }
+                    catch (System.Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[FeederSync] makeInactive: " + ex.Message);
+                    }
+                }
+                ModRuntime.LegacyInfo($"[FeederSync] applied inactive at {pos}");
+            }
+        }
+
+        private void TryFlushPendingFeederStates()
+        {
+            if (_pendingFeederStates.Count == 0) return;
+            for (int i = _pendingFeederStates.Count - 1; i >= 0; i--)
+            {
+                var msg = _pendingFeederStates[i];
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                if (WorldQueryHelper.FindNearest<Feeder>(pos, 2f) == null) continue;
+                _pendingFeederStates.RemoveAt(i);
+                ApplyFeederState(msg, queueIfMissing: false);
+            }
+        }
+
+        /// <summary>Host: push feeder Active state for joiners (inactive ones matter most).</summary>
+        internal void SendFeederStatesTo(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host) return;
+
+            Feeder[] all = UnityEngine.Object.FindObjectsOfType<Feeder>();
+            int sent = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Feeder f = all[i];
+                if (f == null) continue;
+                Vector3 p = f.transform.position;
+                var msg = new FeederStateMessage
+                {
+                    PosX = p.x,
+                    PosY = p.y,
+                    PosZ = p.z,
+                    Active = f.Active
+                };
+                SendBulkOrAll(NetMessageType.FeederState, w => msg.Serialize(w), targetPlayerId);
+                sent++;
+            }
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} feeder state(s) to player {targetPlayerId}"
+                : $"[BulkSync] Sent {sent} feeder state(s) to all clients");
+        }
+
+        private void HandleLureState(LureStateMessage msg)
+        {
+            ApplyLureState(msg, queueIfMissing: true);
+        }
+
+        private void ApplyLureState(LureStateMessage msg, bool queueIfMissing)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            Lure lure = WorldQueryHelper.FindNearest<Lure>(pos, 2f);
+            if (lure == null)
+            {
+                // Destroyed lure with health<=0 is already converged.
+                if (msg.Health <= 0) return;
+                if (queueIfMissing)
+                {
+                    for (int i = _pendingLureStates.Count - 1; i >= 0; i--)
+                    {
+                        var p = _pendingLureStates[i];
+                        if (Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
+                            Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
+                            _pendingLureStates.RemoveAt(i);
+                    }
+                    if (_pendingLureStates.Count >= MaxPendingStationStates)
+                        _pendingLureStates.RemoveAt(0);
+                    _pendingLureStates.Add(msg);
+                    ModRuntime.LegacyInfo("[LureSync] queued (lure not loaded) at " + pos);
+                }
+                return;
+            }
+
+            if (lure.health <= msg.Health) return;
+
+            int delta = lure.health - msg.Health;
+            using (new NetworkApplyGuard())
+            {
+                try
+                {
+                    // Seed gore drops for parity with send-side prefix.
+                    try
+                    {
+                        var ctrl = Singleton<Controller>.Instance;
+                        int day = ctrl != null ? ctrl.day : 0;
+                        UnityEngine.Random.InitState(day
+                            ^ ((int)Mathf.Round(pos.x) * 73856093)
+                            ^ ((int)Mathf.Round(pos.z) * 19349663)
+                            ^ lure.health);
+                    }
+                    catch { /* ignore */ }
+
+                    lure.removeHealth(delta, null);
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[LureSync] removeHealth: " + ex.Message);
+                }
+            }
+            ModRuntime.LegacyInfo($"[LureSync] applied at {pos} health→{msg.Health}");
+        }
+
+        private void TryFlushPendingLureStates()
+        {
+            if (_pendingLureStates.Count == 0) return;
+            for (int i = _pendingLureStates.Count - 1; i >= 0; i--)
+            {
+                var msg = _pendingLureStates[i];
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                if (WorldQueryHelper.FindNearest<Lure>(pos, 2f) == null) continue;
+                _pendingLureStates.RemoveAt(i);
+                ApplyLureState(msg, queueIfMissing: false);
+            }
+        }
+
+        internal void SendLureStatesTo(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host) return;
+
+            Lure[] all = UnityEngine.Object.FindObjectsOfType<Lure>();
+            int sent = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Lure lure = all[i];
+                if (lure == null) continue;
+                Vector3 p = lure.transform.position;
+                var msg = new LureStateMessage
+                {
+                    PosX = p.x,
+                    PosY = p.y,
+                    PosZ = p.z,
+                    Health = lure.health
+                };
+                SendBulkOrAll(NetMessageType.LureState, w => msg.Serialize(w), targetPlayerId);
+                sent++;
+            }
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} lure state(s) to player {targetPlayerId}"
+                : $"[BulkSync] Sent {sent} lure state(s) to all clients");
+        }
+
+        /// <summary>
+        /// Client slept: host may forward-adopt their post-sleep clock, then TimeSync all.
+        /// Never calls full refreshTime (C1 day-chain).
+        /// </summary>
+        private void HandleSleepEndRequest(SleepEndRequestMessage msg)
+        {
+            if (_role != NetworkRole.Host) return;
+
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+
+            bool forward = msg.Day > ctrl.day
+                || (msg.Day == ctrl.day && msg.CurrentTime > ctrl.CurrentTime)
+                || (msg.Day == ctrl.day && msg.CurrentTime == ctrl.CurrentTime
+                    && msg.IsAfterNight != ctrl.isAfterNight);
+
+            if (!forward)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[SleepSync] ignore non-forward sleep day={msg.Day} time={msg.CurrentTime} " +
+                    $"(host day={ctrl.day} time={ctrl.CurrentTime})");
+                // Still rebroadcast host clock so client snaps.
+                SendTimeSyncTo(-1);
+                return;
+            }
+
+            ctrl.day = msg.Day;
+            ctrl.CurrentTime = msg.CurrentTime;
+
+            // Mirror after-night flag only — no startAfterNight / endAfterNight world chains.
+            if (msg.IsAfterNight && !ctrl.isAfterNight)
+            {
+                ctrl.isAfterNight = true;
+                try
+                {
+                    if (Player.Instance != null && Player.Instance.effects != null)
+                        ctrl.addAfterNightEffect();
+                }
+                catch (System.Exception ex)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.Log?.LogWarning("[SleepSync] addAfterNightEffect: " + ex.Message);
+                }
+            }
+            else if (!msg.IsAfterNight && ctrl.isAfterNight)
+            {
+                ctrl.isAfterNight = false;
+                try { ctrl.removeAfterNightEffect(); }
+                catch (System.Exception ex)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.Log?.LogWarning("[SleepSync] removeAfterNightEffect: " + ex.Message);
+                }
+            }
+
+            try { ctrl.refreshTimeNoLogic(); }
+            catch (System.Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[SleepSync] refreshTimeNoLogic: " + ex.Message);
+            }
+
+            ModRuntime.LegacyInfo(
+                $"[SleepSync] host adopted client sleep day={msg.Day} time={msg.CurrentTime} afterNight={msg.IsAfterNight}");
+            SendTimeSyncTo(-1);
+        }
+
+        /// <summary>
+        /// Client left hideout during morning freeze — host runs endAfterNight once
+        /// (trader despawn, time++, clear freeze) then TimeSync fans out.
+        /// </summary>
+        private void HandleAfterNightEndRequest(AfterNightEndRequestMessage msg)
+        {
+            if (_role != NetworkRole.Host) return;
+
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+
+            if (!ctrl.isAfterNight)
+            {
+                // Already clear — still push clock so requester unfreezes if stale.
+                SendTimeSyncTo(-1);
+                return;
+            }
+
+            ModRuntime.LegacyInfo(
+                $"[DayNight] host endAfterNight from peer p{_currentReceivePlayerId}");
+            try
+            {
+                // Under NetworkApplyGuard: endAfterNight Postfix skips TimeSync — flush here.
+                ctrl.endAfterNight();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DayNight] host endAfterNight failed: " + ex.Message);
+            }
+            SendTimeSyncTo(-1);
+        }
+
+        private void HandleWorkbenchLock(WorkbenchLockMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.WorkbenchKey)) return;
+
+            if (_role == NetworkRole.Host)
+            {
+                if (msg.Release)
+                {
+                    Sync.WorkbenchOpenLock.HostRelease(this, msg.WorkbenchKey, msg.OwnerPlayerId);
+                    return;
+                }
+                if (msg.IsRequest || !msg.Granted)
+                {
+                    int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _currentReceivePlayerId;
+                    Sync.WorkbenchOpenLock.HostTryGrant(this, msg.WorkbenchKey, owner);
+                }
+                return;
+            }
+
+            // Client: mirror host lock state.
+            if (msg.Release)
+            {
+                Sync.WorkbenchOpenLock.Release(msg.WorkbenchKey, msg.OwnerPlayerId);
+                return;
+            }
+
+            if (msg.Granted)
+            {
+                Sync.WorkbenchOpenLock.TryAcquire(msg.WorkbenchKey, msg.OwnerPlayerId);
+                return;
+            }
+
+            // Denied for requestor only.
+            if (msg.OwnerPlayerId != LocalPlayerId)
+                return;
+
+            Sync.WorkbenchOpenLock.Release(msg.WorkbenchKey, msg.OwnerPlayerId);
+            try
+            {
+                var player = Player.Instance;
+                if (player != null && player.openedItemInventory != null)
+                {
+                    Workbench wb = player.openedItemInventory.GetComponent<Workbench>();
+                    if (wb == null)
+                        wb = player.openedItemInventory.transform.parent?.GetComponent<Workbench>();
+                    if (wb != null && Sync.WorkbenchOpenLock.KeyFor(wb) == msg.WorkbenchKey)
+                    {
+                        try { wb.close(); } catch { /* ignore */ }
+                        try { player.closeOpenedItemInventory(); } catch { /* ignore */ }
+                    }
+                }
+                player?.displayMessage("Someone is already using the workbench…");
+            }
+            catch (System.Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[WorkbenchLock] deny close: " + ex.Message);
+            }
+        }
+
         private static void SyncItemAmount(Inventory inv, string itemType, int desiredAmount)
         {
             InvItemClass item = inv.getItem(itemType);
@@ -3581,8 +4249,136 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
             var msg = new PhysicsStateMessage { Traps = new[] { ts } };
-            ModRuntime.LegacyInfo("[TrapSync] sending trap triggered at " + ts.PosX + "," + ts.PosY + "," + ts.PosZ);
+            ModRuntime.LegacyInfo("[TrapSync] sending trap triggered id=" + ts.TrapNetId
+                + " at " + ts.PosX + "," + ts.PosY + "," + ts.PosZ);
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>Host→peer: full known trap table for late join.</summary>
+        internal void SendTrapBulkTo(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0 || !IsConnected)
+                return;
+
+            var list = new List<TrapBulkEntry>(32);
+            foreach (var kv in Sync.TrapNetworkId.EnumerateRegistered())
+            {
+                GameObject go = kv.Value;
+                if (go == null) continue;
+                Vector3 p = go.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(p.x * 10f) / 10f,
+                    Mathf.Round(p.y * 10f) / 10f,
+                    Mathf.Round(p.z * 10f) / 10f);
+                bool triggered = false;
+                try
+                {
+                    // Read via Apply path helper: re-scan field
+                    var t = go.GetComponent<Trigger>();
+                    if (t != null)
+                        triggered = t.triggered;
+                }
+                catch { /* ignore */ }
+
+                // Prefer WorldPhysicsSync Read via state we just built
+                short occ = WorldPhysicsSyncService.ResolveTrapOccupant(kv.Key, key);
+                list.Add(new TrapBulkEntry
+                {
+                    TrapNetId = kv.Key,
+                    PosX = key.x,
+                    PosY = key.y,
+                    PosZ = key.z,
+                    Triggered = triggered || ReadTrapTriggeredSafe(go),
+                    OccupantPlayerId = occ
+                });
+            }
+
+            // Also include known traps that may lack registry (mint now)
+            foreach (var go in WorldPhysicsSyncService.GetKnownTrapsSnapshot())
+            {
+                if (go == null) continue;
+                int id = Sync.TrapNetworkId.GetOrMintHost(go);
+                bool already = false;
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i].TrapNetId == id) { already = true; break; }
+                if (already) continue;
+                Vector3 p = go.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(p.x * 10f) / 10f,
+                    Mathf.Round(p.y * 10f) / 10f,
+                    Mathf.Round(p.z * 10f) / 10f);
+                list.Add(new TrapBulkEntry
+                {
+                    TrapNetId = id,
+                    PosX = key.x,
+                    PosY = key.y,
+                    PosZ = key.z,
+                    Triggered = ReadTrapTriggeredSafe(go),
+                    OccupantPlayerId = WorldPhysicsSyncService.ResolveTrapOccupant(id, key)
+                });
+            }
+
+            var bulk = new TrapBulkMessage { Entries = list.ToArray() };
+            SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[BulkSync] Traps → p" + playerId + ": " + list.Count);
+        }
+
+        private static bool ReadTrapTriggeredSafe(GameObject go)
+        {
+            if (go == null) return false;
+            try
+            {
+                Trigger t = go.GetComponent<Trigger>();
+                if (t != null) return t.triggered;
+            }
+            catch { /* ignore */ }
+            return false;
+        }
+
+        private void HandleTrapBulk(TrapBulkMessage msg)
+        {
+            if (msg.Entries == null || msg.Entries.Length == 0) return;
+            int applied = 0, pending = 0;
+            try
+            {
+                TraverseHack.ApplyingFromNetwork = true;
+                for (int i = 0; i < msg.Entries.Length; i++)
+                {
+                    var e = msg.Entries[i];
+                    Vector3 pos = new Vector3(e.PosX, e.PosY, e.PosZ);
+                    GameObject go = e.TrapNetId > 0
+                        ? Sync.TrapNetworkId.FindById(e.TrapNetId)
+                        : null;
+                    if (go == null)
+                        go = WorldPhysicsSyncService.FindTrapByPos(pos);
+                    if (go == null)
+                    {
+                        Sync.TrapNetworkId.QueuePending(e.TrapNetId, pos, e.Triggered);
+                        pending++;
+                        continue;
+                    }
+                    if (e.TrapNetId > 0)
+                        Sync.TrapNetworkId.Ensure(go, e.TrapNetId);
+                    WorldPhysicsSyncService.ApplyTrapState(go, e.Triggered);
+                    applied++;
+                }
+            }
+            finally
+            {
+                TraverseHack.ApplyingFromNetwork = false;
+            }
+            ModRuntime.LegacyInfo("[BulkSync] Trap bulk applied=" + applied + " pending=" + pending);
+        }
+
+        public void SendThrowableDespawn(ThrowableDespawnMessage msg)
+        {
+            if (!IsConnected) return;
+            Broadcast(NetMessageType.ThrowableDespawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        private void HandleThrowableDespawn(ThrowableDespawnMessage msg)
+        {
+            WorldPhysicsSyncService.ApplyThrownDespawn(msg);
         }
 
         public void SendItemSpawn(ItemSpawnMessage msg)
@@ -4201,6 +4997,10 @@ namespace DWMPHorde.Networking
         private void HandleFlagSync(FlagSyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.Name))
+                return;
+
+            // Drop spatial/location flags if an older peer still sends them (local-only now).
+            if (Patches.FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag(msg.Name))
                 return;
 
             // Host receives client→host story flag deltas (audit H1), applies, rebroadcasts.
@@ -5330,6 +6130,9 @@ namespace DWMPHorde.Networking
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
 
+            int prevDay = ctrl.day;
+            bool wasAfterNight = ctrl.isAfterNight;
+
             // Apply full isAfterNight from host (true and false).
             // Do NOT call startAfterNight / endAfterNight — those spawn traders,
             // grant rep, and destroy NPCs; host owns that. Client only mirrors
@@ -5360,10 +6163,28 @@ namespace DWMPHorde.Networking
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.Log?.LogWarning("[TimeSync] removeAfterNightEffect: " + ex.Message);
                 }
+                // Host endAfterNight destroyed the trader — mirror despawn without time++.
+                if (wasAfterNight)
+                    CleanupClientMorningTrader();
             }
 
             ctrl.CurrentTime = msg.CurrentTime;
             ctrl.day = msg.Day;
+
+            // Host startDay full-heals + skill recharge is world-authority-side only.
+            // Client must still get personal morning benefits when day rolls.
+            if (msg.Day > prevDay)
+                ApplyClientPersonalNewDay(prevDay, msg.Day);
+
+            // Clear soft invuln from suppressed startBeforeDay if still set.
+            if (Player.Instance != null && Player.Instance.invulnerable
+                && !msg.IsAfterNight && Core.isDay())
+            {
+                // Leave invuln if something else set it; only clear after morning settle.
+                // ponytail: only clear when host day advanced (we just healed).
+                if (msg.Day > prevDay)
+                    Player.Instance.invulnerable = false;
+            }
 
             // Audit C1: never call refreshTime() here — it fires startDay / startAfterNight /
             // night scenario setMe on the client. Clock UI + ambient only.
@@ -5381,6 +6202,69 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
         }
 
+        /// <summary>
+        /// Personal half of host startDay — heal + skill recharge. No world despawn / save.
+        /// </summary>
+        private static void ApplyClientPersonalNewDay(int prevDay, int newDay)
+        {
+            Player p = Player.Instance;
+            if (p == null) return;
+
+            try
+            {
+                p.setHealth(p.maxHealth);
+                if (p.skills != null)
+                {
+                    p.skills.rechargeUses();
+                    p.skills.activateSkillsOnNewDay();
+                }
+                ModRuntime.LegacyInfo(
+                    $"[DayNight] client personal new day {prevDay}→{newDay} (heal+skills)");
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DayNight] client personal new day failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Mirror host endAfterNight trader despawn on client (no CurrentTime++ / refreshTime).
+        /// </summary>
+        private static void CleanupClientMorningTrader()
+        {
+            try
+            {
+                Player p = Player.Instance;
+                if (p != null && p.whereAmI != null)
+                {
+                    p.whereAmI.checkWhereAmI();
+                    if (p.whereAmI.bigLocation != null && p.whereAmI.bigLocation.trader != null)
+                    {
+                        UnityEngine.Object.Destroy(p.whereAmI.bigLocation.trader);
+                        ModRuntime.LegacyInfo("[DayNight] client despawned morning trader (TimeSync clear)");
+                        return;
+                    }
+                }
+
+                var wg = Singleton<WorldGenerator>.Instance;
+                if (wg == null || wg.locations == null) return;
+                for (int i = 0; i < wg.locations.Count; i++)
+                {
+                    Location loc = wg.locations[i];
+                    if (loc != null && loc.playerBase && loc.trader != null)
+                    {
+                        UnityEngine.Object.Destroy(loc.trader);
+                        ModRuntime.LegacyInfo("[DayNight] client despawned morning trader via location scan");
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DayNight] client trader cleanup: " + ex.Message);
+            }
+        }
+
         private void HandleEntitySound(EntitySoundMessage msg)
         {
             // Host already plays live AI audio; only remote peers apply.
@@ -5390,13 +6274,18 @@ namespace DWMPHorde.Networking
             Character c = CharacterTracker.FindByStableId(msg.HostId);
             if (c == null || c.sounds == null) return;
 
-            if (!LocalAudioService.IsNearListener(c)) return;
+            // Match entity visual interest + send cull (not the shorter DefaultMaxAudioDistance).
+            Vector3 cpos = c.transform != null ? c.transform.position : Vector3.zero;
+            if (!ClientEntityInterpolationService.IsInClientInterest(cpos))
+                return;
 
             // Prevent CharacterSounds → AudioController patches from re-forwarding.
             TraverseHack.ApplyingFromNetwork = true;
             TraverseHack.InsideCharacterSounds = true;
             try
             {
+                // Replay vanilla CharacterSounds API (decompile: play*, playIdleLoop, destroySounds).
+                // Component may be disabled on host-synced entities; method calls still play one-shots.
                 switch (msg.SoundType)
                 {
                     case EntitySoundType.Growl:
@@ -5415,10 +6304,12 @@ namespace DWMPHorde.Networking
                             c.sounds.playSingleInstance(c.sounds.defensive);
                         break;
                     case EntitySoundType.Idle:
+                        // Empty LoopName = destroySounds stop (host idle stop / despawn).
                         if (string.IsNullOrEmpty(msg.LoopName))
                             c.sounds.destroySounds();
                         else
-                            c.sounds.playIdleLoop(msg.LoopName);
+                            // forceReplace=true so idle→aggressive loop swaps like host.
+                            c.sounds.playIdleLoop(msg.LoopName, true);
                         break;
                     case EntitySoundType.Escaping:
                         c.sounds.playEscapingLoop();
@@ -5436,6 +6327,7 @@ namespace DWMPHorde.Networking
                             c.sounds.play(c.sounds.death);
                         break;
                     case EntitySoundType.GetHit:
+                        // Decompile: playGetHitByAxe1 is the public get-hit one-shot.
                         c.sounds.playGetHitByAxe1();
                         break;
                     default:
@@ -5830,6 +6722,13 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = GetProxy(playerId);
             Transform sourceT = proxy != null ? proxy.transform : null;
             bool visualOnly = (_role == NetworkRole.Client);
+            // Host mints throw id if peer omitted it (older path).
+            if (_role == NetworkRole.Host && msg.ThrowId <= 0)
+                msg.ThrowId = MintThrowId();
+            if (_role == NetworkRole.Host && msg.LongevitySec <= 0f
+                && !string.IsNullOrEmpty(msg.ItemType)
+                && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                msg.LongevitySec = 5f; // Flare.longevity(~3) + fade
             Sync.WorldPhysicsSyncService.SpawnThrownItem(msg, sourceT, visualOnly);
         }
 
@@ -5858,6 +6757,10 @@ namespace DWMPHorde.Networking
             }
 
             if (string.IsNullOrEmpty(msg.SoundId)) return;
+
+            // Defensive: never play world ambients that slipped past send-side filter.
+            if (LocalAudioService.IsWorldAmbientLocalOnly(msg.SoundId))
+                return;
 
             // Body-push / scrape with ObjectName: single-owner path.
             if (!string.IsNullOrEmpty(msg.ObjectName))
@@ -5899,8 +6802,13 @@ namespace DWMPHorde.Networking
             int playerId = _currentReceivePlayerId;
             RemotePlayerProxy proxy = GetProxy(playerId);
 
-            // If no valid position, fall back to proxy transform
-            if (!hasPos)
+            bool isHitFeedback = LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
+
+            // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
+            // Never call getHit / red-screen / BloodOverlay here — audio only.
+            if (isHitFeedback && proxy != null)
+                pos = proxy.transform.position;
+            else if (!hasPos)
             {
                 if (proxy == null) return;
                 pos = proxy.transform.position;
@@ -5912,30 +6820,31 @@ namespace DWMPHorde.Networking
             TraverseHack.ApplyingFromNetwork = true;
             try
             {
-                // Parent the AudioObject to the proxy so the game's occlusion system
-                // (which may key off parent transforms like CharacterSounds does) can
-                // apply proper wall-muffling to forwarded player sounds.
+                // Parent to the remote proxy so this is "them being hit", not a 2D local hit.
                 Transform parent = proxy != null ? proxy.transform : null;
                 var audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
-                if (audioObj != null)
+                if (audioObj != null && audioObj.primaryAudioSource != null)
                 {
-                    // Force 3D spatial blend since this sound plays at a world position.
+                    // Force 3D — vanilla hit clips are often 2D for SP local feedback.
                     audioObj.primaryAudioSource.spatialBlend = 1f;
-
-                    // Enforce a minimum audible range for forwarded sounds.
-                    // AudioItems in vanilla are designed for single-player where the
-                    // listener IS the player — ranges can be very small (1-5f) or even
-                    // 2D. In multiplayer the listener is the remote player, so we need
-                    // a wider floor so the sound is audible at typical engagement distances.
-                    // Respect AudioItem if its range is already larger than our floor.
-                    AudioItem item = AudioController.GetAudioItem(msg.SoundId);
-                    float itemMin = (item != null && item.overrideAudioSourceSettings)
-                        ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
-                    float itemMax = (item != null && item.overrideAudioSourceSettings)
-                        ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
-                    audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
-                    audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
                     audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
+
+                    if (isHitFeedback)
+                    {
+                        // Tighter falloff so bystanders hear direction/distance (not full-volume "on me").
+                        audioObj.primaryAudioSource.minDistance = 8f;
+                        audioObj.primaryAudioSource.maxDistance = 80f;
+                    }
+                    else
+                    {
+                        AudioItem item = AudioController.GetAudioItem(msg.SoundId);
+                        float itemMin = (item != null && item.overrideAudioSourceSettings)
+                            ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
+                        float itemMax = (item != null && item.overrideAudioSourceSettings)
+                            ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
+                        audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
+                        audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
+                    }
                 }
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
@@ -6321,13 +7230,19 @@ namespace DWMPHorde.Networking
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[BulletFX] HandleBulletImpact: {msg.PrefabName} pool={msg.PoolName} pos={pos}");
 
+            bool isBlood = msg.PrefabName.IndexOf("Bloodsplat", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || msg.PrefabName.IndexOf("Shotsplat", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
             // Wrap in ApplyingFromNetwork to prevent HitscanBloodPatch and similar
             // patches from re-forwarding this blood back to the sender.
             TraverseHack.ApplyingFromNetwork = true;
             try
             {
                 if (string.IsNullOrEmpty(msg.PoolName))
-                    Core.AddPrefab(msg.PrefabName, pos, rot, null);
+                {
+                    // worldSpace: true — blood must sit at absolute world pos (parent null).
+                    Core.AddPrefab(msg.PrefabName, pos, rot, null, worldSpace: true);
+                }
                 else
                     Core.AddPooledPrefab(msg.PoolName, msg.PrefabName, pos, rot);
             }
@@ -6336,8 +7251,9 @@ namespace DWMPHorde.Networking
                 TraverseHack.ApplyingFromNetwork = false;
             }
 
-            // Play bullet impact sound on the remote so the receiver hears it
-            AudioController.Play("bullet_hit_1", pos);
+            // Blood is visual-only; bullet_hit_1 is for walls / projectile impacts.
+            if (!isBlood)
+                AudioController.Play("bullet_hit_1", pos);
         }
 
         private void HandlePlayerFiredWeapon(PlayerFiredWeaponMessage msg)
@@ -6910,12 +7826,17 @@ namespace DWMPHorde.Networking
             _pendingJournalBulk = default;
             _needsJournalWorldCleanup = false;
             _awaitingLateJoinBulk.Clear();
+            _pendingHeavyLateJoinBulk.Clear();
             _peersLoadingWorld.Clear();
             _peersCoopReconnect.Clear();
             _pendingTradeInventories.Clear();
             _constructedSites.Clear();
             _pendingConstructibles.Clear();
             _pendingSawStates.Clear();
+            _pendingFeederStates.Clear();
+            _pendingLureStates.Clear();
+            Sync.StationSyncHelpers.Reset();
+            Sync.WorkbenchOpenLock.Reset();
             _pendingBarricadeEvents.Clear();
             _hasPendingScenarioSync = false;
             _pendingScenarioSync = default;

@@ -76,6 +76,23 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void HostMigration_ElectsLowestSurvivorId()
+    {
+        Assert.Equal(2, HostMigrationPolicy.ElectNewHost(new[] { 5, 2, 9 }));
+        Assert.Equal(3, HostMigrationPolicy.ElectNewHost(new[] { 3 }));
+        Assert.Equal(-1, HostMigrationPolicy.ElectNewHost(Array.Empty<int>()));
+        Assert.Equal(-1, HostMigrationPolicy.ElectNewHost(new[] { 0, -1 }));
+        Assert.True(HostMigrationPolicy.IsLocalElected(2, 2));
+        Assert.False(HostMigrationPolicy.IsLocalElected(3, 2));
+        Assert.True(HostMigrationPolicy.ShouldAttemptMigration(
+            featureEnabled: true, isClient: true, mainMenu: false, hasPlayableWorld: true, migrationAlreadyRunning: false));
+        Assert.False(HostMigrationPolicy.ShouldAttemptMigration(
+            featureEnabled: true, isClient: true, mainMenu: true, hasPlayableWorld: true, migrationAlreadyRunning: false));
+        Assert.False(HostMigrationPolicy.ShouldAttemptMigration(
+            featureEnabled: false, isClient: true, mainMenu: false, hasPlayableWorld: true, migrationAlreadyRunning: false));
+    }
+
+    [Fact]
     public void NightDeath_Partial_SuppressesWorldMutations()
     {
         Assert.True(NightDeathPolicy.ShouldSuppressWorldDeathMutations(true, true, false));

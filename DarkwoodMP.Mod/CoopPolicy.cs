@@ -190,4 +190,47 @@ namespace DWMPHorde
             => "WORLD SHARE FAILED: " + (reason ?? "unknown")
                + " — do not continue (different forests). Host: save once, F2 Resend, or rejoin.";
     }
+
+    /// <summary>
+    /// Host crash → elect new host among survivors (lowest player id).
+    /// Pure policy — no Unity. n+ peers: deterministic so each survivor elects the same id offline.
+    /// </summary>
+    public static class HostMigrationPolicy
+    {
+        /// <summary>
+        /// Lowest positive survivor id wins. Empty / all invalid → -1.
+        /// </summary>
+        public static int ElectNewHost(System.Collections.Generic.IEnumerable<int> survivorPlayerIds)
+        {
+            if (survivorPlayerIds == null) return -1;
+            int best = int.MaxValue;
+            foreach (int id in survivorPlayerIds)
+            {
+                if (id <= 0) continue;
+                if (id < best) best = id;
+            }
+            return best == int.MaxValue ? -1 : best;
+        }
+
+        public static bool IsLocalElected(int localPlayerId, int electedId)
+            => localPlayerId > 0 && electedId > 0 && localPlayerId == electedId;
+
+        /// <summary>
+        /// Join offline-load / title: do not steal host grant — session is not mid-coop play.
+        /// </summary>
+        public static bool ShouldAttemptMigration(
+            bool featureEnabled,
+            bool isClient,
+            bool mainMenu,
+            bool hasPlayableWorld,
+            bool migrationAlreadyRunning)
+        {
+            if (!featureEnabled) return false;
+            if (!isClient) return false;
+            if (migrationAlreadyRunning) return false;
+            if (mainMenu) return false;
+            if (!hasPlayableWorld) return false;
+            return true;
+        }
+    }
 }

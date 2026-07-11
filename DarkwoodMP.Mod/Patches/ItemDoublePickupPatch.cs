@@ -133,120 +133,147 @@ namespace DWMPHorde.Patches
             _disarmInProgress = true;
         }
 
-        [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
-        [HarmonyPrefix]
-        private static void OnTransferAllToPlayer(InvSlot __instance)
+        /// <summary>
+        /// Pending personal-only loot share. Never mutate container stack amount —
+        /// that desynced RemoveItem (world removes real count) and re-doubled on
+        /// re-take after place (logs: nails 11→22→44).
+        /// </summary>
+        private struct PendingShare
         {
-            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
-            if (InvItemClass.isNull(__instance.invItem))
+            public bool Active;
+            public string Type;
+            public int BaseAmount;
+        }
+
+        private static PendingShare _pendingShare;
+
+        private static bool TryArmShare(InvSlot slot, string path, out PendingShare share)
+        {
+            share = default;
+            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off)
+                return false;
+            if (InvItemClass.isNull(slot?.invItem))
             {
-                Log("OnTransferAllToPlayer: invItem is null");
-                return;
+                Log(path + ": invItem is null");
+                return false;
             }
-            Log($"OnTransferAllToPlayer: type='{__instance.invItem.type}', isExpItem={__instance.invItem.baseClass?.isExpItem}, amount={__instance.invItem.amount}");
-            if (!IsExpItemClass(__instance.invItem))
+            Log($"{path}: type='{slot.invItem.type}', isExpItem={slot.invItem.baseClass?.isExpItem}, amount={slot.invItem.amount}");
+            if (!IsExpItemClass(slot.invItem))
             {
-                Log("  --> NOT an exp item, skipping");
-                return;
+                Log("  --> NOT scaled loot, skipping");
+                return false;
             }
-            if (__instance.inventory != null && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
+            if (slot.inventory != null && slot.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
             {
                 Log("  --> blocked by DroppedItemIdentifier");
-                return;
+                return false;
             }
-            if (IsPlayerPlacedSlot(__instance))
+            if (IsPlayerPlacedSlot(slot))
             {
                 Log("  --> blocked by PlayerPlacedSlot");
-                return;
+                return false;
+            }
+            // Don't share when reorganizing own bag / cursor.
+            if (slot.inventory != null && Player.Instance != null
+                && slot.inventory == Player.Instance.Inventory)
+            {
+                Log("  --> blocked: player's own inventory");
+                return false;
             }
             int mult = GetItemMultiplier();
-            Log($"  --> DOUBLING from {__instance.invItem.amount} to {__instance.invItem.amount * mult}");
-            __instance.invItem.amount *= mult;
+            if (mult <= 1)
+            {
+                Log("  --> mult=1, skip");
+                return false;
+            }
+            share = new PendingShare
+            {
+                Active = true,
+                Type = slot.invItem.type,
+                BaseAmount = slot.invItem.amount
+            };
+            Log($"  --> will add personal extra x{mult - 1} of {share.BaseAmount} (container amount unchanged)");
+            return true;
+        }
+
+        private static void ApplyPendingShare(ref PendingShare share, string path)
+        {
+            if (!share.Active) return;
+            string type = share.Type;
+            int baseAmt = share.BaseAmount;
+            share = default;
+            if (string.IsNullOrEmpty(type) || baseAmt <= 0) return;
+            Player player = Player.Instance;
+            if (player?.Inventory == null) return;
+            int extra = baseAmt * (GetItemMultiplier() - 1);
+            if (extra <= 0) return;
+            Log($"{path}: adding {extra} personal extra of '{type}' (base was {baseAmt})");
+            player.Inventory.addItemType(type, extra);
+        }
+
+        [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
+        [HarmonyPrefix]
+        private static void OnTransferAllToPlayerPrefix(InvSlot __instance)
+        {
+            // Never multiply the container stack — only arm personal bonus.
+            TryArmShare(__instance, "OnTransferAllToPlayer", out _pendingShare);
+        }
+
+        [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
+        [HarmonyPostfix]
+        private static void OnTransferAllToPlayerPostfix(InvSlot __instance)
+        {
+            ApplyPendingShare(ref _pendingShare, "OnTransferAllToPlayerPostfix");
         }
 
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
         [HarmonyPrefix]
-        private static void OnGrabItem(InvSlot __instance)
+        private static void OnGrabItemPrefix(InvSlot __instance)
         {
-            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
-            if (InvItemClass.isNull(__instance.invItem))
-            {
-                Log("OnGrabItem: invItem is null");
-                return;
-            }
-            Log($"OnGrabItem: type='{__instance.invItem.type}', isExpItem={__instance.invItem.baseClass?.isExpItem}, amount={__instance.invItem.amount}");
-            if (!IsExpItemClass(__instance.invItem))
-            {
-                Log("  --> NOT an exp item, skipping");
-                return;
-            }
-            if (__instance.inventory != null && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
-            {
-                Log("  --> blocked by DroppedItemIdentifier");
-                return;
-            }
-            // Don't double when dragging within the player's own inventory (reorganizing or dropping)
-            if (__instance.inventory != null && Player.Instance != null && __instance.inventory == Player.Instance.Inventory)
-            {
-                Log("  --> blocked: player's own inventory");
-                return;
-            }
-            if (IsPlayerPlacedSlot(__instance))
-            {
-                Log("  --> blocked by PlayerPlacedSlot");
-                return;
-            }
-            int mult = GetItemMultiplier();
-            Log($"  --> DOUBLING from {__instance.invItem.amount} to {__instance.invItem.amount * mult}");
-            __instance.invItem.amount *= mult;
+            // grabItem moves full stack to cursor — same personal-only share rule.
+            TryArmShare(__instance, "OnGrabItem", out _pendingShare);
         }
 
-        private static bool _shouldDoubleTransfer;
+        [HarmonyPatch(typeof(InvSlot), "grabItem")]
+        [HarmonyPostfix]
+        private static void OnGrabItemPostfix(InvSlot __instance)
+        {
+            // Cursor holds the real stack; add personal extras into player inv.
+            ApplyPendingShare(ref _pendingShare, "OnGrabItemPostfix");
+        }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
         [HarmonyPrefix]
         private static void OnTransferToPlayerPrefix(InvSlot __instance)
         {
+            // Single unit take: base amount is 1 (not full stack).
+            _pendingShare = default;
             if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
-            _shouldDoubleTransfer = false;
-            if (InvItemClass.isNull(__instance.invItem))
-            {
-                Log("OnTransferToPlayerPrefix: invItem is null");
+            if (InvItemClass.isNull(__instance.invItem)) return;
+            if (!IsExpItemClass(__instance.invItem)) return;
+            if (IsPlayerPlacedSlot(__instance)) return;
+            if (__instance.inventory != null
+                && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
                 return;
-            }
-            Log($"OnTransferToPlayerPrefix: type='{__instance.invItem.type}', isExpItem={__instance.invItem.baseClass?.isExpItem}, amount={__instance.invItem.amount}");
-            if (!IsExpItemClass(__instance.invItem))
-            {
-                Log("  --> NOT an exp item, skipping");
+            if (__instance.inventory != null && Player.Instance != null
+                && __instance.inventory == Player.Instance.Inventory)
                 return;
-            }
-            if (IsPlayerPlacedSlot(__instance))
+            if (GetItemMultiplier() <= 1) return;
+            _pendingShare = new PendingShare
             {
-                Log("  --> blocked by PlayerPlacedSlot");
-                return;
-            }
-            if (__instance.inventory != null && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
-            {
-                Log("  --> blocked by DroppedItemIdentifier");
-                return;
-            }
-            Log("  --> will double");
-            _shouldDoubleTransfer = true;
+                Active = true,
+                Type = __instance.invItem.type,
+                BaseAmount = 1
+            };
+            Log($"OnTransferToPlayerPrefix: will add personal extra of '{_pendingShare.Type}' x1");
         }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
         [HarmonyPostfix]
         private static void OnTransferToPlayerPostfix(InvSlot __instance)
         {
-            if (!_shouldDoubleTransfer) return;
-            _shouldDoubleTransfer = false;
-            if (!IsExpItemClass(__instance.invItem)) return;
-            Player player = Player.Instance;
-            if (player == null) return;
-            int extra = GetItemMultiplier() - 1;
-            if (extra <= 0) return;
-            Log($"OnTransferToPlayerPostfix: adding {extra} extra copies of '{__instance.invItem.type}'");
-            player.Inventory.addItemType(__instance.invItem.type, extra);
+            // Capture type before clearing pending — slot may be empty after last unit.
+            ApplyPendingShare(ref _pendingShare, "OnTransferToPlayerPostfix");
         }
 
         [HarmonyPatch(typeof(InvSlot), "placeItem")]

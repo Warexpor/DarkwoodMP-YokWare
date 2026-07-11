@@ -216,14 +216,23 @@ namespace DWMPHorde
                 }
 
                 if (GUILayout.Button("Disconnect", GUILayout.Height(32f)))
-                    Network.StopNetwork();
+                {
+                    // Host: graceful handoff to lowest survivor when possible (n+ host grant).
+                    if (Network.Role == NetworkRole.Host
+                        && Network.TryGracefulHostLeave())
+                    {
+                        /* async handoff → StopNetwork */
+                    }
+                    else
+                        Network.StopNetwork();
+                }
             }
 
             GUILayout.Space(12f);
             GUILayout.Label("v" + PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion, GUILayout.ExpandWidth(true));
             GUILayout.Label("Config: BepInEx/config/" + PluginInfo.Guid + ".cfg  (restart after LogPreset change)", GUILayout.ExpandWidth(true));
             GUILayout.Label("LogPreset=" + ModLog.CurrentPreset + " (default full Trace; Public=quiet)", GUILayout.ExpandWidth(true));
-            GUILayout.Label("Title: MULTIPLAYER  |  F2=this  F3=save  F4=spectate  Ctrl+C=chat  F5=spawner", GUILayout.ExpandWidth(true));
+            GUILayout.Label("Title: MULTIPLAYER  |  F2=this  F3=save  F4=spectate  F5=spawner", GUILayout.ExpandWidth(true));
             GUILayout.Label("Bugs: quit → send BOTH host+client BepInEx/LogOutput.log", GUILayout.ExpandWidth(true));
 
             GUILayout.EndScrollView();

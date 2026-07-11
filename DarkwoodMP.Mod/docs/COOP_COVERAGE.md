@@ -1,7 +1,7 @@
 # DWMP Horde Remaster — Co-op Coverage Checklist
 
 Living audit of every sync domain against vanilla Darkwood.  
-Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supported), host-authoritative**
+Protocol baseline: **19** · Plugin: **0.9.2** (unreleased **0.9.2+** detail in `CHANGELOG.md`) · Optional msg IDs **112–126** · Mode: **N-player LAN (3+ supported), host-authoritative**
 
 **Target:** host + multiple clients (not dual-only). Happy path and playtests must consider **at least 3 humans** (host + 2 clients) unless a domain is explicitly host-local.
 
@@ -43,9 +43,10 @@ Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supp
 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
+| 0.0 | Host grant / migration | **OK (v1)** | Crash + graceful leave: PeerRoster 123, HostHandoff 124, elect lowest id, sim reclaim, preferred ids. `HostMigrationEnabled`. LAN. |
 | 0.1 | Session / handshake / protocol | **OK** | Code closed 2026-07-09. Reliable handshake/session; multi-peer IDs; max players; dream-join reject; Direct forward reliable. WorldSession still advisory (no hard wrong-save reject — F0.5 / later). Playtest smoke still recommended. |
 | 0.2 | Save / world share / load | **OK** | Code closed 2026-07-09. Per-PlayerId host backups; local self backup for ManualSave; SaveSync + WorldSaveShare to all. Mid-campaign still “load matching / Resend.” |
-| 0.3 | Time / day / night cycle | **OK** | Code closed 2026-07-09. Full `isAfterNight` mirror; reliable TimeSync; immediate on join. Host owns trader/morning rewards (no client startAfterNight). |
+| 0.3 | Time / day / night cycle | **OK** | TimeSync host authority + sleep adopt. **2026-07-11:** host-auth `endAfterNight` (`AfterNightEndRequest` 122); edge TimeSync flush; client personal heal on day roll; `DoUpdateTime` only (not full FixedUpdate suppress). |
 | 0.4 | Flags bulk + delta | **OK** | Code closed 2026-07-09. Host deltas reliable; join bulk; pending apply if Flags not ready; host-only setFlag authority. |
 | 0.5 | Network apply guards / reset | **OK** | Code closed 2026-07-09. Nested NetworkApplyGuard; ResetAll try/catch; expanded registry + TraverseHack transient clear. |
 | 0.6 | Pause / focus / menu | **OK** | Code closed 2026-07-09. Co-op no-pause: map, journal, padlock, dialogue, leveling, skill menus, interactive item UI. FreezeTracker still freezes. Menu audio path OK (5.x polish). |
@@ -72,17 +73,17 @@ Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supp
 - **Deferred (not 0.2 blockers):** auto-load shared save into running session; wrong-slot education UI (F0.5); client who joins *after* world gen still needs Resend.
 - **Playtest smoke:** host save with 2 clients → two host files `client_backup_p2.json` + `p3.json`; new world with both connected; Resend; ManualSave load restores self inventory.
 
-#### 0.3 Time — CLOSED (code) 2026-07-09
-- **B:** Host `SendTimeSync` / `SendTimeSyncTo` — `CurrentTime`, `day`, `IsAfterNight`; period 2s; join bulk includes immediate time.
-- **C:** Client applies time/day + full after-night bool + `addAfterNightEffect` / `removeAfterNightEffect` (VFX/freeze only).
-- **D:** Peer leave hideout can clear host after-night (PlayerState.AfterNightActive); location paths unchanged.
-- **M:** Broadcast to all peers; join targets new player only. Clients matching host after-night avoids false `AfterNightActive=false` clearing host freeze.
+#### 0.3 Time — CLOSED (code) 2026-07-09; **re-audit 2026-07-11**
+- **B:** Host `SendTimeSync` / `SendTimeSyncTo` — `CurrentTime`, `day`, `IsAfterNight`; period 2s; join bulk; **edge flush** on startDay/startAfterNight/endAfterNight/skipDay.
+- **C:** Client applies time/day + after-night VFX only; **no** day-chain; personal heal+skills on day bump; morning trader despawn on after-night clear.
+- **D:** **Leave hideout:** client → `AfterNightEndRequest` (122) → host `endAfterNight` once → TimeSync all. (Old `PlayerState.AfterNightActive` path was disabled on purpose — re-enabled via explicit request.)
+- **M:** Host-only world morning (trader/wolf/lights); clients mirror freeze + personal day benefits.
 - **Fixes applied:**
   1. **F0.1** — apply `isAfterNight` true and false (not only clear).
   2. **F0.2** — `SendTimeSyncTo(playerId)` on peer connect.
   3. TimeSync delivery → `ReliableOrdered`.
-- **Deferred:** client local time still advances between ticks then snaps (host authoritative). Inventory pause asymmetry → 0.6.
-- **Playtest smoke:** survive night → both clients morning freeze VFX; leave hideout → all unfreeze; late join mid-day matches host day/time.
+  4. **2026-07-11** — host-auth endAfterNight; edge TimeSync; client personal new day; DoUpdateTime-only clock suppress; trader cleanup.
+- **Playtest smoke:** survive night → both morning freeze VFX; **client leaves hideout first** → all unfreeze + trader gone; host leaves first → same; day roll client full HP; late join mid-day matches; all-dead night → morning both.
 
 #### 0.4 Flags — CLOSED (code) 2026-07-09
 - **B:** `FlagSyncBool/IntPatch` host-only; `TickFlush` 2s pending latest; `FlagBulkSync` per new peer; client apply under `NetworkApplyGuard`.
@@ -129,12 +130,12 @@ Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supp
 | 1.1 | Player pose / anim / vault | **OK** | Code closed 2026-07-09. ~30Hz pose + event anim/library; vault per-PlayerId (protocol 7); 3+ host rebroadcast PlayerState. Handheld lights split to **1.8**. |
 | 1.2 | Entity AI + snapshots | **OK** | Code closed 2026-07-09. Host AI + ~10Hz EntityState to all peers; client AI off; EntitySpawn Broadcast + host relay; round-robin cap. |
 | 1.2b | Entity presentation (anims / reactions) | **OK** | Code closed 2026-07-09. Pipeline answers; stop 10 Hz frame scrub; death/clip on pending; legsAnimator. Families: code OK, playtest still recommended. |
-| 1.3 | Physics / doors / gens / traps | **OK** | Code closed 2026-07-09. Host multi-center scan (local+proxies); client free-body → host fan-out; doors/traps/gens host auth + event Broadcast. |
+| 1.3 | Physics / doors / gens / traps | **OK** | Code closed 2026-07-09; **trap gaps closed 2026-07-11** (TrapNetId, per-trap occupancy, host-auth + pending, TrapBulk join). |
 | 1.4 | Drag / push / scrape audio | **OK** | Code closed 2026-07-09. Claim + DragSync Forwardable; ForceStop on end; body-push MOS; multi-peer fan-out fixes. |
 | 1.5 | Locations enter/exit | **OK** | Code closed 2026-07-09. PlayerId + exit pos; no leaveAllLocations; Forwardable; protocol 8. |
 | 1.6 | Weather | **OK** | Code closed 2026-07-09. Host rain/fog events + join bulk; client schedule suppressed; visual apply fixed. |
 | 1.7 | Map markers / discovery | **OK** | Code closed 2026-07-09. Marker PlayerId + multi-peer bulk; discovery loop guard; protocol 9. |
-| 1.8 | Lights (player + world) | **OK** | Code closed 2026-07-09; residuals stomped same day. Flare B+ + held FX; conditional pose light payload; flashlight stream; ambient full snapshot; world join bulk + ReliableOrdered. Protocol **19** / **0.4.13**. Playtest smoke below. |
+| 1.8 | Lights (player + world) | **OK** | Code closed 2026-07-09; **held/thrown gaps closed 2026-07-11**: match continuous, flash aim, flare remain + throw expire (ThrowableDespawn), join bulk thrown. World lamps/gens unchanged. Protocol **19**. |
 
 ### Layer 1 audit log
 
@@ -145,19 +146,21 @@ Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supp
 - **Fixes applied:** vault PlayerId + Forwardable; AnimLibrary ReliableOrdered; protocol 7.
 - **Playtest smoke:** walk/run both ways; vault window; 3rd peer sees both remotes; weapon equip changes proxy torso library.
 
-#### 1.8 Lights (player + world) — CLOSED (code) 2026-07-09
+#### 1.8 Lights (player + world) — CLOSED (code) 2026-07-09; held/thrown full 2026-07-11
 - **B / vanilla:** Flashlight (`processFlashlight` continuous radius/color); torch emitters + particles; hotbar lantern ambient (`modifyLightDot`); held flare (`Flare` flicker + particles/sprite, not `activated`); thrown flare prefab Light2D; world `Item.isLight`/`switchable` turnOn/Off + generator fan-out.
 - **B / mod:**
   - **Flare B+ light:** continuous sole owner; light **parented to proxy** + local hand offset; no event `HasItemLight` for flares.
-  - **Flare FX (residual stomp):** rising-edge held prefab clone (`RemoteFlareFx_P*`) — particles + sprite; strip `Flare`/physics/`Light2D` on clone so longevity doesn’t kill light; destroy with light.
-  - **Flashlight stream:** radius/intensity/color when active (dirty / rising / 1 Hz force).
-  - **Payload (proto 19):** `LightFlags` byte — inactive = **1 byte**; flare/flash fields only when active; params conditional.
+  - **Match continuous:** `LightFlagMatch` reuses held offset/params path; short life + remain01; no flare FX prefab.
+  - **Flare FX:** rising-edge held prefab clone (`RemoteFlareFx_P*`) — particles + sprite; strip `Flare`/physics/`Light2D` on clone.
+  - **Flashlight stream:** radius/intensity/color ~6.6 Hz force + dirty; **FlashAimY** rotates proxy cone.
+  - **Remain:** `HeldLightRemain01` trailer; expire forces off on peers.
+  - **Payload (proto 19):** `LightFlags` — flare/match/flash + params + remain + aim bits; PlayerState trailer TrapNetId/remain/aim.
   - **Events:** `PlayerLightState` for torch emitters, ambient, flashlight edge; join `SyncCurrentLightState`.
-  - **World:** `LightState` **ReliableOrdered**; host `SyncExistingWorldLightsTo` on peer connect.
-  - **Throw:** `EnsureThrownFlareLight` on `ThrowableSpawn`.
-  - **Debug:** `VerboseLightSync` config — transition logs only (`[LightSync]`).
-- **C:** Equip torch/flashlight/flare; throw flare; toggle world lamp; gen-linked lights; late join with lamps already on.
-- **M:** Continuous lights inside `PlayerState` (host rebroadcast); `PlayerLightState` ForwardablePlayer; world LightState Forwardable.
+  - **World:** `LightState` **ReliableOrdered**; host `SyncExistingWorldLightsTo` + `SyncExistingGeneratorsTo` in late-join bulk.
+  - **Throw:** `ThrowId` + `LongevitySec`; host expire → **ThrowableDespawn (125)**; join re-sends active thrown.
+  - **Debug:** `VerboseLightSync` — `[LightSync]` transitions.
+- **C:** Equip torch/flashlight/flare/match; throw flare; toggle world lamp; gen-linked lights; late join with lamps + held/thrown lights.
+- **M:** Continuous lights inside `PlayerState` (host rebroadcast); `PlayerLightState` ForwardablePlayer; world LightState Forwardable; ThrowableDespawn Forwardable.
 - **Fixes applied:**
   1. Unify held flare to continuous B+ (kill dual path).
   2. Ambient full snapshot (no clobber).
@@ -166,33 +169,32 @@ Protocol baseline: **19** · Plugin: **0.4.15** · Mode: **N-player LAN (3+ supp
   5. Flashlight continuous stream.
   6. Protocol **18** / **0.4.12** (initial domain).
   7. Residual stomp: held flare FX + conditional payload + smoke docs — **Protocol 19** / **0.4.13**.
-- **Residuals:**
-  | Residual | Status |
-  |----------|--------|
-  | Held flare light-only | **Stomped** — FX clone on rising edge |
-  | Always-on float tax | **Stomped** — LightFlags + conditional params |
-  | Dual-client proof | **Process** — smoke sheet below; not auto-signed |
-- **Deferred (non-blocking):** mid-session location-load world light bulk if lamps spawn after join without toggle.
+  8. **2026-07-11 audit:** wire join bulk; kill gen LightState fan-out; pending apply; location re-push.
+  9. **2026-07-11 full gaps:** match stream; flash aim; flare remain; throw expire + bulk; no Deferred for these four.
+- **Residuals (held/thrown domain):** none — all planned gaps closed in code. Dual-box human smoke uses sheet below.
+- **Late-join sticky world (host-auth, not 1.8-only):** light dump (journal/flags/dialog/rep/hideout/workbench/map/time/stations/dream/lights/gens/traps/thrown) + registry (locations, shadows, drops); heavy FindObjects **one phase/frame** (weather → trade → constructibles → locks → barricades → gas → deathbags). **Scenario bulk still skipped** (re-fires night unique events).
 - **Playtest status:** code closed; **human dual/triple smoke not signed off** (use sheet below).
 
 ##### 1.8 mandatory smoke sheet (dual / triple client)
 
-Set `VerboseLightSync = true` on at least one client for log greps. Both installs must be **0.4.13 / protocol 19**.
+Set `VerboseLightSync = true` on at least one client for log greps. Both installs must be **same DLL / protocol 19**.
 
 | # | Steps | Pass if |
 |---|--------|---------|
-| 1 | Host flashlight on; aim near/far | Peer cone strength changes; log `flashlight ON` |
+| 1 | Host flashlight on; aim near/far | Peer cone strength + direction track; log `flashlight ON` |
 | 2 | Equip torch | Peer hand light + fire particles |
 | 3 | Hotbar lantern, empty hand then melee | Ambient only; no double vision cone |
 | 4 | Equip flare | Peer: **one** light + flame FX on hand (not body-center only) |
-| 5 | Throw flare | Hand light/FX off; ground light on |
+| 5 | Throw flare | Hand light/FX off; ground light on; both dark at host expire |
 | 6 | World lamp / gen on-off | Peers match |
 | 7 | 3rd peer joins lit hideout | Lamps already on; log `World lights → pN: on=` |
-| 8 | Burn light durability to 0 | Peers go dark |
+| 8 | Burn light durability / flare remain to 0 | Peers go dark same second |
 | 9 | Rapid switch torch ↔ flashlight ↔ empty | No stuck emitters / lights |
 | 10 | Unequip flare / death while holding flare | No orphan `RemoteFlareLight` / `RemoteFlareFx` |
+| 11 | Light match; burn out; move while lit | Peer light on hand; both dark at end |
+| 12 | Late join mid-match / mid-thrown flare | Sees remaining burn |
 
-Log greps: `[LightSync]`, `[BulkSync] World lights`, `[ThrowableSpawn] flare`.
+Log greps: `[LightSync]`, `[BulkSync] World lights`, `[BulkSync] Traps`, `[ThrowableSpawn]`, `[ThrowableDespawn]`.
 
 #### 1.2 Entity AI + snapshots — CLOSED (code) 2026-07-09
 - **B:** Host `EntityStateBroadcastService` (~10 Hz, unreliable) to all peers; client `ClientEntityInterpolationService` + phantom match; `ClientAIDisable*` (host-authoritative AI); host multi-player awareness via `PlayerPositionManager` + HostAIPatches; Characters via stable ID (not EntitySpawn); non-character prefabs via `EntitySpawn`.
@@ -262,15 +264,16 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 
 **Status: OK (code).** Presentation pipeline closed; elite playtests recommended.
 
-#### 1.3 Physics / doors / gens / traps — CLOSED (code) 2026-07-09
+#### 1.3 Physics / doors / gens / traps — CLOSED (code) 2026-07-09; traps full 2026-07-11
 - **B:** `PhysicsState` ~10 Hz bulk; event `SendDoorState` / trap / generator (ReliableOrdered Broadcast); client `TrapTriggered` → host; door/gen patches; `WorldPhysicsSyncService` apply + interp.
 - **C:** Host owns doors/traps/gens; free rigidbodies bidirectional (client push → host apply + rebroadcast); host scan includes all remote proxies.
 - **M:** Client origin PhysicsState `SendToAllExcept`; door/trap/gen events already Broadcast; multi-center free-body scan on host (was host-player-only).
 - **Fixes applied:**
   1. Host physics OverlapSphere around **local + every remote proxy** (deduped by instance id).
   2. Trap detect included in multi-center scan (removed separate proxy-only trap loop).
+  3. **2026-07-11:** `TrapNetworkId` + `TrapState.TrapNetId` / `OccupantPlayerId`; per-trap loot guards (`IsTrapOccupied`); host-auth `TrapTriggered` with pending queue; late-join `TrapBulk` (126). **No Deferred** for beartrap domain.
 - **Already solid:** client door open/close → host + fan-out event style; strip bulk door/trap/gen from client free-body packets; drag skip.
-- **Playtest smoke:** open door far from host; client push furniture both see; trap spring both; gen fuel far client.
+- **Playtest smoke:** open door far from host; client push furniture both see; trap spring both; gen fuel far client; **A in T1 B loots T2 only**; late join mid-trap occupancy.
 
 #### 1.4 Drag / push / scrape audio — CLOSED (code) 2026-07-09
 - **B:** `DragSync` (~30 Hz, Forwardable); drag claims; `ItemMovingSoundHelper.ForceStop` + MOS; body-push via PhysicsState → `NotifyBodyPushStarted/Stopped` + `PlayerAudio` stop signal.
@@ -326,9 +329,9 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 | 2.4 | Journal / notes / keys | **OK** | Code closed 2026-07-09. Live JournalItem Broadcast + Forwardable; join bulk + pending; late-join world despawn. |
 | 2.5 | Trade | **OK** | Code closed 2026-07-09. Absolute `TradeInventorySync`; host restock; join bulk; success-only post-trade. Protocol **10** / **0.4.4**. |
 | 2.6 | Reputation | **OK** | Code closed 2026-07-09. Model C: shared live+bulk; night-trader per-player + ClientStateBackup. Protocol **11** / **0.4.5**. |
-| 2.7 | Workbench / construction / hideout | **OK** | Code closed 2026-07-09. Workbench Broadcast; constructible late-join + skip-dup; hideout join bulk. |
+| 2.7 | Workbench / construction / hideout | **OK** | Level + constructible/hideout as before. **+ exclusive workbench open** (`WorkbenchLock` 119). Not full InteractionLock matrix. |
 | 2.8 | Compressor / oxygen | **OK** | Code closed 2026-07-09. Convert handler unblocked; any-peer compressor; inv+hotbar. |
-| 2.9 | Saw / fuel | **OK** | Code closed 2026-07-09. Absolute SawState; late-join bulk; pending; quiet fuel-only. Generator fuel already via PhysicsState (1.3). |
+| 2.9 | Saw / Feeder / Lure | **OK** | Saw as before. **+ FeederState 116 + LureState 117** (absolute inactive / health, coalesce, join bulk). |
 | 2.10 | Skills / XP | **OK** | Code closed 2026-07-09. Per-player (no live sync); ClientStateBackup XP+skills+points restore. |
 
 ### Layer 2 audit log
@@ -672,8 +675,8 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 - **M:** Session not dual-only; death set keyed by remote `PlayerId`; door/audio/item reach all peers; F4 cycle among living proxies.
 - **No protocol / version bump.**
 - **Already solid:** dream-join reject; save blocked mid-dream; world freeze / IsHostDreamEntity; DoorOpenPatch defers to dream DoorOpen; night parity model.
-- **Deferred → 4.5:** epilogue / final dreamscene cutscene polish; exact per-level preset matrix playtest; mid-dream peer leave edge cases beyond disconnect prune; chained transferToDream stress; completed-preset bulk to late joiners (host already rejects re-request).
-- **Playtest smoke:** host + 2 clients enter dream together; host opens dream door → both clients; die and spectate other living peer when first target dies; all dead ends dream; client story outcome ends for all; no join mid-dream.
+- **Closed full-scope harden (no deferrals):** completed-preset + `hadDreamAtLvl*` bulk/trailers; `TryBegin` at prepare; story end → `initiateEndDreaming`; `DreamChainStart` for transferToDream; remote snapshot on entry; cleanup order unfreeze-then-world-events; all-dead handshaked peers; dream pocket physics + dream NPC entity stream; DoorOpen apply guard; transition skip covers startTransition.
+- **Playtest smoke:** host + 2 clients enter dream together; host opens dream door → both clients; die and spectate other living peer when first target dies; all dead ends dream; client story outcome ends for all; no join mid-dream; chain dream; late join bulk blocks re-entry; push crate in dream.
 
 #### 4.5 Final dreamscene / epilogue — CLOSED (code) 2026-07-09
 - **A:** Epilogue locations (`Location.isEpilogueLocation`, `epilog_part1a_dream`), `Player.inEpilogue` crawl/death camera pan, `EpilogueOutcomes` → credits, shared dream death (`FinalDreamsceneManager`), `GameEvent.endGame` / `UI.showEndGame`.
@@ -1041,3 +1044,11 @@ These are not “2p only works” — they are places **M checks** must pass bef
 | 2026-07-09 | **1.8 residuals stomped:** held flare FX + conditional LightFlags payload + VerboseLightSync + smoke sheet; **Protocol 19 / 0.4.13**. |
 | 2026-07-09 | **Layer 6 balance (code):** loot sinks + wood/nail; dream ChomperBlack presence × party mult; **0.4.14** (protocol still **19**). |
 | 2026-07-09 | **Public polish 0.4.15:** logging banner fix + Support Container + session stop + LOGGING.md; comment/README hygiene. |
+| 2026-07-10 | **0.9.2 product ship:** Path B audit fixes, dialogue tree (113), WorldRequest (114), ContainerTakeDenied (115), dual BepInEx+Melon. See CHANGELOG **0.9.2**. |
+| 2026-07-11 | **0.9.2+ stations / sleep / workbench lock:** FeederState 116, LureState 117, SleepEndRequest 118, WorkbenchLock 119. |
+| 2026-07-11 | **0.9.2+ dream harden:** DreamSessionBulk 120, DreamChainStart 121; completed presets + chain host-auth. |
+| 2026-07-11 | **0.9.2+ night/day:** AfterNightEndRequest 122; host-auth endAfterNight; edge TimeSync. |
+| 2026-07-11 | **0.9.2+ host grant:** PeerRoster 123, HostHandoff 124; crash + graceful leave elect. |
+| 2026-07-11 | **0.9.2+ join/FPS:** ENTER WORLD gate; phase-3 soft reconnect; client entity interest cull 1400; sav/savs force-save skew fix; MULTIPLAYER lifecycle. |
+| 2026-07-11 | **0.9.2+ traps + lights:** TrapNetId / per-trap occupancy; match continuous; flash aim; flare remain; ThrowableDespawn **125**; TrapBulk **126**. |
+| 2026-07-11 | **0.9.2+ late-join sticky bulk:** light dump + staggered heavy (weather/trade/construct/locks/barricades/gas/deathbags); scenario bulk still skipped. |

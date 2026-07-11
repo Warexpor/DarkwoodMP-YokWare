@@ -216,14 +216,40 @@ public class AuditStructureTests
         Assert.Contains("startDreaming", dreamPatches);
         Assert.Contains("DreamStartRequest", dreamPatches);
         Assert.Contains("playerDeath", dreamPatches);
+        Assert.Contains("prepareDream", dreamPatches);
+        Assert.Contains("DreamChainStart", dreamPatches);
+        Assert.Contains("initiateEndDreaming", dreamPatches);
 
         var session = ReadMod("Sync", "DreamSession.cs");
         Assert.Contains("TryBegin", session);
         Assert.Contains("ShouldRejectNewConnections", session);
+        Assert.Contains("ApplySnapshot", session);
+        Assert.Contains("SetChainedPreset", session);
+        Assert.Contains("GetCompletedPresets", session);
 
         var final = ReadMod("Sync", "FinalDreamsceneManager.cs");
         Assert.Contains("OnLocalDeathInDream", final);
         Assert.Contains("inEpilogue", final);
+        Assert.Contains("GetHandshakedPeerIds", final);
+
+        var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
+        Assert.Contains("DreamSessionBulk = 120", netTypes);
+        Assert.Contains("DreamChainStart = 121", netTypes);
+
+        var dreamMsgs = ReadMod("Networking", "Messages", "DreamMessages.cs");
+        Assert.Contains("DreamSessionBulkMessage", dreamMsgs);
+        Assert.Contains("DreamChainStartMessage", dreamMsgs);
+        Assert.Contains("CompletedPresets", dreamMsgs);
+
+        var handlers = ReadMod("Networking", "LanNetworkManager.DreamHandlers.cs");
+        Assert.Contains("initiateEndDreaming", handlers);
+        Assert.Contains("HandleDreamChainStart", handlers);
+        Assert.Contains("SendDreamSessionBulkTo", handlers);
+
+        var mgr = ReadMod("Sync", "DreamSyncManager.cs");
+        Assert.Contains("OnDreamChain", mgr);
+        Assert.Contains("ShouldSyncPhysicsObject", mgr);
+        Assert.Contains("saveCurrentPlayerState", mgr);
     }
 
     [Fact]
@@ -269,10 +295,13 @@ public class AuditStructureTests
         // J16: path fix + native Continue + host mute loading peers
         Assert.Contains("updateFilePaths", share);
         Assert.Contains("initLoadGame", share);
-        // J17: share → offline load → reconnect (not load while connected)
+        // J17: share → ENTER WORLD → offline load → reconnect (not load while connected)
         Assert.Contains("CaptureForResume", share);
         Assert.Contains("StopNetwork", share);
         Assert.Contains("Join pipeline phase 2", share);
+        Assert.Contains("IsAwaitingEnterWorld", share);
+        Assert.Contains("TryBeginEnterWorld", share);
+        Assert.Contains("ENTER WORLD", share);
 
         var lan = ReadMod("Networking", "LanNetworkManager.cs");
         Assert.Contains("MarkPeerLoadingWorld", lan);
@@ -299,6 +328,96 @@ public class AuditStructureTests
         Assert.Contains("ContainerTakeDenied", ReadMod("Networking", "Messages", "NetMessageType.cs"));
         Assert.Contains("DenyContainerTake", handlers);
         Assert.Contains("Client blocked new worldgen", ReadMod("Patches", "WorldGenSharePatch.cs"));
+    }
+
+    [Fact]
+    public void Stations_FeederLure_Sleep_WorkbenchLock_Present()
+    {
+        var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
+        Assert.Contains("FeederState = 116", netTypes);
+        Assert.Contains("LureState = 117", netTypes);
+        Assert.Contains("SleepEndRequest = 118", netTypes);
+        Assert.Contains("WorkbenchLock = 119", netTypes);
+        Assert.Contains("DreamSessionBulk = 120", netTypes);
+        Assert.Contains("DreamChainStart = 121", netTypes);
+        Assert.Contains("AfterNightEndRequest = 122", netTypes);
+        Assert.Contains("PeerRoster = 123", netTypes);
+        Assert.Contains("HostHandoff = 124", netTypes);
+        Assert.Contains("_Highest = 124", netTypes);
+        // Protocol stays 19 (optional messages).
+        Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
+
+        var worldMsgs = ReadMod("Networking", "Messages", "WorldMessages.cs");
+        Assert.Contains("FeederStateMessage", worldMsgs);
+        Assert.Contains("LureStateMessage", worldMsgs);
+
+        var syncMsgs = ReadMod("Networking", "Messages", "SyncMessages.cs");
+        Assert.Contains("SleepEndRequestMessage", syncMsgs);
+        Assert.Contains("AfterNightEndRequestMessage", syncMsgs);
+        Assert.Contains("WorkbenchLockMessage", syncMsgs);
+
+        var stations = ReadMod("Sync", "StationSyncPatches.cs");
+        Assert.Contains("Feeder", stations);
+        Assert.Contains("activate", stations);
+        Assert.Contains("Lure", stations);
+        Assert.Contains("removeHealth", stations);
+        Assert.Contains("QueueLureHealth", stations);
+        Assert.Contains("FlushLureOutbox", stations);
+
+        var sleep = ReadMod("Patches", "SleepSyncPatches.cs");
+        Assert.Contains("onEndSleep", sleep);
+        Assert.Contains("SleepEndRequest", sleep);
+        Assert.Contains("SendTimeSyncTo", sleep);
+
+        var wbLock = ReadMod("Sync", "WorkbenchOpenLock.cs");
+        Assert.Contains("HostTryGrant", wbLock);
+        Assert.Contains("KeyFor", wbLock);
+
+        var wbPatches = ReadMod("Patches", "WorkbenchLockPatches.cs");
+        Assert.Contains("Workbench", wbPatches);
+        Assert.Contains("open", wbPatches);
+        Assert.Contains("closeOpenedItemInventory", wbPatches);
+
+        var handlers = ReadMod("Networking", "LanNetworkManager.Handlers.cs");
+        Assert.Contains("HandleFeederState", handlers);
+        Assert.Contains("HandleLureState", handlers);
+        Assert.Contains("HandleSleepEndRequest", handlers);
+        Assert.Contains("HandleAfterNightEndRequest", handlers);
+        Assert.Contains("ApplyClientPersonalNewDay", handlers);
+        Assert.Contains("HandleWorkbenchLock", handlers);
+        Assert.Contains("SendFeederStatesTo", handlers);
+        Assert.Contains("SendLureStatesTo", handlers);
+        Assert.Contains("SendSawStatesTo(playerId)", handlers);
+        // C1: sleep adopt must not call full refreshTime().
+        Assert.DoesNotContain("ctrl.refreshTime()", handlers);
+
+        var lan = ReadMod("Networking", "LanNetworkManager.cs");
+        Assert.Contains("NetMessageType.FeederState", lan);
+        Assert.Contains("NetMessageType.LureState", lan);
+        Assert.Contains("NetMessageType.SleepEndRequest", lan);
+        Assert.Contains("NetMessageType.AfterNightEndRequest", lan);
+        Assert.Contains("NetMessageType.WorkbenchLock", lan);
+
+        var dayNight = ReadMod("Patches", "DayNightTransitionPatches.cs");
+        Assert.Contains("endAfterNight", dayNight);
+        Assert.Contains("AfterNightEndRequest", dayNight);
+        Assert.Contains("startDay", dayNight);
+        Assert.Contains("SendTimeSyncTo", dayNight);
+
+        var timeAuth = ReadMod("Patches", "ClientTimeAuthorityPatches.cs");
+        Assert.Contains("DoUpdateTime", timeAuth);
+
+        var hostMig = ReadMod("Networking", "HostMigration.cs");
+        Assert.Contains("TryBeginHostMigration", hostMig);
+        Assert.Contains("PromoteLocalToHost", hostMig);
+        Assert.Contains("BroadcastPeerRoster", hostMig);
+        Assert.Contains("TryGracefulHostLeave", hostMig);
+        Assert.Contains("ReclaimSimulationAuthorityAfterPromote", hostMig);
+        Assert.Contains("HostMigrationPolicy.ElectNewHost", hostMig);
+        Assert.Contains("PeerRoster", netTypes);
+        Assert.Contains("HostHandoff", netTypes);
+        Assert.Contains("HostMigrationEnabled", ReadMod("Config", "ModConfig.cs"));
+        Assert.Contains("HostMigrationPolicy", ReadMod("CoopPolicy.cs"));
     }
 
     [Fact]

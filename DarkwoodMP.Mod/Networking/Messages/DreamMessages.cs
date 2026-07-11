@@ -1,22 +1,60 @@
+using DWMPHorde.Sync;
+
 namespace DWMPHorde.Networking
 {
     public struct DreamStartedMessage
     {
         public string PresetName;
         public float LocPosX, LocPosY, LocPosZ;
+        /// <summary>Optional trailer (protocol 19+ dream harden).</summary>
+        public int SessionId;
+        public byte LvlFlags;
+        public string[] CompletedPresets;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PresetName ?? "");
             w.Put(LocPosX); w.Put(LocPosY); w.Put(LocPosZ);
+            w.Put(SessionId);
+            w.Put(LvlFlags);
+            string[] done = CompletedPresets ?? System.Array.Empty<string>();
+            w.Put(done.Length);
+            for (int i = 0; i < done.Length; i++)
+                w.Put(done[i] ?? "");
         }
 
-        public static DreamStartedMessage Deserialize(NetReader r) => new DreamStartedMessage
+        public static DreamStartedMessage Deserialize(NetReader r)
         {
-            PresetName = r.GetString(),
-            LocPosX = r.GetFloat(),
-            LocPosY = r.GetFloat(),
-            LocPosZ = r.GetFloat()
+            var msg = new DreamStartedMessage
+            {
+                PresetName = r.GetString(),
+                LocPosX = r.GetFloat(),
+                LocPosY = r.GetFloat(),
+                LocPosZ = r.GetFloat(),
+                CompletedPresets = System.Array.Empty<string>()
+            };
+            if (r.AvailableBytes >= 9)
+            {
+                msg.SessionId = r.GetInt();
+                msg.LvlFlags = r.GetByte();
+                int n = r.GetInt();
+                if (n < 0 || n > 256) n = 0;
+                msg.CompletedPresets = new string[n];
+                for (int i = 0; i < n; i++)
+                    msg.CompletedPresets[i] = r.GetString();
+            }
+            return msg;
+        }
+
+        public static DreamStartedMessage Build(string preset, float x, float y, float z) => new DreamStartedMessage
+        {
+            PresetName = preset ?? "",
+            LocPosX = x,
+            LocPosY = y,
+            LocPosZ = z,
+            SessionId = DreamSession.SessionId,
+            LvlFlags = DreamSession.ReadLocalLvlFlags(),
+            CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
 
@@ -24,28 +62,132 @@ namespace DWMPHorde.Networking
     {
         public string PresetName;
         public string OutcomeName;
+        public int SessionId;
+        public byte LvlFlags;
+        public string[] CompletedPresets;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PresetName ?? "");
             w.Put(OutcomeName ?? "");
+            w.Put(SessionId);
+            w.Put(LvlFlags);
+            string[] done = CompletedPresets ?? System.Array.Empty<string>();
+            w.Put(done.Length);
+            for (int i = 0; i < done.Length; i++)
+                w.Put(done[i] ?? "");
         }
 
-        public static DreamEndedMessage Deserialize(NetReader r) => new DreamEndedMessage
+        public static DreamEndedMessage Deserialize(NetReader r)
         {
-            PresetName = r.GetString(),
-            OutcomeName = r.GetString()
+            var msg = new DreamEndedMessage
+            {
+                PresetName = r.GetString(),
+                OutcomeName = r.GetString(),
+                CompletedPresets = System.Array.Empty<string>()
+            };
+            if (r.AvailableBytes >= 9)
+            {
+                msg.SessionId = r.GetInt();
+                msg.LvlFlags = r.GetByte();
+                int n = r.GetInt();
+                if (n < 0 || n > 256) n = 0;
+                msg.CompletedPresets = new string[n];
+                for (int i = 0; i < n; i++)
+                    msg.CompletedPresets[i] = r.GetString();
+            }
+            return msg;
+        }
+
+        public static DreamEndedMessage Build(string preset, string outcome) => new DreamEndedMessage
+        {
+            PresetName = preset ?? "",
+            OutcomeName = outcome ?? "",
+            SessionId = DreamSession.SessionId,
+            LvlFlags = DreamSession.ReadLocalLvlFlags(),
+            CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
 
     public struct DreamStartRequestMessage
     {
         public string PresetName;
+        public int RequestId;
 
-        public void Serialize(NetWriter w) { w.Put(PresetName ?? ""); }
-        public static DreamStartRequestMessage Deserialize(NetReader r) => new DreamStartRequestMessage
+        public void Serialize(NetWriter w)
         {
-            PresetName = r.GetString()
+            w.Put(PresetName ?? "");
+            w.Put(RequestId);
+        }
+
+        public static DreamStartRequestMessage Deserialize(NetReader r)
+        {
+            var msg = new DreamStartRequestMessage { PresetName = r.GetString() };
+            if (r.AvailableBytes >= 4)
+                msg.RequestId = r.GetInt();
+            return msg;
+        }
+    }
+
+    public struct DreamSessionBulkMessage
+    {
+        public byte LvlFlags;
+        public string[] CompletedPresets;
+        public bool SessionActive;
+        public string ActivePreset;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(LvlFlags);
+            w.Put(SessionActive);
+            w.Put(ActivePreset ?? "");
+            string[] done = CompletedPresets ?? System.Array.Empty<string>();
+            w.Put(done.Length);
+            for (int i = 0; i < done.Length; i++)
+                w.Put(done[i] ?? "");
+        }
+
+        public static DreamSessionBulkMessage Deserialize(NetReader r)
+        {
+            var msg = new DreamSessionBulkMessage
+            {
+                LvlFlags = r.GetByte(),
+                SessionActive = r.GetBool(),
+                ActivePreset = r.GetString(),
+                CompletedPresets = System.Array.Empty<string>()
+            };
+            int n = r.GetInt();
+            if (n < 0 || n > 256) n = 0;
+            msg.CompletedPresets = new string[n];
+            for (int i = 0; i < n; i++)
+                msg.CompletedPresets[i] = r.GetString();
+            return msg;
+        }
+
+        public static DreamSessionBulkMessage FromLocal() => new DreamSessionBulkMessage
+        {
+            LvlFlags = DreamSession.ReadLocalLvlFlags(),
+            SessionActive = DreamSession.IsActive,
+            ActivePreset = DreamSession.PresetName ?? "",
+            CompletedPresets = DreamSession.GetCompletedPresets()
+        };
+    }
+
+    public struct DreamChainStartMessage
+    {
+        public string NextPresetName;
+        public int SessionId;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NextPresetName ?? "");
+            w.Put(SessionId);
+        }
+
+        public static DreamChainStartMessage Deserialize(NetReader r) => new DreamChainStartMessage
+        {
+            NextPresetName = r.GetString(),
+            SessionId = r.AvailableBytes >= 4 ? r.GetInt() : 0
         };
     }
 

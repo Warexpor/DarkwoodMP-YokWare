@@ -49,9 +49,11 @@ namespace DWMPHorde.Sync
                     return id;
             }
 
-            // Clients must not mint IDs — host owns the namespace (P1.1).
+            // Only the live Host mints IDs. Offline (join phase-2 load) and Client must not:
+            // phase-2 used to mint local 1..N, then phase-3 host ids collided → wrong
+            // FindByStableId + purge/respawn thrash (client FPS death after enter world).
             var net = ModRuntime.Network;
-            if (net != null && net.Role == NetworkRole.Client)
+            if (net == null || net.Role != NetworkRole.Host)
                 return 0;
 
             return AssignId(c);
@@ -284,10 +286,10 @@ namespace DWMPHorde.Sync
                 if (_stableIdCache.ContainsKey(c))
                     return;
 
+                // Host-only mint. Offline join load + Client: list without id until AssignId(c, hostId).
                 var net = ModRuntime.Network;
-                bool isClient = net != null && net.Role == NetworkRole.Client;
-                if (isClient)
-                    return; // wait for host id via AssignId(c, hostId)
+                if (net == null || net.Role != NetworkRole.Host)
+                    return;
 
                 short id = GetCollisionFreeId();
                 if (id != 0)

@@ -92,28 +92,18 @@ namespace DWMPHorde.Sync
                     Singleton<Controller>.Instance.StartCoroutine(UnfreezeProxiesAfterDelay(10f));
 
                 // Host broadcasts to all clients; client sends to host only
+                var started = DreamStartedMessage.Build(
+                    presetName, locationPosition.x, locationPosition.y, locationPosition.z);
                 if (net.Role == NetworkRole.Host)
                 {
                     net.Broadcast(NetMessageType.DreamStarted,
-                        w => new DreamStartedMessage
-                        {
-                            PresetName = presetName,
-                            LocPosX = locationPosition.x,
-                            LocPosY = locationPosition.y,
-                            LocPosZ = locationPosition.z
-                        }.Serialize(w),
+                        w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
                 else
                 {
                     net.Send(NetMessageType.DreamStarted,
-                        w => new DreamStartedMessage
-                        {
-                            PresetName = presetName,
-                            LocPosX = locationPosition.x,
-                            LocPosY = locationPosition.y,
-                            LocPosZ = locationPosition.z
-                        }.Serialize(w),
+                        w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
             }
@@ -137,17 +127,17 @@ namespace DWMPHorde.Sync
             var net = ModRuntime.Network as LanNetworkManager;
             if (net != null && net.IsConnected)
             {
-                // Host broadcasts to all clients; client sends to host only
+                var ended = DreamEndedMessage.Build(_localDreamPreset ?? "", outcomeName);
                 if (net.Role == NetworkRole.Host)
                 {
                     net.Broadcast(NetMessageType.DreamEnded,
-                        w => new DreamEndedMessage { PresetName = _localDreamPreset ?? "", OutcomeName = outcomeName }.Serialize(w),
+                        w => ended.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
                 else
                 {
                     net.Send(NetMessageType.DreamEnded,
-                        w => new DreamEndedMessage { PresetName = _localDreamPreset ?? "", OutcomeName = outcomeName }.Serialize(w),
+                        w => ended.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
 
@@ -198,9 +188,19 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
+            string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
+
+            // Snapshot parity with host prepareDream (D4).
+            if (Dreams.Instance != null && !Dreams.Instance.dreaming && !Dreams.Instance.switchingDream)
+            {
+                try { Dreams.Instance.saveCurrentPlayerState(); }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] saveCurrentPlayerState: " + ex.Message);
+                }
+            }
+
             // 1. Play the full transition (video/audio overlay) FIRST.
-            //    This matches the host flow where DreamTransition.transition()
-            //    plays before prepareDream() loads the dream scene.
             float waitTime = StartRemoteDreamTransition();
             if (waitTime > 0f)
             {
@@ -212,9 +212,59 @@ namespace DWMPHorde.Sync
             FadeOutDreamTransition();
 
             // 3. NOW load the dream scene (after transition is complete)
-            string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
             if (presetName != null)
                 yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, playerId);
+            else
+            {
+                ModRuntime.Log?.LogError("[DreamSync] Remote dream entry missing preset — unfreezing");
+                UnfreezeWorld();
+                if (_remoteDreamActive.ContainsKey(playerId))
+                    _remoteDreamActive[playerId] = false;
+            }
+        }
+
+        /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
+        public static void OnDreamChain(string nextPreset)
+        {
+            if (string.IsNullOrEmpty(nextPreset)) return;
+            _localDreamPreset = nextPreset;
+            _localDreamActive = true;
+            if (Player.Instance != null)
+            {
+                int pid = 0;
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net != null)
+                    pid = net.LocalPlayerId;
+                _currentDreamPreset[pid] = nextPreset;
+                _remoteDreamActive[pid] = true;
+            }
+            Vector3 pos = Dreams.Instance?.dreamLocation != null
+                ? Dreams.Instance.dreamLocation.transform.position
+                : (Player.Instance != null ? Player.Instance._transform.position : Vector3.zero);
+            if (Singleton<Controller>.Instance != null)
+                Singleton<Controller>.Instance.StartCoroutine(ProcessChainCoroutine(nextPreset, pos));
+        }
+
+        private static IEnumerator ProcessChainCoroutine(string presetName, Vector3 locationPosition)
+        {
+            // Keep world frozen; tear previous dream location if still present.
+            if (Dreams.Instance != null && Dreams.Instance.dreaming)
+            {
+                LanNetworkManager.IsApplyingRemoteState = true;
+                try
+                {
+                    Dreams.Instance.dreaming = false;
+                    Dreams.Instance.destroyDream();
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] chain destroy: " + ex.Message);
+                }
+                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+            }
+
+            yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
+            DreamSession.MarkActive();
         }
 
         private static void FadeOutDreamTransition()
@@ -260,8 +310,6 @@ namespace DWMPHorde.Sync
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
             MarkDreamCompleted(playerId, presetName);
-            UnfreezeWorld();
-
             FinalDreamsceneManager.OnDreamEnded();
 
             _remoteDreamActive[playerId] = false;
@@ -270,24 +318,23 @@ namespace DWMPHorde.Sync
 
             if (Dreams.Instance != null && Dreams.Instance.dreaming && Dreams.Instance.preset != null)
             {
-                // startDreaming() was called on this remote player — properly restore state
+                // ApplyRemoteDreamCleanup unfreezes after restore (D8).
                 ApplyRemoteDreamCleanup(outcomeName);
             }
             else
             {
-                // Fallback: remote-only dream where startDreaming() was never called
                 if (presetName != null)
                 {
                     CleanupDreamScene(presetName);
                     RemoveDreamCameraEffects(presetName);
                 }
                 RestorePreDreamState(playerId);
+                UnfreezeWorld();
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.IsConnected && Player.Instance != null)
                     net.TeleportRemoteProxyTo(Player.Instance._transform.position, 0f);
             }
 
-            // Unfreeze any still-frozen proxies
             var unfreezeNet = ModRuntime.Network as LanNetworkManager;
             if (unfreezeNet != null)
             {
@@ -411,6 +458,9 @@ namespace DWMPHorde.Sync
             var player = Player.Instance;
             if (player == null || dreams == null) return;
 
+            // D8 order: restore player → destroy dream → unfreeze → world/journal effects.
+            string pendingOutcome = outcomeName ?? "";
+
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -420,7 +470,6 @@ namespace DWMPHorde.Sync
                 AudioController.StopMusic(1f);
                 Core.spawnCharactersAtNight = true;
 
-                // Restore saved inventory
                 player.Hotbar.clear();
                 player.Inventory.clear();
                 if (dreams.inventorySlotsCopy.Count > 0)
@@ -431,9 +480,9 @@ namespace DWMPHorde.Sync
                     player.Hotbar.show();
                 }
 
-                // Apply outcome effects (rewards) before teleport
-                if (!string.IsNullOrEmpty(outcomeName))
-                    ApplyOutcomeEffects(dreams, player, outcomeName);
+                // Personal rewards first (items/journal) — defer fireGameEvent/world until unfreeze.
+                if (!string.IsNullOrEmpty(pendingOutcome))
+                    ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
                 Vector3 restorePos = dreams.positionCopy;
                 if (dreams.preset != null && Core.getTrueLocationName(dreams.preset.name) == "dream_tutorial_01")
@@ -455,8 +504,8 @@ namespace DWMPHorde.Sync
                 dreams.dreaming = false;
                 dreams.dreamPrepared = false;
                 dreams.wantToDream = false;
+                _localDreamActive = false;
 
-                // Re-enter pre-dream location grid
                 if (dreams.placeStartedDreaming != null)
                 {
                     string locName = Core.getTrueLocationName(dreams.placeStartedDreaming.name);
@@ -476,8 +525,6 @@ namespace DWMPHorde.Sync
 
                 player.endDreaming(true);
 
-                // Teleport the remote proxy back to the regular world so the host
-                // doesn't see the client's proxy lingering in the dream scene.
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.IsConnected)
                     net.TeleportRemoteProxyTo(player._transform.position, 0f);
@@ -490,13 +537,25 @@ namespace DWMPHorde.Sync
             {
                 LanNetworkManager.IsApplyingRemoteState = false;
             }
+
+            UnfreezeWorld();
+
+            // World events after forest is live again.
+            if (!string.IsNullOrEmpty(pendingOutcome) && dreams.preset != null)
+            {
+                LanNetworkManager.IsApplyingRemoteState = true;
+                try { ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: true); }
+                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+            }
         }
 
-        private static void ApplyOutcomeEffects(Dreams dreams, Player player, string outcomeName)
+        /// <param name="worldEvents">
+        /// false = personal rewards only; true = fireGameEvent / fireWorldEvent only (D8).
+        /// </param>
+        private static void ApplyOutcomeEffects(Dreams dreams, Player player, string outcomeName, bool worldEvents = true)
         {
             if (dreams.preset == null || dreams.preset.outcomes == null) return;
 
-            // Find the outcome preset — same logic as Dreams.getOutcome()
             DreamPreset.Outcome outcomePreset = null;
             foreach (var oc in dreams.preset.outcomes)
             {
@@ -527,6 +586,7 @@ namespace DWMPHorde.Sync
                 switch (effect.type)
                 {
                     case global::DreamPreset.Outcome.Effect.Type.createInvItem:
+                        if (worldEvents) break;
                         if (effect.invItem != null)
                         {
                             var go = effect.invItem as UnityEngine.GameObject;
@@ -540,6 +600,7 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.addJournalItem:
+                        if (worldEvents) break;
                         if (effect.invItem != null)
                         {
                             var go = effect.invItem as UnityEngine.GameObject;
@@ -556,6 +617,7 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.fireGameEvent:
+                        if (!worldEvents) break;
                         if (effect.destPrefab != null)
                         {
                             var go = effect.destPrefab as UnityEngine.GameObject;
@@ -572,48 +634,47 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.fireWorldEvent:
+                        if (!worldEvents) break;
                         if (!string.IsNullOrEmpty(effect.worldEventType))
                             Singleton<Events>.Instance.fireWorldEvent(effect.worldEventType);
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.transferToDream:
-                        // On the local dreamer, vanilla endDreaming already handles transferToDream.
-                        // On remote, send a DreamStartRequest as backup for the chained dream.
-                        if (!IsLocalDreamActive)
-                        {
-                            var dreamNet = ModRuntime.Network as LanNetworkManager;
-                            // Reflect the string value field since the Effect API varies by build
-                            string dreamName = "";
-                            var efType = effect?.GetType();
-                            if (efType != null)
-                            {
-                                foreach (var fld in efType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-                                    if (fld.FieldType == typeof(string))
-                                    {
-                                        var v = fld.GetValue(effect);
-                                        if (v is string s && !string.IsNullOrEmpty(s)) { dreamName = s; break; }
-                                    }
-                            }
-                            if (dreamNet != null && dreamNet.IsConnected && !string.IsNullOrEmpty(dreamName))
-                            {
-                                dreamNet.Send(NetMessageType.DreamStartRequest,
-                                    w => new DreamStartRequestMessage { PresetName = dreamName }.Serialize(w),
-                                    LiteNetLib.DeliveryMethod.ReliableOrdered);
-                            }
-                        }
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.addCharacterEffect:
-                        // Not handled in vanilla endDreaming either
                         break;
                     default:
-                        ModRuntime.Log?.LogWarning($"[DreamSync] Unhandled outcome effect type: {effect.type}");
+                        if (!worldEvents)
+                            ModRuntime.Log?.LogWarning($"[DreamSync] Unhandled outcome effect type: {effect.type}");
                         break;
                 }
             }
 
-            if (outcomePreset.customEndTime)
+            if (!worldEvents && outcomePreset.customEndTime)
                 Singleton<Controller>.Instance.CurrentTime = outcomePreset.endTime;
+        }
+
+        /// <summary>True when a physics object should sync during an active dream (D12).</summary>
+        public static bool ShouldSyncPhysicsObject(Transform t)
+        {
+            if (t == null) return true;
+            if (!IsLocalDreamActive && !DreamSession.IsActive)
+                return true; // overworld: all free bodies
+            Transform dreamLoc = GetDreamLocationTransform();
+            if (dreamLoc == null)
+                return true;
+            // Only free bodies under the dream pocket (or near player in dream grid).
+            if (t.IsChildOf(dreamLoc) || t == dreamLoc)
+                return true;
+            if (Player.Instance != null
+                && Dreams.Instance?.preset != null
+                && Singleton<WorldGrid>.Instance?.currentGrid != null
+                && string.Equals(Singleton<WorldGrid>.Instance.currentGrid.name, Dreams.Instance.preset.name,
+                    StringComparison.OrdinalIgnoreCase)
+                && Vector3.Distance(t.position, Player.Instance._transform.position) < 80f)
+                return true;
+            return false;
         }
 
         private static void SavePreDreamState(int playerId)

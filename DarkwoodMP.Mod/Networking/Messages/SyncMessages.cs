@@ -230,6 +230,144 @@ namespace DWMPHorde.Networking
         public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool() };
     }
 
+    /// <summary>Client→host: post-sleep clock for host-authority forward adopt.</summary>
+    public struct SleepEndRequestMessage
+    {
+        public int CurrentTime, Day;
+        public bool IsAfterNight;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(CurrentTime);
+            w.Put(Day);
+            w.Put(IsAfterNight);
+        }
+
+        public static SleepEndRequestMessage Deserialize(NetReader r) => new SleepEndRequestMessage
+        {
+            CurrentTime = r.GetInt(),
+            Day = r.GetInt(),
+            IsAfterNight = r.GetBool()
+        };
+    }
+
+    /// <summary>Client→host: leave-hideout / clear morning freeze (host endAfterNight).</summary>
+    public struct AfterNightEndRequestMessage
+    {
+        public void Serialize(NetWriter w) { }
+        public static AfterNightEndRequestMessage Deserialize(NetReader r) => new AfterNightEndRequestMessage();
+    }
+
+    /// <summary>
+    /// Host→all: peer LAN endpoints for host-crash migration.
+    /// Port is the session listen port (not ephemeral outbound). Address is IPv4 as seen by host.
+    /// </summary>
+    public struct PeerRosterMessage
+    {
+        public int HostPlayerId;
+        public int SessionPort;
+        public PeerRosterEntry[] Entries;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(HostPlayerId);
+            w.Put(SessionPort);
+            int n = Entries != null ? Entries.Length : 0;
+            if (n > 32) n = 32;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+                Entries[i].Serialize(w);
+        }
+
+        public static PeerRosterMessage Deserialize(NetReader r)
+        {
+            var msg = new PeerRosterMessage
+            {
+                HostPlayerId = r.GetInt(),
+                SessionPort = r.GetInt()
+            };
+            int n = r.AvailableBytes >= 1 ? r.GetByte() : 0;
+            if (n < 0) n = 0;
+            if (n > 32) n = 32;
+            msg.Entries = new PeerRosterEntry[n];
+            for (int i = 0; i < n; i++)
+                msg.Entries[i] = PeerRosterEntry.Deserialize(r);
+            return msg;
+        }
+    }
+
+    public struct PeerRosterEntry
+    {
+        public int PlayerId;
+        public string Address;
+        /// <summary>Session listen port for promote/reconnect (same for all peers).</summary>
+        public int Port;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PlayerId);
+            w.Put(Address ?? "");
+            w.Put(Port);
+        }
+
+        public static PeerRosterEntry Deserialize(NetReader r) => new PeerRosterEntry
+        {
+            PlayerId = r.GetInt(),
+            Address = r.GetString(),
+            Port = r.GetInt()
+        };
+    }
+
+    /// <summary>Host→all: graceful leave; elect takes host grant.</summary>
+    public struct HostHandoffMessage
+    {
+        public int ElectPlayerId;
+        public int SessionPort;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ElectPlayerId);
+            w.Put(SessionPort);
+        }
+
+        public static HostHandoffMessage Deserialize(NetReader r) => new HostHandoffMessage
+        {
+            ElectPlayerId = r.GetInt(),
+            SessionPort = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Workbench open lock: client request or host grant/deny/release fan-out.
+    /// IsRequest=true only on client→host acquire attempts. Key = pos-stable workbench id.
+    /// </summary>
+    public struct WorkbenchLockMessage
+    {
+        public string WorkbenchKey;
+        public int OwnerPlayerId;
+        public bool Granted;
+        public bool Release;
+        public bool IsRequest;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(WorkbenchKey ?? "");
+            w.Put(OwnerPlayerId);
+            w.Put(Granted);
+            w.Put(Release);
+            w.Put(IsRequest);
+        }
+
+        public static WorkbenchLockMessage Deserialize(NetReader r) => new WorkbenchLockMessage
+        {
+            WorkbenchKey = r.GetString(),
+            OwnerPlayerId = r.GetInt(),
+            Granted = r.GetBool(),
+            Release = r.GetBool(),
+            IsRequest = r.GetBool()
+        };
+    }
+
     public struct ClientStateBackupMessage
     {
         public string JsonData;

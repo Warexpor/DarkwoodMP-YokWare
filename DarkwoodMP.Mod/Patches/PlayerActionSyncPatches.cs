@@ -38,11 +38,12 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            // Flare B+ (protocol 18): held flare light is owned by PlayerState continuous
-            // stream only — never emit HasItemLight for flares (avoids double light).
+            // Flare/match B+: held burn lights owned by PlayerState continuous stream only.
             string curType = __instance.currentItem != null ? __instance.currentItem.type : null;
             if (!string.IsNullOrEmpty(curType) &&
                 curType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return msg;
+            if (LanNetworkManager.IsMatchLightItem(__instance))
                 return msg;
 
             if (InvItemClass.isNull(__instance.currentItem) || !__instance.currentItem.activated)
@@ -207,6 +208,22 @@ namespace DWMPHorde.Patches
             }
 
             Vector3 pos = __instance.transform.position;
+            int throwId = 0;
+            float longevity = 0f;
+            if (ModRuntime.Network is LanNetworkManager lan)
+                throwId = lan.MintThrowId();
+            if (!string.IsNullOrEmpty(capture.ItemType)
+                && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                longevity = 5f;
+                if (capture.HeldItem != null)
+                {
+                    Flare fl = capture.HeldItem.GetComponent<Flare>()
+                        ?? capture.HeldItem.GetComponentInChildren<Flare>(true);
+                    if (fl != null && fl.longevity > 0.05f)
+                        longevity = fl.longevity + 2f;
+                }
+            }
             ModRuntime.Network.SendThrowableSpawn(new ThrowableSpawnMessage
             {
                 ItemType = capture.ItemType,
@@ -217,7 +234,9 @@ namespace DWMPHorde.Patches
                 Distance = capture.Distance,
                 VelX = vx,
                 VelY = vy,
-                VelZ = vz
+                VelZ = vz,
+                ThrowId = throwId,
+                LongevitySec = longevity
             });
 
             // Client thrower: local projectile is FX-only. Host spawns the combat copy

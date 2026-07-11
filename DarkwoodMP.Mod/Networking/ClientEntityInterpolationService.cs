@@ -1,3 +1,4 @@
+using DWMPHorde.Audio;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using System.Collections.Generic;
@@ -33,6 +34,15 @@ namespace DWMPHorde.Networking
         private const float MatchRadius = 15f;
         private const float PhantomCleanupDelay = 5f;
         private const float UnmatchedCleanupDelay = 1f;
+
+        /// <summary>
+        /// Host entity broadcast radius is ~3500. Applying those far snapshots called
+        /// EnsureEntityAwake (SetActive + isActive) on WorldGrid-culled NPCs map-wide →
+        /// client FPS died while co-op connected; recovered when host left (no more snaps).
+        /// Only fully drive / wake entities near the local listener.
+        /// </summary>
+        public const float ClientInterestDistance = 1400f;
+        private const float ClientInterestDistanceSq = ClientInterestDistance * ClientInterestDistance;
 
         private static int _lastApplyCount;
         private static int _lastSkippedCount;
@@ -78,6 +88,16 @@ namespace DWMPHorde.Networking
             return false;
         }
 
+        /// <summary>True if worldPos is near the local listen camera/player (client interest).</summary>
+        public static bool IsInClientInterest(Vector3 worldPos)
+        {
+            Vector3 listen = LocalAudioService.GetListenPosition();
+            float dx = worldPos.x - listen.x;
+            float dy = worldPos.y - listen.y;
+            float dz = worldPos.z - listen.z;
+            return dx * dx + dy * dy + dz * dz <= ClientInterestDistanceSq;
+        }
+
         public static void ApplySnapshot(EntityStateMessage msg)
         {
             if (msg.Entities == null || msg.Entities.Length == 0)
@@ -93,24 +113,33 @@ namespace DWMPHorde.Networking
             if (wasFirst)
                 _firstSnapshotTime = Time.time;
 
-            // Purge any local-only entities that appeared since the last
-            // snapshot — daytime world dogs, save-loaded characters, etc.
-            // that have no host stable ID and would appear as immobile ghosts.
-            PurgeUnmatchedLocalEntities();
-
             int applied = 0;
             int skipped = 0;
-            var sb = new System.Text.StringBuilder();
-            var skippedSb = new System.Text.StringBuilder();
+            // High-freq dumps only on full Trace preset (Dev playtest must stay light).
+            bool dump = ModRuntime.VerboseLogging && ((_snapshotCount + 1) % 50 == 0);
+            System.Text.StringBuilder sb = dump ? new System.Text.StringBuilder() : null;
+            System.Text.StringBuilder skippedSb = dump ? new System.Text.StringBuilder() : null;
 
             for (int i = 0; i < msg.Entities.Length; i++)
             {
                 EntitySnapshotNet e = msg.Entities[i];
                 Vector3 targetPos = new Vector3(e.PosX, e.PosY, e.PosZ);
 
-                if (sb.Length == 0)
-                    sb.Append($"[Entity] snapshot IDs: ");
-                sb.Append($"{e.Index} ");
+                // Far host-range snaps: do not EnsureEntityAwake / spawn phantoms map-wide.
+                if (!IsInClientInterest(targetPos))
+                {
+                    StopDriving(e.Index);
+                    skipped++;
+                    continue;
+                }
+
+                if (sb != null)
+                {
+                    if (sb.Length == 0)
+                        sb.Append("[Entity] snapshot IDs: ");
+                    sb.Append(e.Index);
+                    sb.Append(' ');
+                }
 
                 Character c = CharacterTracker.FindByStableId(e.Index);
                 if (c != null)
@@ -127,8 +156,6 @@ namespace DWMPHorde.Networking
                         // If the matched entity is a phantom, check if a real local entity
                         // now exists nearby (e.g. world chunk just loaded). If so, replace
                         // the phantom with the real entity to avoid duplicates.
-                        // IMPORTANT: exclude the phantom's own ID from the search so
-                        // FindByPositionAndName doesn't return the phantom itself.
                         if (_spawnedPhantomIds.Contains(e.Index))
                         {
                             HashSet<short> exclude = new HashSet<short>(_hostSyncedIds) { e.Index };
@@ -141,7 +168,8 @@ namespace DWMPHorde.Networking
                                 _spawnedPhantomIds.Remove(e.Index);
                                 Object.Destroy(c.gameObject);
                                 c = real;
-                                ModRuntime.LegacyInfo($"[Entity] replaced phantom with real entity: {e.EntityName}(id={e.Index})");
+                                if (ModRuntime.VerboseLogging)
+                                    ModRuntime.LegacyInfo($"[Entity] replaced phantom with real entity: {e.EntityName}(id={e.Index})");
                             }
                         }
                         _hostSyncedIds.Add(e.Index);
@@ -151,8 +179,7 @@ namespace DWMPHorde.Networking
                     }
 
                     // Name mismatch — the stable ID hit a wrong local entity.
-                    // Reset its ID so position-based matching can find the correct entity.
-                    if (ModRuntime.VerboseLogging || (_snapshotCount % 30 == 0))
+                    if (ModRuntime.VerboseLogging || (_snapshotCount % 100 == 0))
                         ModRuntime.LegacyInfo($"[Entity] stable ID collision: id={e.Index} found {c.name} but expected {e.EntityName}");
                     CharacterTracker.ClearId(c);
                 }
@@ -165,29 +192,46 @@ namespace DWMPHorde.Networking
                     _hostSyncedIds.Add(e.Index);
                     _everHostSyncedIds.Add(e.Index);
                     EnsureEntityAwake(c);
-                    ModRuntime.LegacyInfo($"[Entity] matched by position: {e.EntityName}(id={e.Index}) at ({targetPos.x:F1},{targetPos.z:F1})");
+                    if (wasFirst || ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[Entity] matched by position: {e.EntityName}(id={e.Index}) at ({targetPos.x:F1},{targetPos.z:F1})");
                     UpdateInterpolation(c, e, targetPos, ref applied);
                     continue;
                 }
 
-                // Couldn't find locally — defer to pending match (retried each frame)
-                _pendingMatches.Add(new PendingEntry
+                // Couldn't find locally — one pending entry per host id (no 10 Hz duplicates).
+                if (!TryUpdatePending(e, targetPos))
                 {
-                    HostId = e.Index,
-                    EntityName = e.EntityName,
-                    PrefabPath = e.PrefabPath,
-                    Position = targetPos,
-                    RotY = e.RotY,
-                    Clip = e.Clip,
-                    ClipFrame = e.ClipFrame,
-                    Alive = e.Alive,
-                    TimeAdded = Time.time
-                });
+                    _pendingMatches.Add(new PendingEntry
+                    {
+                        HostId = e.Index,
+                        EntityName = e.EntityName,
+                        PrefabPath = e.PrefabPath,
+                        Position = targetPos,
+                        RotY = e.RotY,
+                        Clip = e.Clip,
+                        ClipFrame = e.ClipFrame,
+                        Alive = e.Alive,
+                        TimeAdded = Time.time
+                    });
+                }
                 skipped++;
-                if (skippedSb.Length == 0)
-                    skippedSb.Append("[Entity] PENDING: ");
-                skippedSb.Append($"id={e.Index}({e.EntityName}) ");
+                if (skippedSb != null)
+                {
+                    if (skippedSb.Length == 0)
+                        skippedSb.Append("[Entity] PENDING: ");
+                    skippedSb.Append("id=");
+                    skippedSb.Append(e.Index);
+                    skippedSb.Append('(');
+                    skippedSb.Append(e.EntityName);
+                    skippedSb.Append(") ");
+                }
             }
+
+            // Do NOT mass-Destroy "unmatched" save NPCs on first snapshot.
+            // Host only streams nearby entities (~4 in logs); the rest of the save
+            // is still valid world state. Old purge killed ~58 Characters in one frame
+            // (client enter FPS crater) and left holes until host walked near and
+            // re-spawned phantoms. Local-only AI is already frozen on client.
 
             _lastApplyCount = applied;
             _lastSkippedCount = skipped;
@@ -195,7 +239,7 @@ namespace DWMPHorde.Networking
             _totalSkipped += skipped;
 
             _snapshotCount++;
-            if (_snapshotCount % 10 == 0 && ModRuntime.VerboseLogging)
+            if (dump && sb != null)
             {
                 if (sb.Length > 0)
                     ModRuntime.LegacyInfo(sb.ToString());
@@ -210,9 +254,49 @@ namespace DWMPHorde.Networking
                 }
                 ModRuntime.LegacyInfo(tb.ToString());
                 ModRuntime.LegacyInfo($"[Entity] applied={applied} pending={_pendingMatches.Count} hostSynced={_hostSyncedIds.Count}");
-                if (skippedSb.Length > 0)
+                if (skippedSb != null && skippedSb.Length > 0)
                     ModRuntime.LegacyInfo(skippedSb.ToString());
             }
+        }
+
+        /// <summary>Update existing pending row for host id; false if not yet pending.</summary>
+        private static bool TryUpdatePending(EntitySnapshotNet e, Vector3 targetPos)
+        {
+            for (int i = 0; i < _pendingMatches.Count; i++)
+            {
+                PendingEntry p = _pendingMatches[i];
+                if (p.HostId != e.Index)
+                    continue;
+                p.Position = targetPos;
+                p.RotY = e.RotY;
+                p.Clip = e.Clip;
+                p.ClipFrame = e.ClipFrame;
+                p.Alive = e.Alive;
+                p.EntityName = e.EntityName;
+                p.PrefabPath = e.PrefabPath;
+                // Keep TimeAdded so timeout still fires from first sighting.
+                _pendingMatches[i] = p;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Stop interpolating a host id (left interest radius or promote).</summary>
+        private static void StopDriving(short hostId)
+        {
+            if (_states.TryGetValue(hostId, out var state))
+            {
+                state.hasTarget = false;
+                if (state.CachedRb != null)
+                {
+                    try { state.CachedRb.isKinematic = false; }
+                    catch { /* destroyed */ }
+                }
+                _states.Remove(hostId);
+            }
+            _displayPositions.Remove(hostId);
+            _displayRotations.Remove(hostId);
+            // Keep _hostSyncedIds / ever so we don't thrash rematch when they re-enter range.
         }
 
         private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, ref int applied)
@@ -259,6 +343,10 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo($"[Entity] DETECTED DEATH: {c.name}(id={e.Index})");
                 c.die();
+                // Client Character.Update (processAnims) is AI-suppressed — die() never
+                // starts the death clip. Host often later sends empty Clip after
+                // destroyComponents2 nukes the animator. Play death anim locally now.
+                EnsureDeathAnimation(c, e.Index, e.Clip, e.ClipFrame);
             }
 
             state.alive = e.Alive;
@@ -274,27 +362,123 @@ namespace DWMPHorde.Networking
         /// - On clip change: Play + snap to host frame (attack/hitreact/death start aligned).
         /// - Alive + same clip: let tk2d advance at natural FPS (no 10 Hz SetFrame scrub —
         ///   that killed attack windups and made hitreacts stutter).
-        /// - Dead: keep host death frame so corpse doesn't freeze on wrong pose.
+        /// - Dead: play death clip once from frame 0; do not re-lock to empty host clip.
         /// Applies to root animator and Character.legsAnimator when present.
         /// </summary>
         private static void ApplyEntityPresentation(Character c, short entityId, string clip, short clipFrame, bool alive)
         {
             if (c == null) return;
 
-            tk2dSpriteAnimator body = c.GetComponent<tk2dSpriteAnimator>();
-            // Prefer Character.animator cache when available
-            try
-            {
-                var a = c.animator;
-                if (a != null) body = a;
-            }
-            catch { /* property may throw if dismantled */ }
+            tk2dSpriteAnimator body = ResolveBodyAnimator(c);
 
-            ApplyClipToAnimator(body, entityId, clip, clipFrame, alive, trackDeath: true);
+            if (!alive)
+            {
+                // Always ensure death presentation (covers pending-match path + late packets).
+                EnsureDeathAnimation(c, entityId, clip, clipFrame);
+                return;
+            }
+
+            ApplyClipToAnimator(body, entityId, clip, clipFrame, alive: true, trackDeath: false);
 
             tk2dSpriteAnimator legs = c.legsAnimator;
             if (legs != null && legs != body)
-                ApplyClipToAnimator(legs, entityId, clip, clipFrame, alive, trackDeath: false);
+                ApplyClipToAnimator(legs, entityId, clip, clipFrame, alive: true, trackDeath: false);
+        }
+
+        private static tk2dSpriteAnimator ResolveBodyAnimator(Character c)
+        {
+            if (c == null) return null;
+            tk2dSpriteAnimator body = null;
+            try
+            {
+                body = c.animator;
+            }
+            catch { /* dismantled */ }
+            if (body == null)
+                body = c.GetComponent<tk2dSpriteAnimator>();
+            return body;
+        }
+
+        /// <summary>
+        /// True if clip name is a real death / cut-in-half presentation (not idle/walk).
+        /// </summary>
+        private static bool IsDeathClipName(string clip)
+        {
+            if (string.IsNullOrEmpty(clip)) return false;
+            if (clip.IndexOf("Death", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (clip.Equals("Cut_half", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (clip.Equals("BeartrapDeath", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        private static string ResolveDeathClipName(Character c, tk2dSpriteAnimator anim, string hostClip)
+        {
+            if (anim == null) return null;
+
+            if (IsDeathClipName(hostClip) && anim.GetClipByName(hostClip) != null)
+                return hostClip;
+
+            try
+            {
+                string deathAnim = Traverse.Create(c).Field("deathAnim").GetValue<string>();
+                if (string.IsNullOrEmpty(deathAnim))
+                {
+                    Traverse.Create(c).Method("getDeathAnims").GetValue();
+                    deathAnim = Traverse.Create(c).Field("deathAnim").GetValue<string>();
+                }
+                if (!string.IsNullOrEmpty(deathAnim) && anim.GetClipByName(deathAnim) != null)
+                    return deathAnim;
+            }
+            catch { /* field/method missing on odd prefabs */ }
+
+            string[] fallbacks = { "Death1", "Death2", "Death3", "Death", "Cut_half", "BeartrapDeath" };
+            for (int i = 0; i < fallbacks.Length; i++)
+            {
+                if (anim.GetClipByName(fallbacks[i]) != null)
+                    return fallbacks[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Start the death presentation once. Client AI-skip blocks processAnims which
+        /// is what vanilla uses to Play(deathAnim). Host clip is often already empty
+        /// by the time Alive=false arrives (animator destroyed post-death on host).
+        /// </summary>
+        private static void EnsureDeathAnimation(Character c, short entityId, string hostClip, short hostFrame)
+        {
+            if (c == null) return;
+            if (_deathAnimationPlayed.Contains(entityId)) return;
+
+            tk2dSpriteAnimator body = ResolveBodyAnimator(c);
+            if (body == null) return;
+
+            if (!body.enabled)
+                body.enabled = true;
+
+            string deathClip = ResolveDeathClipName(c, body, hostClip);
+            if (string.IsNullOrEmpty(deathClip))
+            {
+                ModRuntime.LegacyInfo($"[Entity] death anim missing for {c.name}(id={entityId}) hostClip={hostClip}");
+                // Still mark so we don't spam; corpse stays lootable via die() patch.
+                _deathAnimationPlayed.Add(entityId);
+                return;
+            }
+
+            body.Play(deathClip);
+            // Mid-death join: snap to host frame. Fresh kill: play from start.
+            if (IsDeathClipName(hostClip) && hostFrame > 0 && body.CurrentClip != null)
+            {
+                int maxFrame = body.CurrentClip.frames.Length - 1;
+                if (maxFrame >= 0)
+                    body.SetFrame(Mathf.Clamp(hostFrame, 0, maxFrame), false);
+            }
+
+            _deathAnimationPlayed.Add(entityId);
+            ModRuntime.LegacyInfo($"[Entity] death anim Play({deathClip}) on {c.name}(id={entityId})");
         }
 
         private static void ApplyClipToAnimator(
@@ -302,44 +486,32 @@ namespace DWMPHorde.Networking
         {
             if (anim == null) return;
 
+            // Dead entities are handled exclusively by EnsureDeathAnimation.
+            if (!alive)
+                return;
+
             if (!string.IsNullOrEmpty(clip))
             {
-                bool isDead = !alive;
-                bool alreadyPlayedDeath = trackDeath && isDead && _deathAnimationPlayed.Contains(entityId);
-
-                if (!alreadyPlayedDeath)
+                bool clipChanged = anim.CurrentClip == null || anim.CurrentClip.name != clip;
+                if (clipChanged && anim.GetClipByName(clip) != null)
                 {
-                    bool clipChanged = anim.CurrentClip == null || anim.CurrentClip.name != clip;
-                    if (clipChanged && anim.GetClipByName(clip) != null)
-                    {
-                        anim.Play(clip);
-                        if (trackDeath && isDead)
-                            _deathAnimationPlayed.Add(entityId);
+                    anim.Play(clip);
 
-                        // Align only at clip boundaries (start of attack/hitreact/death).
-                        if (clipFrame >= 0 && anim.CurrentClip != null)
-                        {
-                            int maxFrame = anim.CurrentClip.frames.Length - 1;
-                            if (maxFrame >= 0)
-                                anim.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
-                        }
-                    }
-                    else if (isDead && clipFrame >= 0 && anim.CurrentClip != null)
+                    // Align only at clip boundaries (start of attack/hitreact).
+                    if (clipFrame >= 0 && anim.CurrentClip != null)
                     {
-                        // Dead: hold host death frame so multi-peer corpses match.
                         int maxFrame = anim.CurrentClip.frames.Length - 1;
                         if (maxFrame >= 0)
                             anim.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
                     }
-                    // Alive + same clip: natural playback — do not SetFrame every tick.
                 }
+                // Alive + same clip: natural playback — do not SetFrame every tick.
             }
-            else if (alive && !anim.Playing)
+            else if (!anim.Playing)
             {
                 string idleClip = null;
                 try
                 {
-                    // idleAni is on Character
                     Character ch = anim.GetComponent<Character>()
                         ?? anim.GetComponentInParent<Character>();
                     if (ch != null)
@@ -360,6 +532,13 @@ namespace DWMPHorde.Networking
             for (int i = _pendingMatches.Count - 1; i >= 0; i--)
             {
                 PendingEntry p = _pendingMatches[i];
+
+                // Never FindObjectsOfType-activate or phantom-spawn far map entities.
+                if (!IsInClientInterest(p.Position))
+                {
+                    _pendingMatches.RemoveAt(i);
+                    continue;
+                }
 
                 // Try position matching again (tight radius)
                 Character c = CharacterTracker.FindByPositionAndName(p.Position, p.EntityName, MatchRadius, _hostSyncedIds);
@@ -779,39 +958,23 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Destroys all locally-tracked characters that are NOT the local
-        /// player, NOT a remote proxy, and NOT yet known to the host.
-        /// Called once on the very first snapshot to purge daytime/save
-        /// entities that would otherwise appear as immobile ghosts.
+        /// Client→host promote: stop driving positions and release rigidbodies so local AI/physics run.
         /// </summary>
-        private static void PurgeUnmatchedLocalEntities()
+        public static void ReleaseAuthorityForPromote()
         {
-            Player localPlayer = Player.Instance;
-            Character[] all = CharacterTracker.GetAll();
-            int purged = 0;
-            for (int i = 0; i < all.Length; i++)
+            foreach (var kv in _states)
             {
-                Character c = all[i];
-                if (c == null) continue;
-                if (c == localPlayer) continue;
-                if (c.name.Contains("RemotePlayer")) continue;
-
-                if (!CharacterTracker.TryGetStableId(c, out short sid))
+                try
                 {
-                    Object.Destroy(c.gameObject);
-                    purged++;
-                    continue;
+                    Character c = CharacterTracker.FindByStableId(kv.Key);
+                    if (c == null) continue;
+                    Rigidbody rb = kv.Value.CachedRb != null ? kv.Value.CachedRb : c.GetComponent<Rigidbody>();
+                    if (rb != null)
+                        rb.isKinematic = false;
                 }
-
-                // If this entity's stable ID is unknown to the host, it's local-only.
-                if (!_everHostSyncedIds.Contains(sid) && !_hostSyncedIds.Contains(sid))
-                {
-                    Object.Destroy(c.gameObject);
-                    purged++;
-                }
+                catch { /* dismantled */ }
             }
-            if (purged > 0)
-                ModRuntime.LegacyInfo($"[Entity] purged {purged} unmatched local entities on first snapshot");
+            Reset();
         }
 
         public static void Reset()
@@ -832,6 +995,7 @@ namespace DWMPHorde.Networking
             _totalSkipped = 0;
             _receivedFirstSnapshot = false;
             _firstSnapshotTime = 0f;
+            _snapshotCount = 0;
         }
 
         public static void LogStats()

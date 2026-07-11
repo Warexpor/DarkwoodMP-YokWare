@@ -125,6 +125,12 @@ namespace DWMPHorde.Networking
         public string ObjectName;
         public string ItemType;
         public int ClaimedByPlayerId;
+        /// <summary>
+        /// Local player-intent scrape gate (matches body-push: player walking).
+        /// When false while still dragging, peers must stop scrape immediately —
+        /// do not wait for quiet position deltas on Unreliable packets.
+        /// </summary>
+        public bool ScrapeActive;
 
         public void Serialize(NetWriter w)
         {
@@ -134,6 +140,7 @@ namespace DWMPHorde.Networking
             w.Put(ObjectName ?? "");
             w.Put(ItemType ?? "");
             w.Put(ClaimedByPlayerId);
+            w.Put(ScrapeActive);
         }
 
         public static DragSyncMessage Deserialize(NetReader r) => new DragSyncMessage
@@ -147,7 +154,9 @@ namespace DWMPHorde.Networking
             IsDragging = r.GetBool(),
             ObjectName = r.GetString(),
             ItemType = r.GetString(),
-            ClaimedByPlayerId = r.GetInt()
+            ClaimedByPlayerId = r.GetInt(),
+            // Old peers without this field: default false → observers stop scrape (safe).
+            ScrapeActive = r.AvailableBytes >= 1 && r.GetBool()
         };
     }
 
@@ -194,6 +203,48 @@ namespace DWMPHorde.Networking
             Fuel = r.GetFloat(),
             WoodLogAmount = r.GetInt(),
             WoodAmount = r.GetInt()
+        };
+    }
+
+    /// <summary>Hideout feeder: absolute Active flag (use → inactive). Pos-keyed like Saw.</summary>
+    public struct FeederStateMessage
+    {
+        public float PosX, PosY, PosZ;
+        public bool Active;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Active);
+        }
+
+        public static FeederStateMessage Deserialize(NetReader r) => new FeederStateMessage
+        {
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Active = r.GetBool()
+        };
+    }
+
+    /// <summary>Lure bait absolute health. Coalesced on send side.</summary>
+    public struct LureStateMessage
+    {
+        public float PosX, PosY, PosZ;
+        public int Health;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Health);
+        }
+
+        public static LureStateMessage Deserialize(NetReader r) => new LureStateMessage
+        {
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Health = r.GetInt()
         };
     }
 
@@ -244,13 +295,96 @@ namespace DWMPHorde.Networking
     public struct TrapTriggeredMessage
     {
         public float PosX, PosY, PosZ;
+        /// <summary>Stable trap id (0 = resolve by position only).</summary>
+        public int TrapNetId;
 
-        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); }
-        public static TrapTriggeredMessage Deserialize(NetReader r) => new TrapTriggeredMessage
+        public void Serialize(NetWriter w)
         {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(TrapNetId);
+        }
+        public static TrapTriggeredMessage Deserialize(NetReader r)
+        {
+            var msg = new TrapTriggeredMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat()
+            };
+            if (r.AvailableBytes >= 4)
+                msg.TrapNetId = r.GetInt();
+            return msg;
+        }
+    }
+
+    /// <summary>Host→all: thrown light/projectile expired (flare burnout).</summary>
+    public struct ThrowableDespawnMessage
+    {
+        public int ThrowId;
+        public float PosX, PosY, PosZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ThrowId);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+        }
+
+        public static ThrowableDespawnMessage Deserialize(NetReader r) => new ThrowableDespawnMessage
+        {
+            ThrowId = r.GetInt(),
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat()
+        };
+    }
+
+    /// <summary>Host→peer late-join: full trap table (id + pos + triggered + occupant).</summary>
+    public struct TrapBulkMessage
+    {
+        public TrapBulkEntry[] Entries;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Entries != null ? Entries.Length : 0;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+                Entries[i].Serialize(w);
+        }
+
+        public static TrapBulkMessage Deserialize(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0 || n > 512) n = 0;
+            var entries = new TrapBulkEntry[n];
+            for (int i = 0; i < n; i++)
+                entries[i] = TrapBulkEntry.Deserialize(r);
+            return new TrapBulkMessage { Entries = entries };
+        }
+    }
+
+    public struct TrapBulkEntry
+    {
+        public int TrapNetId;
+        public float PosX, PosY, PosZ;
+        public bool Triggered;
+        public short OccupantPlayerId;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(TrapNetId);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Triggered);
+            w.Put(OccupantPlayerId);
+        }
+
+        public static TrapBulkEntry Deserialize(NetReader r) => new TrapBulkEntry
+        {
+            TrapNetId = r.GetInt(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Triggered = r.GetBool(),
+            OccupantPlayerId = r.GetShort()
         };
     }
 

@@ -1,7 +1,7 @@
 # Path B — Feature inventory (Horde base vs Yokyy / prior YokWare merge)
 
-**Product:** YokWare Branch `0.9.1`  
-**Date:** 2026-07-10  
+**Product:** YokWare Branch `0.9.2` (unreleased **0.9.2+** in `CHANGELOG.md`)  
+**Date:** 2026-07-11  
 **Doctrine:** **Horde remaster is the shippable sync base.** Prior Yokyy-core merge is archived under `archive/yokyy-merge-0.9/` and is **not** the load path.
 
 Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
@@ -25,11 +25,12 @@ Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
 | Dedicated server project | **deferred** | Tree keeps `DarkwoodMP.Server` + Ironbark protocol as **research / future bridge**. Horde LAN wire is protocol **19**, not Ironbark v2 — connecting them without a full re-protocol is unsafe. |
 | Ironbark typed wire as live load path | **deferred** | Live clients use **Horde NetMessageType protocol 19**. Ironbark sources remain under `DarkwoodMP.Protocol` for codec tests and future server bridge. |
 | Dual MelonLoader packaging | **present** | `-p:Loader=MelonLoader` dual entry (`MelonModMain`); ship default remains BepInEx. |
-| Native **MULTIPLAYER** main-menu button (Yokyy) | **ported + fixed** | `MainMenuMultiplayerInject` — HOST/JOIN/SETTINGS/RESTORE/DISCONNECT/BACK; InputScript + menu ticks; config flush; join timeout. See `docs/YOKYY_FEATURE_AUDIT.md`. |
+| Native **MULTIPLAYER** main-menu button (Yokyy) | **ported + fixed** | `MainMenuMultiplayerInject` — HOST/JOIN/SETTINGS/RESTORE/DISCONNECT/BACK; InputScript + menu ticks; config flush; join timeout. |
 | Chat / HUD overlay (Yokyy) | **ported + hardened** | `ChatHud` + `ChatMessage` (111); Ctrl+C; length/rate clamps; session status strip. |
 | SyncCheck (Yokyy digest correctives) | **deferred** | Horde relies on host authority + entity/state streams; full SyncCheck port needs careful design so it does not fight host authority. |
 | ItemState (Yokyy product) | **deferred** | Not in Horde; inventory/container absolute sync covers most play cases. |
 | IsTimeAuthority / dedicated elect | **deferred** | Horde is **host-authoritative LAN** (`NetworkRole.Host/Client`). Dedicated elect-authority was Yokyy-only. |
+| Host grant on host crash (LAN) | **present-in-horde** | **0.9.2+:** `PeerRoster` 123 + `HostHandoff` 124; elect lowest id; soft promote. Not dedicated-server elect. |
 | InteractionLock full (all interactive classes) | **deferred** | DragClaim covers drag; full Yokyy InteractionLock matrix not ported — prefer Horde claim model. |
 
 ---
@@ -44,14 +45,17 @@ Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
 | Enemy EntityState + client interp | **present-in-horde** |
 | Client damage redirect (melee/hitscan/projectile/AOE) | **present-in-horde** |
 | Friendly fire host-authoritative | **present-in-horde** |
-| Doors / generators / barricades | **present-in-horde** |
+| Doors / generators / barricades / traps | **present-in-horde** |
 | Containers / death bags / trade | **present-in-horde** |
 | Dreams / cutscenes / chapter | **present-in-horde** |
 | Weather / map / reputation / hideout | **present-in-horde** |
+| Lights (held + world) / thrown flare | **present-in-horde** |
+| Late-join sticky bulk (light + staggered heavy) | **present-in-horde** |
 | Coop balance / named NPC scale | **present-in-horde** |
 | Night death / morning rep skip | **present-in-horde** |
+| Host grant / migration (LAN) | **present-in-horde** |
 
-Deep audit trail: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` (Horde).
+Deep audit trail: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` (Horde). Live deltas: `CHANGELOG.md` **0.9.2+**.
 
 ---
 
@@ -60,7 +64,7 @@ Deep audit trail: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` (Horde).
 | Bug / defect | Fix |
 |--------------|-----|
 | Shippable default load path was Yokyy-core merge (his bugs / sound / thin combat) | **Replaced** load path with Horde remaster sources as `DarkwoodMP.Mod`. |
-| Product identity still `DWMP HORDE` / old versions | **PluginInfo** + AssemblyInfo → YokWare Branch **0.9.1**, GUID `com.yokware.branch`. |
+| Product identity still `DWMP HORDE` / old versions | **PluginInfo** + AssemblyInfo → YokWare Branch **0.9.2**, GUID `com.yokware.branch`. |
 | Log tags `[DWMP/…]` confusing for YokWare testers | **ModLog** CatTags → `[YokWare/…]`; banner Path B + authors. |
 | Deploy could leave both Horde-named and product DLLs | Deploy target removes `DWMP_HordeRemaster.dll` if present; ships `DarkwoodMP.Mod.dll`. |
 | Yokyy archive still present as accidental load path risk | Archived under `archive/yokyy-merge-0.9/` with README “do not load”. |

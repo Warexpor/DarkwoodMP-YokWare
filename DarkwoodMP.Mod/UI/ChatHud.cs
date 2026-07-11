@@ -15,6 +15,9 @@ namespace DWMPHorde
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
     {
+        /// <summary>ponytail: chat off for now — set true to re-enable co-op chat.</summary>
+        public static bool Enabled = false;
+
         private const string InputControlName = "YokWareChat";
         private const float AntiSpamSec = 0.25f;
 
@@ -26,10 +29,11 @@ namespace DWMPHorde
         private bool _focusPending;
         private int _lastSendFrame = -1;
 
-        public static bool IsInputOpen => _instance != null && _instance._inputOpen;
+        public static bool IsInputOpen => Enabled && _instance != null && _instance._inputOpen;
 
         public static void EnsureExists()
         {
+            if (!Enabled) return;
             if (_instance != null) return;
             var go = new GameObject("YokWare_ChatHud");
             Object.DontDestroyOnLoad(go);
@@ -38,12 +42,14 @@ namespace DWMPHorde
 
         public static void AddLocalSystem(string msg)
         {
+            if (!Enabled) return;
             EnsureExists();
             _instance?.AddLine("[System] " + msg);
         }
 
         public static void OnRemote(ChatMessagePayload msg)
         {
+            if (!Enabled) return;
             EnsureExists();
             if (_instance == null) return;
             string name = string.IsNullOrEmpty(msg.SenderName) ? ("P" + msg.SenderId) : msg.SenderName;
@@ -53,6 +59,8 @@ namespace DWMPHorde
 
         private void Update()
         {
+            if (!Enabled) return;
+
             // Open/close toggle — either Ctrl works (Yokyy was Left only).
             if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                 && Input.GetKeyDown(KeyCode.C))
@@ -87,21 +95,14 @@ namespace DWMPHorde
 
         private void OnGUI()
         {
-            var net = ModRuntime.Network;
-            bool session = net != null && net.Role != NetworkRole.Offline;
+            if (!Enabled) return;
 
-            if (session)
-            {
-                string role = net.Role == NetworkRole.Host ? "HOST" : "CLIENT";
-                string line = PluginInfo.Name + "  " + role + "  id=" + net.LocalPlayerId
-                    + "  peers=" + net.ConnectedPlayerCount
-                    + "  |  Ctrl+C chat  F2 settings";
-                GUI.Label(new Rect(8f, 4f, Screen.width - 16f, 22f), line);
-            }
+            // Session status strip (HOST/CLIENT/peers) removed — was always-on top-left clutter.
+            // Role/peers still live in F2 settings menu. Chat lines only while history exists.
 
             if (_lines.Count > 0)
             {
-                float y = session ? 28f : 8f;
+                float y = 8f;
                 for (int i = Mathf.Max(0, _lines.Count - 8); i < _lines.Count; i++)
                 {
                     GUI.Label(new Rect(8f, y, Screen.width * 0.55f, 18f), _lines[i]);

@@ -51,23 +51,76 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
-            // --- CASE 3: Entity has no target but host is visible ---
-            // Must run BEFORE the ProxyDistanceHelper guard so host-target
-            // acquisition happens even when the proxy has fled. Handles the
-            // onlyAttackPlayer=true case where canSeeEnemy can't set target.
+            // --- CASE 3: no/wrong target — acquire closest player (host OR any proxy) ---
+            // onlyAttackPlayer entities never set target on proxies via vanilla canSeeEnemy.
+            // Treat host + all proxies as equal player identities: pick closest valid CharBase.
             if (__instance.aggressiveness != Aggressiveness.neutral &&
                 __instance.aggressiveness != Aggressiveness.follower &&
                 __instance.attacksFaction(Faction.player))
             {
+                Transform closestPlayer = null;
+                float closestD = float.MaxValue;
+
                 CharBase hostCB = Player.Instance?.GetComponent<CharBase>();
-                if (hostCB != null && __instance.charactersInSight.Contains(hostCB) && !hostCB.invisible && !hostCB.ignoreMe)
+                if (hostCB != null && !hostCB.invisible && !hostCB.ignoreMe
+                    && __instance.charactersInSight.Contains(hostCB))
                 {
-                    bool acquiringHost = __instance.target == null ||
-                        (__instance.target != hostCB.transform && __instance.behaviour != Character.Behaviour.chasingTarget);
-                    if (acquiringHost)
+                    float dh = Core.trueDistance(__instance.transform.position, hostCB.transform.position);
+                    if (dh < closestD)
                     {
-                        __instance.attackCharacter(hostCB.transform);
+                        closestD = dh;
+                        closestPlayer = hostCB.transform;
                     }
+                }
+
+                // Proxies may not be in charactersInSight yet — use geometric detection.
+                if (!ProxyDistanceHelper.ProxyIsFar(__instance) && net != null)
+                {
+                    float acqRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
+                    Sniffer sn = __instance.GetComponent<Sniffer>();
+                    float sniffR = sn != null ? sn.radius : 0f;
+                    if (sniffR > acqRange) acqRange = sniffR;
+
+                    foreach (var proxy in net.GetAllProxies())
+                    {
+                        if (proxy == null) continue;
+                        CharBase pcb = proxy.GetComponent<CharBase>();
+                        if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
+                            continue;
+                        float d = Core.trueDistance(__instance.transform.position, proxy.transform.position);
+                        if (d > acqRange || d >= closestD) continue;
+
+                        Vector3 to = proxy.transform.position - __instance.transform.position;
+                        bool inFov = Vector3.Angle(to, __instance.transform.up) <= (float)__instance.fieldOfViewRange;
+                        bool inSniff = sn != null && d < sniffR;
+                        if (!inFov && !inSniff) continue;
+
+                        bool detected = inSniff && !inFov;
+                        if (!detected && inFov)
+                        {
+                            if (Physics.Raycast(__instance.transform.position, to, out var hit, d, 18909185))
+                            {
+                                if (hit.collider != null
+                                    && hit.collider.GetComponentInParent<RemotePlayerProxy>() == proxy)
+                                    detected = true;
+                            }
+                        }
+                        if (!detected) continue;
+
+                        if (!__instance.charactersInSight.Contains(pcb))
+                            __instance.charactersInSight.Add(pcb);
+                        closestD = d;
+                        closestPlayer = proxy.transform;
+                    }
+                }
+
+                if (closestPlayer != null)
+                {
+                    bool needAcquire = __instance.target == null
+                        || (__instance.target != closestPlayer
+                            && __instance.behaviour != Character.Behaviour.chasingTarget);
+                    if (needAcquire)
+                        __instance.attackCharacter(closestPlayer);
                 }
             }
 
@@ -186,6 +239,12 @@ namespace DWMPHorde.Patches
             if (bestProxy == null)
                 return;
 
+            // Equal identity: proxy CharBase must sit in charactersInSight so
+            // checkForNewEnemyCloserThanTarget can switch host ↔ client by distance.
+            CharBase bestProxyCB = bestProxyT.GetComponent<CharBase>();
+            if (bestProxyCB != null && !__instance.charactersInSight.Contains(bestProxyCB))
+                __instance.charactersInSight.Add(bestProxyCB);
+
             // Wake up sleeping enemies so they react to the proxy
             if (__instance.sleeping && !__instance.wakeUpOnlyManually)
                 __instance.wakeup();
@@ -193,48 +252,55 @@ namespace DWMPHorde.Patches
             __instance.canSeeEnemyFar = true;
             __instance.stopRoutine("lostEnemy", true);
 
-            // Only set target to proxy when host is not visible
+            // Closest-player identity (was: "only target proxy if host not visible" —
+            // that made the client second-class whenever host was still in sight list).
             CharBase hostCharBase = Player.Instance?.GetComponent<CharBase>();
-            bool hostVisible = hostCharBase != null && __instance.charactersInSight.Contains(hostCharBase);
+            bool hostVisible = hostCharBase != null && !hostCharBase.invisible && !hostCharBase.ignoreMe
+                && __instance.charactersInSight.Contains(hostCharBase);
+            float hostDist = hostVisible && Player.Instance != null
+                ? Core.trueDistance(__instance.transform.position, Player.Instance.transform.position)
+                : float.MaxValue;
 
-            if (!hostVisible)
+            Transform preferT = bestProxyT;
+            float preferDist = bestDist;
+            bool preferIsProxy = true;
+            if (hostVisible && hostDist < preferDist)
             {
-                // Flee animals: flee from nearest player (host or proxy), don't override target
-                if (__instance.aggressiveness == Aggressiveness.flee ||
-                    __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                {
-                    if (bestProxy != null)
-                    {
-                        Vector3 nearest = PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
-                        __instance.runAway(nearest);
-                        if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                            __instance.wantToDespawn = true;
-                    }
-                    return;
-                }
-
-                if (__instance.target == null || __instance.target != bestProxyT)
-                {
-                    if (__instance.aggressiveness != Aggressiveness.neutral &&
-                        __instance.behaviour != Character.Behaviour.chasingTarget &&
-                        __instance.behaviour != Character.Behaviour.defensive &&
-                        __instance.behaviour != Character.Behaviour.following &&
-                        !__instance.canSeeEnemyNear &&
-                        __instance.behaviour != Character.Behaviour.escaping &&
-                        __instance.behaviour != Character.Behaviour.running)
-                    {
-                        __instance.stopAndListenTo(bestProxyT.position);
-                    }
-                    __instance.target = bestProxyT;
-                }
-
-                if (bestDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
-                {
-                    __instance.canSeeEnemyNear = true;
-                }
+                preferT = Player.Instance.transform;
+                preferDist = hostDist;
+                preferIsProxy = false;
             }
 
-            // Remote player effect checks (shadowWard, forestSpiritWard, EnemyOfTheForest)
+            // Flee animals: always from nearest player body (host or any proxy)
+            if (__instance.aggressiveness == Aggressiveness.flee ||
+                __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
+            {
+                Vector3 nearest = PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
+                __instance.runAway(nearest);
+                if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
+                    __instance.wantToDespawn = true;
+                return;
+            }
+
+            if (__instance.target == null || __instance.target != preferT)
+            {
+                if (__instance.aggressiveness != Aggressiveness.neutral &&
+                    __instance.behaviour != Character.Behaviour.chasingTarget &&
+                    __instance.behaviour != Character.Behaviour.defensive &&
+                    __instance.behaviour != Character.Behaviour.following &&
+                    !__instance.canSeeEnemyNear &&
+                    __instance.behaviour != Character.Behaviour.escaping &&
+                    __instance.behaviour != Character.Behaviour.running)
+                {
+                    __instance.stopAndListenTo(preferT.position);
+                }
+                __instance.target = preferT;
+            }
+
+            if (preferDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
+                __instance.canSeeEnemyNear = true;
+
+            // Skills on the detected proxy (ward / EotF) — same as host ward checks on Player.
             if (!bestProxy.RemoteHasEnemyOfTheForest)
             {
                 if (__instance.afraidOfHideout && bestProxy.RemoteHasShadowWard)
@@ -249,7 +315,8 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            if (bestProxy.RemoteHasEnemyOfTheForest && __instance.faction == Faction.animalAggressive)
+            if (preferIsProxy && bestProxy.RemoteHasEnemyOfTheForest
+                && __instance.faction == Faction.animalAggressive)
             {
                 __instance.target = bestProxyT;
                 __instance.canSeeEnemyFar = true;
@@ -257,6 +324,14 @@ namespace DWMPHorde.Patches
                     __instance.canSeeEnemyNear = true;
                 if (__instance.behaviour != Character.Behaviour.chasingTarget)
                     __instance.attackCharacter(bestProxyT);
+            }
+            else if (preferIsProxy
+                && __instance.behaviour != Character.Behaviour.chasingTarget
+                && __instance.aggressiveness != Aggressiveness.neutral
+                && __instance.canSeeEnemyNear)
+            {
+                // Commit chase like vanilla near-sight acquisition on a real Player.
+                __instance.attackCharacter(preferT);
             }
         }
     }

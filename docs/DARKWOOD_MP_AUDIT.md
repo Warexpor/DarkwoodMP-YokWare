@@ -4,7 +4,7 @@
 **Mod:** `C:\MyProjects\DarkwoodMP-YokWare` (YokWare Branch **0.9.2 Path B**, Horde wire **ProtocolVersion=19**)  
 **Original SP reference:** `C:\Users\amicu\Desktop\Darkwood DECOMPILED\Scripts\Assembly-CSharp` (~1107 game `.cs` files)  
 **Note:** Objective path `C:\Users\amicu\Desktop\Darkwood` is missing; decompiled tree is authoritative.  
-**Scope:** Static / IL-path analysis of game logic + mod patches/networking. Live 2-client campaign playtest is residual risk (`docs/TODO.md`).
+**Scope:** Static / IL-path analysis of game logic + mod patches/networking. Live 2-client campaign playtest is residual risk (`docs/TODO.md` short list; detail in `CHANGELOG.md` / `COOP_COVERAGE.md`).
 
 **0.9.2 resolution (code shipped):** Audit **C1** (host-only time), **C2** (dialog world-only + NPC lock H5), **C3** (chapter auto rehost/reconnect; credits residual), **C4** (share fail-loud; no fake chunk seed), **H1** (client→host flags), **H3** (night death world-mutation suppress) are addressed in Path B sources. Findings tables below retain original diagnosis for history; treat CRITICAL rows as **fixed in 0.9.2** unless marked residual.
 
@@ -39,7 +39,7 @@ Single-player Darkwood is a **single `Player.Instance` world**: time, flags, dia
 | `RandomWorldObjects` | `RandomWorldObjects.cs` | Daily / night object pools (ungseeded in vanilla). |
 | `CharacterSpawnPoint.actuallySpawn` | spawn chance rolls | Location activation RNG. |
 
-**MP implication:** Vanilla RNG is **not** multiplayer-safe. Path B design is **host gen + WorldSaveShare** (files to client slot 5), not dual independent gen. Residual: location/landmark *placement* order if both generate without share (`docs/TODO.md` #5).
+**MP implication:** Vanilla RNG is **not** multiplayer-safe. Path B design is **host gen + WorldSaveShare** (files to client slot 5), not dual independent gen. Residual: location/landmark *placement* order if both generate without share (`docs/TODO.md`).
 
 ### 1.3 Flags / GameEvents / EventTriggers
 
@@ -133,7 +133,7 @@ Live load path: `DarkwoodMP.Mod` (Horde). Ironbark (`DarkwoodMP.Protocol`, `Dark
 |----|---------|----------|----------------------|-------|-------------|
 | **C1** | **Client clock still advances and runs full `refreshTime` logic** | Vanilla `Controller.FixedUpdate`; mod `HandleTimeSync` sets `CurrentTime`/`day` then **`refreshTime()`** (`LanNetworkManager.Handlers.cs` ~4880–4922). **No patch** suppresses client `CurrentTime++` or client day/night edge handlers. | Symptom: “time drifts / double morning”. Root: dual sim of SP time authority. | Host+Client | Dual `startDay` / `startAfterNight` / night `setMe` edges; double heal; **client can spawn morning wolf/trader** at *their* hideout while host does the same; TimeSync can re-fire thresholds when snapping. |
 | **C2** | **Client dialogue outcomes applied on host to host `Player.Instance`** | `DialogOutcomeSendPatch` + `HandleDialogOutcomeSync` → `dw.displayDialogue(TargetDialogueName)` (`LanNetworkManager.Handlers.cs` ~3990–4031); vanilla outcomes in `DialogueWindow` ~926+ give/remove items, rep, flags on **Player.Instance**. | Symptom: free items on host / wrong rep. Root: host replaying peer story UI against wrong inventory. | Client→Host | Host inventory/journal polluted; host rep changed by client talk; client already applied outcomes locally → **asymmetric personal state** + world flags may only stick if host path runs. |
-| **C3** | **Chapter / credits transition stops multiplayer** | `ChapterTransitionHelpers.ApplyChapterLoad(..., stopNetwork: true)`; `EpilogueGoToCreditsPatch` → `ApplySceneLoad` stops network. | Symptom: “co-op dies at ch2”. Root: deliberate tear-down without rehost. | All | Session ends at chapter boundary / credits; peers load solo unless manual re-host. **MERGE_MATRIX 4.5 “done” overstates continuous co-op.** |
+| **C3** | **Chapter / credits transition stops multiplayer** | `ChapterTransitionHelpers.ApplyChapterLoad(..., stopNetwork: true)`; `EpilogueGoToCreditsPatch` → `ApplySceneLoad` stops network. | Symptom: “co-op dies at ch2”. Root: deliberate tear-down without rehost. | All | Session ends at chapter boundary / credits; peers load solo unless manual re-host. Continuous co-op through credits is **not** claimed. |
 | **C4** | **World layout depends on save share; no live per-chunk seed in Path B** | `WorldGenSharePatch` only shares after host `onFinished`; **no** `ChunkGenSeed` / `InitState` patches in live `DarkwoodMP.Mod`. TODO #5 residual placement. | Symptom: “different forests”. Root: docs (MERGE 0.2 / TODO archive) describe Yokyy determinism that **is not in Path B tree**; truth is file transfer. | Host gen / Client load | If share fails / late / same-PC profile race, worlds diverge permanently. |
 
 ### HIGH
@@ -146,7 +146,7 @@ Live load path: `DarkwoodMP.Mod` (Horde). Ironbark (`DarkwoodMP.Protocol`, `Dark
 | **H4** | Dream start request uses `prepareDream` only | `HandleDreamStartRequest` → `StartCoroutine(prepareDream)` | Does not mirror host `DreamSession.TryBegin` preconditions / multiplayer enter fan-out fully if host already mid-transition | Client-initiated dream | Stuck request, ignored if session active, or host-only dream without peers |
 | **H5** | Concurrent dual dialogue on same NPC | No interaction lock on `DialogueWindow` | SP `alreadyShown` / board state is singular | Both | Garbled options, double outcomes, trade race with stock model C |
 | **H6** | Container simultaneous loot race | `ContainerSyncPatches` absolute slot actions, pending remove | No lock; last packet wins | Both | Dupe / ghost items / empty wrong side under lag |
-| **H7** | `MERGE_MATRIX` / `SYNC_MATRIX` claim Ironbark live wire | Matrix docs vs `PluginInfo.ProtocolVersion=19` + PathB tests | Documentation lag after Path B merge | Dev ops | Wrong protocol debugging; dedicated server Ironbark ≠ LAN clients |
+| **H7** | Docs claiming Ironbark as live LAN wire | Historical matrices removed; live wire = Horde 19 (`PluginInfo.ProtocolVersion`) | Was doc lag after Path B merge | Dev ops | Use `README.md` / `COOP_COVERAGE.md` only |
 | **H8** | Dedicated server not on live Path B peer path | `DarkwoodMP.Server` + Ironbark vs Horde 19 | Product split | Dedicated | Server cannot host Path B LAN sessions as-is |
 
 ### MEDIUM
@@ -164,13 +164,13 @@ Live load path: `DarkwoodMP.Mod` (Horde). Ironbark (`DarkwoodMP.Protocol`, `Dark
 | **M9** | `FinalDreamsceneManager.AllDead` requires remotes in proxy set | `FinalDreamsceneManager` | Late proxy spawn: solo-death fallback may wrongly allow vanilla end while peer exists |
 | **M10** | Epilogue credits 8s delay + stop network | `EpilogueSyncPatches` | Peer desync if packet late; no co-op after credits |
 | **M11** | Host migration unsupported | Design / TODO archive | Host drop = session death |
-| **M12** | SyncCheck not in Path B | YOKYY_FEATURE_AUDIT deferred | No automatic digest heal for flags/time desync |
+| **M12** | SyncCheck not in Path B | Deferred (see `docs/TODO.md` / PATH_B inventory) | No automatic digest heal for flags/time desync |
 
 ### LOW / residual
 
 | ID | Finding | Notes |
 |----|---------|-------|
-| **L1** | Live 2-instance campaign untested | `docs/TODO.md` open |
+| **L1** | Live 2-instance campaign soak | `docs/TODO.md` / `docs/PLAYTEST.md` |
 | **L2** | Location/landmark placement residual | TODO #5 |
 | **L3** | Enemy target nudge only | Host AI not true multi-target |
 | **L4** | Physics free-body deferred | Caps omit PhysicsState |
@@ -276,7 +276,7 @@ If host triggers chapter GameEvent while client is in a dream session: chapter s
 
 ### 4.2 Domain gap map (code-verified)
 
-| Domain | Contract | Implementation | MERGE_MATRIX claim | Actual |
+| Domain | Contract | Implementation | Old matrix claim | Actual |
 |--------|----------|----------------|--------------------|--------|
 | Handshake / IDs | HA | Horde 19 handshake | 0.1 done | **OK** |
 | World save share | HA file | WorldSaveShare + slot 5 | 0.2 done | **PARTIAL** (failure modes) |
@@ -303,23 +303,25 @@ If host triggers chapter GameEvent while client is in a dream session: chapter s
 | Dedicated / Ironbark | relay | separate assembly | matrix “done” confusing | **UNSYNCED to Path B LAN** |
 | Location placement | deterministic | open TODO #5 | residual | **UNSYNCED residual** |
 
-### 4.3 Docs used vs overturned
+### 4.3 Docs (current)
 
-| Doc | Use | Overturned? |
-|-----|-----|-------------|
-| `MERGE_MATRIX.md` | Seed inventory of domains | **Yes** — many “done” story/time/chapter claims overstated for Path B continuous co-op |
-| `SYNC_MATRIX.md` | Taxonomy S/E/K/P/A | Keep taxonomy; ActionEvent tags obsolete (file admits historical) |
-| `TODO.md` | Open residual #5 + playtest | **Confirmed open**; archive fixes trusted only with code re-check |
-| `JOIN_HOST_AUDIT.md` | Join bugs J1–J14 | Accept as prior; still fragile same-PC |
-| `YOKYY_FEATURE_AUDIT.md` | Path B vs Yokyy | **Confirmed** Horde 19 live; Ironbark deferred |
-| `IRONBARK_*.md` | Dedicated wire research | Not Path B LAN truth |
-| `docs/decompile docs/*` | Secondary orientation | Prefer direct Assembly-CSharp reads above |
+| Doc | Use |
+|-----|-----|
+| `CHANGELOG.md` | Ship + 0.9.2+ deltas |
+| `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` | Domain audit living truth |
+| `docs/TODO.md` | Short residual list only |
+| `docs/JOIN_HOST_AUDIT.md` | Join pipeline bugs + status |
+| `docs/PATH_B_FEATURE_INVENTORY.md` | Path B vs Yokyy product inventory |
+| `docs/PLAYTEST.md` | Dual-box checklist |
+| `IRONBARK_*.md` | Dedicated wire research — not Path B LAN |
+| `docs/decompile docs/*` | Game reverse-eng reference |
+| Historical `SYNC_MATRIX` / `MERGE_MATRIX` / Yokyy plans | **Removed** as redundant |
 
-### 4.4 Open TODO residual risks (must appear)
+### 4.4 Open residual risks
 
-1. **Location/landmark placement residual (#5)** — still open; Path B has no per-chunk seed rewrite.  
-2. **Live 2-instance / dedicated campaign playtest** — still open; unit tests only protocol + structural.  
-3. **Host walk/run anim** — marked fixed in code; live confirm recommended.
+1. **Location/landmark placement** — still open if share fails before gen; Path B has no per-chunk seed rewrite.  
+2. **Live 2-instance / campaign soak** — still open; unit tests only protocol + structural.  
+3. **SyncCheck / InteractionLock / ItemState** — still deferred.
 
 ---
 
@@ -329,8 +331,8 @@ If host triggers chapter GameEvent while client is in a dream session: chapter s
 2. **Dialog outcome split:** **DONE 0.9.2** — `DialogHostApplyGuard` + personal suppress patches + NPC lock (H5).  
 3. **Chapter/credits:** **PARTIAL 0.9.2** — chapter auto rehost/reconnect via `ChapterSessionResume`; credits still permanent stop (documented residual).  
 4. **Night partial death:** **DONE 0.9.2** — transport/respawn/despawn suppress + existing skipDay/Save.  
-5. **Honesty pass on MERGE_MATRIX:** **DONE 0.9.2** — Path B wire honesty headers + C4 residual.  
-6. **Playtest script:** **OPEN residual** — live 2-box campaign not required for release gate.
+5. **Doc honesty / dead matrices:** **DONE** — live truth is CHANGELOG + COOP_COVERAGE; historical matrices removed.  
+6. **Playtest script:** **OPEN residual** — live 2-box campaign not required for release gate (`docs/PLAYTEST.md`).
 
 ---
 

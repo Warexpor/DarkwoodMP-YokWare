@@ -64,6 +64,10 @@ namespace DWMPHorde.Networking
         public float AimY;
         public float Distance;
         public float VelX, VelY, VelZ;
+        /// <summary>Stable throw instance id (0 = legacy).</summary>
+        public int ThrowId;
+        /// <summary>Seconds until light/projectile expires (0 = use prefab default).</summary>
+        public float LongevitySec;
 
         public void Serialize(NetWriter w)
         {
@@ -72,20 +76,31 @@ namespace DWMPHorde.Networking
             w.Put(AimY);
             w.Put(Distance);
             w.Put(VelX); w.Put(VelY); w.Put(VelZ);
+            w.Put(ThrowId);
+            w.Put(LongevitySec);
         }
 
-        public static ThrowableSpawnMessage Deserialize(NetReader r) => new ThrowableSpawnMessage
+        public static ThrowableSpawnMessage Deserialize(NetReader r)
         {
-            ItemType = r.GetString(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            AimY = r.GetFloat(),
-            Distance = r.GetFloat(),
-            VelX = r.GetFloat(),
-            VelY = r.GetFloat(),
-            VelZ = r.GetFloat()
-        };
+            var msg = new ThrowableSpawnMessage
+            {
+                ItemType = r.GetString(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                AimY = r.GetFloat(),
+                Distance = r.GetFloat(),
+                VelX = r.GetFloat(),
+                VelY = r.GetFloat(),
+                VelZ = r.GetFloat()
+            };
+            if (r.AvailableBytes >= 8)
+            {
+                msg.ThrowId = r.GetInt();
+                msg.LongevitySec = r.GetFloat();
+            }
+            return msg;
+        }
     }
 
     public struct ExplosionTriggerMessage

@@ -19,6 +19,21 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, bool> _pendingBoolFlags = new Dictionary<string, bool>();
 
+        /// <summary>
+        /// Spatial / per-peer location flags stay local on each peer. Syncing them made
+        /// host and client thrash (playtest: player_inFirstHideout true/false every second
+        /// → client stutter + hideout logic churn). Story flags still sync.
+        /// </summary>
+        internal static bool IsLocalOnlyEphemeralFlag(string flagName)
+        {
+            if (string.IsNullOrEmpty(flagName))
+                return false;
+            // Vanilla hideout / location bookkeeping (not dialog story choices).
+            if (flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
         public static void Reset()
         {
             _lastSentBoolFlags.Clear();
@@ -49,6 +64,9 @@ namespace DWMPHorde.Patches
                     continue;
                 _pendingBoolFlags.Remove(name);
 
+                if (IsLocalOnlyEphemeralFlag(name))
+                    continue;
+
                 // Skip if we already successfully sent this value
                 if (_lastSentBoolFlags.TryGetValue(name, out bool last) && last == value)
                     continue;
@@ -73,6 +91,10 @@ namespace DWMPHorde.Patches
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
+            // Never network spatial/location flags (local-only on each peer).
+            if (IsLocalOnlyEphemeralFlag(flagName))
+                return;
+
             // Already successfully sent this value
             if (_lastSentBoolFlags.TryGetValue(flagName, out bool lastValue) && lastValue == newValue)
             {
@@ -93,6 +115,9 @@ namespace DWMPHorde.Patches
 
         private static void TrySend(LanNetworkManager net, string flagName, bool newValue, float now)
         {
+            if (IsLocalOnlyEphemeralFlag(flagName))
+                return;
+
             var msg = new FlagSyncMessage { Name = flagName, IsInt = false, BoolValue = newValue, IntValue = 0 };
             // Reliable: story/dialog flags must not be dropped mid-cooldown window
             if (net.Role == NetworkRole.Host)

@@ -40,24 +40,27 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Releases the drag claim when the local player stops dragging an object.
     /// Called from Item.stopDragging().
-    /// Also force-stops native scrape: residual velocity after hinge release is
-    /// the main reason scrape hangs ~1s after the player lets go.
+    /// Force-stops native scrape immediately and notifies peers the same frame
+    /// (do not wait for the 30 Hz PlayerState loop — that was the observer lag vs body-push).
     /// </summary>
     [HarmonyPatch(typeof(Item), "stopDragging")]
     public static class DragClaimStopPatch
     {
         private static void Postfix(Item __instance)
         {
-            if (__instance != null)
-                ItemMovingSoundHelper.ForceStop(__instance.gameObject);
-
-            var net = ModRuntime.Network as Networking.LanNetworkManager;
-            if (net == null) return;
+            if (__instance == null) return;
 
             string objName = __instance.gameObject.name;
-            // Only clear if WE own the claim (don't clear a remote player's claim)
-            if (net._dragClaims.TryGetValue(objName, out int claimerId) && claimerId == net.LocalPlayerId)
-                net._dragClaims.Remove(objName);
+            ItemMovingSoundHelper.ForceStop(__instance.gameObject);
+
+            var net = ModRuntime.Network as Networking.LanNetworkManager;
+            if (net == null || !net.IsConnected) return;
+
+            // Only broadcast end if WE own the claim (don't clear a remote player's claim).
+            if (net._dragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId)
+                return;
+
+            net.NotifyLocalDragEnded(objName);
         }
     }
 }

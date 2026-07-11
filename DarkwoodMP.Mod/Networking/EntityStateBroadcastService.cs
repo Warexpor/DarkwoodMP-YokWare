@@ -80,16 +80,10 @@ namespace DWMPHorde.Networking
                 Character c = all[i];
                 if (c == null) continue;
 
-                // During dreams, skip entities that belong to the dream scene
-                // (parented under the dream Location). Regular-world entities,
-                // including ones spawned during the dream (ChomperHalf, Meat_marker,
-                // etc.), continue to broadcast so the client sees them.
-                if (Sync.DreamSyncManager.IsDreamActive)
-                {
-                    Transform dreamLoc = Sync.DreamSyncManager.GetDreamLocationTransform();
-                    if (dreamLoc != null && c.transform.IsChildOf(dreamLoc))
-                        continue;
-                }
+                // During dreams: stream dream NPCs only — skip frozen overworld AI (D12).
+                if (Sync.DreamSyncManager.IsDreamActive
+                    && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
+                    continue;
 
                 Vector3 cPos = c.transform.position;
                 float d1 = Vector3.SqrMagnitude(cPos - hostPos);

@@ -49,9 +49,19 @@ namespace DWMPHorde.Networking
         private int _chunksReceived;
         private int _chunksExpected;
 
+        /// <summary>
+        /// Files on disk + profile paths ready; waiting for user to press ENTER WORLD
+        /// before offline Load (phase 2). Transfer link still up so host keeps peer muted.
+        /// </summary>
+        private bool _awaitingEnterWorld;
+        private int _enterProfileId;
+        private int _enterChapterId;
+
         public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying;
         /// <summary>Client is mid download or apply of host world package.</summary>
         public bool IsClientReceivingOrApplying => _clientReceiving || _clientApplying;
+        /// <summary>World package written; client must click ENTER WORLD to offline-load.</summary>
+        public bool IsAwaitingEnterWorld => _awaitingEnterWorld;
         public string ProgressText { get; private set; } = string.Empty;
 
         public WorldSaveShareService(LanNetworkManager net)
@@ -68,6 +78,14 @@ namespace DWMPHorde.Networking
             _chunkBuffers = null;
             _chunksReceived = 0;
             _chunksExpected = 0;
+            // Keep _awaitingEnterWorld across intentional phase-2 StopNetwork? No — enter
+            // coroutine captures locals first. Full disconnect cancels the ready state.
+            if (!_clientApplying)
+            {
+                _awaitingEnterWorld = false;
+                _enterProfileId = 0;
+                _enterChapterId = 0;
+            }
             ProgressText = string.Empty;
         }
 
@@ -233,15 +251,18 @@ namespace DWMPHorde.Networking
             bool hasAnyFiles = File.Exists(savPath) || File.Exists(savsPath);
 
             // CRITICAL (dual-box + mid-session join):
-            // Force Save() runs "Save static" and freezes the host for seconds; on the same
-            // AppData as the client it also contending disk with LoadScene — looks like a
-            // random "event" and can brick both processes.
-            // Horde base only force-saved for new-world share / manual Resend, and did NOT
-            // auto-share on handshake. Late-join share must read existing files only.
-            // waitForGameSave=true → after new world gen (game already saving) — allow force.
-            if (waitForGameSave && Singleton<SaveManager>.Instance != null)
+            // Force Save() freezes the host for seconds ("Save static"). Prefer on-disk when
+            // sav.dat + savs.dat are a consistent pair. Skewed pairs (e.g. only dynamic written)
+            // make client SaveManager.Load NRE with "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"
+            // and leave loadingGame stuck — phase-3 reconnect never fires.
+            // waitForGameSave / manual resend always force; late-join forces only when needed.
+            bool forceForConsistency = !waitForGameSave && hasAnyFiles
+                && OnDiskSavPairNeedsForceSave(savPath, savsPath);
+            if ((waitForGameSave || forceForConsistency) && Singleton<SaveManager>.Instance != null)
             {
-                ModLog.Event(LogCat.Save, "Post-worldgen share: waiting then force-saving once");
+                ModLog.Event(LogCat.Save, waitForGameSave
+                    ? "Post-worldgen/resend share: force-saving once"
+                    : "Late-join share: sav/savs inconsistent on disk — force-saving once");
                 try
                 {
                     LanNetworkManager._isRemoteSaveInProgress = true;
@@ -291,7 +312,7 @@ namespace DWMPHorde.Networking
             else if (hasAnyFiles)
             {
                 ModLog.Event(LogCat.Save,
-                    "Late-join share: using on-disk sav files (NO force Save — host stays playable)");
+                    "Late-join share: using on-disk sav files (consistent pair — no force Save)");
             }
             else
             {
@@ -312,6 +333,8 @@ namespace DWMPHorde.Networking
                 FinishHostShare(runAfter: true);
                 yield break;
             }
+
+            LogSavPairTimestamps(savPath, savsPath);
 
             // Pack one file per frame — ReadAllBytes+Deflate of ~9MB savs.dat on one frame
             // freezes the host mid-game (the hitch users call an "event"). Horde Resend
@@ -737,9 +760,53 @@ namespace DWMPHorde.Networking
 
             int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
 
-            ProgressText = "World ready — loading offline…";
-            _net.StatusText = ProgressText;
             _chunkBuffers = null;
+            _clientApplying = false;
+            _awaitingEnterWorld = true;
+            _enterProfileId = profileId;
+            _enterChapterId = chapterId;
+
+            // Stay on title with transfer link UP until user presses ENTER WORLD.
+            // Auto phase-2 used to dump them straight into offline load (dual-box hitch).
+            ProgressText = "World ready — press ENTER WORLD";
+            if (_net != null)
+                _net.StatusText = ProgressText;
+            ModLog.Event(LogCat.Session,
+                "Join pipeline: world on disk (slot " + profileId
+                + " ch" + chapterId + ") — waiting for ENTER WORLD before offline load");
+        }
+
+        /// <summary>
+        /// Menu: user confirmed enter after download. Starts phase 2 offline load → phase 3.
+        /// </summary>
+        public bool TryBeginEnterWorld()
+        {
+            if (!_awaitingEnterWorld)
+                return false;
+            if (_net == null)
+                return false;
+            if (!Core.mainMenu)
+            {
+                ModLog.Warn(LogCat.Save, "TryBeginEnterWorld ignored — not on main menu");
+                return false;
+            }
+
+            int profileId = _enterProfileId;
+            int chapterId = _enterChapterId > 0 ? _enterChapterId : 1;
+            _awaitingEnterWorld = false;
+            _net.StartCoroutine(ClientOfflineEnterCoroutine(profileId, chapterId));
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 2: drop transfer link, offline Load, ChapterSessionResume → phase 3 reconnect.
+        /// </summary>
+        private IEnumerator ClientOfflineEnterCoroutine(int profileId, int chapterId)
+        {
+            _clientApplying = true;
+            ProgressText = "Loading host world (offline)…";
+            if (_net != null)
+                _net.StatusText = ProgressText;
 
             // Join pipeline (strict order):
             //   1) world share (done) → 2) enter shared world offline → 3) co-op reconnect
@@ -753,9 +820,9 @@ namespace DWMPHorde.Networking
                 {
                     ChapterSessionResume.CaptureForResume(_net);
                     ModLog.Event(LogCat.Session,
-                        "Join pipeline phase 2: world on disk (slot " + profileId
+                        "Join pipeline phase 2: ENTER WORLD (slot " + profileId
                         + ") — disconnect transfer link, load offline, then phase-3 reconnect");
-                    // StopNetwork resets WorldSaveShare; coroutine locals already hold load state.
+                    // StopNetwork resets WorldSaveShare; locals already hold load state.
                     _net.StopNetwork();
                 }
             }
@@ -768,7 +835,6 @@ namespace DWMPHorde.Networking
             yield return null;
 
             // Prefer vanilla Continue path (Yokyy): UI.initLoadGame with currentProfile set.
-            // Still on title menu — do not close MainMenu first.
             UI ui = Singleton<UI>.Instance;
             if (ui != null && Core.mainMenu)
             {
@@ -1062,6 +1128,68 @@ namespace DWMPHorde.Networking
             catch { /* ignore */ }
 
             return 0;
+        }
+
+        /// <summary>
+        /// sav.dat (dynamic) and savs.dat (static) must be written together. Partial / only-dynamic
+        /// saves leave a loadable host RAM world but a client that Load()s the pair hard-fails.
+        /// </summary>
+        private const double SavPairMaxSkewSeconds = 30.0;
+
+        private static bool OnDiskSavPairNeedsForceSave(string savPath, string savsPath)
+        {
+            bool hasSav = File.Exists(savPath);
+            bool hasSavs = File.Exists(savsPath);
+            if (!hasSav && !hasSavs)
+                return false;
+            if (!hasSav || !hasSavs)
+            {
+                ModLog.Event(LogCat.Save,
+                    "Late-join pair incomplete: sav=" + hasSav + " savs=" + hasSavs);
+                return true;
+            }
+
+            try
+            {
+                DateTime savT = File.GetLastWriteTimeUtc(savPath);
+                DateTime savsT = File.GetLastWriteTimeUtc(savsPath);
+                double skewSec = Math.Abs((savT - savsT).TotalSeconds);
+                if (skewSec > SavPairMaxSkewSeconds)
+                {
+                    ModLog.Event(LogCat.Save,
+                        "Late-join pair skew " + skewSec.ToString("F0") + "s (limit "
+                        + SavPairMaxSkewSeconds.ToString("F0") + "s) sav=" + savT.ToString("u")
+                        + " savs=" + savsT.ToString("u"));
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Late-join pair mtime check failed: " + ex.Message);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void LogSavPairTimestamps(string savPath, string savsPath)
+        {
+            try
+            {
+                string savInfo = File.Exists(savPath)
+                    ? ("sav.dat " + new FileInfo(savPath).Length + "b mtime="
+                        + File.GetLastWriteTimeUtc(savPath).ToString("u"))
+                    : "sav.dat MISSING";
+                string savsInfo = File.Exists(savsPath)
+                    ? ("savs.dat " + new FileInfo(savsPath).Length + "b mtime="
+                        + File.GetLastWriteTimeUtc(savsPath).ToString("u"))
+                    : "savs.dat MISSING";
+                ModLog.Event(LogCat.Save, "Share pack pair: " + savInfo + " | " + savsInfo);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Share pack pair log failed: " + ex.Message);
+            }
         }
 
         private static string GetProfileDir(int profileId)

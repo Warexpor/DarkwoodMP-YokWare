@@ -167,8 +167,13 @@ namespace DWMPHorde.Patches
             try
             {
                 var dreams = Singleton<Dreams>.Instance;
-                if (dreams != null && dreams.currentTransition != null && dreams.currentTransition.isPlaying)
+                if (dreams == null) return;
+                // D10: start overlay, current, or outcome transition may be playing.
+                if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
                     dreams.currentTransition.skip();
+                if (dreams.startTransition != null && dreams.startTransition.isPlaying
+                    && dreams.startTransition != dreams.currentTransition)
+                    dreams.startTransition.skip();
             }
             finally
             {

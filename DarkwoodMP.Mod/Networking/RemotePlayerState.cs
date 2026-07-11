@@ -14,6 +14,8 @@ namespace DWMPHorde.Networking
         // Bear traps
         public bool InBearTrap;
         public Vector3 BearTrapPos;
+        /// <summary>Stable trap instance this remote occupies (0 = none / unknown).</summary>
+        public int TrapNetId;
 
         // Light protection (torch, lantern, LightArea)
         public bool HasLightProtection;
@@ -41,6 +43,7 @@ namespace DWMPHorde.Networking
         {
             InBearTrap = false;
             BearTrapPos = Vector3.zero;
+            TrapNetId = 0;
             HasLightProtection = false;
             IsDeadInDream = false;
             FlareLight = null;
