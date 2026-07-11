@@ -498,9 +498,11 @@ namespace DWMPHorde.Networking
                     RemotePlayerProxy proxy = GetProxy(playerId);
                     if (proxy == null) return;
 
-                    // Revive proxy only when the remote player has genuinely respawned
-                    // (not while still sending death clips)
-                    if (state.TorsoClip != "Death1" && state.TorsoClip != "Death2")
+                    // Revive only after real respawn. Night-dead peers still send PlayerState
+                    // (get-up clips while spectating) which previously re-alive'd the proxy →
+                    // dogs re-aggro'd a "zombie" corpse and damage felt completely broken.
+                    if (state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
+                        && !DeathStateTracker.IsRemoteNightDead(playerId))
                     {
                         CharBase reviveCB = proxy.GetComponent<CharBase>();
                         if (reviveCB != null && !reviveCB.alive)
@@ -516,6 +518,17 @@ namespace DWMPHorde.Networking
                             if (rb != null)
                                 rb.position = new Vector3(state.PosX, state.PosY, state.PosZ);
                             ModRuntime.LegacyInfo($"[Death] Remote proxy revived for player {playerId}");
+                        }
+                    }
+                    else if (DeathStateTracker.IsRemoteNightDead(playerId))
+                    {
+                        CharBase deadCB = proxy.GetComponent<CharBase>();
+                        if (deadCB != null && deadCB.alive)
+                        {
+                            deadCB.alive = false;
+                            deadCB.Health = 0f;
+                            foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
+                                col.enabled = false;
                         }
                     }
 
@@ -573,10 +586,11 @@ namespace DWMPHorde.Networking
 
                 if (proxy == null) return;
 
-                // Only revive when player has genuinely respawned (not still sending death clips)
+                // Mirror host: do not revive while peer is still night-dead.
                 CharBase reviveCB = proxy.GetComponent<CharBase>();
                 if (reviveCB != null && !reviveCB.alive
-                    && state.TorsoClip != "Death1" && state.TorsoClip != "Death2")
+                    && state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
+                    && !DeathStateTracker.IsRemoteNightDead(remotePlayerId))
                 {
                     reviveCB.alive = true;
                     reviveCB.Health = reviveCB.maxHealth;
@@ -589,6 +603,13 @@ namespace DWMPHorde.Networking
                     if (rb != null)
                         rb.position = new Vector3(state.PosX, state.PosY, state.PosZ);
                     ModRuntime.LegacyInfo($"[Death] Remote proxy revived for player {remotePlayerId}");
+                }
+                else if (DeathStateTracker.IsRemoteNightDead(remotePlayerId) && reviveCB != null && reviveCB.alive)
+                {
+                    reviveCB.alive = false;
+                    reviveCB.Health = 0f;
+                    foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
+                        col.enabled = false;
                 }
 
                 proxy.RemoteRunning = state.Running;
@@ -1979,13 +2000,35 @@ namespace DWMPHorde.Networking
                 $"[GameEventsSync] queued (not loaded) at ({msg.PosX:F1},{msg.PosZ:F1}) name={msg.EventName}");
         }
 
+        private float _nextPendingGameEventsFlushTime;
+        private const float PendingGameEventsFlushInterval = 1f;
+        private const float PendingGameEventsMaxAge = 20f;
+        private readonly System.Collections.Generic.Dictionary<int, float> _pendingGameEventQueuedAt
+            = new System.Collections.Generic.Dictionary<int, float>(16);
+
         private void TryFlushPendingGameEvents()
         {
             if (_role != NetworkRole.Client || _pendingGameEvents.Count == 0)
                 return;
+            // Unloaded hideout events were scanned every frame → client fps~3 during night stages.
+            float now = Time.unscaledTime;
+            if (now < _nextPendingGameEventsFlushTime) return;
+            _nextPendingGameEventsFlushTime = now + PendingGameEventsFlushInterval;
+
             for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingGameEvents[i];
+                int key = msg.EventName != null ? msg.EventName.GetHashCode() : 0;
+                key ^= (int)(msg.PosX * 10f) ^ ((int)(msg.PosZ * 10f) << 10);
+                if (!_pendingGameEventQueuedAt.ContainsKey(key))
+                    _pendingGameEventQueuedAt[key] = now;
+                if (now - _pendingGameEventQueuedAt[key] > PendingGameEventsMaxAge)
+                {
+                    _pendingGameEvents.RemoveAt(i);
+                    _pendingGameEventQueuedAt.Remove(key);
+                    continue;
+                }
+
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 GameEvents found = null;
                 if (!string.IsNullOrEmpty(msg.EventName))
@@ -1994,6 +2037,7 @@ namespace DWMPHorde.Networking
                     found = WorldQueryHelper.FindNearest<GameEvents>(pos, 2.5f);
                 if (found == null) continue;
                 _pendingGameEvents.RemoveAt(i);
+                _pendingGameEventQueuedAt.Remove(key);
                 ApplyGameEventsFired(msg, queueIfMissing: false);
             }
         }
@@ -2816,7 +2860,8 @@ namespace DWMPHorde.Networking
                 : Sync.TrapNetworkId.GetOrMintHost(go);
             Sync.TrapNetworkId.Ensure(go, trapId);
 
-            WorldPhysicsSyncService.ApplyTrapState(go, triggered: true);
+            // Client TrapTriggered is stomp/walk path — full boom. Silent disarm uses TrapState direct.
+            WorldPhysicsSyncService.ApplyTrapState(go, triggered: true, silentDisarm: false);
             var triggerSnd = go.GetComponent<Trigger>();
             if (triggerSnd != null && !string.IsNullOrEmpty(triggerSnd.activateSound))
                 AudioController.Play(triggerSnd.activateSound, pos);
@@ -4159,15 +4204,19 @@ namespace DWMPHorde.Networking
             return null;
         }
 
-        private static Door FindDoorByPos(Vector3 pos)
+        private static Door FindDoorByPos(Vector3 pos) => FindDoorByPosLoose(pos, 2f);
+
+        private static Door FindDoorByPosLoose(Vector3 pos, float radius)
         {
             // Tracker first (tight), then looser match, then physics overlap (B7).
             Door d = Sync.DoorTracker.FindByPosition(pos, 0.5f);
             if (d != null) return d;
-            d = Sync.DoorTracker.FindByPosition(pos, 1.5f);
+            d = Sync.DoorTracker.FindByPosition(pos, Mathf.Min(1.5f, radius));
+            if (d != null) return d;
+            d = Sync.DoorTracker.FindByPosition(pos, radius);
             if (d != null) return d;
 
-            Collider[] nearby = Physics.OverlapSphere(pos, 2f);
+            Collider[] nearby = Physics.OverlapSphere(pos, radius);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
@@ -4183,16 +4232,18 @@ namespace DWMPHorde.Networking
             return null;
         }
 
-        private static Window FindWindowByPos(Vector3 pos)
+        private static Window FindWindowByPos(Vector3 pos) => FindWindowByPosLoose(pos, 2f);
+
+        private static Window FindWindowByPosLoose(Vector3 pos, float radius)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, 2f);
+            Collider[] nearby = Physics.OverlapSphere(pos, radius);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
                 Window w = nearby[i].GetComponentInParent<Window>();
                 if (w != null) return w;
             }
-            Collider2D[] nearby2d = Physics2D.OverlapCircleAll(pos, 2f);
+            Collider2D[] nearby2d = Physics2D.OverlapCircleAll(pos, radius);
             for (int i = 0; i < nearby2d.Length; i++)
             {
                 if (nearby2d[i] == null) continue;
@@ -6915,7 +6966,14 @@ namespace DWMPHorde.Networking
             if (msg.TargetType == 0)
             {
                 Door door = FindDoorByPos(pos);
-                if (door == null) return;
+                // Client hit pos can drift vs host door pivot — widen once before drop.
+                if (door == null)
+                    door = FindDoorByPosLoose(pos, 3f);
+                if (door == null)
+                {
+                    ModRuntime.LegacyInfo("[MeleeWorldHit] door not found at " + pos);
+                    return;
+                }
                 door.getHit(damage, attackerT, !suppressed, false);
                 return;
             }
@@ -6923,23 +6981,48 @@ namespace DWMPHorde.Networking
             if (msg.TargetType == 1)
             {
                 Window window = FindWindowByPos(pos);
-                if (window == null) return;
+                if (window == null)
+                    window = FindWindowByPosLoose(pos, 3f);
+                if (window == null)
+                {
+                    ModRuntime.LegacyInfo("[MeleeWorldHit] window not found at " + pos);
+                    return;
+                }
                 window.getHit(damage, attackerT, !suppressed);
                 return;
             }
 
             if (msg.TargetType == 2)
             {
-                Collider[] nearby = Physics.OverlapSphere(pos, 1f);
-                for (int i = 0; i < nearby.Length; i++)
-                {
-                    if (nearby[i] == null) continue;
-                    Item item = nearby[i].GetComponentInParent<Item>();
-                    if (item == null || !item.destructible) continue;
-                    item.getHit(damage, attackerT, true);
+                // 1u was tight for client/host pivot mismatch on furniture.
+                if (TryHitDestructibleItemAt(pos, 1.5f, damage, attackerT))
                     return;
+                if (TryHitDestructibleItemAt(pos, 4f, damage, attackerT))
+                    return;
+                ModRuntime.LegacyInfo("[MeleeWorldHit] destructible item not found at " + pos);
+            }
+        }
+
+        private static bool TryHitDestructibleItemAt(Vector3 pos, float radius, int damage, Transform attackerT)
+        {
+            Collider[] nearby = Physics.OverlapSphere(pos, radius);
+            Item best = null;
+            float bestD = radius + 1f;
+            for (int i = 0; i < nearby.Length; i++)
+            {
+                if (nearby[i] == null) continue;
+                Item item = nearby[i].GetComponentInParent<Item>();
+                if (item == null || !item.destructible) continue;
+                float d = Vector3.Distance(item.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = item;
                 }
             }
+            if (best == null) return false;
+            best.getHit(damage, attackerT, true);
+            return true;
         }
 
         private void HandleGasTrailSpawn(GasTrailSpawnMessage msg)

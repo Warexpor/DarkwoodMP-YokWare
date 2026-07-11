@@ -120,23 +120,21 @@ namespace DWMPHorde.Patches
             }
             if (c == null) return true;
 
-            short nameHash = CharacterTracker.GetStableId(c);
+            // Prefer host stable id when known; 0 → host resolves by name+hit pos (phantoms).
+            short nameHash = 0;
+            if (ClientEntityInterpolationService.IsHostSynced(c))
+                CharacterTracker.TryGetStableId(c, out nameHash);
+            // Debounce key: stable id or a stable hash of name when unsynced.
+            short debounceKey = nameHash != 0 ? nameHash : (short)(c.name.GetHashCode() & 0x7FFF);
 
-            // Time-based debounce: prevent duplicate OnTriggerEnter from
-            // multiple colliders on the same character in one swing.
-            // Time.time is used instead of GetInstanceID() because
-            // MeleeSensor is Unity-pooled and instance IDs persist
-            // across pool reuse, causing a false skip on later swings.
             float now = Time.time;
-            if (_lastCharHitTime.TryGetValue(nameHash, out float lastHit) &&
+            if (_lastCharHitTime.TryGetValue(debounceKey, out float lastHit) &&
                 now - lastHit < HIT_DEBOUNCE)
                 return false;
-            _lastCharHitTime[nameHash] = now;
+            _lastCharHitTime[debounceKey] = now;
 
             // Hit SFX comes from host EntitySoundType.GetHit after damage applies.
-            // Playing locally here would double-fire when the host broadcasts GetHit.
 
-            // Don't apply damage locally — host is authoritative
             Vector3 pos = Player.Instance != null
                 ? Player.Instance.transform.position
                 : c.transform.position;
@@ -152,8 +150,12 @@ namespace DWMPHorde.Patches
                     canCutInHalf = Player.Instance.currentItem.baseClass.canCutInHalf;
             }
 
-            int dmg = (int)((float)__instance.damage * strengthMod);
-            ModRuntime.LegacyInfo($"[Combat] client sending attack: target={c.name}(hash={nameHash}) dmg={dmg} instanceDamage={__instance.damage} strengthMod={strengthMod}");
+            int dmg = Mathf.Max(1, Mathf.RoundToInt((float)__instance.damage * strengthMod));
+            string entityName = c.name;
+            if (entityName.EndsWith("(Clone)"))
+                entityName = entityName.Substring(0, entityName.Length - 7);
+
+            ModRuntime.LegacyInfo($"[Combat] client sending attack: target={entityName}(id={nameHash}) dmg={dmg}");
 
             var msg = new PlayerAttackMessage
             {
@@ -163,7 +165,7 @@ namespace DWMPHorde.Patches
                 AttackerPosX = pos.x,
                 AttackerPosY = pos.y,
                 AttackerPosZ = pos.z,
-                TargetName = c.name,
+                TargetName = entityName,
                 TargetPosX = c.transform.position.x,
                 TargetPosY = c.transform.position.y,
                 TargetPosZ = c.transform.position.z

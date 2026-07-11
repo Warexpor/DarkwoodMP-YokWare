@@ -2,6 +2,31 @@
 
 Unreleased Path B work after **0.9.2** tag lives under **0.9.2+** sections below (newest first). Protocol stays **19**; optional message IDs **112–126**. Keep this file updated whenever playtest/audit fixes land — do not leave them only in plans or COOP_COVERAGE.
 
+## 0.9.2+ — Combat residual closeout + harvest + night spectator
+
+Playtest-driven residual combat/damage gaps closed from code (before full dual-box edge soak). Protocol **19** unchanged.
+
+### Combat / damage
+- **`MaxPlayerAttackRange` 350 → 3500** (`GameplayConstants`) so open-map / long-gun client `PlayerAttack` is not dropped as “too far” while entities still stream at activation range.
+- **Target resolve:** stable id → position+name within `PlayerAttackNameMatchRadius` (80u) → capped loose name; skip dead targets; sanitize damage ≤0.
+- **FF:** debounce **0.08s → 0.02s** and key includes damage (shotgun multi-pellet no longer collapsed to one hit); ignore hits on night-dead victims / local night-death.
+- **`DamagePlayer` / hitscan / proxy / host melee:** sanitize + skip dead / night-dead; MeleeWorldHit door/window find uses looser radius helpers.
+- **Night-dead proxies:** `DeathStateTracker.IsRemoteNightDead` — do **not** revive from non-Death clips while night-dead (get-up while spectating was re-aggroing dogs on a “zombie” corpse). Force dead + colliders off until morning.
+
+### Harvest / traps
+- **`TrapDisarmHarvestSync`:** successful `Item.disarm` → `switchToTriggered` broadcasts silent `TrapState` (`OccupantSilentDisarm`); peers keep GO/sprite (no boom, no `WorldObjectRemoved` vanish). Stomp path still full boom.
+
+### Spectator / night death UX
+- Night spectator FOV defaults restored; mute get-up SFX while spectating (`AudioSuppression` / vision path).
+- Proxy stay-dead while peer night-dead (see combat).
+
+### Save index (client join)
+- Receive path: **`MergeProfileIntoDiskIndexAndSave`** (full disk index + slot 5) so offline Save cannot rewrite `profs.dat` with **only** the receive profile. Isolated SecondDarkwood save root makes disk write safe.
+
+### Perf (follow-on)
+- Pending **GameEvents** flush rate-limited (1s) + max age drop — was scanning every frame when hideout events unloaded (night FPS crater).
+- Physics / door / scenario random-event touch-ups in the same batch.
+
 ## 0.9.2+ — Docs: kill redundant matrices / stale plans
 
 Removed leftover docs superseded by `CHANGELOG` + `COOP_COVERAGE`: `SYNC_MATRIX`, `MERGE_MATRIX`, bloated `TODO` archive, `YOKYY_FEATURE_AUDIT`, `PLAN_INWORLD_AUDIO_FX`, `DEFERRED_FEATURES_PLAN`, root `docs/LOGGING.md` (use `DarkwoodMP.Mod/docs/LOGGING.md`). `docs/TODO.md` is a short residual list only.

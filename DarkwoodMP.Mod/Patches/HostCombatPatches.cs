@@ -1,3 +1,4 @@
+using DWMPHorde;
 using DWMPHorde.Config;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
@@ -33,11 +34,11 @@ namespace DWMPHorde.Patches
                 && !Config.ModConfig.FriendlyFireEnabled.Value)
                 return true;
 
-            // Don't damage client if proxy's CharBase is dead (e.g. after client died
-            // and before respawn). The proxy is immortal during normal play but set to
-            // dead explicitly by HandlePlayerDied on the host.
+            // Don't damage client if proxy's CharBase is dead / night-dead.
             CharBase proxyCB = proxy.GetComponent<CharBase>();
             if (proxyCB == null || !proxyCB.alive)
+                return true;
+            if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
                 return true;
 
             bool isPlayer = __instance.type == MeleeSensor.MeleeSensorType.player;

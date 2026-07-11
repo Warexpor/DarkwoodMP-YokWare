@@ -63,6 +63,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(NightScenario), "checkFrequencies")]
     public static class HostCheckFrequenciesPostfix
     {
+        // Host was re-broadcasting the same event index every tick while currentEvent
+        // stayed set → client ScenarioEventFired spam + GameEvents queue thrash (fps~3).
+        private static int _lastSentNightId = int.MinValue;
+        private static int _lastSentEventIndex = int.MinValue;
+
         private static void Postfix(NightScenario __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;
@@ -77,6 +82,10 @@ namespace DWMPHorde.Patches
                 var cei = __instance.customEventAndInts[i];
                 if (cei.customEvent == __instance.currentEvent && cei.timeToStart == 0)
                 {
+                    if (__instance.nightId == _lastSentNightId && i == _lastSentEventIndex)
+                        return;
+                    _lastSentNightId = __instance.nightId;
+                    _lastSentEventIndex = i;
                     net.SendScenarioEventFired(__instance.nightId, i);
                     return;
                 }

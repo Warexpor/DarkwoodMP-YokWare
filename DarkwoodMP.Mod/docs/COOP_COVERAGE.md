@@ -467,8 +467,8 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
-| 3.1 | Melee / hitscan / projectiles | **OK** | Code closed 2026-07-09. Host-auth PvE; targeted DamagePlayer; FF debounce + AttackerPlayerId; blood for all victims. |
-| 3.2 | Friendly fire / explosions | **OK** | Code closed 2026-07-09. Reliable ExplosionTrigger; player-blast respects FF; env blasts always hurt; targeted proxy dmg. |
+| 3.1 | Melee / hitscan / projectiles | **OK** | Code closed 2026-07-09; **residual 2026-07-11:** MaxPlayerAttackRange 3500, position+name resolve, FF multi-pellet debounce, night-dead no revive. |
+| 3.2 | Friendly fire / explosions | **OK** | Code closed 2026-07-09; residual: skip night-dead victims; damage-keyed debounce. |
 | 3.3 | Throwables / gas / fire | **OK** | Code closed 2026-07-09. Throwable host combat; gas trail bulk join; nest-safe ignite; trail dedupe. |
 | 3.4 | Barricades / world melee | **OK** | Code closed 2026-07-09; re-audit fix pass same day. Join bulk: partial door HP + furniture; window vanilla setBarricadeState; destroy dedupe; FX suppress; door find fallback. |
 | 3.5 | Shadows | **OK** | Code closed 2026-07-09. Spawn+state sync; reliable death; join bulk; multi-proxy aggro. |
@@ -490,8 +490,9 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
   5. HostMelee blood spawn preserves TraverseHack outer flag.
   6. Client damage redirect carries `canCutInHalf` from current weapon.
 - **Already solid:** SanitizePeerDamage; ClientMeleeSensor debounce; hitscan/projectile redirect; no cone FF on PlayerFiredWeapon; MeleeWorldHit host-only apply.
-- **Deferred:** full shotgun pellet parity FX; unsynced far entities name-fallback misses; dual client simultaneous hit races on same NPC.
-- **Playtest smoke:** client melee/shoot NPC dies host+client; host shoot client (FF on); client A shoot client B only B takes damage; 3rd peer sees blood/muzzle.
+- **Residual closeout 2026-07-11:** attack range 3500; ResolvePlayerAttackTarget (id → pos+name cap); FF 0.02s + damage in key; no damage to night-dead; host MeleeWorldHit looser door/window find.
+- **Deferred:** full shotgun pellet *visual* parity; dual client same-NPC race; human dual-box edge soak still open.
+- **Playtest smoke:** client melee/shoot NPC dies host+client; host shoot client (FF on); client A shoot client B only B takes damage; 3rd peer sees blood/muzzle; far map guns still hit; harvest mushroom stays for peers (no boom/vanish).
 
 #### 3.2 Friendly fire / explosions — CLOSED (code) 2026-07-09
 - **B:** `FriendlyFire` (3.1); `ExplosionTrigger` + visual path; `ExplosionSpawnObject`; host `ExplosionFriendlyFirePatch` on `Explodes.explode`; client mute local throw combat; `ThrowableSpawn` (host combat / client visual).

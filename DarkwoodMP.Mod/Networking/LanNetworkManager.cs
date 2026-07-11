@@ -851,6 +851,16 @@ namespace DWMPHorde.Networking
             }
 
             // Both sides: send own position to the other side at ~30 Hz
+            string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);
+            string legsClip = PlayerAnimationSnapshot.ReadLegsClip(local);
+            // Night-dead + spectating: vanilla still plays get-up clips on the local body.
+            // Force death clips so host never "revives" our proxy mid-spectate.
+            if (DeathStateTracker.LocalNightDeath)
+            {
+                torsoClip = "Death1";
+                legsClip = "Death1";
+            }
+
             var msg = new PlayerStateMessage
             {
                 PlayerId = _localPlayerId,
@@ -861,12 +871,12 @@ namespace DWMPHorde.Networking
                 VelZ = vel.z,
                 LocomotionState = (byte)PlayerAnimationSnapshot.ReadLocomotion(local),
                 FlipX = false, // ponytail: game uses rotation, not sprite mirror
-                Running = local.running,
+                Running = local.running && !DeathStateTracker.LocalNightDeath,
                 LegFacingY = PlayerAnimationSnapshot.ReadLegFacingY(local),
                 ReverseLegs = PlayerAnimationSnapshot.ReadReverseLegs(local),
                 TorsoFacingY = PlayerAnimationSnapshot.ReadTorsoFacingY(local),
-                TorsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local),
-                LegsClip = PlayerAnimationSnapshot.ReadLegsClip(local),
+                TorsoClip = torsoClip,
+                LegsClip = legsClip,
                 CurrentFrame = PlayerAnimationSnapshot.ReadCurrentFrame(local),
                 InBearTrap = local.inBearTrap,
                 HasLightProtection = local.isInLight,
@@ -1063,6 +1073,19 @@ namespace DWMPHorde.Networking
                     if (c == null || !c.alive || c.dummy)
                         continue;
 
+                    // Night-dead peer proxy: colliders off + not a combat target.
+                    CharBase proxyCb = proxy.GetComponent<CharBase>();
+                    if (proxyCb != null && !proxyCb.alive)
+                    {
+                        skippedFar++;
+                        continue;
+                    }
+                    if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
+                    {
+                        skippedFar++;
+                        continue;
+                    }
+
                     if (c.target == proxyT)
                     {
                         skippedAlreadyTargeting++;
@@ -1102,15 +1125,12 @@ namespace DWMPHorde.Networking
 
                     float distToProxy = Vector3.Distance(c.transform.position, proxyT.position);
 
+                    // Sniffer: within smell radius → aggro (was inverted: skipped when close).
                     Sniffer entitySniffer = c.GetComponent<Sniffer>();
-                    if (entitySniffer != null && distToProxy < entitySniffer.radius)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
+                    bool inSniff = entitySniffer != null && distToProxy < entitySniffer.radius;
 
                     float proxRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
-                    if (proxRange <= 0f || distToProxy > proxRange)
+                    if (!inSniff && (proxRange <= 0f || distToProxy > proxRange))
                     {
                         skippedFar++;
                         continue;

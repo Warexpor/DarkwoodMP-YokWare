@@ -18,7 +18,6 @@ namespace DWMPHorde.Patches
         {
             float Damage = (float)__args[0];
             Transform attackerTransform = (Transform)__args[1];
-            bool byPlayer = (bool)__args[3];
 
             try
             {
@@ -26,7 +25,16 @@ namespace DWMPHorde.Patches
                 if (net == null || net.Role != NetworkRole.Client)
                     return true;
 
-                bool isPlayerDamage = attackerTransform != null && Player.Instance != null && attackerTransform == Player.Instance.transform;
+                // Incoming damage to local player body must never become a PlayerAttack.
+                // (Player overrides getHit; this is a belt for odd Character refs.)
+                if (Player.Instance != null && __instance != null
+                    && __instance.gameObject == Player.Instance.gameObject)
+                    return true;
+
+                // Outgoing attacks only: local player melee root, player bullets, local explosion AOE.
+                bool isPlayerDamage = attackerTransform != null && Player.Instance != null
+                    && (attackerTransform == Player.Instance.transform
+                        || attackerTransform.IsChildOf(Player.Instance.transform));
                 bool isProjectileDamage = attackerTransform == null && TraverseHack.IsInsidePlayerBulletCollision;
                 bool isExplosionAOE = TraverseHack.IsInsideLocalExplosion;
 
@@ -34,13 +42,14 @@ namespace DWMPHorde.Patches
                     return true;
 
                 // Muted throwables (visualOnly / client own throw) zero Explodes.damage.
-                // Still block local getHit so ghost blasts never hurt, but do not spam
-                // PlayerAttack(0) — host already owns combat via its full projectile.
                 if (isExplosionAOE && Damage <= 0f)
                     return false;
 
-                bool isSynced = ClientEntityInterpolationService.IsHostSynced(__instance);
-                short stableId = isSynced ? CharacterTracker.GetStableId(__instance) : (short)0;
+                // Always send name + hit pos so host can resolve phantoms / unsynced ids.
+                // Prefer stable id when host-synced; 0 forces position+name match on host.
+                short stableId = 0;
+                if (ClientEntityInterpolationService.IsHostSynced(__instance))
+                    CharacterTracker.TryGetStableId(__instance, out stableId);
                 Vector3 pos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
                 Vector3 targetPos = __instance.transform.position;
 
@@ -49,25 +58,28 @@ namespace DWMPHorde.Patches
                     && Player.Instance.currentItem.baseClass != null)
                     canCut = Player.Instance.currentItem.baseClass.canCutInHalf;
 
+                int dmg = Mathf.Max(1, Mathf.RoundToInt(Damage));
+                string entityName = __instance.name;
+                if (entityName.EndsWith("(Clone)"))
+                    entityName = entityName.Substring(0, entityName.Length - 7);
+
                 net.Send(NetMessageType.PlayerAttack, w => new PlayerAttackMessage
                 {
                     TargetNameHash = stableId,
-                    Damage = (int)Damage,
+                    Damage = dmg,
                     AttackerPosX = pos.x,
                     AttackerPosY = pos.y,
                     AttackerPosZ = pos.z,
-                    TargetName = __instance.name,
+                    TargetName = entityName,
                     TargetPosX = targetPos.x,
                     TargetPosY = targetPos.y,
                     TargetPosZ = targetPos.z,
                     CanCutInHalf = canCut
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
 
-                ModRuntime.LegacyInfo($"[DamageRedirect] sent PlayerAttack: target={__instance.name} id={stableId} dmg={(int)Damage} synced={isSynced}");
+                ModRuntime.LegacyInfo($"[DamageRedirect] sent PlayerAttack: target={entityName} id={stableId} dmg={dmg}");
 
-                // Always block local getHit — host is authoritative. Even for unsynced entities,
-                // the host will try name-fallback; letting local damage also apply would
-                // result in double damage if host finds the entity.
+                // Host authoritative — never also apply locally (double-kill / desync).
                 return false;
             }
             catch (System.Exception ex)

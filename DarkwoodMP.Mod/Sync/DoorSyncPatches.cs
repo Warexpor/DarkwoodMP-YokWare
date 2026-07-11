@@ -1,5 +1,6 @@
 using System;
 using DWMPHorde.Networking;
+using DWMPHorde.Patches;
 using HarmonyLib;
 using UnityEngine;
 
@@ -113,6 +114,14 @@ namespace DWMPHorde.Sync
             // Prevent re-broadcasting when applying a remote snapshot
             if (TraverseHack.ApplyingFromNetwork)
                 return;
+
+            // Successful harvest/disarm: do NOT send TrapState boom (peer explosion FX).
+            // TrapDisarmHarvestSync sends silent WorldObjectRemoved instead.
+            if (TrapDisarmHarvestTracker.IsSilentDisarm)
+            {
+                ModRuntime.LegacyInfo("[TrapSync] skip boom — silent disarm/harvest " + __instance.name);
+                return;
+            }
 
             // Only sync objects whose name suggests they are a trap
             string name = __instance.name.ToLowerInvariant();

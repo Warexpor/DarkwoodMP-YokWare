@@ -111,7 +111,7 @@ dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
 
 ## What Path B is / is not (0.9.2)
 
-**Is:** Horde combat/entity/AI mute, containers (host take-deny H6), dreams, spectator, **world save share** (dual-box safe), join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk (light + staggered heavy), host-only time, world-only remote dialog outcomes, dialogue tree sync, client→host flags, NPC talk lock, night-death mutation suppress, chapter auto rehost/reconnect, host grant on crash (PeerRoster/HostHandoff), traps/lights occupancy+remain, chat, drag/push scrape motion-gated, dual-box save root isolation, BepInEx + MelonLoader dual entry. Detail: **CHANGELOG 0.9.2+**.
+**Is:** Horde combat/entity/AI mute (attack range + FF residual 0.9.2+), containers (host take-deny H6), dreams, spectator (night-dead proxy stay dead), **world save share** (dual-box; client slot-5 merge keeps full profile index), join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk, host-only time, dialogue tree sync, silent trap harvest (no peer boom/vanish), traps/lights occupancy+remain, host grant (PeerRoster/HostHandoff), dual-box save root isolation, BepInEx + MelonLoader. Detail: **CHANGELOG 0.9.2+**.
 
 **Is not (yet / residual):**
 

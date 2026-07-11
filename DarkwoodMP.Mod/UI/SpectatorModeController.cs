@@ -72,6 +72,8 @@ namespace DWMPHorde.Spectator
             }
 
             RestoreAudioListener(player);
+            if (player != null)
+                MuteLocalPlayerAudio(player, mute: false);
 
             var cam = Singleton<CamMain>.Instance;
             if (cam != null && player != null)
@@ -122,6 +124,8 @@ namespace DWMPHorde.Spectator
             }
 
             RestoreAudioListener(player);
+            if (player != null)
+                MuteLocalPlayerAudio(player, mute: false);
 
             if (_proxyVision != null)
             {
@@ -228,11 +232,25 @@ namespace DWMPHorde.Spectator
                 return;
 
             var player = Player.Instance;
-            if (player == null)
-                return;
+            // Dead local player has FOV lights off (switchVisibilty) — copying them kills the cone.
+            // Use spectator defaults for cone shape; flashlight stays network-driven on the proxy.
+            bool localFovLive = player != null && player.alive
+                && !DeathStateTracker.LocalNightDeath
+                && player.FOVLogic != null
+                && player.FOVLogic.gameObject.activeInHierarchy;
 
-            bool flashlightOn = PlayerVisionController.IsFlashlightActiveOn(player);
-            _proxyVision.SetFlashlightEnabled(flashlightOn);
+            if (localFovLive)
+            {
+                _proxyVision.CopyFovValuesFrom(player);
+                _proxyVision.SetVisionConeEnabled(true);
+                // Only mirror local flashlight when F4-spectating while alive.
+                _proxyVision.SetFlashlightEnabled(PlayerVisionController.IsFlashlightActiveOn(player));
+            }
+            else
+            {
+                _proxyVision.ApplySpectatorConeDefaults();
+                // Leave proxy flashlight as set by continuous light sync (host's torch/flash).
+            }
         }
 
         private void SyncAudioListener()
@@ -332,12 +350,19 @@ namespace DWMPHorde.Spectator
             _proxyVision = PlayerVisionController.From(proxyGo);
             if (_proxyVision != null)
             {
-                _proxyVision.SetVisionConeEnabled(true);
-                if (player != null)
+                bool localFovLive = player != null && player.alive
+                    && !DeathStateTracker.LocalNightDeath
+                    && player.FOVLogic != null
+                    && player.FOVLogic.gameObject.activeInHierarchy;
+                if (localFovLive)
                 {
+                    _proxyVision.SetVisionConeEnabled(true);
                     _proxyVision.SyncFovConeFrom(player);
-                    bool flashlightOn = PlayerVisionController.IsFlashlightActiveOn(player);
-                    _proxyVision.SetFlashlightEnabled(flashlightOn);
+                    _proxyVision.SetFlashlightEnabled(PlayerVisionController.IsFlashlightActiveOn(player));
+                }
+                else
+                {
+                    _proxyVision.ApplySpectatorConeDefaults();
                 }
             }
         }
@@ -371,11 +396,22 @@ namespace DWMPHorde.Spectator
             _proxyVision = PlayerVisionController.From(proxyGo);
             if (_proxyVision != null)
             {
-                _proxyVision.SetVisionConeEnabled(true);
-                _proxyVision.SyncFovConeFrom(player);
-                bool flashlightOn = PlayerVisionController.IsFlashlightActiveOn(player);
-                _proxyVision.SetFlashlightEnabled(flashlightOn);
+                // Dead/night-death local FOV is inactive — SyncFovConeFrom would leave circle-only.
+                if (player.alive && !DeathStateTracker.LocalNightDeath
+                    && player.FOVLogic != null && player.FOVLogic.gameObject.activeInHierarchy)
+                {
+                    _proxyVision.SetVisionConeEnabled(true);
+                    _proxyVision.SyncFovConeFrom(player);
+                    _proxyVision.SetFlashlightEnabled(PlayerVisionController.IsFlashlightActiveOn(player));
+                }
+                else
+                {
+                    _proxyVision.ApplySpectatorConeDefaults();
+                }
             }
+
+            // Mute corpse/get-up SFX on the local body while cam follows a peer.
+            MuteLocalPlayerAudio(player, mute: true);
 
             player.immobilise();
             player.invulnerable = true;
@@ -406,6 +442,48 @@ namespace DWMPHorde.Spectator
             _savedAudioListenerRotation = _audioListener.rotation;
             _audioListener.SetParent(null);
             _audioListener.position = worldPos;
+        }
+
+        /// <summary>
+        /// Local body is teleported under the spectated peer — corpse get-up / CharacterSounds
+        /// would play at the camera. Disable while spectating.
+        /// </summary>
+        private static void MuteLocalPlayerAudio(Player player, bool mute)
+        {
+            if (player == null) return;
+            try
+            {
+                CharacterSounds cs = player.GetComponent<CharacterSounds>();
+                if (cs != null)
+                {
+                    if (mute)
+                    {
+                        try { cs.destroySounds(); } catch { /* ok */ }
+                        cs.enabled = false;
+                    }
+                    else
+                    {
+                        cs.enabled = true;
+                    }
+                }
+                foreach (var src in player.GetComponentsInChildren<AudioSource>(true))
+                {
+                    if (src == null) continue;
+                    if (mute)
+                    {
+                        src.Stop();
+                        src.mute = true;
+                    }
+                    else
+                    {
+                        src.mute = false;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.LegacyInfo("[Spectate] MuteLocalPlayerAudio: " + ex.Message);
+            }
         }
 
         private static void RefreshWorldGridAt(Vector3 pos)

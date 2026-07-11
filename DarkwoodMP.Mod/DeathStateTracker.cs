@@ -113,6 +113,12 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Death, $"Remote night death for player {playerId} (count={RemoteNightDeathCount}/{TotalRemoteCount})");
         }
 
+        /// <summary>True while this remote is still night-dead (until morning Reset).</summary>
+        public static bool IsRemoteNightDead(int playerId)
+        {
+            return playerId > 0 && _remoteDeathPositions.ContainsKey(playerId);
+        }
+
         public static void OnLocalDayDeath()
         {
             LocalNightDeath = false;

@@ -731,10 +731,11 @@ namespace DWMPHorde.Networking
             target.fullRelease = true;
             target.Active = true;
 
-            // Dual-box: do NOT saveGameProfiles() here — rewrites shared profs.dat while the
-            // host is mid-session and can hitch/corrupt the live index. Memory-only is enough
-            // for LoadScene; disk index can update after load.
-            MergeProfileIntoMemoryOnly(target);
+            // Client SecondDarkwood uses SaveRootOverride (isolated AppData) — safe to persist
+            // the profile index here. Memory-only merge was leaving Core.profiles = [slot5]
+            // then offline Save rewrote profs.dat with ONLY profile 5 (user: "only see 5th slot").
+            // Always load full disk index first, merge receive slot, write back.
+            MergeProfileIntoDiskIndexAndSave(target);
             Core.currentProfile = target;
 
             // CRITICAL: SaveManager still has paths for whatever profile was last active
@@ -887,13 +888,21 @@ namespace DWMPHorde.Networking
             _clientReceiving = false;
         }
 
-        /// <summary>Update Core.profiles in RAM only — never touch profs.dat during join.</summary>
+        /// <summary>
+        /// Update Core.profiles in RAM from disk merge when possible (never drop other slots).
+        /// Prefer <see cref="MergeProfileIntoDiskIndexAndSave"/> on the client receive path.
+        /// </summary>
         private static void MergeProfileIntoMemoryOnly(GameProfile slot)
         {
             if (slot == null) return;
-            List<GameProfile> profiles = Core.profiles != null
-                ? new List<GameProfile>(Core.profiles)
-                : new List<GameProfile>();
+            // Start from disk index so we never collapse to a single receive slot in RAM.
+            List<GameProfile> profiles = LoadProfilesFromDisk();
+            if (profiles == null)
+            {
+                profiles = Core.profiles != null
+                    ? new List<GameProfile>(Core.profiles)
+                    : new List<GameProfile>();
+            }
             for (int i = profiles.Count - 1; i >= 0; i--)
             {
                 if (profiles[i] != null && profiles[i].id == slot.id)
@@ -964,8 +973,8 @@ namespace DWMPHorde.Networking
             }
             profiles.Add(slot);
 
-            // Safety net: if a profN folder has sav.dat but is missing from the index,
-            // re-register it so PLAY still shows real campaigns after a prior nuke.
+            // Safety net: keep all 5 PLAY slots in the index.
+            // Prior bug wrote profs.dat with only the receive slot (5) → UI showed only slot 5.
             for (int id = MinProfileId; id <= MaxProfileId; id++)
             {
                 if (id == slot.id) continue;
@@ -981,18 +990,31 @@ namespace DWMPHorde.Networking
                 if (listed) continue;
 
                 string sav = Path.Combine(GetProfileDir(id), "sav.dat");
-                if (!File.Exists(sav)) continue;
-
-                var orphan = new GameProfile(id, _Active: true, 1);
-                orphan.chapter = 1;
-                orphan.fullRelease = true;
-                orphan.majorVersion = Core.majorVersion;
-                orphan.minorVersion = Core.minorVersion;
-                orphan.RCVersion = Core.RCVersion;
-                orphan.timeSaved = File.GetLastWriteTime(sav).ToString();
-                profiles.Add(orphan);
-                ModLog.Warn(LogCat.Save,
-                    "Re-registered orphan profile slot " + id + " from disk sav.dat (was missing from profs.dat)");
+                if (File.Exists(sav))
+                {
+                    var orphan = new GameProfile(id, _Active: true, 1);
+                    orphan.chapter = 1;
+                    orphan.fullRelease = true;
+                    orphan.majorVersion = Core.majorVersion;
+                    orphan.minorVersion = Core.minorVersion;
+                    orphan.RCVersion = Core.RCVersion;
+                    orphan.timeSaved = File.GetLastWriteTime(sav).ToString();
+                    profiles.Add(orphan);
+                    ModLog.Warn(LogCat.Save,
+                        "Re-registered orphan profile slot " + id + " from disk sav.dat (was missing from profs.dat)");
+                }
+                else
+                {
+                    // Empty placeholder so PLAY grid still has 5 slots (NEW GAME on empty).
+                    var empty = new GameProfile(id, _Active: false, 0);
+                    empty.fullRelease = true;
+                    empty.majorVersion = Core.majorVersion;
+                    empty.minorVersion = Core.minorVersion;
+                    empty.RCVersion = Core.RCVersion;
+                    profiles.Add(empty);
+                    ModLog.Event(LogCat.Save,
+                        "Restored empty profile slot " + id + " in index (was missing after receive-slot merge)");
+                }
             }
 
             profiles.Sort((a, b) =>

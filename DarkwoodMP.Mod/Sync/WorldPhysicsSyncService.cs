@@ -1040,10 +1040,11 @@ namespace DWMPHorde.Sync
                                  && n.Role == NetworkRole.Host)
                             TrapNetworkId.GetOrMintHost(go);
 
+                        bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo("[TrapApply] " + go.name + " id=" + ts.TrapNetId
-                                + " at " + tPos + " triggered=" + ts.Triggered);
-                        ApplyTrapState(go, ts.Triggered);
+                                + " at " + tPos + " triggered=" + ts.Triggered + " silent=" + silent);
+                        ApplyTrapState(go, ts.Triggered, silentDisarm: silent);
                         trapApplied++;
                     }
                 }
@@ -1131,7 +1132,13 @@ namespace DWMPHorde.Sync
 
                     RemoveObjectFromInterpolation(root);
                     Core.RemovePooledPrefab(root.transform);
-                    try { TraverseHack.ApplyingFromNetwork = true; UnityEngine.Object.Destroy(root); }
+                    // Destroy is end-of-frame deferred — ApplyingFromNetwork would already be
+                    // false in Object.Destroy Prefix → re-broadcast WorldObjectRemoved thrash.
+                    try
+                    {
+                        TraverseHack.ApplyingFromNetwork = true;
+                        UnityEngine.Object.DestroyImmediate(root);
+                    }
                     finally { TraverseHack.ApplyingFromNetwork = false; }
                     ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + root.name + "\" at " + pos);
                     return;
@@ -1146,7 +1153,11 @@ namespace DWMPHorde.Sync
                 {
                     RemoveObjectFromInterpolation(named);
                     Core.RemovePooledPrefab(named.transform);
-                    try { TraverseHack.ApplyingFromNetwork = true; UnityEngine.Object.Destroy(named); }
+                    try
+                    {
+                        TraverseHack.ApplyingFromNetwork = true;
+                        UnityEngine.Object.DestroyImmediate(named);
+                    }
                     finally { TraverseHack.ApplyingFromNetwork = false; }
                     ModRuntime.LegacyInfo("[ObjectDestroy] destroyed by name \"" + named.name + "\" at " + pos);
                 }
@@ -1389,12 +1400,42 @@ namespace DWMPHorde.Sync
         /// </summary>
         /// <param name="go">The trap GameObject.</param>
         /// <param name="triggered">Whether the trap should be set to triggered.</param>
-        internal static void ApplyTrapState(GameObject go, bool triggered)
+        /// <param name="silentDisarm">
+        /// True = successful harvest/disarm: mirror vanilla <c>switchToTriggered</c> only
+        /// (sprite/name, keep GO). No explosion prefab/sound (stomp still uses silent=false).
+        /// </param>
+        internal static void ApplyTrapState(GameObject go, bool triggered, bool silentDisarm = false)
         {
             if (go == null) return;
 
             bool current = ReadTrapTriggered(go);
             if (current == triggered) return;
+
+            // Successful harvest/disarm: vanilla staysAfterDisarming keeps the object and only
+            // flips to the "disarmed/triggered" presentation — never boom or Destroy.
+            if (triggered && silentDisarm)
+            {
+                Trigger tSilent = go.GetComponent<Trigger>();
+                if (tSilent != null)
+                {
+                    bool prev = TraverseHack.ApplyingFromNetwork;
+                    TraverseHack.ApplyingFromNetwork = true;
+                    try { tSilent.switchToTriggered(); }
+                    finally { TraverseHack.ApplyingFromNetwork = prev; }
+                }
+                else
+                {
+                    Component[] comps = go.GetComponents<Component>();
+                    foreach (Component comp in comps)
+                    {
+                        if (comp == null) continue;
+                        Traverse tr = Traverse.Create(comp);
+                        if (TryWriteBool(tr, "triggered", true)) break;
+                    }
+                }
+                ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
+                return;
+            }
 
             Component[] allComponents = go.GetComponents<Component>();
             foreach (Component comp in allComponents)
@@ -1816,24 +1857,45 @@ namespace DWMPHorde.Sync
         {
             // Fuel first: Generator.turnOn no-ops when fuel <= 0.
             gen.fuel = fuel;
+            bool wasOn = gen.isOn;
 
             if (gen.isOn != isOn)
             {
                 Item item = gen.GetComponent<Item>();
                 if (isOn)
                 {
+                    // Prefer Item.turnOn (playStart + particles + Generator.turnOn).
+                    // Generator.turnOn alone never starts ItemSounds — peers heard silence.
                     if (item != null)
-                        item.turnOn(); // Generator.turnOn + ItemSounds.playStart + particles
+                        item.turnOn();
                     else
                         gen.turnOn();
                 }
                 else
                 {
                     if (item != null)
-                        item.turnOff(); // ItemSounds.playStop + Generator.turnOff
+                        item.turnOff();
                     else
                         gen.turnOff();
                 }
+
+                // Belt: if item.turnOn early-out (fuel/disabled) left isOn wrong, force gen + SFX.
+                ItemSounds snd = item != null ? item.GetComponent<ItemSounds>() : null;
+                if (isOn && !gen.isOn && fuel > 0f)
+                {
+                    gen.turnOn();
+                    if (item != null) item.isOn = true;
+                }
+                if (wasOn != gen.isOn && snd != null)
+                {
+                    if (gen.isOn)
+                        snd.playStart();
+                    else
+                        snd.playStop();
+                }
+
+                ModRuntime.LegacyInfo("[GeneratorApply] isOn " + wasOn + "→" + gen.isOn
+                    + " fuel=" + fuel.ToString("F0") + " at " + gen.transform.position);
             }
 
             if (gen.lowPower != lowPower)
@@ -2856,8 +2918,14 @@ namespace DWMPHorde.Sync
         public bool Triggered;
         /// <summary>Stable trap net id (0 = position-only legacy).</summary>
         public int TrapNetId;
-        /// <summary>Player occupying this trap (0 = none).</summary>
+        /// <summary>Player occupying this trap (0 = none). Special: <see cref="OccupantSilentDisarm"/>.</summary>
         public short OccupantPlayerId;
+
+        /// <summary>
+        /// OccupantPlayerId sentinel: successful harvest/disarm — apply triggered visual only,
+        /// no explosion prefab/sound (vanilla staysAfterDisarming switchToTriggered).
+        /// </summary>
+        public const short OccupantSilentDisarm = -2;
 
         /// <summary>Serializes this trap state into a network writer.</summary>
         /// <param name="w">The network writer.</param>

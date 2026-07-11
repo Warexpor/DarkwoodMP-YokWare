@@ -1,3 +1,4 @@
+using DWMPHorde;
 using DWMPHorde.Config;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
@@ -52,12 +53,17 @@ namespace DWMPHorde.Patches
                 if (!Config.ModConfig.FriendlyFireEnabled.Value)
                     return;
 
+                CharBase proxyCB = proxy.GetComponent<CharBase>();
+                if (proxyCB != null && !proxyCB.alive)
+                    return;
+                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    return;
+
                 // Match vanilla spawnBullet → getHit(baseClass.damage) plus upgrade mods
                 // (melee uses getModdedDamage; firearms hitscan did not, but upgrades still apply).
                 int baseDmg = player.currentItem.baseClass.damage;
                 int dmg = Mathf.Max(1, player.currentItem.getModdedDamage(baseDmg));
                 Vector3 atkPos = player.transform.position;
-                CharBase proxyCB = proxy.GetComponent<CharBase>();
                 bool inWater = proxyCB != null && proxyCB.inWater;
 
                 if (net.Role == NetworkRole.Host)

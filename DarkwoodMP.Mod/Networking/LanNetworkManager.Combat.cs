@@ -111,29 +111,24 @@ namespace DWMPHorde.Networking
             }
 
             int playerId = _currentReceivePlayerId;
-
-            Character target = CharacterTracker.FindByStableId(msg.TargetNameHash);
-
             Vector3 attackPos = new Vector3(msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ);
             Vector3 targetPos = new Vector3(msg.TargetPosX, msg.TargetPosY, msg.TargetPosZ);
 
-            if (target == null && !string.IsNullOrEmpty(msg.TargetName))
-            {
-                target = CharacterTracker.FindClosestByName(msg.TargetName, targetPos);
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[HandlePlayerAttack] fallback by name '{msg.TargetName}': found={target?.name ?? "null"} (searched near targetPos)");
-            }
-
+            Character target = ResolvePlayerAttackTarget(msg, attackPos, targetPos);
             if (target == null)
             {
-                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target null: nameHash={msg.TargetNameHash} name='{msg.TargetName}'");
+                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target null: nameHash={msg.TargetNameHash} name='{msg.TargetName}' tPos={targetPos}");
                 return;
             }
 
+            if (!target.alive)
+                return;
+
+            float maxRange = GameplayConstants.MaxPlayerAttackRange;
             float distSq = Vector3.SqrMagnitude(target.transform.position - attackPos);
-            if (distSq > 350f * 350f)
+            if (distSq > maxRange * maxRange)
             {
-                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target too far: dist={Mathf.Sqrt(distSq):F1} > 350 (target={target.name} pos={target.transform.position} attackPos={attackPos})");
+                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target too far: dist={Mathf.Sqrt(distSq):F1} > {maxRange} (target={target.name})");
                 return;
             }
 
@@ -143,6 +138,7 @@ namespace DWMPHorde.Networking
                 target.enabled = true;
 
             int damage = SanitizePeerDamage(msg.Damage, "HandlePlayerAttack");
+            if (damage <= 0) return;
             RemotePlayerProxy attackingProxy = GetProxy(playerId);
             Transform attackerT = attackingProxy != null
                 ? attackingProxy.transform
@@ -150,7 +146,49 @@ namespace DWMPHorde.Networking
 
             target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
 
-            ModRuntime.LegacyInfo($"[Attack] player {playerId} dealt {damage} to {target.name}(id={msg.TargetNameHash}) alive={target.alive} health={target.Health}");
+            ModRuntime.LegacyInfo($"[Attack] player {playerId} dealt {damage} to {target.name}(id={CharacterTracker.GetStableId(target)}) alive={target.alive} health={target.Health}");
+        }
+
+        /// <summary>
+        /// Resolve client hit to a host Character: stable id first, then position+name
+        /// (unsynced phantoms), then closest-by-name capped to match radius.
+        /// </summary>
+        private static Character ResolvePlayerAttackTarget(PlayerAttackMessage msg, Vector3 attackPos, Vector3 targetPos)
+        {
+            Character target = null;
+
+            if (msg.TargetNameHash != 0)
+            {
+                target = CharacterTracker.FindByStableId(msg.TargetNameHash);
+                if (target != null && target.alive)
+                    return target;
+                target = null;
+            }
+
+            if (string.IsNullOrEmpty(msg.TargetName))
+                return null;
+
+            float matchR = GameplayConstants.PlayerAttackNameMatchRadius;
+            // Prefer tight match around client's reported hit position (phantom/host drift).
+            target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR);
+            if (target != null && target.alive)
+                return target;
+
+            // Wider ring still anchored at targetPos (not map-wide closest name).
+            target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR * 2.5f);
+            if (target != null && target.alive)
+                return target;
+
+            // Last resort: closest by name, but only if within match radius of reported pos.
+            Character loose = CharacterTracker.FindClosestByName(msg.TargetName, targetPos);
+            if (loose != null && loose.alive)
+            {
+                float dSq = Vector3.SqrMagnitude(loose.transform.position - targetPos);
+                if (dSq <= (matchR * 3f) * (matchR * 3f))
+                    return loose;
+            }
+
+            return null;
         }
 
         private void HandleDamagePlayer(DamagePlayerMessage msg)
@@ -158,10 +196,14 @@ namespace DWMPHorde.Networking
             // Targeted delivery only (SendToPlayer). FF / environmental gates are
             // enforced by senders (ProxyDamagePatch vs ExplosionFriendlyFirePatch).
             if (_role != NetworkRole.Client) return;
+            if (DeathStateTracker.LocalNightDeath) return; // already dead — ignore late hits
             Player local = Player.Instance;
-            if (local == null) return;
+            if (local == null || !local.alive) return;
 
-            local.getHit(msg.Damage, null, msg.CanCutInHalf, byPlayer: false, canInterrupt: true, showRedScreen: msg.ShowRedScreen);
+            int damage = SanitizePeerDamage(msg.Damage, "DamagePlayer");
+            if (damage <= 0) return;
+
+            local.getHit(damage, null, msg.CanCutInHalf, byPlayer: false, canInterrupt: true, showRedScreen: msg.ShowRedScreen);
         }
 
         private void HandlePlayerDied(PlayerDiedMessage msg)
@@ -413,10 +455,10 @@ namespace DWMPHorde.Networking
             Sync.FinalDreamsceneManager.OnRemoteDeathInDream(playerId);
         }
 
-        // Friendly-fire debounce: ProxyDamagePatch + OnCollisionEnter can both
-        // fire for one bullet, doubling damage for 3+ peer games.
+        // Same-frame double delivery (ProxyDamage + rare collide) — not multi-pellet window.
+        // 0.08s was dropping shotgun FF pellets after the first.
         private readonly Dictionary<string, float> _ffDebounce = new Dictionary<string, float>();
-        private const float FriendlyFireDebounceSec = 0.08f;
+        private const float FriendlyFireDebounceSec = 0.02f;
 
         private void HandleFriendlyFire(FriendlyFireMessage msg)
         {
@@ -431,14 +473,22 @@ namespace DWMPHorde.Networking
             if (victimPlayerId > 0 && atkPlayerId > 0 && victimPlayerId == atkPlayerId)
                 return;
 
-            int damage = SanitizePeerDamage(msg.Damage, "FriendlyFire");
+            // Night-dead victim: ignore further FF.
+            if (victimPlayerId > 0 && DeathStateTracker.IsRemoteNightDead(victimPlayerId))
+                return;
+            if ((victimPlayerId == _localPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalNightDeath)
+                return;
 
-            string debounceKey = atkPlayerId + "_" + victimPlayerId;
+            int damage = SanitizePeerDamage(msg.Damage, "FriendlyFire");
+            if (damage <= 0) return;
+
+            // Debounce only identical same-frame doubles (key includes damage).
+            string debounceKey = atkPlayerId + "_" + victimPlayerId + "_" + damage;
             float now = Time.time;
             if (_ffDebounce.TryGetValue(debounceKey, out float last) && now - last < FriendlyFireDebounceSec)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[FriendlyFire] debounced atk={atkPlayerId}→vic={victimPlayerId}");
+                    ModRuntime.LegacyInfo($"[FriendlyFire] debounced atk={atkPlayerId}→vic={victimPlayerId} dmg={damage}");
                 return;
             }
             _ffDebounce[debounceKey] = now;

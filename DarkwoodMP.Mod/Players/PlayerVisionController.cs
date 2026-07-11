@@ -71,6 +71,39 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
+        /// Spectator on a dead/local-invisible player: local FOV lights are off, so
+        /// copying them leaves only the ambient circle. Apply a reasonable cone shape.
+        /// Direction follows the proxy transform (PlayerState torso/legs already rotate it).
+        /// </summary>
+        public void ApplySpectatorConeDefaults()
+        {
+            // Typical hideout FOV-ish values (vanilla getFOVAngle varies with items).
+            const float coneAngle = 80f;
+            const float coneRadius = 18f;
+            ApplyConeShape(_fovLogic, coneAngle, coneRadius);
+            ApplyConeShape(_fovLight, coneAngle, coneRadius * 0.9f);
+            ApplyConeShape(_fovDot, coneAngle, coneRadius * 0.5f);
+            if (_lightDot != null)
+            {
+                _lightDot.gameObject.SetActive(true);
+                if (_lightDot.LightRadius < 1f)
+                    _lightDot.LightRadius = 8f;
+            }
+            SetVisionConeEnabled(true);
+        }
+
+        private static void ApplyConeShape(Light2D light, float angle, float radius)
+        {
+            if (light == null) return;
+            light.gameObject.SetActive(true);
+            // 360 = full circle (no "cone"); force a real wedge when missing/wrong.
+            if (light.LightConeAngle <= 0f || light.LightConeAngle >= 359f)
+                light.LightConeAngle = angle;
+            if (light.LightRadius < 1f)
+                light.LightRadius = radius;
+        }
+
+        /// <summary>
         /// Enables or disables the Flashlight GameObject.
         /// </summary>
         public void SetFlashlightEnabled(bool enabled)
