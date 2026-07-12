@@ -207,11 +207,10 @@ namespace DWMPHorde.Patches
             if (!LocalAudioService.IsAllowlistedNoParentSound(audioID)) return;
             if (!LocalAudioService.TryAllowForward(audioID)) return;
 
-            // Hit feedback (Player.getHit) is parentless/2D in vanilla. Peers must get a
-            // world position so HandlePlayerAudio spatializes on the victim proxy —
-            // NaN alone made some AudioItems play full-volume "on me" for bystanders.
+            // Always stamp player pos for distance cull on RX. Prefer2d one-shots still
+            // play 2D (no proxy parent / reverb); hits spatialize on the victim proxy.
             float px = float.NaN, py = float.NaN, pz = float.NaN;
-            if (LocalAudioService.IsPlayerHitFeedbackSound(audioID) && Player.Instance != null)
+            if (Player.Instance != null)
             {
                 Vector3 p = Player.Instance._transform != null
                     ? Player.Instance._transform.position

@@ -27,6 +27,9 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
+            // Projectile sweep (incl. stalled pellets) uses the same layer mask —
+            // damage for those is Bullet.onCollide → ProxyDamagePatch, never HitscanFF.
+            if (TraverseHack.IsInsideFastProjectileRaycast) return;
 
             Player player = Player.Instance;
             if (player == null) return;

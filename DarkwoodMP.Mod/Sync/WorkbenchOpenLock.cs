@@ -125,8 +125,37 @@ namespace DWMPHorde.Sync
         public static void HostRelease(LanNetworkManager net, string key, int ownerPlayerId)
         {
             if (net == null || net.Role != NetworkRole.Host) return;
-            Release(key, ownerPlayerId);
-            BroadcastState(net, key, ownerPlayerId, granted: true, release: true);
+            if (string.IsNullOrEmpty(key)) return;
+            int before = GetOwner(key);
+            // Host is authority: drop the key if requester owns it, or force when ownerPlayerId
+            // matches the recorded hold (disconnect path).
+            if (_locks.TryGetValue(key, out Hold hold))
+            {
+                if (ownerPlayerId <= 0
+                    || hold.OwnerId == ownerPlayerId
+                    || Time.unscaledTime >= hold.ExpireAt)
+                    _locks.Remove(key);
+                else
+                    Release(key, ownerPlayerId); // no-op if not owner
+            }
+            BroadcastState(net, key, ownerPlayerId > 0 ? ownerPlayerId : before, granted: true, release: true);
+            ModLog.Event(LogCat.Session,
+                $"[WorkbenchLock] released key={key} by={ownerPlayerId} was={before}");
+        }
+
+        /// <summary>Host: drop every lock held by a disconnecting player.</summary>
+        public static void HostReleaseAllForPlayer(LanNetworkManager net, int playerId)
+        {
+            if (net == null || net.Role != NetworkRole.Host || playerId <= 0) return;
+            if (_locks.Count == 0) return;
+            var keys = new System.Collections.Generic.List<string>();
+            foreach (var kv in _locks)
+            {
+                if (kv.Value.OwnerId == playerId)
+                    keys.Add(kv.Key);
+            }
+            for (int i = 0; i < keys.Count; i++)
+                HostRelease(net, keys[i], playerId);
         }
 
         private static void BroadcastState(LanNetworkManager net, string key, int ownerPlayerId, bool granted, bool release)

@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using DWMPHorde;
+using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -14,10 +15,10 @@ namespace DWMPHorde.Networking
 {
     /// <summary>
     /// One-shot host→client transfer of Darkwood save files when the host finishes
-    /// generating a new world (or host presses Resend). Clients always write into
-    /// reserved <see cref="ClientReceiveProfileId"/> (slot 5) so dual-box same-AppData
-    /// does not overwrite the host's live campaign. Profile index is always merged
-    /// from disk before saveGameProfiles (never wipe other PLAY slots).
+    /// generating a new world (or host presses Resend). Client picks a local PLAY profile
+    /// for a <b>permanent</b> world copy (mid-menu), then ENTER WORLD offline-loads that
+    /// slot. Profile index is always merged from disk before saveGameProfiles.
+    /// Dual-box SecondDarkwood uses isolated save roots so host live slots are never hit.
     /// </summary>
     public sealed class WorldSaveShareService
     {
@@ -28,9 +29,8 @@ namespace DWMPHorde.Networking
         private const int MinProfileId = 1;
         private const int MaxProfileId = 5;
         /// <summary>
-        /// Client always materializes host world into this slot when joining from the title menu.
-        /// Dual Steam/SecondDarkwood installs share the same AppData LocalLow path — writing the
-        /// host's live profN while the host is in-game corrupts their save mid-session.
+        /// Legacy default receive slot (pre permanent-copy picker). Still used as a soft
+        /// fallback suggestion when PreferredCoopCopySlot is unset and all slots are full.
         /// </summary>
         public const int ClientReceiveProfileId = 5;
 
@@ -48,7 +48,15 @@ namespace DWMPHorde.Networking
         private Dictionary<int, byte[][]> _chunkBuffers;
         private int _chunksReceived;
         private int _chunksExpected;
+        /// <summary>Host's profile id from the share package (meta only; client picks local slot).</summary>
+        private int _hostSourceProfileId;
+        /// <summary>Cached uncompressed package fingerprint while slot-pick buffers are held.</summary>
+        private string _pendingPackageFingerprint;
 
+        /// <summary>
+        /// Download complete in RAM; waiting for permanent profile slot pick (mid-menu).
+        /// </summary>
+        private bool _awaitingSlotPick;
         /// <summary>
         /// Files on disk + profile paths ready; waiting for user to press ENTER WORLD
         /// before offline Load (phase 2). Transfer link still up so host keeps peer muted.
@@ -57,9 +65,13 @@ namespace DWMPHorde.Networking
         private int _enterProfileId;
         private int _enterChapterId;
 
-        public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying;
-        /// <summary>Client is mid download or apply of host world package.</summary>
-        public bool IsClientReceivingOrApplying => _clientReceiving || _clientApplying;
+        public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying
+            || _awaitingSlotPick || _awaitingEnterWorld;
+        /// <summary>Client is mid download, slot pick, or apply of host world package.</summary>
+        public bool IsClientReceivingOrApplying =>
+            _clientReceiving || _clientApplying || _awaitingSlotPick;
+        /// <summary>Chunks ready; show permanent slot picker before writing.</summary>
+        public bool IsAwaitingSlotPick => _awaitingSlotPick;
         /// <summary>World package written; client must click ENTER WORLD to offline-load.</summary>
         public bool IsAwaitingEnterWorld => _awaitingEnterWorld;
         public string ProgressText { get; private set; } = string.Empty;
@@ -75,16 +87,18 @@ namespace DWMPHorde.Networking
             _clientReceiving = false;
             _clientApplying = false;
             _afterHostShare = null;
-            _chunkBuffers = null;
-            _chunksReceived = 0;
-            _chunksExpected = 0;
-            // Keep _awaitingEnterWorld across intentional phase-2 StopNetwork? No — enter
-            // coroutine captures locals first. Full disconnect cancels the ready state.
+            // Phase-2 enter captures locals then StopNetwork → Reset; do not wipe mid-enter apply.
             if (!_clientApplying)
             {
+                _chunkBuffers = null;
+                _chunksReceived = 0;
+                _chunksExpected = 0;
+                _awaitingSlotPick = false;
                 _awaitingEnterWorld = false;
                 _enterProfileId = 0;
                 _enterChapterId = 0;
+                _hostSourceProfileId = 0;
+                _pendingPackageFingerprint = null;
             }
             ProgressText = string.Empty;
         }
@@ -540,19 +554,25 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _clientReceiving = true;
-            _clientApplying = false;
-            _pendingBegin = msg;
-            // Dual-box same AppData: never overwrite host's live profN mid-session.
-            // Always materialize join package into reserved slot 5 on the client.
-            if (msg.ProfileId != ClientReceiveProfileId)
+            // Already have package / permanent copy ready — ignore duplicate host resends
+            // (title-wait WorldRequest used to force a second download + overwrite).
+            if (_awaitingSlotPick || _awaitingEnterWorld)
             {
                 ModLog.Event(LogCat.Save,
-                    "Host shared slot " + msg.ProfileId + " — client will apply to reserved slot "
-                    + ClientReceiveProfileId + " (same AppData dual-install safe)");
-                msg.ProfileId = ClientReceiveProfileId;
-                _pendingBegin = msg;
+                    "Ignoring world share begin — already "
+                    + (_awaitingSlotPick ? "awaiting slot pick" : "awaiting ENTER WORLD"));
+                return;
             }
+
+            _clientReceiving = true;
+            _clientApplying = false;
+            _awaitingSlotPick = false;
+            _awaitingEnterWorld = false;
+            _pendingBegin = msg;
+            // Host profile id is metadata only — client picks a permanent local slot after download.
+            _hostSourceProfileId = msg.ProfileId;
+            if (_hostSourceProfileId < MinProfileId || _hostSourceProfileId > MaxProfileId)
+                _hostSourceProfileId = 0;
             _chunksReceived = 0;
             _chunksExpected = 0;
             _chunkBuffers = new Dictionary<int, byte[][]>();
@@ -565,12 +585,13 @@ namespace DWMPHorde.Networking
                 _chunksExpected += n;
             }
 
-            ProgressText = "Receiving world → slot " + _pendingBegin.ProfileId + "…";
+            ProgressText = "Receiving host world…";
             _net.StatusText = ProgressText;
             ModLog.Event(LogCat.Save,
-                "Receiving host world for profile slot " + _pendingBegin.ProfileId
-                + ": " + msg.FileCount + " files, " + _chunksExpected + " chunks, ch"
-                + msg.ChapterId + " day" + msg.DayIndex);
+                "Receiving host world (host slot " + _hostSourceProfileId
+                + "): " + msg.FileCount + " files, " + _chunksExpected + " chunks, ch"
+                + msg.ChapterId + " day" + msg.DayIndex
+                + " — client will pick permanent local profile after download");
         }
 
         public void HandleChunk(WorldSaveChunkMessage msg)
@@ -591,7 +612,7 @@ namespace DWMPHorde.Networking
 
             if (_chunksExpected > 0)
             {
-                ProgressText = "Receiving world (slot " + _pendingBegin.ProfileId + ") "
+                ProgressText = "Receiving host world "
                     + (int)(100f * _chunksReceived / _chunksExpected) + "%";
                 _net.StatusText = ProgressText;
             }
@@ -619,18 +640,11 @@ namespace DWMPHorde.Networking
         private IEnumerator ClientApplyCoroutine()
         {
             _clientApplying = true;
-            int profileId = _pendingBegin.ProfileId;
-            ProgressText = "Applying host world → slot " + profileId + "…";
+            ProgressText = "Verifying host world package…";
             _net.StatusText = ProgressText;
             yield return null;
 
-            if (profileId < MinProfileId || profileId > MaxProfileId)
-            {
-                FailClientApply("Invalid host profile id: " + profileId);
-                yield break;
-            }
-
-            // Verify chunks
+            // Verify chunks — hold in RAM until user picks a permanent local profile slot.
             for (int i = 0; i < _pendingBegin.FileCount; i++)
             {
                 if (!_chunkBuffers.TryGetValue(i, out byte[][] chunks))
@@ -648,31 +662,101 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            GameProfile target = EnsureProfileSlot(profileId, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
-            Core.currentProfile = target;
-            string profDir = GetProfileDir(profileId);
-            Directory.CreateDirectory(profDir);
+            // Fingerprint uncompressed package vs local permanent copies — skip overwrite
+            // when the client already has the exact same world save on disk.
+            ProgressText = "Checking for matching local world…";
+            if (_net != null)
+                _net.StatusText = ProgressText;
+            yield return null;
 
-            // One file per frame: inflate+write of 9MB savs freezes dual-box host too.
+            string packageFp = null;
+            try { packageFp = ComputeUncompressedPackageFingerprint(); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Package fingerprint failed: " + ex.Message);
+            }
+            _pendingPackageFingerprint = packageFp;
+
+            int matchSlot = 0;
+            if (!string.IsNullOrEmpty(packageFp))
+            {
+                matchSlot = FindLocalSlotWithSameWorld(packageFp);
+            }
+
+            if (matchSlot >= MinProfileId && matchSlot <= MaxProfileId)
+            {
+                GameProfile target = EnsureProfileSlot(matchSlot, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
+                Core.currentProfile = target;
+                try
+                {
+                    SaveManager sm = Singleton<SaveManager>.Instance;
+                    if (sm != null)
+                        sm.updateFilePaths();
+                }
+                catch { /* ignore */ }
+
+                MergeProfileIntoDiskIndexAndSave(target);
+                Core.currentProfile = target;
+
+                // Keep meta fingerprint current (same package, no rewrite).
+                var meta = CoopWorldCopyMeta.TryLoad(matchSlot) ?? new CoopWorldCopyMeta
+                {
+                    IsCoopCopy = true,
+                    JoinedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+                };
+                meta.IsCoopCopy = true;
+                meta.HostProfileId = _hostSourceProfileId;
+                meta.Chapter = _pendingBegin.ChapterId;
+                meta.Day = _pendingBegin.DayIndex;
+                meta.WorldSeed = _pendingBegin.ChapterId * 100000 + _pendingBegin.DayIndex;
+                meta.ContentFingerprint = packageFp;
+                meta.LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                meta.Note = "Exact match with host package — reused permanent copy (no overwrite).";
+                CoopWorldCopyMeta.Write(matchSlot, meta);
+
+                int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
+                _chunkBuffers = null;
+                _clientApplying = false;
+                _awaitingSlotPick = false;
+                _awaitingEnterWorld = true;
+                _enterProfileId = matchSlot;
+                _enterChapterId = chapterId;
+
+                ProgressText = "Same world already on Profile " + matchSlot + " — press ENTER WORLD";
+                if (_net != null)
+                    _net.StatusText = ProgressText;
+                ModLog.Event(LogCat.Session,
+                    "Join pipeline: exact same world on slot " + matchSlot
+                    + " — skipped overwrite, waiting ENTER WORLD");
+                yield break;
+            }
+
+            _clientApplying = false;
+            _awaitingSlotPick = true;
+            ProgressText = "Pick a profile slot for permanent world copy";
+            if (_net != null)
+                _net.StatusText = ProgressText;
+            ModLog.Event(LogCat.Session,
+                "Join pipeline: package verified (ch" + _pendingBegin.ChapterId
+                + " day" + _pendingBegin.DayIndex
+                + ") — waiting for permanent profile slot pick before ENTER WORLD"
+                + (string.IsNullOrEmpty(packageFp) ? "" : " fp=" + packageFp.Substring(0, Math.Min(12, packageFp.Length))));
+        }
+
+        /// <summary>SHA1 of inflated savs+sav package bytes (matches disk fingerprint).</summary>
+        private string ComputeUncompressedPackageFingerprint()
+        {
+            // Build ordered raw blobs: savs.dat then sav.dat (same order as FingerprintFiles).
+            byte[] savsRaw = null;
+            byte[] savRaw = null;
             for (int i = 0; i < _pendingBegin.FileCount; i++)
             {
-                string name = _pendingBegin.FileNames[i];
-                if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                    || (name != "sav.dat" && name != "savs.dat" && name != "savch.dat"))
-                {
-                    FailClientApply("Bad file name: " + name);
-                    yield break;
-                }
-
-                ProgressText = "Inflating " + name + "…";
-                _net.StatusText = ProgressText;
-                yield return null;
-
+                string name = _pendingBegin.FileNames != null && i < _pendingBegin.FileNames.Length
+                    ? _pendingBegin.FileNames[i] : "";
                 byte[][] chunks = _chunkBuffers[i];
                 int totalLen = 0;
                 for (int c = 0; c < chunks.Length; c++)
                     totalLen += chunks[c].Length;
-
                 byte[] compressed = new byte[totalLen];
                 int off = 0;
                 for (int c = 0; c < chunks.Length; c++)
@@ -680,101 +764,289 @@ namespace DWMPHorde.Networking
                     Buffer.BlockCopy(chunks[c], 0, compressed, off, chunks[c].Length);
                     off += chunks[c].Length;
                 }
+                byte[] raw = Inflate(compressed);
+                if (string.Equals(name, "savs.dat", StringComparison.OrdinalIgnoreCase))
+                    savsRaw = raw;
+                else if (string.Equals(name, "sav.dat", StringComparison.OrdinalIgnoreCase))
+                    savRaw = raw;
+            }
 
-                byte[] raw;
-                try
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                HashRaw(sha, savsRaw);
+                HashRaw(sha, savRaw);
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                var hash = sha.Hash;
+                if (hash == null) return null;
+                var sb = new System.Text.StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++)
+                    sb.Append(hash[i].ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        private static void HashRaw(System.Security.Cryptography.HashAlgorithm sha, byte[] data)
+        {
+            if (data == null || data.Length == 0)
+            {
+                byte[] z = BitConverter.GetBytes(0L);
+                sha.TransformBlock(z, 0, z.Length, null, 0);
+                return;
+            }
+            byte[] len = BitConverter.GetBytes((long)data.Length);
+            sha.TransformBlock(len, 0, len.Length, null, 0);
+            sha.TransformBlock(data, 0, data.Length, null, 0);
+        }
+
+        /// <summary>Local slot whose on-disk sav/savs hash equals package fingerprint.</summary>
+        private static int FindLocalSlotWithSameWorld(string packageFp)
+        {
+            if (string.IsNullOrEmpty(packageFp))
+                return 0;
+
+            // Prefer meta fingerprint match first (fast).
+            int fromMeta = CoopWorldCopyMeta.FindMatchingSlot(packageFp, 0, 0);
+            if (fromMeta > 0)
+            {
+                // Verify disk still matches (player may have deleted files).
+                string disk = CoopWorldCopyMeta.FingerprintProfileSlot(fromMeta);
+                if (string.Equals(disk, packageFp, StringComparison.OrdinalIgnoreCase))
+                    return fromMeta;
+            }
+
+            // Full scan: any slot with identical sav files (even without meta).
+            for (int id = MinProfileId; id <= MaxProfileId; id++)
+            {
+                if (!CoopWorldCopyMeta.SlotHasSaveFiles(id))
+                    continue;
+                string disk = CoopWorldCopyMeta.FingerprintProfileSlot(id);
+                if (string.Equals(disk, packageFp, StringComparison.OrdinalIgnoreCase))
                 {
-                    raw = Inflate(compressed);
+                    ModLog.Event(LogCat.Save,
+                        "Same-world match via disk fingerprint on slot " + id);
+                    return id;
                 }
-                catch (Exception ex)
+            }
+            return 0;
+        }
+
+        /// <summary>Snapshot of PLAY slots 1–5 for the join mid-menu.</summary>
+        public ProfileSlotInfo[] GetProfileSlotInfos()
+        {
+            var result = new ProfileSlotInfo[MaxProfileId - MinProfileId + 1];
+            List<GameProfile> disk = LoadProfilesFromDisk();
+            for (int id = MinProfileId; id <= MaxProfileId; id++)
+            {
+                var info = new ProfileSlotInfo { Id = id };
+                bool hasFiles = CoopWorldCopyMeta.SlotHasSaveFiles(id);
+                GameProfile gp = null;
+                if (disk != null)
                 {
-                    FailClientApply("Inflate failed " + name + ": " + ex.Message);
-                    yield break;
+                    for (int i = 0; i < disk.Count; i++)
+                    {
+                        if (disk[i] != null && disk[i].id == id)
+                        {
+                            gp = disk[i];
+                            break;
+                        }
+                    }
+                }
+                if (gp == null && Core.profiles != null)
+                {
+                    for (int i = 0; i < Core.profiles.Count; i++)
+                    {
+                        if (Core.profiles[i] != null && Core.profiles[i].id == id)
+                        {
+                            gp = Core.profiles[i];
+                            break;
+                        }
+                    }
                 }
 
-                if (_pendingBegin.UncompressedSizes[i] > 0 && raw.Length != _pendingBegin.UncompressedSizes[i])
+                CoopWorldCopyMeta coop = CoopWorldCopyMeta.TryLoad(id);
+                info.HasSave = hasFiles || (gp != null && gp.Active && gp.day > 0);
+                info.IsEmpty = !info.HasSave;
+                info.IsCoopCopy = coop != null && coop.IsCoopCopy;
+                info.Day = gp != null ? gp.day : (coop != null ? coop.Day : 0);
+                info.Chapter = gp != null ? gp.chapter : (coop != null ? coop.Chapter : 0);
+                info.TimeSaved = gp != null ? (gp.timeSaved ?? "") : "";
+                if (coop != null)
                 {
-                    FailClientApply("Decompressed size mismatch for " + name);
-                    yield break;
+                    info.CoopNote = "Co-op copy"
+                        + (string.IsNullOrEmpty(coop.LastRefreshedAt)
+                            ? (string.IsNullOrEmpty(coop.JoinedAt) ? "" : " · joined " + coop.JoinedAt)
+                            : " · refreshed " + coop.LastRefreshedAt)
+                        + (string.IsNullOrEmpty(coop.HostAddress) ? "" : " · " + coop.HostAddress);
+                    // Same-as-incoming uses cached package fingerprint (not re-inflate every OnGUI).
+                    if (_awaitingSlotPick && !string.IsNullOrEmpty(_pendingPackageFingerprint)
+                        && !string.IsNullOrEmpty(coop.ContentFingerprint))
+                    {
+                        info.MatchesIncomingPackage = string.Equals(
+                            coop.ContentFingerprint, _pendingPackageFingerprint,
+                            StringComparison.OrdinalIgnoreCase);
+                    }
                 }
+                result[id - MinProfileId] = info;
+            }
+            return result;
+        }
 
-                ProgressText = "Writing " + name + "…";
-                _net.StatusText = ProgressText;
-                yield return null;
+        /// <summary>
+        /// Write verified package into a permanent local profile slot.
+        /// Pass overwriteConfirmed=true after UI confirm when the slot already has data.
+        /// </summary>
+        public bool TryCommitPermanentSlot(int profileId, bool overwriteConfirmed, out string error)
+        {
+            error = null;
+            if (!_awaitingSlotPick || _chunkBuffers == null)
+            {
+                error = "No host world package waiting for a slot";
+                return false;
+            }
+            if (profileId < MinProfileId || profileId > MaxProfileId)
+            {
+                error = "Invalid profile slot (use 1–5)";
+                return false;
+            }
+            if (CoopWorldCopyMeta.SlotHasSaveFiles(profileId) && !overwriteConfirmed)
+            {
+                error = "Slot " + profileId + " already has a save — confirm overwrite";
+                return false;
+            }
 
-                try
+            try
+            {
+                GameProfile target = EnsureProfileSlot(profileId, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
+                Core.currentProfile = target;
+                string profDir = GetProfileDir(profileId);
+                Directory.CreateDirectory(profDir);
+
+                for (int i = 0; i < _pendingBegin.FileCount; i++)
                 {
+                    string name = _pendingBegin.FileNames[i];
+                    if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                        || (name != "sav.dat" && name != "savs.dat" && name != "savch.dat"))
+                    {
+                        error = "Bad file name: " + name;
+                        return false;
+                    }
+
+                    byte[][] chunks = _chunkBuffers[i];
+                    int totalLen = 0;
+                    for (int c = 0; c < chunks.Length; c++)
+                        totalLen += chunks[c].Length;
+
+                    byte[] compressed = new byte[totalLen];
+                    int off = 0;
+                    for (int c = 0; c < chunks.Length; c++)
+                    {
+                        Buffer.BlockCopy(chunks[c], 0, compressed, off, chunks[c].Length);
+                        off += chunks[c].Length;
+                    }
+
+                    byte[] raw = Inflate(compressed);
+                    if (_pendingBegin.UncompressedSizes[i] > 0
+                        && raw.Length != _pendingBegin.UncompressedSizes[i])
+                    {
+                        error = "Decompressed size mismatch for " + name;
+                        return false;
+                    }
+
                     string dest = Path.Combine(profDir, name);
                     string tmp = dest + ".dwmp_tmp";
                     File.WriteAllBytes(tmp, raw);
                     if (File.Exists(dest))
                         File.Delete(dest);
                     File.Move(tmp, dest);
+
+                    ModLog.Event(LogCat.Save,
+                        "Permanent co-op copy: wrote " + name + " → prof" + profileId
+                        + " (" + raw.Length + " bytes)");
+                }
+
+                target.day = _pendingBegin.DayIndex;
+                target.chapter = _pendingBegin.ChapterId;
+                target.timeSaved = DateTime.Now.ToString();
+                target.majorVersion = Core.majorVersion;
+                target.minorVersion = Core.minorVersion;
+                target.RCVersion = Core.RCVersion;
+                target.fullRelease = true;
+                target.Active = true;
+                // Mark so PLAY list can tell campaign vs co-op if we ever surface it in vanilla UI.
+                target.bool1 = true;
+
+                MergeProfileIntoDiskIndexAndSave(target);
+                Core.currentProfile = target;
+
+                try
+                {
+                    SaveManager sm = Singleton<SaveManager>.Instance;
+                    if (sm != null)
+                        sm.updateFilePaths();
                 }
                 catch (Exception ex)
                 {
-                    FailClientApply("Write failed " + name + ": " + ex.Message);
-                    yield break;
+                    ModLog.Error(LogCat.Save, "updateFilePaths after permanent copy failed", ex);
                 }
 
-                ModLog.Event(LogCat.Save,
-                    "Wrote host world file " + name + " → prof" + profileId + " (" + raw.Length + " bytes)");
-                yield return null;
-            }
+                string hostAddr = "";
+                try
+                {
+                    if (ModConfig.ConnectAddress != null)
+                        hostAddr = ModConfig.ConnectAddress.Value ?? "";
+                }
+                catch { /* ignore */ }
 
-            target.day = _pendingBegin.DayIndex;
-            target.chapter = _pendingBegin.ChapterId;
-            target.timeSaved = DateTime.Now.ToString();
-            target.majorVersion = Core.majorVersion;
-            target.minorVersion = Core.minorVersion;
-            target.RCVersion = Core.RCVersion;
-            target.fullRelease = true;
-            target.Active = true;
+                string diskFp = CoopWorldCopyMeta.FingerprintProfileSlot(profileId);
+                string savPath = Path.Combine(profDir, "sav.dat");
+                string savsPath = Path.Combine(profDir, "savs.dat");
+                var existing = CoopWorldCopyMeta.TryLoad(profileId);
+                string joinedAt = existing != null && !string.IsNullOrEmpty(existing.JoinedAt)
+                    ? existing.JoinedAt
+                    : DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                CoopWorldCopyMeta.Write(profileId, new CoopWorldCopyMeta
+                {
+                    IsCoopCopy = true,
+                    HostProfileId = _hostSourceProfileId,
+                    Chapter = _pendingBegin.ChapterId,
+                    Day = _pendingBegin.DayIndex,
+                    WorldSeed = _pendingBegin.ChapterId * 100000 + _pendingBegin.DayIndex,
+                    HostAddress = hostAddr,
+                    JoinedAt = joinedAt,
+                    LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                    ContentFingerprint = diskFp,
+                    SavBytes = File.Exists(savPath) ? new FileInfo(savPath).Length : 0,
+                    SavsBytes = File.Exists(savsPath) ? new FileInfo(savsPath).Length : 0,
+                    Note = "Permanent local copy of co-op world. Updated on every session Save. Delete PLAY profile to remove."
+                });
 
-            // Client SecondDarkwood uses SaveRootOverride (isolated AppData) — safe to persist
-            // the profile index here. Memory-only merge was leaving Core.profiles = [slot5]
-            // then offline Save rewrote profs.dat with ONLY profile 5 (user: "only see 5th slot").
-            // Always load full disk index first, merge receive slot, write back.
-            MergeProfileIntoDiskIndexAndSave(target);
-            Core.currentProfile = target;
+                Sync.WorldPhysicsSyncService.Reset();
+                Sync.DreamSyncManager.OnDisconnected();
+                Sync.MultiplayerMapManager.Reset();
+                Sync.DreamSession.ResetIncludingCompletions();
+                DeathStateTracker.Reset();
 
-            // CRITICAL: SaveManager still has paths for whatever profile was last active
-            // (often empty on title). Without updateFilePaths(), Load/initLoadGame reads the
-            // wrong profN → getGOsFromID NRE mid SaveManager.Load and a wedged client that
-            // freezes the dual-box host until killed.
-            try
-            {
-                SaveManager sm = Singleton<SaveManager>.Instance;
-                if (sm != null)
-                    sm.updateFilePaths();
+                int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
+                _chunkBuffers = null;
+                _awaitingSlotPick = false;
+                _awaitingEnterWorld = true;
+                _enterProfileId = profileId;
+                _enterChapterId = chapterId;
+
+                ProgressText = "Permanent copy on Profile " + profileId + " — press ENTER WORLD";
+                if (_net != null)
+                    _net.StatusText = ProgressText;
+                ModLog.Event(LogCat.Session,
+                    "Join pipeline: permanent world on slot " + profileId
+                    + " ch" + chapterId + " — waiting for ENTER WORLD");
+                return true;
             }
             catch (Exception ex)
             {
-                ModLog.Error(LogCat.Save, "updateFilePaths after world apply failed", ex);
+                error = ex.Message;
+                ModLog.Error(LogCat.Save, "TryCommitPermanentSlot failed", ex);
+                return false;
             }
-
-            Sync.WorldPhysicsSyncService.Reset();
-            Sync.DreamSyncManager.OnDisconnected();
-            Sync.MultiplayerMapManager.Reset();
-            Sync.DreamSession.ResetIncludingCompletions();
-            DeathStateTracker.Reset();
-
-            int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
-
-            _chunkBuffers = null;
-            _clientApplying = false;
-            _awaitingEnterWorld = true;
-            _enterProfileId = profileId;
-            _enterChapterId = chapterId;
-
-            // Stay on title with transfer link UP until user presses ENTER WORLD.
-            // Auto phase-2 used to dump them straight into offline load (dual-box hitch).
-            ProgressText = "World ready — press ENTER WORLD";
-            if (_net != null)
-                _net.StatusText = ProgressText;
-            ModLog.Event(LogCat.Session,
-                "Join pipeline: world on disk (slot " + profileId
-                + " ch" + chapterId + ") — waiting for ENTER WORLD before offline load");
         }
 
         /// <summary>
@@ -886,6 +1158,8 @@ namespace DWMPHorde.Networking
             _chunkBuffers = null;
             _clientApplying = false;
             _clientReceiving = false;
+            _awaitingSlotPick = false;
+            _awaitingEnterWorld = false;
         }
 
         /// <summary>

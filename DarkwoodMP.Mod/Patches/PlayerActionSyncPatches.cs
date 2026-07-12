@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -13,30 +15,16 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class LightStateHelper
     {
+        /// <summary>Last sent event-path fingerprint (edge TX logs + dedupe optional).</summary>
+        private static string _lastTxSig;
+
         internal static PlayerLightStateMessage BuildLightState(Player __instance)
         {
             var msg = new PlayerLightStateMessage { LightOn = false };
 
-            // Capture ambient light from hotbar items FIRST (before early return),
-            // so toggling a non-activated held item doesn't turn off the ambient dot.
-            // This reads the Player's lightDot radius — if it's larger than default,
-            // a hotbar lantern is providing ambient light.
-            if (Player.Instance != null)
-            {
-                var t = HarmonyLib.Traverse.Create(Player.Instance);
-                Light2D lightDot = t.Field("lightDot").GetValue<Light2D>();
-                float defaultRadius = t.Field("lightDotDefaultRadius").GetValue<float>();
-                if (lightDot != null && lightDot.LightRadius > defaultRadius)
-                {
-                    msg.HasAmbientLight = true;
-                    msg.LightRadius = lightDot.LightRadius;
-                    msg.LightOn = true;
-                    msg.LightIntensity = 1f;
-                    msg.LightColorR = 1f;
-                    msg.LightColorG = 1f;
-                    msg.LightColorB = 1f;
-                }
-            }
+            // --- Hotbar lantern / ambient lightDot (vanilla InvItemClass + modifyLightDot) ---
+            // Independent of currentItem: lantern can stay on while holding torch/fists/etc.
+            TryPackAmbientLantern(ref msg, __instance);
 
             // Flare/match B+: held burn lights owned by PlayerState continuous stream only.
             string curType = __instance.currentItem != null ? __instance.currentItem.type : null;
@@ -49,16 +37,18 @@ namespace DWMPHorde.Patches
             if (InvItemClass.isNull(__instance.currentItem) || !__instance.currentItem.activated)
                 return msg;
 
-            msg.ItemType = __instance.currentItem.type;
-
+            // Held light layers on top of ambient — never clear HasAmbientLight / lantern type.
             if (__instance.currentItem.baseClass.isFlashlight)
             {
                 msg.IsFlashlight = true;
                 msg.LightOn = true;
+                msg.ItemType = __instance.currentItem.type;
                 Light2D flash = HarmonyLib.Traverse.Create(__instance).Field("Flashlight").GetValue<Light2D>();
                 if (flash != null)
                 {
-                    msg.LightRadius = flash.LightRadius;
+                    // Keep ambient radius for lantern; flash cone is separate flag.
+                    if (!msg.HasAmbientLight)
+                        msg.LightRadius = flash.LightRadius;
                     msg.LightColorR = flash.LightColor.r;
                     msg.LightColorG = flash.LightColor.g;
                     msg.LightColorB = flash.LightColor.b;
@@ -67,31 +57,49 @@ namespace DWMPHorde.Patches
             }
             else if (__instance.currentItem.baseClass.lightEmitter != null)
             {
+                // Torch etc. + lantern ambient both on is valid SP (hotbar lantern + held torch).
                 msg.HasLightEmitter = true;
                 msg.LightOn = true;
-                msg.LightRadius = __instance.currentItem.baseClass.lightRadius;
+                msg.ItemType = __instance.currentItem.type;
+                if (!msg.HasAmbientLight && __instance.currentItem.baseClass.lightRadius > 0f)
+                    msg.LightRadius = __instance.currentItem.baseClass.lightRadius;
             }
-            else if (__instance.currentItem.baseClass.lightRadius > 0f)
+            else if (IsLanternItem(__instance.currentItem))
             {
-                // Ambient light via lightDot (lantern, etc. — no flame emitter prefab).
-                // Vanilla expand the lightDot radius; the receiver will activate the
-                // proxy's PlayerLightDot.  Separating this from HasLightEmitter prevents
-                // both the vision cone bug and the "lightEmitter is null" warning.
+                // Selected lantern (rare — usually hotbar-only via TryPackAmbient).
                 msg.HasAmbientLight = true;
                 msg.LightOn = true;
-                msg.LightRadius = __instance.currentItem.baseClass.lightRadius;
+                msg.ItemType = "lantern";
+                float r = __instance.currentItem.baseClass.lightRadius;
+                if (r <= 0f) r = 450f;
+                msg.LightRadius = r;
+                msg.LightIntensity = 1f;
+                msg.LightColorR = 1f;
+                msg.LightColorG = 1f;
+                msg.LightColorB = 1f;
             }
-            else
+            else if (__instance.currentItem.baseClass.lightRadius > 0f
+                     && __instance.currentItem.baseClass.lightEmitter == null)
             {
-                // Non-flare held item with a Light2D (candles, etc.). Flares never reach here.
-                if (__instance.heldItem != null)
+                // Other ambient-style held item — keep lantern ItemType if ambient already packed.
+                msg.HasAmbientLight = true;
+                msg.LightOn = true;
+                if (string.IsNullOrEmpty(msg.ItemType))
+                    msg.ItemType = __instance.currentItem.type;
+                if (msg.LightRadius <= 0f)
+                    msg.LightRadius = __instance.currentItem.baseClass.lightRadius;
+            }
+            else if (__instance.heldItem != null)
+            {
+                Light2D itemLight = __instance.heldItem.GetComponentInChildren<Light2D>(true);
+                if (itemLight != null)
                 {
-                    Light2D itemLight = __instance.heldItem.GetComponentInChildren<Light2D>(true);
-
-                    if (itemLight != null)
+                    msg.HasItemLight = true;
+                    msg.LightOn = true;
+                    if (string.IsNullOrEmpty(msg.ItemType))
+                        msg.ItemType = __instance.currentItem.type;
+                    if (!msg.HasAmbientLight)
                     {
-                        msg.HasItemLight = true;
-                        msg.LightOn = true;
                         msg.LightRadius = itemLight.LightRadius;
                         msg.LightColorR = itemLight.LightColor.r;
                         msg.LightColorG = itemLight.LightColor.g;
@@ -102,6 +110,120 @@ namespace DWMPHorde.Patches
             }
 
             return msg;
+        }
+
+        internal static bool IsLanternItem(InvItemClass item)
+        {
+            if (item == null || item.baseClass == null) return false;
+            string t = item.type ?? "";
+            if (t.IndexOf("lantern", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            // Hotbar-only natural light without emitter (vanilla lantern).
+            return item.baseClass.needsToBeOnHotbar
+                && item.baseClass.lightRadius > 0f
+                && item.baseClass.lightEmitter == null
+                && !item.baseClass.isFlashlight;
+        }
+
+        /// <summary>
+        /// Vanilla (InvItemClass.checkForActiveSwitches / deactivateSwitches):
+        /// lantern on hotbar → modifyLightDot(lightRadius) + logicLights + lightsPlayer.
+        /// Always set ItemType=lantern when ambient is on — empty type thrash made peers
+        /// re-apply every frame (A|lantern ↔ A||) and flicker the remote lightDot.
+        /// </summary>
+        internal static void TryPackAmbientLantern(ref PlayerLightStateMessage msg, Player player)
+        {
+            if (player == null) return;
+
+            var t = HarmonyLib.Traverse.Create(player);
+            Light2D lightDot = t.Field("lightDot").GetValue<Light2D>();
+            float defaultRadius = t.Field("lightDotDefaultRadius").GetValue<float>();
+
+            // 1) Explicit activated lantern on hotbar (authoritative).
+            InvItemClass lantern = null;
+            try
+            {
+                if (player.Hotbar != null)
+                    lantern = player.Hotbar.getItem("lantern");
+            }
+            catch { /* optional */ }
+
+            if (lantern != null && lantern.activated && lantern.baseClass != null
+                && lantern.baseClass.lightRadius > 0f)
+            {
+                msg.HasAmbientLight = true;
+                msg.LightOn = true;
+                msg.LightRadius = lantern.baseClass.lightRadius;
+                msg.LightIntensity = 1f;
+                msg.LightColorR = 1f;
+                msg.LightColorG = 1f;
+                msg.LightColorB = 1f;
+                msg.ItemType = "lantern";
+                return;
+            }
+
+            // 2) activeItems (save/load / race where Hotbar.getItem misses).
+            try
+            {
+                if (player.activeItems != null)
+                {
+                    for (int i = 0; i < player.activeItems.Count; i++)
+                    {
+                        InvItemClass ai = player.activeItems[i];
+                        if (ai == null || !ai.activated || !IsLanternItem(ai)) continue;
+                        float r = ai.baseClass != null && ai.baseClass.lightRadius > 0f
+                            ? ai.baseClass.lightRadius : 450f;
+                        msg.HasAmbientLight = true;
+                        msg.LightOn = true;
+                        msg.LightRadius = r;
+                        msg.LightIntensity = 1f;
+                        msg.LightColorR = 1f;
+                        msg.LightColorG = 1f;
+                        msg.LightColorB = 1f;
+                        msg.ItemType = "lantern";
+                        return;
+                    }
+                }
+            }
+            catch { /* optional */ }
+
+            // 3) lightDot expanded past default = ambient still on.
+            // Always stamp type=lantern — empty ItemType was the RX thrash critical.
+            if (lightDot != null && lightDot.LightRadius > defaultRadius + 0.5f)
+            {
+                msg.HasAmbientLight = true;
+                msg.LightOn = true;
+                msg.LightRadius = lightDot.LightRadius;
+                msg.LightIntensity = 1f;
+                msg.LightColorR = 1f;
+                msg.LightColorG = 1f;
+                msg.LightColorB = 1f;
+                msg.ItemType = "lantern";
+            }
+        }
+
+        internal static void SendLightState(Player player, string reason)
+        {
+            if (ModRuntime.Network == null || player == null) return;
+            var msg = BuildLightState(player);
+            string sig = (msg.LightOn ? "1" : "0")
+                + "|" + (msg.IsFlashlight ? "F" : "-")
+                + "|" + (msg.HasLightEmitter ? "E" : "-")
+                + "|" + (msg.HasItemLight ? "I" : "-")
+                + "|" + (msg.HasAmbientLight ? "A" : "-")
+                + "|" + (msg.ItemType ?? "")
+                + "|" + msg.LightRadius.ToString("F0");
+            if (sig != _lastTxSig)
+            {
+                ModLog.Event(LogCat.World,
+                    $"[Light] TX {reason} {(_lastTxSig ?? "∅")} → {sig}");
+                _lastTxSig = sig;
+            }
+            else if (ModRuntime.VerboseLogging || Config.ModConfig.IsVerboseLightSync)
+            {
+                ModRuntime.LegacyInfo($"[Light] TX {reason} same-sig {sig}");
+            }
+            ModRuntime.Network.SendPlayerLightState(msg, LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
     }
 
@@ -114,9 +236,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
-            if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[Light] onActivateItem fired: type=" + (__instance.currentItem?.type ?? "null") + " activated=" + __instance.currentItem?.activated);
-            ModRuntime.Network.SendPlayerLightState(LightStateHelper.BuildLightState(__instance), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            LightStateHelper.SendLightState(__instance, "onActivateItem");
         }
     }
 
@@ -132,9 +252,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
-            if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[Light] onDoneSwitchingItem fired: type=" + (__instance.currentItem?.type ?? "null") + " activated=" + __instance.currentItem?.activated);
-            ModRuntime.Network.SendPlayerLightState(LightStateHelper.BuildLightState(__instance), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            LightStateHelper.SendLightState(__instance, "onDoneSwitchingItem");
         }
     }
 
@@ -195,7 +313,14 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
+            Vector3 pos = __instance.transform.position;
+
+            // After vanilla throwItem: heldItem field is null, but the GO we captured
+            // still has landTarget + rigidbody velocity. Prefer those over Prefix estimates.
             float vx = 0f, vy = 0f, vz = 0f;
+            float landX = 0f, landY = 0f, landZ = 0f;
+            bool hasLand = false;
+            float distance = capture.Distance;
             if (capture.HeldItem != null)
             {
                 Rigidbody rb = capture.HeldItem.GetComponent<Rigidbody>();
@@ -205,24 +330,59 @@ namespace DWMPHorde.Patches
                     vy = rb.velocity.y;
                     vz = rb.velocity.z;
                 }
+                ThrownItem ti = capture.HeldItem.GetComponent<ThrownItem>();
+                if (ti != null && ti.thrown)
+                {
+                    landX = ti.landTarget.x;
+                    landY = ti.landTarget.y;
+                    landZ = ti.landTarget.z;
+                    hasLand = true;
+                    // Authoritative cursor range from vanilla landTarget (matches flyTime).
+                    float td = Vector3.Distance(
+                        new Vector3(pos.x, 0f, pos.z),
+                        new Vector3(landX, 0f, landZ));
+                    if (td > 1f)
+                        distance = Mathf.Clamp(td, 10f, 370f);
+                }
             }
 
-            Vector3 pos = __instance.transform.position;
+            // Reconstruct velocity if capture missed it (kinematic hold / timing).
+            // Vanilla: vel = facing * distance * 2.5 when ThrownItem.initialVelocity == 0.
+            if (vx * vx + vy * vy + vz * vz < 0.01f)
+            {
+                Vector3 dir = __instance.transform.up;
+                if (dir.sqrMagnitude < 0.01f)
+                    dir = Quaternion.Euler(0f, capture.AimY, 0f) * Vector3.forward;
+                else
+                    dir.Normalize();
+                float initV = 0f;
+                if (capture.HeldItem != null)
+                {
+                    ThrownItem ti0 = capture.HeldItem.GetComponent<ThrownItem>();
+                    if (ti0 != null) initV = ti0.initialVelocity;
+                }
+                Vector3 rebuilt = initV > 0f ? dir * initV : dir * distance * 2.5f;
+                vx = rebuilt.x; vy = rebuilt.y; vz = rebuilt.z;
+            }
             int throwId = 0;
             float longevity = 0f;
+            bool isFlare = !string.IsNullOrEmpty(capture.ItemType)
+                && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
             if (ModRuntime.Network is LanNetworkManager lan)
                 throwId = lan.MintThrowId();
-            if (!string.IsNullOrEmpty(capture.ItemType)
-                && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (isFlare)
             {
-                longevity = 5f;
+                // Remaining until fully dark from aim-start clock (F4), not a fresh longevity+2.
+                float lonFallback = 3f;
                 if (capture.HeldItem != null)
                 {
                     Flare fl = capture.HeldItem.GetComponent<Flare>()
                         ?? capture.HeldItem.GetComponentInChildren<Flare>(true);
                     if (fl != null && fl.longevity > 0.05f)
-                        longevity = fl.longevity + 2f;
+                        lonFallback = fl.longevity;
                 }
+                longevity = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
+                    capture.HeldItem, lonFallback);
             }
             ModRuntime.Network.SendThrowableSpawn(new ThrowableSpawnMessage
             {
@@ -231,13 +391,32 @@ namespace DWMPHorde.Patches
                 PosY = pos.y,
                 PosZ = pos.z,
                 AimY = capture.AimY,
-                Distance = capture.Distance,
+                Distance = distance,
                 VelX = vx,
                 VelY = vy,
                 VelZ = vz,
                 ThrowId = throwId,
-                LongevitySec = longevity
+                LongevitySec = longevity,
+                LandX = landX,
+                LandY = landY,
+                LandZ = landZ,
+                HasLandTarget = hasLand
             });
+
+            // Host must track own throw — never receives own ThrowableSpawn (F3).
+            // ClaimFlareLifetime so vanilla waitToDie yields to host expire track (V4).
+            if (isFlare && throwId > 0 && capture.HeldItem != null
+                && ModRuntime.Network.Role == NetworkRole.Host)
+            {
+                Sync.WorldPhysicsSyncService.RegisterLocalThrownLight(
+                    throwId, capture.HeldItem, longevity, capture.ItemType);
+            }
+            else if (isFlare && capture.HeldItem != null
+                     && ModRuntime.Network.Role == NetworkRole.Client)
+            {
+                // Client thrower: keep aim-start waitToDie (correct clock). Host owns combat copy.
+                // Do not Claim here — local vanilla die matches aim burn.
+            }
 
             // Client thrower: local projectile is FX-only. Host spawns the combat copy
             // via ThrowableSpawn so damage is not applied twice (local explode + host sim).
@@ -248,13 +427,18 @@ namespace DWMPHorde.Patches
                     ModRuntime.LegacyInfo("[ThrowableSync] muted client throw combat for " + capture.ItemType);
             }
 
-            if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[ThrowableSync] sent " + capture.ItemType + " from " + pos);
+            // Always log throws (esp. flares) — playtests had silent host TX.
+            ModLog.Event(LogCat.World, "[ThrowableSync] sent " + capture.ItemType
+                + " throwId=" + throwId
+                + " life=" + longevity.ToString("F2")
+                + " dist=" + distance.ToString("F0")
+                + " vel=" + Mathf.Sqrt(vx * vx + vy * vy + vz * vz).ToString("F0")
+                + " land=" + (hasLand ? "y" : "n")
+                + " role=" + ModRuntime.Network.Role
+                + " from=" + pos);
 
-            string thrownType = capture.ItemType;
-            // After throw: full light rebuild (flare continuous path drops on next pose tick
-            // when currentItem is no longer flare; this clears ambient / other held lights).
-            ModRuntime.Network.SyncCurrentLightState();
+            // Continuous held light drops next pose (heldItem null). Force full light rebuild.
+            LightStateHelper.SendLightState(__instance, "afterThrow");
         }
     }
 
@@ -342,17 +526,34 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Flare.Start no longer sends PlayerLightState (protocol 18 flare B+).
-    /// Held flare light is streamed via PlayerState.FlareActive only.
-    /// Patch kept as a no-op documentation hook so we do not reintroduce dual path.
+    /// Flare.Start runs at aim (heldItem spawn). Record burn clock so throw packets carry
+    /// remaining life, not a fresh longevity+2 (vanilla waitToDie from Start).
+    /// Continuous held light is streamed via PlayerState only when heldItem is live.
     /// </summary>
     [HarmonyPatch(typeof(Flare), "Start")]
     public static class FlareStartPatch
     {
         private static void Postfix(Flare __instance)
         {
-            // Intentionally empty — continuous PlayerState path owns held flare light.
-            // Thrown flares get light from ThrowableSpawn prefab / EnsureThrownFlareLight.
+            if (__instance == null) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            Player p = Player.Instance;
+            if (p == null || p.heldItem == null) return;
+            // Only local player's aimed/held flare — not remote SpawnThrownItem prefabs.
+            bool isHeld = __instance.gameObject == p.heldItem
+                || __instance.transform.IsChildOf(p.heldItem.transform);
+            if (!isHeld) return;
+
+            float lon = __instance.longevity > 0.05f ? __instance.longevity : 3f;
+            Sync.WorldPhysicsSyncService.NoteFlareBurnStart(__instance.gameObject, lon);
+            // Also key the root held GO so GetFlareRemainingUntilDark(heldItem) works.
+            if (__instance.gameObject != p.heldItem)
+                Sync.WorldPhysicsSyncService.NoteFlareBurnStart(p.heldItem, lon);
+
+            ModLog.Event(LogCat.World, "[LightSync] Flare.Start burn clock longevity=" + lon.ToString("F2")
+                + " go=" + __instance.gameObject.name);
         }
     }
 

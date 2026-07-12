@@ -5,10 +5,10 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Co-op client must never write sav.dat / savs.dat while connected.
-    /// Host owns the world; client's sim is half-synced (AI mute, phantoms, sticky bulk).
-    /// Old path: host Save → SaveSync → client Save(force) overwrote slot 5 with garbage
-    /// ("everything becomes corrupted" on the client profile).
+    /// Co-op allows world Save on every machine (coordinated multi-save + permanent copies).
+    /// This patch is a no-op gate kept for load order / logging of client Saves.
+    /// Historical note: blocking client Save avoided half-sim corruption of slot 5; product
+    /// now wants every player to Save on their end when anyone initiates (see SaveSync).
     /// </summary>
     [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(SaveManager), "Save")]
@@ -24,28 +24,16 @@ namespace DWMPHorde.Patches
             if (net.Role != NetworkRole.Client)
                 return true;
 
-            // Remote save flag is only set while HandleSaveSync runs — still block.
-            string reason = LanNetworkManager._isRemoteSaveInProgress
-                ? "SaveSync from host"
-                : "local Save while co-op client";
-
             int profId = Core.currentProfile != null ? Core.currentProfile.id : -1;
+            string via = LanNetworkManager._isRemoteSaveInProgress
+                ? "SaveSync peer request"
+                : "local initiate (will fan-out)";
             ModLog.Event(LogCat.Save,
-                "BLOCKED client world Save (" + reason + ") force=" + force
-                + " forceStatic=" + forceSaveStatic
-                + " doJson=" + doJson
-                + " doProfile=" + doSaveProfile
-                + " profileId=" + profId
-                + " — host owns sav.dat/savs.dat; personal state uses ClientStateBackup only");
+                "Client world Save allowed (" + via + ") force=" + force
+                + " showIndicator=" + showSavingIndicator
+                + " profileId=" + profId);
 
-            // Personal inventory/skills still go to host (and local backup file).
-            try { net.SendClientStateBackup(); }
-            catch (System.Exception ex)
-            {
-                ModLog.Warn(LogCat.Save, "ClientStateBackup after blocked Save failed: " + ex.Message);
-            }
-
-            return false;
+            return true;
         }
     }
 }

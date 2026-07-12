@@ -1,12 +1,14 @@
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using HarmonyLib;
+// CoopWorldCopyMeta in DWMPHorde.Networking
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Host Save → notify peers. Clients must NOT full-world Save (see ClientCoopSaveBlockPatch);
-    /// they only push ClientStateBackup. Old "both sides Save" design corrupted client slot 5.
+    /// Co-op coordinated save: whoever finishes a local <see cref="SaveManager.Save"/>
+    /// notifies peers. Peers run their own full Save with the vanilla Saving indicator.
+    /// <see cref="LanNetworkManager._isRemoteSaveInProgress"/> prevents rebroadcast loops.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
@@ -17,20 +19,24 @@ namespace DWMPHorde.Patches
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
+            if (ModRuntime.Network.Role == NetworkRole.Offline)
+                return;
 
-            // Client world Save is blocked; if we ever reach here Role is Host (or offline).
+            // Clients also push personal inventory backup to host (multi-client keyed files).
             if (ModRuntime.Network.Role == NetworkRole.Client)
             {
-                // Safety: should not run after ClientCoopSaveBlockPatch — keep backup only.
-                ModRuntime.Network.SendClientStateBackup();
-                return;
+                try { ModRuntime.Network.SendClientStateBackup(); }
+                catch { /* non-fatal */ }
             }
 
-            if (ModRuntime.Network.Role == NetworkRole.Host)
-            {
-                ModLog.Event(LogCat.Save, "Host Save → SaveSync notify peers (clients will NOT rewrite world files)");
-                ModRuntime.Network.SendSaveSync();
-            }
+            // Permanent local co-op copy: re-fingerprint sav files after every local Save.
+            try { CoopWorldCopyMeta.RefreshAfterLocalSave(); }
+            catch { /* non-fatal */ }
+
+            ModLog.Event(LogCat.Save,
+                "Local Save complete (" + ModRuntime.Network.Role
+                + ") → SaveSync so all peers Save with Saving UI");
+            ModRuntime.Network.SendSaveSync();
         }
     }
 }

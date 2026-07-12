@@ -650,13 +650,20 @@ namespace DWMPHorde.Networking
         private void HandleRemoteFlareLight(PlayerStateMessage state, int playerId)
         {
             // Flare or match continuous held burn light (LightFlagFlare).
-            bool heldOn = (state.LightFlags & PlayerStateMessage.LightFlagFlare) != 0
+            bool flagOn = (state.LightFlags & PlayerStateMessage.LightFlagFlare) != 0
                 || state.FlareActive || state.MatchActive;
+            bool hasRemain = (state.LightFlags & PlayerStateMessage.LightFlagRemain) != 0;
+            byte remain01 = state.HeldLightRemain01;
 
-            // Host-authoritative expire: remain 0 while flagged means extinguish.
-            if (heldOn && (state.LightFlags & PlayerStateMessage.LightFlagRemain) != 0
-                && state.HeldLightRemain01 == 0)
-                heldOn = false;
+            // V5: remain 0 → soft 2s fade (not hard cut). While fading, ignore re-ON spam.
+            if (_remotePlayers.TryGetValue(playerId, out var fadeCheck)
+                && fadeCheck.FlareLight != null
+                && Sync.WorldPhysicsSyncService.IsThrownLightFading(fadeCheck.FlareLight))
+                return;
+
+            // Soft extinguish when remain hits 0 while still flagged, or flag drops after burn.
+            bool wantSoftOff = hasRemain && remain01 == 0 && flagOn;
+            bool heldOn = flagOn && !(hasRemain && remain01 == 0);
 
             if (heldOn)
             {
@@ -671,66 +678,27 @@ namespace DWMPHorde.Networking
                 if (state.FlareHasItemType && !string.IsNullOrEmpty(state.FlareItemType))
                     remoteState.FlareItemType = state.FlareItemType;
 
+                // V5: last ~2s of ~80s life ≈ remain01 < 6 (2/80*255). Scale intensity.
+                const byte remainFadeThreshold = 6;
+                float remainScale = 1f;
+                if (hasRemain && remain01 > 0 && remain01 < remainFadeThreshold)
+                    remainScale = remain01 / (float)remainFadeThreshold;
+
                 if (rising)
                 {
                     string kind = state.MatchActive ? "match" : "flare";
-                    if (Config.ModConfig.IsVerboseLightSync)
-                        ModRuntime.LegacyInfo($"[LightSync] remote {kind} ON p{playerId} type={remoteState.FlareItemType ?? "?"}");
+                    ModLog.Event(LogCat.World,
+                        $"[LightSync] remote {kind} ON p{playerId} type={remoteState.FlareItemType ?? "?"} remain01={remain01} localOff=({localOff.x:F1},{localOff.y:F1},{localOff.z:F1})");
 
-                    Light2D template = null;
-                    Transform lightDotT = Player.Instance?.transform.Find("PlayerLightDot");
-                    if (lightDotT != null)
-                        template = lightDotT.GetComponent<Light2D>();
-                    GameObject flareLight;
-                    if (template != null)
-                    {
-                        flareLight = UnityEngine.Object.Instantiate(template.gameObject);
-                        flareLight.name = $"RemoteFlareLight_P{playerId}";
-                    }
+                    // Single GO: full flare prefab (stick + lightFlare + Light2D + particles).
+                    // Old path spawned Light2D clone AND full FX with lightFlare → double glares.
+                    // Matches stay light-only (no stick prefab).
+                    if (state.MatchActive)
+                        SpawnRemoteMatchLight(playerId, remoteState, proxy, localOff, state, remainScale);
                     else
-                    {
-                        flareLight = new GameObject($"RemoteFlareLight_P{playerId}");
-                        var created = flareLight.AddComponent<Light2D>();
-                        if (created.LightMaterial == null)
-                            created.LightMaterial = Resources.Load("RadialLight") as Material;
-                    }
-
-                    if (proxy != null)
-                    {
-                        flareLight.transform.SetParent(proxy.transform, false);
-                        flareLight.transform.localPosition = localOff;
-                        flareLight.transform.localRotation = Quaternion.identity;
-                    }
-                    else
-                    {
-                        flareLight.transform.SetParent(null);
-                        flareLight.transform.position = new Vector3(state.PosX, state.PosY, state.PosZ) + localOff;
-                    }
-
-                    remoteState.FlareLight = flareLight;
-                    Light2D light = flareLight.GetComponent<Light2D>();
-                    if (light != null)
-                    {
-                        light.lightsPlayer = true;
-                        light.updateGraph = true;
-                        float r = state.FlareHasParams && state.FlareRadius > 0f ? state.FlareRadius : 650f;
-                        float inten = state.FlareHasParams && state.FlareIntensity > 0f ? state.FlareIntensity : 1f;
-                        light.LightRadius = r;
-                        light.LightIntensity = inten;
-                        if (state.FlareHasParams)
-                            light.LightColor = new Color(state.FlareColorR, state.FlareColorG, state.FlareColorB);
-                        else
-                            light.LightColor = new Color(1f, 0.5f, 0.1f);
-                        var ctrl = Singleton<Controller>.Instance;
-                        if (ctrl != null && !ctrl.logicLights.Contains(light))
-                            ctrl.logicLights.Add(light);
-                    }
-
-                    // Matches: light only (no flare FX prefab). Flares get residual FX clone.
-                    if (!state.MatchActive)
-                        SpawnRemoteFlareFx(playerId, remoteState, proxy, localOff);
+                        SpawnRemoteHeldFlare(playerId, remoteState, proxy, localOff, state, remainScale);
                 }
-                else
+                else if (remoteState.FlareLight != null)
                 {
                     if (proxy != null && remoteState.FlareLight.transform.parent != proxy.transform)
                     {
@@ -738,33 +706,152 @@ namespace DWMPHorde.Networking
                         remoteState.FlareLight.transform.localRotation = Quaternion.identity;
                     }
                     remoteState.FlareLight.transform.localPosition = localOff;
-                    if (remoteState.FlareFx != null)
+                    // FlareFx is unused for unified held flare (same GO); keep in sync if legacy.
+                    if (remoteState.FlareFx != null && remoteState.FlareFx != remoteState.FlareLight)
                         remoteState.FlareFx.transform.localPosition = localOff;
 
-                    Light2D light = remoteState.FlareLight.GetComponent<Light2D>();
-                    if (light != null && state.FlareHasParams)
+                    // Match: position only on stream ticks — re-applying intensity every packet
+                    // recreated SP flicker on the peer. Flare still needs live radius/intensity.
+                    if (state.MatchActive)
                     {
-                        if (state.FlareRadius > 0f)
-                            light.LightRadius = state.FlareRadius;
-                        if (state.FlareIntensity > 0f)
-                            light.LightIntensity = state.FlareIntensity;
-                        light.LightColor = new Color(state.FlareColorR, state.FlareColorG, state.FlareColorB);
+                        if (remainScale < 1f)
+                            ApplyRemoteHeldLightParams(remoteState.FlareLight, state, remainScale);
+                    }
+                    else
+                    {
+                        ApplyRemoteHeldLightParams(remoteState.FlareLight, state, remainScale);
                     }
                 }
             }
             else if (_remotePlayers.TryGetValue(playerId, out var existingState)
                      && (existingState.FlareLight != null || existingState.FlareFx != null))
             {
-                if (Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo($"[LightSync] remote held burn light OFF p{playerId}");
-                DestroyRemoteFlareLight(playerId);
+                // V5: soft fade only on hold-to-burnout (remain hit 0). Throw/switch = hard clear
+                // (V1 throw mutex also hard-clears before projectile spawn).
+                if (wantSoftOff)
+                {
+                    StartRemoteHeldFlareFade(playerId, existingState);
+                }
+                else
+                {
+                    ModLog.Event(LogCat.World, $"[LightSync] remote held burn light OFF p{playerId}");
+                    DestroyRemoteFlareLight(playerId);
+                }
             }
         }
 
+        /// <summary>V5: 2s fade on held remote flare light+FX then destroy.</summary>
+        private void StartRemoteHeldFlareFade(int playerId, RemotePlayerState state)
+        {
+            if (state == null) return;
+            GameObject lightGo = state.FlareLight;
+            GameObject fxGo = state.FlareFx;
+            if (lightGo == null && fxGo == null) return;
+            if (lightGo != null && Sync.WorldPhysicsSyncService.IsThrownLightFading(lightGo))
+                return;
+
+            ModLog.Event(LogCat.World, $"[LightSync] remote held burn soft-fade p{playerId}");
+            // Detach ownership so continuous path won't keep updating; fade owns GOs.
+            state.FlareLight = null;
+            state.FlareFx = null;
+            state.FlareItemType = null;
+
+            if (lightGo != null)
+                Sync.WorldPhysicsSyncService.BeginThrownLightFade(
+                    lightGo, Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec, fxGo);
+            else if (fxGo != null)
+                Sync.WorldPhysicsSyncService.BeginThrownLightFade(
+                    fxGo, Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec);
+        }
+
         /// <summary>
-        /// Held flare visual (particles + sprite). Light stays stream-owned; Flare die/longevity stripped.
+        /// Held flare: one prefab under proxy (sprite + particles + Light2D + Flare flicker).
+        /// Network owns die; no second light/FX clone (client-only glares were double lightFlare).
         /// </summary>
-        private void SpawnRemoteFlareFx(int playerId, RemotePlayerState remoteState, RemotePlayerProxy proxy, Vector3 localOff)
+        private void SpawnRemoteHeldFlare(int playerId, RemotePlayerState remoteState, RemotePlayerProxy proxy,
+            Vector3 localOff, PlayerStateMessage state, float remainScale)
+        {
+            if (proxy == null) return;
+            // Clear any legacy dual GOs
+            if (remoteState.FlareFx != null)
+            {
+                UnityEngine.Object.DestroyImmediate(remoteState.FlareFx);
+                remoteState.FlareFx = null;
+            }
+            if (remoteState.FlareLight != null)
+            {
+                UnityEngine.Object.DestroyImmediate(remoteState.FlareLight);
+                remoteState.FlareLight = null;
+            }
+
+            GameObject prefab = ResolveFlareItemPrefab(remoteState.FlareItemType, match: false);
+            if (prefab == null)
+            {
+                ModLog.Warn(LogCat.World, $"[LightSync] held flare prefab missing p{playerId} type={remoteState.FlareItemType}");
+                SpawnRemoteMatchLight(playerId, remoteState, proxy, localOff, state, remainScale);
+                return;
+            }
+
+            GameObject go = UnityEngine.Object.Instantiate(prefab);
+            go.name = $"RemoteHeldFlare_P{playerId}";
+            go.transform.SetParent(proxy.transform, false);
+            go.transform.localPosition = localOff;
+            go.transform.localRotation = Quaternion.identity;
+
+            foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
+                UnityEngine.Object.Destroy(rb);
+            foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                col.enabled = false;
+            foreach (var ti in go.GetComponentsInChildren<ThrownItem>(true))
+                UnityEngine.Object.Destroy(ti);
+            foreach (var ex in go.GetComponentsInChildren<Explodes>(true))
+                UnityEngine.Object.Destroy(ex);
+            foreach (var ad in go.GetComponentsInChildren<AutoDestroyParticles>(true))
+                UnityEngine.Object.Destroy(ad);
+
+            // Keep Flare for flicker/lightFlare rotation; network owns burnout.
+            Sync.WorldPhysicsSyncService.ClaimFlareLifetime(go);
+
+            // Exactly one active Light2D (prefab may nest extras).
+            Light2D primary = null;
+            Flare flComp = go.GetComponent<Flare>() ?? go.GetComponentInChildren<Flare>(true);
+            if (flComp != null && flComp.light2D != null)
+                primary = flComp.light2D;
+            foreach (var lt in go.GetComponentsInChildren<Light2D>(true))
+            {
+                if (primary == null)
+                    primary = lt;
+                else if (lt != primary)
+                {
+                    lt.lightsPlayer = false;
+                    lt.updateGraph = false;
+                    lt.gameObject.SetActive(false);
+                }
+            }
+            if (primary != null)
+            {
+                if (!primary.gameObject.activeSelf)
+                    primary.gameObject.SetActive(true);
+                primary.lightsPlayer = true;
+                primary.updateGraph = true;
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && !ctrl.logicLights.Contains(primary))
+                    ctrl.logicLights.Add(primary);
+            }
+
+            EnsureEmitterVisible(go);
+            PlayAllParticleSystems(go);
+            SetupParticleSorting(go);
+            ApplyRemoteHeldLightParams(go, state, remainScale);
+
+            remoteState.FlareLight = go;
+            remoteState.FlareFx = null;
+            ModLog.Event(LogCat.World, $"[LightSync] held flare unified p{playerId} type={remoteState.FlareItemType}");
+        }
+
+        /// <summary>Match: small Light2D only (no stick prefab).</summary>
+        private void SpawnRemoteMatchLight(int playerId, RemotePlayerState remoteState, RemotePlayerProxy proxy,
+            Vector3 localOff, PlayerStateMessage state, float remainScale)
         {
             if (proxy == null) return;
             if (remoteState.FlareFx != null)
@@ -772,77 +859,129 @@ namespace DWMPHorde.Networking
                 UnityEngine.Object.DestroyImmediate(remoteState.FlareFx);
                 remoteState.FlareFx = null;
             }
-
-            string itemType = remoteState.FlareItemType;
-            InvItem itemDef = null;
-            var db = Singleton<ItemsDatabase>.Instance;
-            if (db != null)
+            if (remoteState.FlareLight != null)
             {
-                if (!string.IsNullOrEmpty(itemType) && db.hasItem(itemType))
-                    itemDef = db.getItem(itemType, instantiate: false);
-                if (itemDef == null)
+                UnityEngine.Object.DestroyImmediate(remoteState.FlareLight);
+                remoteState.FlareLight = null;
+            }
+
+            Light2D template = TryResolveFlareLightTemplate(remoteState.FlareItemType, match: true);
+            GameObject flareLight;
+            if (template != null)
+            {
+                flareLight = UnityEngine.Object.Instantiate(template.gameObject);
+                flareLight.name = $"RemoteMatchLight_P{playerId}";
+                foreach (var fl in flareLight.GetComponentsInChildren<Flare>(true))
+                    UnityEngine.Object.Destroy(fl);
+                foreach (var rb in flareLight.GetComponentsInChildren<Rigidbody>(true))
+                    UnityEngine.Object.Destroy(rb);
+                foreach (var col in flareLight.GetComponentsInChildren<Collider>(true))
+                    col.enabled = false;
+            }
+            else
+            {
+                flareLight = new GameObject($"RemoteMatchLight_P{playerId}");
+                var created = flareLight.AddComponent<Light2D>();
+                if (created.LightMaterial == null)
+                    created.LightMaterial = Resources.Load("RadialLight") as Material;
+            }
+
+            flareLight.transform.SetParent(proxy.transform, false);
+            flareLight.transform.localPosition = localOff;
+            flareLight.transform.localRotation = Quaternion.identity;
+            if (!flareLight.activeSelf)
+                flareLight.SetActive(true);
+
+            Light2D light = flareLight.GetComponentInChildren<Light2D>(true);
+            if (light != null)
+            {
+                if (!light.gameObject.activeSelf)
+                    light.gameObject.SetActive(true);
+                light.lightsPlayer = true;
+                light.updateGraph = true;
+                // Defaults so peer sees glow even if first packet lacked FlareParams.
+                if (light.LightRadius <= 0f)
+                    light.LightRadius = state.FlareRadius > 0f ? state.FlareRadius : 180f;
+                if (light.LightIntensity <= 0f)
+                    light.LightIntensity = state.FlareIntensity > 0f ? state.FlareIntensity : 0.85f;
+                if (light.LightMaterial == null)
+                    light.LightMaterial = Resources.Load("RadialLight") as Material;
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && !ctrl.logicLights.Contains(light))
+                    ctrl.logicLights.Add(light);
+            }
+            ApplyRemoteHeldLightParams(flareLight, state, remainScale);
+            remoteState.FlareLight = flareLight;
+            remoteState.FlareFx = null;
+            ModLog.Event(LogCat.World,
+                $"[LightSync] held match light p{playerId} type={remoteState.FlareItemType ?? "match"} r={(light != null ? light.LightRadius : 0f):F0}");
+        }
+
+        private static void ApplyRemoteHeldLightParams(GameObject root, PlayerStateMessage state, float remainScale)
+        {
+            if (root == null) return;
+            Light2D light = null;
+            Flare fl = root.GetComponent<Flare>() ?? root.GetComponentInChildren<Flare>(true);
+            if (fl != null && fl.light2D != null)
+                light = fl.light2D;
+            if (light == null)
+                light = root.GetComponentInChildren<Light2D>(true);
+            if (light == null) return;
+
+            // Match packets always carry defaults on TX; apply even without FlareHasParams
+            // so a late peer (params bit only on dirty ticks) still gets a visible radius.
+            float radius = state.FlareHasParams && state.FlareRadius > 0f
+                ? state.FlareRadius
+                : (state.MatchActive ? (state.FlareRadius > 0f ? state.FlareRadius : 180f) : 0f);
+            if (radius > 0f)
+                light.LightRadius = radius;
+
+            if (state.FlareHasParams || state.MatchActive)
+            {
+                float baseI = state.FlareIntensity > 0f ? state.FlareIntensity : (state.MatchActive ? 0.85f : 1f);
+                if (fl == null)
+                    light.LightIntensity = baseI * remainScale;
+                else if (remainScale < 1f)
+                    light.LightIntensity = Mathf.Min(light.LightIntensity, baseI) * remainScale;
+
+                if (state.FlareHasParams
+                    || state.FlareColorR + state.FlareColorG + state.FlareColorB > 0.01f)
                 {
-                    // Fallback: first DB type containing "flare"
-                    try
-                    {
-                        // ItemsDatabase API varies; try getItem on common names.
-                        string[] candidates = { "flare", "Flare", "flare_red", "redFlare" };
-                        for (int i = 0; i < candidates.Length && itemDef == null; i++)
-                        {
-                            if (db.hasItem(candidates[i]))
-                                itemDef = db.getItem(candidates[i], instantiate: false);
-                        }
-                    }
-                    catch (System.Exception ex)
-                    {
-                        if (Config.ModConfig.IsVerboseLightSync)
-                            ModRuntime.Log?.LogWarning("[LightSync] flare FX type resolve failed: " + ex.Message);
-                    }
+                    light.LightColor = new Color(
+                        state.FlareColorR > 0f || state.FlareHasParams ? state.FlareColorR : 1f,
+                        state.FlareColorG > 0f || state.FlareHasParams ? state.FlareColorG : 0.65f,
+                        state.FlareColorB > 0f || state.FlareHasParams ? state.FlareColorB : 0.2f);
+                }
+                else if (state.MatchActive)
+                {
+                    light.LightColor = new Color(1f, 0.65f, 0.2f);
                 }
             }
-
-            GameObject prefab = itemDef != null ? itemDef.item as GameObject : null;
-            if (prefab == null)
+            else if (remainScale < 1f && fl == null)
             {
-                if (Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo($"[LightSync] flare FX missing prefab p{playerId} type={itemType}");
-                return;
+                light.LightIntensity = Mathf.Max(light.LightIntensity, 0.01f) * remainScale;
             }
+        }
 
-            GameObject fx = UnityEngine.Object.Instantiate(prefab);
-            fx.name = $"RemoteFlareFx_P{playerId}";
-            fx.transform.SetParent(proxy.transform, false);
-            fx.transform.localPosition = localOff;
-            fx.transform.localRotation = Quaternion.identity;
-
-            // Strip combat / physics / longevity — visual only; light is B+ stream.
-            foreach (var rb in fx.GetComponentsInChildren<Rigidbody>(true))
-                UnityEngine.Object.Destroy(rb);
-            foreach (var col in fx.GetComponentsInChildren<Collider>(true))
-                col.enabled = false;
-            foreach (var ti in fx.GetComponentsInChildren<ThrownItem>(true))
-                UnityEngine.Object.Destroy(ti);
-            foreach (var ex in fx.GetComponentsInChildren<Explodes>(true))
-                UnityEngine.Object.Destroy(ex);
-            foreach (var flare in fx.GetComponentsInChildren<Flare>(true))
-                UnityEngine.Object.Destroy(flare);
-            // Disable any prefab Light2D so we don't double with RemoteFlareLight
-            foreach (var lt in fx.GetComponentsInChildren<Light2D>(true))
+        private static GameObject ResolveFlareItemPrefab(string itemType, bool match)
+        {
+            var db = Singleton<ItemsDatabase>.Instance;
+            if (db == null) return null;
+            InvItem itemDef = null;
+            if (!string.IsNullOrEmpty(itemType) && db.hasItem(itemType))
+                itemDef = db.getItem(itemType, instantiate: false);
+            if (itemDef == null)
             {
-                lt.lightsPlayer = false;
-                lt.updateGraph = false;
-                lt.gameObject.SetActive(false);
+                string[] candidates = match
+                    ? new[] { "match", "matchstick", "Match", "Matchstick" }
+                    : new[] { "flare", "Flare", "flare_red", "redFlare" };
+                for (int i = 0; i < candidates.Length && itemDef == null; i++)
+                {
+                    if (db.hasItem(candidates[i]))
+                        itemDef = db.getItem(candidates[i], instantiate: false);
+                }
             }
-            foreach (var ad in fx.GetComponentsInChildren<AutoDestroyParticles>(true))
-                UnityEngine.Object.Destroy(ad);
-
-            EnsureEmitterVisible(fx);
-            PlayAllParticleSystems(fx);
-            SetupParticleSorting(fx);
-
-            remoteState.FlareFx = fx;
-            if (Config.ModConfig.IsVerboseLightSync)
-                ModRuntime.LegacyInfo($"[LightSync] flare FX spawned p{playerId} type={itemType}");
+            return itemDef != null ? itemDef.item as GameObject : null;
         }
 
         private void HandleRemoteFlashlightStream(PlayerStateMessage state, int playerId)
@@ -913,6 +1052,35 @@ namespace DWMPHorde.Networking
                     flashT.gameObject.SetActive(false);
                 }
             }
+        }
+
+        /// <summary>Light2D template from flare/match item prefab (not PlayerLightDot).</summary>
+        private static Light2D TryResolveFlareLightTemplate(string itemType, bool match)
+        {
+            var db = Singleton<ItemsDatabase>.Instance;
+            if (db == null) return null;
+
+            InvItem itemDef = null;
+            if (!string.IsNullOrEmpty(itemType) && db.hasItem(itemType))
+                itemDef = db.getItem(itemType, instantiate: false);
+            if (itemDef == null)
+            {
+                string[] candidates = match
+                    ? new[] { "match", "matchstick", "Match", "Matchstick" }
+                    : new[] { "flare", "Flare", "flare_red", "redFlare" };
+                for (int i = 0; i < candidates.Length && itemDef == null; i++)
+                {
+                    if (db.hasItem(candidates[i]))
+                        itemDef = db.getItem(candidates[i], instantiate: false);
+                }
+            }
+            GameObject prefab = itemDef != null ? itemDef.item as GameObject : null;
+            if (prefab == null) return null;
+
+            Flare fl = prefab.GetComponent<Flare>() ?? prefab.GetComponentInChildren<Flare>(true);
+            if (fl != null && fl.light2D != null)
+                return fl.light2D;
+            return prefab.GetComponentInChildren<Light2D>(true);
         }
 
         private void DestroyRemoteFlareLight(int playerId)
@@ -1259,14 +1427,15 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Bridge called from WorldPhysicsSyncService when a body-pushed
-        /// object stops. Force-stops native+MOS scrape and tells peers to stop.</summary>
+        /// object goes quiet. Soft-stops MOS (no PostStop suppress) and tells peers.</summary>
         public static void NotifyBodyPushStopped(string objectName)
         {
             if (Instance == null) return;
             if (string.IsNullOrEmpty(objectName)) return;
 
-            // All roles: kill residual native ItemSounds + MOS immediately.
-            DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(objectName);
+            // Quiet end — SoftStop so the next motion packet re-arms scrape immediately.
+            // ForceStop+suppress here caused the classic ~1s scrape blackout mid-push.
+            DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(objectName);
             Sync.WorldPhysicsSyncService.TryStopBodyPushSound(objectName);
 
             if (Instance._role == NetworkRole.Host)
@@ -2988,13 +3157,19 @@ namespace DWMPHorde.Networking
                         // Apply door-swing physics when an open, unbarricaded door is melee-hit.
                         // Mirrors vanilla Door.getHit(): bodyRB.AddForce(vector.normalized * -50000f)
                         // using the attacker position captured in DoorGetHitPatch.
-                        if (msg.HasAttackerPos && door.opened && !door.destroyed && !door.barricaded)
+                        // Skip if this client already predicted the swing (melee redirect path).
+                        if (msg.HasAttackerPos && door.opened && !door.destroyed && !door.barricaded
+                            && !DWMPHorde.Patches.ClientWorldMeleeRedirectHelper.ShouldSuppressDoorSwingForce(pos))
                         {
                             Vector3 doorPos = door.body != null ? door.body.position : door.transform.position;
                             Vector3 forceDir = (new Vector3(msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ) - doorPos).normalized * -50000f;
                             Rigidbody doorRB = Traverse.Create(door).Field("bodyRB").GetValue<Rigidbody>();
                             if (doorRB != null)
+                            {
+                                if (doorRB.isKinematic)
+                                    doorRB.isKinematic = false;
                                 doorRB.AddForce(forceDir);
+                            }
                         }
                     }
                 }
@@ -3922,7 +4097,8 @@ namespace DWMPHorde.Networking
             {
                 if (msg.Release)
                 {
-                    Sync.WorkbenchOpenLock.HostRelease(this, msg.WorkbenchKey, msg.OwnerPlayerId);
+                    int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _currentReceivePlayerId;
+                    Sync.WorkbenchOpenLock.HostRelease(this, msg.WorkbenchKey, owner);
                     return;
                 }
                 if (msg.IsRequest || !msg.Granted)
@@ -4687,57 +4863,47 @@ namespace DWMPHorde.Networking
         {
             Player local = Player.Instance;
             if (local == null) return;
+            // BuildLightState already packs lantern ambient + held torch/flash.
             var msg = LightStateHelper.BuildLightState(local);
 
-            // Also capture ambient light from hotbar items (e.g. lantern in slot,
-            // not held).  Vanilla stores the current radius in lightDot.
-            var t = HarmonyLib.Traverse.Create(local);
-            Light2D lightDot = t.Field("lightDot").GetValue<Light2D>();
-            float defaultRadius = t.Field("lightDotDefaultRadius").GetValue<float>();
-            if (lightDot != null && lightDot.LightRadius > defaultRadius)
-            {
-                msg.HasAmbientLight = true;
-                msg.LightRadius = lightDot.LightRadius;
-                if (!msg.LightOn && !msg.HasLightEmitter)
-                {
-                    msg.LightOn = true;
-                    msg.LightIntensity = 1f;
-                    msg.LightColorR = 1f;
-                    msg.LightColorG = 1f;
-                    msg.LightColorB = 1f;
-                }
-            }
-
-            // Fallback: scan activated items for ambient light (lantern in hotbar,
-            // not held).  This catches the case where lightDot radius equals the
-            // default because the lantern was activated before connect (save-loaded)
-            // and modifyLightDot never ran during this session.
-            if (!msg.HasAmbientLight && !msg.HasLightEmitter)
+            // Save-loaded lantern: lightDot may still be default if modifyLightDot never
+            // re-ran — scan activeItems but only *activated* ambient lights (not all lightRadius).
+            if (!msg.HasAmbientLight)
             {
                 try
                 {
                     foreach (var activeItem in Player.Instance.activeItems)
                     {
-                        if (activeItem != null && activeItem.baseClass != null &&
-                            activeItem.baseClass.lightRadius > 0f)
+                        if (activeItem == null || !activeItem.activated || activeItem.baseClass == null)
+                            continue;
+                        if (LightStateHelper.IsLanternItem(activeItem)
+                            || (activeItem.baseClass.lightRadius > 0f
+                                && activeItem.baseClass.lightEmitter == null
+                                && !activeItem.baseClass.isFlashlight))
                         {
                             msg.HasAmbientLight = true;
                             msg.LightOn = true;
-                            msg.LightRadius = activeItem.baseClass.lightRadius;
+                            msg.LightRadius = activeItem.baseClass.lightRadius > 0f
+                                ? activeItem.baseClass.lightRadius
+                                : 650f;
                             msg.LightIntensity = 1f;
                             msg.LightColorR = 1f;
                             msg.LightColorG = 1f;
                             msg.LightColorB = 1f;
+                            if (string.IsNullOrEmpty(msg.ItemType))
+                                msg.ItemType = activeItem.type ?? "lantern";
                             break;
                         }
                     }
                 }
                 catch (System.Exception ex)
                 {
-                    ModRuntime.Log?.LogWarning($"[Light] activeItems scan failed: {ex.Message}");
+                    ModLog.Warn(LogCat.World, $"[Light] activeItems scan failed: {ex.Message}");
                 }
             }
 
+            ModLog.Event(LogCat.World,
+                $"[Light] TX SyncCurrent on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter} ambient={msg.HasAmbientLight} r={msg.LightRadius:F0}");
             SendPlayerLightState(msg, DeliveryMethod.ReliableOrdered);
         }
 
@@ -4937,12 +5103,16 @@ namespace DWMPHorde.Networking
             Broadcast(NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        /// <summary>Sends a save-sync trigger to the remote peer.</summary>
+        /// <summary>
+        /// Any peer after a local Save: tell everyone else to Save on their machine
+        /// (vanilla Saving indicator included). Does not re-enter while already applying remote Save.
+        /// </summary>
         public void SendSaveSync()
         {
             if (!IsConnected) return;
             if (_isRemoteSaveInProgress) return;
-            ModRuntime.LegacyInfo("[SaveSync] sending save trigger to remote");
+            if (_role == NetworkRole.Offline) return;
+            ModRuntime.LegacyInfo("[SaveSync] broadcast coordinated Save to peers");
             Broadcast(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
@@ -4965,42 +5135,59 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host Save notify. Clients must not rewrite sav.dat/savs.dat with network-diverged
-        /// world state (that was the slot-5 corruption path). Host ignores peer SaveSync.
+        /// Peer initiated Save → run full local Save with vanilla Saving UI.
+        /// Host and clients both apply. Flag blocks SaveSyncPatch rebroadcast loops.
         /// </summary>
         private void HandleSaveSync()
         {
-            if (_role == NetworkRole.Host)
+            if (_role == NetworkRole.Offline)
+                return;
+            if (_isRemoteSaveInProgress)
+                return;
+
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null)
             {
-                ModLog.Event(LogCat.Save, "SaveSync from peer ignored on host (host already owns world)");
+                ModLog.Warn(LogCat.Save, "SaveSync: SaveManager missing");
                 return;
             }
 
-            if (_role != NetworkRole.Client)
+            // Not in a playable world yet (title join, loading) — skip without looping.
+            if (Core.mainMenu || Core.loadingGame || Player.Instance == null)
+            {
+                ModLog.Event(LogCat.Save,
+                    "SaveSync ignored — not in playable world (menu/loading/no player)");
                 return;
+            }
 
-            if (_isRemoteSaveInProgress) return;
             _isRemoteSaveInProgress = true;
             try
             {
                 ModLog.Event(LogCat.Save,
-                    "SaveSync from host: personal ClientStateBackup only (world Save blocked on client)");
+                    "SaveSync from peer → local coordinated Save (force + Saving indicator) role="
+                    + _role);
 
-                // Touch lastTimeSaved so UI "time since save" does not look stuck — no disk write.
-                try
+                // force: night / partial states still write. showSavingIndicator: vanilla BR UI.
+                sm.Save(
+                    doJson: true,
+                    doSaveProfile: true,
+                    force: true,
+                    forceSaveStatic: false,
+                    showSavingIndicator: true);
+
+                // Host keeps per-peer inventory snapshots when clients save.
+                if (_role == NetworkRole.Client)
                 {
-                    SaveManager save = Singleton<SaveManager>.Instance;
-                    if (save != null)
-                    {
-                        var t = HarmonyLib.Traverse.Create(save);
-                        t.Field("lastTimeSaved").SetValue(System.DateTime.Now);
-                    }
-                    if (Core.currentProfile != null)
-                        Core.currentProfile.timeSaved = System.DateTime.Now.ToString();
+                    try { SendClientStateBackup(); }
+                    catch { /* non-fatal */ }
                 }
-                catch { /* cosmetic only */ }
 
-                SendClientStateBackup();
+                // Permanent local copy tracks every coordinated Save (fingerprint + day/ch).
+                CoopWorldCopyMeta.RefreshAfterLocalSave();
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Error(LogCat.Save, "SaveSync coordinated Save failed", ex);
             }
             finally
             {
@@ -6440,19 +6627,67 @@ namespace DWMPHorde.Networking
                 SendToAllExcept(_currentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
         }
 
+        /// <summary>Empty or "lantern" — ambient-only fingerprint variants that mean the same thing.</summary>
+        private static bool IsAmbientLanternType(string type)
+        {
+            if (string.IsNullOrEmpty(type)) return true;
+            return type.IndexOf("lantern", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private void HandlePlayerLightState(PlayerLightStateMessage msg)
         {
-            ModRuntime.LegacyInfo($"[Light] entered: on={msg.LightOn} type={msg.ItemType} flash={msg.IsFlashlight} emit={msg.HasLightEmitter} itemLight={msg.HasItemLight} ambient={msg.HasAmbientLight}");
-
             int playerId = _currentReceivePlayerId;
             RemotePlayerProxy proxy = GetProxy(playerId);
             if (proxy == null)
             {
-                ModRuntime.LegacyInfo($"[Light] proxy for player {playerId} is null, can't apply light state");
+                ModLog.Event(LogCat.World,
+                    $"[Light] RX drop p{playerId} proxy=null on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter}");
                 return;
             }
 
+            var remoteState = GetOrCreateState(playerId);
+
+            // Normalize ambient-only type: empty ↔ "lantern" must not re-apply (TX thrash critical).
+            if (msg.HasAmbientLight && string.IsNullOrEmpty(msg.ItemType)
+                && !msg.HasLightEmitter && !msg.IsFlashlight && !msg.HasItemLight)
+                msg.ItemType = "lantern";
+
+            // Skip identical re-applies (onActivate + onDoneSwitch both fire → re-spawn thrash).
+            string appliedType = remoteState.AppliedLightItemType ?? "";
+            string nextType = msg.ItemType ?? "";
+            bool typeSame = string.Equals(appliedType, nextType, StringComparison.Ordinal)
+                || (msg.HasAmbientLight && remoteState.AppliedAmbient
+                    && !msg.HasLightEmitter && !remoteState.AppliedEmitter
+                    && IsAmbientLanternType(appliedType) && IsAmbientLanternType(nextType));
+            bool sameAsApplied =
+                remoteState.AppliedLightOn == msg.LightOn
+                && remoteState.AppliedFlash == msg.IsFlashlight
+                && remoteState.AppliedEmitter == msg.HasLightEmitter
+                && remoteState.AppliedItemLight == msg.HasItemLight
+                && remoteState.AppliedAmbient == msg.HasAmbientLight
+                && typeSame
+                && Mathf.Abs(remoteState.AppliedLightRadius - msg.LightRadius) < 0.5f;
+            if (sameAsApplied)
+            {
+                if (Config.ModConfig.IsVerboseLightSync)
+                    ModRuntime.LegacyInfo($"[Light] RX skip-noop p{playerId} type={msg.ItemType}");
+                return;
+            }
+
+            string prev = $"on={remoteState.AppliedLightOn} type={remoteState.AppliedLightItemType ?? "-"} flash={remoteState.AppliedFlash} emit={remoteState.AppliedEmitter}";
+            string next = $"on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter} itemLight={msg.HasItemLight} ambient={msg.HasAmbientLight} r={msg.LightRadius:F0}";
+            ModLog.Event(LogCat.World, $"[Light] RX p{playerId} {prev} → {next}");
+
+            remoteState.AppliedLightOn = msg.LightOn;
+            remoteState.AppliedFlash = msg.IsFlashlight;
+            remoteState.AppliedEmitter = msg.HasLightEmitter;
+            remoteState.AppliedItemLight = msg.HasItemLight;
+            remoteState.AppliedAmbient = msg.HasAmbientLight;
+            remoteState.AppliedLightItemType = msg.ItemType ?? "";
+            remoteState.AppliedLightRadius = msg.LightRadius;
+
             // ---- Flashlight (directional cone) ----
+            // Continuous B+ stream also drives Flashlight; event path is edge re-sync.
             Transform flashT = proxy.transform.Find("Flashlight");
             if (flashT != null)
             {
@@ -6514,86 +6749,57 @@ namespace DWMPHorde.Networking
                 DestroyRemoteItemLight(playerId);
             }
 
-            // ---- Ambient light dot (PlayerLightDot radius) ----
-            // Player component is stripped on the proxy, so access PlayerLightDot
-            // directly via its transform name instead of Player.lightDot.
-            // HasAmbientLight covers hotbar-only items (lantern in slot, not held).
-            // For HasLightEmitter (held lantern), ONLY the emitter provides light;
-            // PlayerLightDot is left disabled to prevent double-light vision bugs.
-            Transform lightDotT = proxy.transform.Find("PlayerLightDot");
-            if (lightDotT == null)
-            {
-                lightDotT = new GameObject("PlayerLightDot").transform;
-                lightDotT.SetParent(proxy.transform, false);
-                Light2D newDot = lightDotT.gameObject.AddComponent<Light2D>();
-                Material radial = Resources.Load("RadialLight") as Material;
-                if (radial != null) newDot.LightMaterial = radial;
-            }
-            Light2D lightDot = lightDotT.GetComponent<Light2D>();
-            if (lightDot != null)
-            {
-                // HasLightEmitter (held lantern/torch): the emitter provides the
-                // correct visual (radial light + particles).  Activating PlayerLightDot
-                // on top of it causes a double-light vision cone bug.
-                if (msg.HasAmbientLight && msg.LightOn && msg.LightRadius > 0f && !msg.HasLightEmitter)
-                {
-                    lightDotT.gameObject.SetActive(true);
-                    lightDot.LightRadius = msg.LightRadius;
-                    lightDot.lightsPlayer = true;
-                    lightDot.updateGraph = true;
-                    var ctrl = Singleton<Controller>.Instance;
-                    if (ctrl != null && !ctrl.logicLights.Contains(lightDot))
-                        ctrl.logicLights.Add(lightDot);
-                }
-                else if (!msg.LightOn && !msg.HasAmbientLight && !msg.HasLightEmitter)
-                {
-                    if (lightDot.lightsPlayer || lightDotT.gameObject.activeInHierarchy)
-                    {
-                        lightDot.LightRadius = 0f;
-                        lightDot.unlightGraphNodes();
-                        var ctrl = Singleton<Controller>.Instance;
-                        if (ctrl != null)
-                            ctrl.logicLights.Remove(lightDot);
-                        lightDot.lightsPlayer = false;
-                        lightDot.updateGraph = false;
-                    }
-                    lightDotT.gameObject.SetActive(false);
-                }
-                // Flashlights (IsFlashlight=true): deactivate PlayerLightDot
-                // to prevent it from rendering with a stale default radius.
-                else if (msg.IsFlashlight)
-                {
-                    if (lightDot.lightsPlayer || lightDotT.gameObject.activeInHierarchy)
-                    {
-                        lightDot.LightRadius = 0f;
-                        lightDot.unlightGraphNodes();
-                        var ctrl = Singleton<Controller>.Instance;
-                        if (ctrl != null)
-                            ctrl.logicLights.Remove(lightDot);
-                        lightDot.lightsPlayer = false;
-                        lightDot.updateGraph = false;
-                    }
-                    lightDotT.gameObject.SetActive(false);
-                }
-            }
+            // ---- Remote lantern ambient (vanilla: Player.modifyLightDot on local only) ----
+            // NEVER reuse the cloned PlayerLightDot: Transform.Find skips inactive children,
+            // so we used to spawn a second "PlayerLightDot" while the clone's original sat
+            // disabled-but-still-in-logicLights → looked like lantern on both characters.
+            // Dedicated RemoteLanternAmbient only on the proxy that owns the lantern.
+            bool wantAmbient = msg.HasAmbientLight && msg.LightOn && msg.LightRadius > 0f;
+            if (msg.IsFlashlight && msg.LightOn)
+                wantAmbient = false;
+            ApplyRemoteLanternAmbient(proxy, playerId, wantAmbient, msg);
 
             // Clean up torch/lantern emitters when switching to non-emitter item
             // (flashlight, empty hand, etc.) — the HasLightEmitter branch below only
             // cleans before spawning, and !LightOn only cleans if emitterRoot is found.
             if (!msg.HasLightEmitter)
-                RemoveAllItemEmitters(proxy.transform);
+            {
+                if (proxy.transform.Find("ItemLightEmitter") != null
+                    || proxy.transform.Find("ItemParticleEmitter") != null)
+                {
+                    ModLog.Event(LogCat.World, $"[Light] RX p{playerId} remove emitters (not HasLightEmitter)");
+                    RemoveAllItemEmitters(proxy.transform);
+                }
+            }
 
             // ---- Torch / Lantern light emitter ----
             Transform emitterRoot = proxy.transform.Find("ItemLightEmitter");
             if (msg.HasLightEmitter && msg.LightOn)
             {
-                // Full cleanup before spawning: remove mod-named AND cloned emitters
-                RemoveAllItemEmitters(proxy.transform);
+                // Keep existing emitters if same item type still live — re-spawn kills
+                // particles + snaps flame (torch VFX thrash on activate/switch double-fire).
+                string wantType = msg.ItemType ?? "";
+                Transform particleRoot = proxy.transform.Find("ItemParticleEmitter");
+                var animCtrl = proxy.GetComponent<Players.SecondPlayerAnimController>();
+                bool alreadyWired = emitterRoot != null
+                    && animCtrl != null
+                    && animCtrl.HasEmittedItem(wantType);
 
-                // Look up the item in the database to get actual prefab references
-                if (!string.IsNullOrEmpty(msg.ItemType))
+                if (alreadyWired)
                 {
-                    InvItem itemDef = Singleton<ItemsDatabase>.Instance?.getItem(msg.ItemType, instantiate: false);
+                    // Re-assert particles playing + position without destroy.
+                    if (particleRoot != null)
+                        PlayAllParticleSystems(particleRoot.gameObject);
+                    animCtrl.UpdateEmitterPosition();
+                    string clip = animCtrl.CurrentTorsoClipName ?? "?";
+                    ModLog.Event(LogCat.World,
+                        $"[Light] RX p{playerId} keep emitters type={wantType} clip={clip}");
+                }
+                else if (!string.IsNullOrEmpty(wantType))
+                {
+                    RemoveAllItemEmitters(proxy.transform);
+
+                    InvItem itemDef = Singleton<ItemsDatabase>.Instance?.getItem(wantType, instantiate: false);
                     if (itemDef != null && itemDef.lightEmitter != null)
                     {
                         GameObject emitter = Core.AddPrefab(
@@ -6610,15 +6816,11 @@ namespace DWMPHorde.Networking
 
                             EnsureEmitterVisible(emitter);
                             SetupLight2D(emitter);
-                            ModRuntime.LegacyInfo("[Light] spawned emitter for " + msg.ItemType);
+                            ModLog.Event(LogCat.World, $"[Light] RX p{playerId} spawn emitter type={wantType}");
                         }
 
                         if (itemDef._particleEmitter != null)
                         {
-                            // RemoveAllItemEmitters above uses Core.RemovePooledPrefab
-                            // (non-immediate Destroy).  Find() may still return the stale
-                            // emitter, making a null-guard skip the re-spawn.  Destroy
-                            // immediate here so we always spawn a fresh one.
                             Transform staleP = proxy.transform.Find("ItemParticleEmitter");
                             if (staleP != null)
                                 UnityEngine.Object.DestroyImmediate(staleP.gameObject);
@@ -6639,28 +6841,30 @@ namespace DWMPHorde.Networking
                                 PlayAllParticleSystems(pe);
                                 SetupParticleSorting(pe);
 
-                                ModRuntime.LegacyInfo("[Light] spawned particle emitter for " + msg.ItemType);
+                                ModLog.Event(LogCat.World, $"[Light] RX p{playerId} spawn particles type={wantType}");
                             }
                         }
 
-                        // Wire up per-frame emitter positioning and force an immediate
-                        // update so emitters snap to the correct position even before
-                        // the first LateUpdate runs.
-                        var animCtrl = proxy.GetComponent<Players.SecondPlayerAnimController>();
+                        animCtrl = proxy.GetComponent<Players.SecondPlayerAnimController>();
                         if (animCtrl != null)
                         {
                             animCtrl.SetEmittedItem(itemDef);
                             animCtrl.UpdateEmitterPosition();
+                            string clip = animCtrl.CurrentTorsoClipName ?? "?";
+                            bool hasClipKey = animCtrl.EmitterHasClip(clip);
+                            ModLog.Event(LogCat.World,
+                                $"[Light] RX p{playerId} wire anim type={wantType} clip={clip} epKey={hasClipKey}");
                         }
                     }
                     else
                     {
-                        ModRuntime.Log?.LogWarning("[LightSync] item def or lightEmitter is null for: " + msg.ItemType);
+                        ModLog.Warn(LogCat.World, "[Light] item def or lightEmitter null for: " + wantType);
                     }
                 }
             }
             else if (!msg.LightOn && emitterRoot != null)
             {
+                ModLog.Event(LogCat.World, $"[Light] RX p{playerId} remove emitters (LightOn=false)");
                 RemoveAllItemEmitters(proxy.transform);
             }
         }
@@ -6721,6 +6925,198 @@ namespace DWMPHorde.Networking
                 var ctrl = Singleton<Controller>.Instance;
                 if (ctrl != null && !ctrl.logicLights.Contains(lt))
                     ctrl.logicLights.Add(lt);
+            }
+        }
+
+        private const string RemoteLanternAmbientName = "RemoteLanternAmbient";
+
+        /// <summary>
+        /// Peer lantern glow under the proxy only. Never clones PlayerLightDot (that is
+        /// personal ambient vision and caused the dual-lantern look). Uses Light2D.Create
+        /// for a real mesh; copies material only from local lightDot.
+        /// </summary>
+        private static void ApplyRemoteLanternAmbient(
+            RemotePlayerProxy proxy, int playerId, bool wantOn, PlayerLightStateMessage msg)
+        {
+            if (proxy == null) return;
+
+            // Stock clone lightDots must stay dead — they are not the net lantern.
+            NeutralizeClonedPlayerLightDots(proxy.transform);
+            // Destroy any legacy Instantiated PlayerLightDot copies named RemoteLanternAmbient
+            // that still look like personal vision lights (double blob).
+            DestroyLegacyClonedLanterns(proxy.transform);
+
+            Transform ambientT = FindChildIncludingInactive(proxy.transform, RemoteLanternAmbientName);
+
+            if (wantOn)
+            {
+                Light2D light = ambientT != null ? ambientT.GetComponent<Light2D>() : null;
+                if (light == null)
+                {
+                    light = CreateRemoteLanternLight(proxy.transform);
+                    if (light == null)
+                    {
+                        ModLog.Warn(LogCat.World, $"[Light] remote lantern spawn failed p{playerId}");
+                        return;
+                    }
+                    ambientT = light.transform;
+                }
+
+                ambientT.gameObject.SetActive(true);
+                ambientT.localPosition = Vector3.zero;
+                ambientT.localRotation = Quaternion.identity;
+
+                float radius = msg.LightRadius > 0f ? msg.LightRadius : 450f;
+                light.LightRadius = radius;
+                light.LightIntensity = msg.LightIntensity > 0f ? msg.LightIntensity : 1f;
+                if (msg.LightColorR + msg.LightColorG + msg.LightColorB > 0.01f)
+                    light.LightColor = new Color(msg.LightColorR, msg.LightColorG, msg.LightColorB, 0f);
+                else
+                    light.LightColor = new Color(1f, 0.85f, 0.45f, 0f);
+                light.LightConeAngle = 360f;
+                // Render + AI graph for area light, but this is NOT Player.Instance.lightDot.
+                light.lightsPlayer = true;
+                light.updateGraph = true;
+                EnsureRadialMaterial(light);
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && !ctrl.logicLights.Contains(light))
+                    ctrl.logicLights.Add(light);
+
+                ModLog.Event(LogCat.World,
+                    $"[Light] remote lantern ON p{playerId} r={radius:F0} go={light.gameObject.name}");
+            }
+            else if (ambientT != null)
+            {
+                Light2D light = ambientT.GetComponent<Light2D>();
+                if (light != null)
+                {
+                    try { light.unlightGraphNodes(); } catch { /* ok */ }
+                    light.LightRadius = 0.001f;
+                    light.lightsPlayer = false;
+                    light.updateGraph = false;
+                    var ctrl = Singleton<Controller>.Instance;
+                    if (ctrl != null)
+                        ctrl.logicLights.Remove(light);
+                }
+                // Destroy instead of hide — avoids leftover dual mesh next ON.
+                UnityEngine.Object.Destroy(ambientT.gameObject);
+                ModLog.Event(LogCat.World, $"[Light] remote lantern OFF p{playerId}");
+            }
+        }
+
+        /// <summary>Factory radial only — never Instantiate(PlayerLightDot).</summary>
+        private static Light2D CreateRemoteLanternLight(Transform proxyRoot)
+        {
+            if (proxyRoot == null) return null;
+
+            Material mat = null;
+            Light2D.LightDetailSetting detail = Light2D.LightDetailSetting.Rays_100;
+            if (Player.Instance != null)
+            {
+                Transform t = FindChildIncludingInactive(Player.Instance.transform, "PlayerLightDot");
+                Light2D src = t != null ? t.GetComponent<Light2D>() : null;
+                if (src != null)
+                {
+                    mat = src.LightMaterial;
+                    detail = src.LightDetail;
+                }
+            }
+            if (mat == null)
+                mat = Resources.Load("RadialLight") as Material;
+
+            Color col = new Color(1f, 0.85f, 0.45f, 0f);
+            Light2D created = Light2D.Create(proxyRoot.position, mat, col, 450f, 360, detail);
+            if (created == null) return null;
+            created.gameObject.name = RemoteLanternAmbientName;
+            created.transform.SetParent(proxyRoot, false);
+            created.transform.localPosition = Vector3.zero;
+            created.transform.localRotation = Quaternion.identity;
+            created.transform.localScale = Vector3.one;
+            return created;
+        }
+
+        private static void EnsureRadialMaterial(Light2D light)
+        {
+            if (light == null) return;
+            if (light.LightMaterial != null) return;
+            Material radial = Resources.Load("RadialLight") as Material;
+            if (radial != null) light.LightMaterial = radial;
+        }
+
+        /// <summary>Remove old Instantiate(PlayerLightDot) lanterns that caused dual blobs.</summary>
+        private static void DestroyLegacyClonedLanterns(Transform proxyRoot)
+        {
+            if (proxyRoot == null) return;
+            for (int i = proxyRoot.childCount - 1; i >= 0; i--)
+            {
+                Transform c = proxyRoot.GetChild(i);
+                if (c == null) continue;
+                // Old builds left Instantiated copies still named PlayerLightDot (active).
+                if (c.name != RemoteLanternAmbientName && c.name != "PlayerLightDot")
+                    continue;
+                if (c.name == "PlayerLightDot")
+                {
+                    // Stock clone — neutralize only (handled elsewhere).
+                    continue;
+                }
+                // RemoteLanternAmbient that still has nested "LightFlare" child = Instantiated template.
+                bool looksLikePlayerDotClone = c.childCount > 0
+                    || c.GetComponent<tk2dSprite>() != null
+                    || c.GetComponentInChildren<tk2dSprite>(true) != null;
+                if (!looksLikePlayerDotClone) continue;
+                Light2D lt = c.GetComponent<Light2D>();
+                if (lt != null)
+                {
+                    try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                    var ctrl = Singleton<Controller>.Instance;
+                    if (ctrl != null) ctrl.logicLights.Remove(lt);
+                }
+                UnityEngine.Object.Destroy(c.gameObject);
+            }
+        }
+
+        private static Transform FindChildIncludingInactive(Transform root, string childName)
+        {
+            if (root == null || string.IsNullOrEmpty(childName)) return null;
+            // Active-only fast path
+            Transform t = root.Find(childName);
+            if (t != null) return t;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform c = root.GetChild(i);
+                if (c != null && c.name == childName)
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Proxy is a player clone — stock PlayerLightDot must stay out of logicLights so it
+        /// cannot look like a second local lantern. Net lantern uses RemoteLanternAmbient only.
+        /// </summary>
+        private static void NeutralizeClonedPlayerLightDots(Transform proxyRoot)
+        {
+            if (proxyRoot == null) return;
+            for (int i = 0; i < proxyRoot.childCount; i++)
+            {
+                Transform c = proxyRoot.GetChild(i);
+                if (c == null || c.name != "PlayerLightDot") continue;
+                // Never neutralize our dedicated ambient if misnamed.
+                if (c.name == RemoteLanternAmbientName) continue;
+
+                Light2D lt = c.GetComponent<Light2D>();
+                if (lt != null)
+                {
+                    try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                    lt.lightsPlayer = false;
+                    lt.updateGraph = false;
+                    lt.LightRadius = 0.001f;
+                    var ctrl = Singleton<Controller>.Instance;
+                    if (ctrl != null)
+                        ctrl.logicLights.Remove(lt);
+                }
+                if (c.gameObject.activeSelf)
+                    c.gameObject.SetActive(false);
             }
         }
 
@@ -6785,7 +7181,8 @@ namespace DWMPHorde.Networking
                 "Shadow",
                 "ItemLightEmitter",
                 "ItemParticleEmitter",
-                "FlareLight"
+                "FlareLight",
+                "RemoteLanternAmbient",
             };
 
             List<Transform> toDestroy = new List<Transform>();
@@ -6816,6 +7213,20 @@ namespace DWMPHorde.Networking
                 && !string.IsNullOrEmpty(msg.ItemType)
                 && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 msg.LongevitySec = 5f; // Flare.longevity(~3) + fade
+
+            // V1: kill held continuous light/FX before projectile spawns (no double glow).
+            bool isFlare = !string.IsNullOrEmpty(msg.ItemType)
+                && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isFlare && playerId > 0)
+            {
+                if (_remotePlayers.TryGetValue(playerId, out var rs)
+                    && (rs.FlareLight != null || rs.FlareFx != null))
+                {
+                    ModLog.Event(LogCat.World, $"[LightSync] throw mutex cleared held p{playerId}");
+                    DestroyRemoteFlareLight(playerId);
+                }
+            }
+
             Sync.WorldPhysicsSyncService.SpawnThrownItem(msg, sourceT, visualOnly);
         }
 
@@ -6837,8 +7248,15 @@ namespace DWMPHorde.Networking
         {
             if (msg.IsStopSignal)
             {
-                // Intentional remote stop — force-stop native + MOS (vanilla 0.5s fade only).
-                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(msg.ObjectName);
+                // Local pusher/dragger still owns native ItemSounds — host quiet/stop echo
+                // must not kill our scrape mid-push (same double-scrape family).
+                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName))
+                {
+                    DWMPHorde.Audio.MovingObjectSoundService.StopImmediate(msg.ObjectName);
+                    return;
+                }
+                // Remote quiet stop — SoftStop (no suppress) so motion can re-arm instantly.
+                DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
                 Sync.WorldPhysicsSyncService.TryStopBodyPushSound(msg.ObjectName);
                 return;
             }
@@ -6890,6 +7308,8 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = GetProxy(playerId);
 
             bool isHitFeedback = LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
+            // Flashlight activate/deactivate, equip get/hide — SP is parentless 2D.
+            bool prefer2d = LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
 
             // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
             // Never call getHit / red-screen / BloodOverlay here — audio only.
@@ -6907,30 +7327,63 @@ namespace DWMPHorde.Networking
             TraverseHack.ApplyingFromNetwork = true;
             try
             {
-                // Parent to the remote proxy so this is "them being hit", not a 2D local hit.
-                Transform parent = proxy != null ? proxy.transform : null;
-                var audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
-                if (audioObj != null && audioObj.primaryAudioSource != null)
-                {
-                    // Force 3D — vanilla hit clips are often 2D for SP local feedback.
-                    audioObj.primaryAudioSource.spatialBlend = 1f;
-                    audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
+                // Prefer2d one-shots: NEVER parent to proxy. Proxy has CharBase; vanilla
+                // AudioController then always applies indoor reverb (isInside) + wall
+                // lowpass raycast — flashlight clicks sounded wet and snappy for peers.
+                Transform parent = null;
+                if (!prefer2d)
+                    parent = proxy != null ? proxy.transform : null;
 
-                    if (isHitFeedback)
+                AudioObject audioObj;
+                if (prefer2d)
+                {
+                    // Same call shape as SP activateSound: 2D Play(string) — natural clip tail.
+                    // Still gated by distance above so far peers stay quiet.
+                    audioObj = AudioController.Play(msg.SoundId);
+                    if (audioObj != null && audioObj.primaryAudioSource != null
+                        && msg.Volume > 0f && msg.Volume < 0.999f)
+                        audioObj.volume = Mathf.Clamp01(msg.Volume);
+                }
+                else
+                {
+                    audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
+                }
+
+                if (audioObj != null)
+                {
+                    // Strip filters that may have been left on pooled AudioObjects.
+                    var reverb = audioObj.GetComponent<AudioReverbFilter>();
+                    if (reverb != null) UnityEngine.Object.Destroy(reverb);
+                    var lowPass = audioObj.GetComponent<AudioLowPassFilter>();
+                    if (lowPass != null) UnityEngine.Object.Destroy(lowPass);
+
+                    if (audioObj.primaryAudioSource != null && !prefer2d)
                     {
-                        // Tighter falloff so bystanders hear direction/distance (not full-volume "on me").
-                        audioObj.primaryAudioSource.minDistance = 8f;
-                        audioObj.primaryAudioSource.maxDistance = 80f;
+                        // Force 3D — vanilla hit clips are often 2D for SP local feedback.
+                        audioObj.primaryAudioSource.spatialBlend = 1f;
+                        audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
+
+                        if (isHitFeedback)
+                        {
+                            audioObj.primaryAudioSource.minDistance = 8f;
+                            audioObj.primaryAudioSource.maxDistance = 80f;
+                        }
+                        else
+                        {
+                            AudioItem item = AudioController.GetAudioItem(msg.SoundId);
+                            float itemMin = (item != null && item.overrideAudioSourceSettings)
+                                ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
+                            float itemMax = (item != null && item.overrideAudioSourceSettings)
+                                ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
+                            audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
+                            audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
+                        }
                     }
-                    else
+                    else if (audioObj.primaryAudioSource != null && prefer2d)
                     {
-                        AudioItem item = AudioController.GetAudioItem(msg.SoundId);
-                        float itemMin = (item != null && item.overrideAudioSourceSettings)
-                            ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
-                        float itemMax = (item != null && item.overrideAudioSourceSettings)
-                            ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
-                        audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
-                        audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
+                        // Match local flashlight click: fully 2D, no forced rolloff kill.
+                        audioObj.primaryAudioSource.spatialBlend = 0f;
+                        audioObj.primaryAudioSource.reverbZoneMix = 0f;
                     }
                 }
             }

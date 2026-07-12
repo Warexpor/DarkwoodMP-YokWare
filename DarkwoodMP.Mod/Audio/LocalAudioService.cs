@@ -193,6 +193,61 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// SP plays these as parentless 2D one-shots (flashlight activate/deactivate,
+        /// equip get/hide, lighter, etc.). Networking must NOT parent them to the remote
+        /// proxy CharBase — vanilla then adds indoor reverb + wall lowpass, and forcing
+        /// spatialBlend=1 makes the click snappy/wrong for peers.
+        /// </summary>
+        public static bool IsPrefer2dNetworkOneShot(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            if (IsPlayerHitFeedbackSound(audioID))
+                return false; // hits stay spatial on the victim proxy
+
+            // Flashlight / torch toggle (InvItem.activateSound / deactivateSound names vary).
+            if (audioID.IndexOf("flash", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("activate", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("deactivate", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("switch", StringComparison.OrdinalIgnoreCase) >= 0
+                && audioID.IndexOf("light", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("zippo", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("lighter", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (audioID.IndexOf("click", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            // Equip put-away / pull-out one-shots (parentless in vanilla).
+            if (audioID.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
+                || audioID.StartsWith("hide_", StringComparison.OrdinalIgnoreCase)
+                || audioID.IndexOf("getSound", StringComparison.OrdinalIgnoreCase) >= 0
+                || audioID.IndexOf("hideSound", StringComparison.OrdinalIgnoreCase) >= 0
+                || audioID.IndexOf("_get", StringComparison.OrdinalIgnoreCase) >= 0
+                || audioID.IndexOf("_hide", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            // Live item fields when the local player is the source (send-side match).
+            if (IsCurrentItemActionSound(audioID))
+            {
+                Player p = Player.Instance;
+                if (p != null && !InvItemClass.isNull(p.currentItem) && p.currentItem.baseClass != null)
+                {
+                    InvItem b = p.currentItem.baseClass;
+                    if (IdEquals(audioID, b.activateSound) || IdEquals(audioID, b.deactivateSound)
+                        || IdEquals(audioID, b.getSound) || IdEquals(audioID, b.hideSound))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// True if audioID matches a non-empty SFX field on the local player's current item.
         /// Covers parentless Play(attackSound/reloadSound/…) for all weapons without a name list.
         /// </summary>

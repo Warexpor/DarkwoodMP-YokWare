@@ -53,6 +53,12 @@ namespace DWMPHorde.Patches
             string objName = __instance.gameObject.name;
             ItemMovingSoundHelper.ForceStop(__instance.gameObject);
 
+            // Drop any host-echo interp lock so the free body is physical again.
+            Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(__instance.gameObject);
+            Rigidbody rb = __instance.GetComponent<Rigidbody>();
+            if (rb != null && rb.isKinematic)
+                rb.isKinematic = false;
+
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net == null || !net.IsConnected) return;
 

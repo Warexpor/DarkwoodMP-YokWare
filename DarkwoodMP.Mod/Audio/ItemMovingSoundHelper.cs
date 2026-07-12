@@ -48,6 +48,14 @@ namespace DWMPHorde.Audio
         private static readonly HashSet<string> _localPushActive =
             new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Soft ownership after contact ends — host PhysicsState echo must not
+        /// yank the free-body for a short window between touch frames.
+        /// </summary>
+        private static readonly Dictionary<string, float> _localPushAuthorityUntil =
+            new Dictionary<string, float>(StringComparer.Ordinal);
+        private const float LocalPushAuthorityGrace = 0.45f;
+
         private static float _playerSlowSince = -1f;
 
         /// <summary>True if scrape start should be ignored for this object name.</summary>
@@ -92,6 +100,56 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// True if local player is body-pushing or E-dragging this object by name.
+        /// Ignores MOS remote-ownership — host PhysicsState echo must not arm MOS
+        /// (or ForceStop native) while we are the local scrape owner.
+        /// </summary>
+        public static bool IsLocalPushOrDragOwner(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return false;
+
+            Player p = Player.Instance;
+            if (p != null)
+            {
+                if (p.dragging && p.itemBeingDragged != null
+                    && string.Equals(p.itemBeingDragged.gameObject.name, objectName, StringComparison.Ordinal))
+                    return true;
+
+                if (p.touchingColliders != null)
+                {
+                    for (int i = 0; i < p.touchingColliders.Count; i++)
+                    {
+                        Collider c = p.touchingColliders[i];
+                        if (c == null) continue;
+                        if (string.Equals(c.gameObject.name, objectName, StringComparison.Ordinal))
+                            return true;
+                        // Item root name can differ from collider GO name.
+                        Item it = c.GetComponent<Item>() ?? c.GetComponentInParent<Item>();
+                        if (it != null
+                            && string.Equals(it.gameObject.name, objectName, StringComparison.Ordinal))
+                            return true;
+                    }
+                }
+            }
+
+            if (_localPushActive.Contains(objectName))
+                return true;
+
+            if (_localPushAuthorityUntil.TryGetValue(objectName, out float until)
+                && Time.unscaledTime < until)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>Refresh soft free-body authority (call while local push is live).</summary>
+        public static void NoteLocalPushAuthority(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return;
+            _localPushAuthorityUntil[objectName] = Time.unscaledTime + LocalPushAuthorityGrace;
+        }
+
+        /// <summary>
         /// True if local player is currently contacting this object by name
         /// (CharBase.touchingColliders) and it is not remote-owned.
         /// Used to ignore body-push PlayerAudio starts for the local pusher.
@@ -100,18 +158,7 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName)) return false;
             if (IsRemoteScrape(objectName)) return false;
-            if (_localPushActive.Contains(objectName)) return true;
-
-            Player p = Player.Instance;
-            if (p == null || p.touchingColliders == null) return false;
-            for (int i = 0; i < p.touchingColliders.Count; i++)
-            {
-                Collider c = p.touchingColliders[i];
-                if (c == null) continue;
-                if (string.Equals(c.gameObject.name, objectName, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
+            return IsLocalPushOrDragOwner(objectName);
         }
 
         public static void ResetSuppress()
@@ -119,6 +166,7 @@ namespace DWMPHorde.Audio
             _suppressUntil.Clear();
             _remoteScrape.Clear();
             _localPushActive.Clear();
+            _localPushAuthorityUntil.Clear();
             _playerSlowSince = -1f;
         }
 
@@ -173,6 +221,9 @@ namespace DWMPHorde.Audio
                         stillContact = new HashSet<string>(StringComparer.Ordinal);
                     stillContact.Add(name);
 
+                    // Soft authority while touching (even standing) so host echo
+                    // does not yank mid-push between walk frames.
+                    NoteLocalPushAuthority(name);
                     // Contact while player is walking into it → local push ownership.
                     if (playerMoving)
                         _localPushActive.Add(name);
@@ -290,11 +341,11 @@ namespace DWMPHorde.Audio
             Rigidbody rb = go.GetComponent<Rigidbody>();
             if (rb != null)
             {
+                // Kill residual motion so ItemSounds.Update does not re-arm scrape.
+                // Do NOT Sleep() — that left free-bodies frozen after drag/push end
+                // until something re-woke them (felt like objects "sticking" in co-op).
                 rb.velocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
-                // IsSleeping short-circuits ItemSounds.Update moving branch.
-                if (!rb.isKinematic)
-                    rb.Sleep();
             }
 
             if (sounds != null)
@@ -336,6 +387,43 @@ namespace DWMPHorde.Audio
                 ForceStop(go, fadeSec);
             else
                 MovingObjectSoundService.StopAllVariants(objectName, null, fadeSec);
+        }
+
+        /// <summary>
+        /// Quiet/network stop: vanilla fade now, but do NOT arm PostStopSuppress and do
+        /// NOT zero/sleep the rigidbody. Sparse PhysicsState + ForceStop thrash was the
+        /// "1s scrape delay" — suppress ate the next NoteMoving after every quiet tick.
+        /// Intentional ends (drag release, local push stop) still use <see cref="ForceStopByName"/>.
+        /// </summary>
+        public static void SoftStopNetwork(string objectName, float fadeSec = IntentionalStopFade)
+        {
+            if (string.IsNullOrEmpty(objectName)) return;
+
+            GameObject go = GameObject.Find(objectName);
+            string soundId = null;
+            if (go != null)
+            {
+                ItemSounds sounds = go.GetComponent<ItemSounds>();
+                soundId = MovingObjectSoundService.ResolveMovingSoundId(sounds);
+                if (sounds != null)
+                {
+                    try
+                    {
+                        var ao = Traverse.Create(sounds).Field("movingSoundAO").GetValue<AudioObject>();
+                        if (ao != null)
+                        {
+                            ao.Stop(fadeSec);
+                            Traverse.Create(sounds).Field("movingSoundAO").SetValue(null);
+                        }
+                    }
+                    catch
+                    {
+                        // Traverse failure — MOS StopAllVariants still runs
+                    }
+                }
+            }
+
+            MovingObjectSoundService.StopAllVariants(objectName, soundId, fadeSec);
         }
     }
 }

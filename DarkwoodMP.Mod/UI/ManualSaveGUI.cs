@@ -253,16 +253,7 @@ namespace DWMPHorde
                     SetStatus("Blocked: cannot save during dream session");
                     return;
                 }
-                // Co-op client must not rewrite world files (network-diverged sim corrupts slot 5).
-                if (ModRuntime.Network != null && ModRuntime.Network.IsConnected
-                    && ModRuntime.Network.Role == Networking.NetworkRole.Client)
-                {
-                    SetStatus("Blocked: client cannot world-save in co-op (host owns world)");
-                    try { (ModRuntime.Network as Networking.LanNetworkManager)?.SendClientStateBackup(); }
-                    catch { /* ignore */ }
-                    return;
-                }
-
+                // Co-op: local Save + SaveSyncPatch fans out so every peer Saves with Saving UI.
                 Singleton<SaveManager>.Instance.Save(true, true, true, false, true);
 
                 string profDir = SaveDir + "/prof" + Core.currentProfile.id;

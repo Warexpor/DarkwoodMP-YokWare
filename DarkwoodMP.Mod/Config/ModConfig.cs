@@ -20,6 +20,8 @@ namespace DWMPHorde.Config
         /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
         /// </summary>
         public static ConfigEntry<string> SaveRootOverride { get; private set; }
+        /// <summary>Last profile slot used for a permanent co-op world copy (1–5). 0 = none yet.</summary>
+        public static ConfigEntry<int> PreferredCoopCopySlot { get; private set; }
         /// <summary>Display name in chat (Yokyy product port).</summary>
         public static ConfigEntry<string> PlayerName { get; private set; }
         public static ConfigEntry<bool> FriendlyFireEnabled { get; private set; }
@@ -108,6 +110,9 @@ namespace DWMPHorde.Config
                 "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
                 + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
                 + "Set manually if dual-box still shares a tree.");
+            PreferredCoopCopySlot = config.Bind("Saves", "PreferredCoopCopySlot", 0,
+                "Last local profile slot (1-5) used for a permanent co-op world copy. 0 = none. "
+                + "Join picker highlights this; empty slots are still preferred when free.");
             PlayerName = config.Bind("Network", "PlayerName", "Player",
                 "Name shown in co-op chat (Ctrl+C).");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");

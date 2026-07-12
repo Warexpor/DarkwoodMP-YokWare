@@ -71,8 +71,8 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Spectator on a dead/local-invisible player: local FOV lights are off, so
-        /// copying them leaves only the ambient circle. Apply a reasonable cone shape.
+        /// Spectator when local FOV is dead/off: restore both pieces of player vision —
+        /// FOV cone (Logic/Light) AND ambient vision circle (FOVLightDot).
         /// Direction follows the proxy transform (PlayerState torso/legs already rotate it).
         /// </summary>
         public void ApplySpectatorConeDefaults()
@@ -80,9 +80,11 @@ namespace DWMPHorde.Players
             // Typical hideout FOV-ish values (vanilla getFOVAngle varies with items).
             const float coneAngle = 80f;
             const float coneRadius = 18f;
+            const float circleRadius = 9f;
             ApplyConeShape(_fovLogic, coneAngle, coneRadius);
             ApplyConeShape(_fovLight, coneAngle, coneRadius * 0.9f);
-            ApplyConeShape(_fovDot, coneAngle, coneRadius * 0.5f);
+            // FOVLightDot is the ambient *circle* around the player — never force a cone angle.
+            ApplyCircleShape(_fovDot, circleRadius);
             if (_lightDot != null)
             {
                 _lightDot.gameObject.SetActive(true);
@@ -99,6 +101,16 @@ namespace DWMPHorde.Players
             // 360 = full circle (no "cone"); force a real wedge when missing/wrong.
             if (light.LightConeAngle <= 0f || light.LightConeAngle >= 359f)
                 light.LightConeAngle = angle;
+            if (light.LightRadius < 1f)
+                light.LightRadius = radius;
+        }
+
+        /// <summary>Ambient vision circle (PlayerFOVLightDot) — full 360, not a wedge.</summary>
+        private static void ApplyCircleShape(Light2D light, float radius)
+        {
+            if (light == null) return;
+            light.gameObject.SetActive(true);
+            light.LightConeAngle = 360f;
             if (light.LightRadius < 1f)
                 light.LightRadius = radius;
         }
@@ -132,7 +144,8 @@ namespace DWMPHorde.Players
             CopyLightCone(_fovLogic, source._fovLogic);
             CopyLightCone(_fovLight, source._fovLight);
             CopyLightCone(_fovDot, source._fovDot);
-            CopyLightCone(_lightDot, source._lightDot);
+            // Do NOT copy PlayerLightDot (lantern ambient) — that is per-player via net sync.
+            // Copying it made the spectated proxy inherit the local player's lantern radius.
         }
 
         /// <summary>
@@ -148,7 +161,7 @@ namespace DWMPHorde.Players
             CopyLightCone(_fovLogic, main.FOVLogic);
             CopyLightCone(_fovLight, FindLight(main.transform, "PlayerFOVLight"));
             CopyLightCone(_fovDot, main.FOVDot);
-            CopyLightCone(_lightDot, FindLight(main.transform, "PlayerLightDot"));
+            // Lantern ambient is network-owned on remotes — never copy local lightDot here.
         }
 
         /// <summary>
@@ -163,7 +176,7 @@ namespace DWMPHorde.Players
             CopyLightCone(_fovLogic, main.FOVLogic);
             CopyLightCone(_fovLight, FindLight(main.transform, "PlayerFOVLight"));
             CopyLightCone(_fovDot, main.FOVDot);
-            CopyLightCone(_lightDot, FindLight(main.transform, "PlayerLightDot"));
+            // Lantern ambient is network-owned on remotes — never copy local lightDot here.
         }
 
         /// <summary>
@@ -197,6 +210,20 @@ namespace DWMPHorde.Players
             dst.LightConeAngle = src.LightConeAngle;
             dst.LightRadius = src.LightRadius;
             dst.LightColor = src.LightColor;
+        }
+
+        /// <summary>
+        /// Ensure FOVLightDot stays a full ambient circle (spectate sync can inherit a wedge).
+        /// </summary>
+        public void EnsureVisionCircle()
+        {
+            if (_fovDot == null) return;
+            _fovDot.gameObject.SetActive(true);
+            // Wedge angles look like a second cone; force circle for ambient vision.
+            if (_fovDot.LightConeAngle > 0f && _fovDot.LightConeAngle < 359f)
+                _fovDot.LightConeAngle = 360f;
+            if (_fovDot.LightRadius < 1f)
+                _fovDot.LightRadius = 9f;
         }
     }
 }

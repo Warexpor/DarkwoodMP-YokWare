@@ -251,6 +251,8 @@ namespace DWMPHorde.Spectator
                 _proxyVision.ApplySpectatorConeDefaults();
                 // Leave proxy flashlight as set by continuous light sync (host's torch/flash).
             }
+            // Cone + ambient circle every frame (HideLocalExtraVision / bad copy can drop circle).
+            _proxyVision.EnsureVisionCircle();
         }
 
         private void SyncAudioListener()
@@ -364,6 +366,7 @@ namespace DWMPHorde.Spectator
                 {
                     _proxyVision.ApplySpectatorConeDefaults();
                 }
+                _proxyVision.EnsureVisionCircle();
             }
         }
 
@@ -408,6 +411,7 @@ namespace DWMPHorde.Spectator
                 {
                     _proxyVision.ApplySpectatorConeDefaults();
                 }
+                _proxyVision.EnsureVisionCircle();
             }
 
             // Mute corpse/get-up SFX on the local body while cam follows a peer.

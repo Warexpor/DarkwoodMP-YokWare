@@ -147,6 +147,14 @@ namespace DWMPHorde.Patches
                 if (ep != null && prefab == ep) { log?.LogInfo("[FX] explosionPrefab match, skip"); return; }
             }
 
+            // Gas puddles / flamable scatter: GasTrail channel owns layout (host-only).
+            // Sending both ExplosionSpawnObject + GasTrail doubles client density ("wild").
+            if (GasSyncPolicy.IsGasolineTrailPrefab(prefab))
+            {
+                log?.LogInfo("[FX] gasoline secondary — GasTrail channel only, skip ExplosionSpawnObject");
+                return;
+            }
+
             string prefabName = prefab.name;
             if (string.IsNullOrEmpty(prefabName)) { log?.LogInfo("[FX] empty name"); return; }
 

@@ -31,6 +31,15 @@ namespace DWMPHorde.Networking
         public string FlareItemType;
         public GameObject ItemLight;
 
+        /// <summary>Last applied event-path PlayerLightState fingerprint (skip no-ops / re-spawns).</summary>
+        public string AppliedLightItemType;
+        public bool AppliedLightOn;
+        public bool AppliedFlash;
+        public bool AppliedEmitter;
+        public bool AppliedItemLight;
+        public bool AppliedAmbient;
+        public float AppliedLightRadius;
+
         // Drag tracking: InstanceIDs of items being dragged by this remote player.
         // Used by PhysicsState to skip these items (prevents drag from fighting physics sync).
         public readonly HashSet<int> DragItemIds = new HashSet<int>();
@@ -50,6 +59,13 @@ namespace DWMPHorde.Networking
             FlareFx = null;
             FlareItemType = null;
             ItemLight = null;
+            AppliedLightItemType = null;
+            AppliedLightOn = false;
+            AppliedFlash = false;
+            AppliedEmitter = false;
+            AppliedItemLight = false;
+            AppliedAmbient = false;
+            AppliedLightRadius = 0f;
             DragItemIds.Clear();
             DragItemNames.Clear();
         }

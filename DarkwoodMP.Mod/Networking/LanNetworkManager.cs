@@ -469,9 +469,15 @@ namespace DWMPHorde.Networking
 
             byte flags = 0;
             string curType = local.currentItem != null ? local.currentItem.type : null;
-            bool flareActive = !string.IsNullOrEmpty(curType)
-                && curType.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool matchActive = !flareActive && IsMatchLightItem(local);
+            // F1/F2: flare continuous only while aiming/holding the lit projectile (heldItem),
+            // not mere hotbar selection of type "flare".
+            Light2D heldFlareLight = null;
+            Flare heldFlareComp = null;
+            Light2D heldMatchLight = null;
+            bool flareActive = TryGetLocalHeldFlareLight(local, out heldFlareLight, out heldFlareComp);
+            // Match: same rule as flare — lit projectile must be parented as heldItem (aim).
+            // Do NOT require currentItem.activated (throwables often stay deactivated while aimed).
+            bool matchActive = !flareActive && TryGetLocalHeldMatchLight(local, out heldMatchLight);
             bool heldBurnLight = flareActive || matchActive;
             bool flashActive = !heldBurnLight
                 && !InvItemClass.isNull(local.currentItem)
@@ -493,39 +499,53 @@ namespace DWMPHorde.Networking
                 msg.FlareColorG = matchActive ? 0.65f : 0.5f;
                 msg.FlareColorB = matchActive ? 0.2f : 0.1f;
 
-                Light2D itemLight = null;
-                Flare flareComp = null;
-                if (local.heldItem != null)
-                {
-                    flareComp = local.heldItem.GetComponent<Flare>()
-                        ?? local.heldItem.GetComponentInChildren<Flare>(true);
-                    if (flareComp != null && flareComp.light2D != null)
-                        itemLight = flareComp.light2D;
-                    if (itemLight == null)
-                        itemLight = local.heldItem.GetComponentInChildren<Light2D>(true);
-                }
+                Light2D itemLight = heldFlareLight != null ? heldFlareLight : heldMatchLight;
+                Flare flareComp = heldFlareComp;
+                if (itemLight == null && local.heldItem != null)
+                    itemLight = local.heldItem.GetComponentInChildren<Light2D>(true);
 
                 if (itemLight != null)
                 {
-                    if (itemLight.isActiveAndEnabled || itemLight.LightRadius > 0f)
+                    // Radius: live value once lit (stable enough).
+                    if (itemLight.LightRadius > 0f)
+                        msg.FlareRadius = itemLight.LightRadius;
+
+                    // Match stick Light2D intensity flickers every frame in SP. Streaming that
+                    // dirties FlareParams (~6 Hz force) and strobes the peer. Keep fixed cruise.
+                    if (!matchActive && itemLight.LightIntensity > 0f)
+                        msg.FlareIntensity = itemLight.LightIntensity;
+
+                    if (!matchActive
+                        && (itemLight.LightColor.a > 0f
+                            || itemLight.LightColor.r + itemLight.LightColor.g + itemLight.LightColor.b > 0.01f))
                     {
-                        msg.FlareRadius = itemLight.LightRadius > 0f ? itemLight.LightRadius : msg.FlareRadius;
-                        msg.FlareIntensity = itemLight.LightIntensity > 0f ? itemLight.LightIntensity : msg.FlareIntensity;
                         msg.FlareColorR = itemLight.LightColor.r;
                         msg.FlareColorG = itemLight.LightColor.g;
                         msg.FlareColorB = itemLight.LightColor.b;
                     }
-                    Vector3 delta = itemLight.transform.position - local.transform.position;
-                    msg.FlareLocalX = delta.x;
-                    msg.FlareLocalY = delta.y;
-                    msg.FlareLocalZ = delta.z;
                 }
-                else if (local.heldItem != null)
+
+                // Local-space attach point (NOT world delta). World delta as localPos breaks
+                // under body rotation — peer saw light/FX floating off the hand both ways.
+                // Prefer heldItem root so prefab-internal Light2D/lightFlare offsets stay correct.
+                if (local.heldItem != null)
                 {
-                    Vector3 delta = local.heldItem.transform.position - local.transform.position;
-                    msg.FlareLocalX = delta.x;
-                    msg.FlareLocalY = delta.y;
-                    msg.FlareLocalZ = delta.z;
+                    Transform ht = local.heldItem.transform;
+                    Vector3 lp;
+                    if (ht.parent == local.transform)
+                        lp = ht.localPosition;
+                    else
+                        lp = local.transform.InverseTransformPoint(ht.position);
+                    msg.FlareLocalX = lp.x;
+                    msg.FlareLocalY = lp.y;
+                    msg.FlareLocalZ = lp.z;
+                }
+                else if (itemLight != null)
+                {
+                    Vector3 lp = local.transform.InverseTransformPoint(itemLight.transform.position);
+                    msg.FlareLocalX = lp.x;
+                    msg.FlareLocalY = lp.y;
+                    msg.FlareLocalZ = lp.z;
                 }
 
                 bool rising = flareActive ? !_prevSentFlareActive : !_prevSentMatchActive;
@@ -533,12 +553,22 @@ namespace DWMPHorde.Networking
                 {
                     _localHeldLightStartTime = Time.time;
                     _localHeldLightLongevity = flareComp != null && flareComp.longevity > 0.05f
-                        ? flareComp.longevity + 2f // waitToDie + fade
+                        ? flareComp.longevity + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec
                         : (matchActive ? 8f : 5f);
                 }
 
-                // Host-side remain for peers (clients stream local estimate; host is visual authority on expire).
-                if (_localHeldLightStartTime > 0f && _localHeldLightLongevity > 0.01f)
+                // Remain from aim-start burn clock when known (else rising timer).
+                if (flareActive && local.heldItem != null)
+                {
+                    float untilDark = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
+                        local.heldItem,
+                        flareComp != null ? flareComp.longevity : 3f);
+                    float total = _localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : (3f + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec);
+                    float rem = Mathf.Clamp01(untilDark / total);
+                    msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
+                    flags |= PlayerStateMessage.LightFlagRemain;
+                }
+                else if (_localHeldLightStartTime > 0f && _localHeldLightLongevity > 0.01f)
                 {
                     float rem = 1f - (Time.time - _localHeldLightStartTime) / _localHeldLightLongevity;
                     msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
@@ -571,13 +601,15 @@ namespace DWMPHorde.Networking
                     _lastSentFlareItemType = msg.FlareItemType;
                 }
 
-                if (rising && Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo("[LightSync] local " + (matchActive ? "match" : "flare")
-                        + " ON type=" + msg.FlareItemType);
+                if (rising)
+                    ModLog.Event(LogCat.World, "[LightSync] local " + (matchActive ? "match" : "flare")
+                        + " ON type=" + msg.FlareItemType
+                        + " remain01=" + msg.HeldLightRemain01
+                        + " r=" + msg.FlareRadius.ToString("F0"));
             }
-            else if ((_prevSentFlareActive || _prevSentMatchActive) && Config.ModConfig.IsVerboseLightSync)
+            else if (_prevSentFlareActive || _prevSentMatchActive)
             {
-                ModRuntime.LegacyInfo("[LightSync] local held burn light OFF");
+                ModLog.Event(LogCat.World, "[LightSync] local held burn light OFF");
             }
 
             if (flashActive)
@@ -646,27 +678,102 @@ namespace DWMPHorde.Networking
             _prevSentFlashActive = flashActive;
         }
 
-        /// <summary>Match / short-lived held light (not flashlight, not flare, not torch emitter).</summary>
+        /// <summary>
+        /// Held flare continuous light only while the lit projectile is still parented as heldItem
+        /// (aim / pre-throw). Hotbar selection alone must NOT light the proxy (F1/F2).
+        /// </summary>
+        internal static bool TryGetLocalHeldFlareLight(Player local, out Light2D light, out Flare flare)
+        {
+            light = null;
+            flare = null;
+            if (local == null || local.heldItem == null)
+                return false;
+            // Must still be held (parented to player) — after throw parent is null.
+            Transform ht = local.heldItem.transform;
+            if (ht.parent == null)
+                return false;
+
+            flare = local.heldItem.GetComponent<Flare>()
+                ?? local.heldItem.GetComponentInChildren<Flare>(true);
+            if (flare != null && flare.light2D != null)
+            {
+                light = flare.light2D;
+                return true;
+            }
+            // Flare-type throwable with Light2D but Flare not yet resolved
+            string t = local.currentItem != null ? local.currentItem.type : null;
+            if (!string.IsNullOrEmpty(t)
+                && t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                light = local.heldItem.GetComponentInChildren<Light2D>(true);
+                return light != null;
+            }
+            // Explicit Flare component without named type
+            if (flare != null)
+            {
+                light = local.heldItem.GetComponentInChildren<Light2D>(true);
+                return light != null;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Held match continuous light only while the lit projectile is parented as heldItem
+        /// (aim / pre-throw). Mirrors <see cref="TryGetLocalHeldFlareLight"/> — does not require
+        /// <c>currentItem.activated</c> (throwables often stay deactivated while aimed; that was
+        /// why peers saw no held match glow).
+        /// </summary>
+        internal static bool TryGetLocalHeldMatchLight(Player local, out Light2D light)
+        {
+            light = null;
+            if (local == null || local.heldItem == null)
+                return false;
+            Transform ht = local.heldItem.transform;
+            if (ht.parent == null)
+                return false;
+            // Flare path owns Flare components.
+            if (local.heldItem.GetComponent<Flare>() != null
+                || local.heldItem.GetComponentInChildren<Flare>(true) != null)
+                return false;
+
+            string t = local.currentItem != null ? local.currentItem.type : null;
+            bool typeMatch = !string.IsNullOrEmpty(t)
+                && t.IndexOf("match", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool typeFlare = !string.IsNullOrEmpty(t)
+                && t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (typeFlare)
+                return false;
+
+            InvItem bc = local.currentItem != null ? local.currentItem.baseClass : null;
+            if (bc != null)
+            {
+                if (bc.isFlashlight) return false;
+                if (bc.lightEmitter != null) return false; // torch etc.
+            }
+
+            light = local.heldItem.GetComponentInChildren<Light2D>(true);
+            if (typeMatch)
+                return true; // match by name even if Light2D still waking up
+            // Fallback: throwable with small held Light2D (no flare / torch / flash).
+            if (bc != null && bc.isThrowable && light != null
+                && (bc.lightRadius <= 0f || bc.lightRadius < 350f))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Match / short-lived held light (event-path guard + continuous). Prefer
+        /// <see cref="TryGetLocalHeldMatchLight"/> for TX — that one is heldItem-authoritative.
+        /// </summary>
         internal static bool IsMatchLightItem(Player local)
         {
+            if (TryGetLocalHeldMatchLight(local, out _))
+                return true;
+            // Hotbar/equip without held yet: type-only, no activation required.
             if (local == null || InvItemClass.isNull(local.currentItem) || local.currentItem.baseClass == null)
-                return false;
-            if (!local.currentItem.activated)
                 return false;
             string t = local.currentItem.type ?? "";
             if (t.IndexOf("match", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
-                return false;
-            if (local.currentItem.baseClass.isFlashlight)
-                return false;
-            if (local.currentItem.baseClass.lightEmitter != null)
-                return false;
-            // Short ambient / item light with small radius while activated.
-            if (local.currentItem.baseClass.lightRadius > 0f
-                && local.currentItem.baseClass.lightRadius < 350f
-                && local.heldItem != null
-                && local.heldItem.GetComponentInChildren<Light2D>(true) != null)
                 return true;
             return false;
         }
@@ -1574,6 +1681,8 @@ namespace DWMPHorde.Networking
             {
                 if (playerId > 0)
                 {
+                    // Free workbench / craft locks held by the leaver.
+                    Sync.WorkbenchOpenLock.HostReleaseAllForPlayer(this, playerId);
                     _peers.Remove(playerId);
                     _handshakedPeers.Remove(playerId);
                     bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)

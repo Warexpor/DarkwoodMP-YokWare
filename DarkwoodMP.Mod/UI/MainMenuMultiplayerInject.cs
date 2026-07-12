@@ -630,8 +630,18 @@ namespace DWMPHorde
             if (net == null || _joinPending)
                 return;
 
-            // Phase 1 done: world files on disk — explicit ENTER WORLD starts offline load (phase 2).
+            // Mid-menu: package in RAM — user must pick permanent profile slot first.
             var lanReady = net as LanNetworkManager;
+            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
+            {
+                SetLabel(_joinButton, "CHOOSE SLOT");
+                JoinWorldSlotPicker.EnsureExists();
+                ModLog.Event(LogCat.Session,
+                    "JOIN while awaiting slot pick — open permanent world copy picker (IMGUI)");
+                return;
+            }
+
+            // Phase 1 done: permanent copy on disk — explicit ENTER WORLD starts offline load (phase 2).
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
             {
                 if (lanReady.WorldSaveShare.TryBeginEnterWorld())
@@ -694,6 +704,7 @@ namespace DWMPHorde
         private static void OnSettingsClicked()
         {
             MultiplayerMenu.EnsureExists();
+            // Toggle: open if closed, close if open (writes fields on close).
             MultiplayerMenu.ShowSettings();
         }
 
@@ -801,6 +812,14 @@ namespace DWMPHorde
             if (_handshakeAt <= 0f)
                 return;
 
+            // Slot pick / ENTER WORLD / download already active — do NOT auto WorldRequest
+            // (that forced a second share + overwrite while the player was still choosing a slot).
+            if (net.WorldSaveShare != null
+                && (net.WorldSaveShare.IsAwaitingSlotPick
+                    || net.WorldSaveShare.IsAwaitingEnterWorld
+                    || net.WorldSaveShare.IsClientReceivingOrApplying))
+                return;
+
             float waited = Time.realtimeSinceStartup - _handshakeAt;
             bool receiving = IsShareProgressActive(net);
 
@@ -832,6 +851,8 @@ namespace DWMPHorde
                 return false;
             if (net.WorldSaveShare.IsClientReceivingOrApplying)
                 return true;
+            if (net.WorldSaveShare.IsAwaitingSlotPick || net.WorldSaveShare.IsAwaitingEnterWorld)
+                return true;
             string prog = net.WorldSaveShare.ProgressText ?? "";
             if (string.IsNullOrEmpty(prog))
                 return false;
@@ -839,13 +860,22 @@ namespace DWMPHorde
                 || prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
                 || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
                 || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0
-                || prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0;
+                || prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Pick a profile", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Same world", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
+                || prog.IndexOf("Permanent", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static void UpdateJoinLabelFromShare(LanNetworkManager net)
         {
             if (net == null)
                 return;
+            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
+            {
+                SetLabel(_joinButton, "CHOOSE SLOT");
+                return;
+            }
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
             {
                 SetLabel(_joinButton, "ENTER WORLD");
@@ -858,12 +888,17 @@ namespace DWMPHorde
                     || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "SHARE FAIL");
                 else if (prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("Permanent copy", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("World ready", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "ENTER WORLD");
+                else if (prog.IndexOf("Pick a profile", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("permanent", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetLabel(_joinButton, "CHOOSE SLOT");
                 else if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Writ", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Inflat", StringComparison.OrdinalIgnoreCase) >= 0)
+                    || prog.IndexOf("Inflat", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("Verif", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetLabel(_joinButton, "DOWNLOADING…");
                 else if (prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
                          || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -892,7 +927,9 @@ namespace DWMPHorde
             if (_joinButton == null || !_joinButton || net == null)
                 return;
 
-            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
+            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
+                SetLabel(_joinButton, "CHOOSE SLOT");
+            else if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
                 SetLabel(_joinButton, "ENTER WORLD");
             else if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
                 UpdateJoinLabelFromShare(net);

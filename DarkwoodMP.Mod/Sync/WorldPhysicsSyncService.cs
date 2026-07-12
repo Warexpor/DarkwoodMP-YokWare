@@ -33,9 +33,12 @@ namespace DWMPHorde.Sync
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
         // updates. Key = InstanceID, value = Rigidbody + time to release.
         private static readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> _clientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
-        // Residual hold only for jitter between quiet detection paths that still
-        // use the timer (kinematic release). Primary stop is first quiet packet.
+        // One-tick cushion only (~half a 10Hz PhysicsState interval). Longer hold was
+        // the audible "scrape keeps going after I stop" lag; SoftStop re-arms mid-push
+        // without PostStop suppress, so we do not need a multi-tenths residual hold.
         private const float BodyPushSoundHold = 0.05f;
+        /// <summary>Hard desync only — normal push steps must lerp (1.5 was snappy).</summary>
+        private const float ClientPushSnapDistance = 8f;
         private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>();
         // Manually-managed AudioSource for host->client body-push sound.
@@ -104,13 +107,62 @@ namespace DWMPHorde.Sync
         private static readonly List<ThrownLightTrack> _thrownLights = new List<ThrownLightTrack>(16);
         private static readonly Dictionary<int, ThrownLightTrack> _thrownById = new Dictionary<int, ThrownLightTrack>(16);
 
+        /// <summary>Vanilla Flare.waitToDie fade length after longevity elapses.</summary>
+        public const float FlareBurnoutFadeSec = 2f;
+
+        private struct FlareBurnStart
+        {
+            public float StartTime;
+            public float Longevity;
+        }
+        /// <summary>GO instanceId → burn clock from Flare.Start (aim time).</summary>
+        private static readonly Dictionary<int, FlareBurnStart> _flareBurnStarts =
+            new Dictionary<int, FlareBurnStart>(8);
+
+        private struct ThrownLightFade
+        {
+            public GameObject Go;
+            public float EndTime;
+            public float Duration;
+            public float StartIntensity;
+            public Light2D[] Lights;
+            /// <summary>Optional sibling (held FlareFx) destroyed after fade completes.</summary>
+            public GameObject SiblingDestroy;
+        }
+        private static readonly List<ThrownLightFade> _thrownLightFades = new List<ThrownLightFade>(8);
+
+        /// <summary>
+        /// Network owns die clock — keep Flare for flicker/rotation, skip waitToDie via Harmony.
+        /// </summary>
+        public static void ClaimFlareLifetime(GameObject go)
+        {
+            if (go == null) return;
+            var auth = go.GetComponent<NetworkFlareLifetime>();
+            if (auth == null)
+                auth = go.AddComponent<NetworkFlareLifetime>();
+            auth.NetworkOwnsDie = true;
+            // Also mark any child Flare roots so parent lookup always hits.
+            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+            {
+                if (fl == null || fl.gameObject == go) continue;
+                var childAuth = fl.GetComponent<NetworkFlareLifetime>();
+                if (childAuth == null)
+                    childAuth = fl.gameObject.AddComponent<NetworkFlareLifetime>();
+                childAuth.NetworkOwnsDie = true;
+            }
+        }
+
         private static readonly List<GeneratorState> _generators = new List<GeneratorState>();
         private static readonly Dictionary<Vector3, bool> _lastGeneratorOn = new Dictionary<Vector3, bool>();
         private static readonly Dictionary<Vector3, float> _lastGeneratorFuel = new Dictionary<Vector3, float>();
         private static readonly List<Vector3> _scanCenters = new List<Vector3>(8);
         private static readonly HashSet<int> _scannedObjectIds = new HashSet<int>();
 
-        private const float InterpFixedDuration = 0.1f;
+        // Client free-body packets are ~10 Hz (0.1s). Buffer slightly longer so host
+        // retargets mid-lerp instead of finishing each segment into a snap.
+        private const float InterpFixedDuration = 0.2f;
+        /// <summary>Host applying client push — same buffer (explicit for clarity).</summary>
+        private const float ClientPushInterpDuration = 0.2f;
 
         // Client-side per-frame object interpolation (smooth movement for physics objects)
         private struct ObjectInterpState
@@ -202,6 +254,9 @@ namespace DWMPHorde.Sync
                 if (rootGo.GetComponent<Character>() != null) continue;
                 if (rootGo.GetComponent<DroppedItemIdentifier>() != null) continue;
                 if (rootGo.GetComponent<DeathDrop>() != null) continue;
+                // In-flight throwables are owned by ThrowableSpawn + local ThrownItem physics.
+                // Streaming them as free-bodies kinematic-locks the peer arc → lands at feet.
+                if (IsInFlightThrownItem(rootGo)) continue;
 
                 Item itemComp = rootGo.GetComponent<Item>();
                 if (itemComp != null && itemComp.beingDragged)
@@ -228,8 +283,14 @@ namespace DWMPHorde.Sync
                 if (reallyMoved)
                     _lastMoveTime[trackingKey] = now;
 
+                // Host: keep client-owned free-bodies in interp (posDelta for scrape +
+                // smooth apply). Clearing them made every client packet look stationary
+                // (posDelta=0) → host never armed body-push MOS.
                 if (net == null || net.Role == NetworkRole.Host)
-                    _objectInterp.Remove(rootId);
+                {
+                    if (!_clientKinematic.ContainsKey(rootId))
+                        _objectInterp.Remove(rootId);
+                }
 
                 if (_objects.Count >= 256) return;
 
@@ -840,6 +901,20 @@ namespace DWMPHorde.Sync
                         continue;
                     }
 
+                    // Never kinematic-lock / interp an in-flight match/flare/molotov.
+                    // Peer ThrowableSpawn already set landTarget + setFallSpeed + velocity.
+                    if (IsInFlightThrownItem(go))
+                    {
+                        RemoveObjectFromInterpolation(go);
+                        Rigidbody flyRb = go.GetComponent<Rigidbody>();
+                        if (flyRb != null && flyRb.isKinematic)
+                            flyRb.isKinematic = false;
+                        int flyId = go.GetInstanceID();
+                        _clientKinematic.Remove(flyId);
+                        objSkipped++;
+                        continue;
+                    }
+
                     Vector3 pos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
                     Vector3 rot = new Vector3(obj.RotX, obj.RotY, obj.RotZ);
 
@@ -875,9 +950,12 @@ namespace DWMPHorde.Sync
                             int goId = go.GetInstanceID();
                             rb.isKinematic = true;
 
-                            float posDelta = 0f;
+                            // Baseline: last interp target, else current host pose.
+                            // (Missing baseline forced posDelta=0 → never body-push scrape.)
+                            Vector3 baseline = go.transform.position;
                             if (_objectInterp.TryGetValue(goId, out var existingInterp))
-                                posDelta = Vector3.Distance(existingInterp.TargetPos, objPos);
+                                baseline = existingInterp.TargetPos;
+                            float posDelta = Vector3.Distance(baseline, objPos);
                             // 0.001 was too sensitive (float noise + micro jitter = "always moving").
                             bool posChanged = posDelta >= 0.02f;
 
@@ -891,9 +969,9 @@ namespace DWMPHorde.Sync
                                 _clientKinematic[goId] = (rb, Time.time + 0.5f, obj.Name);
                             }
 
-                            // Scrape: start once on real motion. First quiet packet stops
-                            // immediately (T3) — no multi-hold residual slide lag.
-                            // Never re-NotifyStarted on every tick (was restarting loops constantly).
+                            // Scrape: arm on motion; first quiet packet → stop decision *now*.
+                            // SoftStop (no suppress) + NoteMoving re-arm cancels a premature
+                            // fade if the next tick is motion again. Do not hold residual volume.
                             if (posChanged && !gated)
                             {
                                 if (_bodyPushSoundActive.Add(obj.Name))
@@ -901,8 +979,12 @@ namespace DWMPHorde.Sync
                                     ModRuntime.LegacyInfo("[SND] body-push start " + obj.Name + " d=" + posDelta.ToString("F3"));
                                     LanNetworkManager.NotifyBodyPushStarted(go);
                                 }
-                                // Keep a tiny timer only as a safety net if quiet packets stop arriving.
-                                _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold + 0.1f;
+                                else
+                                {
+                                    // Keep MOS alive mid-push (NoteMoving is idempotent / cancels fade).
+                                    LanNetworkManager.NotifyBodyPushStarted(go);
+                                }
+                                _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
                                 _pushNameToGid[obj.Name] = goId;
                                 _pushGidToName[goId] = obj.Name;
                             }
@@ -916,7 +998,17 @@ namespace DWMPHorde.Sync
                                 _pushGidToName.Remove(goId);
                             }
 
-                            SetObjectTarget(go, objPos, rotVec);
+                            // Hard desync only: snap start of interp. Routine push must lerp
+                            // (old 1.5u snap every few packets = snappy host motion).
+                            if (posDelta >= ClientPushSnapDistance)
+                            {
+                                rb.position = objPos;
+                                rb.rotation = Quaternion.Euler(rotVec);
+                                go.transform.position = objPos;
+                                go.transform.rotation = Quaternion.Euler(rotVec);
+                                _objectInterp.Remove(goId);
+                            }
+                            SetObjectTarget(go, objPos, rotVec, ClientPushInterpDuration);
                         }
                         else
                         {
@@ -927,6 +1019,24 @@ namespace DWMPHorde.Sync
                     }
                     else
                     {
+                        // Local pusher/dragger owns this free-body. Host snapshot echo must not:
+                        // - SetObjectTarget (kinematic lock + fight local physics — ObjInterp thrash)
+                        // - NoteMoving / ForceStop (double scrape / kill native mid-push)
+                        if (!string.IsNullOrEmpty(obj.Name)
+                            && ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name))
+                        {
+                            RemoveObjectFromInterpolation(go);
+                            Rigidbody localRb = go.GetComponent<Rigidbody>();
+                            if (localRb != null && localRb.isKinematic)
+                                localRb.isKinematic = false;
+                            if (ItemMovingSoundHelper.IsRemoteScrape(obj.Name)
+                                || MovingObjectSoundService.IsPlaying(obj.Name)
+                                || MovingObjectSoundService.IsFading(obj.Name))
+                                MovingObjectSoundService.StopImmediate(obj.Name);
+                            objSkipped++;
+                            continue;
+                        }
+
                         // Body-push scrape: shared loop service (also used by E-drag).
                         if (!string.IsNullOrEmpty(obj.Name))
                         {
@@ -954,9 +1064,8 @@ namespace DWMPHorde.Sync
                                     else if (_lastPushSoundTime.ContainsKey(__gid)
                                         || ItemMovingSoundHelper.IsRemoteScrape(obj.Name))
                                     {
-                                        // First quiet net tick after motion — stop promptly (not multi-hold).
-                                        // ForceStop keeps remote suppress until MOS dies + sleeps residual RB.
-                                        ItemMovingSoundHelper.ForceStopByName(obj.Name);
+                                        // First quiet net tick — soft stop (no PostStop suppress).
+                                        ItemMovingSoundHelper.SoftStopNetwork(obj.Name);
                                         _lastPushSoundTime.Remove(__gid);
                                         _pushStationaryCount.Remove(__gid);
                                         _pushNameToGid.Remove(obj.Name);
@@ -1166,12 +1275,13 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Sets a new position/rotation target for an object and resets the interpolation
-        /// state so it smoothly moves from its current position to the target over <see cref="InterpFixedDuration"/>.
+        /// state so it smoothly moves from its current position to the target over <paramref name="durationSec"/>.
         /// </summary>
-        private static void SetObjectTarget(GameObject go, Vector3 targetPos, Vector3 targetRot)
+        private static void SetObjectTarget(GameObject go, Vector3 targetPos, Vector3 targetRot, float durationSec = -1f)
         {
             int id = go.GetInstanceID();
             float now = Time.time;
+            float duration = durationSec > 0.001f ? durationSec : InterpFixedDuration;
 
             if (_objectInterp.TryGetValue(id, out var state))
             {
@@ -1194,15 +1304,25 @@ namespace DWMPHorde.Sync
             else
             {
                 state.Target = go;
-                state.PrevPos = go.transform.position;
-                state.PrevRot = go.transform.eulerAngles;
+                // Prefer live rigidbody pose (kinematic drive) over transform if available.
+                Rigidbody rb0 = go.GetComponent<Rigidbody>();
+                if (rb0 != null)
+                {
+                    state.PrevPos = rb0.position;
+                    state.PrevRot = rb0.rotation.eulerAngles;
+                }
+                else
+                {
+                    state.PrevPos = go.transform.position;
+                    state.PrevRot = go.transform.eulerAngles;
+                }
             }
 
             state.Target = go;
             state.TargetPos = targetPos;
             state.TargetRot = targetRot;
             state.PrevTime = now;
-            state.TargetTime = now + InterpFixedDuration;
+            state.TargetTime = now + duration;
             _objectInterp[id] = state;
 
             // Lock to host position during active sync — prevents proxy collisions
@@ -1210,8 +1330,8 @@ namespace DWMPHorde.Sync
             Rigidbody rb = go.GetComponent<Rigidbody>();
             if (rb != null)
             {
-                if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
-                    rb.isKinematic = true;
+                // Host must stay kinematic too while interpolating client-pushed free-bodies.
+                rb.isKinematic = true;
                 rb.velocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
             }
@@ -1728,28 +1848,32 @@ namespace DWMPHorde.Sync
                 Quaternion lerpRot = Quaternion.Slerp(prevRotQ, targetRotQ, t);
 
                 Rigidbody rb = s.CachedRb;
-                if (t < 1f)
+                bool hostClientPush = rb != null && _clientKinematic.ContainsKey(key);
+                if (t < 1f || hostClientPush)
                 {
-                    // During active interpolation: drive position, keep kinematic
-                    // so client physics doesn't fight the snapshot correction.
+                    // Active lerp, or hold last target on host while waiting for next
+                    // client PhysicsState (avoids freeze-then-teleport between packets).
+                    Vector3 pos = t < 1f ? lerpPos : s.TargetPos;
+                    Quaternion rot = t < 1f ? lerpRot : Quaternion.Euler(s.TargetRot);
                     if (rb != null)
                     {
-                        rb.position = lerpPos;
-                        rb.rotation = lerpRot;
+                        if (!rb.isKinematic)
+                            rb.isKinematic = true;
+                        rb.position = pos;
+                        rb.rotation = rot;
                         rb.velocity = Vector3.zero;
                         rb.angularVelocity = Vector3.zero;
                     }
                     else
                     {
-                        s.Target.transform.position = lerpPos;
-                        s.Target.transform.rotation = lerpRot;
+                        s.Target.transform.position = pos;
+                        s.Target.transform.rotation = rot;
                     }
                 }
                 else
                 {
-                    // Interpolation complete. Release kinematic so the client can
-                    // push / interact with the object.  Next snapshot (host correction
-                    // or full resync) will re-lock and re-interpolate.
+                    // Interpolation complete (non-client-push). Release kinematic so the
+                    // local peer can push / interact. Next snapshot re-locks.
                     if (rb != null && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                         rb.isKinematic = false;
                     // Non-rigidbody objects still need transform driven.
@@ -1783,14 +1907,13 @@ namespace DWMPHorde.Sync
             // Local free-body push: ForceStop when player stops / leaves contact (T3).
             ItemMovingSoundHelper.TickLocalPushScrapeStop();
 
-            // If PhysicsState stops reporting motion, decide stop promptly.
-            // One physics interval (~0.1s) cushion for dropped packets — not a long hang.
-            // Remaining tail is vanilla-style 0.5s fade in StopNetwork.
+            // Safety net if PhysicsState packets stop entirely: soft-stop after ~1 missed
+            // 10Hz tick + margin. Decision lag is the bug; SoftStop fade is vanilla 0.5s.
             float __srcCleanupNow = Time.time;
             List<int> __staleSrcKeys = null;
             foreach (var __kv in _lastPushSoundTime)
             {
-                if ((__srcCleanupNow - __kv.Value) > 0.12f)
+                if ((__srcCleanupNow - __kv.Value) > 0.15f)
                 {
                     if (__staleSrcKeys == null) __staleSrcKeys = new List<int>();
                     __staleSrcKeys.Add(__kv.Key);
@@ -1801,7 +1924,7 @@ namespace DWMPHorde.Sync
                 {
                     if (_pushGidToName.TryGetValue(__k, out var __akn))
                     {
-                        ItemMovingSoundHelper.ForceStopByName(__akn);
+                        ItemMovingSoundHelper.SoftStopNetwork(__akn);
                         _pushNameToGid.Remove(__akn);
                     }
                     _lastPushSoundTime.Remove(__k);
@@ -2096,7 +2219,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>Called from HandlePlayerAudio's IsStopSignal handler when the
         /// host broadcasts NotifyBodyPushStopped. Clears tracking tables; actual
-        /// audio stop is handled by ItemMovingSoundHelper.ForceStopByName.</summary>
+        /// audio stop is handled by SoftStopNetwork / ForceStopByName.</summary>
         public static void TryStopBodyPushSound(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return;
@@ -2124,6 +2247,8 @@ namespace DWMPHorde.Sync
             _trapResultCache.Clear();
             _thrownLights.Clear();
             _thrownById.Clear();
+            _flareBurnStarts.Clear();
+            _thrownLightFades.Clear();
             TrapNetworkId.ResetSession();
             _lastGeneratorOn.Clear();
             _scanCenters.Clear();
@@ -2159,9 +2284,26 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Strips combat from a thrown projectile so it can still fly and play land/explosion
-        /// FX while the host alone applies damage / status / knockback.
-        /// Used for client remote copies and the client's own throw after network spawn.
+        /// True while ThrownItem is mid-arc (not landed). Physics free-body stream must
+        /// not own these — kinematic interp cancels velocity and lands short.
+        /// </summary>
+        public static bool IsInFlightThrownItem(GameObject go)
+        {
+            if (go == null) return false;
+            ThrownItem ti = go.GetComponent<ThrownItem>();
+            return ti != null && ti.thrown && !ti.onGround;
+        }
+
+        /// <summary>
+        /// Strips combat + world-mutation secondaries from a thrown projectile so it can still
+        /// fly and play the main explosion VFX while the host alone applies damage, gas-trail
+        /// scatter, and fire. Used for client remote copies and the client's own throw.
+        ///
+        /// Critical for gasBomb/molotov: vanilla <c>spawnObjects()</c> uses random offsets —
+        /// if both peers scatter, flame cover is not 1:1 and the client looks "wild".
+        /// Nulling <c>spawnObject</c> lets host <c>ExplosionSpawnObject</c> / GasTrail apply
+        /// the authoritative puddle positions (see ExplosionSpawnRecv skip when local still
+        /// has spawnObject).
         /// </summary>
         public static void MuteThrownCombat(GameObject go)
         {
@@ -2178,12 +2320,96 @@ namespace DWMPHorde.Sync
                 expl.affectsPlayer = false;
                 expl.force = 0f;
                 expl.hasEffect = false;
+                // Keep explosionPrefab for boom VFX; kill random secondary scatter (gas puddles).
+                expl.spawnObject = null;
+                expl.objectAmount = 0;
             }
         }
 
         /// <summary>
-        /// Ensures thrown flares have an active Light2D on the ground projectile.
-        /// Prefab usually carries Flare+Light2D; enable and register if present, else add a fallback.
+        /// Record Flare.Start time (vanilla burn clock starts on aim when heldItem is spawned).
+        /// Total light life = longevity + <see cref="FlareBurnoutFadeSec"/>.
+        /// </summary>
+        public static void NoteFlareBurnStart(GameObject go, float longevity)
+        {
+            if (go == null) return;
+            float lon = longevity > 0.05f ? longevity : 3f;
+            _flareBurnStarts[go.GetInstanceID()] = new FlareBurnStart
+            {
+                StartTime = Time.time,
+                Longevity = lon
+            };
+        }
+
+        /// <summary>
+        /// Remaining seconds until light is fully dark (longevity + fade − elapsed).
+        /// Packet LongevitySec uses this; track ExpireAt = now + (remain − fade) so fade starts on time.
+        /// </summary>
+        public static float GetFlareRemainingUntilDark(GameObject go, float longevityFallback = 3f)
+        {
+            float lon = longevityFallback > 0.05f ? longevityFallback : 3f;
+            float total = lon + FlareBurnoutFadeSec;
+            if (go == null)
+                return total;
+            if (!_flareBurnStarts.TryGetValue(go.GetInstanceID(), out FlareBurnStart b))
+                return total;
+            float elapsed = Time.time - b.StartTime;
+            float remain = (b.Longevity + FlareBurnoutFadeSec) - elapsed;
+            return Mathf.Max(0.15f, remain);
+        }
+
+        /// <summary>Seconds from now until fade should begin, given remaining-until-dark budget.</summary>
+        public static float UntilFadeStart(float remainingUntilDark)
+        {
+            return Mathf.Max(0.05f, remainingUntilDark - FlareBurnoutFadeSec);
+        }
+
+        /// <summary>
+        /// Host: track a local thrower's projectile so TickThrownLightExpiry can despawn peers
+        /// (host never receives its own ThrowableSpawn).
+        /// </summary>
+        /// <param name="remainingUntilDark">Seconds until light is fully out (includes fade).</param>
+        public static void RegisterLocalThrownLight(int throwId, GameObject go, float remainingUntilDark, string itemType)
+        {
+            if (go == null || throwId <= 0) return;
+            ClaimFlareLifetime(go);
+            float expireAt = Time.time + UntilFadeStart(remainingUntilDark);
+            var track = new ThrownLightTrack
+            {
+                ThrowId = throwId,
+                Go = go,
+                ExpireAt = expireAt,
+                ItemType = itemType ?? ""
+            };
+            // Replace existing same throwId
+            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            {
+                if (_thrownLights[i].ThrowId == throwId)
+                    _thrownLights.RemoveAt(i);
+            }
+            _thrownLights.Add(track);
+            _thrownById[throwId] = track;
+            ModRuntime.LegacyInfo("[ThrowableTrack] host local throwId=" + throwId
+                + " type=" + itemType
+                + " untilFade=" + (expireAt - Time.time).ToString("F2")
+                + " untilDark=" + remainingUntilDark.ToString("F2"));
+            // Event so Public/Support presets still see flare track (LegacyInfo is Dev-only).
+            Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableTrack] host local throwId=" + throwId
+                + " type=" + itemType
+                + " untilFade=" + (expireAt - Time.time).ToString("F1")
+                + "s untilDark=" + remainingUntilDark.ToString("F1") + "s claimedLifetime=1");
+        }
+
+        /// <summary>True when packet is a grounded late-join / re-sync (no flight).</summary>
+        public static bool IsGroundedThrownSpawn(ThrowableSpawnMessage msg)
+        {
+            float velSq = msg.VelX * msg.VelX + msg.VelY * msg.VelY + msg.VelZ * msg.VelZ;
+            return velSq < 0.01f && msg.Distance < 1f && !msg.HasLandTarget;
+        }
+
+        /// <summary>
+        /// Ensures thrown flares have exactly one active Light2D (prefab Flare.light2D).
+        /// Extra lights cause client-only "glare" halos host never had.
         /// </summary>
         private static void EnsureThrownFlareLight(GameObject go, string itemType)
         {
@@ -2191,40 +2417,55 @@ namespace DWMPHorde.Sync
             if (itemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) < 0)
                 return;
 
-            Light2D light = go.GetComponentInChildren<Light2D>(true);
-            if (light == null)
+            Flare flare = go.GetComponentInChildren<Flare>(true);
+            Light2D primary = flare != null ? flare.light2D : null;
+            if (primary == null)
+                primary = go.GetComponentInChildren<Light2D>(true);
+
+            // Disable every other Light2D so we don't stack meshes / halos.
+            foreach (var lt in go.GetComponentsInChildren<Light2D>(true))
             {
-                Flare flare = go.GetComponentInChildren<Flare>(true);
-                if (flare != null && flare.light2D != null)
-                    light = flare.light2D;
+                if (primary == null)
+                {
+                    primary = lt;
+                    continue;
+                }
+                if (lt != primary)
+                {
+                    lt.lightsPlayer = false;
+                    lt.updateGraph = false;
+                    try { lt.unlightGraphNodes(); } catch { /* ignore */ }
+                    lt.gameObject.SetActive(false);
+                }
             }
 
-            if (light == null)
+            if (primary == null)
             {
                 var lightGo = new GameObject("ThrownFlareLight");
                 lightGo.transform.SetParent(go.transform, false);
                 lightGo.transform.localPosition = Vector3.zero;
-                light = lightGo.AddComponent<Light2D>();
-                if (light.LightMaterial == null)
-                    light.LightMaterial = Resources.Load("RadialLight") as Material;
-                light.LightRadius = 650f;
-                light.LightIntensity = 1f;
-                light.LightColor = new Color(1f, 0.5f, 0.1f);
+                primary = lightGo.AddComponent<Light2D>();
+                if (primary.LightMaterial == null)
+                    primary.LightMaterial = Resources.Load("RadialLight") as Material;
+                primary.LightRadius = 650f;
+                primary.LightIntensity = 1f;
+                primary.LightColor = new Color(1f, 0.5f, 0.1f);
                 ModRuntime.LegacyInfo("[ThrowableSpawn] added fallback Light2D for " + itemType);
             }
 
-            if (!light.gameObject.activeSelf)
-                light.gameObject.SetActive(true);
-            light.lightsPlayer = true;
-            light.updateGraph = true;
+            if (!primary.gameObject.activeSelf)
+                primary.gameObject.SetActive(true);
+            // Match vanilla prefab: lightsPlayer must draw the radial, but only once.
+            primary.lightsPlayer = true;
+            primary.updateGraph = true;
             var ctrl = Singleton<Controller>.Instance;
-            if (ctrl != null && !ctrl.logicLights.Contains(light))
-                ctrl.logicLights.Add(light);
+            if (ctrl != null && !ctrl.logicLights.Contains(primary))
+                ctrl.logicLights.Add(primary);
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo("[ThrowableSpawn] flare light ok " + itemType
-                    + " radius=" + light.LightRadius
-                    + " intensity=" + light.LightIntensity);
+                    + " radius=" + primary.LightRadius
+                    + " intensity=" + primary.LightIntensity);
         }
 
         public static void SpawnThrownItem(ThrowableSpawnMessage msg, Transform proxyT, bool visualOnly = false)
@@ -2245,7 +2486,12 @@ namespace DWMPHorde.Sync
             GameObject prefab = itemDef.item as GameObject;
             if (prefab == null) return;
 
-            Vector3 spawnPos = new Vector3(msg.PosX, msg.PosY + 1.0f, msg.PosZ);
+            bool grounded = IsGroundedThrownSpawn(msg);
+            bool isFlareItem = !string.IsNullOrEmpty(msg.ItemType)
+                && msg.ItemType.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
+            // Vanilla throwItem: heldItem.transform.position = player.position (no Y lift).
+            Vector3 throwOrigin = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            Vector3 spawnPos = throwOrigin;
             GameObject go = Core.AddPrefab(prefab, spawnPos, Quaternion.Euler(90f, msg.AimY, 0f), null);
             if (go == null)
                 go = UnityEngine.Object.Instantiate(prefab, spawnPos, Quaternion.Euler(90f, msg.AimY, 0f));
@@ -2256,48 +2502,168 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            // Prevent the freshly instantiated item from immediately colliding with the proxy
-            // (which has active colliders via RemotePlayerProxy.EnableCollision).
-            // Without this, Molotov's fireOnCollideOnAnyCollision would trigger onCollide
-            // on the next physics step, causing an explosion at the spawn position.
-            if (proxyT != null)
+            // Mirror ThrownItem.Awake ignorePlayerCollisions + avoid proxy / local player clips
+            // that fire onCollide / fireOnCollideOnAnyCollision at spawn (molotov/match).
+            Collider itemCol = go.GetComponent<Collider>();
+            if (itemCol != null)
             {
-                Collider[] itemCols = go.GetComponentsInChildren<Collider>(true);
-                Collider[] proxyCols = proxyT.GetComponentsInChildren<Collider>(true);
-                if (itemCols.Length > 0 && proxyCols.Length > 0)
+                if (Player.Instance != null)
                 {
-                    foreach (var ic in itemCols)
-                        foreach (var pc in proxyCols)
-                            Physics.IgnoreCollision(ic, pc);
+                    Collider pc = Player.Instance.GetComponent<Collider>();
+                    if (pc != null) Physics.IgnoreCollision(itemCol, pc);
+                }
+                if (proxyT != null && !grounded)
+                {
+                    Collider[] proxyCols = proxyT.GetComponentsInChildren<Collider>(true);
+                    for (int i = 0; i < proxyCols.Length; i++)
+                    {
+                        if (proxyCols[i] != null)
+                            Physics.IgnoreCollision(itemCol, proxyCols[i]);
+                    }
                 }
             }
 
             Rigidbody rb = go.GetComponent<Rigidbody>();
             ThrownItem ti = go.GetComponent<ThrownItem>();
-            float distance = Mathf.Clamp(msg.Distance, 10f, 370f);
+            float distance = grounded ? 0f : Mathf.Clamp(msg.Distance, 10f, 370f);
             Vector3 vel = new Vector3(msg.VelX, msg.VelY, msg.VelZ);
+            Vector3 landTarget = spawnPos;
 
-            if (rb != null)
+            if (grounded)
             {
-                rb.isKinematic = false;
-                rb.drag = 2f;
-                rb.velocity = vel;
-
-                float rotForce = ti != null ? ti.initialRotationForce : 225f;
-                if (rotForce == 0f)
+                // Late-join / re-sync: already on ground, no flight.
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    rb.velocity = Vector3.zero;
                     rb.angularVelocity = Vector3.zero;
-                else
-                    rb.AddTorque(0f, rotForce * 1000f, 0f);
+                    rb.drag = 15f;
+                    rb.angularDrag = 15f;
+                }
+                if (ti != null)
+                {
+                    ti.thrown = false;
+                    ti.onGround = true;
+                    ti.landTarget = spawnPos;
+                    ti.objectThatSpawnedMe = proxyT;
+                }
             }
-
-            if (ti != null)
+            else
             {
-                ti.thrown = true;
-                ti.objectThatSpawnedMe = proxyT;
-                Vector3 origin = proxyT != null ? proxyT.position : spawnPos;
-                Vector3 dir3 = vel.sqrMagnitude > 0.01f ? vel.normalized : Quaternion.Euler(0f, msg.AimY, 0f) * Vector3.forward;
-                ti.landTarget = origin + dir3 * distance;
-                ti.setFallSpeed(distance);
+                // Vanilla Player.throwItem order (decompiled):
+                //  pos = player; parent=null; drag=2; dist=clamp(cursor,10,370);
+                //  dir ≈ player.up (aim); landTarget = pos + dir * dist;
+                //  vel = dir * dist * 2.5 (or dir * initialVelocity);
+                //  thrown=true; setFallSpeed(dist); objectThatSpawnedMe = player.
+                bool haveLand = msg.HasLandTarget
+                    && (msg.LandX * msg.LandX + msg.LandY * msg.LandY + msg.LandZ * msg.LandZ) > 0.01f;
+
+                Vector3 dir;
+                if (haveLand)
+                {
+                    landTarget = new Vector3(msg.LandX, msg.LandY, msg.LandZ);
+                    Vector3 toLand = landTarget - throwOrigin;
+                    toLand.y = 0f;
+                    float landDist = toLand.magnitude;
+                    if (landDist > 1f)
+                    {
+                        distance = Mathf.Clamp(landDist, 10f, 370f);
+                        dir = toLand / landDist;
+                    }
+                    else if (vel.sqrMagnitude > 0.01f)
+                        dir = vel.normalized;
+                    else
+                        dir = Quaternion.Euler(0f, msg.AimY, 0f) * Vector3.forward;
+                }
+                else if (vel.sqrMagnitude > 0.01f)
+                {
+                    dir = vel.normalized;
+                    landTarget = throwOrigin + dir * distance;
+                }
+                else
+                {
+                    dir = Quaternion.Euler(0f, msg.AimY, 0f) * Vector3.forward;
+                    landTarget = throwOrigin + dir * distance;
+                }
+
+                // Vanilla throwItem force: initialVelocity==0 → dir * distance * 2.5f.
+                // Always rebuild from distance + land dir so peer arc matches thrower formula.
+                // (Live packet vel can disagree after drag/one-frame capture and looked "weaker".)
+                float initV = ti != null ? ti.initialVelocity : 0f;
+                float expectedSpeed = initV > 0f ? initV : distance * 2.5f;
+                // Prefer packet speed when close to vanilla expected (thrower authority);
+                // otherwise force exact formula so both sides share the same kick.
+                float pktSpeed = vel.magnitude;
+                if (pktSpeed < expectedSpeed * 0.85f || pktSpeed > expectedSpeed * 1.15f
+                    || vel.sqrMagnitude < 1f)
+                    vel = dir * expectedSpeed;
+                else
+                    vel = dir * pktSpeed; // keep magnitude, lock direction to land
+
+                // Must not be kinematic — PhysicsState used to force kinematic mid-flight
+                // (now excluded). Explicit unlock so a stale lock cannot kill the arc.
+                if (rb != null)
+                {
+                    rb.isKinematic = false;
+                    rb.drag = 2f; // vanilla throwItem
+                    // Leave prefab angularDrag — do not invent 0.05 (changes spin feel).
+                    rb.velocity = vel;
+
+                    float rotForce = ti != null ? ti.initialRotationForce : 225f;
+                    if (rotForce == 0f)
+                        rb.angularVelocity = Vector3.zero;
+                    else
+                        rb.AddTorque(0f, rotForce * 1000f, 0f);
+                }
+
+                if (ti != null)
+                {
+                    // Same field order as vanilla throwItem.
+                    ti.landTarget = landTarget;
+                    ti.thrown = true;
+                    ti.onGround = false;
+                    ti.objectThatSpawnedMe = proxyT;
+                    // flyTime = distance/150; lands when near landTarget OR time > flyTime.
+                    ti.setFallSpeed(distance);
+                }
+
+                // Drop any free-body interp that already latched onto this GO by name.
+                RemoveObjectFromInterpolation(go);
+                if (rb != null)
+                    _clientKinematic.Remove(go.GetInstanceID());
+
+                // ThrownItem.Awake schedules init() next frame — can zero/overwrite velocity.
+                // Re-assert vanilla flight state after init so peer force matches thrower.
+                Vector3 velHold = vel;
+                Vector3 landHold = landTarget;
+                float distHold = distance;
+                Transform proxyHold = proxyT;
+                GameObject goHold = go;
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null)
+                {
+                    ctrl.waitFramesAndRun(() =>
+                    {
+                        if (goHold == null) return;
+                        Rigidbody rb2 = goHold.GetComponent<Rigidbody>();
+                        ThrownItem ti2 = goHold.GetComponent<ThrownItem>();
+                        if (rb2 != null)
+                        {
+                            rb2.isKinematic = false;
+                            rb2.drag = 2f;
+                            rb2.velocity = velHold;
+                        }
+                        if (ti2 != null)
+                        {
+                            ti2.landTarget = landHold;
+                            ti2.thrown = true;
+                            ti2.onGround = false;
+                            ti2.objectThatSpawnedMe = proxyHold;
+                            ti2.setFallSpeed(distHold);
+                        }
+                        RemoveObjectFromInterpolation(goHold);
+                    }, 1);
+                }
             }
 
             Explodes expl = go.GetComponent<Explodes>();
@@ -2312,41 +2678,52 @@ namespace DWMPHorde.Sync
             EnsureThrownFlareLight(go, msg.ItemType);
 
             // Lifetime parity: track expire for flare lights (host despawns for all).
-            if (!string.IsNullOrEmpty(msg.ItemType)
-                && msg.ItemType.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
+            // LongevitySec = remaining burn including fade, from thrower's aim-start clock.
+            // Keep Flare for flicker/rotation; ClaimFlareLifetime skips waitToDie (V3/V4).
+            if (isFlareItem)
             {
-                float life = msg.LongevitySec > 0.05f ? msg.LongevitySec : 5f;
+                ClaimFlareLifetime(go);
+                // Peer spawn runs Flare.Start → tweenIntensity 1→4 (ignite pulse). Mid-life
+                // throws looked over-glared vs host stick already at cruise intensity (~2).
+                foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+                {
+                    if (fl != null)
+                        fl.tweenIntensity = 2f;
+                }
+                // LongevitySec = remaining until fully dark; expire clock starts the 2s fade.
+                float untilDark = msg.LongevitySec > 0.05f ? msg.LongevitySec : (3f + FlareBurnoutFadeSec);
                 int throwId = msg.ThrowId;
                 var track = new ThrownLightTrack
                 {
                     ThrowId = throwId,
                     Go = go,
-                    ExpireAt = Time.time + life,
+                    ExpireAt = Time.time + UntilFadeStart(untilDark),
                     ItemType = msg.ItemType
                 };
                 _thrownLights.Add(track);
                 if (throwId > 0)
                     _thrownById[throwId] = track;
-
-                // Strip local Flare waitToDie so host expire owns the timeline on remotes.
-                if (visualOnly)
-                {
-                    foreach (var fl in go.GetComponentsInChildren<Flare>(true))
-                        UnityEngine.Object.Destroy(fl);
-                }
             }
 
             if (!visualOnly)
                 Core.addToSaveable(go, isDynamic: true);
             ModRuntime.LegacyInfo("[ThrowableSpawn] spawned " + msg.ItemType
                 + " throwId=" + msg.ThrowId + " life=" + msg.LongevitySec
-                + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + msg.Distance
+                + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + distance
+                + " vel=" + vel.magnitude.ToString("F1")
+                + " land=" + landTarget
+                + " grounded=" + grounded
                 + " visualOnly=" + visualOnly);
         }
 
-        /// <summary>Host: expire tracked thrown lights and broadcast despawn.</summary>
+        /// <summary>
+        /// Host: when remaining life elapses, broadcast despawn and start 2s fade (vanilla waitToDie).
+        /// All roles: advance active fades.
+        /// </summary>
         public static void TickThrownLightExpiry(LanNetworkManager net)
         {
+            TickThrownLightFades();
+
             if (net == null || !net.IsConnected) return;
             if (net.Role != NetworkRole.Host) return;
             if (_thrownLights.Count == 0) return;
@@ -2365,7 +2742,7 @@ namespace DWMPHorde.Sync
                     continue;
 
                 Vector3 pos = t.Go.transform.position;
-                ExtinguishThrownLight(t.Go);
+                // Broadcast first so peers fade in parallel with host.
                 if (t.ThrowId > 0)
                 {
                     net.SendThrowableDespawn(new ThrowableDespawnMessage
@@ -2377,9 +2754,10 @@ namespace DWMPHorde.Sync
                     });
                     _thrownById.Remove(t.ThrowId);
                 }
+                BeginThrownLightFade(t.Go, FlareBurnoutFadeSec);
                 _thrownLights.RemoveAt(i);
-                ModRuntime.LegacyInfo("[ThrowableDespawn] host expired throwId=" + t.ThrowId
-                    + " type=" + t.ItemType);
+                Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableDespawn] host expired throwId=" + t.ThrowId
+                    + " type=" + t.ItemType + " pos=" + pos);
             }
         }
 
@@ -2394,7 +2772,6 @@ namespace DWMPHorde.Sync
             if (go == null)
             {
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                // Nearest flare-like light near reported pos
                 Collider[] hits = Physics.OverlapSphere(pos, 3f);
                 for (int i = 0; i < hits.Length; i++)
                 {
@@ -2418,14 +2795,163 @@ namespace DWMPHorde.Sync
             }
 
             if (go != null)
-                ExtinguishThrownLight(go);
+            {
+                Logging.ModLog.Event(Logging.LogCat.World,
+                    "[ThrowableDespawn] peer fade throwId=" + msg.ThrowId + " go=" + go.name);
+                BeginThrownLightFade(go, FlareBurnoutFadeSec);
+            }
             else
-                ModRuntime.LegacyInfo("[ThrowableDespawn] no go for throwId=" + msg.ThrowId);
+                Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableDespawn] no go for throwId=" + msg.ThrowId);
         }
 
-        private static void ExtinguishThrownLight(GameObject go)
+        /// <summary>Vanilla waitToDie: ramp intensity to 0 over fadeSec, then kill lights/particles/lightFlare.</summary>
+        public static void BeginThrownLightFade(GameObject go, float fadeSec = FlareBurnoutFadeSec,
+            GameObject siblingDestroy = null)
         {
             if (go == null) return;
+            // Already fading?
+            for (int i = 0; i < _thrownLightFades.Count; i++)
+            {
+                if (_thrownLightFades[i].Go == go)
+                    return;
+            }
+
+            Light2D[] lights = go.GetComponentsInChildren<Light2D>(true);
+            float startI = 1f;
+            if (lights != null && lights.Length > 0 && lights[0] != null)
+                startI = Mathf.Max(0.01f, lights[0].LightIntensity);
+
+            Logging.ModLog.Event(Logging.LogCat.World,
+                "[ThrowableFade] begin go=" + go.name
+                + " lights=" + (lights != null ? lights.Length : 0)
+                + " startI=" + startI.ToString("F2")
+                + " fadeSec=" + fadeSec.ToString("F1"));
+
+            // Stop looping audio gently (vanilla AudioObject.Stop(1f)).
+            try
+            {
+                foreach (var ao in go.GetComponentsInChildren<AudioObject>(true))
+                {
+                    if (ao != null)
+                        ao.Stop(1f);
+                }
+                if (siblingDestroy != null)
+                {
+                    foreach (var ao in siblingDestroy.GetComponentsInChildren<AudioObject>(true))
+                    {
+                        if (ao != null)
+                            ao.Stop(1f);
+                    }
+                }
+            }
+            catch { /* optional */ }
+
+            foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (ps != null)
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            }
+            if (siblingDestroy != null)
+            {
+                foreach (var ps in siblingDestroy.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    if (ps != null)
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                }
+            }
+
+            if (fadeSec <= 0.05f)
+            {
+                ExtinguishThrownLightImmediate(go);
+                if (siblingDestroy != null)
+                    UnityEngine.Object.Destroy(siblingDestroy);
+                return;
+            }
+
+            _thrownLightFades.Add(new ThrownLightFade
+            {
+                Go = go,
+                EndTime = Time.time + fadeSec,
+                Duration = fadeSec,
+                StartIntensity = startI,
+                Lights = lights,
+                SiblingDestroy = siblingDestroy
+            });
+        }
+
+        private static void TickThrownLightFades()
+        {
+            if (_thrownLightFades.Count == 0) return;
+            float now = Time.time;
+            for (int i = _thrownLightFades.Count - 1; i >= 0; i--)
+            {
+                var f = _thrownLightFades[i];
+                if (f.Go == null)
+                {
+                    if (f.SiblingDestroy != null)
+                        UnityEngine.Object.Destroy(f.SiblingDestroy);
+                    _thrownLightFades.RemoveAt(i);
+                    continue;
+                }
+                float left = f.EndTime - now;
+                float t = 1f - Mathf.Clamp01(left / Mathf.Max(0.01f, f.Duration));
+                float inten = Mathf.Lerp(f.StartIntensity, 0f, t);
+                float alphaScale = 1f - t;
+                if (f.Lights != null)
+                {
+                    for (int j = 0; j < f.Lights.Length; j++)
+                    {
+                        if (f.Lights[j] != null)
+                            f.Lights[j].LightIntensity = inten;
+                    }
+                }
+                // Dim lightFlare sprites with the light (vanilla waitToDie fades then destroys).
+                DimFlareSprites(f.Go, alphaScale);
+                if (f.SiblingDestroy != null)
+                    DimFlareSprites(f.SiblingDestroy, alphaScale);
+
+                if (now >= f.EndTime)
+                {
+                    ExtinguishThrownLightImmediate(f.Go);
+                    if (f.SiblingDestroy != null)
+                    {
+                        ExtinguishThrownLightImmediate(f.SiblingDestroy);
+                        UnityEngine.Object.Destroy(f.SiblingDestroy);
+                    }
+                    _thrownLightFades.RemoveAt(i);
+                }
+            }
+        }
+
+        private static void DimFlareSprites(GameObject go, float alphaScale)
+        {
+            if (go == null) return;
+            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+            {
+                if (fl != null && fl.lightFlare != null)
+                {
+                    Color c = fl.lightFlare.color;
+                    c.a = Mathf.Clamp01(alphaScale);
+                    fl.lightFlare.color = c;
+                }
+            }
+        }
+
+        private static void ExtinguishThrownLightImmediate(GameObject go)
+        {
+            if (go == null) return;
+
+            // V2: destroy glow sprites like vanilla waitToDie Destroy(lightFlare).
+            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+            {
+                if (fl == null) continue;
+                if (fl.lightFlare != null)
+                {
+                    UnityEngine.Object.Destroy(fl.lightFlare.gameObject);
+                    fl.lightFlare = null;
+                }
+            }
+
             foreach (var lt in go.GetComponentsInChildren<Light2D>(true))
             {
                 try
@@ -2441,14 +2967,36 @@ namespace DWMPHorde.Sync
             }
             foreach (var fl in go.GetComponentsInChildren<Flare>(true))
                 UnityEngine.Object.Destroy(fl);
+            foreach (var auth in go.GetComponentsInChildren<NetworkFlareLifetime>(true))
+                UnityEngine.Object.Destroy(auth);
             foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
             {
                 if (ps != null)
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             }
+
+            Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableFade] extinguished go=" + go.name);
         }
 
-        /// <summary>Late-join: re-send still-burning thrown flares to peer.</summary>
+        /// <summary>True if this GO (or child) is already in an active light fade.</summary>
+        public static bool IsThrownLightFading(GameObject go)
+        {
+            if (go == null) return false;
+            for (int i = 0; i < _thrownLightFades.Count; i++)
+            {
+                if (_thrownLightFades[i].Go == go || _thrownLightFades[i].SiblingDestroy == go)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Legacy name — fades then extinguishes.</summary>
+        private static void ExtinguishThrownLight(GameObject go)
+        {
+            BeginThrownLightFade(go, FlareBurnoutFadeSec);
+        }
+
+        /// <summary>Late-join: re-send still-burning thrown flares as grounded burns (no flight).</summary>
         public static void SendActiveThrownLightsTo(LanNetworkManager net, int playerId)
         {
             if (net == null || net.Role != NetworkRole.Host || playerId <= 0)
@@ -2460,7 +3008,9 @@ namespace DWMPHorde.Sync
                 var t = _thrownLights[i];
                 if (t.Go == null || now >= t.ExpireAt) continue;
                 Vector3 p = t.Go.transform.position;
-                float remain = Mathf.Max(0.1f, t.ExpireAt - now);
+                // Peer needs remaining-until-dark (= until fade start + fade).
+                float remain = Mathf.Max(0.15f, (t.ExpireAt - now) + FlareBurnoutFadeSec);
+                // Distance=0 + zero vel + no land → grounded spawn branch (F7).
                 var msg = new ThrowableSpawnMessage
                 {
                     ItemType = t.ItemType ?? "flare",
@@ -2473,14 +3023,15 @@ namespace DWMPHorde.Sync
                     VelY = 0f,
                     VelZ = 0f,
                     ThrowId = t.ThrowId,
-                    LongevitySec = remain
+                    LongevitySec = remain,
+                    HasLandTarget = false
                 };
                 net.SendToPlayer(playerId, NetMessageType.ThrowableSpawn, w => msg.Serialize(w),
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
                 sent++;
             }
             if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Thrown lights → p" + playerId + ": " + sent);
+                ModRuntime.LegacyInfo("[BulkSync] Thrown lights (grounded) → p" + playerId + ": " + sent);
         }
 
         internal static List<GameObject> GetKnownTrapsSnapshot()
@@ -2726,8 +3277,8 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void SpawnGasTrail(Vector3 pos)
         {
-            // Dedupe: world save / prior sync may already have a puddle here.
-            if (FindFlammableLiquidNear(pos, 0.85f) != null)
+            // Dedupe: slightly wider than host scatter step to avoid double puddles under jitter.
+            if (FindFlammableLiquidNear(pos, 1.15f) != null)
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo("[GasTrail] skip spawn — liquid already near " + pos);
@@ -2738,6 +3289,7 @@ namespace DWMPHorde.Sync
             TraverseHack.SetExplicitFlag(true);
             try
             {
+                // Explicit flag so client GasolineTrail Prefix allows this network apply path.
                 GameObject go = Core.AddPrefab("Items/GasolineTrail", pos, Quaternion.Euler(90f, 0f, 0f), Core.ItemContainer);
                 if (go != null)
                 {
@@ -2762,7 +3314,7 @@ namespace DWMPHorde.Sync
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                Liquid liquid = FindFlammableLiquidNear(pos, 2f);
+                Liquid liquid = FindFlammableLiquidNear(pos, 2.25f);
                 if (liquid != null)
                 {
                     if (!liquid.burning)
@@ -2773,10 +3325,9 @@ namespace DWMPHorde.Sync
                     return;
                 }
 
-                // Trail not found — spawn the correct trail, then ignite.
-                // Nested SpawnGasTrail preserves our apply flag (no mid-call clear).
+                // Trail not found yet (packet reordering) — spawn then ignite under apply flag.
                 SpawnGasTrail(pos);
-                liquid = FindFlammableLiquidNear(pos, 2f);
+                liquid = FindFlammableLiquidNear(pos, 2.25f);
                 if (liquid != null && !liquid.burning)
                 {
                     liquid.startBurning();
@@ -2791,15 +3342,22 @@ namespace DWMPHorde.Sync
         private static Liquid FindFlammableLiquidNear(Vector3 pos, float radius)
         {
             Collider[] nearby = Physics.OverlapSphere(pos, radius);
+            Liquid best = null;
+            float bestD = radius + 1f;
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
                 Liquid liquid = nearby[i].GetComponent<Liquid>();
                 if (liquid == null) liquid = nearby[i].GetComponentInParent<Liquid>();
-                if (liquid != null && liquid.flammable)
-                    return liquid;
+                if (liquid == null || !liquid.flammable) continue;
+                float d = Vector3.Distance(liquid.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = liquid;
+                }
             }
-            return null;
+            return best;
         }
     }
 
@@ -3101,6 +3659,13 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static bool IsInsidePlayerBulletCollision = false;
 
+        /// <summary>
+        /// True while <see cref="FastProjectile.FixedUpdate"/> is running its sweep
+        /// raycast. HitscanImpactSyncPatch must not treat those as player hitscan FF
+        /// (frozen/stalled pellets used to ghost-damage via that path).
+        /// </summary>
+        public static bool IsInsideFastProjectileRaycast = false;
+
         /// <summary>Clear all transient apply flags on network stop (stuck flags leak rebroadcast blocks).</summary>
         public static void ResetTransientFlags()
         {
@@ -3108,6 +3673,7 @@ namespace DWMPHorde.Sync
             InsideCharacterSounds = false;
             IsInsideLocalExplosion = false;
             IsInsidePlayerBulletCollision = false;
+            IsInsideFastProjectileRaycast = false;
         }
 
         /// <summary>Reads the private "opened" field from a Door instance.</summary>

@@ -29,10 +29,17 @@ namespace DWMPHorde
                 _instance.PullFieldsFromConfig();
         }
 
-        /// <summary>Open IMGUI settings (IP/port/password) — used by main-menu SETTINGS.</summary>
+        /// <summary>Toggle IMGUI settings (IP/port/password) — main-menu SETTINGS open/close.</summary>
         public static void ShowSettings()
         {
             if (_instance == null) return;
+            // Same button opens and closes (was open-only; second click did nothing).
+            if (_instance._visible)
+            {
+                _instance.WriteFieldsToConfig();
+                _instance._visible = false;
+                return;
+            }
             _instance._visible = true;
             _instance.PullFieldsFromConfig();
         }
@@ -140,7 +147,7 @@ namespace DWMPHorde
                 GUILayout.Label(sessionLine, GUILayout.ExpandWidth(true));
             }
             GUILayout.Label(
-                "JOIN flow: Host IN chapter → (1) world share → (2) client loads slot 5 offline → (3) auto reconnect co-op.",
+                "JOIN flow: Host IN chapter → (1) world share → (2) pick permanent local profile → ENTER WORLD offline → (3) reconnect co-op.",
                 GUILayout.ExpandWidth(true));
             GUILayout.Label(
                 "Host from title then load: clients already connected get world push when host Player.Start runs. F2 Resend if stuck.",

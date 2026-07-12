@@ -109,6 +109,9 @@ namespace DWMPHorde.Players
             UpdateEmitterPosition();
         }
 
+        /// <summary>Current torso clip name (for light/torch diagnostics).</summary>
+        public string CurrentTorsoClipName => _torsoAnimator != null ? _torsoAnimator.CurrentClip?.name : null;
+
         /// <summary>
         /// Sets the item whose emitter positions should drive the torch/lantern
         /// light and particle effect positions each frame.
@@ -118,6 +121,7 @@ namespace DWMPHorde.Players
             _emitterItem = itemDef;
             _lightEmitter = transform.Find("ItemLightEmitter");
             _particleEmitter = transform.Find("ItemParticleEmitter");
+            _lastEmitterClipMiss = null;
         }
 
         /// <summary>
@@ -126,7 +130,34 @@ namespace DWMPHorde.Players
         public void ClearEmittedItem()
         {
             _emitterItem = null;
+            _lastEmitterClipMiss = null;
         }
+
+        /// <summary>True when this anim controller is already driving emitters for <paramref name="itemType"/>.</summary>
+        public bool HasEmittedItem(string itemType)
+        {
+            if (_emitterItem == null || string.IsNullOrEmpty(itemType))
+                return false;
+            if (transform.Find("ItemLightEmitter") == null)
+                return false;
+            string t = _emitterItem.type ?? _emitterItem.name ?? "";
+            return string.Equals(t, itemType, System.StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(t) && t.IndexOf(itemType, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                || itemType.IndexOf(t, System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Whether emitterPositions has a key for this torso clip (or Idle fallback).</summary>
+        public bool EmitterHasClip(string clipName)
+        {
+            if (_emitterItem == null) return false;
+            var ep = _emitterItem.emitterPositions;
+            if (ep == null || ep.typesDict == null) return false;
+            if (!string.IsNullOrEmpty(clipName) && ep.typesDict.ContainsKey(clipName))
+                return true;
+            return ep.typesDict.ContainsKey("Idle");
+        }
+
+        private string _lastEmitterClipMiss;
 
         internal void UpdateEmitterPosition()
         {
@@ -159,7 +190,27 @@ namespace DWMPHorde.Players
             }
 
             if (!ep.typesDict.TryGetValue(clipName, out var entry))
+            {
+                // One log per missing clip name — torch flame stuck wrong = usually this.
+                if (!string.Equals(_lastEmitterClipMiss, clipName, System.StringComparison.Ordinal))
+                {
+                    _lastEmitterClipMiss = clipName;
+                    ModRuntime.LegacyInfo("[Light] emitter clip miss type="
+                        + (_emitterItem.type ?? "?") + " clip=" + clipName
+                        + " keys=" + ep.typesDict.Count);
+                }
+                // Fallback Idle so flame still follows something while walking unknown clips.
+                if (ep.typesDict.TryGetValue("Idle", out var idleFb)
+                    && idleFb.positions != null && idleFb.positions.Count > 0)
+                {
+                    Vector2 p = idleFb.positions[0];
+                    if (_lightEmitter != null)
+                        _lightEmitter.localPosition = new Vector3(p.x, p.y, _lightEmitter.localPosition.z);
+                    if (_particleEmitter != null)
+                        _particleEmitter.localPosition = new Vector3(p.x, p.y, _particleEmitter.localPosition.z);
+                }
                 return;
+            }
 
             int frame = _torsoAnimator.CurrentFrame;
             if (entry.positions == null || entry.positions.Count <= frame)

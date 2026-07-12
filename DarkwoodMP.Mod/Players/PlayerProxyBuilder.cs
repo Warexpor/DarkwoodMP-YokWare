@@ -255,6 +255,38 @@ namespace DWMPHorde.Players
                 Transform flashT = root.transform.Find("Flashlight");
                 if (flashT != null)
                     flashT.gameObject.SetActive(false);
+
+                // Cloned PlayerLightDot is local ambient vision — if left in logicLights with
+                // lightsPlayer it reads as a second lantern on every peer. Neutralize hard.
+                Transform lightDot = root.transform.Find("PlayerLightDot");
+                // Find misses inactive; also scan direct children.
+                if (lightDot == null)
+                {
+                    for (int i = 0; i < root.transform.childCount; i++)
+                    {
+                        Transform ch = root.transform.GetChild(i);
+                        if (ch != null && ch.name == "PlayerLightDot")
+                        {
+                            lightDot = ch;
+                            break;
+                        }
+                    }
+                }
+                if (lightDot != null)
+                {
+                    Light2D lt = lightDot.GetComponent<Light2D>();
+                    if (lt != null)
+                    {
+                        try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                        lt.lightsPlayer = false;
+                        lt.updateGraph = false;
+                        lt.LightRadius = 0.001f;
+                        var ctrl = Singleton<Controller>.Instance;
+                        if (ctrl != null)
+                            ctrl.logicLights.Remove(lt);
+                    }
+                    lightDot.gameObject.SetActive(false);
+                }
             }
 
             PlayerVisionController.From(root)?.SetAllVisionDisabled();

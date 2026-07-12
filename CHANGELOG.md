@@ -2,6 +2,67 @@
 
 Unreleased Path B work after **0.9.2** tag lives under **0.9.2+** sections below (newest first). Protocol stays **19**; optional message IDs **112–126**. Keep this file updated whenever playtest/audit fixes land — do not leave them only in plans or COOP_COVERAGE.
 
+**Agent rule:** every ship of playtest fixes / features / regressions must add a **0.9.2+** section here in the same change (see root `AGENTS.md` → Changelog discipline).
+
+## 0.9.2+ — Gas bomb / molotov host-auth fire (client wild + flame cover + stutter)
+
+Playtest: host gas bomb looked normal; client looked **wild**. Molotov flame cover not 1:1. Possible stutters around both.
+
+### Root cause
+- Both peers ran full `Explodes.spawnObjects()` with **independent random offsets** → different puddle layouts.
+- Client `MuteThrownCombat` only zeroed damage, not `spawnObject` — client kept local scatter **and** often skipped host secondaries while local bomb still had `spawnObject` set.
+- Bidirectional `GasTrail` / `startBurning` sync doubled density and dual `waitToBurnNeighbors` fire sims (stutter + divergent flame).
+
+### Fix (host-authoritative gas layout + fire)
+- **`MuteThrownCombat`:** also null `spawnObject` / `objectAmount` (keep boom `explosionPrefab` VFX). Host combat copy owns scatter.
+- **Gas trail TX host-only;** client local `Items/GasolineTrail` spawn blocked unless network apply flag.
+- **Object AddPrefab** path for `GasolineTrail` (gas bomb uses Object overload, not string) → host `GasTrail` channel; skip dual `ExplosionSpawnObject` for the same puddles.
+- **`Liquid.startBurning` host-only** invent; client only ignites when applying host `GasIgnite` (neighbor spread is host-driven).
+- Slightly wider trail dedupe + nearest-liquid ignite match; host trail flush batch dedupe (less packet spam).
+
+## 0.9.2+ — Coordinated multi-save + permanent copy refresh + same-world join + open-door melee
+
+Product intent: **when any player initiates Save, every connected player Saves on their machine** with the vanilla **Saving** indicator, and each machine’s **permanent co-op copy is refreshed** (sav files + fingerprint meta). Join reuses an exact local copy without forced overwrite.
+
+### Save (live session) — coordinated fan-out + permanent copy always updated
+- **Any role** finishes a local `SaveManager.Save` → `SaveSync` → peers `Save(force + Saving UI)`; no rebroadcast loops.
+- After **every** local Save (initiator + SaveSync apply): `CoopWorldCopyMeta.RefreshAfterLocalSave()` re-fingerprints on-disk `sav.dat`/`savs.dat`, updates day/chapter/`LastRefreshedAt`.
+- Logs: `Permanent co-op copy updated after Save → slot N …`.
+- Clients also send `ClientStateBackup` to host.
+
+### Join — same-world skip overwrite
+- After download, SHA1 of inflated package compared to local slots; **exact match → reuse that profile**, no overwrite, go straight to **ENTER WORLD**.
+- Ignore duplicate world-share begins while already slot-picking / awaiting ENTER WORLD.
+- Title auto-`WorldRequest` **suppressed** while slot pick / ENTER WORLD / download active (was double-downloading and forcing a second overwrite).
+- Mid-menu still used when no match; `[SAME AS HOST]` when meta fingerprint matches package.
+
+### Open-door client melee
+- Client redirect skipped vanilla `Door.getHit` → open door never got `bodyRB.AddForce` on the striker.
+- **Fix:** predictive open-door swing (same −50000 force, 2-frame delay) on redirect; suppress network re-force for that strike.
+
+### Files
+- `CoopWorldCopyMeta`, `WorldSaveShareService`, `SaveSyncPatches`, `HandleSaveSync`, `MainMenuMultiplayerInject`, `ClientWorldMeleePatches`, `JoinWorldSlotPicker`
+
+## 0.9.2+ — Throwables / lights / workbench / peer flashlight SFX (playtest batch)
+
+Dual-box residuals after flare pass. Protocol **19** unchanged.
+
+### Match throw + held light
+- **Short land / force mismatch:** in-flight `ThrownItem` excluded from physics snapshot kinematic lock; vanilla flight rebuild from throw origin + `setFallSpeed`; re-assert velocity next frame after spawn.
+- **Held match no peer light:** local held match no longer required `activated` for continuous light TX (`TryGetLocalHeldMatchLight` on `heldItem`).
+- **Peer match flicker:** stream stable cruise intensity (not live flame flicker thrash); RX position-only while match active.
+
+### Lantern (parked)
+- Ambient lantern is `Player.lightDot` / vision pipeline, not a discrete item `lightEmitter` — proxy clone + FOV copy fought double-light vs no-light.
+- Iterations (RemoteLanternAmbient bare `Light2D`, neutralize stock dots, stop FOV lightDot copy) still left **no reliable peer lantern**. Parked for a later dedicated pass; flares/torch/match continuous path remain.
+
+### Workbench
+- **Stuck “someone is already using…”:** `Workbench.close()` is empty in vanilla — real close is `Inventory.hide` / `closeInventory` with `inv.workbench`. Host-auth `WorkbenchOpenLock` now releases on hide/closeInventory and clears all locks for a player on disconnect.
+
+### Flashlight peer SFX
+- Peer on/off always had **indoor reverb + snappy cutoff** (proxy parent `CharBase` reverb path + forced 3D spatial).
+- **Fix:** `LocalAudioService.IsPrefer2dNetworkOneShot` for activate/deactivate-class one-shots; `HandlePlayerAudio` plays them as 2D `AudioController.Play` (no reverb/lowpass parent, `spatialBlend=0`).
+
 ## 0.9.2+ — Combat residual closeout + harvest + night spectator
 
 Playtest-driven residual combat/damage gaps closed from code (before full dual-box edge soak). Protocol **19** unchanged.

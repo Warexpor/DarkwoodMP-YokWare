@@ -94,9 +94,7 @@ namespace DWMPHorde.Networking
                 + session.ChapterId
                 + ", day "
                 + session.DayIndex
-                + ". Stay on title — host auto-pushes world when in-game; loads into profile slot "
-                + WorldSaveShareService.ClientReceiveProfileId
-                + ".";
+                + ". Stay on title — host auto-pushes world when in-game; you pick a permanent local profile slot, then ENTER WORLD.";
         }
 
         /// <summary>

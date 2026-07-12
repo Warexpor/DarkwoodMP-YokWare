@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -7,7 +8,7 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Exclusive workbench open — one player crafting at a time (host-auth).
-    /// Claim after open confirms; release on Workbench.close / inventory close.
+    /// Claim on open; release on Inventory.hide (Workbench.close is empty in vanilla).
     /// </summary>
     [HarmonyPatch(typeof(Workbench), "open")]
     public static class WorkbenchLockOpenPatch
@@ -52,6 +53,7 @@ namespace DWMPHorde.Patches
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
+            // Optimistic local claim until host deny arrives.
             WorkbenchOpenLock.TryAcquire(key, localId);
             __state = true;
             return true;
@@ -63,10 +65,12 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             var player = Player.Instance;
-            if (player != null && player.openedItemInventory != null)
+            // open() always calls initiateOpenCloseInventory(workbenchInventory).
+            if (player != null && player.openedItemInventory != null
+                && (player.openedItemInventory.isWorkbench
+                    || player.openedItemInventory.workbench == __instance))
                 return; // open succeeded; keep claim
 
-            // Open refused (busy etc.) — drop claim.
             WorkbenchLockHelpers.ReleaseLocal(__instance);
         }
 
@@ -80,30 +84,65 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Vanilla Workbench.close() is empty — real teardown is Inventory.hide when isWorkbench.
+    /// </summary>
+    [HarmonyPatch(typeof(Inventory), "hide")]
+    public static class WorkbenchLockInventoryHidePatch
+    {
+        private static void Prefix(Inventory __instance)
+        {
+            if (__instance == null || !__instance.open) return;
+            Workbench wb = ResolveWorkbench(__instance);
+            if (wb == null) return;
+            WorkbenchLockHelpers.ReleaseLocal(wb);
+        }
+
+        internal static Workbench ResolveWorkbench(Inventory inv)
+        {
+            if (inv == null) return null;
+            // open() sets workbenchInventory.workbench = this — primary path.
+            if (inv.workbench != null)
+                return inv.workbench;
+            if (!inv.isWorkbench) return null;
+            Workbench wb = inv.GetComponent<Workbench>();
+            if (wb != null) return wb;
+            if (inv.transform.parent != null)
+            {
+                wb = inv.transform.parent.GetComponent<Workbench>();
+                if (wb != null) return wb;
+                wb = inv.transform.parent.GetComponentInParent<Workbench>();
+            }
+            return wb;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), "closeInventory")]
+    public static class WorkbenchLockPlayerCloseInventoryPatch
+    {
+        private static void Prefix(Player __instance)
+        {
+            if (__instance == null) return;
+            // Capture before hide() nulls openedItemInventory.
+            Inventory inv = __instance.openedItemInventory;
+            Workbench wb = WorkbenchLockInventoryHidePatch.ResolveWorkbench(inv);
+            if (wb == null && __instance.openedItemInventory2 != null)
+            {
+                // Storage half of workbench pair — walk sibling / parent for Workbench.
+                wb = __instance.openedItemInventory2.GetComponentInParent<Workbench>();
+            }
+            if (wb != null)
+                WorkbenchLockHelpers.ReleaseLocal(wb);
+        }
+    }
+
     [HarmonyPatch(typeof(Workbench), "close")]
     public static class WorkbenchLockClosePatch
     {
         private static void Prefix(Workbench __instance)
         {
+            // Empty in vanilla but may be called by mods / deny path.
             WorkbenchLockHelpers.ReleaseLocal(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(Player), "closeOpenedItemInventory")]
-    public static class WorkbenchLockInventoryClosePatch
-    {
-        private static void Prefix(Player __instance)
-        {
-            if (__instance == null) return;
-            Inventory inv = __instance.openedItemInventory;
-            if (inv == null) return;
-
-            Workbench wb = inv.GetComponent<Workbench>();
-            if (wb == null)
-                wb = inv.transform.parent?.GetComponent<Workbench>();
-            if (wb == null) return;
-
-            WorkbenchLockHelpers.ReleaseLocal(wb);
         }
     }
 
@@ -117,11 +156,17 @@ namespace DWMPHorde.Patches
 
             string key = WorkbenchOpenLock.KeyFor(wb);
             int localId = net.LocalPlayerId;
-            if (WorkbenchOpenLock.GetOwner(key) != localId)
+            int owner = WorkbenchOpenLock.GetOwner(key);
+            // Allow release if we own, or host force-clearing a dead lock for self.
+            if (owner >= 0 && owner != localId)
                 return;
 
+            // Even if local dict already empty, client must tell host (stale host hold).
             if (net.Role == NetworkRole.Host)
-                WorkbenchOpenLock.HostRelease(net, key, localId);
+            {
+                if (owner == localId || owner < 0)
+                    WorkbenchOpenLock.HostRelease(net, key, localId);
+            }
             else
             {
                 WorkbenchOpenLock.Release(key, localId);
@@ -135,6 +180,7 @@ namespace DWMPHorde.Patches
                         IsRequest = false
                     }.Serialize(w),
                     DeliveryMethod.ReliableOrdered);
+                ModLog.Event(LogCat.Session, $"[WorkbenchLock] client release TX key={key} owner={localId}");
             }
         }
     }

@@ -4,6 +4,8 @@
 **Ship loader:** BepInEx 5.x  
 **Optional:** MelonLoader dual-build  
 
+**Machine paths (agents):** see repo root [`AGENTS.md`](../AGENTS.md) — Steam host, SecondDarkwood client, decompile, both `LogOutput.log` paths.
+
 Both machines: same game build, **same loader family**, **same mod DLL**, host **in-chapter** before client JOIN.
 
 ---

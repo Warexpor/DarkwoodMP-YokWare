@@ -468,8 +468,10 @@ namespace DWMPHorde.Networking
                 "HOST GRANTED: local p" + keepId + " now host on port " + port
                 + " | reason=" + reason);
 
-            // Checkpoint disk so late join / rejoin has a base world.
-            TryHostMigrationSaveCheckpoint();
+            // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
+            // survivor was a co-op client (half-synced AI/world) — writing sav.dat corrupted
+            // their slot. New host persists via manual F3 when the sim is trustworthy.
+            // TryHostMigrationSaveCheckpoint(); // disabled — host-leave client Save
 
             BroadcastPeerRoster();
             // Time authority is us now — push clock to reconnecting peers as they join.

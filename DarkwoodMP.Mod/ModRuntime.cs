@@ -100,6 +100,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(HostCheckStuffPatch.Reset);
                 NetworkResetRegistry.Register(GasolineTrailSpawnPatch.Reset);
                 NetworkResetRegistry.Register(ThrowableSyncPatch.Reset);
+                NetworkResetRegistry.Register(FastProjectileSweepPatch.Reset);
                 NetworkResetRegistry.Register(TradeSyncAcceptPatch.Reset);
                 NetworkResetRegistry.Register(ClientSaveBridge.Reset);
                 NetworkResetRegistry.Register(DroppedItemIdentifier.ClearRegistry);
@@ -146,6 +147,7 @@ namespace DWMPHorde
             ChatHud.EnsureExists();
             Spectator.SpectatorModeController.EnsureExists();
             ManualSaveGUI.EnsureExists();
+            JoinWorldSlotPicker.EnsureExists();
         }
 
         /// <summary>Stop the network and unpatch Harmony (called on mod unload).</summary>

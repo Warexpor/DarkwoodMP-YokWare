@@ -68,6 +68,13 @@ namespace DWMPHorde.Networking
         public int ThrowId;
         /// <summary>Seconds until light/projectile expires (0 = use prefab default).</summary>
         public float LongevitySec;
+        /// <summary>
+        /// Vanilla <see cref="ThrownItem.landTarget"/> after throwItem (0,0,0 = legacy).
+        /// Peers use this so checkIfWantToLand / flyTime match the thrower's arc.
+        /// </summary>
+        public float LandX, LandY, LandZ;
+        /// <summary>True when Land* was written (protocol 19+ land trailer).</summary>
+        public bool HasLandTarget;
 
         public void Serialize(NetWriter w)
         {
@@ -78,6 +85,7 @@ namespace DWMPHorde.Networking
             w.Put(VelX); w.Put(VelY); w.Put(VelZ);
             w.Put(ThrowId);
             w.Put(LongevitySec);
+            w.Put(LandX); w.Put(LandY); w.Put(LandZ);
         }
 
         public static ThrowableSpawnMessage Deserialize(NetReader r)
@@ -98,6 +106,14 @@ namespace DWMPHorde.Networking
             {
                 msg.ThrowId = r.GetInt();
                 msg.LongevitySec = r.GetFloat();
+            }
+            // landTarget trailer (12 bytes) — older peers omit this
+            if (r.AvailableBytes >= 12)
+            {
+                msg.LandX = r.GetFloat();
+                msg.LandY = r.GetFloat();
+                msg.LandZ = r.GetFloat();
+                msg.HasLandTarget = true;
             }
             return msg;
         }
