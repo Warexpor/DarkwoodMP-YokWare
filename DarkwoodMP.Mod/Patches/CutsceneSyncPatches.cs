@@ -179,6 +179,8 @@ namespace DWMPHorde.Patches
             {
                 LanNetworkManager.IsApplyingRemoteState = false;
             }
+            // Early peer entry path uses a timer, not only vanilla isPlaying skip.
+            DreamSyncManager.OnEntryTransitionSkipped();
         }
 
         internal static void SetProxiesHidden(bool hide)
@@ -296,6 +298,46 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Dream entry video starts before prepareDream — broadcast immediately so peers
+    /// are not stuck free-roaming while the initiator watches startTransition alone.
+    /// </summary>
+    [HarmonyPatch(typeof(DreamTransition), "transition")]
+    public static class DreamTransitionBeginPatch
+    {
+        private static void Prefix(DreamTransition __instance)
+        {
+            if (__instance == null) return;
+            if (!CutsceneSyncHelpers.IsMultiplayerConnected()) return;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+            // Cutscene / chapter intros use other paths; outcome end transitions run while dreaming.
+            if (__instance.isCutsceneTransition) return;
+            if (Dreams.Instance != null && Dreams.Instance.dreaming) return;
+            // Only the shared pre-dream startTransition (skill / wantToDream entry).
+            if (Dreams.Instance != null
+                && Dreams.Instance.startTransition != null
+                && __instance != Dreams.Instance.startTransition)
+                return;
+
+            var net = LanNetworkManager.Instance;
+            if (net == null) return;
+
+            Vector3 pos = __instance.transform.position;
+            net.Broadcast(NetMessageType.CutsceneSync,
+                w => new CutsceneSyncMessage
+                {
+                    Action = CutsceneSyncMessage.ActionDreamEntryTransition,
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    ManagerName = __instance.name ?? "",
+                    SceneIndex = 0
+                }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[DreamSync] Dream entry transition begin → peers");
+        }
+    }
+
+    /// <summary>
     /// DreamTransition.skip — host fans out so video overlays end together.
     /// Clients request via Broadcast (Send to host) + Forwardable.
     /// </summary>
@@ -355,6 +397,12 @@ namespace DWMPHorde.Networking
                     // Everyone including host (if client skipped) applies skip under guard.
                     if (LanNetworkManager.IsApplyingRemoteState) return;
                     DWMPHorde.Patches.CutsceneSyncHelpers.ApplySkipTransition();
+                    break;
+
+                case CutsceneSyncMessage.ActionDreamEntryTransition:
+                    // Originator already plays vanilla transition; peers (incl. host if client led) start now.
+                    if (LanNetworkManager.IsApplyingRemoteState) return;
+                    DWMPHorde.Sync.DreamSyncManager.OnPeerDreamEntryTransition();
                     break;
             }
         }

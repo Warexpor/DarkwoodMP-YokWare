@@ -490,6 +490,7 @@ namespace DWMPHorde.Networking
                     hostSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
                     hostSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
                     hostSt.HasLightProtection = state.HasLightProtection;
+                    hostSt.HasNightShadows = state.HasNightShadows;
                     if (state.InBearTrap)
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
@@ -580,6 +581,7 @@ namespace DWMPHorde.Networking
                 cliSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
                 cliSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
                 cliSt.HasLightProtection = state.HasLightProtection;
+                cliSt.HasNightShadows = state.HasNightShadows;
                 if (state.InBearTrap)
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");
@@ -3486,6 +3488,113 @@ namespace DWMPHorde.Networking
             }
 
             ModRuntime.LegacyInfo("[ShadowSync] client received NightShadows event, awaiting host ShadowSpawn + ShadowStateUpdate messages");
+        }
+
+        /// <summary>
+        /// Client→host: NightShadows perk wave for the requester only (per-owner curse).
+        /// </summary>
+        private void HandleNightShadowSpawnRequest(NightShadowSpawnRequestMessage msg)
+        {
+            if (_role != NetworkRole.Host || !IsConnected) return;
+
+            int requesterId = _currentReceivePlayerId;
+            if (requesterId <= 0)
+            {
+                ModRuntime.LegacyInfo("[NightShadow] reject: no sender id");
+                return;
+            }
+
+            if (Core.isDay()
+                || Singleton<Controller>.Instance == null
+                || !Singleton<Controller>.Instance.isHardNight
+                || (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming))
+            {
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: not hard night / day / dream");
+                return;
+            }
+
+            if (!_remotePlayers.TryGetValue(requesterId, out var st) || !st.HasNightShadows)
+            {
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: no NightShadows perk");
+                return;
+            }
+
+            if (st.HasLightProtection)
+            {
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: in light");
+                return;
+            }
+
+            if (!NightShadowsRateLimit.TryAllow(requesterId))
+            {
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: rate limit");
+                return;
+            }
+
+            RemotePlayerProxy proxy = GetProxy(requesterId);
+            if (proxy == null)
+            {
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: no proxy");
+                return;
+            }
+
+            ModRuntime.LegacyInfo($"[NightShadow] host spawning perk wave for P{requesterId}");
+            SpawnNightShadowWaveFor(requesterId, proxy.transform.position);
+        }
+
+        /// <summary>
+        /// Host: 8 delayed shadow spawns around <paramref name="origin"/> owned by
+        /// <paramref name="ownerPlayerId"/> (proxy AI when not host).
+        /// </summary>
+        public void SpawnNightShadowWaveFor(int ownerPlayerId, Vector3 origin)
+        {
+            if (_role != NetworkRole.Host || !IsConnected) return;
+
+            var cs = Singleton<CharacterSpawner>.Instance;
+            if (cs != null)
+            {
+                cs.shadowsRemove = false;
+                cs.shadowsPaused = false;
+                cs.spawnedShadows = true;
+                cs.spawnedShadowsAmount = 8;
+            }
+
+            SendShadowEvent(new ShadowEventMessage());
+
+            int owner = ownerPlayerId;
+            Vector3 center = origin;
+            for (int i = 0; i < 8; i++)
+            {
+                int delayIndex = i;
+                Singleton<Controller>.Instance.Invoke(delegate
+                {
+                    if (Core.isDay()) return;
+                    if (Singleton<CharacterSpawner>.Instance != null
+                        && Singleton<CharacterSpawner>.Instance.shadowsRemove)
+                        return;
+
+                    Vector3 spawnOrigin = center;
+                    if (owner != LocalPlayerId)
+                    {
+                        RemotePlayerProxy p = GetProxy(owner);
+                        if (p != null)
+                            spawnOrigin = p.transform.position;
+                    }
+
+                    Vector3 position = Core.randomPosAround(spawnOrigin, 400f, 700f,
+                        canBeInside: true, mustBeInsideGraph: false);
+                    ShadowSpawnContext.PushOwner(owner);
+                    try
+                    {
+                        Core.AddPrefab("characters/fakechars/shadow", position,
+                            Quaternion.Euler(90f, UnityEngine.Random.Range(0, 360), 0f), null);
+                    }
+                    finally
+                    {
+                        ShadowSpawnContext.PopOwner();
+                    }
+                }, 9f * (float)delayIndex, timeScaleDependent: true);
+            }
         }
 
         private void HandleShadowSpawn(ShadowSpawnMessage msg)

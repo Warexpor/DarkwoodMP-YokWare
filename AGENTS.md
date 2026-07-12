@@ -35,6 +35,7 @@ Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Dar
 
 - Free rewrite / online research OK when it unblocks playtest bugs.
 - Prefer vanilla parity via decompile over guessing.
+- **Always dual-deploy after shippable code changes:** `dotnet build DarkwoodMP.Mod -c Release` (DeployToGameDirs is automatic). Do not leave playtest boxes on an old DLL.
 - After light/flare/torch work: check **both** host + client `LogOutput.log`.
 - Logging guide: `DarkwoodMP.Mod\docs\LOGGING.md`
 - Playtest checklist: `docs\PLAYTEST.md`

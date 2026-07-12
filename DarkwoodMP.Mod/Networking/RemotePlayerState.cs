@@ -20,6 +20,9 @@ namespace DWMPHorde.Networking
         // Light protection (torch, lantern, LightArea)
         public bool HasLightProtection;
 
+        /// <summary>Peer took the nightShadows degrade perk (streamed on PlayerState trailer).</summary>
+        public bool HasNightShadows;
+
         // Dreams
         public bool IsDeadInDream;
 
@@ -54,6 +57,7 @@ namespace DWMPHorde.Networking
             BearTrapPos = Vector3.zero;
             TrapNetId = 0;
             HasLightProtection = false;
+            HasNightShadows = false;
             IsDeadInDream = false;
             FlareLight = null;
             FlareFx = null;

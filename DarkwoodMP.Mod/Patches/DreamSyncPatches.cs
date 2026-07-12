@@ -7,7 +7,101 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
+    /// Decision point for random dreams: vanilla prepareDream("") rolls inside getPreset
+    /// and removes the pick from presetList. Broadcast the RESOLVED name (not "") and
+    /// mirror pool consumption on remotes so future rolls stay aligned.
+    /// </summary>
+    [HarmonyPatch(typeof(Dreams), "getPreset")]
+    public static class DreamGetPresetPatch
+    {
+        private const int StateNone = 0;
+        private const int StateHostRolled = 1;
+        private const int StateClientAdopted = 2;
+
+        private static void Prefix(ref string presetName, ref int __state)
+        {
+            __state = StateNone;
+            try
+            {
+                if (!string.IsNullOrEmpty(presetName)) return;
+                if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+                if (LanNetworkManager.IsApplyingRemoteState) return;
+
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net == null) return;
+
+                if (net.Role == NetworkRole.Host)
+                {
+                    // Let vanilla roll; postfix broadcasts resolved name + TryBegin.
+                    __state = StateHostRolled;
+                    return;
+                }
+
+                // Client: prefer host pick (pending or active session) over local RNG.
+                string hostPick = null;
+                if (DreamSession.TryGetPendingHostPreset(out var pending))
+                    hostPick = pending;
+                else if (DreamSession.IsActive && !string.IsNullOrEmpty(DreamSession.PresetName))
+                    hostPick = DreamSession.PresetName;
+
+                if (!string.IsNullOrEmpty(hostPick))
+                {
+                    presetName = hostPick;
+                    __state = StateClientAdopted;
+                    ModRuntime.LegacyInfo(
+                        $"[DreamSync] Client getPreset adopts host pick '{hostPick}' (no local roll)");
+                }
+                // No pending: local roll stands; startDreaming → DreamStartRequest carries resolved name.
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] getPreset prefix: " + ex.Message);
+            }
+        }
+
+        private static void Postfix(Dreams __instance, DreamPreset __result, int __state)
+        {
+            try
+            {
+                if (__state == StateNone || __result == null) return;
+                string resolved = DreamSession.ResolvePresetName(__result);
+                if (string.IsNullOrEmpty(resolved)) return;
+
+                if (__state == StateHostRolled)
+                {
+                    DreamSession.SetPendingHostPreset(resolved);
+                    if (!DreamSession.IsActive)
+                        DreamSession.TryBegin(resolved);
+                    // Vanilla empty path already removed from presetList.
+
+                    var net = LanNetworkManager.Instance;
+                    if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
+                    {
+                        // Early resolve so clients that enter getPreset mid-prepare adopt same pick.
+                        var bulk = DreamSessionBulkMessage.FromLocal();
+                        net.Broadcast(NetMessageType.DreamSessionBulk,
+                            w => bulk.Serialize(w),
+                            DeliveryMethod.ReliableOrdered);
+                        ModRuntime.LegacyInfo(
+                            $"[DreamSync] Host rolled random dream '{resolved}' — early bulk");
+                    }
+                }
+                else if (__state == StateClientAdopted)
+                {
+                    // Dict path does not remove; mirror one-shot pool.
+                    DreamSession.MirrorPoolRemove(resolved);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] getPreset postfix: " + ex.Message);
+            }
+        }
+    }
+
+    /// <summary>
     /// Host: TryBegin session as soon as prepareDream starts (closes double-prepare race).
+    /// Empty name is handled after getPreset (DreamGetPresetPatch) — prefix only for named.
     /// </summary>
     [HarmonyPatch(typeof(Dreams), "prepareDream")]
     public static class DreamPreparePatch
@@ -23,14 +117,12 @@ namespace DWMPHorde.Patches
 
             string name = presetName;
             if (string.IsNullOrEmpty(name) && __instance.preset != null)
-                name = __instance.preset.name;
+                name = DreamSession.ResolvePresetName(__instance.preset);
             if (string.IsNullOrEmpty(name))
-                return;
+                return; // empty: DreamGetPresetPatch TryBegin after roll
 
-            // Host owns level flags when a skill dream is prepared.
             DreamSession.TryBegin(name);
-            // Ensure host truth flags if this is a leveling dream trigger already set locally.
-            // (Flags may already be true from SkillsMenu on host.)
+            DreamSession.MirrorPoolRemove(name); // named prepare never touches presetList
         }
     }
 
@@ -63,12 +155,16 @@ namespace DWMPHorde.Patches
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.Role == NetworkRole.Client)
                 {
+                    // Include local hadDreamAtLvl* so host union-flags before prepare (client leveled).
                     ModRuntime.LegacyInfo($"[DreamSync] Client-initiated dream — requesting host to start: {preset}");
                     net.Send(NetMessageType.DreamStartRequest, w => new DreamStartRequestMessage
                     {
                         PresetName = preset,
-                        RequestId = (int)(Time.realtimeSinceStartup * 1000f)
+                        RequestId = (int)(Time.realtimeSinceStartup * 1000f),
+                        LvlFlags = DreamSession.ReadLocalLvlFlags()
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    // Local empty roll already consumed pool; keep aligned with host named prepare.
+                    DreamSession.MirrorPoolRemove(preset);
                     return false;
                 }
 
@@ -121,10 +217,30 @@ namespace DWMPHorde.Patches
             if (!__instance.dreaming)
                 return;
 
-            // transferToDream sets switchingDream before end — chain instead of full end broadcast.
-            if (__instance.switchingDream)
+            // transferToDream sets switchingDream mid-endDreaming (after this prefix) OR
+            // before via wantToSwitchDream. Detect outcome effects so we don't End→Idle first.
+            if (__instance.switchingDream || OutcomeHasTransferToDream(__instance))
             {
-                ModRuntime.LegacyInfo("[DreamSync] endDreaming with switchingDream — chain path owns session");
+                string next = FindTransferDestPreset(__instance);
+                if (!string.IsNullOrEmpty(next)
+                    && ModRuntime.Network.Role == NetworkRole.Host
+                    && DreamSession.IsActive)
+                {
+                    DreamSession.SetChainedPreset(next);
+                    var net = LanNetworkManager.Instance;
+                    net?.Broadcast(NetMessageType.DreamChainStart,
+                        w => new DreamChainStartMessage
+                        {
+                            NextPresetName = next,
+                            SessionId = DreamSession.SessionId
+                        }.Serialize(w),
+                        DeliveryMethod.ReliableOrdered);
+                    ModRuntime.LegacyInfo("[DreamSync] endDreaming transfer → DreamChainStart " + next);
+                }
+                else
+                {
+                    ModRuntime.LegacyInfo("[DreamSync] endDreaming with chain — session stays active");
+                }
                 return;
             }
 
@@ -132,6 +248,51 @@ namespace DWMPHorde.Patches
             if (DreamSession.IsActive)
                 DreamSession.End(outcome);
             DreamSyncManager.OnLocalDreamEnded();
+        }
+
+        private static bool OutcomeHasTransferToDream(Dreams dreams)
+        {
+            return !string.IsNullOrEmpty(FindTransferDestPreset(dreams));
+        }
+
+        private static string FindTransferDestPreset(Dreams dreams)
+        {
+            if (dreams?.preset?.outcomes == null) return null;
+            DreamPreset.Outcome match = null;
+            string want = dreams.outcome ?? "";
+            for (int i = 0; i < dreams.preset.outcomes.Count; i++)
+            {
+                var oc = dreams.preset.outcomes[i];
+                if (oc != null && oc.name == want)
+                {
+                    match = oc;
+                    break;
+                }
+            }
+            if (match == null)
+            {
+                for (int i = 0; i < dreams.preset.outcomes.Count; i++)
+                {
+                    var oc = dreams.preset.outcomes[i];
+                    if (oc != null && oc.name == "default")
+                    {
+                        match = oc;
+                        break;
+                    }
+                }
+            }
+            if (match?.effects == null) return null;
+            for (int i = 0; i < match.effects.Count; i++)
+            {
+                var e = match.effects[i];
+                if (e == null || e.type != DreamPreset.Outcome.Effect.Type.transferToDream)
+                    continue;
+                if (e.destPrefab == null) continue;
+                var go = e.destPrefab as GameObject;
+                if (go != null && !string.IsNullOrEmpty(go.name))
+                    return go.name;
+            }
+            return null;
         }
     }
 

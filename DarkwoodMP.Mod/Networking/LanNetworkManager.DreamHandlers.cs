@@ -16,6 +16,12 @@ namespace DWMPHorde.Networking
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
+            if (!string.IsNullOrEmpty(msg.PresetName))
+            {
+                DreamSession.SetPendingHostPreset(msg.PresetName);
+                DreamSession.MirrorPoolRemove(msg.PresetName);
+            }
+
             if (!DreamSession.IsActive)
                 DreamSession.TryBegin(msg.PresetName);
             else if (!string.IsNullOrEmpty(msg.PresetName)
@@ -69,6 +75,10 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(msg.PresetName))
                 return;
 
+            // Client may have leveled (hadDreamAtLvl*) — union before prepare.
+            if (msg.LvlFlags != 0)
+                DreamSession.ApplyLvlFlags(msg.LvlFlags);
+
             if (DreamSession.IsActive)
             {
                 if (DreamSession.IsStarting
@@ -95,6 +105,9 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Named prepare on host does not hit random pool — mirror client's roll consume.
+            DreamSession.MirrorPoolRemove(msg.PresetName);
+
             ModRuntime.LegacyInfo($"[DreamSync] Host handling dream start request: {msg.PresetName}");
             try
             {
@@ -111,6 +124,12 @@ namespace DWMPHorde.Networking
         private void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            if (!string.IsNullOrEmpty(msg.ActivePreset))
+            {
+                DreamSession.SetPendingHostPreset(msg.ActivePreset);
+                // Remotes that never empty-roll still need pool parity for later random dreams.
+                DreamSession.MirrorPoolRemove(msg.ActivePreset);
+            }
             ModRuntime.LegacyInfo(
                 $"[DreamSync] Session bulk: completed={msg.CompletedPresets?.Length ?? 0} "
                 + $"active={msg.SessionActive} preset={msg.ActivePreset}");
@@ -125,6 +144,7 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo($"[DreamSync] DreamChainStart → {msg.NextPresetName}");
             DreamSession.SetChainedPreset(msg.NextPresetName);
+            DreamSession.MirrorPoolRemove(msg.NextPresetName);
             DreamSyncManager.OnDreamChain(msg.NextPresetName);
         }
 

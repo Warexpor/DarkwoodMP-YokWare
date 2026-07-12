@@ -113,11 +113,14 @@ namespace DWMPHorde.Networking
     {
         public string PresetName;
         public int RequestId;
+        /// <summary>Optional trailer: client hadDreamAtLvl* for host union before prepare.</summary>
+        public byte LvlFlags;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PresetName ?? "");
             w.Put(RequestId);
+            w.Put(LvlFlags);
         }
 
         public static DreamStartRequestMessage Deserialize(NetReader r)
@@ -125,6 +128,8 @@ namespace DWMPHorde.Networking
             var msg = new DreamStartRequestMessage { PresetName = r.GetString() };
             if (r.AvailableBytes >= 4)
                 msg.RequestId = r.GetInt();
+            if (r.AvailableBytes >= 1)
+                msg.LvlFlags = r.GetByte();
             return msg;
         }
     }
@@ -312,13 +317,15 @@ namespace DWMPHorde.Networking
 
     /// <summary>
     /// Host-authoritative cutscene control.
-    /// Action: 0 = begin (init+start), 1 = end all (prologue_endCutscene), 2 = skip transition video.
+    /// Action: 0 = begin, 1 = end, 2 = skip transition, 3 = dream entry video (pre-prepare).
     /// </summary>
     public struct CutsceneSyncMessage
     {
         public const byte ActionBegin = 0;
         public const byte ActionEnd = 1;
         public const byte ActionSkipTransition = 2;
+        /// <summary>Peer started Dreams.startTransition (video before prepareDream).</summary>
+        public const byte ActionDreamEntryTransition = 3;
 
         public byte Action;
         public float PosX, PosY, PosZ;

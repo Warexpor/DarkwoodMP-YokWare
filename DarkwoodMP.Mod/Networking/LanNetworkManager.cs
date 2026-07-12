@@ -987,6 +987,7 @@ namespace DWMPHorde.Networking
                 CurrentFrame = PlayerAnimationSnapshot.ReadCurrentFrame(local),
                 InBearTrap = local.inBearTrap,
                 HasLightProtection = local.isInLight,
+                HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
                 TrapNetId = local.inBearTrap
                     ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
@@ -1906,6 +1907,10 @@ namespace DWMPHorde.Networking
                             break;
                         case NetMessageType.ShadowSpawn:
                             HandleShadowSpawn(ShadowSpawnMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.NightShadowSpawnRequest:
+                            HandleNightShadowSpawnRequest(
+                                NightShadowSpawnRequestMessage.Deserialize(new NetReader(payload)));
                             break;
                         case NetMessageType.ScenarioSync:
                             HandleScenarioSync(ScenarioSyncMessage.Deserialize(new NetReader(payload)));

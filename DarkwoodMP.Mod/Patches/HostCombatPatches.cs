@@ -30,6 +30,17 @@ namespace DWMPHorde.Patches
             if (proxy == null)
                 return true;
 
+            // NightShadows: only the curse owner takes damage from that wave.
+            if (__instance.attackerTransform != null)
+            {
+                var shadowInfo = __instance.attackerTransform.GetComponent<ShadowSyncInfo>();
+                if (shadowInfo == null && __instance.attackerTransform.parent != null)
+                    shadowInfo = __instance.attackerTransform.parent.GetComponent<ShadowSyncInfo>();
+                if (shadowInfo != null && shadowInfo.OwnerPlayerId > 0
+                    && shadowInfo.OwnerPlayerId != proxy.PlayerId)
+                    return false;
+            }
+
             if (__instance.type == MeleeSensor.MeleeSensorType.player
                 && !Config.ModConfig.FriendlyFireEnabled.Value)
                 return true;

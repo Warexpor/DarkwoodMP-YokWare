@@ -219,6 +219,10 @@ public class AuditStructureTests
         Assert.Contains("prepareDream", dreamPatches);
         Assert.Contains("DreamChainStart", dreamPatches);
         Assert.Contains("initiateEndDreaming", dreamPatches);
+        Assert.Contains("getPreset", dreamPatches);
+        Assert.Contains("DreamGetPresetPatch", dreamPatches);
+        Assert.Contains("MirrorPoolRemove", dreamPatches);
+        Assert.Contains("OutcomeHasTransferToDream", dreamPatches);
 
         var session = ReadMod("Sync", "DreamSession.cs");
         Assert.Contains("TryBegin", session);
@@ -226,11 +230,14 @@ public class AuditStructureTests
         Assert.Contains("ApplySnapshot", session);
         Assert.Contains("SetChainedPreset", session);
         Assert.Contains("GetCompletedPresets", session);
+        Assert.Contains("MirrorPoolRemove", session);
+        Assert.Contains("SetPendingHostPreset", session);
 
         var final = ReadMod("Sync", "FinalDreamsceneManager.cs");
         Assert.Contains("OnLocalDeathInDream", final);
         Assert.Contains("inEpilogue", final);
         Assert.Contains("GetHandshakedPeerIds", final);
+        Assert.Contains("TryHostEndAllDead", final);
 
         var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
         Assert.Contains("DreamSessionBulk = 120", netTypes);
@@ -240,16 +247,21 @@ public class AuditStructureTests
         Assert.Contains("DreamSessionBulkMessage", dreamMsgs);
         Assert.Contains("DreamChainStartMessage", dreamMsgs);
         Assert.Contains("CompletedPresets", dreamMsgs);
+        Assert.Contains("LvlFlags", dreamMsgs);
 
         var handlers = ReadMod("Networking", "LanNetworkManager.DreamHandlers.cs");
         Assert.Contains("initiateEndDreaming", handlers);
         Assert.Contains("HandleDreamChainStart", handlers);
         Assert.Contains("SendDreamSessionBulkTo", handlers);
+        Assert.Contains("MirrorPoolRemove", handlers);
+        Assert.Contains("LvlFlags", handlers);
 
         var mgr = ReadMod("Sync", "DreamSyncManager.cs");
         Assert.Contains("OnDreamChain", mgr);
         Assert.Contains("ShouldSyncPhysicsObject", mgr);
         Assert.Contains("saveCurrentPlayerState", mgr);
+        Assert.Contains("uniqueObjectToTransportToAfterDreamEnd", mgr);
+        Assert.Contains("endDivingOut", mgr);
     }
 
     [Fact]
@@ -343,7 +355,10 @@ public class AuditStructureTests
         Assert.Contains("AfterNightEndRequest = 122", netTypes);
         Assert.Contains("PeerRoster = 123", netTypes);
         Assert.Contains("HostHandoff = 124", netTypes);
-        Assert.Contains("_Highest = 124", netTypes);
+        Assert.Contains("ThrowableDespawn = 125", netTypes);
+        Assert.Contains("TrapBulk = 126", netTypes);
+        Assert.Contains("NightShadowSpawnRequest = 127", netTypes);
+        Assert.Contains("_Highest = 127", netTypes);
         // Protocol stays 19 (optional messages).
         Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
 

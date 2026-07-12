@@ -114,10 +114,7 @@ namespace DWMPHorde.Sync
             EnterDreamSpectator();
 
             if (AllDead)
-            {
-                ModRuntime.LegacyInfo("[FinalDreamscene] All dead after local death — ending dream");
-                EndDreamForBoth();
-            }
+                TryHostEndAllDead("after local death");
         }
 
         public static void OnRemoteDeathInDream(int playerId)
@@ -138,10 +135,24 @@ namespace DWMPHorde.Sync
                 $"[FinalDreamscene] Remote player {playerId} died in dream ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
             if (AllDead)
+                TryHostEndAllDead("all remotes dead");
+        }
+
+        /// <summary>
+        /// Only the host tears down the shared dream on all-dead. Clients stay in spectate
+        /// until DreamEnded — avoids double endDreaming races when both peers call EndDreamForBoth.
+        /// </summary>
+        private static void TryHostEndAllDead(string reason)
+        {
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net != null && net.IsConnected && net.Role != NetworkRole.Host)
             {
-                ModRuntime.LegacyInfo("[FinalDreamscene] All dead — ending dream");
-                EndDreamForBoth();
+                ModRuntime.LegacyInfo(
+                    $"[FinalDreamscene] All dead ({reason}) — client waits for host DreamEnded");
+                return;
             }
+            ModRuntime.LegacyInfo($"[FinalDreamscene] All dead ({reason}) — host ending dream");
+            EndDreamForBoth();
         }
 
         public static void OnDisconnected()
@@ -162,10 +173,7 @@ namespace DWMPHorde.Sync
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
             if (_isActive && !_ending && AllDead)
-            {
-                ModRuntime.LegacyInfo("[FinalDreamscene] All dead after disconnect — ending dream");
-                EndDreamForBoth();
-            }
+                TryHostEndAllDead("after disconnect");
         }
 
         private static void EnterDreamSpectator()

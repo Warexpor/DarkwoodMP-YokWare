@@ -477,6 +477,13 @@ namespace DWMPHorde.Networking
         public static ShadowEventMessage Deserialize(NetReader r) => new ShadowEventMessage();
     }
 
+    /// <summary>Client→host: request a NightShadows perk wave around the requester's proxy.</summary>
+    public struct NightShadowSpawnRequestMessage
+    {
+        public void Serialize(NetWriter w) { }
+        public static NightShadowSpawnRequestMessage Deserialize(NetReader r) => new NightShadowSpawnRequestMessage();
+    }
+
     public struct ShadowSpawnMessage
     {
         public short ShadowId;

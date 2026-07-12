@@ -86,6 +86,8 @@ namespace DWMPHorde.Networking
         public string LegsClip;
         public bool InBearTrap;
         public bool HasLightProtection;
+        /// <summary>Trailer: nightShadows perk (per-player curse). Optional proto-19 extend.</summary>
+        public bool HasNightShadows;
         public bool AfterNightActive;
         public short CurrentFrame;
 
@@ -165,10 +167,11 @@ namespace DWMPHorde.Networking
                 }
             }
             writer.Put(AfterNightActive);
-            // Optional trailer (proto 19 extend): TrapNetId + remain + flash aim
+            // Optional trailer (proto 19 extend): TrapNetId + remain + flash aim + NightShadows
             writer.Put(TrapNetId);
             writer.Put(HeldLightRemain01);
             writer.Put(FlashAimY);
+            writer.Put(HasNightShadows);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -230,12 +233,14 @@ namespace DWMPHorde.Networking
             }
 
             msg.AfterNightActive = reader.GetBool();
-            // Trailer: TrapNetId(int) + Remain(byte) + FlashAimY(short) = 7 bytes
+            // Trailer: TrapNetId(int) + Remain(byte) + FlashAimY(short) = 7 bytes; + HasNightShadows bool = 8
             if (reader.AvailableBytes >= 7)
             {
                 msg.TrapNetId = reader.GetInt();
                 msg.HeldLightRemain01 = reader.GetByte();
                 msg.FlashAimY = reader.GetShort();
+                if (reader.AvailableBytes >= 1)
+                    msg.HasNightShadows = reader.GetBool();
             }
             return msg;
         }

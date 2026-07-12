@@ -30,6 +30,12 @@ namespace DWMPHorde.Sync
         private static readonly HashSet<string> _completedPresets =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Host-resolved random pick for clients still in getPreset("") before DreamStarted.
+        /// Vanilla sleep/skill dreams call prepareDream("") and roll inside getPreset.
+        /// </summary>
+        private static string _pendingHostPreset;
+
         /// <summary>Bit0=lvl2,1=lvl3,2=lvl5,3=lvl6,4=lvl7 (matches Dreams.hadDreamAtLvl*).</summary>
         public const byte LvlFlag2 = 1 << 0;
         public const byte LvlFlag3 = 1 << 1;
@@ -41,6 +47,57 @@ namespace DWMPHorde.Sync
             Current == State.Starting || Current == State.Active || Current == State.Ending;
 
         public static bool IsStarting => Current == State.Starting;
+
+        public static string PendingHostPreset => _pendingHostPreset;
+
+        public static void SetPendingHostPreset(string presetName)
+        {
+            if (string.IsNullOrEmpty(presetName)) return;
+            _pendingHostPreset = presetName;
+        }
+
+        /// <summary>Peek without clear — getPreset may run more than once for the same pick.</summary>
+        public static bool TryGetPendingHostPreset(out string presetName)
+        {
+            presetName = _pendingHostPreset;
+            return !string.IsNullOrEmpty(presetName);
+        }
+
+        public static void ClearPendingHostPreset()
+        {
+            _pendingHostPreset = null;
+        }
+
+        /// <summary>
+        /// Mirror vanilla one-shot random pool: empty getPreset removes the pick from presetList.
+        /// Named / Resources.Load paths do not — remotes and host named prepare must remove by name.
+        /// </summary>
+        public static void MirrorPoolRemove(string presetName)
+        {
+            if (string.IsNullOrEmpty(presetName)) return;
+            var d = Dreams.Instance;
+            if (d?.presetList == null || d.presetList.Count == 0) return;
+
+            for (int i = d.presetList.Count - 1; i >= 0; i--)
+            {
+                var p = d.presetList[i];
+                if (p == null) continue;
+                string n = p.gameObject != null ? p.gameObject.name : p.name;
+                if (string.Equals(n, presetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    d.presetList.RemoveAt(i);
+                    ModLog.Event(LogCat.Dream, "MirrorPoolRemove: " + presetName);
+                }
+            }
+        }
+
+        public static string ResolvePresetName(DreamPreset preset)
+        {
+            if (preset == null) return null;
+            if (preset.gameObject != null && !string.IsNullOrEmpty(preset.gameObject.name))
+                return preset.gameObject.name;
+            return preset.name;
+        }
 
         public static bool IsPresetCompleted(string preset)
         {
@@ -87,6 +144,7 @@ namespace DWMPHorde.Sync
             SessionId = _nextSessionId++;
             PresetName = presetName;
             Current = State.Starting;
+            SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName}");
             return true;
@@ -101,12 +159,14 @@ namespace DWMPHorde.Sync
             if (!IsActive)
             {
                 TryBegin(nextPreset);
+                SetPendingHostPreset(nextPreset);
                 return;
             }
             if (!string.IsNullOrEmpty(PresetName))
                 MarkCompleted(PresetName);
             PresetName = nextPreset;
             Current = State.Starting;
+            SetPendingHostPreset(nextPreset);
             // Refresh death tracking for the new pocket (clear mid-dream death for survivors).
             FinalDreamsceneManager.OnDreamEnded();
             FinalDreamsceneManager.OnDreamStarted();
@@ -129,6 +189,7 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnDreamEnded();
             Current = State.Idle;
             PresetName = null;
+            _pendingHostPreset = null;
         }
 
         /// <summary>Abort Starting if prepare failed.</summary>
@@ -139,6 +200,7 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnDreamEnded();
             Current = State.Idle;
             PresetName = null;
+            _pendingHostPreset = null;
         }
 
         public static void Reset()
@@ -146,6 +208,7 @@ namespace DWMPHorde.Sync
             Current = State.Idle;
             PresetName = null;
             SessionId = 0;
+            _pendingHostPreset = null;
         }
 
         public static void ResetIncludingCompletions()

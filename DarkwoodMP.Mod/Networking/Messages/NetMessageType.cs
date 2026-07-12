@@ -274,7 +274,12 @@ namespace DWMPHorde.Networking
         /// Host→peer: trap table bulk (id + triggered + occupant). Late-join. Optional; protocol 19.
         /// </summary>
         TrapBulk = 126,
+        /// <summary>
+        /// Client→host: NightShadows perk darkness wave — host spawns owner-scoped shadows for this peer.
+        /// Optional; protocol stays 19.
+        /// </summary>
+        NightShadowSpawnRequest = 127,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 126
+        _Highest = 127
     }
 }

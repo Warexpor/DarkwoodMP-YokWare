@@ -19,6 +19,13 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
+            var net = (LanNetworkManager)ModRuntime.Network;
+
+            // Remote-owned perk waves never run vanilla host melee (see ShadowMeleeOwnerHostSkipPatch).
+            var info = __instance != null ? __instance.GetComponent<ShadowSyncInfo>() : null;
+            if (info != null && info.OwnerPlayerId > 0 && info.OwnerPlayerId != net.LocalPlayerId)
+                return false;
+
             Player localPlayer = Player.Instance;
             if (localPlayer == null)
                 return true;
@@ -27,8 +34,7 @@ namespace DWMPHorde.Patches
             if (localPlayer.isInLight)
                 return false;
 
-            // Check ALL remote proxies for light protection within range (3+ safe).
-            var net = (LanNetworkManager)ModRuntime.Network;
+            // Nearby ally light can shelter host-owned shadows only.
             foreach (var proxy in net.GetAllProxies())
             {
                 if (proxy == null) continue;

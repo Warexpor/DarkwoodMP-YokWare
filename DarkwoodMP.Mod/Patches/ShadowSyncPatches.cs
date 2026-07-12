@@ -1,9 +1,31 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
+    /// <summary>
+    /// Host-side owner for the next shadow AddPrefab (stack for nested/delayed spawns).
+    /// 0 / empty → host LocalPlayerId.
+    /// </summary>
+    public static class ShadowSpawnContext
+    {
+        private static readonly System.Collections.Generic.Stack<int> _ownerStack
+            = new System.Collections.Generic.Stack<int>();
+
+        public static void PushOwner(int ownerPlayerId) => _ownerStack.Push(ownerPlayerId);
+
+        public static void PopOwner()
+        {
+            if (_ownerStack.Count > 0)
+                _ownerStack.Pop();
+        }
+
+        public static int CurrentOwnerOrHost(int hostPlayerId)
+            => _ownerStack.Count > 0 ? _ownerStack.Peek() : hostPlayerId;
+    }
+
     /// <summary>
     /// Small component attached to each shadow instance so the client can look up
     /// a shadow by its host-assigned ID when receiving periodic state updates.
@@ -12,13 +34,13 @@ namespace DWMPHorde.Patches
     {
         public short ShadowId;
         public byte ShadowType; // 0 = regular, 1 = immortal
+        /// <summary>Perk/ambient owner player id — damage only hits this player.</summary>
+        public int OwnerPlayerId;
     }
 
     /// <summary>
     /// Host: when Player.tryToSpawnShadow() is called, notify client to set up
     /// CharacterSpawner flags (spawnedShadows, shadowsRemove, etc.).
-    /// Client: the corresponding handler sets flags only — host sends individual
-    /// spawn messages for each shadow with exact positions.
     /// </summary>
     [HarmonyPatch(typeof(Player), "tryToSpawnShadow")]
     public static class HostShadowSyncPatch
@@ -34,17 +56,13 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host: intercept shadow prefab spawning and:
-    /// 1. Send ShadowSpawnMessage to client with exact position + shadow ID
-    /// 2. Register the shadow in the host tracker for continuous state updates
-    /// 3. Also spawn a copy near the remote proxy so shadows attack both players
+    /// Host: intercept shadow prefab spawning — assign id, owner, sync to clients.
+    /// No multi-proxy fan-out (NightShadows is a per-owner curse).
     /// </summary>
     [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
     public static class ShadowCaptureOnSpawnPatch
     {
-        private static bool _spawningProxyShadow;
-
         private static void Postfix(GameObject __result, object[] __args)
         {
             string prefab = (string)__args[0];
@@ -59,19 +77,42 @@ namespace DWMPHorde.Patches
             if (!net.IsConnected)
                 return;
 
-            // Assign a unique shadow ID and attach metadata
+            int ownerId = ShadowSpawnContext.CurrentOwnerOrHost(net.LocalPlayerId);
+
             var info = __result.GetComponent<ShadowSyncInfo>();
             if (info == null)
                 info = __result.AddComponent<ShadowSyncInfo>();
             info.ShadowId = net.GetNextShadowId();
             info.ShadowType = (byte)(prefab == "characters/fakechars/shadow_immortal" ? 1 : 0);
+            info.OwnerPlayerId = ownerId;
 
-            // Register in host tracker
+            // Client-owned waves: retarget AI to that proxy (vanilla always uses Player.Instance).
+            if (ownerId != net.LocalPlayerId)
+            {
+                RemotePlayerProxy proxy = net.GetProxy(ownerId);
+                if (proxy != null)
+                {
+                    var scProxy = __result.GetComponent<ShadowCreature>();
+                    if (scProxy != null)
+                    {
+                        scProxy.distanceToPlayer = Vector3.Distance(
+                            __result.transform.position, proxy.transform.position);
+                        scProxy.speed = 0f;
+                        scProxy.speedAggressive = 0f;
+                    }
+
+                    if (__result.GetComponent<ProxyShadowController>() == null)
+                    {
+                        var ctrl = __result.AddComponent<ProxyShadowController>();
+                        ctrl.TargetProxy = proxy.transform;
+                    }
+                }
+            }
+
             var sc = __result.GetComponent<ShadowCreature>();
             if (sc != null)
                 net.RegisterShadow(info.ShadowId, sc);
 
-            // Send initial spawn to client
             Vector3 pos = __result.transform.position;
             float rotY = __result.transform.rotation.eulerAngles.y;
             net.SendShadowSpawn(new ShadowSpawnMessage
@@ -85,43 +126,6 @@ namespace DWMPHorde.Patches
                 DistanceToPlayer = sc != null ? sc.distanceToPlayer : 0f,
                 Flags = (byte)((sc != null && sc.dead) ? 2 : 0)
             });
-
-            // Also spawn a shadow near ALL remote proxies so each client player
-            // is attacked by shadows too. Each proxy-shadow gets its own ID,
-            // is synced to the client, and uses ProxyShadowController for
-            // target-redirected AI.
-            if (!_spawningProxyShadow)
-            {
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy == null) continue;
-                    Transform proxyT = proxy.transform;
-                    _spawningProxyShadow = true;
-                    try
-                    {
-                        Vector3 proxyPos = proxyT.position;
-                        Vector3 spawnPos = Core.randomPosAround(proxyPos, 200f, 400f, canBeInside: true, mustBeInsideGraph: false);
-                        Quaternion spawnRot = Quaternion.Euler(90f, UnityEngine.Random.Range(0f, 360f), 0f);
-                        GameObject proxyShadow = Core.AddPrefab(prefab, spawnPos, spawnRot, null);
-                        if (proxyShadow != null)
-                        {
-                            var proxySc = proxyShadow.GetComponent<ShadowCreature>();
-                            if (proxySc != null)
-                            {
-                                proxySc.distanceToPlayer = Vector3.Distance(spawnPos, proxyPos);
-                                proxySc.speed = 0f;
-                                proxySc.speedAggressive = 0f;
-                            }
-                            var ctrl = proxyShadow.AddComponent<ProxyShadowController>();
-                            ctrl.TargetProxy = proxyT;
-                        }
-                    }
-                    finally
-                    {
-                        _spawningProxyShadow = false;
-                    }
-                }
-            }
         }
     }
 

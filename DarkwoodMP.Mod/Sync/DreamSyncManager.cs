@@ -24,12 +24,17 @@ namespace DWMPHorde.Sync
         private static int _savedGameTime;
         private static readonly HashSet<Character> _frozenWorldCharacters = new HashSet<Character>();
 
+        /// <summary>Peer already played startTransition via early CutsceneSync (before DreamStarted).</summary>
+        private static bool _earlyEntryTransitionPlayed;
+        private static float _earlyEntryTransitionDoneAt;
+
         /// <summary>
         /// Multiplayer-facing dream gate: session is authoritative when networked;
         /// falls back to local/remote flags for solo or mid-transition.
         /// </summary>
         public static bool IsDreamActive =>
-            DreamSession.IsActive || _localDreamActive || _remoteDreamActive.Values.Any(v => v);
+            DreamSession.IsActive || _localDreamActive || _remoteDreamActive.Values.Any(v => v)
+            || _earlyEntryTransitionPlayed;
 
         public static bool IsLocalDreamActive => _localDreamActive;
 
@@ -186,6 +191,35 @@ namespace DWMPHorde.Sync
             Singleton<Controller>.Instance.StartCoroutine(ProcessRemoteDreamCoroutine(playerId, locationPosition));
         }
 
+        /// <summary>
+        /// Peer started Dreams.startTransition — play the same video now (not after DreamStarted).
+        /// </summary>
+        public static void OnPeerDreamEntryTransition()
+        {
+            if (_localDreamActive) return;
+            if (_earlyEntryTransitionPlayed) return;
+
+            _earlyEntryTransitionPlayed = true;
+            FreezeWorld();
+
+            float wait = StartRemoteDreamTransition();
+            _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, wait);
+            // So DreamTransition.skip / ActionSkipTransition can cut the wait.
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = true;
+            ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
+        }
+
+        /// <summary>Skip / cancel early entry wait so DreamStarted load is not blocked.</summary>
+        public static void OnEntryTransitionSkipped()
+        {
+            if (!_earlyEntryTransitionPlayed) return;
+            _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup;
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = false;
+            FadeOutDreamTransition();
+        }
+
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
@@ -200,16 +234,30 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            // 1. Play the full transition (video/audio overlay) FIRST.
-            float waitTime = StartRemoteDreamTransition();
-            if (waitTime > 0f)
+            // 1. Entry video: already started on CutsceneSync DreamEntry, or play now (late/missed).
+            if (_earlyEntryTransitionPlayed)
             {
-                ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
-                yield return new WaitForSeconds(waitTime);
+                float remain = _earlyEntryTransitionDoneAt - Time.realtimeSinceStartup;
+                if (remain > 0.05f)
+                {
+                    ModRuntime.LegacyInfo($"[DreamSync] Waiting remaining entry transition {remain:F1}s");
+                    yield return new WaitForSeconds(remain);
+                }
+            }
+            else
+            {
+                float waitTime = StartRemoteDreamTransition();
+                if (waitTime > 0f)
+                {
+                    ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
+                    yield return new WaitForSeconds(waitTime);
+                }
             }
 
             // 2. Clean up the video overlay (fade out)
             FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
 
             // 3. NOW load the dream scene (after transition is complete)
             if (presetName != null)
@@ -373,6 +421,8 @@ namespace DWMPHorde.Sync
 
             _localDreamActive = false;
             _localDreamPreset = null;
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
             _remoteDreamActive.Clear();
             _currentDreamPreset.Clear();
             _preDreamPosition.Clear();
@@ -484,22 +534,65 @@ namespace DWMPHorde.Sync
                 if (!string.IsNullOrEmpty(pendingOutcome))
                     ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
+                // Vanilla endDreaming parity: journal dream entries, rain, unique teleport, time.
+                try { Singleton<UI>.Instance?.journal?.clearDreamEntries(); }
+                catch (Exception) { /* journal may be null mid-teardown */ }
+
                 Vector3 restorePos = dreams.positionCopy;
-                if (dreams.preset != null && Core.getTrueLocationName(dreams.preset.name) == "dream_tutorial_01")
+                if (dreams.preset != null)
                 {
-                    var wg = Singleton<WorldGenerator>.Instance;
-                    if (wg?.playerBase != null)
+                    string trueName = Core.getTrueLocationName(dreams.preset.name);
+                    if (trueName == "dream_tutorial_01")
                     {
-                        var loc = wg.playerBase.GetComponent<Location>();
-                        if (loc?.playerSpawn != null)
-                            restorePos = loc.playerSpawn.transform.position;
+                        var wg = Singleton<WorldGenerator>.Instance;
+                        if (wg?.playerBase != null)
+                        {
+                            var loc = wg.playerBase.GetComponent<Location>();
+                            if (loc?.playerSpawn != null)
+                                restorePos = loc.playerSpawn.transform.position;
+                        }
+                        player.firstPlay = false;
+                        dreams.timeCopy = 5f;
+                    }
+                    if (!string.IsNullOrEmpty(dreams.preset.uniqueObjectToTransportToAfterDreamEnd)
+                        && Singleton<UniqueObjects>.Instance != null)
+                    {
+                        GameObject uo = Singleton<UniqueObjects>.Instance.getObject(
+                            dreams.preset.uniqueObjectToTransportToAfterDreamEnd);
+                        if (uo != null)
+                            restorePos = uo.transform.position;
                     }
                 }
+
+                if (dreams.placeStartedDreaming != null)
+                {
+                    if (!dreams.placeStartedDreaming.isOutsideLocation)
+                    {
+                        Singleton<OutsideLocations>.Instance.playerInOutsideLocation = false;
+                        Singleton<OutsideLocations>.Instance.currentLocationName = "";
+                        Singleton<Rain>.Instance?.unhide();
+                    }
+                    else
+                    {
+                        Singleton<OutsideLocations>.Instance.currentLocationName =
+                            Core.getTrueLocationName(dreams.placeStartedDreaming.name);
+                        if (!dreams.placeStartedDreaming.isUnderground)
+                            Singleton<Rain>.Instance?.unhide();
+                    }
+                }
+                else
+                {
+                    Singleton<OutsideLocations>.Instance.playerInOutsideLocation = false;
+                    Singleton<OutsideLocations>.Instance.currentLocationName = "";
+                    Singleton<Rain>.Instance?.unhide();
+                }
+
                 player.teleportTo(restorePos, Quaternion.Euler(90f, 0f, 0f));
                 player.Hotbar.selectSlot(0, noiseless: true, force: true);
 
                 Singleton<Controller>.Instance.CurrentTime = (int)dreams.timeCopy;
 
+                bool endDiving = dreams.preset != null && dreams.preset.endDivingOut;
                 dreams.destroyDream();
                 dreams.dreaming = false;
                 dreams.dreamPrepared = false;
@@ -525,11 +618,49 @@ namespace DWMPHorde.Sync
 
                 player.endDreaming(true);
 
+                if (endDiving && Singleton<Controller>.Instance != null)
+                {
+                    Singleton<Controller>.Instance.Invoke(delegate
+                    {
+                        if (Player.Instance != null)
+                            Player.Instance.diveOut();
+                    }, 1f, timeScaleDependent: true);
+                }
+
+                // Restore pre-dream effects (vanilla endDreaming).
+                try
+                {
+                    if (dreams.effectsCopy != null)
+                    {
+                        dreams.effectsCopy.loadValues(player.effects);
+                        dreams.effectsCopy.effects.Clear();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] effectsCopy restore: " + ex.Message);
+                }
+
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.IsConnected)
                     net.TeleportRemoteProxyTo(player._transform.position, 0f);
 
                 dreams.placeStartedDreaming = null;
+                DreamSession.ClearPendingHostPreset();
+
+                try
+                {
+                    Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
+                    if (Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight)
+                        Singleton<Controller>.Instance.addAfterNightEffect();
+                    Singleton<Controller>.Instance?.refreshTimeNoLogic();
+                    Singleton<Controller>.Instance?.updateAmbientLight();
+                    player.whereAmI?.checkWhereAmI();
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] post-cleanup world hooks: " + ex.Message);
+                }
 
                 ModRuntime.LegacyInfo($"[DreamSync] Remote dream cleanup applied");
             }
@@ -640,9 +771,11 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.transferToDream:
+                        // Host owns chain via DreamChainStart / prepareDream(switchingDream).
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.addCharacterEffect:
+                        // Vanilla endDreaming loop does not apply this type either; effectsCopy restores pre-dream.
                         break;
                     default:
                         if (!worldEvents)
@@ -779,6 +912,8 @@ namespace DWMPHorde.Sync
                         if (presetGO != null)
                             Dreams.Instance.preset = presetGO.GetComponent<DreamPreset>();
                     }
+                    // Resources path skips getPreset random remove — keep one-shot pool aligned.
+                    DreamSession.MirrorPoolRemove(locationName);
                     Dreams.Instance.dreamLocation = component;
                     ApplyEpilogueModeIfNeeded(component, locationName);
                     Dreams.Instance.startDreaming();
