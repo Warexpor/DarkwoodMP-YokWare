@@ -4,6 +4,39 @@ Unreleased Path B work after **0.9.2** tag lives under **0.9.2+** sections below
 
 **Agent rule:** every ship of playtest fixes / features / regressions must add a **0.9.2+** section here in the same change (see root `AGENTS.md` → Changelog discipline).
 
+## 0.9.2+ — Steam P2P backend + loot-share cleanup + outside-location visibility
+
+Shipped in `a62417a`. Protocol **19** unchanged. LAN LiteNetLib path fully retained.
+
+### Steam connection (separate backend)
+- **`ConnectionBackend`:** `Lan` | `Steam` per session — not mixed.
+- **Steam:** friends-only lobby + classic `SteamNetworking` P2P (`SteamCoopTransport`); same Horde message framing as LAN.
+- **UI:** MULTIPLAYER → `HOST LAN` / `JOIN LAN` / `HOST STEAM` / `JOIN STEAM`; SETTINGS lobby-id field + host copy/invite overlay.
+- **Config:** `Network.SteamLobbyId` (host auto-fills); `HostPassword` also used as Steam lobby conn key.
+- Host migration remains **LAN-only** (Steam host leave → clean disconnect).
+- Peer send/receive shared via `SendRawToPlayer` / `ProcessInboundMessage`; entity broadcast no longer depends on `NetPeer` only.
+- Bugfixes before ship: late-join/location/damage paths use backend-agnostic peer ids; `ConnectedPlayerIds` snapshot (no net471 KeyCollection cast crash); failed Steam lobby → full `StopNetwork`.
+
+### Loot share
+- Removed **`LootShareMode.Double`** (old config value falls through to `ScaleWithPlayers`).
+- **No longer scaled:** regular dog meat (`meat`), wood, nails (`DefenseMatTypes` emptied).
+- **Scaled (hideout fuels / furnace exp items):** odd mushrooms (incl. large/glowing variants), odd/mutated meats, red egg, embryo (`exp_piskle`), life potion, dead rat, fish, mutated cockroach — see `CoopBalance.UpgradeItemTypes`.
+
+### Outside-location player visibility
+- After bunker/village/etc. loading screens, remote proxies could lerp across the map or miss location geometry.
+- **`RemotePlayerProxy`:** hard snap when displacement &gt; 150u (not only first state).
+- **`OutsideLocationVisibilityPatches`:** settle after `transportToLocation` + return-to-world after `returningOnTeleportedPlayer`.
+- **`LanNetworkManager`:** `OnLocalOutsideLocationSettled` / `OnLocalReturnedToWorld` / proxy re-place + LocationEnter rebroadcast; `PlayerPositionManager.TryGetRemote` for snap targets.
+
+### Entity spawner
+- Dual-target **BepInEx / MelonLoader 0.7.x** (`-p:Loader=MelonLoader` → `bin/Release/MelonLoader/YokWare.EntitySpawner.dll`).
+
+### Files
+- `Networking/ConnectionBackend.cs`, `Networking/Steam/SteamCoopTransport.cs`, `Networking/LanNetworkManager.Steam.cs`
+- `LanNetworkManager*.cs`, `EntityStateBroadcastService`, `HostMigration`, `ModConfig`, multiplayer UI
+- `CoopBalance`, `ItemDoublePickupPatch`, `RemotePlayerProxy`, `OutsideLocationVisibilityPatches`, `PlayerPositionManager`
+- `DarkwoodMP.EntitySpawner/*`
+
 ## 0.9.2+ — Gas bomb / molotov host-auth fire (client wild + flame cover + stutter)
 
 Playtest: host gas bomb looked normal; client looked **wild**. Molotov flame cover not 1:1. Possible stutters around both.
