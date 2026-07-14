@@ -158,12 +158,22 @@ namespace DWMPHorde.Networking
         private const int MaxPendingGameEvents = 64;
 
         public NetworkRole Role => _role;
-        public bool IsConnected => _peers.Count > 0;
-        public int ConnectedPlayerCount => _peers.Count;
+        public bool IsConnected => PeerCount > 0;
+        public int ConnectedPlayerCount => PeerCount;
         public int LocalPlayerId => _localPlayerId;
         public string StatusText { get; internal set; } = "Offline";
         public WorldSyncService WorldSync => _worldSync;
-        public IReadOnlyCollection<int> ConnectedPlayerIds => _peers.Keys;
+        /// <summary>Snapshot of connected peer player-ids (LAN or Steam). Safe to mutate after call.</summary>
+        public IReadOnlyCollection<int> ConnectedPlayerIds
+        {
+            get
+            {
+                var list = new List<int>(PeerCount);
+                foreach (int id in EnumeratePeerIds())
+                    list.Add(id);
+                return list;
+            }
+        }
 
         /// <summary>Handshaked peer ids (host: clients; client: usually {1}). For dream all-dead set (D7).</summary>
         public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
@@ -304,12 +314,14 @@ namespace DWMPHorde.Networking
             _role = NetworkRole.Host;
             _localPlayerId = 1;
             _hostPlayerId = 1;
+            _backend = ConnectionBackend.Lan;
             NoteSessionPort(port);
             _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
             if (!_net.Start(port))
             {
                 StatusText = "Failed to bind port " + port;
                 _role = NetworkRole.Offline;
+                _backend = ConnectionBackend.None;
                 return;
             }
 
@@ -358,6 +370,7 @@ namespace DWMPHorde.Networking
 
             _role = NetworkRole.Client;
             _hostPlayerId = 1;
+            _backend = ConnectionBackend.Lan;
             NoteSessionPort(port);
             _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
             _net.Start();
@@ -379,7 +392,7 @@ namespace DWMPHorde.Networking
             // Snapshot for public session-stop line before we wipe peers/ids
             NetworkRole wasRole = _role;
             int wasLocalId = _localPlayerId;
-            int wasPeers = _peers.Count;
+            int wasPeers = PeerCount;
 
             NetworkResetRegistry.ResetAll();
             ResetCombatSessionState();
@@ -408,7 +421,8 @@ namespace DWMPHorde.Networking
                     DestroyRemoteItemLight(state.PlayerId);
             }
             _remotePlayers.Clear();
-            _peers.Clear();
+            ShutdownSteamBackend();
+            ClearAllPeerSlots();
             _sendTimer = 0f;
             _physicsSendTimer = 0f;
             _timeSyncTimer = 0f;
@@ -426,6 +440,7 @@ namespace DWMPHorde.Networking
 
             _nextPlayerId = 2;
             _localPlayerId = 1;
+            _backend = ConnectionBackend.None;
             ResetMigrationState();
             _suppressHostMigration = false;
 
@@ -793,6 +808,7 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.FrameBegin();
 
             _net?.PollEvents();
+            PollSteamBackend();
             if (perf) ClientPerfProbe.MarkPoll();
 
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
@@ -1316,13 +1332,27 @@ namespace DWMPHorde.Networking
             return writer.CopyData();
         }
 
-        /// <summary>Send a message to a specific peer by PlayerId.</summary>
+        /// <summary>Send a message to a specific peer by PlayerId (LAN or Steam).</summary>
         public void SendToPlayer(int playerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
+            byte[] data = BuildPacket(type, writeBody);
+            SendRawToPlayer(playerId, data, method);
+        }
+
+        /// <summary>Raw bytes already framed with message type byte (entity snapshot path).</summary>
+        public void SendRawToPlayer(int playerId, byte[] data, DeliveryMethod method = DeliveryMethod.Unreliable)
+        {
+            if (data == null || data.Length == 0)
+                return;
+            if (IsSteamSession)
+            {
+                SendSteamToPlayer(playerId, data, method);
+                return;
+            }
             if (!_peers.TryGetValue(playerId, out NetPeer peer))
                 return;
-            peer.Send(BuildPacket(type, writeBody), method);
+            peer.Send(data, method);
         }
 
         /// <summary>Send a message to all connected peers.</summary>
@@ -1333,15 +1363,15 @@ namespace DWMPHorde.Networking
         public void SendToAll(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
-            if (_peers.Count == 0) return;
+            if (PeerCount == 0) return;
             byte[] data = null;
-            foreach (var kvp in _peers)
+            foreach (int peerId in EnumeratePeerIds())
             {
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(kvp.Key))
+                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
                     continue;
                 if (data == null)
                     data = BuildPacket(type, writeBody);
-                kvp.Value.Send(data, method);
+                SendRawToPlayer(peerId, data, method);
             }
         }
 
@@ -1349,16 +1379,16 @@ namespace DWMPHorde.Networking
         public void SendToAllExcept(int excludePlayerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
-            if (_peers.Count == 0) return;
+            if (PeerCount == 0) return;
             byte[] data = null;
-            foreach (var kvp in _peers)
+            foreach (int peerId in EnumeratePeerIds())
             {
-                if (kvp.Key == excludePlayerId) continue;
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(kvp.Key))
+                if (peerId == excludePlayerId) continue;
+                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
                     continue;
                 if (data == null)
                     data = BuildPacket(type, writeBody);
-                kvp.Value.Send(data, method);
+                SendRawToPlayer(peerId, data, method);
             }
         }
 
@@ -1391,7 +1421,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host)
                 return;
-            foreach (int id in _peers.Keys)
+            foreach (int id in EnumeratePeerIds())
             {
                 if (id > 1)
                     MarkPeerLoadingWorld(id);
@@ -1442,9 +1472,9 @@ namespace DWMPHorde.Networking
         public void Send(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
-            foreach (var kvp in _peers)
+            foreach (int peerId in EnumeratePeerIds())
             {
-                kvp.Value.Send(BuildPacket(type, writeBody), method);
+                SendRawToPlayer(peerId, BuildPacket(type, writeBody), method);
                 return; // Send to first peer only
             }
         }
@@ -1504,76 +1534,15 @@ namespace DWMPHorde.Networking
                     _handshakeComplete = false;
                 StatusText = $"Player {playerId} connected";
                 ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_peers.Count}, ready={_handshakedPeers.Count})");
-
-                // Session messages must be reliable — default SendToPlayer is Unreliable.
-                // Lost handshake leaves client with LocalPlayerId=1 (host id) → multi-peer chaos.
-                SendToPlayer(playerId, NetMessageType.Handshake, w =>
-                {
-                    new HandshakeMessage
-                    {
-                        ProtocolVersion = PluginInfo.ProtocolVersion,
-                        PlayerId = (short)playerId,
-                        HostPlayerId = (short)_localPlayerId
-                    }.Serialize(w);
-                }, DeliveryMethod.ReliableOrdered);
-
-                EntityStateBroadcastService.SetPeers(_peers);
-                WorldSessionMessage session = _worldSync.BuildHostSession();
-                // Session metadata only here — identity + "which world". Heavy bulk is
-                // deferred when host is already in-chapter: client is usually still on the
-                // title menu and journal/inventory/entity apply NREs without a Player.
-                SendToPlayer(playerId, NetMessageType.WorldSession, w => session.Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
-
-                if (HostHasShareableWorld())
-                {
-                    // Title-menu join path: Handshake already schedules world file share.
-                    // Gameplay bulk (journal, bags, flags, …) is sent after share completes
-                    // so the client can queue until Player exists (see SendLateJoinGameplayBulk).
-                    ModLog.Event(LogCat.Session,
-                        "Peer " + playerId + " connected while host in-world — "
-                        + "deferring gameplay bulk until after world share");
-                }
-                else
-                {
-                    // Host still on title / no chapter — safe enough to send bulk now
-                    // (mostly empty); world share will run when host enters chapter.
-                    SendLateJoinGameplayBulk(playerId);
-                }
+                CompleteHostPeerJoin(playerId);
             }
             else
             {
-                _handshakeComplete = false;
-                _handshakedPeers.Clear();
                 _peers[1] = peer; // Host is always player 1 for client
                 StatusText = "Connected to host";
                 ModLog.Event(LogCat.Network, "Connected to host");
-
-                // AlreadyInWorld: phase-3 reconnect after offline load (skip re-share on host).
-                // PlayerId = preferred stable id (migration reconnect / phase 3).
-                bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
-                short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;
-                Broadcast(NetMessageType.Handshake, w =>
-                {
-                    new HandshakeMessage
-                    {
-                        ProtocolVersion = PluginInfo.ProtocolVersion,
-                        PlayerId = preferredId,
-                        AlreadyInWorld = alreadyInWorld,
-                    }.Serialize(w);
-                }, DeliveryMethod.ReliableOrdered);
-
-                if (alreadyInWorld)
-                    ModLog.Event(LogCat.Session,
-                        "Join pipeline phase 3: co-op reconnect (AlreadyInWorld) — host should skip share");
-
-                // Do NOT EnsureRemoteProxy here — CanSpawnRemoteProxies may pass while the remote
-                // has no state yet, and Spawn clones at local feet (body stack). Proxy comes from
-                // first host PlayerState once CanSpawnRemoteProxies.
-                SyncCurrentLightState();
+                CompleteClientPeerJoin();
             }
-
-            Connected?.Invoke();
         }
 
         /// <summary>
@@ -1757,7 +1726,12 @@ namespace DWMPHorde.Networking
             // Track which peer sent this message so handlers can look up PlayerId
             _currentReceivePeer = peer;
             _currentReceivePlayerId = GetPlayerId(peer);
+            ProcessInboundMessage(type, payload);
+        }
 
+        /// <summary>Shared LAN/Steam inbound dispatch (type + body after framing byte).</summary>
+        private void ProcessInboundMessage(NetMessageType type, byte[] payload)
+        {
             using (new NetworkApplyGuard())
             {
                 try

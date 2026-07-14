@@ -1,12 +1,22 @@
+using UnityEngine;
+
+#if BEPINEX
 using BepInEx;
 using BepInEx.Logging;
-using UnityEngine;
+#endif
+
+#if MELONLOADER
+using MelonLoader;
+
+[assembly: MelonInfo(typeof(YokWare.EntitySpawner.EntitySpawnerPlugin),
+    "YokWare Entity Spawner", "1.0.0", "yokware")]
+[assembly: MelonGame("Acid Wizard Studio", "Darkwood")]
+[assembly: MelonPriority(-1000)]
+#endif
 
 namespace YokWare.EntitySpawner
 {
-    /// <summary>
-    /// Standalone F5 entity spawner — independent of the multiplayer mod.
-    /// </summary>
+#if BEPINEX
     [BepInPlugin(PluginInfo.Guid, PluginInfo.Name, PluginInfo.Version)]
     public sealed class EntitySpawnerPlugin : BaseUnityPlugin
     {
@@ -21,4 +31,18 @@ namespace YokWare.EntitySpawner
             go.AddComponent<EntitySpawnerUI>();
         }
     }
+#endif
+
+#if MELONLOADER
+    public sealed class EntitySpawnerPlugin : MelonMod
+    {
+        public override void OnInitializeMelon()
+        {
+            LoggerInstance.Msg(PluginInfo.Name + " v" + PluginInfo.Version + " — F5 to open");
+            var go = new GameObject("YokWare_EntitySpawner");
+            Object.DontDestroyOnLoad(go);
+            go.AddComponent<EntitySpawnerUI>();
+        }
+    }
+#endif
 }

@@ -7,9 +7,9 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Co-op loot share: multiplies hideout fuels and barricade mats on pickup into personal inventory.
-    /// Does not multiply uniques, player-placed stacks, or ground drops with DroppedItemIdentifier.
-    /// Scale: <see cref="CoopBalance.GetPartyMultiplier"/>.
+    /// Co-op loot share: multiplies hideout fuels (allowlist + isExpItem) on personal pickup.
+    /// Does not multiply wood/nail, regular meat, uniques, player-placed, or DroppedItemIdentifier drops.
+    /// Scale: <see cref="CoopBalance.GetPartyMultiplier"/> (ScaleWithPlayers only).
     /// </summary>
     [HarmonyPriority(Priority.Last)]
     [HarmonyPatch]

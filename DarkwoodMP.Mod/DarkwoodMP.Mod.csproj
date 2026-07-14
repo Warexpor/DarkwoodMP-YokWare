@@ -108,6 +108,11 @@
       <HintPath>$(MSBuildThisFileDirectory)..\libs\LiteNetLib.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- Game ships Steamworks.NET — P2P + lobbies for Steam co-op backend (not copied). -->
+    <Reference Include="com.rlabrecque.steamworks.net">
+      <HintPath>$(GameDir)\Darkwood_Data\Managed\com.rlabrecque.steamworks.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine">
       <HintPath>$(GameDir)\Darkwood_Data\Managed\UnityEngine.dll</HintPath>
       <Private>false</Private>

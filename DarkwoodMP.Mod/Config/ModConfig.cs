@@ -6,8 +6,7 @@ namespace DWMPHorde.Config
     public enum LootShareMode
     {
         Off = 0,
-        Double = 1,
-        ScaleWithPlayers = 2
+        ScaleWithPlayers = 1
     }
 
     public static class ModConfig
@@ -15,6 +14,8 @@ namespace DWMPHorde.Config
         public static ConfigEntry<string> ConnectAddress { get; private set; }
         public static ConfigEntry<int> ConnectPort { get; private set; }
         public static ConfigEntry<string> HostPassword { get; private set; }
+        /// <summary>Last Steam lobby id (ulong) for Steam join field / host display.</summary>
+        public static ConfigEntry<string> SteamLobbyId { get; private set; }
         /// <summary>
         /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
         /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
@@ -75,10 +76,9 @@ namespace DWMPHorde.Config
             {
                 case "off":
                 case "0":
+                case "none":
                     return LootShareMode.Off;
-                case "double":
-                case "1":
-                    return LootShareMode.Double;
+                // "double" removed — old configs fall through to ScaleWithPlayers
                 default:
                     return LootShareMode.ScaleWithPlayers;
             }
@@ -105,7 +105,9 @@ namespace DWMPHorde.Config
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort, "Default UDP port for LAN connections.");
             HostPassword = config.Bind("Network", "HostPassword", "",
-                "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match.");
+                "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match. Also used as Steam lobby conn key.");
+            SteamLobbyId = config.Bind("Network", "SteamLobbyId", "",
+                "Steam lobby id (ulong) for Steam join. Host auto-fills when creating a Steam lobby. Friends can also use the Steam invite overlay.");
             SaveRootOverride = config.Bind("Saves", "SaveRootOverride", "",
                 "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
                 + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
@@ -119,9 +121,9 @@ namespace DWMPHorde.Config
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
             DoubleItemsEnabled = config.Bind("Gameplay", "DoubleItemsEnabled", true,
-                "Master switch for loot sharing (hideout fuels + barricade wood/nail).");
+                "Master switch for loot sharing (hideout furnace fuels / isExpItem).");
             LootShareModeSetting = config.Bind("Gameplay", "LootShareMode", "ScaleWithPlayers",
-                "Off | Double | ScaleWithPlayers (1+remote peers). Scales exp/meat/mushrooms and wood/nail pickups.");
+                "Off | ScaleWithPlayers (1+remote peers). Scales hideout fuels (mushrooms, odd meat, eggs, etc.). Not wood/nail or regular dog meat.");
             NamedNpcScaleEnabled = config.Bind("Gameplay", "NamedNpcScaleEnabled", true,
                 "Host: multiply allowlisted dream NPC presence by LootShareMode party multiplier (default ChomperBlack).");
             NamedNpcAllowlist = config.Bind("Gameplay", "NamedNpcAllowlist", "ChomperBlack",

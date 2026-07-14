@@ -183,12 +183,30 @@ namespace DWMPHorde.Players
             {
                 _targetPosition = state.Position;
 
-                // Snap to position on first state (avoid lerping from origin)
-                if (_firstState)
+                // Snap on first state or large teleports (outside location load: world → bunker/village).
+                // Pure lerp left proxies kilometers off-map for seconds after loading screens.
+                if (_rb != null)
+                {
+                    if (_firstState)
+                    {
+                        _firstState = false;
+                        _rb.position = state.Position;
+                        _rb.velocity = Vector3.zero;
+                    }
+                    else
+                    {
+                        Vector3 flat = _rb.position - state.Position;
+                        flat.y = 0f;
+                        if (flat.sqrMagnitude > 150f * 150f)
+                        {
+                            _rb.position = state.Position;
+                            _rb.velocity = Vector3.zero;
+                        }
+                    }
+                }
+                else if (_firstState)
                 {
                     _firstState = false;
-                    if (_rb != null)
-                        _rb.position = state.Position;
                 }
             }
 

@@ -13,6 +13,7 @@ namespace DWMPHorde
         private string _connectAddress = "127.0.0.1";
         private string _portText = PluginInfo.DefaultPort.ToString();
         private string _passwordText = "";
+        private string _steamLobbyText = "";
         private Rect _windowRect;
         private Vector2 _scroll;
         private bool _windowRectInitialized;
@@ -71,6 +72,11 @@ namespace DWMPHorde
                 _portText = ModConfig.ConnectPort.Value.ToString();
             if (ModConfig.HostPassword != null)
                 _passwordText = ModConfig.HostPassword.Value ?? "";
+            if (ModConfig.SteamLobbyId != null)
+                _steamLobbyText = ModConfig.SteamLobbyId.Value ?? "";
+            // Live host lobby id wins over stale config.
+            if (Network != null && Network.IsSteamSession && !string.IsNullOrEmpty(Network.SteamLobbyIdText))
+                _steamLobbyText = Network.SteamLobbyIdText;
         }
 
         private void WriteFieldsToConfig()
@@ -81,6 +87,8 @@ namespace DWMPHorde
                 ModConfig.ConnectPort.Value = p;
             if (ModConfig.HostPassword != null && _passwordText != null)
                 ModConfig.HostPassword.Value = _passwordText;
+            if (ModConfig.SteamLobbyId != null && _steamLobbyText != null)
+                ModConfig.SteamLobbyId.Value = _steamLobbyText.Trim();
         }
 
         private void Update()
@@ -135,16 +143,27 @@ namespace DWMPHorde
 
             _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
 
-            GUILayout.Label("LAN co-op (host-authoritative, trusted LAN by default)", GUILayout.ExpandWidth(true));
+            GUILayout.Label("Co-op: LAN (LiteNetLib) or Steam (P2P lobby) — pick one per session", GUILayout.ExpandWidth(true));
             GUILayout.Label("Status: " + (Network != null ? Network.StatusText : "No network"), GUILayout.ExpandWidth(true));
             if (Network != null && Network.Role != NetworkRole.Offline)
             {
                 int peers = Network.ConnectedPlayerCount;
+                string backend = Network.IsSteamSession ? "Steam" : "LAN";
                 // Host: peers = clients only. Total humans = peers + 1. Client: peers is usually 1 (host).
                 string sessionLine = Network.Role == NetworkRole.Host
-                    ? $"Session: Host | LocalId={Network.LocalPlayerId} | clients={peers} | players≈{peers + 1} | handshake={Network.IsHandshakeComplete}"
-                    : $"Session: Client | LocalId={Network.LocalPlayerId} | connectedPeers={peers} | handshake={Network.IsHandshakeComplete}";
+                    ? $"Session: Host/{backend} | LocalId={Network.LocalPlayerId} | clients={peers} | players≈{peers + 1} | handshake={Network.IsHandshakeComplete}"
+                    : $"Session: Client/{backend} | LocalId={Network.LocalPlayerId} | connectedPeers={peers} | handshake={Network.IsHandshakeComplete}";
                 GUILayout.Label(sessionLine, GUILayout.ExpandWidth(true));
+                if (Network.IsSteamSession && Network.Role == NetworkRole.Host
+                    && !string.IsNullOrEmpty(Network.SteamLobbyIdText))
+                {
+                    GUILayout.Label("Steam lobby id: " + Network.SteamLobbyIdText, GUILayout.ExpandWidth(true));
+                    if (GUILayout.Button("Copy lobby id + open invite overlay", GUILayout.Height(28f)))
+                    {
+                        Networking.Steam.SteamCoopTransport.CopyToClipboard(Network.SteamLobbyIdText);
+                        Network.InviteSteamFriends();
+                    }
+                }
             }
             GUILayout.Label(
                 "JOIN flow: Host IN chapter → (1) world share → (2) pick permanent local profile → ENTER WORLD offline → (3) reconnect co-op.",
@@ -171,8 +190,12 @@ namespace DWMPHorde
             _portText = GUILayout.TextField(_portText, GUILayout.ExpandWidth(true));
 
             GUILayout.Space(4f);
-            GUILayout.Label("Password (optional, must match host config):", GUILayout.ExpandWidth(true));
+            GUILayout.Label("Password (optional, must match host config / Steam lobby key):", GUILayout.ExpandWidth(true));
             _passwordText = GUILayout.TextField(_passwordText ?? "", GUILayout.ExpandWidth(true));
+
+            GUILayout.Space(4f);
+            GUILayout.Label("Steam lobby id (for Steam join; host auto-fills):", GUILayout.ExpandWidth(true));
+            _steamLobbyText = GUILayout.TextField(_steamLobbyText ?? "", GUILayout.ExpandWidth(true));
 
             GUILayout.Space(4f);
             GUILayout.Label("Chat name:", GUILayout.ExpandWidth(true));
@@ -197,10 +220,23 @@ namespace DWMPHorde
                     Network.StartHost(port);
                 }
 
-                if (GUILayout.Button("Connect to host", GUILayout.Height(32f)))
+                if (GUILayout.Button("Connect LAN", GUILayout.Height(32f)))
                 {
                     WriteFieldsToConfig();
                     Network.ConnectToHost(_connectAddress.Trim(), port);
+                }
+
+                GUILayout.Space(6f);
+                if (GUILayout.Button("Host Steam (friends lobby)", GUILayout.Height(32f)))
+                {
+                    WriteFieldsToConfig();
+                    Network.StartHostSteam();
+                }
+
+                if (GUILayout.Button("Join Steam lobby", GUILayout.Height(32f)))
+                {
+                    WriteFieldsToConfig();
+                    Network.ConnectSteam((_steamLobbyText ?? "").Trim());
                 }
             }
             else if (Network != null)

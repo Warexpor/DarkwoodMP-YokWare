@@ -186,7 +186,11 @@ namespace YokWare.EntitySpawner
                 Quaternion rot = Quaternion.Euler(90f, Random.Range(0f, 360f), 0f);
                 GameObject go = Core.AddPrefab(prefabPath, pos, rot, null);
                 if (go != null)
+                {
+#if BEPINEX
                     EntitySpawnerPlugin.Log?.LogInfo("[EntitySpawner] spawned " + prefabPath + " at " + pos);
+#endif
+                }
             }
         }
     }

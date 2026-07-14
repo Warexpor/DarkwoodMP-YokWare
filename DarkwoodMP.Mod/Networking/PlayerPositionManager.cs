@@ -30,6 +30,20 @@ namespace DWMPHorde.Networking
             };
         }
 
+        /// <summary>Last known remote pose if updated within maxAge seconds.</summary>
+        public static bool TryGetRemote(int playerId, out Vector3 pos, out float rotY, float maxAge = 8f)
+        {
+            pos = default;
+            rotY = 0f;
+            if (!_remotePlayers.TryGetValue(playerId, out RemotePlayerState st))
+                return false;
+            if (Time.time - st.LastUpdateTime > maxAge)
+                return false;
+            pos = st.Position;
+            rotY = st.RotY;
+            return true;
+        }
+
         public static bool HasRemotePlayer
         {
             get

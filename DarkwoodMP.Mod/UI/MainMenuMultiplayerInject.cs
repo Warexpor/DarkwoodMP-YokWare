@@ -354,8 +354,10 @@ namespace DWMPHorde
             _panel.transform.SetParent(_menu.Menu0.transform.parent, false);
             Tag(_panel, TagKindPanel);
 
-            GameObject host = CloneButton(template, _panel.transform, "YokWare_HostBtn", "HOST GAME", OnHostClicked, TagKindRow);
-            _joinButton = CloneButton(template, _panel.transform, "YokWare_JoinBtn", "JOIN GAME", OnJoinClicked, TagKindRow);
+            GameObject host = CloneButton(template, _panel.transform, "YokWare_HostBtn", "HOST LAN", OnHostClicked, TagKindRow);
+            _joinButton = CloneButton(template, _panel.transform, "YokWare_JoinBtn", "JOIN LAN", OnJoinClicked, TagKindRow);
+            GameObject hostSteam = CloneButton(template, _panel.transform, "YokWare_HostSteamBtn", "HOST STEAM", OnHostSteamClicked, TagKindRow);
+            GameObject joinSteam = CloneButton(template, _panel.transform, "YokWare_JoinSteamBtn", "JOIN STEAM", OnJoinSteamClicked, TagKindRow);
             GameObject settings = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked, TagKindRow);
             GameObject restore = CloneButton(template, _panel.transform, "YokWare_RestoreBtn", "RESTORE SELF", OnRestoreClicked, TagKindRow);
             _disconnectButton = CloneButton(template, _panel.transform, "YokWare_DiscBtn", "DISCONNECT", OnDisconnectClicked, TagKindRow);
@@ -364,10 +366,12 @@ namespace DWMPHorde
             // Yokyy order: label laid out at current pose, then SetRow moves parent.
             SetRow(host, 0f);
             SetRow(_joinButton, -RowSpacing);
-            SetRow(settings, -RowSpacing * 2f);
-            SetRow(restore, -RowSpacing * 3f);
-            SetRow(_disconnectButton, -RowSpacing * 4f);
-            SetRow(back, -RowSpacing * 5f);
+            SetRow(hostSteam, -RowSpacing * 2f);
+            SetRow(joinSteam, -RowSpacing * 3f);
+            SetRow(settings, -RowSpacing * 4f);
+            SetRow(restore, -RowSpacing * 5f);
+            SetRow(_disconnectButton, -RowSpacing * 6f);
+            SetRow(back, -RowSpacing * 7f);
 
             RefreshSessionButtons();
         }
@@ -614,11 +618,92 @@ namespace DWMPHorde
 
             _joinPending = false;
             ModLog.Event(LogCat.Session,
-                "Hosting on port " + port
+                "Hosting LAN on port " + port
                 + " — load/continue a save NOW. Clients on JOIN get the world only after you are in-chapter.");
             ClosePanel();
             if (_menu != null)
                 _menu.displayProfilesMenu();
+        }
+
+        private static void OnHostSteamClicked()
+        {
+            MultiplayerMenu.EnsureExists();
+            MultiplayerMenu.PushFieldsToConfig();
+
+            var net = ModRuntime.Network;
+            if (net == null)
+                return;
+            if (net.Role != NetworkRole.Offline)
+            {
+                ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
+                return;
+            }
+
+            net.StartHostSteam();
+            if (net.Role != NetworkRole.Host)
+            {
+                ModLog.Event(LogCat.Session, "Steam host failed: " + (net.StatusText ?? "steam error"));
+                return;
+            }
+
+            _joinPending = false;
+            ModLog.Event(LogCat.Session,
+                "Hosting Steam lobby — invite friends via overlay (SETTINGS shows lobby id). "
+                + "Load/continue a save; clients join after you are in-chapter.");
+            // Open invite once lobby id exists (async CreateLobby) — user can also press SETTINGS.
+            ClosePanel();
+            if (_menu != null)
+                _menu.displayProfilesMenu();
+        }
+
+        private static void OnJoinSteamClicked()
+        {
+            MultiplayerMenu.EnsureExists();
+            MultiplayerMenu.PushFieldsToConfig();
+
+            var net = ModRuntime.Network;
+            if (net == null || _joinPending)
+                return;
+
+            var lanReady = net as LanNetworkManager;
+            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
+            {
+                SetLabel(_joinButton, "CHOOSE SLOT");
+                JoinWorldSlotPicker.EnsureExists();
+                return;
+            }
+            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
+            {
+                if (lanReady.WorldSaveShare.TryBeginEnterWorld())
+                    SetLabel(_joinButton, "LOADING…");
+                return;
+            }
+
+            if (net.Role != NetworkRole.Offline)
+            {
+                // Reuse LAN join mid-session world request path.
+                OnJoinClicked();
+                return;
+            }
+
+            string lobby = (ModConfig.SteamLobbyId != null ? ModConfig.SteamLobbyId.Value : "") ?? "";
+            lobby = lobby.Trim();
+            if (string.IsNullOrEmpty(lobby))
+            {
+                ModLog.Event(LogCat.Session, "JOIN STEAM: set lobby id in SETTINGS (or accept a Steam invite).");
+                MultiplayerMenu.ShowSettings();
+                return;
+            }
+
+            net.ConnectSteam(lobby);
+            _joinPending = true;
+            _joinStartedAt = Time.realtimeSinceStartup;
+            _handshakeAt = 0f;
+            _loggedWaitingWorld = false;
+            _worldRequest10sSent = false;
+            _worldRequest25sSent = false;
+            SetLabel(_joinButton, "STEAM…");
+            ModLog.Event(LogCat.Session, "Connecting Steam lobby " + lobby + " …");
         }
 
         private static void OnJoinClicked()

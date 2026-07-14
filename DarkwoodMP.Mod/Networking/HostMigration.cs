@@ -74,14 +74,15 @@ namespace DWMPHorde.Networking
                 }
                 _net = null;
             }
-            _peers.Clear();
+            ShutdownSteamBackend();
+            ClearAllPeerSlots();
             _handshakedPeers.Clear();
             _handshakeComplete = false;
             _peersLoadingWorld.Clear();
             _peersCoopReconnect.Clear();
             _awaitingLateJoinBulk.Clear();
             _pendingHeavyLateJoinBulk.Clear();
-            EntityStateBroadcastService.SetPeers(_peers);
+            EntityStateBroadcastService.Stop();
         }
 
         private void TickPeerRosterGossip()
@@ -297,6 +298,14 @@ namespace DWMPHorde.Networking
         {
             if (_suppressHostMigration)
             {
+                StopNetwork();
+                return;
+            }
+
+            // Steam P2P has no listen-port handoff; survivors just disconnect.
+            if (IsSteamSession)
+            {
+                ModLog.Event(LogCat.Network, "Host migration skipped on Steam backend (" + reason + ")");
                 StopNetwork();
                 return;
             }

@@ -3,8 +3,16 @@
   <Import Project="..\DarkwoodMP.Mod\GamePath.local.props" Condition="Exists('..\DarkwoodMP.Mod\GamePath.local.props')" />
   <Import Project="GamePath.local.props" Condition="Exists('GamePath.local.props')" />
 
+  <!-- Loader: BepInEx (default ship) | MelonLoader
+       dotnet build -c Release
+       dotnet build -c Release -p:Loader=MelonLoader -->
   <PropertyGroup>
+    <Loader Condition="'$(Loader)' == ''">BepInEx</Loader>
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(GameDir)\MelonLoader\net35\MelonLoader.dll')">$(GameDir)\MelonLoader\net35</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(MSBuildThisFileDirectory)..\libs\MelonLoader\MelonLoader.dll')">$(MSBuildThisFileDirectory)..\libs\MelonLoader</MelonLoaderDir>
+    <MelonLoaderDir Condition="'$(MelonLoaderDir)' == ''">$(MSBuildThisFileDirectory)..\libs\MelonLoader</MelonLoaderDir>
+
     <TargetFramework>net471</TargetFramework>
     <AssemblyName>YokWare.EntitySpawner</AssemblyName>
     <RootNamespace>YokWare.EntitySpawner</RootNamespace>
@@ -15,18 +23,42 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <Version>1.0.0</Version>
-    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Loader)' == 'BepInEx'">
+    <DefineConstants>$(DefineConstants);BEPINEX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- BepInEx references -->
+  <ItemGroup Condition="'$(Loader)' == 'BepInEx'">
     <Reference Include="BepInEx">
       <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <!-- MelonLoader references -->
+  <ItemGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderDir)\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(MelonLoaderDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Shared game references -->
+  <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameDir)\Darkwood_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -52,14 +84,5 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
-
-  <Target Name="DeployToGameDirs" AfterTargets="Build">
-    <PropertyGroup>
-      <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
-      <SecondPlugins>C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
-    </PropertyGroup>
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)')" ContinueOnError="true" />
-  </Target>
 
 </Project>

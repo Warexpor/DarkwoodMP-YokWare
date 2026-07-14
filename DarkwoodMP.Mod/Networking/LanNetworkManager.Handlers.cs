@@ -12,6 +12,7 @@ using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using Steamworks;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -28,8 +29,7 @@ namespace DWMPHorde.Networking
                     + " remote="
                     + handshake.ProtocolVersion
                     + " — update both mods to the same version.");
-                if (_currentReceivePeer != null)
-                    _currentReceivePeer.Disconnect();
+                DisconnectCurrentReceivePeer();
                 return;
             }
 
@@ -61,6 +61,25 @@ namespace DWMPHorde.Networking
                     else if (oldKey < 0)
                         _peers[hostId] = _currentReceivePeer;
                 }
+                else if (IsSteamSession && _currentReceiveSteamId.IsValid())
+                {
+                    int oldKey = -1;
+                    foreach (var kvp in _steamPeers)
+                    {
+                        if (kvp.Value == _currentReceiveSteamId) { oldKey = kvp.Key; break; }
+                    }
+                    if (oldKey > 0 && oldKey != hostId)
+                    {
+                        _steamPeers.Remove(oldKey);
+                        _steamPeers[hostId] = _currentReceiveSteamId;
+                        _steamIdToPlayer[_currentReceiveSteamId.m_SteamID] = hostId;
+                    }
+                    else if (oldKey < 0)
+                    {
+                        _steamPeers[hostId] = _currentReceiveSteamId;
+                        _steamIdToPlayer[_currentReceiveSteamId.m_SteamID] = hostId;
+                    }
+                }
 
                 _migrationInProgress = false;
                 _migrationRetryCount = 0;
@@ -87,9 +106,14 @@ namespace DWMPHorde.Networking
             {
                 int playerId = _currentReceivePlayerId;
                 // Migration reconnect: client put preferred id in Handshake.PlayerId.
-                if (handshake.AlreadyInWorld && handshake.PlayerId > 0 && _currentReceivePeer != null)
+                if (handshake.AlreadyInWorld && handshake.PlayerId > 0)
                 {
-                    int rebound = TryRebindPreferredPlayerId(playerId, handshake.PlayerId, _currentReceivePeer);
+                    int rebound = playerId;
+                    if (_currentReceivePeer != null)
+                        rebound = TryRebindPreferredPlayerId(playerId, handshake.PlayerId, _currentReceivePeer);
+                    else if (IsSteamSession && _currentReceiveSteamId.IsValid())
+                        rebound = TryRebindPreferredSteamPlayerId(playerId, handshake.PlayerId, _currentReceiveSteamId);
+
                     if (rebound != playerId)
                     {
                         playerId = rebound;
@@ -322,7 +346,7 @@ namespace DWMPHorde.Networking
             for (int p = 0; p < peers.Count; p++)
             {
                 int playerId = peers[p];
-                if (!_peers.ContainsKey(playerId))
+                if (!HasPeer(playerId))
                 {
                     _pendingHeavyLateJoinBulk.Remove(playerId);
                     continue;
@@ -643,7 +667,16 @@ namespace DWMPHorde.Networking
         private void HandleRemoteContinuousLights(PlayerStateMessage state, int playerId = -1)
         {
             if (playerId < 0) playerId = _currentReceivePlayerId;
-            if (playerId < 0) playerId = _peers.Count > 0 ? _peers.Keys.First() : 1;
+            if (playerId < 0)
+            {
+                foreach (int id in EnumeratePeerIds())
+                {
+                    playerId = id;
+                    break;
+                }
+                if (playerId < 0)
+                    playerId = 1;
+            }
 
             HandleRemoteFlareLight(state, playerId);
             HandleRemoteFlashlightStream(state, playerId);
@@ -2850,7 +2883,7 @@ namespace DWMPHorde.Networking
                 return;
 
             int playerId = msg.PlayerId > 0 ? msg.PlayerId : _currentReceivePlayerId;
-            if (playerId <= 0)
+            if (playerId <= 0 || playerId == _localPlayerId)
                 return;
 
             ModRuntime.LegacyInfo($"[LocationSync] player {playerId} entered location: {msg.LocationName}");
@@ -2867,17 +2900,14 @@ namespace DWMPHorde.Networking
             if (ol.spawnedLocations.ContainsKey(msg.LocationName))
             {
                 var loc = ol.spawnedLocations[msg.LocationName];
-                loc.enter();
+                loc.enter(force: true);
 
-                // Only snap to spawn on first enter / location change.
-                // ~1 Hz LocationEnter retries used to reset proxy to spawn every second,
-                // fighting PlayerState and looking broken in basements/bunkers/villages.
-                if (firstEnterThisLoc && loc.playerSpawn != null)
-                {
-                    TeleportRemoteProxyTo(loc.playerSpawn.transform.position, playerId: playerId);
-                    ModRuntime.LegacyInfo(
-                        $"[LocationSync] first enter — teleported p{playerId} proxy to {loc.name} playerSpawn");
-                }
+                // Place proxy: prefer last PlayerState (accurate), else playerSpawn on first enter.
+                // Always re-place when local is already in this location (post-load resync path).
+                bool localSameLoc = ol.playerInOutsideLocation
+                    && string.Equals(ol.currentLocationName, msg.LocationName, StringComparison.OrdinalIgnoreCase);
+                if (firstEnterThisLoc || localSameLoc)
+                    PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
 
                 // Peer just got location geometry — re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
@@ -2893,6 +2923,147 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {msg.LocationName}");
                 ol.createLocation(msg.LocationName);
             }
+        }
+
+        /// <summary>
+        /// Local finished OutsideLocations.transportToLocation (bunker/village loading screen).
+        /// Re-activate geometry, re-place peer proxies, and announce ourselves so peers re-snap us.
+        /// </summary>
+        public void OnLocalOutsideLocationSettled(string locationName)
+        {
+            if (string.IsNullOrEmpty(locationName) || !IsConnected)
+                return;
+
+            try
+            {
+                var ol = Singleton<OutsideLocations>.Instance;
+                if (ol != null && ol.spawnedLocations.ContainsKey(locationName))
+                    ol.spawnedLocations[locationName].enter(force: true);
+
+                _previousInOutsideLocation = true;
+                _previousLocationName = locationName;
+                _locationSyncCounter = 0;
+
+                Broadcast(NetMessageType.LocationEnter,
+                    w => new LocationEnterMessage
+                    {
+                        LocationName = locationName,
+                        PlayerId = _localPlayerId
+                    }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+
+                ResyncRemoteProxiesForOutsideLocation(locationName);
+
+                if (_role == NetworkRole.Host)
+                {
+                    foreach (int peerId in EnumeratePeerIds())
+                    {
+                        if (peerId == _localPlayerId) continue;
+                        SyncExistingLocationsTo(peerId);
+                    }
+                }
+
+                ModRuntime.LegacyInfo(
+                    $"[LocationSync] local settled in '{locationName}' — proxies resynced, LocationEnter forced");
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "OnLocalOutsideLocationSettled: " + ex.Message);
+            }
+        }
+
+        /// <summary>Local returned to the world map after an outside location.</summary>
+        public void OnLocalReturnedToWorld()
+        {
+            if (!IsConnected) return;
+            try
+            {
+                _previousInOutsideLocation = false;
+                _previousLocationName = "";
+                // Proxies of peers still inside locations: keep tracking; geometry re-enters on next LocationEnter.
+                // Hard-snap any proxies we still have to last known world/pos so they are not left at bunker coords
+                // while we stand on the map (PlayerState continues to refine).
+                foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_remoteProxies))
+                {
+                    if (PlayerPositionManager.TryGetRemote(kvp.Key, out Vector3 pos, out float rotY))
+                        TeleportRemoteProxyTo(pos, rotY, kvp.Key);
+                }
+                ModRuntime.LegacyInfo("[LocationSync] local returned to world — proxy snap from last known");
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "OnLocalReturnedToWorld: " + ex.Message);
+            }
+        }
+
+        private void ResyncRemoteProxiesForOutsideLocation(string locationName)
+        {
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol == null || !ol.spawnedLocations.ContainsKey(locationName))
+                return;
+            var loc = ol.spawnedLocations[locationName];
+            loc.enter(force: true);
+
+            // Peers known to be in this location
+            foreach (var kvp in new List<KeyValuePair<int, string>>(_remoteOutsideLocation))
+            {
+                if (!string.Equals(kvp.Value, locationName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
+            }
+
+            // Also any live peer with a recent position near the location (dict miss after race)
+            if (loc.playerSpawn != null)
+            {
+                Vector3 spawn = loc.playerSpawn.transform.position;
+                foreach (int peerId in EnumeratePeerIds())
+                {
+                    if (peerId == _localPlayerId) continue;
+                    if (_remoteOutsideLocation.ContainsKey(peerId)) continue;
+                    if (!PlayerPositionManager.TryGetRemote(peerId, out Vector3 pos, out _))
+                        continue;
+                    if ((pos - spawn).sqrMagnitude > 2500f * 2500f) continue;
+                    _remoteOutsideLocation[peerId] = locationName;
+                    PlaceRemoteProxyInOutsideLocation(peerId, loc, preferLastKnown: true);
+                }
+            }
+        }
+
+        private void PlaceRemoteProxyInOutsideLocation(int playerId, Location loc, bool preferLastKnown)
+        {
+            if (playerId <= 0 || loc == null) return;
+            EnsureRemoteProxy(playerId);
+            if (!_remoteProxies.ContainsKey(playerId))
+                return;
+
+            Vector3 pos;
+            float rotY = 0f;
+            if (preferLastKnown && PlayerPositionManager.TryGetRemote(playerId, out pos, out rotY))
+            {
+                // Last known must look like it is in this location (not stale world map pos)
+                if (loc.playerSpawn != null)
+                {
+                    Vector3 spawn = loc.playerSpawn.transform.position;
+                    if ((pos - spawn).sqrMagnitude > 2500f * 2500f)
+                        pos = spawn;
+                }
+            }
+            else if (loc.playerSpawn != null)
+            {
+                pos = loc.playerSpawn.transform.position;
+            }
+            else
+            {
+                return;
+            }
+
+            var proxy = GetProxy(playerId);
+            if (proxy != null)
+                proxy.FreezePosition = false;
+
+            TeleportRemoteProxyTo(pos, rotY, playerId);
+            ModRuntime.LegacyInfo(
+                $"[LocationSync] placed p{playerId} proxy in '{loc.name}' at {pos}");
         }
 
         private void HandleLocationExit(LocationExitMessage msg)
@@ -5196,15 +5367,15 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
             // Route to the only connected client when possible; otherwise no-op for multi-peer.
-            if (_peers.Count == 1)
+            if (PeerCount == 1)
             {
-                foreach (var kvp in _peers)
+                foreach (int peerId in EnumeratePeerIds())
                 {
-                    SendToPlayer(kvp.Key, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    SendToPlayer(peerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
                     return;
                 }
             }
-            if (_peers.Count > 1)
+            if (PeerCount > 1)
             {
                 ModRuntime.Log?.LogWarning("[DamagePlayer] broadcast skipped — use SendDamagePlayer(playerId, msg) for multi-client");
                 return;

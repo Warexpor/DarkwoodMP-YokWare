@@ -7,29 +7,42 @@ namespace DWMPHorde
 {
     /// <summary>
     /// Shared co-op balance helpers: party size multiplier and type/NPC allowlists.
-    /// Policy A — progression sinks + defense mats; named dream NPCs only.
+    /// Loot share: hideout fuels from EN_Items (not wood/nail, not regular dog meat).
     /// </summary>
     public static class CoopBalance
     {
+        /// <summary>
+        /// Hideout furnace fuels — type keys from EN_Items.bytes (*_name).
+        /// Also scaled: any vanilla prefab with isExpItem (ItemDoublePickupPatch).
+        /// </summary>
         public static readonly HashSet<string> UpgradeItemTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "meat",
-            "exp_mushroom",
-            "exp_bio1_nightMushroom_01"
+            "exp_mushroom",              // Odd-looking mushroom
+            "exp_nightMushroom",         // Odd-looking, glowing mushroom
+            "exp_meat_mutated",          // Odd meat
+            "exp_bio2_meat_mutated",     // Odd meat (ch2)
+            "exp_bio3_meat_mutated",     // Odd meat (ch3)
+            "chicken_egg_red",          // Red egg
+            "exp_piskle",               // ?
+            "lifePotion",               // Embryo
+            "dead_rat",                 // Dead rat
+            "fish",                     // Fish
+            "exp_cockroach_mutated",    // Insect
+            // Large odd mushrooms (same fuel role, not on the short list UI)
+            "exp_bio2_mushroom_01",
+            "exp_bio2_nightMushroom_01",
+            "exp_bio3_mushroom_meat_01",
+            "exp_bio3_nightMushroom_01"
         };
 
-        /// <summary>Barricade construction mats (ConstructionIcon wood/door requirements).</summary>
-        public static readonly HashSet<string> DefenseMatTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "wood",
-            "nail"
-        };
+        /// <summary>Was wood/nail; empty — barricade mats stay 1×.</summary>
+        public static readonly HashSet<string> DefenseMatTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private static string _cachedAllowlistRaw;
         private static HashSet<string> _cachedNpcAllowlist;
 
         /// <summary>
-        /// Party loot/NPC multiplier. Offline or Off → 1; Double → 2;
+        /// Party loot/NPC multiplier. Offline or Off → 1;
         /// ScaleWithPlayers → 1 + remote peer count (host + N clients = 1+N).
         /// </summary>
         public static int GetPartyMultiplier()
@@ -41,9 +54,6 @@ namespace DWMPHorde
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected)
                 return 1;
-
-            if (mode == LootShareMode.Double)
-                return 2;
 
             return 1 + net.ConnectedPlayerCount;
         }
@@ -58,10 +68,10 @@ namespace DWMPHorde
             return !string.IsNullOrEmpty(type) && UpgradeItemTypes.Contains(type);
         }
 
-        /// <summary>True if type is hideout fuel or barricade mat (loot-share candidate by type name).</summary>
+        /// <summary>True if type is an allowlisted hideout fuel (loot-share by type name).</summary>
         public static bool IsScaledLootType(string type)
         {
-            return IsUpgradeItemType(type) || IsDefenseMatType(type);
+            return IsUpgradeItemType(type);
         }
 
         public static bool IsNamedNpcAllowlisted(string nameOrPrefab)

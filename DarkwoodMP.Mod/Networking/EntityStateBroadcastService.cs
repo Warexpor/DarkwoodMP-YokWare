@@ -7,11 +7,10 @@ namespace DWMPHorde.Networking
 {
     /// <summary>
     /// Periodically snapshots nearby entity positions and states, then broadcasts them
-    /// to the connected client over an unreliable channel.
+    /// to connected peers (LAN LiteNetLib or Steam P2P) on an unreliable channel.
     /// </summary>
     public static class EntityStateBroadcastService
     {
-        private static Dictionary<int, NetPeer> _peers = new Dictionary<int, NetPeer>();
         private static float _sendTimer;
         private const float SendInterval = 0.1f;
 
@@ -21,15 +20,13 @@ namespace DWMPHorde.Networking
         /// <summary>Round-robin start index so a full tracker list is not starved by the per-packet cap.</summary>
         private static int _scanStart;
 
-        /// <summary>Sets the peers to broadcast to.</summary>
-        public static void SetPeers(Dictionary<int, NetPeer> peers) => _peers = peers;
-
         /// <summary>
         /// Called every frame; accumulates time and sends a snapshot when the interval elapses.
         /// </summary>
         public static void Tick()
         {
-            if (_peers == null || _peers.Count == 0)
+            var net = LanNetworkManager.Instance;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (_paused) return;
 
@@ -38,14 +35,14 @@ namespace DWMPHorde.Networking
                 return;
 
             _sendTimer = 0f;
-            SendSnapshot();
+            SendSnapshot(net);
         }
 
         /// <summary>
         /// Collects snapshots of entities within range of host or any remote player,
         /// and sends to all connected peers (unreliable, ~10 Hz).
         /// </summary>
-        private static void SendSnapshot()
+        private static void SendSnapshot(LanNetworkManager net)
         {
             Character[] all = CharacterTracker.GetAll();
             if (all == null || all.Length == 0)
@@ -153,15 +150,12 @@ namespace DWMPHorde.Networking
                 _buffer[i].Serialize(writer);
 
             byte[] data = writer.CopyData();
-            var net = LanNetworkManager.Instance;
-            foreach (var kvp in _peers)
+            foreach (int peerId in net.ConnectedPlayerIds)
             {
-                if (kvp.Value.ConnectionState != ConnectionState.Connected)
-                    continue;
                 // Skip joiners mid world LoadScene — dual-box host freeze when they stop PollEvents.
-                if (net != null && !net.IsPeerReadyForGameplay(kvp.Key))
+                if (!net.IsPeerReadyForGameplay(peerId))
                     continue;
-                kvp.Value.Send(data, DeliveryMethod.Unreliable);
+                net.SendRawToPlayer(peerId, data, DeliveryMethod.Unreliable);
             }
 
             _sendCount++;
@@ -194,10 +188,9 @@ namespace DWMPHorde.Networking
         /// <summary>Resumes broadcasting.</summary>
         public static void Resume() => _paused = false;
 
-        /// <summary>Stops broadcasting and clears the peer reference.</summary>
+        /// <summary>Stops broadcasting and clears dirty cache.</summary>
         public static void Stop()
         {
-            _peers?.Clear();
             _sendTimer = 0f;
             _lastSent.Clear();
             _fullResyncCounter = 0;
