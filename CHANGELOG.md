@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2+ — Restore ENTER WORLD after sticky mainMenu (2026-07-15)
+
+### Fixed
+- Client stuck **CONNECTED** (no **ENTER WORLD**): `HostHasShareableWorld` treated sticky `Core.mainMenu` as title-only **before** live player/load — host never shared world.
+- Live `Player` + loaded/coreStarted/loadingGame wins over sticky mainMenu.
+- **`TickHostWorldShareWhenReady`:** rising-edge auto share when host becomes shareable with waiting title peers (recovery path wiped by earlier session revert — restored).
+
 ## 0.9.2+ — Dialog choice no SaveSync fade (2026-07-15)
 
 ### Fixed

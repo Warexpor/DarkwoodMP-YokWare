@@ -124,6 +124,11 @@ namespace DWMPHorde.Networking
         /// </summary>
         private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
 
+        /// <summary>
+        /// Host: last observed HostHasShareableWorld for rising-edge auto-share to title clients.
+        /// </summary>
+        private bool _hostWasShareableForWaitingClients;
+
         // Trader absolute stock arrived before NPC GameObject existed
         private readonly Dictionary<string, TradeInventorySyncMessage> _pendingTradeInventories =
             new Dictionary<string, TradeInventorySyncMessage>();
@@ -362,6 +367,7 @@ namespace DWMPHorde.Networking
                 _pendingHeavyLateJoinBulk.Clear();
                 _peersLoadingWorld.Clear();
                 _peersCoopReconnect.Clear();
+                _hostWasShareableForWaitingClients = false;
             }
             else
             {
@@ -842,6 +848,7 @@ namespace DWMPHorde.Networking
                     _pendingConstructibles.Count);
             }
             TickHeavyLateJoinBulk();
+            TickHostWorldShareWhenReady();
             TickPeerRosterGossip();
             TickHostMigrationRetry();
             if (_hasPendingScenarioEvent && Singleton<NightScenarios>.Instance != null)

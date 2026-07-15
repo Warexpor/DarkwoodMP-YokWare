@@ -155,6 +155,7 @@ namespace DWMPHorde.Networking
                 _pendingHeavyLateJoinBulk.Clear();
                 _peersLoadingWorld.Clear();
                 _peersCoopReconnect.Clear();
+                _hostWasShareableForWaitingClients = false;
             }
             else
             {

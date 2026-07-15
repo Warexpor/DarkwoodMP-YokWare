@@ -445,11 +445,17 @@ namespace DWMPHorde.Networking
             SendLateJoinGameplayBulk(playerId);
         }
 
-        /// <summary>True when host is past the title screen and has a profile world worth sending.</summary>
+        /// <summary>True when host has a chapter world worth sending to title clients.</summary>
         private static bool HostHasShareableWorld()
         {
             try
             {
+                // Live loaded player wins over a sticky Core.mainMenu flag.
+                // Dual-box saw: mainMenu=true + player=true + loaded=true while host still
+                // had full world bulk (lights/generators) — old gate blocked all world share,
+                // so clients never left CONNECTED and never saw ENTER WORLD.
+                if (Player.Instance != null && (Core.loadedGame || Core.coreStarted || Core.loadingGame))
+                    return true;
                 if (Core.mainMenu)
                     return false;
                 if (Player.Instance != null)
@@ -458,7 +464,7 @@ namespace DWMPHorde.Networking
                     return true;
                 if (Core.loadedGame || Core.loadingGame)
                     return true;
-                if (Core.currentProfile != null && !Core.mainMenu)
+                if (Core.currentProfile != null)
                     return true;
                 return false;
             }
@@ -466,6 +472,48 @@ namespace DWMPHorde.Networking
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Host recovery: if we become shareable while title clients are already connected
+        /// (Player.Start may already have run, or mainMenu flag was sticky), push the world once.
+        /// </summary>
+        private void TickHostWorldShareWhenReady()
+        {
+            if (_role != NetworkRole.Host || !IsConnected || !_handshakeComplete)
+            {
+                _hostWasShareableForWaitingClients = false;
+                return;
+            }
+
+            bool shareable = HostHasShareableWorld();
+            if (!shareable)
+            {
+                _hostWasShareableForWaitingClients = false;
+                return;
+            }
+
+            // Rising edge only — avoid re-pushing every frame while in-world.
+            if (_hostWasShareableForWaitingClients)
+                return;
+            _hostWasShareableForWaitingClients = true;
+
+            int waiting = 0;
+            foreach (int id in _handshakedPeers)
+            {
+                if (id > 1)
+                    waiting++;
+            }
+            if (waiting == 0)
+                return;
+            if (_worldSaveShare != null && _worldSaveShare.IsBusy)
+                return;
+
+            ModLog.Event(LogCat.Save,
+                "Host shareable with " + waiting
+                + " peer(s) waiting — auto world share (sticky-mainMenu / late enter recovery)");
+            _worldSaveShare?.ScheduleHostResend();
+            ScheduleLateJoinBulkAfterWorldShare();
         }
 
         /// <summary>
@@ -8844,6 +8892,7 @@ namespace DWMPHorde.Networking
             _pendingHeavyLateJoinBulk.Clear();
             _peersLoadingWorld.Clear();
             _peersCoopReconnect.Clear();
+            _hostWasShareableForWaitingClients = false;
             _pendingTradeInventories.Clear();
             _constructedSites.Clear();
             _pendingConstructibles.Clear();
