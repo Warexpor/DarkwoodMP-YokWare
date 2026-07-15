@@ -172,7 +172,18 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
-            if (_isActive && !_ending && AllDead)
+            if (!_isActive || _ending) return;
+
+            // Last peer gone while local already dead: do not zombie-spectate — end dream.
+            if (_connectedPlayerIds.Count == 0 && _localDeadInDream)
+            {
+                ModRuntime.LegacyInfo(
+                    "[FinalDreamscene] No remotes left and local dead — ending dream");
+                EndDreamForBoth();
+                return;
+            }
+
+            if (AllDead)
                 TryHostEndAllDead("after disconnect");
         }
 

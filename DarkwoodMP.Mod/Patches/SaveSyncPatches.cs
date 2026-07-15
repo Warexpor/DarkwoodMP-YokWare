@@ -1,5 +1,6 @@
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 // CoopWorldCopyMeta in DWMPHorde.Networking
 
@@ -16,6 +17,9 @@ namespace DWMPHorde.Patches
         private static void Postfix()
         {
             if (LanNetworkManager._isRemoteSaveInProgress)
+                return;
+            // Host applying client dialog must never fan out Saving UI (see DialogHostSilentClose).
+            if (DialogHostApplyGuard.Active)
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;

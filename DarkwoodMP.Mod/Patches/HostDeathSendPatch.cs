@@ -27,6 +27,8 @@ namespace DWMPHorde.Patches
             if (FinalDreamsceneManager.IsActive
                 && (__instance == null || !__instance.inEpilogue))
             {
+                if (FinalDreamsceneManager.IsLocalDead)
+                    return false;
                 ModRuntime.LegacyInfo("[Death] Host died during dream session — handling dream death");
                 FinalDreamsceneManager.OnLocalDeathInDream();
                 return false;

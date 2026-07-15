@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.2+ — Dialog choice no SaveSync fade (2026-07-15)
+
+### Fixed
+- **Client dialogue choices** no longer black-fade + coordinated Save for all players.
+- Root cause: host world-only `displayDialogue` then vanilla `close()` → autosave → `SaveSync` (Saving UI). Host’s own talk never closed mid-choice.
+- **DialogHostSilentClosePatch:** while `DialogHostApplyGuard` active, `close()` is silent (no fade/save); still hands off `startDream`.
+- **SaveSyncPatch:** skip fan-out while guard active (belt-and-suspenders).
+
+## 0.9.2+ — Dream sync fixed (2026-07-15)
+
+Log-driven dual-box fix for client-initiated dreams (church ruins): host-auth begin, death spam, `*_done` proxy placement, peer-loss teardown.
+
+### Fixed — dream start race
+- **DreamStartPatch:** Harmony Postfix no longer runs `OnLocalDreamStarted` when client Prefix blocks (`__state`). Client sends `DreamStartRequest`, freezes world, waits for host `DreamStarted`.
+- **OnLocalDreamStarted:** only **host** broadcasts `DreamStarted` (clients confirm via `DreamEntered` after remote load).
+
+### Fixed — dream death spam
+- **ClientDeathPatch / HostDeathSendPatch:** silent return when already `IsLocalDead` in dream (onDeath re-fires while spectating).
+
+### Fixed — location / proxy
+- **LocationEnter TX/RX:** strip vanilla `*_done` while dream active; place proxy on live dream pad / `Dreams.dreamLocation`, not completed GO.
+
+### Fixed — peer disconnect mid-dream
+- **FinalDreamsceneManager:** if last remote leaves and local is already dead → `EndDreamForBoth` (no zombie spectate / messy promote mid-dream).
+
+### Fixed — entity leak (cheap)
+- Client entity spawn during dream skips positions far from dream location transform.
+
 ## 0.9.2+ — Network stutters fixed (2026-07-15)
 
 Dual-box LAN co-op: client periodic hitches (poll/FOOT) and host-side entity send allocs. Soft-reconnect visibility fix kept. Dialog world-auth + dream entry dedupe included in the same ship.

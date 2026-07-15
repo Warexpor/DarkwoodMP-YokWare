@@ -2902,27 +2902,33 @@ namespace DWMPHorde.Networking
             if (playerId <= 0 || playerId == _localPlayerId)
                 return;
 
-            ModRuntime.LegacyInfo($"[LocationSync] player {playerId} entered location: {msg.LocationName}");
+            // During shared dream, strip vanilla *_done so proxies land on the live pad.
+            string locName = msg.LocationName;
+            if (Sync.DreamSyncManager.IsDreamActive)
+                locName = Sync.DreamSyncManager.CanonicalDreamLocationName(locName);
+
+            ModRuntime.LegacyInfo($"[LocationSync] player {playerId} entered location: {locName}");
 
             var ol = Singleton<OutsideLocations>.Instance;
             if (ol == null) return;
 
             bool firstEnterThisLoc = !_remoteOutsideLocation.TryGetValue(playerId, out string prev)
-                || !string.Equals(prev, msg.LocationName, StringComparison.OrdinalIgnoreCase);
-            _remoteOutsideLocation[playerId] = msg.LocationName;
+                || !string.Equals(prev, locName, StringComparison.OrdinalIgnoreCase);
+            _remoteOutsideLocation[playerId] = locName;
 
-            // Ensure location geometry is active for the remote proxy only.
-            // Do NOT transport the local player (Location.enter just activates children).
-            if (ol.spawnedLocations.ContainsKey(msg.LocationName))
+            // Prefer live non-_done location instance when both exist.
+            Location loc = ResolveOutsideLocation(ol, locName);
+            if (loc != null)
             {
-                var loc = ol.spawnedLocations[msg.LocationName];
                 loc.enter(force: true);
 
                 // Place proxy: prefer last PlayerState (accurate), else playerSpawn on first enter.
                 // Always re-place when local is already in this location (post-load resync path).
+                string localCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
+                    ol.currentLocationName ?? "");
                 bool localSameLoc = ol.playerInOutsideLocation
-                    && string.Equals(ol.currentLocationName, msg.LocationName, StringComparison.OrdinalIgnoreCase);
-                if (firstEnterThisLoc || localSameLoc)
+                    && string.Equals(localCanon, locName, StringComparison.OrdinalIgnoreCase);
+                if (firstEnterThisLoc || localSameLoc || Sync.DreamSyncManager.IsDreamLocationName(locName))
                     PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
 
                 // Peer just got location geometry — re-push sticky lamp/gen state that
@@ -2936,9 +2942,60 @@ namespace DWMPHorde.Networking
                 // Keep firstEnter pending by clearing so next successful enter still snaps once.
                 if (firstEnterThisLoc)
                     _remoteOutsideLocation.Remove(playerId);
-                ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {msg.LocationName}");
-                ol.createLocation(msg.LocationName);
+                // Never create the completed *_done variant during an active dream.
+                string createName = Sync.DreamSyncManager.IsDreamActive
+                    ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
+                    : locName;
+                ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {createName}");
+                ol.createLocation(createName);
             }
+        }
+
+        /// <summary>
+        /// Pick live location by key; if dict value is a *_done GO during dream, prefer Dreams.dreamLocation.
+        /// </summary>
+        private static Location ResolveOutsideLocation(OutsideLocations ol, string locName)
+        {
+            if (ol == null || string.IsNullOrEmpty(locName)) return null;
+
+            if (Sync.DreamSyncManager.IsDreamActive)
+            {
+                var dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+                if (dreamLoc != null && dreamLoc.gameObject != null)
+                {
+                    string dreamCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
+                        dreamLoc.gameObject.name);
+                    if (string.Equals(dreamCanon, locName, StringComparison.OrdinalIgnoreCase))
+                        return dreamLoc;
+                }
+            }
+
+            if (ol.spawnedLocations != null && ol.spawnedLocations.ContainsKey(locName))
+            {
+                var loc = ol.spawnedLocations[locName];
+                if (loc != null
+                    && Sync.DreamSyncManager.IsDreamActive
+                    && loc.gameObject != null
+                    && loc.gameObject.name.EndsWith("_done", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Live key maps to renamed done instance — try non-done GO by name.
+                    var live = GameObject.Find(locName);
+                    if (live != null)
+                    {
+                        var liveLoc = live.GetComponent<Location>();
+                        if (liveLoc != null) return liveLoc;
+                    }
+                }
+                return loc;
+            }
+
+            // Dict may still key under *_done while peers send canonical name.
+            string doneKey = locName + "_done";
+            if (ol.spawnedLocations != null && ol.spawnedLocations.ContainsKey(doneKey)
+                && !Sync.DreamSyncManager.IsDreamActive)
+                return ol.spawnedLocations[doneKey];
+
+            return null;
         }
 
         /// <summary>
@@ -2952,9 +3009,19 @@ namespace DWMPHorde.Networking
 
             try
             {
+                // Live dream pad — never force peers onto vanilla *_done rename.
+                if (Sync.DreamSyncManager.IsDreamActive)
+                    locationName = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
+
                 var ol = Singleton<OutsideLocations>.Instance;
-                if (ol != null && ol.spawnedLocations.ContainsKey(locationName))
-                    ol.spawnedLocations[locationName].enter(force: true);
+                if (ol != null)
+                {
+                    var settled = ResolveOutsideLocation(ol, locationName);
+                    if (settled != null)
+                        settled.enter(force: true);
+                    else if (ol.spawnedLocations.ContainsKey(locationName))
+                        ol.spawnedLocations[locationName].enter(force: true);
+                }
 
                 _previousInOutsideLocation = true;
                 _previousLocationName = locationName;
@@ -3052,6 +3119,23 @@ namespace DWMPHorde.Networking
             if (!_remoteProxies.ContainsKey(playerId))
                 return;
 
+            // Active dream: never anchor to a completed *_done instance.
+            if (Sync.DreamSyncManager.IsDreamActive
+                && loc.gameObject != null
+                && loc.gameObject.name.EndsWith("_done", StringComparison.OrdinalIgnoreCase))
+            {
+                var dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+                if (dreamLoc != null)
+                    loc = dreamLoc;
+                else
+                {
+                    string canon = Sync.DreamSyncManager.CanonicalDreamLocationName(loc.gameObject.name);
+                    var live = GameObject.Find(canon);
+                    var liveLoc = live != null ? live.GetComponent<Location>() : null;
+                    if (liveLoc != null) loc = liveLoc;
+                }
+            }
+
             Vector3 pos;
             float rotY = 0f;
             if (preferLastKnown && PlayerPositionManager.TryGetRemote(playerId, out pos, out rotY))
@@ -3078,8 +3162,11 @@ namespace DWMPHorde.Networking
                 proxy.FreezePosition = false;
 
             TeleportRemoteProxyTo(pos, rotY, playerId);
+            string placeName = loc.gameObject != null
+                ? Sync.DreamSyncManager.CanonicalDreamLocationName(loc.gameObject.name)
+                : loc.name;
             ModRuntime.LegacyInfo(
-                $"[LocationSync] placed p{playerId} proxy in '{loc.name}' at {pos}");
+                $"[LocationSync] placed p{playerId} proxy in '{placeName}' at {pos}");
         }
 
         private void HandleLocationExit(LocationExitMessage msg)
@@ -5767,10 +5854,21 @@ namespace DWMPHorde.Networking
                     $"[DialogOutcome] Host world-only displayDialogue target={msg.TargetDialogueName} " +
                     $"source={msg.DialogueName} NPC={msg.NpcName} (wasInTalk={hostWasInThisTalk})");
 
+                // Guard must stay active through displayDialogue + teardown: vanilla close
+                // (and startDream close inside displayNextBoard) black-fades + Save → SaveSync.
                 DialogHostApplyGuard.BeginWorldOnly();
                 try
                 {
                     dw.displayDialogue(msg.TargetDialogueName);
+
+                    // Host wasn't in this talk: silent teardown (no fade / no autosave).
+                    if (!hostWasInThisTalk)
+                    {
+                        if (dw.displayingDialogue || dw.npc != null)
+                            dw.close(); // DialogHostSilentClosePatch while guard Active
+                        else
+                            DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                    }
                 }
                 finally
                 {
@@ -5784,18 +5882,6 @@ namespace DWMPHorde.Networking
                 {
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
-                }
-
-                // If host wasn't conversing, close UI so we only apply world side-effects
-                // without stealing the host's screen.
-                if (!hostWasInThisTalk && dw.displayingDialogue)
-                {
-                    try { dw.close(); }
-                    catch (System.Exception ex)
-                    {
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.Log?.LogWarning("[DialogOutcome] close after apply: " + ex.Message);
-                    }
                 }
                 return;
             }

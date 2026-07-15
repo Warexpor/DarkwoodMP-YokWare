@@ -8,6 +8,10 @@ namespace DWMPHorde.Sync
     /// World flags / events / NPC state still run through displayDialogue.
     /// Also snapshots/restores host journal personal dicts so removeItem journal
     /// branches (itemsDict/keysDict/notesDict.Remove) do not strip host keys.
+    ///
+    /// Vanilla displayNextBoard may call DialogueWindow.close (startDream / transport)
+    /// and HandleDialogOutcome also closed after apply — that path always black-fades
+    /// + Save(doJson) → SaveSync to all peers. Active guard = silent UI (no fade/save).
     /// </summary>
     public static class DialogHostApplyGuard
     {
@@ -20,6 +24,9 @@ namespace DWMPHorde.Sync
         private static bool _hasJournalSnap;
 
         public static bool SuppressPersonalRewards => _depth > 0;
+
+        /// <summary>True while host is applying a client's dialog outcome (no host UI session).</summary>
+        public static bool Active => _depth > 0;
 
         public static void BeginWorldOnly()
         {

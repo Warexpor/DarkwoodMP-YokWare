@@ -96,24 +96,44 @@ namespace DWMPHorde.Sync
                 if (Singleton<Controller>.Instance != null)
                     Singleton<Controller>.Instance.StartCoroutine(UnfreezeProxiesAfterDelay(10f));
 
-                // Host broadcasts to all clients; client sends to host only
-                var started = DreamStartedMessage.Build(
-                    presetName, locationPosition.x, locationPosition.y, locationPosition.z);
+                // Host alone initiates DreamStarted; clients enter via OnRemoteDreamStarted
+                // and confirm with DreamEntered after scene load.
                 if (net.Role == NetworkRole.Host)
                 {
+                    var started = DreamStartedMessage.Build(
+                        presetName, locationPosition.x, locationPosition.y, locationPosition.z);
                     net.Broadcast(NetMessageType.DreamStarted,
-                        w => started.Serialize(w),
-                        LiteNetLib.DeliveryMethod.ReliableOrdered);
-                }
-                else
-                {
-                    net.Send(NetMessageType.DreamStarted,
                         w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
             }
 
             ModRuntime.LegacyInfo($"[DreamSync] Local dream started: {presetName}, pos={locationPosition}");
+        }
+
+        /// <summary>
+        /// Strip vanilla completed-location suffix so dream LocationEnter stays on the live pad.
+        /// </summary>
+        public static string CanonicalDreamLocationName(string locationName)
+        {
+            if (string.IsNullOrEmpty(locationName)) return locationName;
+            if (locationName.Length > 5
+                && locationName.EndsWith("_done", StringComparison.OrdinalIgnoreCase))
+                return locationName.Substring(0, locationName.Length - 5);
+            return locationName;
+        }
+
+        public static bool IsDreamLocationName(string locationName)
+        {
+            if (string.IsNullOrEmpty(locationName) || !IsDreamActive) return false;
+            string canon = CanonicalDreamLocationName(locationName);
+            if (!string.IsNullOrEmpty(DreamSession.PresetName)
+                && string.Equals(canon, DreamSession.PresetName, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrEmpty(_localDreamPreset)
+                && string.Equals(canon, _localDreamPreset, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return canon.StartsWith("dream_", StringComparison.OrdinalIgnoreCase);
         }
 
         public static void OnLocalDreamEnded()

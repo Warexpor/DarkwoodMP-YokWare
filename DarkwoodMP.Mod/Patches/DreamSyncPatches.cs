@@ -129,12 +129,16 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Prefix on Dreams.startDreaming: blocks completed dreams, routes client starts to host,
     /// and registers a shared DreamSession so all peers enter together.
+    /// Harmony still runs Postfix when Prefix returns false — __state skips false local start.
     /// </summary>
     [HarmonyPatch(typeof(Dreams), "startDreaming")]
     public static class DreamStartPatch
     {
-        private static bool Prefix(Dreams __instance)
+        private static bool Prefix(Dreams __instance, ref bool __state)
         {
+            // true = Postfix must not call OnLocalDreamStarted (blocked or remote-applied).
+            __state = false;
+
             if (__instance.preset == null || string.IsNullOrEmpty(__instance.preset.name))
                 return true;
 
@@ -146,16 +150,21 @@ namespace DWMPHorde.Patches
                     && !DreamSession.IsActive)
                 {
                     ModRuntime.LegacyInfo($"[DreamSync] Blocked re-entry of completed dream: {preset}");
+                    __state = true;
                     return false;
                 }
 
                 if (LanNetworkManager.IsApplyingRemoteState)
-                    return true; // remote/session-driven enter
+                {
+                    // Remote load path: vanilla startDreaming runs; Postfix only MarkActive.
+                    __state = true;
+                    return true;
+                }
 
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.Role == NetworkRole.Client)
                 {
-                    // Include local hadDreamAtLvl* so host union-flags before prepare (client leveled).
+                    // Host owns begin: request only. Freeze world until DreamStarted remote path.
                     ModRuntime.LegacyInfo($"[DreamSync] Client-initiated dream — requesting host to start: {preset}");
                     net.Send(NetMessageType.DreamStartRequest, w => new DreamStartRequestMessage
                     {
@@ -165,6 +174,10 @@ namespace DWMPHorde.Patches
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     // Local empty roll already consumed pool; keep aligned with host named prepare.
                     DreamSession.MirrorPoolRemove(preset);
+                    DreamSession.SetPendingHostPreset(preset);
+                    DreamSyncManager.FreezeWorld();
+                    ModRuntime.LegacyInfo("[DreamSync] Client waiting for host DreamStarted");
+                    __state = true;
                     return false;
                 }
 
@@ -172,23 +185,28 @@ namespace DWMPHorde.Patches
                 {
                     // prepareDream already TryBegin; ensure session if host started without prepare patch path.
                     if (!DreamSession.IsActive && !DreamSession.TryBegin(preset))
+                    {
+                        __state = true;
                         return false;
+                    }
                 }
             }
 
             return true;
         }
 
-        private static void Postfix(Dreams __instance)
+        private static void Postfix(Dreams __instance, bool __state)
         {
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                return;
-
-            if (LanNetworkManager.IsApplyingRemoteState)
+            if (__state)
             {
-                DreamSession.MarkActive();
+                // Remote-applied start: mark session active only (no host broadcast from client).
+                if (LanNetworkManager.IsApplyingRemoteState)
+                    DreamSession.MarkActive();
                 return;
             }
+
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
 
             if (__instance.preset == null || string.IsNullOrEmpty(__instance.preset.name))
                 return;

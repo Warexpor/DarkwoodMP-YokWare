@@ -27,6 +27,9 @@ namespace DWMPHorde.Patches
             if (FinalDreamsceneManager.IsActive
                 && (__instance == null || !__instance.inEpilogue))
             {
+                // onDeath re-fires while spectating; manager is one-shot — stay silent.
+                if (FinalDreamsceneManager.IsLocalDead)
+                    return false;
                 ModRuntime.LegacyInfo("[Death] Client died during dream session — handling dream death");
                 FinalDreamsceneManager.OnLocalDeathInDream();
                 return false;

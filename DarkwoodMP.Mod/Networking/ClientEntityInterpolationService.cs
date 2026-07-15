@@ -958,6 +958,19 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(entityName) && string.IsNullOrEmpty(prefabPath))
                 return null;
 
+            // During shared dream, ignore overworld-distance host spawns (stale EntityState).
+            if (DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive)
+            {
+                var dreamTf = DreamSyncManager.GetDreamLocationTransform();
+                if (dreamTf != null)
+                {
+                    // Dream pads sit far off-map; 5km radius around pad is generous.
+                    const float maxDistSq = 5000f * 5000f;
+                    if ((position - dreamTf.position).sqrMagnitude > maxDistSq)
+                        return null;
+                }
+            }
+
             string path = !string.IsNullOrEmpty(prefabPath) ? prefabPath : "Characters/" + entityName;
             try
             {

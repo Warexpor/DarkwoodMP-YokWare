@@ -1045,14 +1045,18 @@ namespace DWMPHorde.Networking
                     _locationSyncCounter = 0;
                     if (!string.IsNullOrEmpty(locName))
                     {
+                        // Live dream pad — never advertise vanilla *_done rename mid-session.
+                        string txName = Sync.DreamSyncManager.IsDreamActive
+                            ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
+                            : locName;
                         Broadcast(NetMessageType.LocationEnter,
                             w => new LocationEnterMessage
                             {
-                                LocationName = locName,
+                                LocationName = txName,
                                 PlayerId = _localPlayerId
                             }.Serialize(w),
                             DeliveryMethod.ReliableOrdered);
-                        ModRuntime.LegacyInfo($"[LocationSync] sent LocationEnter: {locName} pid={_localPlayerId}");
+                        ModRuntime.LegacyInfo($"[LocationSync] sent LocationEnter: {txName} pid={_localPlayerId}");
                     }
                 }
 
