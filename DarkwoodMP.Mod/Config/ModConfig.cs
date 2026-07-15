@@ -134,11 +134,12 @@ namespace DWMPHorde.Config
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
 
-            // Support = join/session/combat Events without Physics/entity frame spam (Trace/Dev can fill 10MB+).
+            // Support = join/session/combat Events + [Perf] Core without Legacy flood.
+            // Dev = LegacyInfo dumps. Trace = VerboseLogging gates (not LegacyInfo).
             LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
-                "Public=quiet. Support=session/join/combat Events (default playtest). Trace=all cats + high-freq. Dev=LegacyInfo dumps (huge logs). Restart after change.");
+                "Public=quiet. Support=session/join/combat + [Perf] (default). Dev=LegacyInfo dumps. Trace=high-freq Verbose gates. Stutter triage: Dev or Support+[Perf]. Restart after change.");
             LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
-                "Error | Warn | Event | Info | Trace. Levels above this are dropped.");
+                "Error | Warn | Event | Info | Trace. LegacyInfo only runs when LogPreset=Dev (not Trace).");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
                 "Optional Event categories on top of preset (comma): Core,Network,Session,Combat,Entity,Physics,Container,World,AI,Dream,Death,Audio,UI,Save.");
             LogTraceCategories = config.Bind("Logging", "LogTraceCategories", "none",

@@ -294,9 +294,6 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (_role == NetworkRole.Client && IsConnected)
-                ClientPerfProbe.NotePacketRx();
-
             DispatchSteamPayload(remote, playerId, payload);
         }
 
@@ -413,6 +410,8 @@ namespace DWMPHorde.Networking
             _currentReceivePeer = null;
             _currentReceiveSteamId = remote;
             _currentReceivePlayerId = playerId;
+            if (IsConnected)
+                ClientPerfProbe.NotePacketRx(type);
             try
             {
                 ProcessInboundMessage(type, body);

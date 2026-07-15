@@ -53,8 +53,12 @@ namespace DWMPHorde.Patches
                 return;
 
             // One-shot: skip if already fired before this call.
-            // multipleFire: still broadcast every successful fire (__state may be true).
             if (__state && !__instance.multipleFire)
+                return;
+
+            // multipleFire ambient loops already run on clients (Prefix allows them).
+            // Rebroadcasting each tick → FindNearest* on client + Dev log spam = periodic hitches.
+            if (__instance.multipleFire)
                 return;
 
             Vector3 p = __instance.transform.position;

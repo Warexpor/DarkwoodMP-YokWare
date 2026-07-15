@@ -34,6 +34,23 @@ public class CoopPolicyTests
         Assert.False(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(false));
     }
 
+    [Theory]
+    [InlineData("worldFlag", true)]
+    [InlineData("fireWorldEvent", true)]
+    [InlineData("startDream", true)]
+    [InlineData("endDream", true)]
+    [InlineData("transportToOutsideLoc", true)]
+    [InlineData("returnToWorld", true)]
+    [InlineData("giveItem", false)]
+    [InlineData("modifyReputation", false)]
+    public void DialogApplyPolicy_WorldAuthOutcomeTypes(string type, bool world)
+    {
+        Assert.Equal(world, DialogApplyPolicy.IsWorldAuthOutcomeType(type));
+        Assert.True(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false));
+        Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, true)); // applying remote
+        Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, false, false)); // host
+    }
+
     [Fact]
     public void NpcLock_SameNpc_DifferentOwner_DeniedWhileHeld()
     {

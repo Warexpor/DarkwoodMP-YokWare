@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using LiteNetLib;
 
@@ -81,15 +82,17 @@ namespace DWMPHorde.Networking
 
             if (DreamSession.IsActive)
             {
+                // Dialogue startDream often races DialogOutcome host prepare + client DreamStartRequest.
                 if (DreamSession.IsStarting
                     && string.Equals(DreamSession.PresetName, msg.PresetName, StringComparison.OrdinalIgnoreCase))
                 {
-                    ModRuntime.LegacyInfo(
-                        $"[DreamSync] Ignoring duplicate start request (already Starting): {msg.PresetName}");
+                    ModLog.Event(LogCat.Dream,
+                        "[DreamSync] dedupe start request (already Starting): " + msg.PresetName);
                     return;
                 }
-                ModRuntime.LegacyInfo(
-                    $"[DreamSync] Ignoring dream start request — already in a dream: {msg.PresetName}");
+                ModLog.Event(LogCat.Dream,
+                    "[DreamSync] ignore start request — session " + DreamSession.Current
+                    + " preset=" + DreamSession.PresetName + " req=" + msg.PresetName);
                 return;
             }
             if (DreamSession.IsPresetCompleted(msg.PresetName))

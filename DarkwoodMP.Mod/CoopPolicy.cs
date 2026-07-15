@@ -31,6 +31,13 @@ namespace DWMPHorde
         public const string TypeGiveJournalItem = "giveJournalItem";
         public const string TypeAddJournalEntry = "addJournalEntry";
 
+        public const string TypeWorldFlag = "worldFlag";
+        public const string TypeFireWorldEvent = "fireWorldEvent";
+        public const string TypeStartDream = "startDream";
+        public const string TypeEndDream = "endDream";
+        public const string TypeTransportOutside = "transportToOutsideLoc";
+        public const string TypeReturnToWorld = "returnToWorld";
+
         /// <summary>Personal rewards that already applied on the speaking client.</summary>
         public static bool IsPersonalRewardType(string outcomeType)
         {
@@ -47,8 +54,35 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>
+        /// World / session outcomes: client defers during displayNextBoard so host
+        /// DialogOutcome apply is sole author (avoids double flag/event/dream).
+        /// </summary>
+        public static bool IsWorldAuthOutcomeType(string outcomeType)
+        {
+            if (string.IsNullOrEmpty(outcomeType)) return false;
+            switch (outcomeType)
+            {
+                case TypeWorldFlag:
+                case TypeFireWorldEvent:
+                case TypeStartDream:
+                case TypeEndDream:
+                case TypeTransportOutside:
+                case TypeReturnToWorld:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         public static bool ShouldSuppressPersonalInventoryMutation(bool hostApplyingRemoteOutcome)
             => hostApplyingRemoteOutcome;
+
+        /// <summary>
+        /// Client co-op board apply: skip world mutations; host will re-run via DialogOutcomeSync.
+        /// </summary>
+        public static bool ShouldDeferWorldOnClient(bool isConnected, bool isClient, bool applyingRemote)
+            => isConnected && isClient && !applyingRemote;
     }
 
     /// <summary>

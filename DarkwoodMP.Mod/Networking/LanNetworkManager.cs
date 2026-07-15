@@ -803,8 +803,9 @@ namespace DWMPHorde.Networking
 
         private void Update()
         {
-            bool perf = _role == NetworkRole.Client && IsConnected && _handshakeComplete;
-            ClientPerfProbe.SetActive(perf);
+            bool perf = IsConnected && _handshakeComplete
+                && (_role == NetworkRole.Client || _role == NetworkRole.Host);
+            ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 
             _net?.PollEvents();
@@ -828,6 +829,18 @@ namespace DWMPHorde.Networking
                 (p, n) => Sync.WorldPhysicsSyncService.FindTrapByPos(p, n),
                 (go, trig) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig));
             Sync.WorldPhysicsSyncService.TickThrownLightExpiry(this);
+            TickClientCorpseSetup();
+            if (perf)
+            {
+                ClientPerfProbe.SetPendingCounts(
+                    _pendingLureStates.Count,
+                    PendingLockCount,
+                    Sync.WorldPhysicsSyncService.PendingLightCount,
+                    Sync.TrapNetworkId.PendingCount,
+                    _pendingFeederStates.Count,
+                    _pendingSawStates.Count,
+                    _pendingConstructibles.Count);
+            }
             TickHeavyLateJoinBulk();
             TickPeerRosterGossip();
             TickHostMigrationRetry();
@@ -1012,9 +1025,11 @@ namespace DWMPHorde.Networking
 
             PackContinuousLights(ref msg, local);
 
-            // Host: skip joiners still in world download / LoadScene (dual-box freeze).
+            // Never skip PlayerState for "loading" peers — that is how proxies appear.
+            // Dual-box: client had [Light] RX drop p1 proxy=null and never Created proxy for host
+            // while host muted PlayerState under skipLoadingPeers during world share / phase-3 mute.
             Broadcast(NetMessageType.PlayerState, w => msg.Serialize(w),
-                skipLoadingPeers: _role == NetworkRole.Host);
+                skipLoadingPeers: false);
 
             // Detect OutsideLocation (basement/bunker) transitions
             if (Singleton<OutsideLocations>.Instance != null)
@@ -1303,7 +1318,8 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected || !_handshakeComplete) return;
 
-            bool perf = _role == NetworkRole.Client;
+            bool perf = IsConnected && _handshakeComplete
+                && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             if (perf) ClientPerfProbe.LateBegin();
 
             // Both sides: interpolate world physics objects
@@ -1353,6 +1369,22 @@ namespace DWMPHorde.Networking
             if (!_peers.TryGetValue(playerId, out NetPeer peer))
                 return;
             peer.Send(data, method);
+        }
+
+        /// <summary>
+        /// Entity broadcast hot path: send framed packet to gameplay-ready peers without
+        /// allocating ConnectedPlayerIds list each 10 Hz tick (Steam-era peer abstraction).
+        /// </summary>
+        public void SendRawToReadyPeers(byte[] data, DeliveryMethod method = DeliveryMethod.Unreliable)
+        {
+            if (data == null || data.Length == 0 || PeerCount == 0)
+                return;
+            foreach (int peerId in EnumeratePeerIds())
+            {
+                if (!IsPeerReadyForGameplay(peerId))
+                    continue;
+                SendRawToPlayer(peerId, data, method);
+            }
         }
 
         /// <summary>Send a message to all connected peers.</summary>
@@ -1417,15 +1449,26 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Host: mark every non-host peer as loading (broadcast world resend).</summary>
-        public void MarkAllClientPeersLoadingWorld()
+        /// <param name="excludeCoopReconnect">Skip phase-3 soft reconnect peers (already in world).</param>
+        public void MarkAllClientPeersLoadingWorld(bool excludeCoopReconnect = false)
         {
             if (_role != NetworkRole.Host)
                 return;
             foreach (int id in EnumeratePeerIds())
             {
                 if (id > 1)
+                {
+                    if (excludeCoopReconnect && _peersCoopReconnect.Contains(id))
+                        continue;
                     MarkPeerLoadingWorld(id);
+                }
             }
+        }
+
+        /// <summary>Host: peer reconnected with AlreadyInWorld (soft join pipeline phase 3).</summary>
+        public bool IsCoopReconnectPeer(int playerId)
+        {
+            return playerId > 1 && _peersCoopReconnect.Contains(playerId);
         }
 
         /// <summary>Host: joiner sent first in-world PlayerState — safe for gameplay traffic.</summary>
@@ -1710,8 +1753,6 @@ namespace DWMPHorde.Networking
 
         public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod)
         {
-            if (_role == NetworkRole.Client && IsConnected)
-                ClientPerfProbe.NotePacketRx();
             OnNetworkReceiveBody(peer, reader, channelNumber, deliveryMethod);
         }
 
@@ -1726,6 +1767,8 @@ namespace DWMPHorde.Networking
             // Track which peer sent this message so handlers can look up PlayerId
             _currentReceivePeer = peer;
             _currentReceivePlayerId = GetPlayerId(peer);
+            if (IsConnected)
+                ClientPerfProbe.NotePacketRx(type);
             ProcessInboundMessage(type, payload);
         }
 

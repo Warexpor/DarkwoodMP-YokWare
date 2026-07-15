@@ -794,8 +794,8 @@ namespace DWMPHorde.Networking
             _nextUnmatchedCleanupTime = now + UnmatchedCleanupInterval;
 
             Player localPlayer = Player.Instance;
-            Character[] allChars = CharacterTracker.GetAll();
-            for (int i = 0; i < allChars.Length; i++)
+            int nChars = CharacterTracker.CopyAll(out Character[] allChars);
+            for (int i = 0; i < nChars; i++)
             {
                 Character c = allChars[i];
                 if (c == null) continue;
@@ -909,8 +909,10 @@ namespace DWMPHorde.Networking
             float now = Time.time;
             if (_inactiveScanCache == null || now - _inactiveScanCacheTime >= InactiveScanCacheTtl)
             {
-                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType();
+                var footSw = System.Diagnostics.Stopwatch.StartNew();
                 _inactiveScanCache = GameObject.FindObjectsOfType<Character>(true);
+                footSw.Stop();
+                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType("Character", footSw.Elapsed.TotalMilliseconds);
                 _inactiveScanCacheTime = now;
             }
 

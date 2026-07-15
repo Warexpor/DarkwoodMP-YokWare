@@ -33,6 +33,8 @@ namespace DWMPHorde.Networking
                 PlayerId = reader.GetShort(),
             };
             // Forward-compat: older peers omitted trailers (both boxes should be same DLL).
+            // Need bool (1) + optional short (2). If only 1 byte left, still read AlreadyInWorld
+            // — mis-sizing here forced phase-1 share on soft reconnect (host never saw flag).
             if (reader.AvailableBytes >= 1)
                 msg.AlreadyInWorld = reader.GetBool();
             if (reader.AvailableBytes >= 2)

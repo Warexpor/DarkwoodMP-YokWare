@@ -77,6 +77,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(object[] __args)
         {
+            // Client dialog board: setFlag Prefix skipped original — do not FlagSync ghosts.
+            if (DWMPHorde.Sync.DialogClientWorldDefer.Active)
+                return;
+
             string flagName = (string)__args[0];
             bool newValue = (bool)__args[1];
 
@@ -177,6 +181,9 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(object[] __args)
         {
+            if (DWMPHorde.Sync.DialogClientWorldDefer.Active)
+                return;
+
             string flagName = (string)__args[0];
             int newValue = (int)__args[1];
 

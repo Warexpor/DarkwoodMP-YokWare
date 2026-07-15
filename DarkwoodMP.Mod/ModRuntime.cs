@@ -107,6 +107,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(DialogOutcomeIndexPatch.ResetCounter);
                 NetworkResetRegistry.Register(PauseSuppression.Reset);
                 NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
+                NetworkResetRegistry.Register(DialogClientWorldDefer.Reset);
                 NetworkResetRegistry.Register(NpcDialogueLock.Reset);
                 NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);
                 NetworkResetRegistry.Register(StationSyncHelpers.Reset);

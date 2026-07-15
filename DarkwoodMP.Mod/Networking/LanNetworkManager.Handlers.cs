@@ -154,10 +154,15 @@ namespace DWMPHorde.Networking
                         ModLog.Event(LogCat.Session,
                             "Join pipeline phase 3: peer " + playerId
                             + " already in world — skip world share, queue late-join bulk");
-                        // Mute entity flood until first PlayerState (proxy/pos not ready yet).
-                        MarkPeerLoadingWorld(playerId);
+                        // Do NOT MarkPeerLoadingWorld: soft-reconnect peers already have a
+                        // playable body. Muting PlayerState prevented host proxy on client
+                        // (log: Light RX drop p1 proxy=null, no Created proxy for player 1).
+                        // Entity/physics still gate on first ready via IsPeerReadyForGameplay
+                        // only after explicit loading mark — leave them open for phase 3.
                         _peersCoopReconnect.Add(playerId);
                         _awaitingLateJoinBulk[playerId] = 0f;
+                        // Immediate bulk settle path (shorter for reconnect).
+                        MarkPeerGameplayReady(playerId);
                     }
                     else if (HostHasShareableWorld())
                     {
@@ -1241,37 +1246,32 @@ namespace DWMPHorde.Networking
                 ClientEntityInterpolationService.LastSkippedCount,
                 sw.Elapsed.TotalMilliseconds);
 
-            // Rate-limited: was every 10 Hz entity snap → GetAll + GetComponent all chars (FPS death).
-            EnsureDeadNpcCorpses();
+            // Do NOT scan corpses here — was inside PollEvents path every 2s and inflated poll/maxMs.
+            // See TickClientCorpseSetup from Update.
         }
 
         private float _nextDeadCorpseScanTime;
 
         /// <summary>
-        /// On the client, ensures that dead NPCs have the Item component and
-        /// deathDrop inventory type so they can be searched/looted.
-        /// This handles NPCs that die on the host (authoritative) but whose
-        /// death never triggers Character.die() on the client (because AI
-        /// updates are blocked and getHit() is forwarded to host).
+        /// Client: set up deathDrop Item on host-dead NPCs (AI die does not run locally).
+        /// Called from Update, not from EntityState RX (avoids poll hitch every 2s).
         /// </summary>
-        private void EnsureDeadNpcCorpses()
+        private void TickClientCorpseSetup()
         {
             if (_role != NetworkRole.Client) return;
             if (Time.unscaledTime < _nextDeadCorpseScanTime) return;
             _nextDeadCorpseScanTime = Time.unscaledTime + 2f;
 
-            Character[] all = CharacterTracker.GetAll();
-            if (all == null || all.Length == 0) return;
+            int n = CharacterTracker.CopyAll(out Character[] all);
+            if (n == 0) return;
 
-            foreach (Character c in all)
+            for (int i = 0; i < n; i++)
             {
+                Character c = all[i];
                 if (c == null) continue;
-                // Skip alive characters
                 if (c.alive && c.Health > 0) continue;
-                // Skip if already has Item component (corpse already set up)
                 if (c.GetComponent<Item>() != null) continue;
 
-                // Set up corpse — equivalent of CharacterDeathCorpsePatch
                 Item item = c.gameObject.AddComponent<Item>();
                 item.name = c.name.ToLower() + "_corpse";
                 if (c.searched)
@@ -1817,9 +1817,14 @@ namespace DWMPHorde.Networking
                 : $"[BulkSync] Sent {sent} constructible sites to all clients");
         }
 
+        private float _nextPendingConstructibleFlushTime;
+
         private void TryFlushPendingConstructibles()
         {
             if (_pendingConstructibles.Count == 0) return;
+            float now = Time.unscaledTime;
+            if (now < _nextPendingConstructibleFlushTime) return;
+            _nextPendingConstructibleFlushTime = now + PendingLockFlushInterval;
             for (int i = _pendingConstructibles.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingConstructibles[i];
@@ -1840,6 +1845,10 @@ namespace DWMPHorde.Networking
             new System.Collections.Generic.List<LockedUnlockMessage>();
         private const float LockFindRadius = 2.5f;
         private const int MaxPendingLocks = 64;
+
+        /// <summary>Pending padlock+locked+interactive counts for CoopPerfProbe.</summary>
+        private int PendingLockCount =>
+            _pendingPadlocks.Count + _pendingLocked.Count + _pendingInteractive.Count;
 
         private void HandleInteractiveItemSwitch(InteractiveItemSwitchMessage msg)
         {
@@ -1951,9 +1960,19 @@ namespace DWMPHorde.Networking
             list.Add(msg);
         }
 
+        private float _nextPendingLockFlushTime;
+        private const float PendingLockFlushInterval = 1f;
+
         /// <summary>Flush padlock/locked/interactive pending when world objects appear.</summary>
         internal void TryFlushPendingLocks()
         {
+            if (_pendingPadlocks.Count == 0 && _pendingLocked.Count == 0 && _pendingInteractive.Count == 0)
+                return;
+            // Unloaded locks used to FindNearest every frame → sustained poll/upd hitches.
+            float now = Time.unscaledTime;
+            if (now < _nextPendingLockFlushTime) return;
+            _nextPendingLockFlushTime = now + PendingLockFlushInterval;
+
             for (int i = _pendingPadlocks.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingPadlocks[i];
@@ -1992,12 +2011,11 @@ namespace DWMPHorde.Networking
 
             int padlocks = 0, locked = 0, interactive = 0;
 
-            Padlock[] pads = Resources.FindObjectsOfTypeAll<Padlock>();
+            Padlock[] pads = UnityEngine.Object.FindObjectsOfType<Padlock>(true);
             for (int i = 0; i < pads.Length; i++)
             {
                 Padlock p = pads[i];
-                if (p == null || p.locked) continue;
-                if (p.gameObject == null || !p.gameObject.scene.IsValid()) continue;
+                if (p == null || p.locked || !p.gameObject.scene.IsValid()) continue;
                 Vector3 pos = p.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -2009,12 +2027,11 @@ namespace DWMPHorde.Networking
                 padlocks++;
             }
 
-            Locked[] locks = Resources.FindObjectsOfTypeAll<Locked>();
+            Locked[] locks = UnityEngine.Object.FindObjectsOfType<Locked>(true);
             for (int i = 0; i < locks.Length; i++)
             {
                 Locked l = locks[i];
-                if (l == null || l.locked) continue;
-                if (l.gameObject == null || !l.gameObject.scene.IsValid()) continue;
+                if (l == null || l.locked || !l.gameObject.scene.IsValid()) continue;
                 Vector3 pos = l.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -2026,12 +2043,11 @@ namespace DWMPHorde.Networking
                 locked++;
             }
 
-            InteractiveItem[] items = Resources.FindObjectsOfTypeAll<InteractiveItem>();
+            InteractiveItem[] items = UnityEngine.Object.FindObjectsOfType<InteractiveItem>(true);
             for (int i = 0; i < items.Length; i++)
             {
                 InteractiveItem ii = items[i];
-                if (ii == null || !ii.isOn) continue;
-                if (ii.gameObject == null || !ii.gameObject.scene.IsValid()) continue;
+                if (ii == null || !ii.isOn || !ii.gameObject.scene.IsValid()) continue;
                 Vector3 pos = ii.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -2059,7 +2075,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
 
-            Item[] items = Resources.FindObjectsOfTypeAll<Item>();
+            Item[] items = UnityEngine.Object.FindObjectsOfType<Item>(true);
             int sent = 0;
             const int maxSend = 256;
             for (int i = 0; i < items.Length && sent < maxSend; i++)
@@ -2092,7 +2108,7 @@ namespace DWMPHorde.Networking
             }
 
             if (sent > 0 || Config.ModConfig.IsVerboseLightSync)
-                ModRuntime.LegacyInfo($"[BulkSync] World lights → p{targetPlayerId}: on={sent}");
+                ModLog.Event(LogCat.Session, $"[BulkSync] World lights → p{targetPlayerId}: on={sent}");
         }
 
         /// <summary>
@@ -2137,7 +2153,7 @@ namespace DWMPHorde.Networking
             }
 
             if (sent > 0 || Config.ModConfig.IsVerboseLightSync)
-                ModRuntime.LegacyInfo($"[BulkSync] Generators → p{targetPlayerId}: {sent}");
+                ModLog.Event(LogCat.Session, $"[BulkSync] Generators → p{targetPlayerId}: {sent}");
         }
 
         /// <summary>
@@ -3124,7 +3140,7 @@ namespace DWMPHorde.Networking
             }
 
             if (sent > 0)
-                ModRuntime.LegacyInfo($"[BulkSync] LocationEnter x{sent} → p{targetPlayerId}");
+                ModLog.Event(LogCat.Session, $"[BulkSync] LocationEnter x{sent} → p{targetPlayerId}");
         }
 
         private void HandleEntitySpawn(EntitySpawnMessage msg)
@@ -4076,9 +4092,15 @@ namespace DWMPHorde.Networking
                 : $"[BulkSync] Sent {sent} saw state(s) to all clients");
         }
 
+        private float _nextPendingSawFlushTime;
+        private const float PendingStationFlushInterval = 1f;
+
         private void TryFlushPendingSawStates()
         {
             if (_pendingSawStates.Count == 0) return;
+            float now = Time.unscaledTime;
+            if (now < _nextPendingSawFlushTime) return;
+            _nextPendingSawFlushTime = now + PendingStationFlushInterval;
             for (int i = _pendingSawStates.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingSawStates[i];
@@ -4132,9 +4154,14 @@ namespace DWMPHorde.Networking
             }
         }
 
+        private float _nextPendingFeederFlushTime;
+
         private void TryFlushPendingFeederStates()
         {
             if (_pendingFeederStates.Count == 0) return;
+            float now = Time.unscaledTime;
+            if (now < _nextPendingFeederFlushTime) return;
+            _nextPendingFeederFlushTime = now + PendingStationFlushInterval;
             for (int i = _pendingFeederStates.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingFeederStates[i];
@@ -4180,6 +4207,14 @@ namespace DWMPHorde.Networking
         private void ApplyLureState(LureStateMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+
+            // Far map lures (host AI eating across the forest) must not FOOT-scan every 1s.
+            // Client logs: poll~110 findOfType=2 maxMs~50–60 while host stayed clean.
+            if (_role == NetworkRole.Client
+                && !ClientEntityInterpolationService.IsInClientInterest(pos))
+                return;
+
+            // Lure often has no collider — OverlapSphere misses; cached scan is OK when in interest.
             Lure lure = WorldQueryHelper.FindNearest<Lure>(pos, 2f);
             if (lure == null)
             {
@@ -4197,48 +4232,71 @@ namespace DWMPHorde.Networking
                     if (_pendingLureStates.Count >= MaxPendingStationStates)
                         _pendingLureStates.RemoveAt(0);
                     _pendingLureStates.Add(msg);
-                    ModRuntime.LegacyInfo("[LureSync] queued (lure not loaded) at " + pos);
+                    ModLog.Trace(LogCat.World, "[LureSync] queued (lure not loaded) at " + pos);
                 }
                 return;
             }
 
-            if (lure.health <= msg.Health) return;
+            if (lure.health == msg.Health) return;
+            if (lure.health < msg.Health) return; // never heal from net (host absolute lower)
 
-            int delta = lure.health - msg.Health;
             using (new NetworkApplyGuard())
             {
                 try
                 {
-                    // Seed gore drops for parity with send-side prefix.
-                    try
+                    // Absolute set for intermediate ticks — removeHealth only on death so
+                    // we do not re-run eater/gore path every 1s (log spam + apply cost).
+                    if (msg.Health <= 0)
                     {
-                        var ctrl = Singleton<Controller>.Instance;
-                        int day = ctrl != null ? ctrl.day : 0;
-                        UnityEngine.Random.InitState(day
-                            ^ ((int)Mathf.Round(pos.x) * 73856093)
-                            ^ ((int)Mathf.Round(pos.z) * 19349663)
-                            ^ lure.health);
+                        try
+                        {
+                            var ctrl = Singleton<Controller>.Instance;
+                            int day = ctrl != null ? ctrl.day : 0;
+                            UnityEngine.Random.InitState(day
+                                ^ ((int)Mathf.Round(pos.x) * 73856093)
+                                ^ ((int)Mathf.Round(pos.z) * 19349663)
+                                ^ lure.health);
+                        }
+                        catch { /* ignore */ }
+                        lure.removeHealth(lure.health + 1, null);
                     }
-                    catch { /* ignore */ }
-
-                    lure.removeHealth(delta, null);
+                    else
+                    {
+                        lure.health = msg.Health;
+                    }
                 }
                 catch (System.Exception ex)
                 {
-                    ModRuntime.Log?.LogWarning("[LureSync] removeHealth: " + ex.Message);
+                    ModRuntime.Log?.LogWarning("[LureSync] apply: " + ex.Message);
                 }
             }
-            ModRuntime.LegacyInfo($"[LureSync] applied at {pos} health→{msg.Health}");
+            // Trace only — LegacyInfo every 1s was dual-box log I/O noise next to real hitches.
+            ModLog.Trace(LogCat.World, $"[LureSync] applied at {pos} health→{msg.Health}");
         }
+
+        private float _nextPendingLureFlushTime;
+        private const float PendingLureFlushInterval = 1f;
 
         private void TryFlushPendingLureStates()
         {
             if (_pendingLureStates.Count == 0) return;
+            // Unloaded lures used to scan every frame via FindNearest → hitch loop.
+            float now = Time.unscaledTime;
+            if (now < _nextPendingLureFlushTime) return;
+            _nextPendingLureFlushTime = now + PendingLureFlushInterval;
+
             for (int i = _pendingLureStates.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingLureStates[i];
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                if (WorldQueryHelper.FindNearest<Lure>(pos, 2f) == null) continue;
+                if (_role == NetworkRole.Client
+                    && !ClientEntityInterpolationService.IsInClientInterest(pos))
+                {
+                    _pendingLureStates.RemoveAt(i);
+                    continue;
+                }
+                if (WorldQueryHelper.FindNearest<Lure>(pos, 2f) == null)
+                    continue;
                 _pendingLureStates.RemoveAt(i);
                 ApplyLureState(msg, queueIfMissing: false);
             }
@@ -4842,7 +4900,7 @@ namespace DWMPHorde.Networking
 
             var bulk = new TrapBulkMessage { Entries = list.ToArray() };
             SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[BulkSync] Traps → p" + playerId + ": " + list.Count);
+            ModLog.Event(LogCat.Session, "[BulkSync] Traps → p" + playerId + ": " + list.Count);
         }
 
         private static bool ReadTrapTriggeredSafe(GameObject go)
@@ -4889,7 +4947,7 @@ namespace DWMPHorde.Networking
             {
                 TraverseHack.ApplyingFromNetwork = false;
             }
-            ModRuntime.LegacyInfo("[BulkSync] Trap bulk applied=" + applied + " pending=" + pending);
+            ModLog.Event(LogCat.Session, "[BulkSync] Trap bulk applied=" + applied + " pending=" + pending);
         }
 
         public void SendThrowableDespawn(ThrowableDespawnMessage msg)
@@ -5686,9 +5744,28 @@ namespace DWMPHorde.Networking
                 if (Player.Instance != null)
                     Player.Instance.talkedToNPC = npc;
 
+                // Vanilla onPress marks source node alreadyShown before switching.
+                if (!string.IsNullOrEmpty(msg.DialogueName) && npc.characterDialogue != null)
+                {
+                    try
+                    {
+                        var source = npc.characterDialogue.getDialogue(msg.DialogueName);
+                        if (source != null)
+                        {
+                            source.alreadyShown = true;
+                            source.gossipShown = true;
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        if (ModRuntime.VerboseLogging)
+                            ModRuntime.Log?.LogWarning("[DialogOutcome] mark source: " + ex.Message);
+                    }
+                }
+
                 ModRuntime.LegacyInfo(
                     $"[DialogOutcome] Host world-only displayDialogue target={msg.TargetDialogueName} " +
-                    $"NPC={msg.NpcName} (wasInTalk={hostWasInThisTalk})");
+                    $"source={msg.DialogueName} NPC={msg.NpcName} (wasInTalk={hostWasInThisTalk})");
 
                 DialogHostApplyGuard.BeginWorldOnly();
                 try
@@ -8327,7 +8404,7 @@ namespace DWMPHorde.Networking
                 // Join bulk often arrives before the client has loaded into a world.
                 _pendingFlagBulk = msg;
                 _hasPendingFlagBulk = true;
-                ModRuntime.LegacyInfo($"[BulkSync] Flags queued (in-world=" + ClientCanApplyWorldBulk() + ")");
+                ModLog.Event(LogCat.Session, $"[BulkSync] Flags queued (in-world=" + ClientCanApplyWorldBulk() + ")");
                 return;
             }
 
@@ -8354,7 +8431,7 @@ namespace DWMPHorde.Networking
                     flags.setFlag(name, msg.FlagAmounts[i]);
                 }
             }
-            ModRuntime.LegacyInfo($"[BulkSync] Applied {msg.FlagCount} flags");
+            ModLog.Event(LogCat.Session, $"[BulkSync] Applied {msg.FlagCount} flags");
         }
 
         /// <summary>
@@ -8455,7 +8532,7 @@ namespace DWMPHorde.Networking
                 if (msg.Reputations != null && i < msg.Reputations.Length)
                     state.reputation = msg.Reputations[i];
             }
-            ModRuntime.LegacyInfo($"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, night-traders skipped for rep)");
+            ModLog.Event(LogCat.Session, $"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, night-traders skipped for rep)");
         }
 
         /// <summary>Send current night scenario + active event to all clients.</summary>
@@ -8476,7 +8553,7 @@ namespace DWMPHorde.Networking
             // Join bulk used ScenarioStateSync but never applied the scenario name
             // (only logged). Same payload as live ScenarioSync — apply it.
             ApplyScenarioSync(msg);
-            ModRuntime.LegacyInfo($"[BulkSync] Scenario applied: {msg.ScenarioName}");
+            ModLog.Event(LogCat.Session, $"[BulkSync] Scenario applied: {msg.ScenarioName}");
         }
 
         /// <summary>Send hideout oven enable states to all clients.</summary>
@@ -8527,7 +8604,7 @@ namespace DWMPHorde.Networking
                     break;
                 }
             }
-            ModRuntime.LegacyInfo($"[BulkSync] Hideout ovens applied count={msg.OvenCount}");
+            ModLog.Event(LogCat.Session, $"[BulkSync] Hideout ovens applied count={msg.OvenCount}");
         }
 
         /// <summary>Send current workbench level to all clients.</summary>

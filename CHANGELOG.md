@@ -1,5 +1,125 @@
 # Changelog
 
+## 0.9.2+ — Network stutters fixed (2026-07-15)
+
+Dual-box LAN co-op: client periodic hitches (poll/FOOT) and host-side entity send allocs. Soft-reconnect visibility fix kept. Dialog world-auth + dream entry dedupe included in the same ship.
+
+### Fixed — stutters
+- **WorldQueryHelper:** OverlapSphere first; scene FOOT only with **3s per-type cache** (never `FindObjectsOfTypeAll` on hot path).
+- **GameEvents:** no host rebroadcast of ambient `multipleFire` loops.
+- **Lure/stations:** stored-pose outbox; interest cull; absolute health apply; pending flushes **1s throttle**.
+- **Entity broadcast:** `CharacterTracker.CopyAll` (no 10 Hz `ToArray`); `SendRawToReadyPeers` (no `ConnectedPlayerIds` List alloc).
+- **Client RX:** corpse setup off poll path; pending lock/feeder/saw/constructible throttled.
+
+### Fixed — visibility
+- PlayerState always sent to loading peers; phase-3 soft reconnect not muted.
+
+### Added — diagnostics
+- **CoopPerfProbe** (host + client): `role=`, `top=` pkt types, `footMs/footType`, pending queues, `hostEntSend`.
+- Logging docs/config truth; deploy strips orphan `System.*` facades from plugins.
+
+### Changed — dialog / dream (parity)
+- Client defers world dialog outcomes; host applies once; source node alreadyShown; tree flush every choice.
+- Dream start request dedupe when session already Starting.
+
+## 0.9.2+ — Dialog world-auth + dream entry dedupe (decompile parity)
+
+### Dialogs (vs DialogueWindow / DialogueButton)
+- **Client co-op `displayNextBoard`:** defer world mutations — skip `Flags.setFlag`, `Events.fireWorldEvent`, `OutsideLocations.prepareLocation` / `returnToWorld`; clear local `wantToDream` / `dreamToStart` so host owns dialogue dreams.
+- Personal give/remove/journal still on speaking client; host C2 suppress unchanged.
+- **Host DialogOutcome:** mark **source** node `alreadyShown`/`gossipShown` (vanilla onPress); then world-only `displayDialogue(target)`.
+- **Tree flush every choice** (not only close) via `DialogTreeSync.TryBroadcastFromNpc`.
+- Client sends `DialogueName` = source node captured in onPress Prefix.
+
+### Dreams
+- Host **dedupe** DreamStartRequest when session already Starting same preset (DialogOutcome race) — Session Event log.
+- End path unchanged (ApplyRemoteDreamCleanup already applies outcome effects).
+
+### Files
+- `DialogClientWorldDefer.cs`, `DialogClientWorldDeferPatches.cs`, `DialogOutcomePatch.cs`, `FlagSyncPatches.cs`, `CoopPolicy.cs`, Handlers, DreamHandlers, ModRuntime
+
+## 0.9.2+ — Full logging audit + deploy hygiene (CoopPerfProbe)
+
+### Logging (prove hitches on both roles)
+- **`CoopPerfProbe`** (alias `ClientPerfProbe`): Host **and** Client, 2s Event lines.
+- Report fields: `role=`, `poll/upd/physBuild`, `entApply`, **`pktRx` + `top=` message types**, **`footN/footMs/footType`**, **`pend lure/lock/light/trap/…`**, host **`hostEntSend`**.
+- FOOT sites (`WorldQueryHelper`, physics Rb scan, inactive Character scan) record type + ms.
+- Join bulk one-shots promoted **LegacyInfo → `ModLog.Event(Session)`** (Support packs see join health).
+- Docs/config: Support default; LegacyInfo = Dev only; stutter checklist in `docs/LOGGING.md`.
+
+### Deploy hygiene
+- Deploy target still only mod + LiteNetLib; **strips orphan `System.*` facades** from host/client plugins if present.
+
+### Files
+- `Logging/CoopPerfProbe.cs`, `LanNetworkManager*.cs`, `WorldQueryHelper`, `WorldPhysics`, `TrapNetworkId`, `EntityStateBroadcastService`, `ClientEntityInterpolationService`, `ModConfig`, `docs/LOGGING.md`, csproj
+
+## 0.9.2+ — Client-only stutters (host clean)
+
+### Evidence
+- Host: clean. Client: sustained `poll~110` `maxMs~50–60` `findOfType=2`, often `entApply=0.1 applied=0`.
+- Far lure health still applied every 1s; `Lure` has no collider → OverlapSphere miss → scene FOOT ~50ms.
+- `EnsureDeadNpcCorpses` ran inside EntityState **RX** (poll path) every 2s with `GetAll().ToArray()`.
+
+### Fix
+- `WorldQueryHelper`: 3s **per-type FOOT cache** (at most one scan / type / 3s).
+- Client lure: **interest cull** before lookup; host skips broadcasting far lures (death still sends).
+- Corpse setup moved to `TickClientCorpseSetup` in Update (not poll); `CopyAll` not `ToArray`.
+- Entity unmatched cleanup uses `CopyAll`.
+
+## 0.9.2+ — Stutters still present: real hot-path (Steam-era peer + FOOT)
+
+### Evidence after GameEvents fix
+- Clean windows: `fps~100 poll~2.5 findOfType=0`
+- Dirty windows: **same `pktRx~85`** but `poll~120 upd~115 maxMs 40–60`, `findOfType=4`, `[LureSync]` ~1/s
+- Host entity path: `CharacterTracker.GetAll()` → **`ToArray()` every 10 Hz** (dual-box host hitch freezes both instances)
+- Steam commit (`a62417a`) also made `ConnectedPlayerIds` allocate a **new List every entity send**
+
+Steam P2P itself is idle on LAN (`PollSteamBackend` no-ops). The regression window matches the peer-abstraction + bulk FOOT paths that ship with that commit.
+
+### Fix
+- `WorldQueryHelper`: **OverlapSphere first**, scene FOOT only as fallback (never `FindObjectsOfTypeAll`)
+- Lure outbox: store full pose — **no FindNearest on host flush**; apply absolute health; Trace log
+- Pending lock/feeder/saw/constructible flushes: **1s throttle** (were every-frame FOOT if pending)
+- Host join bulk locks/lights: scene `FindObjectsOfType` not `FindObjectsOfTypeAll`
+- `CharacterTracker.CopyAll` buffer; entity broadcast uses it + `SendRawToReadyPeers` (no List alloc)
+
+## 0.9.2+ — Stutter fix (log-driven, minimal)
+
+### Evidence (dual-box logs)
+- **Client** `[Perf]`: steady fps~100 / poll~2ms, then periodic **maxMs 350–390**, **poll 500–620ms** over 2s windows. `findOfType=0` / `fullRbScan=0` (probe never instrumented `WorldQueryHelper`).
+- Correlated **`[LureSync] applied`** ~1/s (expected coalesce).
+- **Host**: no ClientPerfProbe; flood of **`[GameEventsSync]`** for ambient `multipleFire` loops (`worldEvent_fireGroomText1_*`, `groomHitHeadSound_*`).
+
+### Root cause
+1. `WorldQueryHelper.FindNearest*` used **`Resources.FindObjectsOfTypeAll`** (assets + prefabs) on every lure/game-event/lock apply.
+2. Host **rebroadcast every `multipleFire` tick** even though clients already run those loops locally → net spam + more FindNearest on client.
+
+### Fix (only these)
+- `WorldQueryHelper`: scene `FindObjectsOfType(true)` + valid scene filter; count toward ClientPerfProbe `findOfType`.
+- `GameEventsFiredPatch`: do **not** broadcast `multipleFire` ambient events.
+- Pending lure flush: **1s throttle** (same idea as pending GameEvents).
+
+### Files
+- `Sync/WorldQueryHelper.cs`, `Patches/GameEventsFiredPatch.cs`, `Networking/LanNetworkManager.Handlers.cs`
+
+## 0.9.2+ — Revert session perf experiments; client cannot see host
+
+### Revert
+All uncommitted hitch "optimizations" from the dual-box perf session are **reverted** to last commit (`a62417a` / main). Rate limits, PlayerState dirty-gates, flush staggering, zero-copy RX rewrites, etc. are gone — they were not present when co-op was known-good.
+
+### Critical: client cannot see host
+**Symptom:** Host sees client proxy; client never gets host body. Log: `[Light] RX drop p1 proxy=null`, no `[Proxy] Created proxy for player 1`.
+
+**Root cause:** Host `Broadcast(PlayerState, skipLoadingPeers: true)` while peer is in `_peersLoadingWorld`. Soft reconnect / world share marked loading → **no host PlayerState** → client never `EnsureRemoteProxy(1)`.
+
+**Fix (minimal):**
+- Always send **PlayerState** (never skip loading peers).
+- Phase 3 `AlreadyInWorld`: do **not** `MarkPeerLoadingWorld`; mark gameplay-ready immediately.
+- World share mute skips coop-reconnect peers.
+
+### Files
+- `LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`, `WorldSaveShareService.cs`
+
 Unreleased Path B work after **0.9.2** tag lives under **0.9.2+** sections below (newest first). Protocol stays **19**; optional message IDs **112–126**. Keep this file updated whenever playtest/audit fixes land — do not leave them only in plans or COOP_COVERAGE.
 
 **Agent rule:** every ship of playtest fixes / features / regressions must add a **0.9.2+** section here in the same change (see root `AGENTS.md` → Changelog discipline).

@@ -12,7 +12,14 @@ namespace DWMPHorde.Sync
     /// </summary>
     internal static class StationSyncHelpers
     {
-        private static readonly Dictionary<string, int> _lureOutbox = new Dictionary<string, int>();
+        private struct LureOutboxEntry
+        {
+            public float X, Y, Z;
+            public int Health;
+        }
+
+        private static readonly Dictionary<string, LureOutboxEntry> _lureOutbox
+            = new Dictionary<string, LureOutboxEntry>();
         private static float _lastLureFlush;
         private const float LureFlushInterval = 1f;
 
@@ -56,7 +63,13 @@ namespace DWMPHorde.Sync
 
             Vector3 p = lure.transform.position;
             string key = PosKey(p);
-            _lureOutbox[key] = lure.health;
+            _lureOutbox[key] = new LureOutboxEntry
+            {
+                X = p.x,
+                Y = p.y,
+                Z = p.z,
+                Health = lure.health
+            };
             // Immediate flush when destroyed / zero so peers don't lag on corpse.
             if (lure.health <= 0)
                 FlushLureOutbox(force: true);
@@ -78,51 +91,46 @@ namespace DWMPHorde.Sync
                 return;
             }
 
+            // Use stored pose — never FindNearest here (was a host FOOT hitch every 1s).
+            // Skip lures far from every player — clients FOOT-scan them for nothing.
+            const float interestSq = 1400f * 1400f;
             foreach (var kvp in _lureOutbox)
             {
-                // key is "x:z" — recover pos from live lures when possible
-                if (!TryParsePosKey(kvp.Key, out float x, out float z))
+                LureOutboxEntry e = kvp.Value;
+                Vector3 lurePos = new Vector3(e.X, e.Y, e.Z);
+                if (!IsLureNearAnyPlayer(lurePos, interestSq) && e.Health > 0)
                     continue;
+
                 var msg = new LureStateMessage
                 {
-                    PosX = x,
-                    PosY = 0f,
-                    PosZ = z,
-                    Health = kvp.Value
+                    PosX = e.X,
+                    PosY = e.Y,
+                    PosZ = e.Z,
+                    Health = e.Health
                 };
-                // Prefer full pos from nearest lure if still present
-                Lure live = WorldQueryHelper.FindNearest<Lure>(new Vector3(x, 0f, z), 2f);
-                if (live != null)
-                {
-                    Vector3 p = live.transform.position;
-                    msg.PosX = p.x;
-                    msg.PosY = p.y;
-                    msg.PosZ = p.z;
-                    msg.Health = kvp.Value; // absolute from outbox (may lag one bite — ok)
-                }
                 net.Broadcast(NetMessageType.LureState,
                     w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             }
             _lureOutbox.Clear();
         }
 
+        private static bool IsLureNearAnyPlayer(Vector3 lurePos, float maxDistSq)
+        {
+            if (Player.Instance != null)
+            {
+                Vector3 p = Player.Instance.transform.position;
+                float dx = p.x - lurePos.x;
+                float dz = p.z - lurePos.z;
+                if (dx * dx + dz * dz <= maxDistSq)
+                    return true;
+            }
+            return PlayerPositionManager.IsAnyRemoteWithinSq(lurePos, maxDistSq);
+        }
+
         internal static void Reset()
         {
             _lureOutbox.Clear();
             _lastLureFlush = 0f;
-        }
-
-        private static bool TryParsePosKey(string key, out float x, out float z)
-        {
-            x = 0f;
-            z = 0f;
-            if (string.IsNullOrEmpty(key)) return false;
-            int colon = key.IndexOf(':');
-            if (colon <= 0) return false;
-            return float.TryParse(key.Substring(0, colon), System.Globalization.NumberStyles.Float,
-                       System.Globalization.CultureInfo.InvariantCulture, out x)
-                && float.TryParse(key.Substring(colon + 1), System.Globalization.NumberStyles.Float,
-                       System.Globalization.CultureInfo.InvariantCulture, out z);
         }
     }
 

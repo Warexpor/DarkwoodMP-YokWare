@@ -178,11 +178,16 @@ namespace DWMPHorde.Networking
 
             _afterHostShare = afterShare;
             _shareTargetPlayerId = targetPlayerId;
-            // Mute high-rate gameplay flood to joiners until they send first PlayerState.
+            // Mute high-rate entity/physics flood to title joiners only.
+            // Soft-reconnect (AlreadyInWorld) peers must keep receiving PlayerState or
+            // they never spawn the host proxy.
             if (targetPlayerId > 0)
-                _net.MarkPeerLoadingWorld(targetPlayerId);
+            {
+                if (!_net.IsCoopReconnectPeer(targetPlayerId))
+                    _net.MarkPeerLoadingWorld(targetPlayerId);
+            }
             else
-                _net.MarkAllClientPeersLoadingWorld();
+                _net.MarkAllClientPeersLoadingWorld(excludeCoopReconnect: true);
             _net.StartCoroutine(HostShareCoroutine(waitForGameSave));
         }
 

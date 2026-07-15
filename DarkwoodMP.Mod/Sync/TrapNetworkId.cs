@@ -15,6 +15,9 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<int, GameObject> ById = new Dictionary<int, GameObject>(64);
         private static readonly List<PendingTrapApply> Pending = new List<PendingTrapApply>(16);
 
+        /// <summary>Pending trap applies waiting for scene objects (CoopPerfProbe).</summary>
+        public static int PendingCount => Pending.Count;
+
         private struct PendingTrapApply
         {
             public int NetId;

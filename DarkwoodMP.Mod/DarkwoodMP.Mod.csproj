@@ -184,7 +184,7 @@
            Text="LiteNetLib.dll missing under libs/." />
   </Target>
 
-  <!-- Deploy BepInEx build to local playtest installs -->
+  <!-- Deploy BepInEx build to local playtest installs (mod + LiteNetLib only). -->
   <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx'">
     <PropertyGroup>
       <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
@@ -196,6 +196,9 @@
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Delete Files="$(SteamPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SteamPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
     <Delete Files="$(SecondPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SecondPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
+    <!-- Strip orphan netfx facades from plugins (never ship these; clean if present). -->
+    <Delete Files="$(SteamPlugins)\System.Data.Common.dll;$(SteamPlugins)\System.Diagnostics.StackTrace.dll;$(SteamPlugins)\System.Diagnostics.Tracing.dll;$(SteamPlugins)\System.Globalization.Extensions.dll;$(SteamPlugins)\System.IO.Compression.dll;$(SteamPlugins)\System.Net.Http.dll;$(SteamPlugins)\System.Net.Sockets.dll;$(SteamPlugins)\System.Runtime.Serialization.Primitives.dll;$(SteamPlugins)\System.Security.Cryptography.Algorithms.dll;$(SteamPlugins)\System.Security.SecureString.dll;$(SteamPlugins)\System.Threading.Overlapped.dll;$(SteamPlugins)\System.Xml.XPath.XDocument.dll" ContinueOnError="true" />
+    <Delete Files="$(SecondPlugins)\System.Data.Common.dll;$(SecondPlugins)\System.Diagnostics.StackTrace.dll;$(SecondPlugins)\System.Diagnostics.Tracing.dll;$(SecondPlugins)\System.Globalization.Extensions.dll;$(SecondPlugins)\System.IO.Compression.dll;$(SecondPlugins)\System.Net.Http.dll;$(SecondPlugins)\System.Net.Sockets.dll;$(SecondPlugins)\System.Runtime.Serialization.Primitives.dll;$(SecondPlugins)\System.Security.Cryptography.Algorithms.dll;$(SecondPlugins)\System.Security.SecureString.dll;$(SecondPlugins)\System.Threading.Overlapped.dll;$(SecondPlugins)\System.Xml.XPath.XDocument.dll" ContinueOnError="true" />
   </Target>
 
   <!-- Optional Melon Mods/ drop -->

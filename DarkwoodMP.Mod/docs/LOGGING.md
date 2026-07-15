@@ -4,64 +4,87 @@
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `LogPreset` | **Trace** | **Full logging** — all categories + high-frequency Trace |
-| `LogMinLevel` | Trace | Nothing filtered by level under Trace preset |
-| `LogRedactIPs` | true | Mask IPv4 in log lines |
-| `LogRedactPaths` | true | Absolute paths → filename only |
-| `LogIncludeStacks` | false | Full stacks if true (also on for Dev/Trace errors) |
+| `LogPreset` | **Support** | Session/join/combat Events + Core `[Perf]` without Legacy flood |
+| `LogMinLevel` | Event | Drop Info/Trace under Support |
+| `LogRedactIPs` | false (local dual-box) | Mask IPv4 in log lines when sharing packs |
+| `LogRedactPaths` | false (local dual-box) | Absolute paths → filename only |
+| `LogIncludeStacks` | true | Full stacks on Error |
 | `VerboseLogging` | false | **Deprecated** — forces Trace if preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
 
-Config file: `BepInEx/config/com.darkwood.horde.cfg` section **`[Logging]`**.  
-**Restart the game after changing LogPreset** (filters apply at plugin load).
-
-**Note:** Existing configs that already have `LogPreset=Public` keep that until you change or delete the line. New installs get Trace.
+Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) section **`[Logging]`**.  
+**Restart the game after changing LogPreset.**
 
 ## Presets
 
-| Preset | Who | Categories at Event |
-|--------|-----|---------------------|
-| **Trace** | **Default** — full debug for testers | Everything + high-frequency Trace (large logs) |
-| **Public** | Quiet play (opt-in) | Core, Network, Session, Dream, Death, Save |
-| **Support** | Mid-size bug packs | Public + Combat, Entity, World, Container |
-| **Dev** | All Event, less spam than Trace | All categories at Event only |
+| Preset | Who | What you get |
+|--------|-----|----------------|
+| **Public** | Quiet play | Core, Network, Session, Dream, Death, Save Events |
+| **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container + **`[Perf]`** |
+| **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps (large logs) |
+| **Trace** | High-freq | All cats + Trace; **`VerboseLogging` gates** — *not* LegacyInfo |
 
-Optional: `LogExtraCategories=Combat,AI` when using Public/Support.
+**Important:** `ModRuntime.LegacyInfo` runs **only when LogPreset=Dev**. Trace does **not** enable LegacyInfo.
 
-## What you get on Trace (default)
+## Stutter / hitch triage (dual-box)
 
-Everything: session lifecycle, combat, entities, physics traces, legacy verbose gates, etc. Logs can get **large** after long sessions — trim or zip when uploading.
+1. Prefer **Support** or **Dev** on **both** installs, same mod build.  
+2. Reproduce; quit cleanly.  
+3. Attach **both** `BepInEx/LogOutput.log` files.  
+4. Look for `[Perf] role=Host|Client` every ~2s while co-op connected:
 
-For quieter play: set `LogPreset=Public`.
+| Field | Meaning |
+|-------|---------|
+| `maxMs` | Worst frame in window |
+| `poll` | Network poll + handlers (ms summed) |
+| `upd` / `physBuild` | Update rest / physics snapshot build |
+| `entApply` / `skip` | Entity snapshot apply cost |
+| `pktRx` + `top=` | Packet count + top message types |
+| `footN` / `footMs` / `footType` | FindObjectsOfType cost |
+| `pend lure=… lock=…` | Pending apply queues |
+| `hostEntSend` | Host only: entity broadcast volume |
+
+**Host clean / client hitch:** compare `role=Host` vs `role=Client` Perf lines.
 
 ## How to file a bug
 
-1. Leave default **Trace** (or confirm banner `LogPreset=Trace`) on **both** installs, same mod version.  
-2. Reproduce once.  
-3. Quit cleanly if possible.  
-4. Attach **both**:
-   - **Host:** `C:\Program Files (x86)\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log`
-   - **Client:** `C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\LogOutput.log` (or your second install’s `BepInEx\LogOutput.log`)
-5. Note: steps, host vs client who saw the bug, day/chapter if known.
+1. Same mod version on host + client.  
+2. Support for join bugs; Dev if you need Legacy bulk dumps.  
+3. Quit cleanly.  
+4. Attach both LogOutput.log files + steps.
 
-## Tags in the log
+| Install | Typical path |
+|---------|----------------|
+| Host (Steam) | `…\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log` |
+| Client (second) | `…\SecondDarkwood\Darkwood\BepInEx\LogOutput.log` |
 
-Lines look like `[DWMP/Net] Handshake OK — assigned PlayerId=2`.
+## Tags
 
 | Tag | Category |
 |-----|----------|
-| `[DWMP]` | Core |
-| `[DWMP/Net]` | Network |
-| `[DWMP/Session]` | Session / chapter |
-| `[DWMP/Combat]` | Combat (Support+) |
-| `[DWMP/Entity]` | Entities (Support+) |
-| `[DWMP/Dream]` | Dreams |
-| `[DWMP/Death]` | Death / night resolve |
-| `[DWMP/Save]` | Save share / backups |
+| `[YokWare]` | Core (includes `[Perf]`) |
+| `[YokWare/Net]` | Network |
+| `[YokWare/Session]` | Session / join / bulk |
+| `[YokWare/Combat]` | Combat |
+| `[YokWare/Entity]` | Entities |
+| `[YokWare/World]` | World |
+| `[YokWare/Dream]` | Dreams |
+| `[YokWare/Death]` | Death |
+| `[YokWare/Save]` | Save share |
+
+## Dialog / dream co-op (parity notes)
+
+| Path | Authority |
+|------|-----------|
+| Personal dialog rewards (items/journal) | Speaking **client** applies; host suppresses on DialogOutcome |
+| World flags / world events / dialogue dreams / transport | **Host** only (client defers during `displayNextBoard`) |
+| Tree alreadyShown | Client + host; flush every choice + close |
+| Dream start | Host `prepareDream`; client sleep → DreamStartRequest; dialogue dreams → DialogOutcome (client clears wantToDream) |
+| Dream end rewards | Host `endDreaming` + peers `ApplyRemoteDreamCleanup` |
 
 ## Dev notes
 
-- Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)` over raw `Log.LogInfo`.  
-- `ModRuntime.LegacyInfo` is **Dev/Trace only** (legacy uncategorized paths).  
-- `ModRuntime.VerboseLogging` is set true only under Trace (or Dev+Trace min level).  
-- Light transition logs: `VerboseLightSync=true` (independent).
+- Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)`.  
+- `LegacyInfo` = Dev only.  
+- Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so Support packs still work.  
+- Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias — Host + Client when connected.

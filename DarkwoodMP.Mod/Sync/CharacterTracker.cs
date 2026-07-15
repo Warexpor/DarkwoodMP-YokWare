@@ -266,13 +266,36 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>Returns a snapshot array of all tracked characters.</summary>
-        public static Character[] GetAll()
+        private static Character[] _copyBuf = new Character[64];
+
+        /// <summary>
+        /// Copy tracked characters into a reusable buffer. Returns count.
+        /// Buffer contents valid until the next CopyAll / GetAll call.
+        /// Hot path (entity broadcast 10 Hz) must not allocate ToArray every tick.
+        /// </summary>
+        public static int CopyAll(out Character[] buffer)
         {
             lock (_lock)
             {
-                return _characters.ToArray();
+                int n = _characters.Count;
+                if (_copyBuf.Length < n)
+                    _copyBuf = new Character[Math.Max(n, _copyBuf.Length * 2)];
+                for (int i = 0; i < n; i++)
+                    _copyBuf[i] = _characters[i];
+                buffer = _copyBuf;
+                return n;
             }
+        }
+
+        /// <summary>Returns a new snapshot array of all tracked characters (allocates).</summary>
+        public static Character[] GetAll()
+        {
+            int n = CopyAll(out Character[] buf);
+            if (n == 0)
+                return Array.Empty<Character>();
+            var arr = new Character[n];
+            Array.Copy(buf, arr, n);
+            return arr;
         }
 
         /// <summary>Gets the number of currently tracked characters.</summary>

@@ -1393,8 +1393,10 @@ namespace DWMPHorde.Sync
             {
                 _lastFullRbScanTime = nowScan;
                 DWMPHorde.Logging.ClientPerfProbe.NoteFullRbScan();
-                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType();
+                var footSw = System.Diagnostics.Stopwatch.StartNew();
                 Rigidbody[] allRbs = UnityEngine.Object.FindObjectsOfType<Rigidbody>();
+                footSw.Stop();
+                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType("Rigidbody", footSw.Elapsed.TotalMilliseconds);
                 GameObject best = null;
                 float bestDist = float.MaxValue;
                 for (int i = 0; i < allRbs.Length; i++)
@@ -2031,6 +2033,9 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static readonly List<LightStateMessage> _pendingLights = new List<LightStateMessage>(32);
         private const int MaxPendingLights = 64;
+
+        /// <summary>Pending light applies (CoopPerfProbe).</summary>
+        public static int PendingLightCount => _pendingLights.Count;
 
         /// <summary>
         /// Applies a received light on/off state change from a remote peer.
@@ -3031,7 +3036,8 @@ namespace DWMPHorde.Sync
                 sent++;
             }
             if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Thrown lights (grounded) → p" + playerId + ": " + sent);
+                DWMPHorde.Logging.ModLog.Event(DWMPHorde.Logging.LogCat.Session,
+                    "[BulkSync] Thrown lights (grounded) → p" + playerId + ": " + sent);
         }
 
         internal static List<GameObject> GetKnownTrapsSnapshot()

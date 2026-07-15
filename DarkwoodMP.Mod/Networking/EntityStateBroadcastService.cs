@@ -44,11 +44,11 @@ namespace DWMPHorde.Networking
         /// </summary>
         private static void SendSnapshot(LanNetworkManager net)
         {
-            Character[] all = CharacterTracker.GetAll();
-            if (all == null || all.Length == 0)
+            // CopyAll: no ToArray alloc every 100ms (dual-box host hitch with 100+ tracked AI).
+            int nAll = CharacterTracker.CopyAll(out Character[] all);
+            if (nAll == 0)
                 return;
 
-            int nAll = all.Length;
             int maxEntities = Mathf.Min(nAll, MaxEntitiesPerPacket);
             if (_buffer.Length < maxEntities)
                 _buffer = new EntitySnapshotNet[maxEntities];
@@ -150,13 +150,9 @@ namespace DWMPHorde.Networking
                 _buffer[i].Serialize(writer);
 
             byte[] data = writer.CopyData();
-            foreach (int peerId in net.ConnectedPlayerIds)
-            {
-                // Skip joiners mid world LoadScene — dual-box host freeze when they stop PollEvents.
-                if (!net.IsPeerReadyForGameplay(peerId))
-                    continue;
-                net.SendRawToPlayer(peerId, data, DeliveryMethod.Unreliable);
-            }
+            // Direct peer walk — ConnectedPlayerIds allocated a List every 10 Hz tick.
+            net.SendRawToReadyPeers(data, DeliveryMethod.Unreliable);
+            DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
             _sendCount++;
             if (_sendCount % 10 == 0 && ModRuntime.VerboseLogging)

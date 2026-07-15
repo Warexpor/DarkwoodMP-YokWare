@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 
@@ -45,7 +46,20 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(DialogueButton), "onPress")]
     public static class DialogOutcomeSendPatch
     {
-        private static void Postfix(DialogueButton __instance)
+        private static void Prefix(DialogueButton __instance, out string __state)
+        {
+            // Capture source node before vanilla marks it and switches to dest.
+            __state = "";
+            try
+            {
+                var dw = Singleton<UI>.Instance?.dialogueWindow;
+                if (dw?.currentDialogue != null)
+                    __state = dw.currentDialogue.fullName ?? "";
+            }
+            catch { __state = ""; }
+        }
+
+        private static void Postfix(DialogueButton __instance, string __state)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
@@ -68,20 +82,30 @@ namespace DWMPHorde.Patches
             // Prefer target dialogue name; index alone is fragile when requirements differ.
             if (string.IsNullOrEmpty(target) && index < 0) return;
 
+            string sourceDialogue = __state ?? "";
+
             net.Send(NetMessageType.DialogOutcomeSync,
                 w => new DialogOutcomeSyncMessage
                 {
                     NpcName = dw.npc.name,
                     DecisionIndex = index,
-                    DialogueName = dw.currentDialogue?.fullName ?? "",
+                    DialogueName = sourceDialogue,
                     BoardIndex = boardIdx,
                     TargetDialogueName = target
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
+            // Tree flush every choice (not only on close) so peers converge mid-conversation.
+            try { DialogTreeSync.TryBroadcastFromNpc(dw.npc); }
+            catch (System.Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DialogTree] post-choice flush: " + ex.Message);
+            }
+
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] Client → host: NPC={dw.npc.name} " +
-                $"dialogue={dw.currentDialogue?.fullName} board={boardIdx} " +
+                $"source={sourceDialogue} board={boardIdx} " +
                 $"decision={index} target={target}");
         }
     }
