@@ -40,36 +40,18 @@ namespace DWMPHorde.Patches
         {
             if (!DreamAudioForwarding.ShouldForward(worldPosition)) return;
             if (string.IsNullOrEmpty(audioID)) return;
+
+            // Fix 3: Dream preset music is played locally on each peer via startDreaming.
+            // Forwarding would cause doubled audio on the receiver.
+            if (Dreams.Instance?.preset != null
+                && !string.IsNullOrEmpty(Dreams.Instance.preset.music)
+                && Dreams.Instance.preset.music == audioID)
+                return;
+
             if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
 
             var net = ModRuntime.Network as LanNetworkManager;
             // Broadcast so host-originated dream SFX reach all clients (Send = first peer only).
-            net?.Broadcast(NetMessageType.DreamAudio,
-                w => new DreamAudioMessage
-                {
-                    AudioID = audioID,
-                    PosX = worldPosition.x,
-                    PosY = worldPosition.y,
-                    PosZ = worldPosition.z,
-                    Volume = volume,
-                    Pitch = 1f
-                }.Serialize(w),
-                LiteNetLib.DeliveryMethod.ReliableOrdered);
-        }
-    }
-
-    [HarmonyPriority(Priority.Last)]
-    [HarmonyPatch(typeof(AudioController))]
-    [HarmonyPatch("_PlayAsMusicOrAmbienceSound")]
-    public static class DreamAudioMusicPrefix
-    {
-        private static void Prefix(string audioID, float volume, Vector3 worldPosition)
-        {
-            if (!DreamAudioForwarding.ShouldForward(worldPosition)) return;
-            if (string.IsNullOrEmpty(audioID)) return;
-            if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
-
-            var net = ModRuntime.Network as LanNetworkManager;
             net?.Broadcast(NetMessageType.DreamAudio,
                 w => new DreamAudioMessage
                 {

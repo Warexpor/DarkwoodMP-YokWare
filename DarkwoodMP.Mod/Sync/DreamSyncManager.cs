@@ -28,6 +28,20 @@ namespace DWMPHorde.Sync
         private static bool _earlyEntryTransitionPlayed;
         private static float _earlyEntryTransitionDoneAt;
 
+        /// <summary>True when the local player's entry transition was intercepted by DreamEntryClientPatch.</summary>
+        public static bool EntryTransitionPlayedLocally => _earlyEntryTransitionPlayed;
+
+        /// <summary>
+        /// Called from DreamEntryClientPatch when client intercepts onFinishedVideo.
+        /// Records the transition as already-played so ProcessRemoteDreamCoroutine
+        /// can skip the wait (video already ended) and proceed to fadeout immediately.
+        /// </summary>
+        public static void MarkLocalEntryTransitionPlayed()
+        {
+            _earlyEntryTransitionPlayed = true;
+            _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup;
+        }
+
         /// <summary>
         /// Multiplayer-facing dream gate: session is authoritative when networked;
         /// falls back to local/remote flags for solo or mid-transition.
@@ -106,6 +120,16 @@ namespace DWMPHorde.Sync
                         w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
+            }
+
+            // Fix 1: If an early entry transition was played (peer's video overlay),
+            // clean it up now that local entry is complete — prevents permanent
+            // black screen + paralysis from EnteringDream never being reset.
+            if (_earlyEntryTransitionPlayed)
+            {
+                float remain = _earlyEntryTransitionDoneAt - Time.realtimeSinceStartup;
+                Singleton<Controller>.Instance.StartCoroutine(
+                    LocalEntryFadeoutCoroutine(Mathf.Max(0f, remain)));
             }
 
             ModRuntime.LegacyInfo($"[DreamSync] Local dream started: {presetName}, pos={locationPosition}");
@@ -227,6 +251,12 @@ namespace DWMPHorde.Sync
             // So DreamTransition.skip / ActionSkipTransition can cut the wait.
             if (Dreams.Instance?.startTransition != null)
                 Dreams.Instance.startTransition.isPlaying = true;
+
+            // Arm safety watchdog: if nothing resolves the transition within 20s of
+            // the expected completion, force-clear the stuck overlay + EnteringDream.
+            Singleton<Controller>.Instance.StartCoroutine(
+                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f));
+
             ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
         }
 
@@ -333,6 +363,41 @@ namespace DWMPHorde.Sync
 
             yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
             DreamSession.MarkActive();
+        }
+
+        /// <summary>
+        /// Host-only: waits out the remaining early transition time, then fades the
+        /// video overlay and clears EnteringDream. Mirrors the peer-path cleanup
+        /// that ProcessRemoteDreamCoroutine performs for clients.
+        /// </summary>
+        private static IEnumerator LocalEntryFadeoutCoroutine(float delay)
+        {
+            if (delay > 0.05f)
+                yield return new WaitForSeconds(delay);
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+        }
+
+        /// <summary>
+        /// Safety watchdog: if the early entry transition is still active after the
+        /// timeout and neither a local nor remote dream session started, force-clear
+        /// the stuck state so the player is not permanently blinded + paralysed.
+        /// </summary>
+        private static IEnumerator EntryTransitionWatchdog(float expireAt)
+        {
+            float delay = expireAt - Time.realtimeSinceStartup;
+            if (delay > 0f)
+                yield return new WaitForSeconds(delay);
+            yield return null; // one frame for any pending transitions to settle
+            if (_earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] Watchdog: early entry transition stuck — force-clearing");
+                FadeOutDreamTransition();
+                _earlyEntryTransitionPlayed = false;
+                _earlyEntryTransitionDoneAt = 0f;
+                UnfreezeWorld();
+            }
         }
 
         private static void FadeOutDreamTransition()

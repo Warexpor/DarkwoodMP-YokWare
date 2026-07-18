@@ -73,12 +73,42 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host)
                 return;
-            if (string.IsNullOrEmpty(msg.PresetName))
-                return;
 
             // Client may have leveled (hadDreamAtLvl*) — union before prepare.
             if (msg.LvlFlags != 0)
                 DreamSession.ApplyLvlFlags(msg.LvlFlags);
+
+            if (string.IsNullOrEmpty(msg.PresetName))
+            {
+                // Fix 2: Random dream (empty name from onFinishedVideo). Host rolls
+                // via getPreset inside prepareDream; DreamGetPresetPatch handles TryBegin.
+                if (DreamSession.IsActive)
+                {
+                    ModLog.Event(LogCat.Dream,
+                        "[DreamSync] ignore empty start request — session active");
+                    return;
+                }
+                if (Singleton<Dreams>.Instance == null
+                    || Singleton<Dreams>.Instance.dreamPrepared
+                    || Singleton<Dreams>.Instance.dreaming)
+                {
+                    ModLog.Event(LogCat.Dream,
+                        "[DreamSync] ignore empty start request — dream already prepared/active");
+                    return;
+                }
+
+                ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
+                try
+                {
+                    Singleton<Controller>.Instance.StartCoroutine(
+                        Singleton<Dreams>.Instance.prepareDream(""));
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
+                }
+                return;
+            }
 
             if (DreamSession.IsActive)
             {

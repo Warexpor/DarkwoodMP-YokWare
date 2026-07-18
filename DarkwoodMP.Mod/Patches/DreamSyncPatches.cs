@@ -164,6 +164,16 @@ namespace DWMPHorde.Patches
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.Role == NetworkRole.Client)
                 {
+                    // Fix 2: If onFinishedVideo prefix already sent the request (entry transition
+                    // path), skip re-sending here — the dialogue-direct path still sends normally.
+                    if (DreamSyncManager.EntryTransitionPlayedLocally)
+                    {
+                        ModRuntime.LegacyInfo(
+                            "[DreamSync] Client entry transition already handled — skip re-request");
+                        __state = true;
+                        return false;
+                    }
+
                     // Host owns begin: request only. Freeze world until DreamStarted remote path.
                     ModRuntime.LegacyInfo($"[DreamSync] Client-initiated dream — requesting host to start: {preset}");
                     net.Send(NetMessageType.DreamStartRequest, w => new DreamStartRequestMessage

@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.9.2+ — Dream entry fixes: host black screen + client duplicate spawn + loud audio (2026-07-18)
+
+Log-driven dual-box fix for three weird dream-entry bugs. Root cause: the peer path
+and vanilla path fought for who enters the dream, leaving the host blind + paralysed,
+the client in a double-spawn black void, and both hearing 2x music.
+
+### Fixed — host permanent black screen + paralysis (Bug 1)
+- **Root cause:** When the client initiates a dream, `OnPeerDreamEntryTransition` sets
+  `Core.EnteringDream=true` + video overlay on the host. The host then enters via its
+  own local vanilla path (`prepareDream` → `startDreaming`), but `FadeOutDreamTransition()`
+  (the only place that resets `EnteringDream=false`) never runs on the peer path for the
+  host → permanent `ClearInpuFlags()` (paralysis) + video overlay left active (blind).
+- **LocalEntryFadeoutCoroutine:** In `OnLocalDreamStarted`, if `_earlyEntryTransitionPlayed`,
+  waits out the remaining transition time then calls `FadeOutDreamTransition()` + resets
+  flags — same cleanup that `ProcessRemoteDreamCoroutine` does for clients.
+- **EntryTransitionWatchdog:** Safety timeout armed in `OnPeerDreamEntryTransition` at
+  `_earlyEntryTransitionDoneAt + 20s`. If flags are still set without an active session,
+  force-clears the overlay + `EnteringDream` + unfreezes world.
+
+### Fixed — client long black void + duplicate scene spawn (Bug 2)
+- **Root cause:** Client's vanilla `DreamTransition.onFinishedVideo` ran `prepareDream`
+  locally (spawned the dream location) before `DreamStartPatch` blocked `startDreaming`.
+  When host's `DreamStarted` arrived, `ProcessRemoteDreamCoroutine` spawned a **second**
+  copy of the same dream location, producing the long black void before the bunker appeared.
+- **DreamEntryClientPatch:** New Harmony Prefix on `DreamTransition.onFinishedVideo` for
+  non-host peers. Returns false (skips vanilla) → sends `DreamStartRequest` to host →
+  `FreezeWorld` → `MarkLocalEntryTransitionPlayed()`. Host alone enters vanilla; client
+  enters via the single `ProcessRemoteDreamCoroutine` → `LoadDreamSceneCoroutine` path.
+- **DreamStartPatch guard:** Client branch checks `EntryTransitionPlayedLocally` before
+  re-sending `DreamStartRequest` (prevents double-request when `onFinishedVideo` already
+  sent it; dialogue-direct path unaffected).
+- **HandleDreamStartRequest empty PresetName:** Extended to handle the random-dream case
+  (empty name from `dreamToTransitionTo`). Host runs `prepareDream("")` which rolls via
+  `getPreset`; existing `DreamGetPresetPatch` handles `TryBegin` after resolution.
+
+### Fixed — loud audio / doubled music (Bug 3)
+- **Root cause:** Two compounding mechanisms: (a) duplicated dream location = duplicated
+  ambient/audio sources; (b) `DreamAudioMusicPrefix` forwarded ALL music/ambience plays
+  (`_PlayAsMusicOrAmbienceSound`) to peers, while each peer's own `startDreaming` already
+  played the same `preset.music` locally → 2× playback at full spatial volume.
+- **DreamAudioMusicPrefix deleted:** Each peer generates their own music/ambience locally;
+  forwarding was pure duplication.
+- **preset.music filter in DreamAudioPlayPrefix:** Added check — if audioID matches
+  `Dreams.Instance.preset.music`, skip forwarding. Prevents host's `preset.music` (routed
+  through `_PlayAsSound`) from doubling on the client.
+
+### Files
+- `Sync/DreamSyncManager.cs` (LocalEntryFadeoutCoroutine, EntryTransitionWatchdog,
+  MarkLocalEntryTransitionPlayed, EntryTransitionPlayedLocally, OnLocalDreamStarted cleanup)
+- `Patches/DreamEntryClientPatch.cs` (new — onFinishedVideo prefix for clients)
+- `Patches/DreamSyncPatches.cs` (DreamStartPatch guard)
+- `Networking/LanNetworkManager.DreamHandlers.cs` (empty PresetName handling)
+- `Patches/DreamAudioPatches.cs` (removed DreamAudioMusicPrefix, added preset.music filter)
+
 ## 0.9.2+ — Restore ENTER WORLD after sticky mainMenu (2026-07-15)
 
 ### Fixed
