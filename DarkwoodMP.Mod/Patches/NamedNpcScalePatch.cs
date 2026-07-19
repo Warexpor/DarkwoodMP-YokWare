@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Networking;
@@ -14,20 +13,18 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Host-only: scale presence of allowlisted NPCs (default ChomperBlack) during dreams.
-    /// Dual path: Core.AddPrefab (runtime / CharacterSpawnPoint) + delayed scan (pre-placed).
+    /// Only on real spawn (Core.AddPrefab) — CharacterSpawnPoint, GameEvent.spawnCharacter,
+    /// CharacterSpawner, etc. Pre-placed / event-gated characters are NOT doubled at load;
+    /// extras fire when the same spawn path that vanilla uses runs.
     /// Night hideout scenarios are intentionally not scaled.
     /// </summary>
     public static class NamedNpcScalePatch
     {
         private static bool _spawningExtra;
-        private static Coroutine _delayedScan;
-        private static int _scanGeneration;
 
         public static void Reset()
         {
             _spawningExtra = false;
-            _scanGeneration++;
-            _delayedScan = null;
             CoopBalance.InvalidateAllowlistCache();
         }
 
@@ -84,35 +81,25 @@ namespace DWMPHorde.Patches
             if (count <= 0 || original == null)
                 return;
 
+            // Anchor extras near the original spawn (event position), not near remote
+            // proxies — party mult is extra bodies at the same trigger, not free spawns on peers.
             Vector3 basePos = original.transform.position;
             Quaternion rot = original.transform.rotation;
 
             // Parent null (not under dream Location): EntityStateBroadcastService skips
             // Characters parented under dreamLocation; unparented dream spawns sync like ChomperHalf.
-            var net = LanNetworkManager.Instance;
-            List<Vector3> anchors = new List<Vector3>(4) { basePos };
-            if (net != null)
-            {
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy != null)
-                        anchors.Add(proxy.transform.position);
-                }
-            }
-
             _spawningExtra = true;
             try
             {
                 for (int i = 0; i < count; i++)
                 {
-                    Vector3 anchor = anchors[Mathf.Min(i + 1, anchors.Count - 1)];
-                    Vector3 spawnPos = anchor + new Vector3(
-                        UnityEngine.Random.Range(-80f, 80f),
+                    Vector3 spawnPos = basePos + new Vector3(
+                        UnityEngine.Random.Range(-60f, 60f),
                         0f,
-                        UnityEngine.Random.Range(-80f, 80f));
+                        UnityEngine.Random.Range(-60f, 60f));
                     try
                     {
-                        spawnPos = Core.randomPosAround(anchor, 40f, 120f, canBeInside: true, mustBeInsideGraph: false);
+                        spawnPos = Core.randomPosAround(basePos, 30f, 90f, canBeInside: true, mustBeInsideGraph: false);
                     }
                     catch
                     {
@@ -140,69 +127,7 @@ namespace DWMPHorde.Patches
             }
         }
 
-        /// <summary>Scan dream location for pre-placed allowlisted characters.</summary>
-        public static void ScanDreamLocation(string reason)
-        {
-            if (!CanScaleDreamNpcs())
-                return;
-
-            Location loc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
-            if (loc == null)
-                return;
-
-            Character[] chars = loc.GetComponentsInChildren<Character>(true);
-            int processed = 0;
-            for (int i = 0; i < chars.Length; i++)
-            {
-                Character c = chars[i];
-                if (c == null || c.gameObject == null)
-                    continue;
-                if (c.GetComponent<DreamBalanceProcessedMarker>() != null)
-                    continue;
-                if (!CoopBalance.IsNamedNpcAllowlisted(c.name))
-                    continue;
-
-                ProcessOriginal(c.gameObject, "scan:" + reason);
-                processed++;
-            }
-
-            if (processed > 0 || ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[DreamNpcScale] scan ({reason}) processed={processed}");
-        }
-
-        private static IEnumerator DelayedScanRoutine(int generation)
-        {
-            yield return new WaitForSeconds(2f);
-            if (generation != _scanGeneration)
-                yield break;
-            ScanDreamLocation("delayed");
-            // Second pass for CharacterSpawnPoint (0.1–1s) stragglers after first delay
-            yield return new WaitForSeconds(1.5f);
-            if (generation != _scanGeneration)
-                yield break;
-            ScanDreamLocation("delayed2");
-            _delayedScan = null;
-        }
-
-        private static void ScheduleDelayedScan()
-        {
-            if (!CanScaleDreamNpcs())
-                return;
-
-            _scanGeneration++;
-            int gen = _scanGeneration;
-            MonoBehaviour runner = LanNetworkManager.Instance;
-            if (runner == null && Singleton<Controller>.Instance != null)
-                runner = Singleton<Controller>.Instance;
-            if (runner == null)
-                return;
-
-            if (_delayedScan != null)
-                runner.StopCoroutine(_delayedScan);
-            _delayedScan = runner.StartCoroutine(DelayedScanRoutine(gen));
-        }
-
-        // ─── Core.AddPrefab: runtime / spawn-point dream NPCs ────────────
+        // ─── Core.AddPrefab only: event / spawn-point / spawner dream NPCs ───
 
         [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
@@ -219,19 +144,6 @@ namespace DWMPHorde.Patches
                     return;
 
                 ProcessOriginal(__result, "AddPrefab");
-            }
-        }
-
-        // ─── Dreams.onLocationSpawned: schedule pre-placed scan ──────────
-
-        [HarmonyPatch(typeof(Dreams), "onLocationSpawned")]
-        public static class DreamLocationSpawnedScalePatch
-        {
-            private static void Postfix()
-            {
-                if (!CanScaleDreamNpcs())
-                    return;
-                ScheduleDelayedScan();
             }
         }
     }

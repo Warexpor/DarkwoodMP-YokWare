@@ -27,9 +27,10 @@ namespace DWMPHorde.Patches
             // from the remote proxy (host walks outside → client hears forest from host).
             if (LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
 
-            // Dream session: DreamAudioPatches owns _PlayAsSound/music forward.
-            // Avoid double-send (PlayerAudio + DreamAudio) for the same one-shot (5.1).
-            if (Dreams.Instance != null && Dreams.Instance.dreaming)
+            // Dream: host world one-shots go DreamAudio (host-only). Enemy AI → EntitySound.
+            // Player-origin still needs PlayerAudio so peers hear client guns/equip in dream.
+            // Non-player one-shots during dream: leave to EntitySound / host DreamAudio.
+            if (Dreams.Instance != null && Dreams.Instance.dreaming && !fromPlayer)
                 return;
 
             if (requireRateLimit && !LocalAudioService.TryAllowForward(audioID))

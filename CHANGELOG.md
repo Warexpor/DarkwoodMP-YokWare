@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.9.2+ — Dream NpcScale event-only + client dream audio (2026-07-19)
+
+Log-driven dual-box: church ruins dream (`dream_church_ruins_01`). Host
+`[DreamNpcScale] scan:delayed: ChomperBlack mult=2` doubled pre-placed
+chompers at load; client got premature `Characters/ChomperBlack` entity + died.
+Host `pktRx` was flooded with client `DreamAudio` (30+/2s) while client also
+ran local scene audio + host DreamAudio → terrible loud stack.
+
+### Fixed — black chomper balancing ignores spawn events
+- **Root cause:** Delayed location scan + `onLocationSpawned` doubled every
+  allowlisted NPC already in the dream prefab (~2s after enter), not when the
+  event/`CharacterSpawnPoint`/`GameEvent.spawnCharacter` actually spawned them.
+  Extras also anchored near remote proxies (free ambush on the client).
+- **Event-only scale:** Removed delayed scan and `DreamLocationSpawnedScalePatch`.
+  Scale runs only on `Core.AddPrefab` (same path as vanilla
+  CharacterSpawnPoint / GameEvent / CharacterSpawner).
+- **Extras at trigger pos:** Spawn extras around the original AddPrefab position,
+  not near remote player proxies.
+
+### Fixed — client dream audio terribly loud / broken
+- **Root cause:** Both peers forwarded every `_PlayAsSound` as `DreamAudio`
+  (client→host flood; host→client stack on top of local ambience/music). No
+  ambient/music/UI filters on that path. `PlayOneShot` also ignored proper
+  volume scaling.
+- **Host-only DreamAudio:** Clients no longer broadcast DreamAudio; local scene
+  audio stays local; host forwards world one-shots only.
+- **Filters:** Skip preset.music, never-cull BGM, `IsWorldAmbientLocalOnly`,
+  personal/UI/footsteps — same discipline as PlayerAudio.
+- **Player SFX in dream:** `PlayerAudio` still sends during dreams when
+  `fromPlayer` (guns/equip); non-player stays EntitySound / host DreamAudio.
+- **Receive volume:** `DreamAudioPlayer` applies `msg.Volume * itemScale` once
+  via PlayOneShot (no double volume on source).
+
+### Files
+- `Patches/NamedNpcScalePatch.cs`
+- `Patches/DreamAudioPatches.cs`
+- `Patches/PlayerSoundSyncPatches.cs`
+- `Sync/DreamAudioPlayer.cs`
+
 ## 0.9.2+ — Dream entry fixes: host black screen + client duplicate spawn + loud audio (2026-07-18)
 
 Log-driven dual-box fix for three weird dream-entry bugs. Root cause: the peer path

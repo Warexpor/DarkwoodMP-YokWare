@@ -50,11 +50,15 @@ namespace DWMPHorde.Sync
             var source = _sources[_nextSource % _sources.Length];
             _nextSource++;
 
+            // Spatial one-shot: keep source.volume at 1 and scale via PlayOneShot so
+            // msg.Volume is not applied twice (was volume * 1f on both paths).
+            float vol = msg.Volume <= 0f ? 1f : Mathf.Clamp01(msg.Volume);
+            float itemScale = LocalAudioService.GetItemVolumeScale(msg.AudioID);
             source.transform.position = pos;
-            source.volume = msg.Volume;
+            source.volume = 1f;
             source.pitch = msg.Pitch <= 0f ? 1f : msg.Pitch;
             source.spatialBlend = 1f;
-            source.PlayOneShot(clip, 1f);
+            source.PlayOneShot(clip, Mathf.Clamp01(vol * itemScale));
         }
 
         public static void Cleanup()
