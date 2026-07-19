@@ -63,6 +63,9 @@ namespace DWMPHorde.Networking
         private bool _previousInOutsideLocation;
         private string _previousLocationName = "";
         private int _locationSyncCounter;
+        /// <summary>PlayerLightState arrived before proxy existed (phase-3 / early handshake).</summary>
+        private readonly Dictionary<int, PlayerLightStateMessage> _pendingPlayerLights =
+            new Dictionary<int, PlayerLightStateMessage>();
 
         // Protocol 19 continuous light dirty cache (local send path)
         private bool _prevSentFlareActive;
@@ -271,6 +274,17 @@ namespace DWMPHorde.Networking
         /// sound when the item actually moves, not on every DragSync tick.</summary>
         private readonly Dictionary<string, Vector3> _lastDragSyncPos = new Dictionary<string, Vector3>();
 
+        /// <summary>
+        /// After a reliable DragSync STOP, late Unreliable IsDragging=true packets
+        /// (in-flight during the grab) must not re-claim / re-block the object.
+        /// Value = unscaledTime when stop was applied.
+        /// </summary>
+        private readonly Dictionary<string, float> _dragEndedAt =
+            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Ignore stale IsDragging packets for this long after a stop.</summary>
+        private const float DragStopStaleGrace = 1.0f;
+
 
         /// <summary>Tracks which container slots the local player has sent a pending
         /// RemoveItem/TakeItem for. Key = container position string, Value = set of
@@ -361,6 +375,7 @@ namespace DWMPHorde.Networking
                     DestroyRemoteProxy(id);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
+                _pendingPlayerLights.Clear();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
                 _awaitingLateJoinBulk.Clear();
@@ -406,6 +421,7 @@ namespace DWMPHorde.Networking
             foreach (int id in new List<int>(_remoteProxies.Keys))
                 DestroyRemoteProxy(id);
             _remoteProxies.Clear();
+            _pendingPlayerLights.Clear();
             _wasDragging = false;
             _lastDraggedItemName = null;
             _dragScrapeActive = false;
@@ -413,6 +429,7 @@ namespace DWMPHorde.Networking
             _spawnedDragProxyItems.Clear();
             _lastDragSyncPos.Clear();
             _dragClaims.Clear();
+            _dragEndedAt.Clear();
             DWMPHorde.Audio.MovingObjectSoundService.Reset();
             _remoteDragItemIds.Clear();
             _remoteDragItemNames.Clear();
@@ -1070,17 +1087,32 @@ namespace DWMPHorde.Networking
                 // Exited the location (left the sub-location area)
                 if (!inOutsideLoc && _previousInOutsideLocation)
                 {
-                    Vector3 exitPos = local.transform.position;
-                    Broadcast(NetMessageType.LocationExit,
-                        w => new LocationExitMessage
-                        {
-                            PosX = exitPos.x,
-                            PosY = exitPos.y,
-                            PosZ = exitPos.z,
-                            PlayerId = _localPlayerId
-                        }.Serialize(w),
-                        DeliveryMethod.ReliableOrdered);
-                    ModRuntime.LegacyInfo($"[LocationSync] sent LocationExit pid={_localPlayerId} pos={exitPos}");
+                    // Dream transport (dreamPrepared branch) never sets playerInOutsideLocation=true,
+                    // so settle hooks set previous=true while live flag stays false → false Exit.
+                    // While dreaming / EnteringDream, stay "inside" the dream pad.
+                    bool stayInDreamPad = Sync.DreamSyncManager.IsDreamActive
+                        || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared))
+                        || Core.EnteringDream;
+                    if (stayInDreamPad)
+                    {
+                        inOutsideLoc = true;
+                        if (string.IsNullOrEmpty(locName) && !string.IsNullOrEmpty(_previousLocationName))
+                            locName = _previousLocationName;
+                    }
+                    else
+                    {
+                        Vector3 exitPos = local.transform.position;
+                        Broadcast(NetMessageType.LocationExit,
+                            w => new LocationExitMessage
+                            {
+                                PosX = exitPos.x,
+                                PosY = exitPos.y,
+                                PosZ = exitPos.z,
+                                PlayerId = _localPlayerId
+                            }.Serialize(w),
+                            DeliveryMethod.ReliableOrdered);
+                        ModRuntime.LegacyInfo($"[LocationSync] sent LocationExit pid={_localPlayerId} pos={exitPos}");
+                    }
                 }
 
                 _previousInOutsideLocation = inOutsideLoc;
@@ -1173,6 +1205,9 @@ namespace DWMPHorde.Networking
                 && cid == _localPlayerId)
                 _dragClaims.Remove(endedName);
 
+            if (!string.IsNullOrEmpty(endedName))
+                _dragEndedAt[endedName] = Time.unscaledTime;
+
             if (!IsConnected)
             {
                 if (!string.IsNullOrEmpty(endedName))
@@ -1191,6 +1226,8 @@ namespace DWMPHorde.Networking
             if (!string.IsNullOrEmpty(endedName))
             {
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(endedName);
+                // Local free-body hold (host) after our own drag — free the RB for peers.
+                Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(endedName);
                 // Host: dual-path intentional stop (PlayerAudio IsStopSignal) so residual
                 // PhysicsState after claim release cannot keep scrape armed on peers.
                 if (_role == NetworkRole.Host)

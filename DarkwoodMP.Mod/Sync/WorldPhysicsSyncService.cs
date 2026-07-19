@@ -1203,10 +1203,50 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Finds a world object (mushroom, exp item, etc.) by position and destroys it.
+        /// After remote E-drag ends (or local drag ends on host): drop client-push
+        /// kinematic hold + interp by object name so the free body is draggable again.
+        /// Without this, host kept isKinematic / claim side-effects and could not re-grab.
+        /// </summary>
+        public static void ReleaseClientPushHoldByName(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return;
+
+            List<int> dropIds = null;
+            foreach (var kv in _clientKinematic)
+            {
+                if (string.Equals(kv.Value.objName, objectName, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dropIds == null) dropIds = new List<int>();
+                    dropIds.Add(kv.Key);
+                }
+            }
+
+            if (dropIds != null)
+            {
+                for (int i = 0; i < dropIds.Count; i++)
+                {
+                    int id = dropIds[i];
+                    if (_clientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
+                        kin.rb.isKinematic = false;
+                    _clientKinematic.Remove(id);
+                    _clientKinematicGate[id] = Time.time;
+                    _objectInterp.Remove(id);
+                    _bodyPushSoundActive.Remove(objectName);
+                    _bodyPushSoundTimer.Remove(id);
+                    if (_pushGidToName.TryGetValue(id, out string n) && string.Equals(n, objectName, StringComparison.OrdinalIgnoreCase))
+                        _pushGidToName.Remove(id);
+                    _pushNameToGid.Remove(objectName);
+                }
+            }
+
+            // Name-only cleanup when gid maps already gone.
+            _bodyPushSoundActive.Remove(objectName);
+            _pushNameToGid.Remove(objectName);
+        }
+
+        /// <summary>
+        /// Finds a world object (mushroom, exp item, shiny stone, etc.) by position and destroys it.
         /// Used when the remote peer reports that they harvested/picked up the object.
-        /// First checks if the object name likely matches, then destroys by calling Core.RemovePooledPrefab
-        /// or Object.Destroy depending on how the object was spawned.
         /// </summary>
         public static void DestroyObjectByPos(Vector3 pos, string objectName)
         {
@@ -1214,7 +1254,12 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(objectName) && objectName.ToLowerInvariant().Contains("audioobject"))
                 return;
 
-            Collider[] nearby = Physics.OverlapSphere(pos, 1.5f);
+            string needle = string.IsNullOrEmpty(objectName) ? null : objectName.ToLowerInvariant();
+            GameObject best = null;
+            float bestDist = float.MaxValue;
+
+            // 1) OverlapSphere: any nearby root matching name/type OR harvest keywords.
+            Collider[] nearby = Physics.OverlapSphere(pos, 2.5f);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
@@ -1223,54 +1268,172 @@ namespace DWMPHorde.Sync
                 if (rb != null) root = rb.gameObject;
                 if (root == null) continue;
 
-                string rootName = root.name.ToLowerInvariant();
-                if (rootName.Contains("mushroom") || rootName.Contains("exp") || rootName.Contains("bio")
-                    || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap") || rootName.Contains("animal")
-                    || rootName.Contains("barrel") || rootName.Contains("tank") || rootName.Contains("glass") || rootName.Contains("chain")
-                    || rootName.Contains("infect")) // infection_splat ground (4.10)
+                // Prefer Item / itemInv Inventory roots for world pickups (shiny stone, etc.).
+                Item item = nearby[i].GetComponentInParent<Item>();
+                if (item != null) root = item.gameObject;
+                else
                 {
-                    // Position-based debounce to prevent harvest dupes from simultaneous clicks
-                    int posKey = (int)(pos.x * 10f) ^ ((int)(pos.y * 10f) << 10) ^ ((int)(pos.z * 10f) << 20);
-                    float now = Time.time;
-                    if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy) && (now - lastDestroy) < DestroyDebounceTime)
-                    {
-                        if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
-                        return;
-                    }
-                    _destroyDebounce[posKey] = now;
+                    Inventory inv = nearby[i].GetComponentInParent<Inventory>();
+                    if (inv != null && inv.invType == Inventory.InvType.itemInv)
+                        root = inv.gameObject;
+                }
 
-                    RemoveObjectFromInterpolation(root);
-                    Core.RemovePooledPrefab(root.transform);
-                    // Destroy is end-of-frame deferred — ApplyingFromNetwork would already be
-                    // false in Object.Destroy Prefix → re-broadcast WorldObjectRemoved thrash.
-                    try
-                    {
-                        TraverseHack.ApplyingFromNetwork = true;
-                        UnityEngine.Object.DestroyImmediate(root);
-                    }
-                    finally { TraverseHack.ApplyingFromNetwork = false; }
-                    ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + root.name + "\" at " + pos);
-                    return;
+                if (!ShouldDestroyWorldPickup(root, needle))
+                    continue;
+
+                float d = Vector3.Distance(root.transform.position, pos);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = root;
                 }
             }
 
-            // Fallback: search by name (skip AudioObject requests — they are ephemeral, not actual traps)
-            if (!string.IsNullOrEmpty(objectName) && !objectName.ToLowerInvariant().Contains("audioobject"))
+            // 2) Scene scan by display name / invItem.type near pos (no collider items).
+            if (best == null && needle != null)
+            {
+                Item[] items = UnityEngine.Object.FindObjectsOfType<Item>();
+                for (int i = 0; i < items.Length; i++)
+                {
+                    Item it = items[i];
+                    if (it == null || !it.gameObject.scene.IsValid()) continue;
+                    string itemType = it.invItem != null ? it.invItem.type : null;
+                    if (!NameOrItemTypeMatches(it.gameObject, itemType, needle)) continue;
+                    float d = Vector3.Distance(it.transform.position, pos);
+                    if (d > 4f) continue;
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        best = it.gameObject;
+                    }
+                }
+
+                if (best == null)
+                {
+                    Inventory[] invs = UnityEngine.Object.FindObjectsOfType<Inventory>();
+                    for (int i = 0; i < invs.Length; i++)
+                    {
+                        Inventory inv = invs[i];
+                        if (inv == null || inv.invType != Inventory.InvType.itemInv) continue;
+                        if (!inv.gameObject.scene.IsValid()) continue;
+                        string slotType = FirstSlotType(inv);
+                        if (!NameOrItemTypeMatches(inv.gameObject, slotType, needle)) continue;
+                        float d = Vector3.Distance(inv.transform.position, pos);
+                        if (d > 4f) continue;
+                        if (d < bestDist)
+                        {
+                            bestDist = d;
+                            best = inv.gameObject;
+                        }
+                    }
+                }
+            }
+
+            // 3) Last resort: GameObject.Find (first match only — used when unique).
+            if (best == null && !string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
-                if (named != null)
+                if (named != null && Vector3.Distance(named.transform.position, pos) < 8f)
+                    best = named;
+            }
+
+            if (best == null)
+            {
+                ModRuntime.LegacyInfo("[ObjectDestroy] miss name=\"" + (objectName ?? "") + "\" at " + pos);
+                return;
+            }
+
+            int posKey = (int)(pos.x * 10f) ^ ((int)(pos.y * 10f) << 10) ^ ((int)(pos.z * 10f) << 20);
+            float now = Time.time;
+            if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy) && (now - lastDestroy) < DestroyDebounceTime)
+            {
+                if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
+                return;
+            }
+            _destroyDebounce[posKey] = now;
+
+            RemoveObjectFromInterpolation(best);
+            Core.RemovePooledPrefab(best.transform);
+            try
+            {
+                TraverseHack.ApplyingFromNetwork = true;
+                UnityEngine.Object.DestroyImmediate(best);
+            }
+            finally { TraverseHack.ApplyingFromNetwork = false; }
+            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + best.name + "\" at " + pos + " d=" + bestDist.ToString("F1"));
+        }
+
+        private static string FirstSlotType(Inventory inv)
+        {
+            if (inv?.slots == null || inv.slots.Count == 0) return null;
+            InvItemClass c = inv.slots[0].invItem;
+            return InvItemClass.isNull(c) ? null : c.type;
+        }
+
+        private static bool NameOrItemTypeMatches(GameObject go, string itemType, string needleLower)
+        {
+            if (go == null || string.IsNullOrEmpty(needleLower)) return false;
+            string n = go.name.ToLowerInvariant();
+            string bare = n.Replace("(clone)", "").Trim();
+            if (n == needleLower || n.Contains(needleLower) || needleLower.Contains(bare))
+                return true;
+            if (!string.IsNullOrEmpty(itemType)
+                && itemType.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Display name "Shiny stone" vs type shiny_rock
+            if (!string.IsNullOrEmpty(itemType))
+            {
+                string t = itemType.ToLowerInvariant().Replace('_', ' ');
+                if (n.Contains(t) || needleLower.Replace('_', ' ').Contains(t))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool ShouldDestroyWorldPickup(GameObject root, string needleLower)
+        {
+            if (root == null) return false;
+            string rootName = root.name.ToLowerInvariant();
+            if (rootName.Contains("mushroom") || rootName.Contains("exp") || rootName.Contains("bio")
+                || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap") || rootName.Contains("animal")
+                || rootName.Contains("barrel") || rootName.Contains("tank") || rootName.Contains("glass") || rootName.Contains("chain")
+                || rootName.Contains("infect"))
+                return true;
+
+            if (needleLower == null) return false;
+
+            Item item = root.GetComponent<Item>() ?? root.GetComponentInParent<Item>();
+            if (item != null)
+            {
+                string t = item.invItem != null ? item.invItem.type : null;
+                if (NameOrItemTypeMatches(item.gameObject, t, needleLower))
+                    return true;
+            }
+
+            Inventory inv = root.GetComponent<Inventory>() ?? root.GetComponentInParent<Inventory>();
+            if (inv != null && inv.invType == Inventory.InvType.itemInv
+                && NameOrItemTypeMatches(inv.gameObject, FirstSlotType(inv), needleLower))
+                return true;
+
+            return NameOrItemTypeMatches(root, null, needleLower);
+        }
+
+        /// <summary>
+        /// After a remote peer emptied an itemInv world pickup, destroy the visual GO if slots are empty.
+        /// </summary>
+        public static void DestroyEmptyItemInvAt(Vector3 pos)
+        {
+            Inventory inv = WorldQueryHelper.FindInventoryByPos(pos, 3f);
+            if (inv == null || inv.invType != Inventory.InvType.itemInv) return;
+            if (inv.slots != null)
+            {
+                for (int i = 0; i < inv.slots.Count; i++)
                 {
-                    RemoveObjectFromInterpolation(named);
-                    Core.RemovePooledPrefab(named.transform);
-                    try
-                    {
-                        TraverseHack.ApplyingFromNetwork = true;
-                        UnityEngine.Object.DestroyImmediate(named);
-                    }
-                    finally { TraverseHack.ApplyingFromNetwork = false; }
-                    ModRuntime.LegacyInfo("[ObjectDestroy] destroyed by name \"" + named.name + "\" at " + pos);
+                    if (inv.slots[i] != null && !InvItemClass.isNull(inv.slots[i].invItem))
+                        return; // still has loot
                 }
             }
+            DestroyObjectByPos(inv.transform.position, inv.name);
         }
 
         /// <summary>
@@ -2066,8 +2229,10 @@ namespace DWMPHorde.Sync
             if (Player.Instance == null || Core.mainMenu || Core.loadingGame) return;
 
             float now = Time.unscaledTime;
-            if (now < _nextPendingLightFlushTime) return;
-            _nextPendingLightFlushTime = now + PendingLightFlushInterval;
+            // Immediate flush when just entered a dream (caller may invoke right after load).
+            bool dreamPad = Dreams.Instance != null && Dreams.Instance.dreaming;
+            if (!dreamPad && now < _nextPendingLightFlushTime) return;
+            _nextPendingLightFlushTime = now + (dreamPad ? 0.25f : PendingLightFlushInterval);
 
             if (_pendingLightQueuedAt < 0f)
                 _pendingLightQueuedAt = now;
@@ -2086,7 +2251,8 @@ namespace DWMPHorde.Sync
                 LightStateMessage ls = _pendingLights[i];
                 Vector3 p = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
                 // Far map lights stay unloaded — drop until player walks near (re-bulk not needed).
-                if (!Networking.ClientEntityInterpolationService.IsInClientInterest(p))
+                // Keep all while dreaming (bunker pad is far from forest listen pos).
+                if (!dreamPad && !Networking.ClientEntityInterpolationService.IsInClientInterest(p))
                 {
                     _pendingLights.RemoveAt(i);
                     continue;
@@ -2105,9 +2271,12 @@ namespace DWMPHorde.Sync
 
             // Late-join bulk sends every on-lamp on the map. Far ones are not in the client
             // grid — do not queue (was 30+ pending → periodic FoT stutters every few seconds).
+            // Dream pads sit at -50k/-75k world coords — always in interest while dreaming.
             bool clientSide = ModRuntime.Network != null
                 && ModRuntime.Network.Role == Networking.NetworkRole.Client;
-            if (clientSide && !Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
+            bool dreamPad = Dreams.Instance != null && Dreams.Instance.dreaming;
+            if (clientSide && !dreamPad
+                && !Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
                 return true; // treat as done — host will re-send if player enters area via live LightState
 
             Item item = FindLightByPos(pos, ls.ItemName);

@@ -33,6 +33,10 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
+            // We own this grab: kill residual MOS from prior remote motion so native
+            // ItemSounds is the only scrape (client was hearing MOS + native = 2×).
+            ItemMovingSoundHelper.ClearRemoteScrape(objName);
+            MovingObjectSoundService.StopImmediate(objName);
             return true;
         }
     }

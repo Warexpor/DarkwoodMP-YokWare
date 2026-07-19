@@ -1,5 +1,125 @@
 # Changelog
 
+## 0.9.2+ — Dream dialogue door + flashlight spatial (2026-07-19)
+
+Bunker dual-box: host dialogue door open left client blocked; flashlight click
+was 2D-local with no reverb.
+
+### Fixed
+- **Dialogue door not open / room blocked on client:** Host never logged
+  `Door.open` after `onLeaveDoorDialogue` (open runs in delayed GameEvent
+  coroutines; targets often miss on client dream load). Now: explicit
+  `Door.open` patch + DoorState dual-path; host polls opened doors 0–3.5s after
+  dialogue-door GameEvents and re-broadcasts; client force unlock/unblock/open
+  near `door_underground` after apply; unlock/unblock also sync; DoorOpen
+  search widened in dreams.
+- **Flashlight click from host:** Was Prefer2d parentless (local ears, no
+  bunker reverb). Flashlight/torch activate/deactivate now spatial at remote
+  proxy; keep AudioController reverb/lowpass; equip get/hide stay 2D.
+
+### Files
+- `Patches/DreamDoorSyncPatches.cs`, `GameEventsFiredPatch.cs`
+- `Networking/LanNetworkManager.Handlers.cs`
+- `Audio/LocalAudioService.cs`
+- `Sync/DoorSyncPatches.cs`, `ModRuntime.cs`
+
+## 0.9.2+ — Drag claim stuck + client double scrape (2026-07-19)
+
+Client push/drag: 2× scrape; host could not re-grab after client released lamp.
+
+### Fixed
+- **Host blocked after client drag:** Late Unreliable `DragSync` IsDragging=true after
+  reliable STOP re-claimed `_dragClaims` / `_remoteDragItemNames` (host log: STOP then
+  still DragSync:15). Ignore IsDragging for 1s after stop; always clear claim on stop;
+  `ReleaseClientPushHoldByName` drops host kinematic hold so free body is grabable.
+- **Client double scrape (push/drag):** MOS could arm on the local pusher while native
+  ItemSounds also ran. `NoteMoving`/`EnsurePlaying` refuse if local owner; SoftStop no
+  longer kills native AO for local owner; startDragging clears residual MOS.
+
+### Files
+- `Networking/LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`
+- `Sync/WorldPhysicsSyncService.cs`
+- `Audio/MovingObjectSoundService.cs`, `ItemMovingSoundHelper.cs`
+- `Patches/DragClaimPatch.cs`
+
+## 0.9.2+ — Unity 2021.3.30f1 fact + inactive FOOT (2026-07-19)
+
+Pinned engine version from Steam install; no architecture change required.
+
+### Changed
+- **AGENTS.md:** Darkwood = **Unity 2021.3.30f1** (`b4360d7cdac4`); `net471` +
+  `FindObjectsOfType(true)` are correct — not Unity 5.
+- **Dialog tree / door lookups:** DialogTreeSync + recent Handlers FOOT use
+  `includeInactive: true` (dialogue door NPCs deactivate after talk). Dropped
+  needless try/catch around that API.
+
+## 0.9.2+ — Dream pickup ghost, dialogue door, fade parity (2026-07-19)
+
+Dual-box bunker: shiny stone, dialogue door, client fade polish.
+
+### Fixed
+- **Pickup half-sync (shiny stone):** Peer emptied `itemInv` slot so take failed,
+  but mesh stayed. `DestroyObjectByPos` only matched harvest keywords / `GameObject.Find`
+  (miss on "Shiny stone" / `shiny_rock`). Now: nearest Item/itemInv by name or
+  invItem.type; destroy empty itemInv after Container RemoveItem.
+- **Dialogue door not open on peer:** Host `onLeaveDoorDialogue` GameEvents +
+  `Door.open` did not reliably reach client. DoorState now also sent during dreams;
+  DoorOpen always broadcasts; wider GameEvents name search + apply log; FindNpc
+  includes inactive + dialogue name (host DialogOutcome was "NPC not found").
+- **Client fade-in polish:** Match vanilla startDreaming — 1 frame wait, 0.5s
+  blackScreenTop (and base blackScreen if still opaque).
+
+### Files
+- `Sync/WorldPhysicsSyncService.cs`, `DoorSyncPatches.cs`, `DreamSyncManager.cs`
+- `Patches/DreamDoorSyncPatches.cs`
+- `Networking/LanNetworkManager.Handlers.cs`
+
+## 0.9.2+ — Dream bunker: host invisible, fade, loud audio, bright lights (2026-07-19)
+
+`dream_bunker_underground_01` dual-box. Client log: host proxy placed 47× at
+`Y=-12857` while pad is Y≈0; `createLocation` raced `LoadDreamScene` (2× pad).
+
+### Fixed
+- **Client cannot see host:** Proxy FixedUpdate locked Y to first bad place;
+  LocationEnter ~1 Hz re-snapped to playerSpawn using 3D distance (Y mismatch
+  forced spawn). Now: network Y applied, XZ-only in-location test, first-enter
+  place only in dreams, `ResyncDreamProxiesAfterLocalLoad` after pad ready.
+- **No client fade-in:** Remote path left black screen; `FadeInDreamBlackScreen`
+  after load + hold black through video teardown.
+- **Loud ambient/SFX:** Skip `createLocation` for dream_* (LoadDream owns pad) —
+  double bunker = 2× SoundAreas/music.
+- **Bright bunker lights:** Force `preset.time` + `updateAmbientLight` after load;
+  re-apply ambient on dream TimeSync; light interest cull disabled while dreaming
+  so pad lamps apply; flush pending lights after load.
+- **Camera cleanup NRE:** Guard CamMain null on dream exit.
+
+### Files
+- `Players/RemotePlayerProxy.cs`
+- `Networking/LanNetworkManager.Handlers.cs`
+- `Sync/DreamSyncManager.cs`, `WorldPhysicsSyncService.cs`
+
+## 0.9.2+ — Log-audit fixes: dream entry noise + light pending (2026-07-19)
+
+Post dual-box log review of `dream_grave_meadow` session.
+
+### Fixed
+- **DreamAudio `Get_01`:** Host no longer forwards equip get/hide Prefer2d one-shots
+  (was "Could not resolve clip for: Get_01" on client).
+- **TimeSync log garble:** ASCII `->` instead of Unicode arrows so day/time no longer
+  glue into `day 11` / `time 417800`; dream-time jumps tagged `[TimeSync/dream]`.
+- **False LocationExit on dream settle:** Vanilla dreamPrepared transport never sets
+  `playerInOutsideLocation`; settle now forces flag + name; PlayerState path holds
+  dream pad instead of broadcasting LocationExit.
+- **SaveSync mid dream entry:** Local prepareDream Save kept; peer SaveSync fanout
+  suppressed while EnteringDream / dreamPrepared / dreaming / wantToDream / switching.
+- **PlayerScare spam:** Client aimScare only while actively aiming + 1.25s rate limit
+  (vanilla loops every 1s with aimFinished sticky).
+- **Light RX drop proxy=null:** Queue PlayerLightState until proxy create, then apply.
+
+### Files
+- `Patches/DreamAudioPatches.cs`, `SaveSyncPatches.cs`, `ClientSoundPropagationPatches.cs`
+- `Networking/LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`
+
 ## 0.9.2+ — Dream NpcScale event-only + client dream audio (2026-07-19)
 
 Log-driven dual-box: church ruins dream (`dream_church_ruins_01`). Host

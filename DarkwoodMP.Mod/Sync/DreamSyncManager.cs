@@ -429,6 +429,9 @@ namespace DWMPHorde.Sync
                 {
                     Core.showGameCursor();
                 }
+                // Video ends with solid black behind it — clear so load is not stuck black.
+                // Final fade-in after scene load is FadeInDreamBlackScreen.
+                Singleton<UI>.Instance.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0.05f);
             }
             catch (Exception ex)
             {
@@ -1014,13 +1017,13 @@ namespace DWMPHorde.Sync
                 ModRuntime.LegacyInfo($"[DreamSync] Blocked remote startDreaming — already completed: {locationName}");
             }
 
-            // Teleport the remote proxy (host's character) to the dream position so
-            // both players see each other immediately.
+            // Snap host/peer proxies from PlayerPositionManager (true network pos), not
+            // local player feet — old code stacked everyone on the client spawn and then
+            // LocationEnter overwrote with a bad playerSpawn Y.
             var network = ModRuntime.Network as LanNetworkManager;
             if (network != null && network.IsConnected)
             {
-                Vector3 dreamPos = player != null ? player._transform.position : spawnPos;
-                network.TeleportRemoteProxyTo(dreamPos, 0f);
+                network.ResyncDreamProxiesAfterLocalLoad(locationName);
 
                 // Send confirmation back to the dream initiator so they unfreeze our proxy.
                 // From this point forward, position updates will come from the dream scene.
@@ -1029,7 +1032,87 @@ namespace DWMPHorde.Sync
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
             }
 
+            // Host startDreaming fades black via vanilla; remote path left blackScreen solid.
+            FadeInDreamBlackScreen();
+
+            // Dream ambient/time: force after startDreaming + any late TimeSync (bunker washout).
+            try
+            {
+                if (Dreams.Instance != null && Dreams.Instance.dreaming && Dreams.Instance.preset != null
+                    && Singleton<Controller>.Instance != null)
+                {
+                    Singleton<Controller>.Instance.CurrentTime = (int)Dreams.Instance.preset.time;
+                    Singleton<Controller>.Instance.updateAmbientLight();
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] post-load ambient: " + ex.Message);
+            }
+
+            // Flush world lights that arrived while the pad was unloading.
+            try { WorldPhysicsSyncService.TryFlushPendingLights(); }
+            catch { /* non-fatal */ }
+
             ModRuntime.LegacyInfo($"[DreamSync] Player positioned at dream location: {locationName}");
+        }
+
+        /// <summary>
+        /// Match vanilla <c>Dreams.startDreaming</c>: wait 1 frame, fade only
+        /// <c>blackScreenTop</c> over 0.5s when still opaque. Also clear base blackScreen
+        /// if remote path left it solid (host rarely uses it for dream entry).
+        /// </summary>
+        private static void FadeInDreamBlackScreen()
+        {
+            try
+            {
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null)
+                {
+                    ctrl.waitFramesAndRun(DoFadeInDreamBlackScreen, 1);
+                    return;
+                }
+                DoFadeInDreamBlackScreen();
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] FadeInDreamBlackScreen: " + ex.Message);
+            }
+        }
+
+        private static void DoFadeInDreamBlackScreen()
+        {
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui == null) return;
+
+                // Vanilla: only blackScreenTop, 0.5s, if alpha != 0.
+                if (ui.blackScreenTop != null)
+                {
+                    var topSprite = ui.blackScreenTop.GetComponent<tk2dBaseSprite>();
+                    if (topSprite == null || topSprite.color.a != 0f)
+                        ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f);
+                }
+
+                // Remote entry may also leave base blackScreen full — clear at same pace.
+                try
+                {
+                    var baseSprite = ui.blackScreen != null
+                        ? ui.blackScreen.GetComponent<tk2dBaseSprite>()
+                        : null;
+                    if (baseSprite != null && baseSprite.color.a > 0.01f)
+                        ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                }
+                catch
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] DoFadeInDreamBlackScreen: " + ex.Message);
+            }
         }
 
         private static IEnumerator StartLoadDreamScene(string locationName, Vector3 position, Action<Location> onComplete)
@@ -1206,15 +1289,15 @@ namespace DWMPHorde.Sync
             try
             {
                 GameObject presetGO = Resources.Load("DreamPresets/" + presetName) as GameObject;
-                if (presetGO != null)
-                {
-                    Core.modifyCamEffects(active: false, presetGO);
-                    ModRuntime.LegacyInfo($"[DreamSync] Removed camera effects for dream: {presetName}");
-                }
+                if (presetGO == null) return;
+                // modifyCamEffects can NRE if CamMain/effects torn down mid-quit.
+                if (Singleton<CamMain>.Instance == null) return;
+                Core.modifyCamEffects(active: false, presetGO);
+                ModRuntime.LegacyInfo($"[DreamSync] Removed camera effects for dream: {presetName}");
             }
             catch (Exception ex)
             {
-                ModRuntime.Log?.LogWarning($"[DreamSync] Failed to remove camera effects: {ex}");
+                ModRuntime.Log?.LogWarning($"[DreamSync] Failed to remove camera effects: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

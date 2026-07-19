@@ -37,6 +37,10 @@ namespace DWMPHorde.Patches
                 return false;
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: true))
                 return false;
+            // Equip get/hide (Get_01 etc.) — PlayerAudio owns these; DreamAudio cannot resolve
+            // many clip names and only produces "Could not resolve clip" noise.
+            if (LocalAudioService.IsPrefer2dNetworkOneShot(audioID))
+                return false;
 
             // Match suppression: do not ship far dream SFX to spectators/peers.
             if (worldPosition != Vector3.zero

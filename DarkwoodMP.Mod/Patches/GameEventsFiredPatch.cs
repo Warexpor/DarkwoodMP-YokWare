@@ -67,14 +67,18 @@ namespace DWMPHorde.Patches
                 Mathf.Round(p.y * 10f) / 10f,
                 Mathf.Round(p.z * 10f) / 10f);
 
+            string eventName = __instance.name ?? "";
             net.SendGameEventsFired(new GameEventsFiredMessage
             {
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
-                EventName = __instance.name ?? ""
+                EventName = eventName
             });
-            ModRuntime.LegacyInfo("[GameEventsSync] fired at " + key + " name=" + __instance.name);
+            ModRuntime.LegacyInfo("[GameEventsSync] fired at " + key + " name=" + eventName);
+
+            // Dialogue door opens run inside delayed GameEvent coroutines — poll & fan-out.
+            DialogueDoorAftermath.OnHostGameEventsFired(eventName);
         }
     }
 }

@@ -147,7 +147,8 @@ namespace DWMPHorde.Players
             rb.mass = 2.5f;
             rb.drag = 0f;
             rb.angularDrag = 10f;
-            rb.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionY;
+            // Do not FreezePositionY — network teleports / dream pads need full Y authority.
+            rb.constraints = RigidbodyConstraints.FreezeRotation;
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
 
@@ -197,7 +198,9 @@ namespace DWMPHorde.Players
                     {
                         Vector3 flat = _rb.position - state.Position;
                         flat.y = 0f;
-                        if (flat.sqrMagnitude > 150f * 150f)
+                        bool farXz = flat.sqrMagnitude > 150f * 150f;
+                        bool farY = Mathf.Abs(_rb.position.y - state.Position.y) > 40f;
+                        if (farXz || farY)
                         {
                             _rb.position = state.Position;
                             _rb.velocity = Vector3.zero;
@@ -440,19 +443,36 @@ namespace DWMPHorde.Players
             }
 
             Vector3 target = _targetPosition + _pushOffset;
-            target.y = _rb.position.y;
 
-            // Clamp drift so proxy can't be launched away by chain-reaction pushes
+            // Clamp horizontal drift so proxy can't be launched away by chain-reaction pushes.
+            // Keep network Y — old code locked target.y to rb.y while FreezePositionY was set,
+            // so a bad first place (Y=-12k under bunker) made the host permanently invisible.
             Vector3 drift = target - _targetPosition;
+            drift.y = 0f;
             float maxDrift = 50f;
             if (drift.magnitude > maxDrift)
-                target = _targetPosition + drift.normalized * maxDrift;
+                target = new Vector3(
+                    _targetPosition.x + drift.normalized.x * maxDrift,
+                    _targetPosition.y,
+                    _targetPosition.z + drift.normalized.z * maxDrift);
 
             float t = 18f * Time.fixedDeltaTime;
-            Vector3 delta = Vector3.Lerp(_rb.position, target, t) - _rb.position;
-            delta.y = 0f;
+            Vector3 next = Vector3.Lerp(_rb.position, target, t);
+            // Snap Y when network height diverges (teleport / dream pad / bunker floor).
+            if (Mathf.Abs(_rb.position.y - _targetPosition.y) > 40f)
+                next.y = _targetPosition.y;
 
-            // Use velocity so Unity physics naturally handles entity pushing
+            Vector3 delta = next - _rb.position;
+            // Y via position (constraint FreezePositionY otherwise ignores velocity.y).
+            if (Mathf.Abs(delta.y) > 0.001f)
+            {
+                Vector3 p = _rb.position;
+                p.y = next.y;
+                _rb.position = p;
+                delta.y = 0f;
+            }
+
+            // Use velocity so Unity physics naturally handles entity pushing (XZ only)
             _rb.velocity = delta / Time.fixedDeltaTime;
 
             // Decay push force gradually

@@ -23,6 +23,11 @@ Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Dar
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
 - **Protocol:** 19 (keep both installs same DLL)
+- **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
+  `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.
+  → `Object.FindObjectsOfType<T>(includeInactive: true)` is valid; prefer it for
+  dialogue NPCs / doors / GameEvents that may be deactivated after first use.
+  → Target framework `net471` is correct for this player build.
 - **Loader:** BepInEx 5.x (default ship); MelonLoader optional dual-build
 - **Build + dual deploy:**
   ```bash

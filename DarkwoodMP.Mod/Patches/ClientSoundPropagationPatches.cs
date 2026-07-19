@@ -44,6 +44,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "aimScare")]
     public static class ClientAimScarePatch
     {
+        // Vanilla loops aimScare every 1s while aimFinished stays true after aiming —
+        // without a gate that is PlayerScare:2 every perf window forever.
+        private static float _lastScareSendTime = -999f;
+        private const float ScareMinIntervalSec = 1.25f;
+
         private static void Postfix(Player __instance)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client)
@@ -52,6 +57,15 @@ namespace DWMPHorde.Patches
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
+            if (__instance == null || !__instance.aiming || __instance.aimingReturn)
+                return;
+            if (!__instance.aimFinished)
+                return;
+
+            float now = Time.unscaledTime;
+            if (now - _lastScareSendTime < ScareMinIntervalSec)
+                return;
+            _lastScareSendTime = now;
 
             var msg = new PlayerScareMessage { Range = 350f };
             LanNetworkManager.Instance?.Send(NetMessageType.PlayerScare, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

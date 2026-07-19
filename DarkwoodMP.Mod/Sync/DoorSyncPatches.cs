@@ -7,7 +7,7 @@ using UnityEngine;
 namespace DWMPHorde.Sync
 {
     /// <summary>Harmony patch: intercepts Door.open() and broadcasts the open state to all peers.</summary>
-    [HarmonyPatch(typeof(Door), "open")]
+    [HarmonyPatch(typeof(Door), "open", new[] { typeof(Vector3), typeof(Transform), typeof(float) })]
     public static class DoorOpenPatch
     {
         private static void Postfix(Door __instance, object[] __args)
@@ -21,9 +21,9 @@ namespace DWMPHorde.Sync
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
-            // During dreams the dedicated DoorOpen message handles sync (entity broadcast paused).
-            if (DreamSyncManager.IsDreamActive)
-                return;
+            // Dreams also need DoorState: dialogue doors open via GameEvent.modifyDoor →
+            // Door.open; DoorOpen message alone was easy to miss (no log, delayed events).
+            // Dual path: DoorState (PhysicsState) + DreamDoorSync DoorOpen.
 
             Vector3 p = __instance.transform.position;
             Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);

@@ -71,7 +71,8 @@ namespace DWMPHorde.Sync
                     ModLog.Warn(LogCat.Session, "[DialogTree] no Flags dialogue '" + name + "'");
 
                 // Scene-local copies not yet rebound to Flags asset.
-                CharacterDialogue[] sceneCds = Object.FindObjectsOfType<CharacterDialogue>();
+                // includeInactive: dialogue props (door_underground) often deactivate post-talk.
+                CharacterDialogue[] sceneCds = Object.FindObjectsOfType<CharacterDialogue>(true);
                 for (int i = 0; i < sceneCds.Length; i++)
                 {
                     CharacterDialogue sceneCd = sceneCds[i];
@@ -80,7 +81,7 @@ namespace DWMPHorde.Sync
                     ApplyToDialogue(sceneCd, nodeFlags, portrait, specials);
                 }
 
-                NPC[] npcs = Object.FindObjectsOfType<NPC>();
+                NPC[] npcs = Object.FindObjectsOfType<NPC>(true);
                 for (int i = 0; i < npcs.Length; i++)
                 {
                     NPC n = npcs[i];
@@ -296,7 +297,7 @@ namespace DWMPHorde.Sync
         private static NPC FindNpc(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            NPC[] all = Object.FindObjectsOfType<NPC>();
+            NPC[] all = Object.FindObjectsOfType<NPC>(true);
             for (int i = 0; i < all.Length; i++)
             {
                 if (all[i] != null && all[i].name == name)

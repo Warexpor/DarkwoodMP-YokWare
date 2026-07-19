@@ -193,19 +193,12 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// SP plays these as parentless 2D one-shots (flashlight activate/deactivate,
-        /// equip get/hide, lighter, etc.). Networking must NOT parent them to the remote
-        /// proxy CharBase — vanilla then adds indoor reverb + wall lowpass, and forcing
-        /// spatialBlend=1 makes the click snappy/wrong for peers.
+        /// Flashlight / torch / lighter toggles — network as spatial at proxy with reverb.
         /// </summary>
-        public static bool IsPrefer2dNetworkOneShot(string audioID)
+        public static bool IsRemotePlayerSpatialToolSound(string audioID)
         {
             if (string.IsNullOrEmpty(audioID))
                 return false;
-            if (IsPlayerHitFeedbackSound(audioID))
-                return false; // hits stay spatial on the victim proxy
-
-            // Flashlight / torch toggle (InvItem.activateSound / deactivateSound names vary).
             if (audioID.IndexOf("flash", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
             if (audioID.IndexOf("activate", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -219,8 +212,29 @@ namespace DWMPHorde.Audio
                 return true;
             if (audioID.IndexOf("lighter", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
-            if (audioID.IndexOf("click", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (audioID.IndexOf("click", StringComparison.OrdinalIgnoreCase) >= 0
+                && (audioID.IndexOf("light", StringComparison.OrdinalIgnoreCase) >= 0
+                    || audioID.IndexOf("flash", StringComparison.OrdinalIgnoreCase) >= 0
+                    || audioID.IndexOf("torch", StringComparison.OrdinalIgnoreCase) >= 0))
                 return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True for SFX that should stay non-spatial on the remote peer (UI / equip get-hide).
+        /// Flashlight on/off is NOT prefer2d — peers need proxy position + indoor reverb
+        /// (bunker). Only keep true 2D for personal equip one-shots that sound wrong as 3D.
+        /// </summary>
+        public static bool IsPrefer2dNetworkOneShot(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            if (IsPlayerHitFeedbackSound(audioID))
+                return false; // hits stay spatial on the victim proxy
+
+            // Flashlight / torch / lighter: spatial at proxy (see HandlePlayerAudio).
+            if (IsRemotePlayerSpatialToolSound(audioID))
+                return false;
 
             // Equip put-away / pull-out one-shots (parentless in vanilla).
             if (audioID.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
@@ -231,15 +245,15 @@ namespace DWMPHorde.Audio
                 || audioID.IndexOf("_hide", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Live item fields when the local player is the source (send-side match).
+            // Live item fields: equip get/hide only as 2D. activate/deactivate already
+            // excluded above via IsRemotePlayerSpatialToolSound (flashlight etc.).
             if (IsCurrentItemActionSound(audioID))
             {
                 Player p = Player.Instance;
                 if (p != null && !InvItemClass.isNull(p.currentItem) && p.currentItem.baseClass != null)
                 {
                     InvItem b = p.currentItem.baseClass;
-                    if (IdEquals(audioID, b.activateSound) || IdEquals(audioID, b.deactivateSound)
-                        || IdEquals(audioID, b.getSound) || IdEquals(audioID, b.hideSound))
+                    if (IdEquals(audioID, b.getSound) || IdEquals(audioID, b.hideSound))
                         return true;
                 }
             }

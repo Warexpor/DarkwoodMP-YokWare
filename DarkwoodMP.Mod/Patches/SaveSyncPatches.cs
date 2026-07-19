@@ -26,6 +26,16 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role == NetworkRole.Offline)
                 return;
 
+            // Vanilla prepareDream force-Saves mid entry. Local Save is fine; SaveSync
+            // hitches every peer (poll~800ms) during the transition video/load. End-of-dream
+            // Save runs after dreaming=false so it still fans out.
+            if (IsDreamEntrySaveWindow())
+            {
+                ModLog.Event(LogCat.Save,
+                    "SaveSync suppressed (dream entry window) — local Save kept, no peer fanout");
+                return;
+            }
+
             // Clients also push personal inventory backup to host (multi-client keyed files).
             if (ModRuntime.Network.Role == NetworkRole.Client)
             {
@@ -41,6 +51,20 @@ namespace DWMPHorde.Patches
                 "Local Save complete (" + ModRuntime.Network.Role
                 + ") → SaveSync so all peers Save with Saving UI");
             ModRuntime.Network.SendSaveSync();
+        }
+
+        /// <summary>
+        /// prepareDream / entry video / mid-dream — not endDreaming (dreaming already false).
+        /// Do not key off IsDreamActive alone: session may still be true when end Save runs.
+        /// </summary>
+        private static bool IsDreamEntrySaveWindow()
+        {
+            if (Core.EnteringDream)
+                return true;
+            Dreams d = Dreams.Instance;
+            if (d == null)
+                return false;
+            return d.dreaming || d.dreamPrepared || d.wantToDream || d.switchingDream;
         }
     }
 }

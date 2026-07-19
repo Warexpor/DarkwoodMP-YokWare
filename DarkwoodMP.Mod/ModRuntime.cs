@@ -92,6 +92,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(Audio.LocalAudioService.ResetRateLimits);
                 NetworkResetRegistry.Register(Audio.LocalAudioService.ResetClipCache);
                 NetworkResetRegistry.Register(DreamAudioPlayer.Cleanup);
+                NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
                 NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
                 NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
                 // Session maps that previously leaked across reconnects (0.5 audit)

@@ -1344,9 +1344,24 @@ namespace DWMPHorde.Networking
             Vector3 targetPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Vector3 targetRot = new Vector3(msg.RotX, msg.RotY, msg.RotZ);
 
+            // Late Unreliable IsDragging after reliable STOP re-claimed the object and
+            // left host blocked ("already being moved"). Drop stale grab packets.
+            if (msg.IsDragging && !string.IsNullOrEmpty(msg.ObjectName)
+                && _dragEndedAt.TryGetValue(msg.ObjectName, out float endedAt)
+                && (Time.unscaledTime - endedAt) < DragStopStaleGrace)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[DragSync] ignore stale IsDragging for " + msg.ObjectName
+                        + " (stop " + (Time.unscaledTime - endedAt).ToString("F2") + "s ago)");
+                return;
+            }
+
             // Claim only while actively dragging (end packets release, not re-claim).
             if (msg.IsDragging && msg.ClaimedByPlayerId >= 0 && !string.IsNullOrEmpty(msg.ObjectName))
+            {
                 _dragClaims[msg.ObjectName] = msg.ClaimedByPlayerId;
+                _dragEndedAt.Remove(msg.ObjectName);
+            }
 
             // If a remote player claims an item we're dragging, force-stop our
             // drag to resolve the conflict and prevent double-drag desync.
@@ -1378,14 +1393,15 @@ namespace DWMPHorde.Networking
                 RemoveRemoteDragIds(msg.ObjectName);
                 // Release kinematic so local physics can affect the item again.
                 ReleaseRemoteDragKinematic(msg.ObjectName);
-                // Clear claim only if this peer owned it (or claim unknown).
+                // Host free-body hold from client PhysicsState must also drop on drag end
+                // or the object stays kinematic / untouchable for the host.
+                if (!string.IsNullOrEmpty(msg.ObjectName))
+                    Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(msg.ObjectName);
+                // Always clear claim on stop (late unreliables cannot re-block; see grace above).
                 if (!string.IsNullOrEmpty(msg.ObjectName))
                 {
-                    if (!_dragClaims.TryGetValue(msg.ObjectName, out int owner)
-                        || owner == msg.ClaimedByPlayerId
-                        || msg.ClaimedByPlayerId <= 0
-                        || owner == _currentReceivePlayerId)
-                        _dragClaims.Remove(msg.ObjectName);
+                    _dragClaims.Remove(msg.ObjectName);
+                    _dragEndedAt[msg.ObjectName] = Time.unscaledTime;
                 }
                 return;
             }
@@ -2227,11 +2243,37 @@ namespace DWMPHorde.Networking
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             GameEvents best = null;
 
-            // Prefer name match within a generous radius (story events can sit close together).
+            // Dream bunker dialogue events sit at location origin far from door body;
+            // use wide name search first, then position.
+            float nameR = DreamSyncManager.IsDreamActive ? 80f : 8f;
+            float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
             if (!string.IsNullOrEmpty(msg.EventName))
-                best = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, 3f);
+                best = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
             if (best == null)
-                best = WorldQueryHelper.FindNearest<GameEvents>(pos, 2.5f);
+                best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
+            // Soft name contains match (Clone / suffix drift).
+            if (best == null && !string.IsNullOrEmpty(msg.EventName))
+            {
+                GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
+                string want = msg.EventName;
+                float bestD = float.MaxValue;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    GameEvents ge = all[i];
+                    if (ge == null) continue;
+                    string n = ge.name ?? "";
+                    if (!n.Equals(want, System.StringComparison.OrdinalIgnoreCase)
+                        && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0
+                        && want.IndexOf(n.Replace("(Clone)", "").Trim(), System.StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    float d = Vector3.Distance(ge.transform.position, pos);
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = ge;
+                    }
+                }
+            }
 
             if (best == null)
             {
@@ -2247,7 +2289,15 @@ namespace DWMPHorde.Networking
 
             // fire() under NetworkApplyGuard (receive path) — host re-broadcast suppressed.
             // Vanilla fired+!multipleFire guard prevents double-fire if client already ran it.
+            bool wasFired = best.fired;
             best.fire();
+            ModRuntime.LegacyInfo(
+                $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} at {best.transform.position}");
+
+            // Dream dialogue doors: trueTargets often fail on client LoadDream path —
+            // force-open nearby doors after delayed GameEvent coroutines would have run.
+            DWMPHorde.Patches.DialogueDoorAftermath.OnClientGameEventsApplied(
+                best.name ?? msg.EventName, best.transform.position);
         }
 
         private void QueuePendingGameEvent(GameEventsFiredMessage msg)
@@ -2299,10 +2349,12 @@ namespace DWMPHorde.Networking
 
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 GameEvents found = null;
+                float nameR = DreamSyncManager.IsDreamActive ? 80f : 8f;
+                float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
                 if (!string.IsNullOrEmpty(msg.EventName))
-                    found = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, 3f);
+                    found = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
                 if (found == null)
-                    found = WorldQueryHelper.FindNearest<GameEvents>(pos, 2.5f);
+                    found = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
                 if (found == null) continue;
                 _pendingGameEvents.RemoveAt(i);
                 _pendingGameEventQueuedAt.Remove(key);
@@ -2387,12 +2439,30 @@ namespace DWMPHorde.Networking
                             ModRuntime.LegacyInfo($"[Container] HandleContainerItem: removing {msg.Amount} from {slot.invItem.type} (had {slot.invItem.amount})");
                             slot.invItem.removeAmount(msg.Amount);
                         }
+
+                        // World itemInv pickups (shiny stone): empty inventory still leaves the GO.
+                        // Destroy visual so peer no longer sees a ghost that cannot be taken.
+                        if (inv.invType == Inventory.InvType.itemInv)
+                        {
+                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
+                            catch (System.Exception ex)
+                            {
+                                if (ModRuntime.VerboseLogging)
+                                    ModRuntime.Log?.LogWarning("[Container] empty itemInv destroy: " + ex.Message);
+                            }
+                        }
                     }
                     else
                     {
                         ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot {msg.SlotIndex} already empty (type={msg.ItemType})");
                         if (_role == NetworkRole.Host && _currentReceivePlayerId > 0 && !IsApplyingRemoteState)
                             DenyContainerTake(_currentReceivePlayerId, msg, "slot empty");
+                        // Already empty itemInv — still try to clear ghost mesh.
+                        if (inv.invType == Inventory.InvType.itemInv)
+                        {
+                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
+                            catch { /* non-fatal */ }
+                        }
                     }
                 }
                 else
@@ -2898,40 +2968,78 @@ namespace DWMPHorde.Networking
         private void HandleDoorOpen(DoorOpenMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            string doorName = msg.DoorName ?? "";
+            bool unblockOnly = doorName.StartsWith("unblock:", System.StringComparison.OrdinalIgnoreCase);
+            if (unblockOnly)
+                doorName = doorName.Substring("unblock:".Length);
+
             Door door = Sync.DoorTracker.FindByPosition(pos);
             if (door == null)
+                door = FindDoorByPosLoose(pos, 4f);
+            if (door == null && !string.IsNullOrEmpty(doorName))
             {
-                // Fallback: search by name
-                Door[] all = UnityEngine.Object.FindObjectsOfType<Door>();
+                string want = StripCloneSuffix(doorName);
+                Door[] all = UnityEngine.Object.FindObjectsOfType<Door>(true);
+                float bestD = float.MaxValue;
                 for (int i = 0; i < all.Length; i++)
                 {
-                    if (all[i] != null && all[i].name == msg.DoorName)
+                    Door d = all[i];
+                    if (d == null) continue;
+                    string n = StripCloneSuffix(d.name);
+                    if (!string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase)
+                        && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    float dist = Vector3.Distance(d.transform.position, pos);
+                    if (dist < bestD)
                     {
-                        door = all[i];
-                        break;
+                        bestD = dist;
+                        door = d;
                     }
                 }
             }
+            // Dream: event pos is often location origin, door body is offset — widen search.
+            if (door == null && DreamSyncManager.IsDreamActive)
+                door = FindDoorByPosLoose(pos, 40f);
+
             if (door == null)
             {
                 ModRuntime.Log?.LogWarning($"[DoorSync] Door '{msg.DoorName}' not found at {pos}");
                 return;
             }
 
-            if (door.opened) return;
-
-            // Suppress DoorOpenSyncPatch re-Broadcast (dream doors are bidirectional).
+            // Suppress re-Broadcast (dream doors are bidirectional).
+            bool prev = IsApplyingRemoteState;
             IsApplyingRemoteState = true;
             try
             {
-                door.open(pos, null);
+                try { door.unblock(); } catch { /* ignore */ }
+                try { door.unlock(); } catch { /* ignore */ }
+                Locked locked = door.GetComponent<Locked>();
+                if (locked != null) locked.locked = false;
+                Padlock pad = door.GetComponent<Padlock>();
+                if (pad != null) pad.locked = false;
+
+                if (unblockOnly)
+                {
+                    ModRuntime.LegacyInfo($"[DoorSync] unblocked door '{door.name}' (msg={msg.DoorName}) at {pos}");
+                    return;
+                }
+
+                if (door.opened)
+                {
+                    ModRuntime.LegacyInfo($"[DoorSync] already open '{door.name}' at {pos}");
+                    return;
+                }
+
+                float force = door.type == Door.Type.metal ? 30000f : 0f;
+                door.open(pos, null, force);
             }
             finally
             {
-                IsApplyingRemoteState = false;
+                IsApplyingRemoteState = prev;
             }
 
-            ModRuntime.LegacyInfo($"[DoorSync] opened door '{msg.DoorName}' at {pos}");
+            ModRuntime.LegacyInfo($"[DoorSync] opened door '{door.name}' (msg={msg.DoorName}) at {pos}");
         }
 
         /// <summary>
@@ -2971,12 +3079,18 @@ namespace DWMPHorde.Networking
                 loc.enter(force: true);
 
                 // Place proxy: prefer last PlayerState (accurate), else playerSpawn on first enter.
-                // Always re-place when local is already in this location (post-load resync path).
+                // Dream: first enter only — NOT every ~1 Hz LocationEnter (was re-snapping host
+                // to playerSpawn Y and locking them under the pad). Non-dream: also re-place
+                // when local just settled in the same location (post-load resync).
                 string localCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
                     ol.currentLocationName ?? "");
                 bool localSameLoc = ol.playerInOutsideLocation
                     && string.Equals(localCanon, locName, StringComparison.OrdinalIgnoreCase);
-                if (firstEnterThisLoc || localSameLoc || Sync.DreamSyncManager.IsDreamLocationName(locName))
+                bool dreamLoc = Sync.DreamSyncManager.IsDreamLocationName(locName)
+                    || (Sync.DreamSyncManager.IsDreamActive
+                        && locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase));
+                bool shouldPlace = firstEnterThisLoc || (localSameLoc && !dreamLoc);
+                if (shouldPlace)
                     PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
 
                 // Peer just got location geometry — re-push sticky lamp/gen state that
@@ -2986,14 +3100,26 @@ namespace DWMPHorde.Networking
             }
             else
             {
+                // Dreams: LoadDreamSceneCoroutine owns the pad. createLocation here races
+                // a second bunker (2x ambients/lights, wrong slot Y) — only wait.
+                bool dreamName = locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
+                    || Sync.DreamSyncManager.IsDreamLocationName(locName);
+                if (dreamName
+                    || Sync.DreamSyncManager.IsDreamActive
+                    || (Dreams.Instance != null && (Dreams.Instance.dreamPrepared || Dreams.Instance.dreaming)))
+                {
+                    if (firstEnterThisLoc)
+                        _remoteOutsideLocation.Remove(playerId);
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] dream pad not ready yet, skip createLocation: {locName}");
+                    return;
+                }
+
                 // Async spawn; ~1 Hz LocationEnter retries until key exists.
                 // Keep firstEnter pending by clearing so next successful enter still snaps once.
                 if (firstEnterThisLoc)
                     _remoteOutsideLocation.Remove(playerId);
-                // Never create the completed *_done variant during an active dream.
-                string createName = Sync.DreamSyncManager.IsDreamActive
-                    ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
-                    : locName;
+                string createName = locName;
                 ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {createName}");
                 ol.createLocation(createName);
             }
@@ -3069,6 +3195,12 @@ namespace DWMPHorde.Networking
                         settled.enter(force: true);
                     else if (ol.spawnedLocations.ContainsKey(locationName))
                         ol.spawnedLocations[locationName].enter(force: true);
+
+                    // Vanilla transportToLocation dreamPrepared branch never sets these
+                    // (only the non-dream path does). Without them, the next PlayerState
+                    // tick sees !playerInOutsideLocation + previous=true → false LocationExit.
+                    ol.playerInOutsideLocation = true;
+                    ol.currentLocationName = locationName;
                 }
 
                 _previousInOutsideLocation = true;
@@ -3188,11 +3320,15 @@ namespace DWMPHorde.Networking
             float rotY = 0f;
             if (preferLastKnown && PlayerPositionManager.TryGetRemote(playerId, out pos, out rotY))
             {
-                // Last known must look like it is in this location (not stale world map pos)
+                // Last known must look like it is in this location (not stale world map).
+                // Compare XZ only — 3D distance rejected valid host pos when client
+                // playerSpawn Y disagreed (bunker: place at Y=-12k → invisible).
                 if (loc.playerSpawn != null)
                 {
                     Vector3 spawn = loc.playerSpawn.transform.position;
-                    if ((pos - spawn).sqrMagnitude > 2500f * 2500f)
+                    float dx = pos.x - spawn.x;
+                    float dz = pos.z - spawn.z;
+                    if (dx * dx + dz * dz > 2500f * 2500f)
                         pos = spawn;
                 }
             }
@@ -6032,13 +6168,67 @@ namespace DWMPHorde.Networking
         private static NPC FindNpcByName(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            NPC[] all = UnityEngine.Object.FindObjectsOfType<NPC>();
+            string want = StripCloneSuffix(name);
+
+            // Unity 2021.3: includeInactive — dialogue door NPCs often deactivate after talk.
+            NPC[] all = UnityEngine.Object.FindObjectsOfType<NPC>(true);
+
+            NPC bestActive = null;
+            NPC bestAny = null;
             for (int i = 0; i < all.Length; i++)
             {
-                if (all[i] != null && all[i].name == name)
-                    return all[i];
+                NPC n = all[i];
+                if (n == null) continue;
+                if (!NpcNameMatches(n, want)) continue;
+                bestAny = n;
+                if (n.gameObject.activeInHierarchy)
+                {
+                    bestActive = n;
+                    break;
+                }
             }
-            return null;
+            NPC found = bestActive ?? bestAny;
+            if (found == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    $"[DialogOutcome] FindNpc miss '{name}' (scanned {all.Length} NPCs, inactive incl.)");
+            }
+            else if (!found.gameObject.activeInHierarchy)
+            {
+                // Host world-apply needs a live target for displayDialogue / EventTriggers.
+                try { found.gameObject.SetActive(true); }
+                catch { /* ignore */ }
+            }
+            return found;
+        }
+
+        private static string StripCloneSuffix(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            const string clone = "(Clone)";
+            if (name.EndsWith(clone, System.StringComparison.Ordinal))
+                return name.Substring(0, name.Length - clone.Length).TrimEnd();
+            return name;
+        }
+
+        private static bool NpcNameMatches(NPC n, string want)
+        {
+            if (n == null || string.IsNullOrEmpty(want)) return false;
+            string go = StripCloneSuffix(n.name);
+            if (string.Equals(go, want, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (n.characterDialogue != null)
+            {
+                string cd = StripCloneSuffix(n.characterDialogue.name ?? "");
+                if (string.Equals(cd, want, System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+                // door_underground vs door_underground_act1
+                if (!string.IsNullOrEmpty(cd)
+                    && (cd.StartsWith(want, System.StringComparison.OrdinalIgnoreCase)
+                        || want.StartsWith(cd, System.StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -6607,6 +6797,18 @@ namespace DWMPHorde.Networking
                 // Do NOT snap to local Player — that stacks bodies on join until the first
                 // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
+
+                if (_pendingPlayerLights.TryGetValue(playerId, out PlayerLightStateMessage pendingLight))
+                {
+                    _pendingPlayerLights.Remove(playerId);
+                    // Re-enter apply with a temporary receive id so GetProxy path works.
+                    int prevRecv = _currentReceivePlayerId;
+                    _currentReceivePlayerId = playerId;
+                    try { HandlePlayerLightState(pendingLight); }
+                    finally { _currentReceivePlayerId = prevRecv; }
+                    ModLog.Event(LogCat.World,
+                        $"[Light] applied pending state for p{playerId} after proxy create");
+                }
             }
         }
 
@@ -6952,18 +7154,58 @@ namespace DWMPHorde.Networking
             float delta = msg.CurrentTime - prevTime;
             bool dayChange = msg.Day != prevDay;
             bool afterNightFlip = msg.IsAfterNight != wasAfterNight;
-            // Always log real jumps so dual-box clock desync is visible without Trace.
+            // Dream start sets Controller.CurrentTime = preset.time (often +hundreds).
+            // Use ASCII "->" so log files never glue "1→1" into "11" / "417→800" into "417800".
+            bool dreamClock = Core.EnteringDream
+                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
+                || Sync.DreamSyncManager.IsDreamActive;
             if (dayChange || afterNightFlip || Mathf.Abs(delta) >= 2f)
             {
+                string tag = dreamClock ? "[TimeSync/dream] " : "[TimeSync] ";
                 ModLog.Event(LogCat.Session,
-                    "[TimeSync] client clock day " + prevDay + "→" + msg.Day
-                    + " time " + prevTime.ToString("F0") + "→" + msg.CurrentTime.ToString("F0")
-                    + " (Δ=" + delta.ToString("F1") + ")"
-                    + " afterNight " + wasAfterNight + "→" + msg.IsAfterNight);
+                    tag + "client clock day " + prevDay + "->" + msg.Day
+                    + " time " + prevTime.ToString("F0") + "->" + msg.CurrentTime.ToString("F0")
+                    + " (d=" + delta.ToString("F1") + ")"
+                    + " afterNight " + wasAfterNight + "->" + msg.IsAfterNight);
             }
             else if (ModRuntime.VerboseLogging)
             {
                 ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
+            }
+
+            // TimeSync can stomp day-ambient after startDreaming set preset.ambientColor.
+            if (dreamClock && Dreams.Instance != null && Dreams.Instance.dreaming)
+            {
+                try { ctrl.updateAmbientLight(); }
+                catch { /* non-fatal */ }
+            }
+        }
+
+        /// <summary>
+        /// After local dream pad load: place each remote proxy at last PlayerState (or spawn).
+        /// </summary>
+        public void ResyncDreamProxiesAfterLocalLoad(string locationName)
+        {
+            if (string.IsNullOrEmpty(locationName) || !IsConnected) return;
+            try
+            {
+                var ol = Singleton<OutsideLocations>.Instance;
+                Location loc = ResolveOutsideLocation(ol, Sync.DreamSyncManager.CanonicalDreamLocationName(locationName));
+                if (loc == null && Dreams.Instance != null)
+                    loc = Dreams.Instance.dreamLocation;
+                if (loc == null) return;
+
+                loc.enter(force: true);
+                foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_remoteProxies))
+                {
+                    if (kvp.Key == _localPlayerId) continue;
+                    _remoteOutsideLocation[kvp.Key] = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
+                    PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "ResyncDreamProxiesAfterLocalLoad: " + ex.Message);
             }
         }
 
@@ -7131,8 +7373,14 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = GetProxy(playerId);
             if (proxy == null)
             {
-                ModLog.Event(LogCat.World,
-                    $"[Light] RX drop p{playerId} proxy=null on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter}");
+                // Early handshake / pre-proxy: stash and apply when proxy is created.
+                if (playerId > 0)
+                    _pendingPlayerLights[playerId] = msg;
+                else if (ModRuntime.VerboseLogging)
+                {
+                    ModLog.Event(LogCat.World,
+                        $"[Light] RX drop p{playerId} proxy=null on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter}");
+                }
                 return;
             }
 
@@ -7799,17 +8047,21 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = GetProxy(playerId);
 
             bool isHitFeedback = LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
-            // Flashlight activate/deactivate, equip get/hide — SP is parentless 2D.
+            // Equip get/hide stay 2D. Flashlight/torch: spatial at proxy + keep reverb.
             bool prefer2d = LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
+            bool spatialTool = LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
 
             // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
             // Never call getHit / red-screen / BloodOverlay here — audio only.
             if (isHitFeedback && proxy != null)
                 pos = proxy.transform.position;
-            else if (!hasPos)
+            else if (!hasPos || spatialTool)
             {
-                if (proxy == null) return;
-                pos = proxy.transform.position;
+                // Flashlight: always use proxy position even if packet has local coords.
+                if (proxy != null)
+                    pos = proxy.transform.position;
+                else if (!hasPos)
+                    return;
             }
 
             if (!LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
@@ -7818,9 +8070,6 @@ namespace DWMPHorde.Networking
             TraverseHack.ApplyingFromNetwork = true;
             try
             {
-                // Prefer2d one-shots: NEVER parent to proxy. Proxy has CharBase; vanilla
-                // AudioController then always applies indoor reverb (isInside) + wall
-                // lowpass raycast — flashlight clicks sounded wet and snappy for peers.
                 Transform parent = null;
                 if (!prefer2d)
                     parent = proxy != null ? proxy.transform : null;
@@ -7828,8 +8077,6 @@ namespace DWMPHorde.Networking
                 AudioObject audioObj;
                 if (prefer2d)
                 {
-                    // Same call shape as SP activateSound: 2D Play(string) — natural clip tail.
-                    // Still gated by distance above so far peers stay quiet.
                     audioObj = AudioController.Play(msg.SoundId);
                     if (audioObj != null && audioObj.primaryAudioSource != null
                         && msg.Volume > 0f && msg.Volume < 0.999f)
@@ -7837,20 +8084,29 @@ namespace DWMPHorde.Networking
                 }
                 else
                 {
+                    // Parent to proxy so vanilla indoor reverb (isInside) applies in bunker.
                     audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
                 }
 
                 if (audioObj != null)
                 {
-                    // Strip filters that may have been left on pooled AudioObjects.
-                    var reverb = audioObj.GetComponent<AudioReverbFilter>();
-                    if (reverb != null) UnityEngine.Object.Destroy(reverb);
-                    var lowPass = audioObj.GetComponent<AudioLowPassFilter>();
-                    if (lowPass != null) UnityEngine.Object.Destroy(lowPass);
-
-                    if (audioObj.primaryAudioSource != null && !prefer2d)
+                    if (prefer2d)
                     {
-                        // Force 3D — vanilla hit clips are often 2D for SP local feedback.
+                        // UI/equip: strip world filters; fully 2D.
+                        var reverb = audioObj.GetComponent<AudioReverbFilter>();
+                        if (reverb != null) UnityEngine.Object.Destroy(reverb);
+                        var lowPass = audioObj.GetComponent<AudioLowPassFilter>();
+                        if (lowPass != null) UnityEngine.Object.Destroy(lowPass);
+                        if (audioObj.primaryAudioSource != null)
+                        {
+                            audioObj.primaryAudioSource.spatialBlend = 0f;
+                            audioObj.primaryAudioSource.reverbZoneMix = 0f;
+                        }
+                    }
+                    else if (audioObj.primaryAudioSource != null)
+                    {
+                        // Spatial remote SFX (flashlight, hits, etc.): 3D at proxy.
+                        // Keep reverb/lowpass from AudioController (bunker wetness).
                         audioObj.primaryAudioSource.spatialBlend = 1f;
                         audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
 
@@ -7869,12 +8125,6 @@ namespace DWMPHorde.Networking
                             audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
                             audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
                         }
-                    }
-                    else if (audioObj.primaryAudioSource != null && prefer2d)
-                    {
-                        // Match local flashlight click: fully 2D, no forced rolloff kill.
-                        audioObj.primaryAudioSource.spatialBlend = 0f;
-                        audioObj.primaryAudioSource.reverbZoneMix = 0f;
                     }
                 }
             }

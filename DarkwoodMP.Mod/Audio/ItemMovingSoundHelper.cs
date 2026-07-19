@@ -394,10 +394,19 @@ namespace DWMPHorde.Audio
         /// NOT zero/sleep the rigidbody. Sparse PhysicsState + ForceStop thrash was the
         /// "1s scrape delay" — suppress ate the next NoteMoving after every quiet tick.
         /// Intentional ends (drag release, local push stop) still use <see cref="ForceStopByName"/>.
+        /// Local pusher/dragger: only kill MOS — never touch native movingSoundAO (double-scrape / mute).
         /// </summary>
         public static void SoftStopNetwork(string objectName, float fadeSec = IntentionalStopFade)
         {
             if (string.IsNullOrEmpty(objectName)) return;
+
+            // Local owner: kill residual MOS immediately; leave native ItemSounds alone.
+            if (IsLocalPushOrDragOwner(objectName))
+            {
+                ClearRemoteScrape(objectName);
+                MovingObjectSoundService.StopImmediate(objectName);
+                return;
+            }
 
             GameObject go = GameObject.Find(objectName);
             string soundId = null;
