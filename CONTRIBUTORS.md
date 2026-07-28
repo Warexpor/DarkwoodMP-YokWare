@@ -21,4 +21,4 @@ Path B vs Path A is a load-path choice, not a ranking of people.
 
 ## Contributing
 
-Pull requests welcome under **GPLv3**. Product version **0.9.x** Path B unless co-authors bump. Live wire is **Horde protocol 19** until an Ironbark bridge is intentionally reintroduced.
+Pull requests welcome under **GPLv3**. Product version **0.7.x** Path B (current **0.7.7**; earlier **0.9.x** labels were too ambitious). Live wire is **Horde protocol 19** until an Ironbark bridge is intentionally reintroduced.

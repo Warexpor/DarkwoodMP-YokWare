@@ -1,7 +1,7 @@
 # DWMP Horde Remaster — Co-op Coverage Checklist
 
 Living audit of every sync domain against vanilla Darkwood.  
-Protocol baseline: **19** · Plugin: **0.9.2** (unreleased **0.9.2+** detail in `CHANGELOG.md`) · Optional msg IDs **112–126** · Mode: **N-player LAN (3+ supported), host-authoritative**
+Protocol baseline: **19** · Plugin: **0.7.7** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Optional msg IDs **112–126** · Mode: **N-player LAN (3+ supported), host-authoritative**
 
 **Target:** host + multiple clients (not dual-only). Happy path and playtests must consider **at least 3 humans** (host + 2 clients) unless a domain is explicitly host-local.
 
@@ -608,7 +608,7 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 | 4.1 | Dialogs / choices | **OK** | Code closed 2026-07-09. Client→host `DialogOutcomeSync` with **TargetDialogueName**; host apply without open UI. Protocol **12** / **0.4.6**. |
 | 4.2 | GameEvents one-shots | **OK** | Code closed 2026-07-09. Host-auth fire; EventName lookup; multipleFire sync; pending; client one-shot block. Protocol **13** / **0.4.7**. |
 | 4.3 | Event triggers / requirements | **OK** | Code closed 2026-07-09. Host proxy area enter/exit; client volume suppress; proxy sight LOS. No protocol bump (uses 4.2 GameEvents). |
-| 4.4 | Dreams (all levels) | **OK** | **0.9.3 full harden:** C1–C4 + H1–H6 closed (GE dream skip, solo death, switchingDream chain, story-end nack/timeout, single ChainStart+SessionId, all-dead via initiateEndDreaming, completions=pool mirror only, epilog 1a road/save, getPreset guard). Peer-drop ends session; mid-dream HOST GRANT refused. Protocol **19**. |
+| 4.4 | Dreams (all levels) | **OK** | **0.7.7**: GE flush under `NetworkApplyGuard` (dream door dialogue); spatial proxy footsteps; black hold before unpause. Protocol **19**. |
 | 4.5 | Final dreamscene / epilogue | **OK** | Code closed 2026-07-09. Epilogue mode on remote load; crawl death not spectated; credits SceneLoad. Protocol **14** / **0.4.8**. **2026-07-28:** SceneLoad host-only apply; clients cannot force credits. |
 | 4.6 | Cutscenes / movies | **OK** | Code closed 2026-07-09. Host-auth CutsceneManager + skip; proxy hide; CutsceneSync. Protocol **15** / **0.4.9**. |
 | 4.7 | Unique / quest / locks | **OK** | Code closed 2026-07-09. Padlock/Locked/Interactive apply guard + 2.5m find; pending; join bulk. No proto bump. |

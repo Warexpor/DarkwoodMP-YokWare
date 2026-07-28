@@ -307,6 +307,10 @@ namespace DWMPHorde.Sync
                     RotZ = rot.z,
                     ItemType = itemType
                 });
+                // Client free-body send: refresh authority so host PhysicsState echo cannot
+                // arm MOS while native ItemSounds owns the scrape (round-trip latency gap).
+                if (net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
+                    ItemMovingSoundHelper.NoteLocalPushAuthority(rootName);
             }
         }
 
@@ -1022,8 +1026,13 @@ namespace DWMPHorde.Sync
                         // Local pusher/dragger owns this free-body. Host snapshot echo must not:
                         // - SetObjectTarget (kinematic lock + fight local physics — ObjInterp thrash)
                         // - NoteMoving / ForceStop (double scrape / kill native mid-push)
-                        if (!string.IsNullOrEmpty(obj.Name)
-                            && ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name))
+                        var echoNet = ModRuntime.Network as LanNetworkManager;
+                        bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
+                            && echoNet._dragClaims.TryGetValue(obj.Name, out int claimPid)
+                            && claimPid == echoNet.LocalPlayerId;
+                        if (localDragClaim
+                            || (!string.IsNullOrEmpty(obj.Name)
+                                && ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name)))
                         {
                             RemoveObjectFromInterpolation(go);
                             Rigidbody localRb = go.GetComponent<Rigidbody>();

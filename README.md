@@ -4,7 +4,7 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.9.3** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md)) |
+| **Product** | YokWare Branch **0.7.7** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
 | **Live wire** | Horde protocol **19** (LiteNetLib `NetMessageType`, IDs through **126**, optional **112–126**) |
 | **Research wire** | **Ironbark v2** (`DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
@@ -67,7 +67,7 @@ Pick **one** loader per game process. Both variants are the same Path B mod; bui
 2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
    (or take `bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
 3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **19**, version **0.9.2**.
+4. Launch — banner: **YokWare Branch**, Path B, protocol **19**, version **0.7.7**.
 
 ### MelonLoader
 
@@ -109,9 +109,9 @@ dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
 
 ---
 
-## What Path B is / is not (0.9.2)
+## What Path B is / is not (0.7.x)
 
-**Is:** Horde combat/entity/AI mute (attack range + FF residual 0.9.2+), containers (host take-deny H6), dreams, spectator (night-dead proxy stay dead), **world save share** (dual-box; client slot-5 merge keeps full profile index), join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk, host-only time, dialogue tree sync, silent trap harvest (no peer boom/vanish), traps/lights occupancy+remain, host grant (PeerRoster/HostHandoff), dual-box save root isolation, BepInEx + MelonLoader. Detail: **CHANGELOG 0.9.2+**.
+**Is:** Horde combat/entity/AI mute, containers (host take-deny), dreams (still hardening), spectator, **world save share**, join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk, host-only time, dialogue tree sync, traps/lights, host grant, dual-box save root isolation, BepInEx + MelonLoader. **Not** near-1.0 — product line is **0.7.x** (earlier **0.9.x** labels were overstated). Detail: **CHANGELOG**.
 
 **Is not (yet / residual):**
 

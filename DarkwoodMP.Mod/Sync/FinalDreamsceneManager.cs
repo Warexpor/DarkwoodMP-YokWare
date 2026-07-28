@@ -63,6 +63,7 @@ namespace DWMPHorde.Sync
             _ending = false;
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
+            DWMPHorde.Patches.DialogueDoorAftermath.Reset();
             ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
         }
 

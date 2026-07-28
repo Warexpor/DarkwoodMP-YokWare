@@ -226,6 +226,8 @@ public class AuditStructureTests
 
         var session = ReadMod("Sync", "DreamSession.cs");
         Assert.Contains("TryBegin", session);
+        Assert.Contains("BeginFromHost", session);
+        Assert.Contains("UpdateActivePreset", session);
         Assert.Contains("ShouldRejectNewConnections", session);
         Assert.Contains("ApplySnapshot", session);
         Assert.Contains("SetChainedPreset", session);
@@ -298,12 +300,12 @@ public class AuditStructureTests
 
     // Wire_PathBIsProtocol19 follows.
     [Fact]
-    public void Wire_PathBIsProtocol19_VersionIs09x_Not10()
+    public void Wire_PathBIsProtocol19_VersionIs07x_Not10()
     {
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.9.3", plugin);
+        Assert.Contains("0.7.7", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 

@@ -1064,14 +1064,18 @@ namespace DWMPHorde.Networking
 
                 // While inside, send LocationEnter every 30 frames (~1 Hz) so the
                 // receiver can retry after an async location spawn completes.
+                // Dreams: one-shot on enter/rename only — ~1 Hz flooded peers (~180/dream).
                 _locationSyncCounter++;
-                if (inOutsideLoc && (!_previousInOutsideLocation || locName != _previousLocationName || _locationSyncCounter >= 30))
+                bool dreamLocActive = Sync.DreamSyncManager.IsDreamActive;
+                bool locChanged = !_previousInOutsideLocation || locName != _previousLocationName;
+                bool heartbeatRetry = !dreamLocActive && _locationSyncCounter >= 30;
+                if (inOutsideLoc && (locChanged || heartbeatRetry))
                 {
                     _locationSyncCounter = 0;
                     if (!string.IsNullOrEmpty(locName))
                     {
                         // Live dream pad — never advertise vanilla *_done rename mid-session.
-                        string txName = Sync.DreamSyncManager.IsDreamActive
+                        string txName = dreamLocActive
                             ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
                             : locName;
                         Broadcast(NetMessageType.LocationEnter,

@@ -1368,6 +1368,11 @@ namespace DWMPHorde.Networking
                 _dragEndedAt.Remove(msg.ObjectName);
             }
 
+            // Own DragSync echo (host rebroadcast): native ItemSounds already owns scrape —
+            // applying MOS here doubles the sound for the dragging client.
+            if (msg.IsDragging && msg.ClaimedByPlayerId == LocalPlayerId)
+                return;
+
             // If a remote player claims an item we're dragging, force-stop our
             // drag to resolve the conflict and prevent double-drag desync.
             bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
@@ -2243,10 +2248,61 @@ namespace DWMPHorde.Networking
             ApplyGameEventsFired(msg, queueIfMissing: true);
         }
 
-        private void ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
+        /// <returns>True when the event is resolved (fired, already fired, or intentionally skipped).</returns>
+        private bool ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
         {
+            // Post-teardown dream GEs (e.g. fov_trigger_* after LocationExit) must not apply.
+            if (!string.IsNullOrEmpty(msg.EventName)
+                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+                && !DreamSyncManager.IsDreamActive
+                && (Dreams.Instance == null || !Dreams.Instance.dreaming))
+            {
+                ModRuntime.LegacyInfo(
+                    $"[GameEventsSync] drop post-dream GE '{msg.EventName}'");
+                return true;
+            }
+
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             GameEvents best = null;
+
+            // Host fires dream-pad GEs at (-75000,…) before the client pad exists.
+            // Soft fallback used to pick the overworld bunker homonym at (-6342,…) —
+            // that wires door_underground with the normal bunk dialogue. Queue until pad.
+            // onEnterLocation_* also needs finishedLoading + dreaming — early apply leaves
+            // welcome_opening (normal bunk) instead of welcome_opening_dream.
+            bool dreamNamed = !string.IsNullOrEmpty(msg.EventName)
+                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isDreamEnter = dreamNamed
+                && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            Location dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+            if (dreamNamed && DreamSyncManager.IsDreamActive
+                && (dreamRoot == null
+                    || (isDreamEnter && (dreamLoc == null || !dreamLoc.finishedLoading
+                        || Dreams.Instance == null || !Dreams.Instance.dreaming))))
+            {
+                if (queueIfMissing)
+                {
+                    QueuePendingGameEvent(msg);
+                    return false;
+                }
+                ModRuntime.LegacyInfo(
+                    $"[GameEventsSync] defer dream GE (pad not ready) '{msg.EventName}'");
+                return false;
+            }
+
+            // Dream footstep/soundarea GEs parent audio to local Player — client hears them as
+            // their own steps and they cut hard at range. Proxy OnFootstep owns peer footsteps.
+            if (DreamSyncManager.IsDreamActive
+                && !string.IsNullOrEmpty(msg.EventName)
+                && (msg.EventName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("area_footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                ModRuntime.LegacyInfo(
+                    $"[GameEventsSync] skip dream ambient GE '{msg.EventName}' (proxy footsteps own peer steps)");
+                return true;
+            }
 
             // Dream bunker dialogue events sit at location origin far from door body;
             // use wide name search first, then position.
@@ -2256,12 +2312,15 @@ namespace DWMPHorde.Networking
                 best = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
             if (best == null)
                 best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
-            // Soft name contains match (Clone / suffix drift).
+
+            // Soft name contains match (Clone / suffix drift) — HARD distance cap.
+            // Unbounded scan was the root cause of overworld bunk GE at (-6342).
             if (best == null && !string.IsNullOrEmpty(msg.EventName))
             {
                 GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
                 string want = msg.EventName;
                 float bestD = float.MaxValue;
+                float softMax = DreamSyncManager.IsDreamActive ? 250f : nameR;
                 for (int i = 0; i < all.Length; i++)
                 {
                     GameEvents ge = all[i];
@@ -2271,7 +2330,12 @@ namespace DWMPHorde.Networking
                         && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0
                         && want.IndexOf(n.Replace("(Clone)", "").Trim(), System.StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
+                    if (dreamRoot != null
+                        && !ge.transform.IsChildOf(dreamRoot)
+                        && Vector3.Distance(ge.transform.position, dreamRoot.position) > 250f)
+                        continue;
                     float d = Vector3.Distance(ge.transform.position, pos);
+                    if (d > softMax) continue;
                     if (d < bestD)
                     {
                         bestD = d;
@@ -2285,24 +2349,41 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                 {
                     QueuePendingGameEvent(msg);
-                    return;
+                    return false;
                 }
                 ModRuntime.Log?.LogWarning(
                     $"[GameEventsSync] no GameEvents near {pos} name='{msg.EventName}'");
-                return;
+                return false;
             }
 
-            // fire() under NetworkApplyGuard (receive path) — host re-broadcast suppressed.
+            // Must run under NetworkApplyGuard on every apply path (receive + pending flush).
+            // Without it GameEventsFiredPatch blocks client one-shots and fire() is a no-op.
             // Vanilla fired+!multipleFire guard prevents double-fire if client already ran it.
             bool wasFired = best.fired;
-            best.fire();
+            if (wasFired && !best.multipleFire)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[GameEventsSync] skip already-fired '{best.name}' at {best.transform.position}");
+                return true;
+            }
+            using (new NetworkApplyGuard())
+            {
+                best.fire();
+            }
+            if (!best.fired && !best.multipleFire)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[GameEventsSync] fire no-op '{best.name}' at {best.transform.position}");
+                return false;
+            }
             ModRuntime.LegacyInfo(
-                $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} at {best.transform.position}");
+                $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} firedNow={best.fired} at {best.transform.position}");
 
             // Dream dialogue doors: trueTargets often fail on client LoadDream path —
             // force-open nearby doors after delayed GameEvent coroutines would have run.
             DWMPHorde.Patches.DialogueDoorAftermath.OnClientGameEventsApplied(
                 best.name ?? msg.EventName, best.transform.position);
+            return true;
         }
 
         private void QueuePendingGameEvent(GameEventsFiredMessage msg)
@@ -2323,11 +2404,36 @@ namespace DWMPHorde.Networking
                 $"[GameEventsSync] queued (not loaded) at ({msg.PosX:F1},{msg.PosZ:F1}) name={msg.EventName}");
         }
 
+        /// <summary>Drop queued dream GEs so they cannot re-fire after pad teardown.</summary>
+        internal void ClearPendingDreamGameEvents()
+        {
+            if (_pendingGameEvents.Count == 0) return;
+            int removed = 0;
+            for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
+            {
+                string n = _pendingGameEvents[i].EventName ?? "";
+                if (n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _pendingGameEvents.RemoveAt(i);
+                    removed++;
+                }
+            }
+            if (removed > 0)
+                ModRuntime.LegacyInfo($"[GameEventsSync] cleared {removed} pending dream GE(s) on dream end");
+        }
+
         private float _nextPendingGameEventsFlushTime;
         private const float PendingGameEventsFlushInterval = 1f;
         private const float PendingGameEventsMaxAge = 20f;
         private readonly System.Collections.Generic.Dictionary<int, float> _pendingGameEventQueuedAt
             = new System.Collections.Generic.Dictionary<int, float>(16);
+
+        /// <summary>After remote dream pad spawn — apply queued onEnterLocation_* etc.</summary>
+        internal void TryFlushPendingGameEventsAfterDreamLoad()
+        {
+            _nextPendingGameEventsFlushTime = 0f;
+            TryFlushPendingGameEvents();
+        }
 
         private void TryFlushPendingGameEvents()
         {
@@ -2361,9 +2467,24 @@ namespace DWMPHorde.Networking
                 if (found == null)
                     found = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
                 if (found == null) continue;
-                _pendingGameEvents.RemoveAt(i);
-                _pendingGameEventQueuedAt.Remove(key);
-                ApplyGameEventsFired(msg, queueIfMissing: false);
+
+                // Dream onEnterLocation: object exists but pad not finished — keep queued.
+                bool dreamEnter = !string.IsNullOrEmpty(msg.EventName)
+                    && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (dreamEnter)
+                {
+                    Location dLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+                    if (dLoc == null || !dLoc.finishedLoading
+                        || Dreams.Instance == null || !Dreams.Instance.dreaming)
+                        continue;
+                }
+
+                if (ApplyGameEventsFired(msg, queueIfMissing: true))
+                {
+                    _pendingGameEvents.RemoveAt(i);
+                    _pendingGameEventQueuedAt.Remove(key);
+                }
             }
         }
 
@@ -2978,6 +3099,16 @@ namespace DWMPHorde.Networking
             if (unblockOnly)
                 doorName = doorName.Substring("unblock:".Length);
 
+            // Mid-dream: ignore overworld DoorOpen (name "Wooden door" matched the wrong bunker door).
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            if (DreamSyncManager.IsDreamActive && dreamRoot != null
+                && Vector3.Distance(pos, dreamRoot.position) > 250f)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DoorSync] drop non-dream DoorOpen '{msg.DoorName}' at {pos}");
+                return;
+            }
+
             Door door = Sync.DoorTracker.FindByPosition(pos);
             if (door == null)
                 door = FindDoorByPosLoose(pos, 4f);
@@ -2990,11 +3121,17 @@ namespace DWMPHorde.Networking
                 {
                     Door d = all[i];
                     if (d == null) continue;
+                    if (dreamRoot != null && DreamSyncManager.IsDreamActive
+                        && !d.transform.IsChildOf(dreamRoot)
+                        && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                        continue;
                     string n = StripCloneSuffix(d.name);
                     if (!string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase)
                         && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
                     float dist = Vector3.Distance(d.transform.position, pos);
+                    // Name-only match must be near the message pos — never pick a distant same-name door.
+                    if (dist > 20f) continue;
                     if (dist < bestD)
                     {
                         bestD = dist;
@@ -3002,13 +3139,23 @@ namespace DWMPHorde.Networking
                     }
                 }
             }
-            // Dream: event pos is often location origin, door body is offset — widen search.
+            // Dream: event pos is often location origin, door body is offset — widen search
+            // but stay under the dream pad.
             if (door == null && DreamSyncManager.IsDreamActive)
                 door = FindDoorByPosLoose(pos, 40f);
 
             if (door == null)
             {
                 ModRuntime.Log?.LogWarning($"[DoorSync] Door '{msg.DoorName}' not found at {pos}");
+                return;
+            }
+
+            if (dreamRoot != null && DreamSyncManager.IsDreamActive
+                && !door.transform.IsChildOf(dreamRoot)
+                && Vector3.Distance(door.transform.position, dreamRoot.position) > 200f)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DoorSync] reject door outside dream pad '{door.name}' for msg={msg.DoorName}");
                 return;
             }
 
@@ -7048,17 +7195,15 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Plays a 3D-positioned footstep sound at the proxy's transform.
-        /// Detects ground type via the proxy's CharBase, then plays the
-        /// appropriate footstep clip using the local player's sound IDs.
-        /// Silently returns if the proxy is beyond listen cull distance.
+        /// Player footstep AudioItems are authored 2D for local steps — force spatialBlend
+        /// + linear rolloff so peers don't sound like the listener's own feet, and distance
+        /// fades via AudioSource.maxDistance instead of a hard IsNearListener cull.
         /// </summary>
         private static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running)
         {
             Transform proxyT = proxy.transform;
             Player local = Player.Instance;
             if (local == null) return;
-            if (!LocalAudioService.IsNearListener(proxyT.position, LocalAudioService.DefaultMaxAudioDistance))
-                return;
 
             CharacterSounds cs = local.GetComponent<CharacterSounds>();
             if (cs == null) return;
@@ -7085,15 +7230,31 @@ namespace DWMPHorde.Networking
             float vol = cs.footstepVolume * volumeModifier;
 
             if (!string.IsNullOrEmpty(soundID))
-                AudioController.Play(soundID, proxyT, vol);
+                ForceSpatialProxyOneShot(AudioController.Play(soundID, proxyT, vol), soundID);
 
-            AudioController.Play("walk_clothes_noises", proxyT, vol);
+            ForceSpatialProxyOneShot(AudioController.Play("walk_clothes_noises", proxyT, vol), "walk_clothes_noises");
 
             if (UnityEngine.Random.Range(0f, 1f) > 1f - cs.footHitGroundSoundChance)
             {
                 string addSound = gt == GroundType.wood ? "footsteps_wood_add" : "footstep_branches_add";
-                AudioController.Play(addSound, proxyT, 1f);
+                ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, 1f), addSound);
             }
+        }
+
+        /// <summary>Force 3D rolloff on player-authored (often 2D) clips played at a proxy.</summary>
+        private static void ForceSpatialProxyOneShot(AudioObject audioObj, string soundId)
+        {
+            if (audioObj == null || audioObj.primaryAudioSource == null) return;
+            audioObj.primaryAudioSource.spatialBlend = 1f;
+            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
+            AudioItem item = !string.IsNullOrEmpty(soundId) ? AudioController.GetAudioItem(soundId) : null;
+            float itemMin = (item != null && item.overrideAudioSourceSettings)
+                ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
+            float itemMax = (item != null && item.overrideAudioSourceSettings)
+                ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
+            // Footsteps: closer near-field than guns so they attenuate across a room.
+            audioObj.primaryAudioSource.minDistance = Mathf.Clamp(itemMin, 8f, 40f);
+            audioObj.primaryAudioSource.maxDistance = Mathf.Clamp(itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
         }
 
         private void HandlePlayerSound(PlayerSoundMessage msg)

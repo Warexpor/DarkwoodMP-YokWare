@@ -1,6 +1,7 @@
 # Residuals (Path B)
 
-**Product:** YokWare Branch **0.9.3** · Horde protocol **19**
+**Product:** YokWare Branch **0.7.7** · Horde protocol **19**  
+(Older **0.9.x** notes below were too ambitious — live line is **0.7.x**.)
 
 Living detail: **CHANGELOG.md**, **DarkwoodMP.Mod/docs/COOP_COVERAGE.md**, playtest: **docs/PLAYTEST.md**.
 
@@ -18,9 +19,9 @@ Living detail: **CHANGELOG.md**, **DarkwoodMP.Mod/docs/COOP_COVERAGE.md**, playt
 - [ ] **Credits continuous co-op** (by design: credits stop network)
 - [ ] **SyncCheck / full InteractionLock / ItemState** (still deferred product)
 
-## Dream sync (0.9.3)
+## Dream sync (0.9.5)
 
-Code closed — see **CHANGELOG** `0.9.3` and **docs/DREAM_SYNC_REVIEW_2026-07-28.md**. Human sign-off: **docs/PLAYTEST.md** §6.
+0.9.4 soak left wrong overworld bunk GE, host black screen, client entry stingers. **0.9.5** root-cause fixes — see **CHANGELOG** `0.9.5`. Human sign-off: **docs/PLAYTEST.md** §6c.
 
 ## Deep-review playtest (not signed off)
 

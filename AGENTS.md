@@ -22,6 +22,7 @@ Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Dar
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
+- **Product version:** **0.7.x** (current **0.7.7**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Protocol:** 19 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.
@@ -50,7 +51,7 @@ Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Dar
 
 **Always** update root `CHANGELOG.md` in the **same turn** you ship playtest fixes, features, or intentional behavior changes — not “later,” not only in chat.
 
-- Add a new **`## 0.9.2+ — …`** section at the **top** (newest first), under the intro blurb.
+- Add a new **`## 0.7.x — …`** section at the **top** (newest first), under the Versioning blurb. Do **not** revive `0.9.x` labels.
 - Cover **what broke / what changed / key files or systems** in plain language (player-facing symptoms + root cause when known).
 - Include **parked / deferred** items explicitly so the next session does not rediscover them as “missing changelog.”
 - Protocol bumps, new message IDs, config keys, and join/save UX changes are always changelog-worthy.

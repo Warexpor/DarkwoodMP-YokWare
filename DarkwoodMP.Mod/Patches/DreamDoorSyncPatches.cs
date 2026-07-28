@@ -35,6 +35,16 @@ namespace DWMPHorde.Patches
             Vector3 pos = door.transform.position;
             string name = door.name ?? "";
 
+            // During dreams only fan-out doors that belong to the dream pad.
+            if (DreamSyncManager.IsDreamActive)
+            {
+                Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+                if (dreamRoot != null
+                    && !door.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(pos, dreamRoot.position) > 200f)
+                    return;
+            }
+
             net.Broadcast(NetMessageType.DoorOpen,
                 w => new DoorOpenMessage
                 {
@@ -189,11 +199,19 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (ModRuntime.Network.Role != NetworkRole.Host) return;
 
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             Door[] all = Object.FindObjectsOfType<Door>(true);
             for (int i = 0; i < all.Length; i++)
             {
                 Door d = all[i];
                 if (d == null || !d.opened) continue;
+                // Only dream-pad doors — overworld opened doors were flooding DoorOpen and
+                // clients name-matched the wrong "Wooden door" inside the bunker.
+                if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    continue;
+                if (dreamRoot == null && !DreamSyncManager.IsDreamActive)
+                    continue;
                 int id = d.GetInstanceID();
                 if (!_broadcastedOpen.Add(id)) continue;
                 DoorOpenSyncPatch.BroadcastDoorOpened(d);
@@ -212,78 +230,92 @@ namespace DWMPHorde.Patches
 
         private static void ForceOpenDialogueDoors(Vector3 eventPos)
         {
-            // Anchor: dialogue NPC door_underground, then event pos, then all dream doors.
+            // Anchor: dialogue NPC door_underground under the dream pad only.
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             Vector3 anchor = eventPos;
+            bool foundNpc = false;
+            float bestNpcDist = float.MaxValue;
             Character[] chars = Object.FindObjectsOfType<Character>(true);
             for (int i = 0; i < chars.Length; i++)
             {
                 Character c = chars[i];
                 if (c == null) continue;
                 string n = c.name ?? "";
-                if (n.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    || n.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
-                       && n.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                if (n.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) < 0
+                    && !(n.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        && n.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0))
+                    continue;
+                if (dreamRoot != null
+                    && !c.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(c.transform.position, dreamRoot.position) > 200f)
+                    continue;
+                float d = Vector3.Distance(c.transform.position, eventPos);
+                if (d < bestNpcDist)
                 {
+                    bestNpcDist = d;
                     anchor = c.transform.position;
-                    break;
+                    foundNpc = true;
                 }
             }
 
+            // Without the bunker dialogue NPC, do not spray-open doors (wrong-door desync).
+            if (!foundNpc)
+                return;
+
             Door[] all = Object.FindObjectsOfType<Door>(true);
             int opened = 0;
+            Door best = null;
+            float bestDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
             {
                 Door d = all[i];
                 if (d == null) continue;
+                if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    continue;
 
                 float dist = Vector3.Distance(d.transform.position, anchor);
-                // Bunker dialogue door sits near the NPC; event GO is at location origin (~far).
-                bool nearAnchor = dist < 25f;
-                bool nearEvent = Vector3.Distance(d.transform.position, eventPos) < 40f;
-                string dn = d.name ?? "";
-                bool nameMatch = dn.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    || dn.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    || dn.IndexOf("metal", System.StringComparison.OrdinalIgnoreCase) >= 0;
-
-                // Only doors near the dialogue NPC / event — never every "door*" in the pad.
-                if (!nearAnchor && !(nearEvent && nameMatch))
-                    continue;
-
-                // Clear lock / block first (modifyDoor unlock/unblock may have missed targets).
-                try
+                if (dist > 18f) continue;
+                if (dist < bestDist)
                 {
-                    d.unblock();
-                    d.unlock();
+                    bestDist = dist;
+                    best = d;
                 }
-                catch { /* ignore */ }
+            }
 
-                Locked locked = d.GetComponent<Locked>();
-                if (locked != null)
-                    locked.locked = false;
-                Padlock pad = d.GetComponent<Padlock>();
-                if (pad != null)
-                    pad.locked = false;
+            if (best == null || best.opened)
+                return;
 
-                if (d.opened)
-                    continue;
+            try
+            {
+                best.unblock();
+                best.unlock();
+            }
+            catch { /* ignore */ }
 
-                bool prev = LanNetworkManager.IsApplyingRemoteState;
-                LanNetworkManager.IsApplyingRemoteState = true;
-                try
-                {
-                    float force = d.type == Door.Type.metal ? 30000f : 0f;
-                    d.open(d.transform.position + Vector3.forward * 2f, null, force);
-                    opened++;
-                }
-                finally
-                {
-                    LanNetworkManager.IsApplyingRemoteState = prev;
-                }
+            Locked locked = best.GetComponent<Locked>();
+            if (locked != null)
+                locked.locked = false;
+            Padlock pad = best.GetComponent<Padlock>();
+            if (pad != null)
+                pad.locked = false;
+
+            bool prev = LanNetworkManager.IsApplyingRemoteState;
+            LanNetworkManager.IsApplyingRemoteState = true;
+            try
+            {
+                float force = best.type == Door.Type.metal ? 30000f : 0f;
+                best.open(best.transform.position + Vector3.forward * 2f, null, force);
+                opened++;
+            }
+            finally
+            {
+                LanNetworkManager.IsApplyingRemoteState = prev;
             }
 
             if (opened > 0)
                 ModRuntime.LegacyInfo(
-                    $"[DoorSync] client force-opened {opened} door(s) after dialogue door event (anchor={anchor})");
+                    $"[DoorSync] client force-opened dialogue door '{best.name}' (anchor={anchor})");
         }
     }
 }

@@ -140,6 +140,7 @@ namespace DWMPHorde.Networking
         public string[] CompletedPresets;
         public bool SessionActive;
         public string ActivePreset;
+        public int SessionId;
 
         public void Serialize(NetWriter w)
         {
@@ -150,6 +151,7 @@ namespace DWMPHorde.Networking
             w.Put(done.Length);
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
+            w.Put(SessionId);
         }
 
         public static DreamSessionBulkMessage Deserialize(NetReader r)
@@ -159,13 +161,17 @@ namespace DWMPHorde.Networking
                 LvlFlags = r.GetByte(),
                 SessionActive = r.GetBool(),
                 ActivePreset = r.GetString(),
-                CompletedPresets = System.Array.Empty<string>()
+                CompletedPresets = System.Array.Empty<string>(),
+                SessionId = 0
             };
             int n = r.GetInt();
             if (n < 0 || n > 256) n = 0;
             msg.CompletedPresets = new string[n];
             for (int i = 0; i < n; i++)
                 msg.CompletedPresets[i] = r.GetString();
+            // 0.9.4+: trailing SessionId (same DLL both boxes; tolerate missing).
+            if (r.AvailableBytes >= 4)
+                msg.SessionId = r.GetInt();
             return msg;
         }
 
@@ -174,7 +180,8 @@ namespace DWMPHorde.Networking
             LvlFlags = DreamSession.ReadLocalLvlFlags(),
             SessionActive = DreamSession.IsActive,
             ActivePreset = DreamSession.PresetName ?? "",
-            CompletedPresets = DreamSession.GetCompletedPresets()
+            CompletedPresets = DreamSession.GetCompletedPresets(),
+            SessionId = DreamSession.SessionId
         };
     }
 

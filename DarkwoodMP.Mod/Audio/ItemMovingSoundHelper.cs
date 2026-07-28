@@ -132,6 +132,13 @@ namespace DWMPHorde.Audio
                 }
             }
 
+            // Host PhysicsState / DragSync echo: claim table covers frames where
+            // touchingColliders / beingDragged briefly miss (hinge timing).
+            if (ModRuntime.Network is Networking.LanNetworkManager net
+                && net._dragClaims.TryGetValue(objectName, out int claimer)
+                && claimer == net.LocalPlayerId)
+                return true;
+
             if (_localPushActive.Contains(objectName))
                 return true;
 

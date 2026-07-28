@@ -1,6 +1,7 @@
 # YokWare Branch — Path B playtest checklist
 
-**Product:** 0.9.3 Path B (Horde LAN, protocol 19)  
+**Product:** 0.7.7 Path B (Horde LAN, protocol 19) — older **0.9.x** checklist titles below are historical mislabels  
+
 **Ship loader:** BepInEx 5.x  
 **Optional:** MelonLoader dual-build  
 
@@ -19,7 +20,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx
 # auto-deploys Steam + SecondDarkwood plugins if present
 ```
 
-- [ ] Plugin loads (`YokWare Branch` / protocol 19 / 0.9.3)
+- [ ] Plugin loads (`YokWare Branch` / protocol 19 / 0.7.7)
 - [ ] SecondDarkwood log: `Save root override` → `Darkwood_Second` (dual-box)
 - [ ] Title **MULTIPLAYER** injects; F2 settings; Ctrl+C chat
 
@@ -106,7 +107,44 @@ Dual-box after **0.9.2+ deep-review** fixes. Same DLL both machines; host in-cha
 
 ---
 
-## 6. Dream sync full harden (0.9.3)
+## 6e. Dream door fire + scrape/footsteps/transition (0.7.7)
+
+- [ ] Client log: `applied 'onEnterLocation_dream_underground' ... firedNow=True` (not silent no-op)
+- [ ] Client door opens with dream dialogue (`welcome_opening_dream` — not normal bunk lock text)
+- [ ] After entry video, no overworld flash/gap before dream fade-in
+- [ ] Client push/drag scrape is single (not doubled)
+- [ ] In dream, peer footsteps are positioned/volumed; fade with distance (no hard cut)
+
+## 6d. Dream enter timing / black hold (0.9.6)
+
+- [ ] Client log: `onEnterLocation_dream_underground` applied **after** `Player positioned` / `startDreaming` (not before `Dream scene loaded`)
+- [ ] Client door opens with dream dialogue (`welcome_opening_dream` / lookKeyhole_dream path — not normal bunk “Locked. It's my only way out”)
+- [ ] After entry video ends, client stays black until dream loads (no overworld flash)
+
+## 6c. Dream pad GE / black / entry audio (0.9.5)
+
+Dual-box bunker dream (client-initiated preferred):
+
+- [ ] Client log: `onEnterLocation_dream_underground` applied at dream pad coords (~-75000), **not** (-6342,…)
+- [ ] Client door dialogue matches host (dream act1 / open path — not overworld bunk talk)
+- [ ] Host screen recovers after entry video (no permanent black) when client starts the dream
+- [ ] Client entry stinger stops; dream music not stacked under leftover transition audio
+- [ ] Walking apart: client not blasted by host footprint ambients
+
+## 6b. Dream sync playtest harden (0.9.4)
+
+Dual-box — after bunker + random meadow soak:
+
+- [ ] Host+client SessionId match in logs (`Starting session N` same N both sides)
+- [ ] Random dream: host `Ending session … preset=` matches actual location (not previous bunker)
+- [ ] Client exit: clock leaves dream time (not stuck at 900 until TimeSync)
+- [ ] LocationEnter: at most a handful of dream LocationEnter lines (not ~180)
+- [ ] Bunker dialogue door: same door open on both; no wrong wooden door
+- [ ] Entry video/stinger: single play, not doubled/prolonged on client
+- [ ] No `fov_trigger_*dream_*` GameEventsSync after dream end
+- [ ] No DreamAudio `aimReturn` unresolved warnings during dream
+
+## 6. Dream sync full harden (0.9.3) — prior
 
 Dual-box; same DLL; protocol 19. Prefer Support logging on both.
 

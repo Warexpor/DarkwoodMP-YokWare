@@ -28,6 +28,9 @@ namespace DWMPHorde.Sync
         /// <summary>Peer already played startTransition via early CutsceneSync (before DreamStarted).</summary>
         private static bool _earlyEntryTransitionPlayed;
         private static float _earlyEntryTransitionDoneAt;
+        /// <summary>True while StartRemoteDreamTransition audio/video is running (blocks double Play).</summary>
+        private static bool _remoteEntryTransitionPlaying;
+        private static string _remoteEntryAudioId;
 
         /// <summary>C4: client story-end defer awaiting host accept / rejected nack.</summary>
         private static bool _storyEndDeferPending;
@@ -230,6 +233,7 @@ namespace DWMPHorde.Sync
             UnfreezeWorld();
 
             FinalDreamsceneManager.OnDreamEnded();
+            (ModRuntime.Network as LanNetworkManager)?.ClearPendingDreamGameEvents();
 
             _localDreamActive = false;
 
@@ -304,6 +308,8 @@ namespace DWMPHorde.Sync
         {
             if (_localDreamActive) return;
             if (_earlyEntryTransitionPlayed) return;
+            // DreamStarted path already started the video — do not stack a second Play.
+            if (_remoteEntryTransitionPlaying) return;
 
             _earlyEntryTransitionPlayed = true;
             FreezeWorld();
@@ -347,13 +353,15 @@ namespace DWMPHorde.Sync
             }
 
             // 1. Entry video: already started on CutsceneSync DreamEntry, or play now (late/missed).
-            if (_earlyEntryTransitionPlayed)
+            if (_earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying)
             {
                 float remain = _earlyEntryTransitionDoneAt - Time.realtimeSinceStartup;
                 if (remain > 0.05f)
                 {
                     ModRuntime.LegacyInfo($"[DreamSync] Waiting remaining entry transition {remain:F1}s");
-                    yield return new WaitForSeconds(remain);
+                    // Realtime: EnteringDream / pause can zero timescale and stall WaitForSeconds,
+                    // which prolonged the black screen and made the stinger feel doubled.
+                    yield return new WaitForSecondsRealtime(remain);
                 }
             }
             else
@@ -362,7 +370,7 @@ namespace DWMPHorde.Sync
                 if (waitTime > 0f)
                 {
                     ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
-                    yield return new WaitForSeconds(waitTime);
+                    yield return new WaitForSecondsRealtime(waitTime);
                 }
             }
 
@@ -370,6 +378,8 @@ namespace DWMPHorde.Sync
             FadeOutDreamTransition();
             _earlyEntryTransitionPlayed = false;
             _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
 
             // 3. NOW load the dream scene (after transition is complete)
             if (presetName != null)
@@ -439,10 +449,15 @@ namespace DWMPHorde.Sync
         private static IEnumerator LocalEntryFadeoutCoroutine(float delay)
         {
             if (delay > 0.05f)
-                yield return new WaitForSeconds(delay);
+                yield return new WaitForSecondsRealtime(delay);
             FadeOutDreamTransition();
+            // Peer path sets base UI.blackScreen opaque; vanilla startDreaming only clears
+            // blackScreenTop — without this the host stays black forever.
+            FadeInDreamBlackScreen();
             _earlyEntryTransitionPlayed = false;
             _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
         }
 
         /// <summary>
@@ -468,36 +483,61 @@ namespace DWMPHorde.Sync
 
         private static void FadeOutDreamTransition()
         {
-            Core.EnteringDream = false;
+            // Keep EnteringDream until LoadDreamSceneCoroutine fades in — clearing it here
+            // left a frame of overworld between video teardown and scene load.
+            _remoteEntryTransitionPlaying = false;
+            // Stop the entry stinger so it cannot overlap dream-scene music after a long wait.
+            if (!string.IsNullOrEmpty(_remoteEntryAudioId))
+            {
+                try { AudioController.Stop(_remoteEntryAudioId); } catch { /* ignore */ }
+                _remoteEntryAudioId = null;
+            }
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = false;
             if (Singleton<UI>.Instance == null) return;
             try
             {
-                var overlay = Singleton<UI>.Instance.videoOverlay;
+                var ui = Singleton<UI>.Instance;
+                // Snap black opaque first so any video fade cannot expose overworld.
+                try
+                {
+                    if (ui.blackScreen != null)
+                    {
+                        var baseSprite = ui.blackScreen.GetComponent<tk2dBaseSprite>();
+                        if (baseSprite != null)
+                            baseSprite.color = new Color(0f, 0f, 0f, 1f);
+                    }
+                    if (ui.blackScreenTop != null)
+                    {
+                        var topSprite = ui.blackScreenTop.GetComponent<tk2dBaseSprite>();
+                        if (topSprite != null)
+                            topSprite.color = new Color(0f, 0f, 0f, 1f);
+                    }
+                }
+                catch { /* ignore */ }
+                ui.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0f);
+
+                var overlay = ui.videoOverlay;
                 if (overlay != null && overlay.gameObject.activeSelf)
                 {
                     var renderer = overlay.GetComponent<Renderer>();
-                    if (renderer != null && renderer.material != null)
+                    if (renderer != null)
                     {
-                        renderer.material.DOFade(0f, 0.5f).OnComplete(() =>
-                        {
-                            overlay.gameObject.SetActive(false);
-                            renderer.enabled = false;
-                            Core.showGameCursor();
-                        }).SetUpdate(true);
+                        VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
+                        if (vp != null && vp.isPlaying)
+                            vp.Stop();
+                        // Snap off — DOFade(0.5s) exposed overworld when black was not yet solid.
+                        if (renderer.material != null)
+                            renderer.material.color = new Color(1f, 1f, 1f, 0f);
+                        renderer.enabled = false;
                     }
-                    else
-                    {
-                        overlay.gameObject.SetActive(false);
-                        Core.showGameCursor();
-                    }
+                    overlay.gameObject.SetActive(false);
+                    Core.showGameCursor();
                 }
                 else
                 {
                     Core.showGameCursor();
                 }
-                // Video ends with solid black behind it — clear so load is not stuck black.
-                // Final fade-in after scene load is FadeInDreamBlackScreen.
-                Singleton<UI>.Instance.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0.05f);
             }
             catch (Exception ex)
             {
@@ -537,6 +577,7 @@ namespace DWMPHorde.Sync
             }
 
             FinalDreamsceneManager.OnDreamEnded();
+            (ModRuntime.Network as LanNetworkManager)?.ClearPendingDreamGameEvents();
 
             var unfreezeNet = ModRuntime.Network as LanNetworkManager;
             if (unfreezeNet != null)
@@ -578,6 +619,8 @@ namespace DWMPHorde.Sync
             _localDreamPreset = null;
             _earlyEntryTransitionPlayed = false;
             _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
             _remoteDreamActive.Clear();
             _currentDreamPreset.Clear();
             _preDreamPosition.Clear();
@@ -751,7 +794,12 @@ namespace DWMPHorde.Sync
                 player.teleportTo(restorePos, Quaternion.Euler(90f, 0f, 0f));
                 player.Hotbar.selectSlot(0, noiseless: true, force: true);
 
-                Singleton<Controller>.Instance.CurrentTime = (int)dreams.timeCopy;
+                // Prefer freeze snapshot over timeCopy when remote startDreaming overwrote it.
+                int restoreTime = _worldFrozen && _savedGameTime > 0
+                    ? _savedGameTime
+                    : (int)dreams.timeCopy;
+                dreams.timeCopy = restoreTime;
+                Singleton<Controller>.Instance.CurrentTime = restoreTime;
                 UnfreezeWorld(restoreTime: false);
 
                 bool endDiving = dreams.preset != null && dreams.preset.endDivingOut;
@@ -1083,6 +1131,11 @@ namespace DWMPHorde.Sync
                     Dreams.Instance.dreamLocation = component;
                     ApplyEpilogueModeIfNeeded(component, locationName);
                     Dreams.Instance.startDreaming();
+                    // Vanilla startDreaming() re-saves timeCopy from CurrentTime — but by now
+                    // TimeSync/dream may have already bumped the clock to dream time. Restore
+                    // the freeze-time snapshot so exit doesn't leave the client stuck at 900.
+                    if (_worldFrozen && _savedGameTime > 0)
+                        Dreams.Instance.timeCopy = _savedGameTime;
                     _localDreamActive = true;
                 }
                 finally
@@ -1094,6 +1147,22 @@ namespace DWMPHorde.Sync
             {
                 ModRuntime.LegacyInfo($"[DreamSync] Blocked remote startDreaming — already completed: {locationName}");
             }
+
+            // Vanilla: onLocationSpawned → startDreaming → enter → OnActivated → checkEnterEvents.
+            // We entered earlier for render; wait for activateOverTime, then apply queued
+            // onEnterLocation_* so door_underground gets welcome_opening_dream.
+            float waitLoad = 0f;
+            while (component != null && !component.finishedLoading && waitLoad < 5f)
+            {
+                waitLoad += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            try
+            {
+                var netFlush = ModRuntime.Network as LanNetworkManager;
+                netFlush?.TryFlushPendingGameEventsAfterDreamLoad();
+            }
+            catch { /* non-fatal */ }
 
             // Snap host/peer proxies from PlayerPositionManager (true network pos), not
             // local player feet — old code stacked everyone on the client spawn and then
@@ -1162,6 +1231,7 @@ namespace DWMPHorde.Sync
         {
             try
             {
+                Core.EnteringDream = false;
                 var ui = Singleton<UI>.Instance;
                 if (ui == null) return;
 
@@ -1283,6 +1353,9 @@ namespace DWMPHorde.Sync
             // Activate all child objects — vanilla transportToLocation calls
             // spawnedLocations[locationName].enter() which does activateChildren(true).
             // Without this, terrain renderers stay inactive → all-black scene.
+            // Do NOT flush onEnterLocation here — enter() only starts activateOverTime;
+            // GE children need player teleported + startDreaming + finishedLoading first
+            // (otherwise door_underground keeps welcome_opening, not welcome_opening_dream).
             component.enter();
 
             // Vanilla Dreams.onLocationSpawned sets inEpilogue for epilogue locations.
@@ -1421,6 +1494,12 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static float StartRemoteDreamTransition()
         {
+            if (_remoteEntryTransitionPlaying)
+            {
+                float remain = _earlyEntryTransitionDoneAt - Time.realtimeSinceStartup;
+                return Mathf.Max(0f, remain);
+            }
+
             var transition = Dreams.Instance?.startTransition;
             if (transition == null || transition.transitionObjects == null)
             {
@@ -1431,6 +1510,7 @@ namespace DWMPHorde.Sync
             try
             {
                 Core.EnteringDream = true;
+                _remoteEntryTransitionPlaying = true;
 
                 // Stop all audio (same as DreamTransition.transition)
                 AudioController.StopAll(transition.fadeAllAudioTime);
@@ -1438,6 +1518,7 @@ namespace DWMPHorde.Sync
 
                 float videoLength = 0f;
                 bool hasVideo = false;
+                _remoteEntryAudioId = null;
 
                 for (int i = 0; i < transition.transitionObjects.Count; i++)
                 {
@@ -1446,7 +1527,14 @@ namespace DWMPHorde.Sync
 
                     if (obj.type == DreamTransition.TransitionObject.Type.Audio)
                     {
-                        AudioController.Play(obj.audioItemName);
+                        // Play only the first entry stinger — multiple Audio objects stacked
+                        // with the video soundtrack as a doubled/prolonged enter sound.
+                        if (string.IsNullOrEmpty(_remoteEntryAudioId)
+                            && !string.IsNullOrEmpty(obj.audioItemName))
+                        {
+                            AudioController.Play(obj.audioItemName);
+                            _remoteEntryAudioId = obj.audioItemName;
+                        }
                     }
                     else if (obj.type == DreamTransition.TransitionObject.Type.Video)
                     {
@@ -1465,6 +1553,14 @@ namespace DWMPHorde.Sync
                         renderer.enabled = false;
                         VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
                         vp.clip = clip;
+                        // Mute video audio when we already play the dedicated Audio stinger —
+                        // otherwise client hears stinger + video track (doubled enter sound).
+                        if (!string.IsNullOrEmpty(_remoteEntryAudioId))
+                            vp.SetDirectAudioMute(0, true);
+
+                        vp.prepareCompleted += OnRemoteTransitionVideoPrepared;
+                        vp.Prepare();
+                        Singleton<UI>.Instance.videoOverlay.gameObject.SetActive(true);
 
                         // Fade in
                         if (obj.fadeIn > 0f)
@@ -1476,10 +1572,6 @@ namespace DWMPHorde.Sync
                         {
                             renderer.material.color = new Color(1f, 1f, 1f, 1f);
                         }
-
-                        vp.prepareCompleted += OnRemoteTransitionVideoPrepared;
-                        vp.Prepare();
-                        Singleton<UI>.Instance.videoOverlay.gameObject.SetActive(true);
                     }
                 }
 
@@ -1490,6 +1582,7 @@ namespace DWMPHorde.Sync
                 if (!hasVideo)
                 {
                     ShowDreamTransitionFallback();
+                    _remoteEntryTransitionPlaying = false;
                     return 0f;
                 }
 
@@ -1498,12 +1591,14 @@ namespace DWMPHorde.Sync
                 if (Singleton<UI>.Instance != null)
                     Singleton<UI>.Instance.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0.1f);
 
+                _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, videoLength);
                 ModRuntime.LegacyInfo($"[DreamSync] Remote dream transition started, wait={videoLength:F1}s");
                 return videoLength;
             }
             catch (Exception ex)
             {
                 ModRuntime.Log?.LogWarning($"[DreamSync] Failed to play remote dream transition: {ex}");
+                _remoteEntryTransitionPlaying = false;
                 ShowDreamTransitionFallback();
                 return 0f;
             }

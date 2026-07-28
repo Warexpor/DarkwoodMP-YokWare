@@ -1,5 +1,80 @@
 # Changelog
 
+## Versioning
+
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.7** and continue from there.
+
+Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
+
+---
+
+## 0.7.7 — Dream door fire guard + scrape/footsteps/transition (2026-07-28)
+
+(Was briefly labeled 0.9.7.) Prior dream-enter flush fixed *when* to apply `onEnterLocation_dream_*`, but pending flush still called `GameEvents.fire()` **outside** `NetworkApplyGuard`. `GameEventsFiredPatch` silently blocked client one-shots → log said "applied" while `podmiana_1_dream_undeground` children never ran, so `door_underground` kept `welcome_opening` instead of `door_underground_act1` / `welcome_opening_dream`. Also fixes client scrape echo, dream peer footsteps sounding local, and the remaining entry black gap. **Protocol 19 unchanged.**
+
+### Fixed
+- **Dream bunker door dialogue (real root cause):** Wrap every `ApplyGameEventsFired` fire in `NetworkApplyGuard`; only dequeue pending GEs when fire actually succeeds (`firedNow=true`).
+- **Client double push/drag scrape:** Host PhysicsState / DragSync echo armed MOS while native `ItemSounds` already played — local-owner via `_dragClaims` + push authority on client free-body send; ignore own DragSync echo.
+- **Dream peer footsteps as own / hard cutoff:** Force `spatialBlend=1` + linear rolloff on proxy footsteps; drop hard `IsNearListener` cull; skip all dream `*footsteps*` / `soundarea` GEs on client (proxy path owns peer steps).
+- **Client entry transition gap:** Opaque black (both layers) **before** `unpause`; snap video off (no 0.5s DOFade hole); keep `EnteringDream` until dream-load fade-in.
+
+### Changed
+- **Product version line:** `0.9.x` → **`0.7.x`** (0.9 was overstated; see Versioning above).
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`, `Audio/ItemMovingSoundHelper.cs`, `Sync/WorldPhysicsSyncService.cs`
+- `Patches/DreamEntryClientPatch.cs`, `Sync/DreamSyncManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.7**)
+
+## 0.9.6 — Dream enter GE timing + black hold (2026-07-28)
+
+0.9.5 queued the right pad GE but applied it **before** teleport/`startDreaming`/`finishedLoading`, so `door_underground_act1` stayed on `welcome_opening` (normal bunk) instead of `welcome_opening_dream`. Intercept also tore down the video with no black hold → overworld flash. **Protocol 19 unchanged.**
+
+### Fixed
+- **Dream door dialogue:** Flush `onEnterLocation_dream_*` only after `startDreaming` + `location.finishedLoading`; gate apply/pending flush until then.
+- **Client overworld flash after entry video:** Stop entry audio only; hold opaque `blackScreen` + `EnteringDream` until remote load fades in.
+
+### Files
+- `Sync/DreamSyncManager.cs`, `Networking/LanNetworkManager.Handlers.cs`, `Patches/DreamEntryClientPatch.cs`
+- `PluginInfo.cs` (0.9.6)
+
+## 0.9.5 — Dream pad GE / black screen / entry audio (2026-07-28)
+
+Root-cause fixes from 0.9.4 dual-box soak. **Protocol 19 unchanged.**
+
+### Fixed
+- **Wrong bunker door dialogue (real cause):** Client one-shot `GameEvents.fire` is blocked; host `onEnterLocation_dream_underground` arrives before the dream pad exists. Soft name fallback had **no distance cap** and picked the overworld bunker's homonym at `(-6342,…)` instead of the pad at `(-75000,…)`, wiring `door_underground` with the normal bunk dialogue. Now: queue dream GEs until `dreamLocation` exists, cap soft fallback, prefer pad instances, flush after pad `enter()`.
+- **Host permanent black screen (client-led dream):** Peer `StartRemoteDreamTransition` sets base `UI.blackScreen` opaque; host then `startDreaming` only clears `blackScreenTop`. `LocalEntryFadeoutCoroutine` now calls `FadeInDreamBlackScreen`.
+- **Client loud entry audio:** Intercepting `onFinishedVideo` skipped vanilla `onLoaded`, so entry stingers never `AudioController.Stop` and stacked under dream music. Stop stingers + tear down video on intercept.
+- **Host-proximate dream ambients:** Skip far `*footsteps*` / soundarea GEs on client so host walking into volumes does not blast the client at the host's feet.
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`, `Sync/DreamSyncManager.cs`
+- `Patches/DreamEntryClientPatch.cs`, `Patches/DreamDoorSyncPatches.cs`
+- `PluginInfo.cs` (0.9.5)
+
+## 0.9.4 — Dream sync playtest harden (2026-07-28)
+
+Fixes from dual-box dream soak logs + two pinpointed bugs (wrong bunker door, doubled entry sound). **Protocol 19 unchanged.**
+
+### Fixed
+- **SessionId desync:** Client `BeginFromHost` adopts host SessionId (no local mint via `TryBegin`+`Adopt`).
+- **Stale random preset:** `prepareDream("")` no longer `TryBegin`s from leftover `Dreams.preset`; host roll calls `UpdateActivePreset` so session/bulk match the real dream.
+- **Client exit clock:** Remote `startDreaming` was overwriting `timeCopy` with dream TimeSync (900); restore freeze snapshot on exit.
+- **LocationEnter flood:** Dreams send LocationEnter once on enter/rename only (~180/dream → 1).
+- **Wrong bunker door:** Host no longer fans out overworld opened doors mid-dream; client force-open targets only the dialogue-NPC door; `HandleDoorOpen` drops non-dream poses / distant same-name matches.
+- **Doubled/prolonged entry sound:** Mute video track when Audio stinger plays; single stinger; `WaitForSecondsRealtime`; stop audio on fade; block double `StartRemoteDreamTransition`; no DreamAudio forward during `EnteringDream`.
+- **Post-end dream GEs:** Host and client drop `*dream_*` GameEvents after session teardown (e.g. `fov_trigger_*`).
+- **Already-fired GE reapply:** Client skips when `fired && !multipleFire`.
+- **DreamAudio aimReturn:** Stop forwarding unresolved `aimReturn*` clips.
+- **Follow-up (explore map):** `DreamSessionBulk` carries `SessionId`; chain adopts SessionId; flush pending dream GEs on end; item-action sounds excluded from DreamAudio.
+
+### Files
+- `Sync/DreamSession.cs`, `Sync/DreamSyncManager.cs`, `Sync/FinalDreamsceneManager.cs`
+- `Patches/DreamSyncPatches.cs`, `DreamDoorSyncPatches.cs`, `DreamAudioPatches.cs`, `GameEventsFiredPatch.cs`, `CutsceneSync` path via DreamSyncManager
+- `Networking/LanNetworkManager.cs`, `LanNetworkManager.DreamHandlers.cs`, `LanNetworkManager.Handlers.cs`, `Messages/DreamMessages.cs`
+- `PluginInfo.cs` (0.9.4)
+
 ## 0.9.3 — Dream sync full harden (2026-07-28)
 
 Pre-1.0 ship mood for dream sync. **Protocol 19 unchanged** (same DLL both boxes). Nothing deferred from the 2026-07-28 dream review.

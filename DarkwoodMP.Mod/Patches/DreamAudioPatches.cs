@@ -41,6 +41,13 @@ namespace DWMPHorde.Patches
             // many clip names and only produces "Could not resolve clip" noise.
             if (LocalAudioService.IsPrefer2dNetworkOneShot(audioID))
                 return false;
+            if (audioID.IndexOf("aimReturn", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+            if (LocalAudioService.IsCurrentItemActionSound(audioID))
+                return false;
+            // Entry transition stinger is already played locally on peers via StartRemoteDreamTransition.
+            if (Core.EnteringDream)
+                return false;
 
             // Match suppression: do not ship far dream SFX to spectators/peers.
             if (worldPosition != Vector3.zero

@@ -24,9 +24,6 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (msg.SessionId != 0)
-                DreamSession.AdoptSessionId(msg.SessionId);
-
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
@@ -37,16 +34,25 @@ namespace DWMPHorde.Networking
             }
 
             if (!DreamSession.IsActive)
-                DreamSession.TryBegin(msg.PresetName);
+            {
+                // BeginFromHost — never TryBegin (that mints a local SessionId then Adopt fights it).
+                DreamSession.BeginFromHost(msg.PresetName, msg.SessionId);
+            }
             else if (!string.IsNullOrEmpty(msg.PresetName)
                 && !string.Equals(DreamSession.PresetName, msg.PresetName, StringComparison.OrdinalIgnoreCase))
             {
                 // Host chain may arrive as DreamStarted after ChainStart; keep session.
                 DreamSession.SetChainedPreset(msg.PresetName);
+                if (msg.SessionId != 0)
+                    DreamSession.AdoptSessionId(msg.SessionId);
             }
-
-            if (msg.SessionId != 0)
-                DreamSession.AdoptSessionId(msg.SessionId);
+            else
+            {
+                if (!string.IsNullOrEmpty(msg.PresetName))
+                    DreamSession.UpdateActivePreset(msg.PresetName);
+                if (msg.SessionId != 0)
+                    DreamSession.AdoptSessionId(msg.SessionId);
+            }
 
             DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
             DreamSession.MarkActive();
@@ -231,15 +237,19 @@ namespace DWMPHorde.Networking
         private void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            if (msg.SessionId != 0)
+                DreamSession.AdoptSessionId(msg.SessionId);
             if (!string.IsNullOrEmpty(msg.ActivePreset))
             {
                 DreamSession.SetPendingHostPreset(msg.ActivePreset);
                 // Remotes that never empty-roll still need pool parity for later random dreams.
                 DreamSession.MirrorPoolRemove(msg.ActivePreset);
+                if (msg.SessionActive && DreamSession.IsActive)
+                    DreamSession.UpdateActivePreset(msg.ActivePreset);
             }
             ModRuntime.LegacyInfo(
                 $"[DreamSync] Session bulk: completed={msg.CompletedPresets?.Length ?? 0} "
-                + $"active={msg.SessionActive} preset={msg.ActivePreset}");
+                + $"active={msg.SessionActive} preset={msg.ActivePreset} session={msg.SessionId}");
         }
 
         private void HandleDreamChainStart(DreamChainStartMessage msg)
@@ -258,6 +268,9 @@ namespace DWMPHorde.Networking
                     + $"(active {DreamSession.SessionId})");
                 return;
             }
+
+            if (msg.SessionId != 0)
+                DreamSession.AdoptSessionId(msg.SessionId);
 
             ModRuntime.LegacyInfo($"[DreamSync] DreamChainStart → {msg.NextPresetName}");
             DreamSession.SetChainedPreset(msg.NextPresetName);

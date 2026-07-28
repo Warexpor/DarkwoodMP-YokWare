@@ -79,6 +79,9 @@ namespace DWMPHorde.Patches
                     DreamSession.SetPendingHostPreset(resolved);
                     if (!DreamSession.IsActive)
                         DreamSession.TryBegin(resolved);
+                    else
+                        // prepareDream("") may have left session on a stale previous preset.
+                        DreamSession.UpdateActivePreset(resolved);
                     // Vanilla empty path already removed from presetList.
 
                     var net = LanNetworkManager.Instance;
@@ -137,12 +140,12 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role != NetworkRole.Host)
                 return true;
 
-            string name = presetName;
-            if (string.IsNullOrEmpty(name) && __instance.preset != null)
-                name = DreamSession.ResolvePresetName(__instance.preset);
-            if (string.IsNullOrEmpty(name))
-                return true; // empty: DreamGetPresetPatch TryBegin after roll
+            // Empty prepareDream("") must NOT TryBegin from stale Dreams.preset (previous dream).
+            // DreamGetPresetPatch postfix begins after the host roll resolves.
+            if (string.IsNullOrEmpty(presetName))
+                return true;
 
+            string name = presetName;
             if (!DreamSession.TryBegin(name))
             {
                 // Duplicate prepare while already Starting same preset — harmless, continue vanilla.

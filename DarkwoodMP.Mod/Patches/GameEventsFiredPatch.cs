@@ -68,6 +68,14 @@ namespace DWMPHorde.Patches
                 Mathf.Round(p.z * 10f) / 10f);
 
             string eventName = __instance.name ?? "";
+
+            // Dream scene can keep ticking one frame after session End — don't fan out.
+            if (!string.IsNullOrEmpty(eventName)
+                && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+                && !DWMPHorde.Sync.DreamSyncManager.IsDreamActive
+                && (Dreams.Instance == null || !Dreams.Instance.dreaming))
+                return;
+
             net.SendGameEventsFired(new GameEventsFiredMessage
             {
                 PosX = key.x,

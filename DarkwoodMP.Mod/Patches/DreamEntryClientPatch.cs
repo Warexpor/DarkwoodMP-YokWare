@@ -47,7 +47,8 @@ namespace DWMPHorde.Patches
             // Mark not playing so re-entry is blocked (vanilla would do this inside the method)
             __instance.isPlaying = false;
 
-            // Unpause game (vanilla onFinishedVideo would do this before prepareDream)
+            // Opaque black BEFORE unpause — otherwise 1+ frames of overworld after last video frame.
+            HoldEntryBlackAndStopAudio(__instance);
             Core.unpause();
 
             // Send DreamStartRequest so host (the sole authority) starts the dream
@@ -74,6 +75,81 @@ namespace DWMPHorde.Patches
                 $"[DreamSync] Client intercepted entry transition — DreamStartRequest sent for '{dreamName}'");
 
             return false; // Skip original method body
+        }
+
+        /// <summary>
+        /// Stop entry Audio (vanilla onLoaded) but keep opaque black + EnteringDream until
+        /// remote dream load fades in — tearing down the video with no black left a
+        /// multi-second overworld flash after the entry video.
+        /// </summary>
+        private static void HoldEntryBlackAndStopAudio(DreamTransition transition)
+        {
+            if (transition == null) return;
+            try
+            {
+                if (transition.transitionObjects != null)
+                {
+                    for (int i = 0; i < transition.transitionObjects.Count; i++)
+                    {
+                        var obj = transition.transitionObjects[i];
+                        if (obj == null) continue;
+                        if (obj.type == DreamTransition.TransitionObject.Type.Audio
+                            && !string.IsNullOrEmpty(obj.audioItemName))
+                        {
+                            float fade = obj.fadeOut >= 0f ? obj.fadeOut : 0.5f;
+                            try { AudioController.Stop(obj.audioItemName, fade); }
+                            catch { /* ignore */ }
+                        }
+                    }
+                }
+
+                Core.EnteringDream = true;
+                // Snap both black layers opaque immediately (0.05s tween left a visible gap).
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    try
+                    {
+                        if (ui.blackScreen != null)
+                        {
+                            var baseSprite = ui.blackScreen.GetComponent<tk2dBaseSprite>();
+                            if (baseSprite != null)
+                                baseSprite.color = new Color(0f, 0f, 0f, 1f);
+                        }
+                        if (ui.blackScreenTop != null)
+                        {
+                            var topSprite = ui.blackScreenTop.GetComponent<tk2dBaseSprite>();
+                            if (topSprite != null)
+                                topSprite.color = new Color(0f, 0f, 0f, 1f);
+                        }
+                    }
+                    catch { /* fall through to tween */ }
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0f);
+                    try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 1f), 0f); }
+                    catch { /* older UI path */ }
+                }
+
+                // Hide finished video frame; blackScreen covers the gap to DreamStarted.
+                if (Singleton<UI>.Instance != null && Singleton<UI>.Instance.videoOverlay != null)
+                {
+                    var overlay = Singleton<UI>.Instance.videoOverlay;
+                    var renderer = overlay.GetComponent<Renderer>();
+                    if (renderer != null)
+                    {
+                        var vp = renderer.GetComponent<UnityEngine.Video.VideoPlayer>();
+                        if (vp != null && vp.isPlaying)
+                            vp.Stop();
+                        if (renderer.material != null)
+                            renderer.material.color = new Color(1f, 1f, 1f, 0f);
+                        renderer.enabled = false;
+                    }
+                    overlay.gameObject.SetActive(false);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] HoldEntryBlackAndStopAudio: " + ex.Message);
+            }
         }
     }
 }

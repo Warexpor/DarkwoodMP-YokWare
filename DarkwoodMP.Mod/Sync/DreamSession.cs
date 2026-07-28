@@ -146,6 +146,61 @@ namespace DWMPHorde.Sync
             return true;
         }
 
+        /// <summary>
+        /// Client begins from host DreamStarted — uses host SessionId, never mints locally.
+        /// (TryBegin+Adopt was minting SessionId=N+1 then adopting N, desyncing logs/guards.)
+        /// </summary>
+        public static bool BeginFromHost(string presetName, int hostSessionId)
+        {
+            if (string.IsNullOrEmpty(presetName)) return false;
+            if (IsActive)
+            {
+                if (!string.IsNullOrEmpty(presetName)
+                    && !string.Equals(PresetName, presetName, StringComparison.OrdinalIgnoreCase))
+                    UpdateActivePreset(presetName);
+                if (hostSessionId != 0)
+                    AdoptSessionId(hostSessionId);
+                return false;
+            }
+
+            if (hostSessionId != 0)
+            {
+                SessionId = hostSessionId;
+                if (hostSessionId >= _nextSessionId)
+                    _nextSessionId = hostSessionId + 1;
+            }
+            else
+            {
+                SessionId = _nextSessionId++;
+            }
+
+            PresetName = presetName;
+            Current = State.Starting;
+            SetPendingHostPreset(presetName);
+            FinalDreamsceneManager.OnDreamStarted();
+            ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName} (from host)");
+            return true;
+        }
+
+        /// <summary>
+        /// Host random roll / chain resolved a different preset after TryBegin with a stale name
+        /// (prepareDream("") still had previous Dreams.preset). Keep SessionId, swap PresetName.
+        /// </summary>
+        public static void UpdateActivePreset(string presetName)
+        {
+            if (string.IsNullOrEmpty(presetName)) return;
+            if (!IsActive) return;
+            if (string.Equals(PresetName, presetName, StringComparison.OrdinalIgnoreCase))
+            {
+                SetPendingHostPreset(presetName);
+                return;
+            }
+            ModLog.Event(LogCat.Dream,
+                $"UpdateActivePreset {PresetName} → {presetName} (session {SessionId})");
+            PresetName = presetName;
+            SetPendingHostPreset(presetName);
+        }
+
         /// <summary>Client adopts host SessionId from DreamStarted / bulk (no local mint).</summary>
         public static void AdoptSessionId(int sessionId)
         {
