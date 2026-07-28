@@ -194,6 +194,23 @@ namespace DWMPHorde
             bool localNightDeath,
             bool allDeadAtNight)
             => mpConnected && localNightDeath && !allDeadAtNight;
+
+        /// <summary>
+        /// After a remote disconnect during night death: only advance morning when the
+        /// host is night-dead and every relevant player is accounted for as dead.
+        /// An alive leaver with no remotes left must not trigger skipDay.
+        /// </summary>
+        public static bool ShouldResolveMorningOnDisconnect(
+            bool localNightDead,
+            bool leaverWasNightDead,
+            int remainingRemoteCount,
+            int remainingRemoteDeadCount)
+        {
+            if (!localNightDead) return false;
+            if (remainingRemoteCount <= 0)
+                return leaverWasNightDead;
+            return remainingRemoteDeadCount >= remainingRemoteCount;
+        }
     }
 
     /// <summary>
@@ -218,11 +235,17 @@ namespace DWMPHorde
     /// </summary>
     public static class WorldSharePolicy
     {
+        public const string ShareFailurePrefix = "WORLD SHARE FAILED:";
+
         public static bool IsShareFailureTerminal => true;
 
         public static string FormatShareFailure(string reason)
-            => "WORLD SHARE FAILED: " + (reason ?? "unknown")
+            => ShareFailurePrefix + " " + (reason ?? "unknown")
                + " — do not continue (different forests). Host: save once, F2 Resend, or rejoin.";
+
+        public static bool IsShareFailureMessage(string progressText)
+            => !string.IsNullOrEmpty(progressText)
+               && progressText.StartsWith(ShareFailurePrefix, System.StringComparison.Ordinal);
     }
 
     /// <summary>

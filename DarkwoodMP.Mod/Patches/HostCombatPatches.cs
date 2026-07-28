@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
 
             if (__instance.type == MeleeSensor.MeleeSensorType.player
                 && !Config.ModConfig.FriendlyFireEnabled.Value)
-                return true;
+                return false;
 
             // Don't damage client if proxy's CharBase is dead / night-dead.
             CharBase proxyCB = proxy.GetComponent<CharBase>();

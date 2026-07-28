@@ -4,7 +4,7 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.9.2** (Path B; unreleased **0.9.2+** playtest/audit work in [CHANGELOG](CHANGELOG.md)) |
+| **Product** | YokWare Branch **0.9.3** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md)) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
 | **Live wire** | Horde protocol **19** (LiteNetLib `NetMessageType`, IDs through **126**, optional **112–126**) |
 | **Research wire** | **Ironbark v2** (`DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |

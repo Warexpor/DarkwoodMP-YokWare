@@ -135,11 +135,7 @@ namespace DWMPHorde.Sync
                 ModLog.Event(LogCat.Dream, $"Reject begin — already active ({Current}): {presetName}");
                 return false;
             }
-            if (IsPresetCompleted(presetName))
-            {
-                ModLog.Event(LogCat.Dream, $"Reject begin — already completed: {presetName}");
-                return false;
-            }
+            // H4: _completedPresets drives MirrorPoolRemove only — do not forever-ban named re-entry.
 
             SessionId = _nextSessionId++;
             PresetName = presetName;
@@ -148,6 +144,28 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnDreamStarted();
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName}");
             return true;
+        }
+
+        /// <summary>Client adopts host SessionId from DreamStarted / bulk (no local mint).</summary>
+        public static void AdoptSessionId(int sessionId)
+        {
+            if (sessionId == 0) return;
+            SessionId = sessionId;
+            if (sessionId >= _nextSessionId)
+                _nextSessionId = sessionId + 1;
+        }
+
+        /// <summary>C4: OutcomeName sentinel for host→client story-end reject.</summary>
+        public static bool IsRejectedOutcome(string outcomeName)
+        {
+            if (string.IsNullOrEmpty(outcomeName)) return false;
+            return outcomeName.StartsWith("rejected", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string BuildRejectedOutcome(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return "rejected";
+            return "rejected:" + reason;
         }
 
         /// <summary>

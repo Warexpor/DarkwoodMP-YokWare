@@ -134,13 +134,17 @@ namespace DWMPHorde
             }
         }
 
-        public static void OnRemoteDisconnected(int playerId)
+        /// <returns>True when disconnect bookkeeping satisfies morning-resolve policy.</returns>
+        public static bool OnRemoteDisconnected(int playerId)
         {
-            if (playerId <= 0) return;
+            if (playerId <= 0) return false;
 
-            bool wasDead = _remoteDeathPositions.Remove(playerId);
-            if (wasDead)
+            bool leaverWasNightDead = _remoteDeathPositions.ContainsKey(playerId);
+            if (leaverWasNightDead)
+            {
+                _remoteDeathPositions.Remove(playerId);
                 RemoteNightDeathCount = _remoteDeathPositions.Count;
+            }
 
             if (_nightParticipantCount > 0)
             {
@@ -151,7 +155,13 @@ namespace DWMPHorde
 
             ModLog.Event(LogCat.Death,
                 $"Remote player {playerId} disconnected mid-night " +
-                $"(wasDead={wasDead}, dead={RemoteNightDeathCount}/{TotalRemoteCount})");
+                $"(wasDead={leaverWasNightDead}, dead={RemoteNightDeathCount}/{TotalRemoteCount})");
+
+            return NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+                LocalNightDeath,
+                leaverWasNightDead,
+                TotalRemoteCount,
+                RemoteNightDeathCount);
         }
 
         /// <summary>

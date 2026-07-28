@@ -420,17 +420,34 @@ namespace DWMPHorde.Networking
 
         private void HandleNightDeathState(NightDeathStateMessage msg)
         {
-            if (msg.AllDeadTrigger)
+            if (!msg.AllDeadTrigger)
+                return;
+
+            int hostId = _hostPlayerId > 0 ? _hostPlayerId : 1;
+
+            // Host is sole AllDeadTrigger emitter (DeathStateTracker.TryResolveNightMorning).
+            if (_role == NetworkRole.Host)
             {
-                ModRuntime.LegacyInfo("[Death] All dead at night — exiting spectator for morning");
-
-                if (Spectator.SpectatorModeController.Instance != null)
-                {
-                    Spectator.SpectatorModeController.Instance.ExitAndRespawn();
-                }
-
-                DeathStateTracker.Reset();
+                if (_currentReceivePlayerId > 0)
+                    ModRuntime.LegacyInfo(
+                        $"[Death] Rejected peer AllDeadTrigger from p{_currentReceivePlayerId}");
+                return;
             }
+
+            // Client: only accept morning resolve from host.
+            if (_currentReceivePlayerId != hostId)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[Death] Rejected AllDeadTrigger from non-host p{_currentReceivePlayerId}");
+                return;
+            }
+
+            ModRuntime.LegacyInfo("[Death] All dead at night — exiting spectator for morning");
+
+            if (Spectator.SpectatorModeController.Instance != null)
+                Spectator.SpectatorModeController.Instance.ExitAndRespawn();
+
+            DeathStateTracker.Reset();
         }
 
         private void HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage msg)

@@ -7,8 +7,8 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Co-op coordinated save: whoever finishes a local <see cref="SaveManager.Save"/>
-    /// notifies peers. Peers run their own full Save with the vanilla Saving indicator.
+    /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
+    /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
     /// <see cref="LanNetworkManager._isRemoteSaveInProgress"/> prevents rebroadcast loops.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
@@ -49,8 +49,8 @@ namespace DWMPHorde.Patches
 
             ModLog.Event(LogCat.Save,
                 "Local Save complete (" + ModRuntime.Network.Role
-                + ") → SaveSync so all peers Save with Saving UI");
-            ModRuntime.Network.SendSaveSync();
+                + ") → SaveSync request/broadcast (host debounced fan-out)");
+            ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true);
         }
 
         /// <summary>

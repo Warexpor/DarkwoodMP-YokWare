@@ -302,6 +302,24 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Refuse mid-dream authority flip — tear down dream state then disconnect.
+            if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
+            {
+                ModLog.Warn(LogCat.Network,
+                    "Host migration refused mid-dream (" + reason + ") — disconnect without GRANT");
+                try
+                {
+                    Sync.DreamSyncManager.ForceLocalDreamCleanup("hostLostMidDream");
+                }
+                catch (System.Exception ex)
+                {
+                    ModLog.Warn(LogCat.Network, "Mid-dream cleanup: " + ex.Message);
+                }
+                StopNetwork();
+                StatusText = "Host lost mid-dream — disconnected";
+                return;
+            }
+
             // Steam P2P has no listen-port handoff; survivors just disconnect.
             if (IsSteamSession)
             {

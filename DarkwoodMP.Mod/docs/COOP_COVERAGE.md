@@ -45,7 +45,7 @@ Protocol baseline: **19** · Plugin: **0.9.2** (unreleased **0.9.2+** detail in 
 |----|--------|--------|-------|
 | 0.0 | Host grant / migration | **OK (v1)** | Crash + graceful leave: PeerRoster 123, HostHandoff 124, elect lowest id, sim reclaim, preferred ids. `HostMigrationEnabled`. LAN. |
 | 0.1 | Session / handshake / protocol | **OK** | Code closed 2026-07-09. Reliable handshake/session; multi-peer IDs; max players; dream-join reject; Direct forward reliable. WorldSession still advisory (no hard wrong-save reject — F0.5 / later). Playtest smoke still recommended. |
-| 0.2 | Save / world share / load | **OK** | Code closed 2026-07-09. Per-PlayerId host backups; local self backup for ManualSave; SaveSync + WorldSaveShare to all. Mid-campaign still “load matching / Resend.” |
+| 0.2 | Save / world share / load | **OK** | Code closed 2026-07-09. Per-PlayerId host backups; local self backup for ManualSave; SaveSync + WorldSaveShare to all. Mid-campaign still “load matching / Resend.” **2026-07-28:** SaveSync host debounce + client request-only; share-fail hard-block join/worldgen. |
 | 0.3 | Time / day / night cycle | **OK** | TimeSync host authority + sleep adopt. **2026-07-11:** host-auth `endAfterNight` (`AfterNightEndRequest` 122); edge TimeSync flush; client personal heal on day roll; `DoUpdateTime` only (not full FixedUpdate suppress). |
 | 0.4 | Flags bulk + delta | **OK** | Code closed 2026-07-09. Host deltas reliable; join bulk; pending apply if Flags not ready; host-only setFlag authority. |
 | 0.5 | Network apply guards / reset | **OK** | Code closed 2026-07-09. Nested NetworkApplyGuard; ResetAll try/catch; expanded registry + TraverseHack transient clear. |
@@ -327,9 +327,9 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 | 2.2 | Dropped items | **OK** | Code closed 2026-07-09. GUID spawn/pickup; late-join bulk; consume-guard; Forwardable. |
 | 2.3 | Death bags | **OK** | Code closed 2026-07-09. BagId spawn/loot/dedup; water; late-join; looted-id set; Forwardable. Playtest still recommended. |
 | 2.4 | Journal / notes / keys | **OK** | Code closed 2026-07-09. Live JournalItem Broadcast + Forwardable; join bulk + pending; late-join world despawn. |
-| 2.5 | Trade | **OK** | Code closed 2026-07-09. Absolute `TradeInventorySync`; host restock; join bulk; success-only post-trade. Protocol **10** / **0.4.4**. |
+| 2.5 | Trade | **OK** | Code closed 2026-07-09. Absolute `TradeInventorySync`; host restock; join bulk; success-only post-trade. Protocol **10** / **0.4.4**. **2026-07-28:** host-only stock broadcast; client snapshot via dialog lock. |
 | 2.6 | Reputation | **OK** | Code closed 2026-07-09. Model C: shared live+bulk; night-trader per-player + ClientStateBackup. Protocol **11** / **0.4.5**. |
-| 2.7 | Workbench / construction / hideout | **OK** | Level + constructible/hideout as before. **+ exclusive workbench open** (`WorkbenchLock` 119). Not full InteractionLock matrix. |
+| 2.7 | Workbench / construction / hideout | **OK** | Level + constructible/hideout as before. **+ exclusive workbench open** (`WorkbenchLock` 119). Not full InteractionLock matrix. **2026-07-28:** host-only level apply; `WorkbenchLevelSync` mirror; upgrade patch sends sync not raw broadcast. |
 | 2.8 | Compressor / oxygen | **OK** | Code closed 2026-07-09. Convert handler unblocked; any-peer compressor; inv+hotbar. |
 | 2.9 | Saw / Feeder / Lure | **OK** | Saw as before. **+ FeederState 116 + LureState 117** (absolute inactive / health, coalesce, join bulk). |
 | 2.10 | Skills / XP | **OK** | Code closed 2026-07-09. Per-player (no live sync); ClientStateBackup XP+skills+points restore. |
@@ -467,13 +467,13 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
-| 3.1 | Melee / hitscan / projectiles | **OK** | Code closed 2026-07-09; **residual 2026-07-11:** MaxPlayerAttackRange 3500, position+name resolve, FF multi-pellet debounce, night-dead no revive. |
+| 3.1 | Melee / hitscan / projectiles | **OK** | Code closed 2026-07-09; **residual 2026-07-11:** MaxPlayerAttackRange 3500, position+name resolve, FF multi-pellet debounce, night-dead no revive. **2026-07-28:** damage redirect fail-closed; `ProxyCombatRelay` shared debounce across FF paths. |
 | 3.2 | Friendly fire / explosions | **OK** | Code closed 2026-07-09; residual: skip night-dead victims; damage-keyed debounce. |
 | 3.3 | Throwables / gas / fire | **OK** | Code closed 2026-07-09. Throwable host combat; gas trail bulk join; nest-safe ignite; trail dedupe. |
 | 3.4 | Barricades / world melee | **OK** | Code closed 2026-07-09; re-audit fix pass same day. Join bulk: partial door HP + furniture; window vanilla setBarricadeState; destroy dedupe; FX suppress; door find fallback. |
 | 3.5 | Shadows | **OK** | Code closed 2026-07-09. Spawn+state sync; reliable death; join bulk; multi-proxy aggro. |
 | 3.6 | Night spawn / scenarios / random events | **OK** | Code closed 2026-07-09. Join ScenarioStateSync applies; client events host-only; RandomEvent client block; multi-proxy spawn redirect. |
-| 3.7 | Night death / spectator | **OK** | Code closed 2026-07-09. Host-only morning; hold death state; spectate retarget 3+; participant count raise on join. |
+| 3.7 | Night death / spectator | **OK** | Code closed 2026-07-09. Host-only morning; hold death state; spectate retarget 3+; participant count raise on join. **2026-07-28:** peer `AllDeadTrigger` ignored on host; alive-leaver disconnect no false morning. |
 | 3.8 | Player death lifecycle | **OK** | Code closed 2026-07-09. Die→proxy death pose; bag spawn/loot anti-echo; revive via PlayerState; bags 2.3. |
 
 ### Layer 3 audit log
@@ -608,8 +608,8 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 | 4.1 | Dialogs / choices | **OK** | Code closed 2026-07-09. Client→host `DialogOutcomeSync` with **TargetDialogueName**; host apply without open UI. Protocol **12** / **0.4.6**. |
 | 4.2 | GameEvents one-shots | **OK** | Code closed 2026-07-09. Host-auth fire; EventName lookup; multipleFire sync; pending; client one-shot block. Protocol **13** / **0.4.7**. |
 | 4.3 | Event triggers / requirements | **OK** | Code closed 2026-07-09. Host proxy area enter/exit; client volume suppress; proxy sight LOS. No protocol bump (uses 4.2 GameEvents). |
-| 4.4 | Dreams (all levels) | **OK** | Code closed 2026-07-09. Shared session; multi-peer door/audio/item Broadcast; dream death spectate retarget. No proto bump. |
-| 4.5 | Final dreamscene / epilogue | **OK** | Code closed 2026-07-09. Epilogue mode on remote load; crawl death not spectated; credits SceneLoad. Protocol **14** / **0.4.8**. |
+| 4.4 | Dreams (all levels) | **OK** | **0.9.3 full harden:** C1–C4 + H1–H6 closed (GE dream skip, solo death, switchingDream chain, story-end nack/timeout, single ChainStart+SessionId, all-dead via initiateEndDreaming, completions=pool mirror only, epilog 1a road/save, getPreset guard). Peer-drop ends session; mid-dream HOST GRANT refused. Protocol **19**. |
+| 4.5 | Final dreamscene / epilogue | **OK** | Code closed 2026-07-09. Epilogue mode on remote load; crawl death not spectated; credits SceneLoad. Protocol **14** / **0.4.8**. **2026-07-28:** SceneLoad host-only apply; clients cannot force credits. |
 | 4.6 | Cutscenes / movies | **OK** | Code closed 2026-07-09. Host-auth CutsceneManager + skip; proxy hide; CutsceneSync. Protocol **15** / **0.4.9**. |
 | 4.7 | Unique / quest / locks | **OK** | Code closed 2026-07-09. Padlock/Locked/Interactive apply guard + 2.5m find; pending; join bulk. No proto bump. |
 | 4.8 | Chapter progression | **OK** | Code closed 2026-07-09. Host `generateChapter` + world share + ChapterTransition. Protocol **16** / **0.4.10**. |
@@ -676,8 +676,8 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 - **M:** Session not dual-only; death set keyed by remote `PlayerId`; door/audio/item reach all peers; F4 cycle among living proxies.
 - **No protocol / version bump.**
 - **Already solid:** dream-join reject; save blocked mid-dream; world freeze / IsHostDreamEntity; DoorOpenPatch defers to dream DoorOpen; night parity model.
-- **Closed full-scope harden (no deferrals):** completed-preset + `hadDreamAtLvl*` bulk/trailers; `TryBegin` at prepare; story end → `initiateEndDreaming`; `DreamChainStart` for transferToDream; remote snapshot on entry; cleanup order unfreeze-then-world-events; all-dead handshaked peers; dream pocket physics + dream NPC entity stream; DoorOpen apply guard; transition skip covers startTransition.
-- **Playtest smoke:** host + 2 clients enter dream together; host opens dream door → both clients; die and spectate other living peer when first target dies; all dead ends dream; client story outcome ends for all; no join mid-dream; chain dream; late join bulk blocks re-entry; push crate in dream.
+- **Closed full-scope harden (0.9.3):** C1–C4 + H1–H6; peer-drop teardown; mid-dream HOST GRANT refuse; completions = pool mirror only (named re-entry OK); story-end `rejected:*` nack + timeout; `switchingDream` on remote chain; epilog 1a road/save.
+- **Playtest smoke:** host + 2 clients enter dream together; GE-triggered dream no dual pad; solo death ends cleanly; doctor/transfer chain keeps inventory; client story outcome ends for all (or nack recovers); all-dead uses outcome transition; no join mid-dream; peer drop mid-dream ends session; push crate in dream.
 
 #### 4.5 Final dreamscene / epilogue — CLOSED (code) 2026-07-09
 - **A:** Epilogue locations (`Location.isEpilogueLocation`, `epilog_part1a_dream`), `Player.inEpilogue` crawl/death camera pan, `EpilogueOutcomes` → credits, shared dream death (`FinalDreamsceneManager`), `GameEvent.endGame` / `UI.showEndGame`.

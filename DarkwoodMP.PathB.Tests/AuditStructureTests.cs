@@ -255,6 +255,21 @@ public class AuditStructureTests
         Assert.Contains("SendDreamSessionBulkTo", handlers);
         Assert.Contains("MirrorPoolRemove", handlers);
         Assert.Contains("LvlFlags", handlers);
+        Assert.Contains("SendDreamEndedRejected", handlers);
+        Assert.Contains("IsRejectedOutcome", handlers);
+        Assert.Contains("msg.SessionId != DreamSession.SessionId", handlers);
+        Assert.Contains("Drop DreamChainStart session", handlers);
+
+        var geDream = ReadMod("Patches", "GameEventDreamAuthorityPatch.cs");
+        Assert.Contains("Type.startDream", geDream);
+        Assert.Contains("Type.endDream", geDream);
+        Assert.Contains("IsApplyingRemoteState", geDream);
+
+        Assert.Contains("DreamWantToSwitchPatch", dreamPatches);
+        Assert.Contains("AllowDeathEndPass", dreamPatches);
+        Assert.Contains("HasRemoteParticipants", dreamPatches);
+        Assert.Contains("BeginStoryEndDefer", dreamPatches);
+        Assert.Contains("IsStoryEndDeferPending", dreamPatches);
 
         var mgr = ReadMod("Sync", "DreamSyncManager.cs");
         Assert.Contains("OnDreamChain", mgr);
@@ -262,15 +277,33 @@ public class AuditStructureTests
         Assert.Contains("saveCurrentPlayerState", mgr);
         Assert.Contains("uniqueObjectToTransportToAfterDreamEnd", mgr);
         Assert.Contains("endDivingOut", mgr);
+        Assert.Contains("switchingDream = true", mgr);
+        Assert.Contains("ForceLocalDreamCleanup", mgr);
+        Assert.Contains("BeginStoryEndDefer", mgr);
+        Assert.Contains("epilog_part1a_dream", mgr);
+        Assert.Contains("outside_roadToHome_01", mgr);
+        Assert.Contains("forceSaveStatic", mgr);
+
+        Assert.Contains("AdoptSessionId", session);
+        Assert.Contains("BuildRejectedOutcome", session);
+        Assert.Contains("IsRejectedOutcome", session);
+        // H4: TryBegin must not forever-ban via IsPresetCompleted
+        Assert.DoesNotContain("Reject begin — already completed", session);
+
+        Assert.Contains("AllowDeathEndPass", final);
+        Assert.Contains("HasRemoteParticipants", final);
+        Assert.Contains("initiateEndDreaming", final);
+        Assert.Contains("No remotes left — ending shared dream", final);
     }
 
+    // Wire_PathBIsProtocol19 follows.
     [Fact]
     public void Wire_PathBIsProtocol19_VersionIs09x_Not10()
     {
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.9.2", plugin);
+        Assert.Contains("0.9.3", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
@@ -391,9 +424,12 @@ public class AuditStructureTests
         var wbPatches = ReadMod("Patches", "WorkbenchLockPatches.cs");
         Assert.Contains("Workbench", wbPatches);
         Assert.Contains("open", wbPatches);
-        Assert.Contains("closeOpenedItemInventory", wbPatches);
+        // Vanilla Workbench.close is empty — release on Inventory.hide / closeInventory.
+        Assert.Contains("Inventory", wbPatches);
+        Assert.Contains("hide", wbPatches);
 
         var handlers = ReadMod("Networking", "LanNetworkManager.Handlers.cs");
+        Assert.Contains("closeOpenedItemInventory", handlers);
         Assert.Contains("HandleFeederState", handlers);
         Assert.Contains("HandleLureState", handlers);
         Assert.Contains("HandleSleepEndRequest", handlers);
@@ -464,11 +500,73 @@ public class AuditStructureTests
     public void TodoOpen_Items_StillDocumentedInAuditOrTodo()
     {
         var todo = File.ReadAllText(Path.Combine(DocsDir, "TODO.md"));
-        Assert.Contains("Location/landmark placement residual", todo);
-        Assert.Contains("Live 2-instance", todo);
+        Assert.Contains("Landmark placement full determinism", todo);
+        Assert.Contains("Live dual/triple campaign soak", todo);
 
         var audit = File.ReadAllText(Path.Combine(DocsDir, "DARKWOOD_MP_AUDIT.md"));
-        Assert.Contains("Location/landmark placement residual", audit);
-        Assert.Contains("Live 2-instance", audit);
+        Assert.True(
+            audit.Contains("landmark", StringComparison.OrdinalIgnoreCase)
+            && audit.Contains("placement", StringComparison.OrdinalIgnoreCase),
+            "Audit should still document landmark placement residual");
+        Assert.True(
+            audit.Contains("campaign soak", StringComparison.OrdinalIgnoreCase)
+            || audit.Contains("2-instance", StringComparison.OrdinalIgnoreCase)
+            || audit.Contains("dual/triple", StringComparison.OrdinalIgnoreCase),
+            "Audit should still document live soak residual");
+    }
+
+    [Fact]
+    public void DeepReview_2026_07_28_FailClosedGuards_Present()
+    {
+        var epilogue = ReadMod("Patches", "EpilogueSyncPatches.cs");
+        Assert.Contains("HandleSceneLoad", epilogue);
+        Assert.Contains("Rejected inbound SceneLoad", epilogue);
+        Assert.Contains("_role == NetworkRole.Host", epilogue);
+        Assert.Contains("Rejected SceneLoad from non-host", epilogue);
+
+        var combat = ReadMod("Networking", "LanNetworkManager.Combat.cs");
+        Assert.Contains("HandleNightDeathState", combat);
+        Assert.Contains("AllDeadTrigger", combat);
+        Assert.Contains("Rejected peer AllDeadTrigger", combat);
+        Assert.Contains("Rejected AllDeadTrigger from non-host", combat);
+
+        var damageRedirect = ReadMod("Patches", "ClientHitscanDamageRedirectPatch.cs");
+        Assert.Contains("ClientDamageRedirectPatch", damageRedirect);
+        Assert.Contains("Fail closed", damageRedirect);
+        Assert.Contains("[DamageRedirect] EXCEPTION in Prefix", damageRedirect);
+        Assert.Contains("return false", damageRedirect);
+
+        var trade = ReadMod("Patches", "TradeSyncPatches.cs");
+        Assert.Contains("BroadcastNpcInventory", trade);
+        Assert.Contains("SendNpcInventoryToHost", trade);
+        Assert.Contains("net.Role == NetworkRole.Host", trade);
+        Assert.Contains("TradeInventorySync.BroadcastNpcInventory(__instance.npc)", trade);
+
+        var dreamMgr = ReadMod("Sync", "DreamSyncManager.cs");
+        Assert.Contains("UnfreezeWorld(bool restoreTime = true)", dreamMgr);
+        Assert.Contains("UnfreezeWorld(restoreTime: false)", dreamMgr);
+
+        var dreamHandlers = ReadMod("Networking", "LanNetworkManager.DreamHandlers.cs");
+        Assert.Contains("HandleDreamEnded", dreamHandlers);
+        Assert.Contains("wasDeadInDream", dreamHandlers);
+        Assert.Contains("SendDreamEndedRejected", dreamHandlers);
+        Assert.Contains("dead_in_dream", dreamHandlers);
+        Assert.Contains("Rejected story end from p", dreamHandlers);
+        Assert.Contains("IsRejectedOutcome", dreamHandlers);
+
+        var policy = ReadMod("CoopPolicy.cs");
+        Assert.Contains("ShouldResolveMorningOnDisconnect", policy);
+        Assert.Contains("leaverWasNightDead", policy);
+
+        var proxyRelay = ReadMod("Players", "ProxyCombatRelay.cs");
+        Assert.Contains("TryMarkGetHitRelay", proxyRelay);
+
+        var proxyDamage = ReadMod("Patches", "ProxyDamagePatch.cs");
+        Assert.Contains("ProxyCombatRelay.TryMarkGetHitRelay", proxyDamage);
+
+        var wbUpgrade = ReadMod("Patches", "JournalSyncPatches.cs");
+        Assert.Contains("WorkbenchUpgradePatch", wbUpgrade);
+        Assert.Contains("SendWorkbenchLevelSync", wbUpgrade);
+        Assert.Contains("net.Role == NetworkRole.Host", wbUpgrade);
     }
 }

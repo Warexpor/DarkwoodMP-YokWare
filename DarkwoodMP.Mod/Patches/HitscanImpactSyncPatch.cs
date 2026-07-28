@@ -14,6 +14,8 @@ using UnityEngine;
 /// </summary>
 namespace DWMPHorde.Patches
 {
+    // Parked: do not retarget global Physics.Raycast to spawnBullet — that would fan out
+    // to every raycast in the game. Proxy hitscan FF stays in this Postfix on the hitscan mask.
     [HarmonyPatch]
     public static class HitscanImpactSyncPatch
     {
@@ -66,6 +68,8 @@ namespace DWMPHorde.Patches
                 // (melee uses getModdedDamage; firearms hitscan did not, but upgrades still apply).
                 int baseDmg = player.currentItem.baseClass.damage;
                 int dmg = Mathf.Max(1, player.currentItem.getModdedDamage(baseDmg));
+                if (!ProxyCombatRelay.TryConsumeSafetyNet(net.LocalPlayerId, proxy.PlayerId))
+                    return;
                 Vector3 atkPos = player.transform.position;
                 bool inWater = proxyCB != null && proxyCB.inWater;
 

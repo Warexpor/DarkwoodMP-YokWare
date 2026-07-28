@@ -866,6 +866,7 @@ namespace DWMPHorde.Networking
             }
             TickHeavyLateJoinBulk();
             TickHostWorldShareWhenReady();
+            TickSaveSyncBroadcast();
             TickPeerRosterGossip();
             TickHostMigrationRetry();
             if (_hasPendingScenarioEvent && Singleton<NightScenarios>.Instance != null)
@@ -1769,8 +1770,8 @@ namespace DWMPHorde.Networking
                     // Don't treat transfer-link teardown / pre-PlayerState leave as night death.
                     if (!expectedJoinDetach && !wasLoadingOnly)
                     {
-                        DeathStateTracker.OnRemoteDisconnected(playerId);
-                        DeathStateTracker.TryResolveNightMorning("peer disconnect");
+                        if (DeathStateTracker.OnRemoteDisconnected(playerId))
+                            DeathStateTracker.TryResolveNightMorning("peer disconnect");
                     }
                     else
                     {
@@ -2183,6 +2184,8 @@ namespace DWMPHorde.Networking
                         case NetMessageType.ChatMessage:
                             {
                                 var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
+                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                                    chat.SenderId = _currentReceivePlayerId;
                                 // Sanitize peer input (Yokyy had no length/content clamp)
                                 if (chat.Message != null && chat.Message.Length > 160)
                                     chat.Message = chat.Message.Substring(0, 160);
@@ -2191,6 +2194,12 @@ namespace DWMPHorde.Networking
                                 // Skip echo of our own send (we already drew locally)
                                 if (chat.SenderId != _localPlayerId)
                                     ChatHud.OnRemote(chat);
+                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                                {
+                                    var chatWriter = new NetWriter();
+                                    chat.Serialize(chatWriter);
+                                    payload = chatWriter.CopyData();
+                                }
                                 break;
                             }
                         case NetMessageType.DialogNpcLock:

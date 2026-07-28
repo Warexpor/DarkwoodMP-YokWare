@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using DWMPHorde.Networking;
 using DWMPHorde.Spectator;
-using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
 
@@ -24,10 +23,23 @@ namespace DWMPHorde.Sync
         public static bool IsActive => _isActive;
         public static bool IsLocalDead => _localDeadInDream;
 
+        /// <summary>
+        /// One-shot: allow initiateEndDreaming(playerDeath) through the death Prefix
+        /// when host is ending the shared dream for all-dead (H3).
+        /// </summary>
+        internal static bool AllowDeathEndPass;
+
         /// <summary>True when ALL players (local + all remotes) are dead in the dream.</summary>
         public static bool AllDead => _isActive && _localDeadInDream
             && _deadPlayerIds.Count > 0
             && _deadPlayerIds.SetEquals(_connectedPlayerIds);
+
+        /// <summary>Refresh roster and report whether any remote participants are tracked.</summary>
+        public static bool HasRemoteParticipants()
+        {
+            RefreshConnectedPlayers();
+            return _connectedPlayerIds.Count > 0;
+        }
 
         /// <summary>True when any remote player is dead in the shared dream (N-player set).</summary>
         public static bool IsRemoteDead => _deadPlayerIds.Count > 0;
@@ -91,11 +103,19 @@ namespace DWMPHorde.Sync
             if (_connectedPlayerIds.Count == 0)
                 RefreshConnectedPlayers();
 
-            // Solo death in dream (no remote participants) → fall through to vanilla endDreaming.
+            // Solo / empty peer set: Prefix should have allowed vanilla (C2). If we still
+            // land here, tear down — never block+no-op.
             if (_connectedPlayerIds.Count == 0)
             {
                 ModRuntime.LegacyInfo(
-                    "[FinalDreamscene] Solo dream death — skipping redirect, letting vanilla endDreaming handle");
+                    "[FinalDreamscene] Solo/empty-peer dream death — EndDreamForBoth fallback");
+                EndDreamForBoth();
+                return;
+            }
+
+            if (_localDeadInDream)
+            {
+                ModRuntime.LegacyInfo("[FinalDreamscene] Local death already recorded — ignore duplicate");
                 return;
             }
 
@@ -172,14 +192,29 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
+            // Peer left while session active but spectate manager not armed — still tear down.
+            if ((!_isActive || _ending) && _connectedPlayerIds.Count == 0 && DreamSession.IsActive)
+            {
+                var netEarly = ModRuntime.Network as LanNetworkManager;
+                if (netEarly != null && netEarly.Role == NetworkRole.Host)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[FinalDreamscene] Last peer left mid-session — ending dream");
+                    EndDreamForBoth();
+                }
+                return;
+            }
+
             if (!_isActive || _ending) return;
 
-            // Last peer gone while local already dead: do not zombie-spectate — end dream.
-            if (_connectedPlayerIds.Count == 0 && _localDeadInDream)
+            // Last peer gone: end shared dream whether local is dead or still alive.
+            if (_connectedPlayerIds.Count == 0)
             {
                 ModRuntime.LegacyInfo(
-                    "[FinalDreamscene] No remotes left and local dead — ending dream");
-                EndDreamForBoth();
+                    "[FinalDreamscene] No remotes left — ending shared dream"
+                    + (_localDeadInDream ? " (local was dead)" : " (local still alive)"));
+                if (DreamSession.IsActive || _isActive)
+                    EndDreamForBoth();
                 return;
             }
 
@@ -224,20 +259,41 @@ namespace DWMPHorde.Sync
                     player.stopImmobilise();
             }
 
-            if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
+            var dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && dreams.dreaming)
             {
-                var traverse = Traverse.Create(Singleton<Dreams>.Instance);
-                if (traverse.Field("outcomePreset").GetValue() == null)
-                    traverse.Field("outcomePreset").SetValue(new DreamPreset.Outcome { dontLieDown = true });
-
-                ModRuntime.LegacyInfo("[FinalDreamscene] Calling Dreams.endDreaming()");
-                Singleton<Dreams>.Instance.endDreaming();
+                // H3: vanilla initiateEndDreaming → transition → endDreaming (not hard-cut).
+                dreams.outcome = "playerDeath";
+                AllowDeathEndPass = true;
+                ModRuntime.LegacyInfo(
+                    "[FinalDreamscene] All-dead — initiateEndDreaming(playerDeath)");
+                try
+                {
+                    dreams.initiateEndDreaming();
+                }
+                catch (System.Exception ex)
+                {
+                    AllowDeathEndPass = false;
+                    ModRuntime.Log?.LogWarning(
+                        "[FinalDreamscene] initiateEndDreaming failed, falling back to endDreaming: "
+                        + ex.Message);
+                    dreams.endDreaming();
+                }
             }
             else
             {
-                ModRuntime.Log?.LogWarning("[FinalDreamscene] Dreams.Instance not dreaming — cleaning up directly");
+                ModRuntime.Log?.LogWarning(
+                    "[FinalDreamscene] Dreams.Instance not dreaming — cleaning up directly");
                 var cam = Singleton<CamMain>.Instance;
                 if (cam != null) cam.followTarget = player != null ? player.transform : null;
+                if (net != null && net.IsConnected && DreamSession.IsActive)
+                {
+                    net.Broadcast(NetMessageType.DreamEnded,
+                        w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", "allDead")
+                            .Serialize(w),
+                        DeliveryMethod.ReliableOrdered);
+                    DreamSession.End("allDead");
+                }
             }
 
             var spec = SpectatorModeController.Instance;
@@ -246,15 +302,6 @@ namespace DWMPHorde.Sync
 
             if (player != null)
                 player.switchVisibilty(true);
-
-            // endDreaming → DreamEndPatch already Broadcasts DreamEnded when local dream active.
-            // Extra empty DreamEnded only if patch did not run (not dreaming / not local active).
-            if (net != null && net.IsConnected && DreamSyncManager.IsLocalDreamActive)
-            {
-                net.Broadcast(NetMessageType.DreamEnded,
-                    w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", "allDead").Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
-            }
 
             _isActive = false;
             _localDeadInDream = false;

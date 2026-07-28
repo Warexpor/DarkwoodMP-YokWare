@@ -630,7 +630,10 @@ namespace DWMPHorde.Networking
 
                     // Forward this client's state to all other connected clients (3+ support)
                     if (playerId > 0)
+                    {
+                        state.PlayerId = playerId;
                         SendToAllExcept(playerId, NetMessageType.PlayerState, w => state.Serialize(w));
+                    }
 
                     // DISABLED on join path: removeAfterNightEffect() is a full-screen native
                     // morning/event sequence. A joining client's AfterNightActive=false packet
@@ -646,7 +649,9 @@ namespace DWMPHorde.Networking
                 return;
 
             {
-                int remotePlayerId = state.PlayerId > 0 ? state.PlayerId : 1;
+                int remotePlayerId = state.PlayerId > 0
+                    ? state.PlayerId
+                    : (_currentReceivePlayerId > 0 ? _currentReceivePlayerId : 1);
                 PlayerPositionManager.UpdateRemotePlayer(remotePlayerId,
                     new Vector3(state.PosX, state.PosY, state.PosZ),
                     state.TorsoFacingY);
@@ -3054,7 +3059,9 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(msg.LocationName))
                 return;
 
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _currentReceivePlayerId;
+            int playerId = _role == NetworkRole.Host
+                ? _currentReceivePlayerId
+                : (msg.PlayerId > 0 ? msg.PlayerId : _currentReceivePlayerId);
             if (playerId <= 0 || playerId == _localPlayerId)
                 return;
 
@@ -3355,7 +3362,9 @@ namespace DWMPHorde.Networking
 
         private void HandleLocationExit(LocationExitMessage msg)
         {
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _currentReceivePlayerId;
+            int playerId = _role == NetworkRole.Host
+                ? _currentReceivePlayerId
+                : (msg.PlayerId > 0 ? msg.PlayerId : _currentReceivePlayerId);
             if (playerId <= 0)
                 return;
 
@@ -4772,7 +4781,11 @@ namespace DWMPHorde.Networking
 
         private void HandleWorkbenchLevel(WorkbenchLevelMessage msg)
         {
+            if (_role == NetworkRole.Client)
+                return;
+
             ApplyWorkbenchLevel(msg.Level);
+            SendWorkbenchLevelSync();
         }
 
         private void ApplyWorkbenchLevel(int level)
@@ -5712,17 +5725,64 @@ namespace DWMPHorde.Networking
             Broadcast(NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
+        private float _lastSaveSyncBroadcastAt = -999f;
+        private bool _saveSyncBroadcastPending;
+        private bool _saveSyncHostNeedsApply;
+        private const float SaveSyncHostCooldownSec = 3f;
+
         /// <summary>
-        /// Any peer after a local Save: tell everyone else to Save on their machine
-        /// (vanilla Saving indicator included). Does not re-enter while already applying remote Save.
+        /// After a local Save: host debounces broadcast; client requests host fan-out only.
         /// </summary>
-        public void SendSaveSync()
+        public void SendSaveSync(bool hostAlreadySavedLocally = false)
         {
             if (!IsConnected) return;
             if (_isRemoteSaveInProgress) return;
             if (_role == NetworkRole.Offline) return;
-            ModRuntime.LegacyInfo("[SaveSync] broadcast coordinated Save to peers");
-            Broadcast(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+
+            if (_role == NetworkRole.Host)
+            {
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally);
+                return;
+            }
+
+            ModRuntime.LegacyInfo("[SaveSync] client → host save-sync request");
+            Send(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        private void HostScheduleSaveSyncBroadcast(bool hostAlreadySavedLocally)
+        {
+            if (!hostAlreadySavedLocally)
+                _saveSyncHostNeedsApply = true;
+            _saveSyncBroadcastPending = true;
+            TryFlushSaveSyncBroadcast();
+        }
+
+        private void TickSaveSyncBroadcast()
+        {
+            if (_saveSyncBroadcastPending)
+                TryFlushSaveSyncBroadcast();
+        }
+
+        private void TryFlushSaveSyncBroadcast()
+        {
+            if (!_saveSyncBroadcastPending || _role != NetworkRole.Host || !IsConnected)
+                return;
+            if (UnityEngine.Time.unscaledTime - _lastSaveSyncBroadcastAt < SaveSyncHostCooldownSec)
+                return;
+
+            _saveSyncBroadcastPending = false;
+            _lastSaveSyncBroadcastAt = UnityEngine.Time.unscaledTime;
+
+            if (_saveSyncHostNeedsApply)
+            {
+                _saveSyncHostNeedsApply = false;
+                ApplySaveSyncLocalSave("host debounced client request");
+            }
+
+            ModRuntime.LegacyInfo("[SaveSync] host broadcast coordinated Save to peers");
+            SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
         /// <summary>Sends the client's inventory/skills/state backup to the host.</summary>
@@ -5744,13 +5804,39 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Peer initiated Save → run full local Save with vanilla Saving UI.
-        /// Host and clients both apply. Flag blocks SaveSyncPatch rebroadcast loops.
+        /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
+        /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>
         private void HandleSaveSync()
         {
             if (_role == NetworkRole.Offline)
                 return;
+            if (_isRemoteSaveInProgress)
+                return;
+
+            if (_role == NetworkRole.Host)
+            {
+                if (_currentReceivePlayerId <= 0)
+                    return;
+                ModLog.Event(LogCat.Save,
+                    "SaveSync request from p" + _currentReceivePlayerId + " → host debounce");
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false);
+                return;
+            }
+
+            int hostId = _hostPlayerId > 0 ? _hostPlayerId : 1;
+            if (_currentReceivePlayerId != hostId)
+            {
+                ModLog.Event(LogCat.Save,
+                    "SaveSync ignored — not from host (p" + _currentReceivePlayerId + ")");
+                return;
+            }
+
+            ApplySaveSyncLocalSave("host broadcast");
+        }
+
+        private void ApplySaveSyncLocalSave(string reason)
+        {
             if (_isRemoteSaveInProgress)
                 return;
 
@@ -5761,7 +5847,6 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Not in a playable world yet (title join, loading) — skip without looping.
             if (Core.mainMenu || Core.loadingGame || Player.Instance == null)
             {
                 ModLog.Event(LogCat.Save,
@@ -5773,10 +5858,9 @@ namespace DWMPHorde.Networking
             try
             {
                 ModLog.Event(LogCat.Save,
-                    "SaveSync from peer → local coordinated Save (force + Saving indicator) role="
+                    "SaveSync " + reason + " → local coordinated Save (force + Saving indicator) role="
                     + _role);
 
-                // force: night / partial states still write. showSavingIndicator: vanilla BR UI.
                 sm.Save(
                     doJson: true,
                     doSaveProfile: true,
@@ -5784,14 +5868,12 @@ namespace DWMPHorde.Networking
                     forceSaveStatic: false,
                     showSavingIndicator: true);
 
-                // Host keeps per-peer inventory snapshots when clients save.
                 if (_role == NetworkRole.Client)
                 {
                     try { SendClientStateBackup(); }
                     catch { /* non-fatal */ }
                 }
 
-                // Permanent local copy tracks every coordinated Save (fingerprint + day/ch).
                 CoopWorldCopyMeta.RefreshAfterLocalSave();
             }
             catch (System.Exception ex)
@@ -5937,7 +6019,29 @@ namespace DWMPHorde.Networking
 
         private void HandleTradeInventorySync(TradeInventorySyncMessage msg)
         {
-            Patches.TradeInventorySync.Handle(msg);
+            if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+            {
+                // Client absolute stock is not world authority — never Forwardable-echo the payload.
+                _suppressForwardThisMessage = true;
+
+                int senderId = _currentReceivePlayerId;
+                NpcDialogueLock.HostRenewLeaseForSender(msg.NpcName, senderId);
+                bool tradingPeer = NpcDialogueLock.GetOwner(msg.NpcName) == senderId;
+                if (tradingPeer)
+                    Patches.TradeInventorySync.Handle(msg);
+                else
+                    ModRuntime.LegacyInfo(
+                        $"[TradeSync] rejected inventory from p{senderId} for '{msg.NpcName}' (no dialog lock)");
+
+                NPC npc = Patches.TradeInventorySync.FindNpcByName(msg.NpcName);
+                if (npc != null)
+                    Patches.TradeInventorySync.BroadcastNpcInventory(npc);
+                return;
+            }
+
+            // Clients apply host-authoritative snapshots (join bulk + live fan-out).
+            if (_role == NetworkRole.Client)
+                Patches.TradeInventorySync.Handle(msg);
         }
 
         /// <summary>Queue absolute trader stock until the NPC exists in the scene.</summary>

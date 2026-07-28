@@ -40,6 +40,8 @@ namespace DWMPHorde
                 return;
             if (!Core.mainMenu)
                 return;
+            if (share.HasTerminalShareFailure)
+                return;
 
             if (!_rectInit)
             {

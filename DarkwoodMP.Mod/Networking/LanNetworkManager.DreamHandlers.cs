@@ -14,6 +14,19 @@ namespace DWMPHorde.Networking
             Vector3 locPos = new Vector3(msg.LocPosX, msg.LocPosY, msg.LocPosZ);
             int playerId = _currentReceivePlayerId;
 
+            // Drop stale SessionId when a newer session is already active.
+            if (DreamSession.IsActive && DreamSession.SessionId != 0 && msg.SessionId != 0
+                && msg.SessionId != DreamSession.SessionId)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DreamSync] Drop stale DreamStarted session {msg.SessionId} "
+                    + $"(active {DreamSession.SessionId})");
+                return;
+            }
+
+            if (msg.SessionId != 0)
+                DreamSession.AdoptSessionId(msg.SessionId);
+
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
@@ -32,6 +45,9 @@ namespace DWMPHorde.Networking
                 DreamSession.SetChainedPreset(msg.PresetName);
             }
 
+            if (msg.SessionId != 0)
+                DreamSession.AdoptSessionId(msg.SessionId);
+
             DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
             DreamSession.MarkActive();
         }
@@ -43,18 +59,54 @@ namespace DWMPHorde.Networking
         private void HandleDreamEnded(DreamEndedMessage msg)
         {
             int playerId = _currentReceivePlayerId;
-            if (_remotePlayers.TryGetValue(playerId, out var deadState))
-                deadState.IsDeadInDream = false;
+            bool wasDeadInDream = false;
+            if (_remotePlayers.TryGetValue(playerId, out var peerState))
+                wasDeadInDream = peerState.IsDeadInDream;
 
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            // C4: host→client rejected nack for story-end defer.
+            if (_role == NetworkRole.Client && DreamSession.IsRejectedOutcome(msg.OutcomeName))
+            {
+                ModRuntime.LegacyInfo(
+                    "[DreamSession] Host rejected story end — " + msg.OutcomeName);
+                DreamSyncManager.ForceLocalDreamCleanup(msg.OutcomeName);
+                return;
+            }
 
             // Client story completion → host runs full initiateEndDreaming (transition + end).
             if (_role == NetworkRole.Host
                 && !string.IsNullOrEmpty(msg.OutcomeName)
                 && msg.OutcomeName != "playerDeath"
+                && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
                 && Dreams.Instance != null
                 && Dreams.Instance.dreaming)
             {
+                string rejectReason = null;
+                if (playerId <= 0 || !DreamSession.IsActive)
+                    rejectReason = "no_session";
+                else if (msg.SessionId != DreamSession.SessionId)
+                    rejectReason = "session_mismatch";
+                else if (!_handshakedPeers.Contains(playerId))
+                    rejectReason = "unknown_peer";
+                else if (wasDeadInDream)
+                    rejectReason = "dead_in_dream";
+                else if (!string.IsNullOrEmpty(msg.PresetName)
+                    && !string.IsNullOrEmpty(DreamSession.PresetName)
+                    && !string.Equals(msg.PresetName, DreamSession.PresetName, StringComparison.OrdinalIgnoreCase))
+                    rejectReason = "preset_mismatch";
+
+                if (rejectReason != null)
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[DreamSession] Rejected story end from p{playerId}: {rejectReason}");
+                    SendDreamEndedRejected(playerId, rejectReason);
+                    return;
+                }
+
+                DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+
+                if (peerState != null)
+                    peerState.IsDeadInDream = false;
+
                 ModRuntime.LegacyInfo(
                     $"[DreamSession] Host applying client story end via initiateEndDreaming: {msg.OutcomeName}");
                 Dreams.Instance.outcome = msg.OutcomeName;
@@ -63,10 +115,37 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Stale DreamEnded while a newer session is active.
+            if (DreamSession.IsActive && DreamSession.SessionId != 0 && msg.SessionId != 0
+                && msg.SessionId != DreamSession.SessionId
+                && !DreamSession.IsRejectedOutcome(msg.OutcomeName))
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DreamSync] Drop stale DreamEnded session {msg.SessionId} "
+                    + $"(active {DreamSession.SessionId})");
+                return;
+            }
+
+            DreamSyncManager.ClearStoryEndDefer();
+            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+
+            // playerDeath / spectate / remote cleanup — clear dream-death tracking.
+            if (_remotePlayers.TryGetValue(playerId, out peerState))
+                peerState.IsDeadInDream = false;
+
             // Avoid double-end if we already Idle.
             if (DreamSession.IsActive)
                 DreamSession.End(msg.OutcomeName);
             DreamSyncManager.OnRemoteDreamEnded(playerId, msg.OutcomeName);
+        }
+
+        private void SendDreamEndedRejected(int playerId, string reason)
+        {
+            if (playerId <= 0) return;
+            string outcome = DreamSession.BuildRejectedOutcome(reason);
+            SendToPlayer(playerId, NetMessageType.DreamEnded,
+                w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", outcome).Serialize(w),
+                DeliveryMethod.ReliableOrdered);
         }
 
         private void HandleDreamStartRequest(DreamStartRequestMessage msg)
@@ -125,12 +204,7 @@ namespace DWMPHorde.Networking
                     + " preset=" + DreamSession.PresetName + " req=" + msg.PresetName);
                 return;
             }
-            if (DreamSession.IsPresetCompleted(msg.PresetName))
-            {
-                ModRuntime.LegacyInfo(
-                    $"[DreamSync] Ignoring dream start request — already completed: {msg.PresetName}");
-                return;
-            }
+            // H4: no IsPresetCompleted forever-ban — MirrorPoolRemove only.
 
             if (!DreamSession.TryBegin(msg.PresetName))
             {
@@ -174,6 +248,16 @@ namespace DWMPHorde.Networking
                 return;
             if (_role == NetworkRole.Host)
                 return; // host already preparing
+
+            // H2: reject chain packets from a different session.
+            if (DreamSession.IsActive && DreamSession.SessionId != 0 && msg.SessionId != 0
+                && msg.SessionId != DreamSession.SessionId)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DreamSync] Drop DreamChainStart session {msg.SessionId} "
+                    + $"(active {DreamSession.SessionId})");
+                return;
+            }
 
             ModRuntime.LegacyInfo($"[DreamSync] DreamChainStart → {msg.NextPresetName}");
             DreamSession.SetChainedPreset(msg.NextPresetName);

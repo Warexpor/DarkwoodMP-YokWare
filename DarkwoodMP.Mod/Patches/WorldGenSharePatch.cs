@@ -20,6 +20,15 @@ namespace DWMPHorde.Patches
                 if (Core.loadingGame || Core.loadedGame || Core.doLoadChapterSave)
                     return true;
 
+                if (net.WorldSaveShare != null
+                    && WorldSharePolicy.IsShareFailureMessage(net.WorldSaveShare.ProgressText))
+                {
+                    ModLog.Warn(LogCat.World,
+                        "Client blocked worldgen — terminal world share failure: "
+                        + net.WorldSaveShare.ProgressText);
+                    return false;
+                }
+
                 ModLog.Warn(LogCat.World,
                     "Client blocked new worldgen finish while connected — use host share / join pipeline "
                     + "(prevents divergent landmark forests)");

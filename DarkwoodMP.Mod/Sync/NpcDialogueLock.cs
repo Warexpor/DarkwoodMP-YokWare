@@ -107,6 +107,30 @@ namespace DWMPHorde.Sync
             return hold.OwnerId;
         }
 
+        /// <summary>Renew or acquire lease (same owner, or expired slot).</summary>
+        public static bool RenewLease(string npcName, int ownerPlayerId)
+        {
+            return TryAcquire(npcName, ownerPlayerId);
+        }
+
+        /// <summary>
+        /// Host: extend lease when sender was the recorded holder (including expired).
+        /// Does not grant a new holder — used at trade accept so long sessions stay valid.
+        /// </summary>
+        public static void HostRenewLeaseForSender(string npcName, int ownerPlayerId)
+        {
+            if (string.IsNullOrEmpty(npcName) || ownerPlayerId < 0) return;
+            if (!_locks.TryGetValue(npcName, out Hold hold) || hold.OwnerId != ownerPlayerId)
+                return;
+
+            float now = Time.unscaledTime;
+            _locks[npcName] = new Hold
+            {
+                OwnerId = ownerPlayerId,
+                ExpireAt = now + NpcDialogueLockPolicy.DefaultLeaseSeconds
+            };
+        }
+
         /// <summary>Host: attempt lock and notify requestor (and peers).</summary>
         public static bool HostTryGrant(LanNetworkManager net, string npcName, int ownerPlayerId)
         {

@@ -1,6 +1,7 @@
 using DG.Tweening;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Spectator;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -28,8 +29,72 @@ namespace DWMPHorde.Sync
         private static bool _earlyEntryTransitionPlayed;
         private static float _earlyEntryTransitionDoneAt;
 
+        /// <summary>C4: client story-end defer awaiting host accept / rejected nack.</summary>
+        private static bool _storyEndDeferPending;
+        private static float _storyEndDeferDeadline;
+        private const float StoryEndDeferTimeoutSec = 15f;
+        private static Coroutine _storyEndWatchdog;
+
         /// <summary>True when the local player's entry transition was intercepted by DreamEntryClientPatch.</summary>
         public static bool EntryTransitionPlayedLocally => _earlyEntryTransitionPlayed;
+
+        public static bool IsStoryEndDeferPending => _storyEndDeferPending;
+
+        /// <summary>C4: after client sends DreamEnded, wait for host accept or rejected nack.</summary>
+        public static void BeginStoryEndDefer()
+        {
+            _storyEndDeferPending = true;
+            _storyEndDeferDeadline = Time.realtimeSinceStartup + StoryEndDeferTimeoutSec;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null)
+            {
+                if (_storyEndWatchdog != null)
+                    ctrl.StopCoroutine(_storyEndWatchdog);
+                _storyEndWatchdog = ctrl.StartCoroutine(StoryEndDeferWatchdog());
+            }
+        }
+
+        public static void ClearStoryEndDefer()
+        {
+            _storyEndDeferPending = false;
+            _storyEndDeferDeadline = 0f;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null && _storyEndWatchdog != null)
+            {
+                ctrl.StopCoroutine(_storyEndWatchdog);
+                _storyEndWatchdog = null;
+            }
+        }
+
+        private static IEnumerator StoryEndDeferWatchdog()
+        {
+            while (_storyEndDeferPending && Time.realtimeSinceStartup < _storyEndDeferDeadline)
+                yield return null;
+            if (!_storyEndDeferPending)
+                yield break;
+            ModRuntime.Log?.LogWarning(
+                "[DreamSync] Story-end defer timed out — forcing local dream cleanup");
+            _storyEndDeferPending = false;
+            _storyEndWatchdog = null;
+            ForceLocalDreamCleanup("storyEndTimeout");
+        }
+
+        /// <summary>Forced cleanup after rejected nack or story-end timeout (C4).</summary>
+        public static void ForceLocalDreamCleanup(string reason)
+        {
+            ClearStoryEndDefer();
+            ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
+            if (DreamSession.IsActive)
+                DreamSession.End(reason);
+            if (Dreams.Instance != null && Dreams.Instance.dreaming)
+                ApplyRemoteDreamCleanup(reason);
+            else
+            {
+                UnfreezeWorld(restoreTime: false);
+                FinalDreamsceneManager.OnDreamEnded();
+            }
+            _localDreamActive = false;
+        }
 
         /// <summary>
         /// Called from DreamEntryClientPatch when client intercepts onFinishedVideo.
@@ -61,26 +126,23 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>Delegates to DreamSession (sole completion authority).</summary>
+        /// <summary>Delegates to DreamSession for pool mirror bookkeeping (not a re-entry ban).</summary>
         public static bool IsDreamCompleted(int playerId, string presetName)
         {
-            return DreamSession.IsPresetCompleted(presetName);
+            // H4: never abort remote load for named re-entry — MirrorPoolRemove is separate.
+            return false;
         }
 
-        /// <summary>Delegates to DreamSession (sole completion authority).</summary>
+        /// <summary>Delegates to DreamSession for pool mirror bookkeeping (not a re-entry ban).</summary>
         public static bool IsDreamCompleted(string presetName)
         {
-            return DreamSession.IsPresetCompleted(presetName);
+            return false;
         }
 
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
-            if (DreamSession.IsPresetCompleted(presetName))
-            {
-                ModRuntime.LegacyInfo($"[DreamSync] Skipping completed dream: {presetName}");
-                return;
-            }
+            // H4: completions are pool-mirror only — do not skip named re-entry.
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
@@ -361,6 +423,10 @@ namespace DWMPHorde.Sync
                 finally { LanNetworkManager.IsApplyingRemoteState = false; }
             }
 
+            // C3: preserve inventory/time copies across pocket (vanilla switchingDream).
+            if (Dreams.Instance != null)
+                Dreams.Instance.switchingDream = true;
+
             yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
             DreamSession.MarkActive();
         }
@@ -446,7 +512,6 @@ namespace DWMPHorde.Sync
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
             MarkDreamCompleted(playerId, presetName);
-            FinalDreamsceneManager.OnDreamEnded();
 
             _remoteDreamActive[playerId] = false;
 
@@ -470,6 +535,8 @@ namespace DWMPHorde.Sync
                 if (net != null && net.IsConnected && Player.Instance != null)
                     net.TeleportRemoteProxyTo(Player.Instance._transform.position, 0f);
             }
+
+            FinalDreamsceneManager.OnDreamEnded();
 
             var unfreezeNet = ModRuntime.Network as LanNetworkManager;
             if (unfreezeNet != null)
@@ -576,18 +643,24 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo($"[DreamSync] World frozen (time={_savedGameTime}, {_frozenWorldCharacters.Count} characters frozen)");
         }
 
-        public static void UnfreezeWorld()
+        public static void UnfreezeWorld(bool restoreTime = true)
         {
             if (!_worldFrozen) return;
             _worldFrozen = false;
 
-            var ctrl = Singleton<Controller>.Instance;
-            if (ctrl != null)
-                ctrl.CurrentTime = _savedGameTime;
+            if (restoreTime)
+            {
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null)
+                    ctrl.CurrentTime = _savedGameTime;
+                ModRuntime.LegacyInfo($"[DreamSync] World unfrozen (time restored to {_savedGameTime})");
+            }
+            else
+            {
+                ModRuntime.LegacyInfo("[DreamSync] World unfrozen (time not restored)");
+            }
 
             _frozenWorldCharacters.Clear();
-
-            ModRuntime.LegacyInfo($"[DreamSync] World unfrozen (time restored to {_savedGameTime})");
         }
 
         private static void ApplyRemoteDreamCleanup(string outcomeName = "")
@@ -679,6 +752,7 @@ namespace DWMPHorde.Sync
                 player.Hotbar.selectSlot(0, noiseless: true, force: true);
 
                 Singleton<Controller>.Instance.CurrentTime = (int)dreams.timeCopy;
+                UnfreezeWorld(restoreTime: false);
 
                 bool endDiving = dreams.preset != null && dreams.preset.endDivingOut;
                 dreams.destroyDream();
@@ -758,6 +832,10 @@ namespace DWMPHorde.Sync
             }
 
             UnfreezeWorld();
+
+            var spec = SpectatorModeController.Instance;
+            if (spec != null && spec.IsSpectating)
+                spec.ExitWithoutPositionRestore();
 
             // World events after forest is live again.
             if (!string.IsNullOrEmpty(pendingOutcome) && dreams.preset != null)
@@ -1118,6 +1196,41 @@ namespace DWMPHorde.Sync
         private static IEnumerator StartLoadDreamScene(string locationName, Vector3 position, Action<Location> onComplete)
         {
             yield return null;
+
+            // H5: epilog_part1a_dream — destroy road before pocket load (vanilla GE path).
+            if (string.Equals(locationName, "epilog_part1a_dream", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var outside = Singleton<OutsideLocations>.Instance;
+                    if (outside != null
+                        && outside.spawnedLocations != null
+                        && outside.spawnedLocations.ContainsKey("outside_roadToHome_01"))
+                    {
+                        outside.destroyLocation("outside_roadToHome_01");
+                        ModRuntime.LegacyInfo(
+                            "[DreamSync] epilog_part1a — destroyed outside_roadToHome_01");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DreamSync] epilog_part1a road destroy: " + ex.Message);
+                }
+
+                try
+                {
+                    // Mirror vanilla prepareDream forceSaveStatic for epilog 1a.
+                    Singleton<SaveManager>.Instance?.Save(
+                        doJson: true, doSaveProfile: true, force: true,
+                        forceSaveStatic: true, showSavingIndicator: false);
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DreamSync] epilog_part1a forceSaveStatic: " + ex.Message);
+                }
+            }
 
             // Must unload textures before spawning new location — vanilla
             // OutsideLocations.spawnLocation does this first thing.

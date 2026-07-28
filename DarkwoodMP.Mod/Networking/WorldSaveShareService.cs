@@ -74,6 +74,10 @@ namespace DWMPHorde.Networking
         public bool IsAwaitingSlotPick => _awaitingSlotPick;
         /// <summary>World package written; client must click ENTER WORLD to offline-load.</summary>
         public bool IsAwaitingEnterWorld => _awaitingEnterWorld;
+        /// <summary>Terminal share failure — do not allow ENTER WORLD.</summary>
+        public bool HasTerminalShareFailure =>
+            WorldSharePolicy.IsShareFailureTerminal
+            && WorldSharePolicy.IsShareFailureMessage(ProgressText);
         public string ProgressText { get; private set; } = string.Empty;
 
         public WorldSaveShareService(LanNetworkManager net)
@@ -1063,6 +1067,12 @@ namespace DWMPHorde.Networking
                 return false;
             if (_net == null)
                 return false;
+            if (HasTerminalShareFailure)
+            {
+                ModLog.Warn(LogCat.Save,
+                    "TryBeginEnterWorld blocked — " + ProgressText);
+                return false;
+            }
             if (!Core.mainMenu)
             {
                 ModLog.Warn(LogCat.Save, "TryBeginEnterWorld ignored — not on main menu");

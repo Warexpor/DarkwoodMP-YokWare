@@ -69,6 +69,29 @@ namespace DWMPHorde.Networking
         private void HandleSceneLoad(SceneLoadMessage msg)
         {
             if (string.IsNullOrEmpty(msg.SceneName)) return;
+
+            int hostId = _hostPlayerId > 0 ? _hostPlayerId : 1;
+
+            // Host already applied via goToCredits Broadcast + ApplySceneLoad.
+            if (_role == NetworkRole.Host)
+            {
+                if (_currentReceivePlayerId > 0)
+                {
+                    _suppressForwardThisMessage = true;
+                    ModRuntime.LegacyInfo(
+                        $"[Epilogue] Rejected inbound SceneLoad from p{_currentReceivePlayerId}: {msg.SceneName}");
+                }
+                return;
+            }
+
+            // Client: only host may force coordinated scene load (credits / StopNetwork).
+            if (_currentReceivePlayerId != hostId)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[Epilogue] Rejected SceneLoad from non-host p{_currentReceivePlayerId}: {msg.SceneName}");
+                return;
+            }
+
             ApplySceneLoad(msg.SceneName, delaySeconds: 8f);
         }
 

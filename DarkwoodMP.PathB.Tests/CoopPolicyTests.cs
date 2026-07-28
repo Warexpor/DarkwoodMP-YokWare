@@ -119,6 +119,51 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void NightDeath_DisconnectPolicy_AliveLeaverNoRemotes_DoesNotResolve()
+    {
+        Assert.False(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: true,
+            leaverWasNightDead: false,
+            remainingRemoteCount: 0,
+            remainingRemoteDeadCount: 0));
+    }
+
+    [Fact]
+    public void NightDeath_DisconnectPolicy_DeadLeaverNoRemotes_Resolves()
+    {
+        Assert.True(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: true,
+            leaverWasNightDead: true,
+            remainingRemoteCount: 0,
+            remainingRemoteDeadCount: 0));
+    }
+
+    [Fact]
+    public void NightDeath_DisconnectPolicy_RemainingNotAllDead_DoesNotResolve()
+    {
+        Assert.False(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: true,
+            leaverWasNightDead: false,
+            remainingRemoteCount: 2,
+            remainingRemoteDeadCount: 1));
+    }
+
+    [Fact]
+    public void NightDeath_DisconnectPolicy_LocalNotNightDead_DoesNotResolve()
+    {
+        Assert.False(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: false,
+            leaverWasNightDead: true,
+            remainingRemoteCount: 0,
+            remainingRemoteDeadCount: 0));
+        Assert.False(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: false,
+            leaverWasNightDead: false,
+            remainingRemoteCount: 1,
+            remainingRemoteDeadCount: 1));
+    }
+
+    [Fact]
     public void ChapterSession_CreditsPermanent_ChapterResumes()
     {
         Assert.True(ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter);
@@ -135,5 +180,7 @@ public class CoopPolicyTests
         Assert.Contains("no files", msg);
         Assert.Contains("different forests", msg);
         Assert.True(WorldSharePolicy.IsShareFailureTerminal);
+        Assert.True(WorldSharePolicy.IsShareFailureMessage(msg));
+        Assert.False(WorldSharePolicy.IsShareFailureMessage("Receiving host world 50%"));
     }
 }

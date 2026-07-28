@@ -962,6 +962,9 @@ namespace DWMPHorde.Networking
             if (DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive)
             {
                 var dreamTf = DreamSyncManager.GetDreamLocationTransform();
+                // Pre-pad window: session active but dreamLocation not wired yet — reject phantoms.
+                if (DreamSession.IsActive && dreamTf == null)
+                    return null;
                 if (dreamTf != null)
                 {
                     // Dream pads sit far off-map; 5km radius around pad is generous.

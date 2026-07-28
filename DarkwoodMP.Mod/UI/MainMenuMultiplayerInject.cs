@@ -674,6 +674,13 @@ namespace DWMPHorde
             }
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
             {
+                if (lanReady.WorldSaveShare.HasTerminalShareFailure)
+                {
+                    ModLog.Warn(LogCat.Session,
+                        "ENTER WORLD blocked — " + lanReady.WorldSaveShare.ProgressText);
+                    SetLabel(_joinButton, "SHARE FAIL");
+                    return;
+                }
                 if (lanReady.WorldSaveShare.TryBeginEnterWorld())
                     SetLabel(_joinButton, "LOADING…");
                 return;
@@ -729,6 +736,13 @@ namespace DWMPHorde
             // Phase 1 done: permanent copy on disk — explicit ENTER WORLD starts offline load (phase 2).
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
             {
+                if (lanReady.WorldSaveShare.HasTerminalShareFailure)
+                {
+                    ModLog.Warn(LogCat.Session,
+                        "ENTER WORLD blocked — " + lanReady.WorldSaveShare.ProgressText);
+                    SetLabel(_joinButton, "SHARE FAIL");
+                    return;
+                }
                 if (lanReady.WorldSaveShare.TryBeginEnterWorld())
                 {
                     SetLabel(_joinButton, "LOADING…");
@@ -952,10 +966,21 @@ namespace DWMPHorde
                 || prog.IndexOf("Permanent", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static bool IsShareFailureBlocked(LanNetworkManager net)
+        {
+            var share = net?.WorldSaveShare;
+            return share != null && share.HasTerminalShareFailure;
+        }
+
         private static void UpdateJoinLabelFromShare(LanNetworkManager net)
         {
             if (net == null)
                 return;
+            if (IsShareFailureBlocked(net))
+            {
+                SetLabel(_joinButton, "SHARE FAIL");
+                return;
+            }
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
             {
                 SetLabel(_joinButton, "CHOOSE SLOT");
@@ -1014,7 +1039,8 @@ namespace DWMPHorde
 
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
                 SetLabel(_joinButton, "CHOOSE SLOT");
-            else if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
+            else if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld
+                     && !IsShareFailureBlocked(net))
                 SetLabel(_joinButton, "ENTER WORLD");
             else if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
                 UpdateJoinLabelFromShare(net);

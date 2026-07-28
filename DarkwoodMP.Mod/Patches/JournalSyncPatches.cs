@@ -83,7 +83,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Syncs workbench upgrade level after a craft that advances it.
-    /// Absolute level via Broadcast (3+) + Forwardable from clients.
+    /// Host → WorkbenchLevelSync to clients; client → WorkbenchLevel to host (rebroadcasts via Forwardable).
     /// </summary>
     [HarmonyPatch(typeof(CraftingRecipes), "doCraft")]
     public static class WorkbenchUpgradePatch
@@ -108,11 +108,19 @@ namespace DWMPHorde.Patches
             if (_levelBeforeCraft >= 0 && level == _levelBeforeCraft)
                 return;
 
-            var msg = new WorkbenchLevelMessage { Level = level };
             var net = LanNetworkManager.Instance;
             if (net == null) return;
-            ModRuntime.LegacyInfo($"[Workbench] level { _levelBeforeCraft } → {level} (broadcast)");
-            net.Broadcast(NetMessageType.WorkbenchLevel, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            if (net.Role == NetworkRole.Host)
+            {
+                ModRuntime.LegacyInfo($"[Workbench] level {_levelBeforeCraft} → {level} (host sync)");
+                net.SendWorkbenchLevelSync();
+            }
+            else
+            {
+                var msg = new WorkbenchLevelMessage { Level = level };
+                ModRuntime.LegacyInfo($"[Workbench] level {_levelBeforeCraft} → {level} (client → host)");
+                net.Send(NetMessageType.WorkbenchLevel, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
         }
     }
 }

@@ -22,6 +22,7 @@ namespace DWMPHorde.Patches
         {
             PlayerPlacedContainerKeys.Clear();
             _disarmInProgress = false;
+            _pendingShares.Clear();
         }
 
         /// <summary>Hideout fuels + barricade mats (policy A). Types also live in CoopBalance.</summary>
@@ -145,7 +146,7 @@ namespace DWMPHorde.Patches
             public int BaseAmount;
         }
 
-        private static PendingShare _pendingShare;
+        private static readonly Dictionary<InvSlot, PendingShare> _pendingShares = new Dictionary<InvSlot, PendingShare>();
 
         private static bool TryArmShare(InvSlot slot, string path, out PendingShare share)
         {
@@ -211,19 +212,33 @@ namespace DWMPHorde.Patches
             player.Inventory.addItemType(type, extra);
         }
 
+        private static void ArmShareForSlot(InvSlot slot, string path)
+        {
+            if (TryArmShare(slot, path, out PendingShare share))
+                _pendingShares[slot] = share;
+        }
+
+        private static void ApplyPendingShareForSlot(InvSlot slot, string path)
+        {
+            if (!_pendingShares.TryGetValue(slot, out PendingShare share))
+                return;
+            _pendingShares.Remove(slot);
+            ApplyPendingShare(ref share, path);
+        }
+
         [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
         [HarmonyPrefix]
         private static void OnTransferAllToPlayerPrefix(InvSlot __instance)
         {
             // Never multiply the container stack — only arm personal bonus.
-            TryArmShare(__instance, "OnTransferAllToPlayer", out _pendingShare);
+            ArmShareForSlot(__instance, "OnTransferAllToPlayer");
         }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
         [HarmonyPostfix]
         private static void OnTransferAllToPlayerPostfix(InvSlot __instance)
         {
-            ApplyPendingShare(ref _pendingShare, "OnTransferAllToPlayerPostfix");
+            ApplyPendingShareForSlot(__instance, "OnTransferAllToPlayerPostfix");
         }
 
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
@@ -231,7 +246,7 @@ namespace DWMPHorde.Patches
         private static void OnGrabItemPrefix(InvSlot __instance)
         {
             // grabItem moves full stack to cursor — same personal-only share rule.
-            TryArmShare(__instance, "OnGrabItem", out _pendingShare);
+            ArmShareForSlot(__instance, "OnGrabItem");
         }
 
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
@@ -239,7 +254,7 @@ namespace DWMPHorde.Patches
         private static void OnGrabItemPostfix(InvSlot __instance)
         {
             // Cursor holds the real stack; add personal extras into player inv.
-            ApplyPendingShare(ref _pendingShare, "OnGrabItemPostfix");
+            ApplyPendingShareForSlot(__instance, "OnGrabItemPostfix");
         }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
@@ -247,7 +262,7 @@ namespace DWMPHorde.Patches
         private static void OnTransferToPlayerPrefix(InvSlot __instance)
         {
             // Single unit take: base amount is 1 (not full stack).
-            _pendingShare = default;
+            _pendingShares.Remove(__instance);
             if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
             if (InvItemClass.isNull(__instance.invItem)) return;
             if (!IsExpItemClass(__instance.invItem)) return;
@@ -259,13 +274,14 @@ namespace DWMPHorde.Patches
                 && __instance.inventory == Player.Instance.Inventory)
                 return;
             if (GetItemMultiplier() <= 1) return;
-            _pendingShare = new PendingShare
+            var share = new PendingShare
             {
                 Active = true,
                 Type = __instance.invItem.type,
                 BaseAmount = 1
             };
-            Log($"OnTransferToPlayerPrefix: will add personal extra of '{_pendingShare.Type}' x1");
+            _pendingShares[__instance] = share;
+            Log($"OnTransferToPlayerPrefix: will add personal extra of '{share.Type}' x1");
         }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
@@ -273,7 +289,7 @@ namespace DWMPHorde.Patches
         private static void OnTransferToPlayerPostfix(InvSlot __instance)
         {
             // Capture type before clearing pending — slot may be empty after last unit.
-            ApplyPendingShare(ref _pendingShare, "OnTransferToPlayerPostfix");
+            ApplyPendingShareForSlot(__instance, "OnTransferToPlayerPostfix");
         }
 
         [HarmonyPatch(typeof(InvSlot), "placeItem")]

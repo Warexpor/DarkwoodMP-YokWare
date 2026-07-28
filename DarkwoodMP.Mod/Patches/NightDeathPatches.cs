@@ -105,8 +105,8 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
-            // Only the host persists world files. ClientCoopSaveBlockPatch is the general gate;
-            // keep night-death log for clarity if anything races past it.
+            // Night-dead clients skip Save; day clients allowed (SaveSync coordinates fan-out).
+            // ClientCoopSaveAllowLogPatch is a no-op gate (logging only).
             if (ModRuntime.Network.Role != NetworkRole.Host)
             {
                 if (DeathStateTracker.LocalNightDeath)
@@ -114,7 +114,6 @@ namespace DWMPHorde.Patches
                     ModRuntime.LegacyInfo("[Death] Client suppressing Save (only host persists)");
                     return false;
                 }
-                // Day/client Save still blocked by ClientCoopSaveBlockPatch — allow Prefix chain.
                 return true;
             }
 

@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.9.3 — Dream sync full harden (2026-07-28)
+
+Pre-1.0 ship mood for dream sync. **Protocol 19 unchanged** (same DLL both boxes). Nothing deferred from the 2026-07-28 dream review.
+
+### Fixed
+- **C1 GE dual-fire:** Client `GameEvent.fire` skips `startDream`/`endDream` under `NetworkApplyGuard`; host Dream* messages stay authority; other GE effects still apply.
+- **C2 solo death stuck:** Empty peer set allows vanilla `initiateEndDreaming`; spectate Prefix never blocks then no-ops.
+- **C3 chain inventory wipe:** Remote `ProcessChainCoroutine` sets `switchingDream` before `startDreaming` (preserves inventory/time copies).
+- **C4 story-end reject recovery:** Host nacks with `DreamEnded` outcome `rejected:*`; client 15s defer watchdog force-cleans if no accept/nack.
+- **H1/H2 chain authority:** Single `DreamChainStart` from `DreamPrepareChainPatch`; `wantToSwitchDream` tracks next pocket; client validates `SessionId`.
+- **H3 all-dead transition:** `EndDreamForBoth` uses `initiateEndDreaming(playerDeath)` + `AllowDeathEndPass` (no hard-cut `endDreaming`).
+- **H4 completions policy:** `_completedPresets` drives `MirrorPoolRemove` only — named dreams may re-enter like SP.
+- **H5 epilog 1a:** Remote load destroys `outside_roadToHome_01` + `forceSaveStatic` save.
+- **H6 getPreset null:** Client `prepareDream("")` aborted without host pick; `getPreset` no longer returns null into live prepare.
+- **Peer drop mid-dream:** Last remote gone ends shared session (living or dead local).
+- **Mid-dream HOST GRANT:** Migration refused while dream active; cleanup + disconnect (no half-session promote).
+- **Stale SessionId:** Drop mismatched `DreamStarted` / `DreamEnded` / `DreamChainStart` when a newer session is active.
+
+### Parked (dream)
+- None.
+
+### Files
+- `Patches/GameEventDreamAuthorityPatch.cs`, `Patches/DreamSyncPatches.cs`
+- `Sync/DreamSyncManager.cs`, `Sync/DreamSession.cs`, `Sync/FinalDreamsceneManager.cs`
+- `Networking/LanNetworkManager.DreamHandlers.cs`, `Networking/HostMigration.cs`
+- `PluginInfo.cs` (0.9.3), PathB audit tests, `docs/DREAM_SYNC_REVIEW_2026-07-28.md`, `docs/PLAYTEST.md`, `docs/COOP_COVERAGE.md`
+
+## 0.9.2+ — Deep-review SaveSync / workbench / world-share block (2026-07-28)
+
+Static audit follow-up (protocol 19 unchanged). Host-authoritative save fan-out, workbench level, join hard-block on share failure.
+
+### Playtest (unsigned)
+- Checklist **docs/PLAYTEST.md** §5 (night alive-leaver, dream exit, trade 2p, SceneLoad, SaveSync storm, workbench, shotgun FF).
+
+### Parked (still open)
+- Handlers.cs split, Ironbark delete, mid-dream host migration, FlagSync allowlist, dual/triple campaign soak — see **docs/TODO.md**.
+
+### Fixed
+- **SaveSync hitch storms:** Clients request host fan-out only; host debounces (3s) then broadcasts. Clients apply only host-originated SaveSync. `_isRemoteSaveInProgress` loop guard kept.
+- **Workbench level authority:** Host-only apply + `WorkbenchLevelSync` broadcast; clients mirror via sync handler only.
+- **Workbench host upgrade (R4):** `WorkbenchUpgradePatch` on host now calls `SendWorkbenchLevelSync()` instead of `Broadcast(WorkbenchLevel)` (host never receives its own broadcast; clients ignore `WorkbenchLevel`).
+- **World share fail-loud:** `WorldSharePolicy.IsShareFailureMessage`; ENTER WORLD blocked on terminal failure; client worldgen blocked when share failed on title.
+- **Steam disconnect night parity (R5):** `OnSteamPeerDisconnected` gates `TryResolveNightMorning` on `OnRemoteDisconnected` return (matches LAN path).
+- **DreamEnded snapshot trust (R5):** Host story-end path applies `DreamSession.ApplySnapshot` only after session/preset/handshake validation; rejected packets no longer merge `CompletedPresets`/`LvlFlags`.
+
+### Files
+- `Patches/SaveSyncPatches.cs`, `Patches/WorldGenSharePatch.cs`, `Patches/JournalSyncPatches.cs`
+- `Networking/LanNetworkManager.Handlers.cs`, `LanNetworkManager.cs`, `LanNetworkManager.Steam.cs`, `LanNetworkManager.DreamHandlers.cs`
+- `Networking/WorldSaveShareService.cs`, `CoopPolicy.cs`
+- `UI/MainMenuMultiplayerInject.cs`, `UI/JoinWorldSlotPicker.cs`
+- `PathB.Tests/CoopPolicyTests.cs`
+
+## 0.9.2+ — Deep-review authority + night disconnect (2026-07-28)
+
+Static audit follow-up (protocol 19 unchanged). Trusted-LAN anti-grief + night death semantics.
+
+### Fixed
+- **SceneLoad / credits grief:** Host ignores inbound `SceneLoad`; clients apply only from host. Peer-originated packets are not forwarded.
+- **NightDeathState grief:** Host ignores peer `AllDeadTrigger`; clients apply only from host.
+- **DreamEnded story end:** Host runs `initiateEndDreaming` only for living handshaked dream participants with matching session/preset.
+- **Alive partner rage-quit morning:** Disconnect no longer treats remotes==0 as all-dead when the leaver was alive; `NightDeathPolicy.ShouldResolveMorningOnDisconnect` gates `skipDay`.
+
+### Files
+- `Patches/EpilogueSyncPatches.cs`, `Networking/LanNetworkManager.Combat.cs`, `DreamHandlers.cs`, `LanNetworkManager.cs`
+- `CoopPolicy.cs`, `DeathStateTracker.cs`, `PathB.Tests/CoopPolicyTests.cs`
+
+### Parked (same audit)
+- Handlers.cs split, Ironbark delete, mid-dream host migration rehydrate, FlagSync allowlist, campaign soak (human).
+
+## 0.9.2+ — Deep-review dream teardown + entry cull (2026-07-28)
+
+### Fixed
+- **Dream exit clock:** `UnfreezeWorld(restoreTime: false)` after applying `timeCopy` so remote cleanup no longer snaps to pre-dream freeze time.
+- **Stuck spectator after dream end:** `ApplyRemoteDreamCleanup` exits spectate without position restore.
+- **OnDreamEnded order:** deferred until after cleanup succeeds.
+- **Pre-pad entity phantoms:** reject entity spawns while dream active and pad transform null.
+- **Client getPreset race:** no local random roll without host PendingHostPreset.
+- **Host prepareDream:** abort when TryBegin fails (except duplicate Starting same preset).
+
+### Files
+- `Sync/DreamSyncManager.cs`, `Networking/ClientEntityInterpolationService.cs`, `Patches/DreamSyncPatches.cs`
+
+## 0.9.2+ — Deep-review trade auth + combat fail-closed (2026-07-28)
+
+### Fixed
+- **Trade stock grief:** Client sends inventory to host only; host sole broadcaster; suppress Forwardable echo of client payloads; apply client snapshot only with NPC dialog lock then rebroadcast host-built stock.
+- **Client damage redirect fail-open:** catch now returns false (no local getHit).
+- **FF double-relay:** shared `ProxyCombatRelay` per-frame debounce across ProxyDamage / hitscan / collision.
+- **Host melee FF-off:** explicit return false on proxy when FF disabled.
+
+### Files
+- `Patches/TradeSyncPatches.cs`, `Networking/LanNetworkManager.Handlers.cs` (trade)
+- `Patches/ClientHitscanDamageRedirectPatch.cs`, `ProxyDamagePatch.cs`, `HitscanImpactSyncPatch.cs`, `HostCombatPatches.cs`
+- `Players/RemotePlayerProxy.cs`, `Players/ProxyCombatRelay.cs`
+
+## 0.9.2+ — Deep-review identity, SaveSync, worldgen, loot (2026-07-28)
+
+### Fixed
+- **PlayerId spoof:** Host LocationEnter/Exit ignore payload PlayerId; use wire sender. Chat SenderId overwritten from wire on host fan-out. PlayerState rebroadcast stamps sender id.
+- **SaveSync storms:** Client requests only; host 3s debounce then SendToAll; clients apply host-originated only.
+- **Workbench level:** Host-only apply + WorkbenchLevelSync mirror on clients.
+- **World share fail:** Terminal share failure hard-blocks ENTER WORLD / slot pick / client worldgen finish.
+- **Loot bonus race:** ItemDoublePickup pending share keyed per InvSlot.
+
+### Files
+- `LanNetworkManager.Handlers.cs`, `LanNetworkManager.cs`, `SaveSyncPatches.cs`, `WorldGenSharePatch.cs`, `WorldSaveShareService.cs`, `MainMenuMultiplayerInject.cs`, `JoinWorldSlotPicker.cs`, `ItemDoublePickupPatch.cs`, `CoopPolicy.cs`
+
 ## 0.9.2+ — Dream dialogue door + flashlight spatial (2026-07-19)
 
 Bunker dual-box: host dialogue door open left client blocked; flashlight click

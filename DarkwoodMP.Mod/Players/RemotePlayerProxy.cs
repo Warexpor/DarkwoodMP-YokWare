@@ -276,9 +276,6 @@ namespace DWMPHorde.Players
             }
         }
 
-        // Debounce collision safety-net vs Bullet.onCollide → ProxyDamagePatch double path.
-        private float _lastBulletRelayTime;
-
         // Safety-net: detect Bullet component collisions in case FastProjectile
         // raycast misses the proxy (short-distance edge cases).
         private void OnCollisionEnter(Collision collision)
@@ -303,11 +300,6 @@ namespace DWMPHorde.Players
             if (bullet.objectThatSpawnedMe != null) return; // Skip enemy bullets
             if (!Config.ModConfig.FriendlyFireEnabled.Value) return; // FF disabled
 
-            // If raycast path already ran getHit this frame, skip collision double-relay.
-            if (Time.time - _lastBulletRelayTime < 0.08f)
-                return;
-            _lastBulletRelayTime = Time.time;
-
             // Prefer live weapon modded damage when local player owns the shot;
             // bullet.damage is set at spawn and may omit upgrade modifiers.
             int dmg = Mathf.Max(1, bullet.damage);
@@ -317,6 +309,8 @@ namespace DWMPHorde.Players
             {
                 dmg = Mathf.Max(1, local.currentItem.getModdedDamage(local.currentItem.baseClass.damage));
             }
+            if (!ProxyCombatRelay.TryConsumeSafetyNet(net.LocalPlayerId, PlayerId))
+                return;
             Vector3 pos = transform.position;
 
             if (net.Role == Networking.NetworkRole.Host)

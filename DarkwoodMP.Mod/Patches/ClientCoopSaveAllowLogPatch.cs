@@ -5,14 +5,14 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Co-op allows world Save on every machine (coordinated multi-save + permanent copies).
-    /// This patch is a no-op gate kept for load order / logging of client Saves.
-    /// Historical note: blocking client Save avoided half-sim corruption of slot 5; product
-    /// now wants every player to Save on their end when anyone initiates (see SaveSync).
+    /// Dead gate: always returns true (never blocks Save). Kept for Harmony load order and
+    /// client Save logging only — product allows coordinated multi-save via SaveSync.
+    /// Historical name "Block" is misleading; class was renamed but Harmony still patches
+    /// <see cref="SaveManager.Save"/> the same way.
     /// </summary>
     [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(SaveManager), "Save")]
-    public static class ClientCoopSaveBlockPatch
+    public static class ClientCoopSaveAllowLogPatch
     {
         private static bool Prefix(
             bool doJson, bool doSaveProfile, bool force, bool forceSaveStatic,
@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
                 + " showIndicator=" + showSavingIndicator
                 + " profileId=" + profId);
 
-            return true;
+            return true; // no-op: allow vanilla Save (night-death still gated by NightDeathSavePatch)
         }
     }
 }

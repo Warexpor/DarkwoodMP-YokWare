@@ -85,7 +85,8 @@ namespace DWMPHorde.Patches
             catch (System.Exception ex)
             {
                 ModRuntime.Log?.LogError($"[DamageRedirect] EXCEPTION in Prefix: {ex}");
-                return true;
+                // Fail closed — never fall through to vanilla local getHit for player-sourced hits.
+                return false;
             }
         }
     }

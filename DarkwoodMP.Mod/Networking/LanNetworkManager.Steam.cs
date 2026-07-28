@@ -470,8 +470,8 @@ namespace DWMPHorde.Networking
                     Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
                     if (!expectedJoinDetach && !wasLoadingOnly)
                     {
-                        DeathStateTracker.OnRemoteDisconnected(playerId);
-                        DeathStateTracker.TryResolveNightMorning("steam peer disconnect");
+                        if (DeathStateTracker.OnRemoteDisconnected(playerId))
+                            DeathStateTracker.TryResolveNightMorning("steam peer disconnect");
                     }
                     StatusText = $"Steam player {playerId} left ({_steamPeers.Count} remaining)";
                 }
