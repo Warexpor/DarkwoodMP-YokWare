@@ -27,6 +27,9 @@ namespace DWMPHorde.Patches
             Transform attackerTransform = (Transform)__args[1];
             bool CanCutInHalf = (bool)__args[2];
             bool byPlayer = (bool)__args[3];
+            bool canInterrupt = __args.Length > 4 && (bool)__args[4];
+            bool normalHit = __args.Length <= 5 || (bool)__args[5];
+            bool showRedScreen = __args.Length > 6 && (bool)__args[6];
 
             RemotePlayerProxy proxy = __instance.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return true;
@@ -62,7 +65,14 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
-            Vector3 pos = proxy.transform.position;
+            // Player FF / bullets: force red screen. AI AoE keeps caller's showRedScreen
+            // (vanilla damagesAroundMe uses normalHit=false, showRed=false).
+            if (isPlayerSourced)
+                showRedScreen = true;
+
+            Vector3 atkPos = attackerTransform != null
+                ? attackerTransform.position
+                : proxy.transform.position;
             int dmg = Mathf.Max(1, Mathf.RoundToInt(damage));
             int attackerId = ProxyCombatRelay.ResolveAttackerPlayerId(attackerTransform, net.LocalPlayerId);
             ProxyCombatRelay.TryMarkGetHitRelay(attackerId, proxy.PlayerId);
@@ -74,16 +84,19 @@ namespace DWMPHorde.Patches
                     new DamagePlayerMessage
                     {
                         Damage = dmg,
-                        AttackerPosX = pos.x,
-                        AttackerPosY = pos.y,
-                        AttackerPosZ = pos.z,
+                        AttackerPosX = atkPos.x,
+                        AttackerPosY = atkPos.y,
+                        AttackerPosZ = atkPos.z,
                         CanCutInHalf = CanCutInHalf,
-                        ShowRedScreen = true
+                        ShowRedScreen = showRedScreen,
+                        NormalHit = normalHit,
+                        CanInterrupt = canInterrupt
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 
                 ModRuntime.LegacyInfo("[ProxyDmg] host proxy took " + dmg + " damage — sent to client p"
-                    + proxy.PlayerId + " playerSourced=" + isPlayerSourced);
+                    + proxy.PlayerId + " playerSourced=" + isPlayerSourced
+                    + " normalHit=" + normalHit);
             }
             else
             {
@@ -93,9 +106,9 @@ namespace DWMPHorde.Patches
                     new FriendlyFireMessage
                     {
                         Damage = dmg,
-                        AttackerPosX = pos.x,
-                        AttackerPosY = pos.y,
-                        AttackerPosZ = pos.z,
+                        AttackerPosX = atkPos.x,
+                        AttackerPosY = atkPos.y,
+                        AttackerPosZ = atkPos.z,
                         CanCutInHalf = CanCutInHalf,
                         AttackerPlayerId = localId,
                         VictimPlayerId = proxy.PlayerId

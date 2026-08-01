@@ -67,8 +67,8 @@ Protocol baseline: **19** · Plugin: **0.7.7** (live **0.7.x** line — older **
 
 #### 0.2 Save / world share — CLOSED (code) 2026-07-09
 - **B:** `SaveSyncPatch` on `SaveManager.Save`; `ClientStateBackup` JSON; `WorldSaveShareService` deflate chunks (`savs.dat`/`sav.dat`/`savch.dat`) same profile id 1–5; `WorldGenSharePatch` after new gen.
-- **C:** Either side save → peers save; each client pushes backup to host; new world gen shares to all connected clients; ManualSave self-backup around host-world load.
-- **M (fixed):** Host stores `client_backup_p{playerId}.json` keyed by `_currentReceivePlayerId` (+ JSON `PlayerId` field). Local ManualSave uses `client_backup_self.json` (legacy `client_backup.json` load fallback).
+- **C:** Either side save → peers save; each client pushes backup to host **and** writes local self; new world gen shares to all connected clients; ManualSave self-backup around host-world load; **rejoin:** host pushes stored campaign-keyed backup on late-join bulk (client applies; local self fallback if missing).
+- **M (fixed):** Host stores `client_backup_p{playerId}_{campaignId}.json` (+ JSON `CampaignId` / `PlayerId`). Local self `client_backup_self_{campaignId}.json`. Stable `CoopWorldCopyMeta.CampaignId` (not Save fingerprint). Legacy unscoped files load-fallback only when current campaign unset.
 - **D:** Manual “Resend world”; busy flag; `_isRemoteSaveInProgress` loop guard; save blocked during partial night death / dream (ManualSaveGUI).
 - **Deferred (not 0.2 blockers):** auto-load shared save into running session; wrong-slot education UI (F0.5); client who joins *after* world gen still needs Resend.
 - **Playtest smoke:** host save with 2 clients → two host files `client_backup_p2.json` + `p3.json`; new world with both connected; Resend; ManualSave load restores self inventory.
@@ -458,8 +458,8 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
   3. Skill name key = `gameObject.name` (vanilla save type).
   4. Documented no-op `HandlePlayerSkillsSync` (defense against stale packets).
 - **Already solid:** leveling/skill menus do not pause world (0.6); XP/level numbers were already restored.
-- **Deferred:** full recipe list restore (collected, not domain-critical); host auto-push of peer backup skills without local restore path.
-- **Playtest smoke:** two players different levels/skills; save/reload client keeps own skills; peer kill XP does not change host level.
+- **Deferred:** full recipe list restore (collected, not domain-critical).
+- **Playtest smoke:** two players different levels/skills; save/reload client keeps own skills; peer kill XP does not change host level; **quit + rejoin days later** → host pushes `client_backup_p{id}` after settle (or local self fallback).
 
 **Layer 2 complete (code).** Next: Layer 3 combat.
 
@@ -606,7 +606,7 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
 | 4.1 | Dialogs / choices | **OK** | Code closed 2026-07-09. Client→host `DialogOutcomeSync` with **TargetDialogueName**; host apply without open UI. Protocol **12** / **0.4.6**. |
-| 4.2 | GameEvents one-shots | **OK** | Code closed 2026-07-09. Host-auth fire; EventName lookup; multipleFire sync; pending; client one-shot block. Protocol **13** / **0.4.7**. |
+| 4.2 | GameEvents one-shots | **OK** | Code closed 2026-07-09. Host-auth fire; EventName lookup; multipleFire sync; pending; client one-shot block. **0.7.24:** pad-coord + bunker FX (`def_glow`, `podmiana`, `karuzela`, `SWITCH_`, `dimLight`) wait for dream `finishedLoading`; soft flush Apply; 90s dream pending age. Protocol **13** / **0.4.7** (+ later hardening). |
 | 4.3 | Event triggers / requirements | **OK** | Code closed 2026-07-09. Host proxy area enter/exit; client volume suppress; proxy sight LOS. No protocol bump (uses 4.2 GameEvents). |
 | 4.4 | Dreams (all levels) | **OK** | **0.7.7**: GE flush under `NetworkApplyGuard` (dream door dialogue); spatial proxy footsteps; black hold before unpause. Protocol **19**. |
 | 4.5 | Final dreamscene / epilogue | **OK** | Code closed 2026-07-09. Epilogue mode on remote load; crawl death not spectated; credits SceneLoad. Protocol **14** / **0.4.8**. **2026-07-28:** SceneLoad host-only apply; clients cannot force credits. |

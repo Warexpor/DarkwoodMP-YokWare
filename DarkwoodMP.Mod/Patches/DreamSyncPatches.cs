@@ -280,6 +280,10 @@ namespace DWMPHorde.Patches
             if (!__instance.dreaming)
                 return;
 
+            // Must run before OnLocalDreamEnded (clears IsLocalDead). Exit video already played
+            // from the story outcome; only effect grants are downgraded. Inventory restore stays.
+            DowngradeSuccessRewardsIfDeadInDream(__instance);
+
             // H1/H2: Chain broadcast lives only in DreamPrepareChainPatch (prepareDream).
             // transferToDream / wantToSwitchDream both hit prepareDream — do not dual-fire here.
             if (__instance.switchingDream || OutcomeHasTransferToDream(__instance))
@@ -296,6 +300,79 @@ namespace DWMPHorde.Patches
             if (DreamSession.IsActive)
                 DreamSession.End(outcome);
             DreamSyncManager.OnLocalDreamEnded();
+        }
+
+        /// <summary>
+        /// Safety: if positionCopy was corrupted to pad coords, vanilla teleport leaves
+        /// the peer in the abyss. Snap to pre-dream overworld after endDreaming body runs.
+        /// </summary>
+        private static void Postfix(Dreams __instance)
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            if (LanNetworkManager.IsApplyingRemoteState)
+                return;
+            if (__instance != null && __instance.dreaming)
+                return; // chained transfer still dreaming
+
+            Player player = Player.Instance;
+            if (player == null) return;
+            Vector3 live = player._transform.position;
+            if (!ClientStateBackup.IsDreamPadCoordinate(live))
+                return;
+
+            Vector3 dest = Vector3.zero;
+            if (__instance != null
+                && __instance.positionCopy.sqrMagnitude > 0.01f
+                && !ClientStateBackup.IsDreamPadCoordinate(__instance.positionCopy))
+                dest = __instance.positionCopy;
+            else if (!DreamSyncManager.TryGetPreDreamOverworldPosition(out dest))
+                return;
+
+            try
+            {
+                player.teleportTo(dest, Quaternion.Euler(90f, 0f, 0f));
+                if (Singleton<WorldGrid>.Instance != null)
+                    Singleton<WorldGrid>.Instance.refreshPosition(dest, instant: true, force: true);
+                ModRuntime.LegacyInfo(
+                    "[DreamSync] post-endDreaming snap off pad → " + dest);
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[DreamSync] post-endDreaming pad snap failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Dead spectating peer still sees the shared exit video, but must not receive
+        /// success createInvItem / journal grants. Swap to playerDeath effects (or none).
+        /// </summary>
+        private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams)
+        {
+            if (!FinalDreamsceneManager.IsLocalDead) return;
+            string outcome = dreams.outcome ?? "";
+            if (string.IsNullOrEmpty(outcome) || outcome == "playerDeath")
+                return;
+
+            DreamPreset.Outcome deathOc = null;
+            if (dreams.preset?.outcomes != null)
+            {
+                for (int i = 0; i < dreams.preset.outcomes.Count; i++)
+                {
+                    var oc = dreams.preset.outcomes[i];
+                    if (oc != null && oc.name == "playerDeath")
+                    {
+                        deathOc = oc;
+                        break;
+                    }
+                }
+            }
+
+            dreams.outcome = "playerDeath";
+            Traverse.Create(dreams).Field("outcomePreset").SetValue(deathOc);
+            ModRuntime.LegacyInfo(
+                "[DreamDeath] Local dead at story end — inventory restore only (no success rewards)");
         }
 
         private static bool OutcomeHasTransferToDream(Dreams dreams)
@@ -494,8 +571,15 @@ namespace DWMPHorde.Patches
             }
 
             // Client story end: host owns teardown (including outcome transition).
+            // Exception: host already ordered us to play the exit video locally.
             if (ModRuntime.Network.Role == NetworkRole.Client)
             {
+                if (DreamSyncManager.IsHostOrderedDreamEnd)
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[DreamSession] Client host-ordered initiateEndDreaming '{outcome}'");
+                    return true;
+                }
                 if (DreamSyncManager.IsStoryEndDeferPending)
                 {
                     ModRuntime.LegacyInfo(
@@ -504,16 +588,22 @@ namespace DWMPHorde.Patches
                 }
                 ModRuntime.LegacyInfo($"[DreamSession] Client story end '{outcome}' — deferring to host");
                 var net = ModRuntime.Network as LanNetworkManager;
+                string preset = DreamSyncManager.ResolveActivePresetName();
+                if (string.IsNullOrEmpty(preset) && __instance.preset != null)
+                    preset = __instance.preset.name;
                 net?.Send(NetMessageType.DreamEnded,
-                    w => DreamEndedMessage.Build(
-                        __instance.preset != null ? __instance.preset.name : "",
-                        outcome).Serialize(w),
+                    w => DreamEndedMessage.Build(preset ?? "", outcome).Serialize(w),
                     DeliveryMethod.ReliableOrdered);
                 DreamSyncManager.BeginStoryEndDefer();
                 return false;
             }
 
-            // Host story end: allow vanilla initiateEndDreaming → transition → endDreaming
+            // Host story end: fan-out DreamEnded NOW so peers play the exit video in parallel,
+            // then allow vanilla initiateEndDreaming → transition → endDreaming.
+            string hostPreset = DreamSyncManager.ResolveActivePresetName();
+            if (string.IsNullOrEmpty(hostPreset) && __instance.preset != null)
+                hostPreset = __instance.preset.name;
+            DreamSyncManager.NotifyPeersStoryEndBeginning(hostPreset, outcome);
             return true;
         }
     }

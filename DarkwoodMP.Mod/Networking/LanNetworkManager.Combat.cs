@@ -203,7 +203,14 @@ namespace DWMPHorde.Networking
             int damage = SanitizePeerDamage(msg.Damage, "DamagePlayer");
             if (damage <= 0) return;
 
-            local.getHit(damage, null, msg.CanCutInHalf, byPlayer: false, canInterrupt: true, showRedScreen: msg.ShowRedScreen);
+            local.getHit(
+                damage,
+                null,
+                msg.CanCutInHalf,
+                byPlayer: false,
+                canInterrupt: msg.CanInterrupt,
+                normalHit: msg.NormalHit,
+                showRedScreen: msg.ShowRedScreen);
         }
 
         private void HandlePlayerDied(PlayerDiedMessage msg)
@@ -540,7 +547,9 @@ namespace DWMPHorde.Networking
                         AttackerPosY = atkPos.y,
                         AttackerPosZ = atkPos.z,
                         CanCutInHalf = msg.CanCutInHalf,
-                        ShowRedScreen = true
+                        ShowRedScreen = true,
+                        NormalHit = true,
+                        CanInterrupt = true
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 

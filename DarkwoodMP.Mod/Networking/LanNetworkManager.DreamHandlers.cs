@@ -314,6 +314,15 @@ namespace DWMPHorde.Networking
                 proxy.FreezePosition = false;
                 ModRuntime.LegacyInfo($"[DreamSync] Player {playerId} entered dream — proxy unfrozen");
             }
+            // Peer pad ready — push collider parity (lamp trigger / bell solid).
+            if (_role == NetworkRole.Host)
+                WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
+        }
+
+        private void HandleDreamPropCollider(DreamPropColliderMessage msg)
+        {
+            if (_role != NetworkRole.Client) return;
+            WorldPhysicsSyncService.ApplyDreamPropColliders(msg);
         }
 
         /// <summary>Host: late-join dream completed + level flags.</summary>

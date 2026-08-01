@@ -88,8 +88,23 @@ namespace DWMPHorde.Patches
             if (Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.loading)
                 return;
 
+            // Host Player.Instance enter — clear proxy threat preference.
+            if (other.GetComponentInParent<Player>() != null)
+            {
+                ThreatTriggerContext.NoteHostEnter();
+                return;
+            }
+
             RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null) return;
+
+            // Footstep / SoundArea volumes only make sense for the local body — proxy enter
+            // was starting host-local surface GEs and could fan audio weirdness to peers.
+            // Remote steps use PlayProxyFootstepSound + proxy checkGround instead.
+            string etName = __instance.name ?? "";
+            if (etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
 
             // Mirror vanilla multi-collider guard: only first "logical" enter counts.
             Vector3 pos = proxy.transform.position;
@@ -97,6 +112,7 @@ namespace DWMPHorde.Patches
             if (__instance.entered != 0 && Helpers.isComponentAtPos(pos, mask, __instance))
                 return;
 
+            ThreatTriggerContext.NoteProxyEnter(proxy);
             __instance.fireEventTrigger(EventTrigger.Type.area);
             __instance.entered++;
             ModRuntime.LegacyInfo(
@@ -119,6 +135,11 @@ namespace DWMPHorde.Patches
 
             RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null) return;
+
+            string etName = __instance.name ?? "";
+            if (etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
 
             Vector3 pos = proxy.transform.position;
             int mask = 1 << __instance.gameObject.layer;

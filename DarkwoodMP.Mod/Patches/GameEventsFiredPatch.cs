@@ -93,6 +93,10 @@ namespace DWMPHorde.Patches
 
             // Dialogue door opens run inside delayed GameEvent coroutines — poll & fan-out.
             DialogueDoorAftermath.OnHostGameEventsFired(eventName);
+
+            // isColliderTrigger / setActive prop parity after host GE (lamp vs bell).
+            if (DWMPHorde.Sync.DreamSyncManager.IsDreamActive)
+                DWMPHorde.Sync.WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
         }
     }
 }

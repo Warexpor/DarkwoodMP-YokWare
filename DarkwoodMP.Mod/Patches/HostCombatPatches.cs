@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DWMPHorde;
 using DWMPHorde.Config;
 using DWMPHorde.Networking;
@@ -14,11 +15,20 @@ namespace DWMPHorde.Patches
     /// target is the remote proxy. Sends a DamagePlayerMessage to the
     /// client and drains host weapon durability. Skips vanilla hit logic
     /// since the proxy is not a real Player and would be ignored.
+    ///
+    /// Critical: vanilla destroys the sensor after one hit. Without that,
+    /// multi-collider proxies + lingering sensors spam DamagePlayer every
+    /// FixedUpdate (massively overscaled AI/melee damage on clients).
     /// </summary>
     [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class HostMeleeSensorPatch
     {
+        private const float ProxyHitDebounce = 0.25f;
+        private static readonly Dictionary<int, float> _lastProxyHitTime = new Dictionary<int, float>();
+
+        public static void Reset() => _lastProxyHitTime.Clear();
+
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
             Collider _collider = (Collider)__args[0];
@@ -51,6 +61,18 @@ namespace DWMPHorde.Patches
                 return true;
             if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
                 return true;
+
+            int pid = proxy.PlayerId;
+            float now = Time.time;
+            if (_lastProxyHitTime.TryGetValue(pid, out float lastHit)
+                && now - lastHit < ProxyHitDebounce)
+            {
+                // Same swing / multi-collider — still consume the sensor so it
+                // cannot keep dealing damage on later FixedUpdates.
+                ConsumeSensor(__instance);
+                return false;
+            }
+            _lastProxyHitTime[pid] = now;
 
             bool isPlayer = __instance.type == MeleeSensor.MeleeSensorType.player;
 
@@ -109,11 +131,26 @@ namespace DWMPHorde.Patches
                 AttackerPosY = atkPos.y,
                 AttackerPosZ = atkPos.z,
                 CanCutInHalf = dmg >= 80,
-                ShowRedScreen = true
+                ShowRedScreen = true,
+                NormalHit = true,
+                CanInterrupt = true
             };
             LanNetworkManager.Instance?.SendToPlayer(proxy.PlayerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
+            ModRuntime.LegacyInfo(
+                "[ProxyMelee] sensor hit p" + pid + " dmg=" + dmg
+                + " atk=" + (__instance.attackerTransform != null ? __instance.attackerTransform.name : "?"));
+
+            // Mirror vanilla MeleeSensor: one hit consumes the sensor.
+            ConsumeSensor(__instance);
             return false;
+        }
+
+        private static void ConsumeSensor(MeleeSensor sensor)
+        {
+            if (sensor == null) return;
+            try { Core.RemovePooledPrefab("Sensors", sensor.transform); }
+            catch { /* ignore */ }
         }
     }
 }

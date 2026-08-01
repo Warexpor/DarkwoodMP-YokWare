@@ -258,6 +258,10 @@ namespace DWMPHorde.Sync
                 // Streaming them as free-bodies kinematic-locks the peer arc → lands at feet.
                 if (IsInFlightThrownItem(rootGo)) continue;
 
+                // World lamps / switch lights: LightState owns on/off. PhysicsState
+                // kinematic-lock on client makes them walk-blockers (host stays vanilla).
+                if (IsSceneFixedLightItem(rootGo)) continue;
+
                 Item itemComp = rootGo.GetComponent<Item>();
                 if (itemComp != null && itemComp.beingDragged)
                 {
@@ -1095,6 +1099,13 @@ namespace DWMPHorde.Sync
                                 }
                             }
                         }
+                        // Fixed world lamps: never kinematic-lock (blocks player walk on client).
+                        if (IsSceneFixedLightItem(go))
+                        {
+                            RepairSceneFixedLightPhysics(go);
+                            objSkipped++;
+                            continue;
+                        }
                         SetObjectTarget(go, pos, rot);
                     }
                     objApplied++;
@@ -1509,6 +1520,9 @@ namespace DWMPHorde.Sync
             state.TargetTime = now + duration;
             _objectInterp[id] = state;
 
+            if (IsSceneFixedLightItem(go))
+                return;
+
             // Lock to host position during active sync — prevents proxy collisions
             // on the client from pushing the object away from the host's position.
             Rigidbody rb = go.GetComponent<Rigidbody>();
@@ -1519,6 +1533,42 @@ namespace DWMPHorde.Sync
                 rb.velocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
             }
+        }
+
+        /// <summary>
+        /// Scene lamps / switch lights — LightState owns them; PhysicsState must not
+        /// kinematic-lock (client walk-blocker). Dream plot lamps often fail the narrow
+        /// <c>isLight &amp;&amp; !draggable</c> check and still stream as free-bodies
+        /// (host log: body-push Lamp_dream_underground) while host collider is trigger.
+        /// </summary>
+        private static bool IsSceneFixedLightItem(GameObject go)
+        {
+            if (go == null) return false;
+            Item item = go.GetComponent<Item>();
+            if (item != null && item.isLight)
+                return true; // LightState owns on/off; never PhysicsState free-body
+            if (go.GetComponent<ItemLight>() != null)
+                return true;
+            string n = go.name ?? "";
+            if (n.IndexOf("Lamp", StringComparison.OrdinalIgnoreCase) >= 0
+                && (n.IndexOf("dream", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("switch", StringComparison.OrdinalIgnoreCase) >= 0
+                    || (item != null && item.isLight)))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Drop kinematic/interp hold. Collider isTrigger is owned by host
+        /// <c>DreamPropCollider</c> parity (GE isColliderTrigger), not guessed here.
+        /// </summary>
+        private static void RepairSceneFixedLightPhysics(GameObject go)
+        {
+            if (go == null) return;
+            RemoveObjectFromInterpolation(go);
+            Rigidbody lampRb = go.GetComponent<Rigidbody>();
+            if (lampRb != null && lampRb.isKinematic)
+                lampRb.isKinematic = false;
         }
 
         /// <summary>
@@ -1607,7 +1657,12 @@ namespace DWMPHorde.Sync
             }
 
             // Strategy 3: spawn from ItemsDatabase (cross-world-chunk support)
-            // Skip items handled by dedicated sync systems (dropped items, death bags)
+            // Never spawn into an active dream pad — duplicates get wrong colliders
+            // (client solid lamp / ghost bell) while the real prop already exists.
+            if (DreamSyncManager.IsDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming))
+                return null;
+
             string nameLower = obj.Name != null ? obj.Name.ToLowerInvariant() : "";
             if (nameLower.Contains("droppeditem") || nameLower.Contains("deathdrop"))
                 return null;
@@ -2209,6 +2264,137 @@ namespace DWMPHorde.Sync
 
             if (gen.lowPower != lowPower)
                 gen.setLowPower(lowPower);
+        }
+
+        private static float _nextDreamPropColliderBroadcast;
+        private const float DreamPropColliderMinInterval = 0.35f;
+
+        /// <summary>
+        /// Host: snapshot Item collider isTrigger under the dream pad and fan-out so
+        /// clients match walk-through lamps / solid bells after isColliderTrigger GEs.
+        /// </summary>
+        public static void HostBroadcastDreamPropColliders(bool force = false)
+        {
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return;
+            if (!DreamSyncManager.IsDreamActive && (Dreams.Instance == null || !Dreams.Instance.dreaming))
+                return;
+            float now = Time.unscaledTime;
+            if (!force && now < _nextDreamPropColliderBroadcast)
+                return;
+            _nextDreamPropColliderBroadcast = now + DreamPropColliderMinInterval;
+
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            if (dreamRoot == null) return;
+
+            Item[] items = dreamRoot.GetComponentsInChildren<Item>(true);
+            if (items == null || items.Length == 0) return;
+
+            var list = new System.Collections.Generic.List<DreamPropColliderMessage.Entry>(32);
+            for (int i = 0; i < items.Length && list.Count < 64; i++)
+            {
+                Item item = items[i];
+                if (item == null) continue;
+                Collider col = item.GetComponent<Collider>();
+                if (col == null) continue;
+                // Skip huge static environment; keep lights, bells, push props.
+                string n = item.name ?? "";
+                bool interesting = item.isLight
+                    || item.GetComponent<ItemLight>() != null
+                    || n.IndexOf("Lamp", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Bell", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("bell", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("karuzela", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("SWITCH", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || item.draggable;
+                if (!interesting) continue;
+
+                Vector3 p = item.transform.position;
+                list.Add(new DreamPropColliderMessage.Entry
+                {
+                    Name = n,
+                    PosX = p.x,
+                    PosY = p.y,
+                    PosZ = p.z,
+                    IsTrigger = col.isTrigger
+                });
+            }
+
+            if (list.Count == 0) return;
+
+            var msg = new DreamPropColliderMessage { Entries = list.ToArray() };
+            net.Broadcast(NetMessageType.DreamPropCollider,
+                w => msg.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo(
+                "[DreamPropCollider] host broadcast " + list.Count + " collider(s)");
+        }
+
+        /// <summary>Client: apply host dream collider isTrigger flags.</summary>
+        public static void ApplyDreamPropColliders(DreamPropColliderMessage msg)
+        {
+            if (msg.Entries == null || msg.Entries.Length == 0) return;
+            int applied = 0;
+            for (int i = 0; i < msg.Entries.Length; i++)
+            {
+                var e = msg.Entries[i];
+                Vector3 pos = new Vector3(e.PosX, e.PosY, e.PosZ);
+                GameObject go = FindDreamPropForCollider(e.Name, pos);
+                if (go == null) continue;
+                Collider col = go.GetComponent<Collider>();
+                if (col == null) continue;
+                if (col.isTrigger == e.IsTrigger) continue;
+                col.isTrigger = e.IsTrigger;
+                if (IsSceneFixedLightItem(go))
+                    RepairSceneFixedLightPhysics(go);
+                applied++;
+                ModRuntime.LegacyInfo(
+                    "[DreamPropCollider] " + go.name + " isTrigger→" + e.IsTrigger);
+            }
+            if (applied > 0)
+                ModRuntime.LegacyInfo("[DreamPropCollider] applied " + applied);
+        }
+
+        private static GameObject FindDreamPropForCollider(string name, Vector3 pos)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            Collider[] near = Physics.OverlapSphere(pos, 8f);
+            GameObject best = null;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < near.Length; i++)
+            {
+                if (near[i] == null) continue;
+                Transform t = near[i].transform;
+                GameObject root = near[i].attachedRigidbody != null
+                    ? near[i].attachedRigidbody.gameObject
+                    : t.gameObject;
+                if (root == null) continue;
+                string n = root.name ?? "";
+                if (!n.Equals(name, System.StringComparison.OrdinalIgnoreCase)
+                    && n.IndexOf(name, System.StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                float d = Vector3.Distance(root.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = root;
+                }
+            }
+            if (best != null) return best;
+
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            if (dreamRoot == null) return null;
+            Transform[] all = dreamRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                string n = all[i].name ?? "";
+                if (n.Equals(name, System.StringComparison.OrdinalIgnoreCase)
+                    || n.IndexOf(name, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return all[i].gameObject;
+            }
+            return null;
         }
 
         /// <summary>

@@ -82,7 +82,9 @@ namespace DWMPHorde.Patches
                             AttackerPosX = atkPos.x,
                             AttackerPosY = atkPos.y,
                             AttackerPosZ = atkPos.z,
-                            ShowRedScreen = true
+                            ShowRedScreen = true,
+                            NormalHit = true,
+                            CanInterrupt = true
                         }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     ModRuntime.LegacyInfo($"[HitscanFF] host hit proxy {proxy.PlayerId} dmg={dmg}");
                 }

@@ -84,7 +84,9 @@ namespace DWMPHorde.Patches
                     AttackerPosX = pos.x,
                     AttackerPosY = pos.y,
                     AttackerPosZ = pos.z,
-                    ShowRedScreen = true
+                    ShowRedScreen = true,
+                    NormalHit = true,
+                    CanInterrupt = true
                 });
                 ModRuntime.LegacyInfo(
                     $"[ExplosionFF] blast at {blastPos} → player {proxy.PlayerId} dmg={damage} " +
