@@ -887,10 +887,14 @@ namespace DWMPHorde.Sync
                     }
 
                     // Client: skip far free-bodies (FindOrSpawn / full RB scan was dual-box thrash).
+                    // Dream pads sit at -50k/-75k — always apply while dreaming (door-room props
+                    // are often > ClientInterestDistance from spawn).
                     if (clientRecv)
                     {
                         Vector3 opos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
-                        if (!Networking.ClientEntityInterpolationService.IsInClientInterest(opos))
+                        bool dreamPad = Dreams.Instance != null && Dreams.Instance.dreaming;
+                        if (!dreamPad
+                            && !Networking.ClientEntityInterpolationService.IsInClientInterest(opos))
                         {
                             objSkipped++;
                             continue;
@@ -1030,7 +1034,15 @@ namespace DWMPHorde.Sync
                         bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
                             && echoNet._dragClaims.TryGetValue(obj.Name, out int claimPid)
                             && claimPid == echoNet.LocalPlayerId;
+                        // Client free-body: if we're the one sending PhysicsState for it, host
+                        // echo must never arm MOS (native ItemSounds already plays — double scrape).
+                        bool clientLocalFreeBody = echoNet != null
+                            && echoNet.Role == NetworkRole.Client
+                            && !string.IsNullOrEmpty(obj.Name)
+                            && (ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name)
+                                || ItemMovingSoundHelper.HasRecentPushAuthority(obj.Name));
                         if (localDragClaim
+                            || clientLocalFreeBody
                             || (!string.IsNullOrEmpty(obj.Name)
                                 && ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name)))
                         {

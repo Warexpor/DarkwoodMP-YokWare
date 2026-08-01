@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -23,7 +24,9 @@ namespace DWMPHorde.Patches
             if (__instance == null) return true;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
-            if (LanNetworkManager.IsApplyingRemoteState)
+            // NetworkApplyGuard.IsActive is the durable signal — explicit flag alone can
+            // be cleared by nested finally blocks while a guard is still on the stack.
+            if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
 
             if (ModRuntime.Network.Role == NetworkRole.Client)
@@ -49,7 +52,10 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role != NetworkRole.Host)
                 return;
 
-            if (LanNetworkManager.IsApplyingRemoteState)
+            // Skip echo while applying a received GameEventsFired. Exception: host
+            // DialogOutcome world-only apply runs under ProcessInboundMessage's guard
+            // but must still fan out door / story GEs to peers.
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
                 return;
 
             // One-shot: skip if already fired before this call.

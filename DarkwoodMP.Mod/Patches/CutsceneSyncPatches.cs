@@ -394,14 +394,17 @@ namespace DWMPHorde.Networking
                     break;
 
                 case CutsceneSyncMessage.ActionSkipTransition:
-                    // Everyone including host (if client skipped) applies skip under guard.
-                    if (LanNetworkManager.IsApplyingRemoteState) return;
+                    // Apply on everyone (incl. host when a client skipped). Do NOT gate on
+                    // IsApplyingRemoteState — ProcessInboundMessage's NetworkApplyGuard keeps
+                    // that flag true for the whole receive, so a check here would drop the
+                    // apply (0.7.8 class-guard regression). Prefixes still suppress rebroadcast.
                     DWMPHorde.Patches.CutsceneSyncHelpers.ApplySkipTransition();
                     break;
 
                 case CutsceneSyncMessage.ActionDreamEntryTransition:
-                    // Originator already plays vanilla transition; peers (incl. host if client led) start now.
-                    if (LanNetworkManager.IsApplyingRemoteState) return;
+                    // Originator already plays vanilla transition; peers (incl. host if client
+                    // led) start the remote video now. Same note as Skip: never early-out on
+                    // IsApplyingRemoteState inside this inbound handler.
                     DWMPHorde.Sync.DreamSyncManager.OnPeerDreamEntryTransition();
                     break;
             }

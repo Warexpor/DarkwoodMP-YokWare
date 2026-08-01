@@ -54,7 +54,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         private static readonly Dictionary<string, float> _localPushAuthorityUntil =
             new Dictionary<string, float>(StringComparer.Ordinal);
-        private const float LocalPushAuthorityGrace = 0.45f;
+        private const float LocalPushAuthorityGrace = 1.25f;
 
         private static float _playerSlowSince = -1f;
 
@@ -154,6 +154,14 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName)) return;
             _localPushAuthorityUntil[objectName] = Time.unscaledTime + LocalPushAuthorityGrace;
+        }
+
+        /// <summary>True while NoteLocalPushAuthority grace is still live.</summary>
+        public static bool HasRecentPushAuthority(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return false;
+            return _localPushAuthorityUntil.TryGetValue(objectName, out float until)
+                && Time.unscaledTime < until;
         }
 
         /// <summary>

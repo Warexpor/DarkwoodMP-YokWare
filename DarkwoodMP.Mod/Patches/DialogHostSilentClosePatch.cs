@@ -74,6 +74,21 @@ namespace DWMPHorde.Patches
             dw.dontTweenBlackScreenWhenExiting = true;
             dw.tweening = false;
 
+            // changePortrait sets forbidInputs + schedules black fade; clear both so the
+            // non-speaker host is not left locked/black after world-only apply.
+            try
+            {
+                Core.forbidInputs = false;
+                Core.cantChangeForbidInputs = false;
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0f);
+                    ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0f);
+                }
+            }
+            catch { /* non-fatal */ }
+
             try
             {
                 if (dw.currentBoardElements != null)
