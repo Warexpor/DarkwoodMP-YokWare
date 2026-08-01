@@ -2,11 +2,89 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.7** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.13** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.13 — Dream pad missing props + door open delay (2026-08-01)
+
+Door opened on both ends in 0.7.12, but after a long pause, and the client was missing some props in the room behind the door (host complete). Root cause: remote `LoadDreamScene` never set `OutsideLocations.loading`, so `CullableObject` registered onto the **World** grid at −75k and `WorldGrid.refresh` hid far nodes — host `prepareDream` sets `loading=true` and skips that. Door delay was `onCloseDialogue` waiting for lookKeyhole world-only board drain. **Protocol 19 unchanged.**
+
+### Fixed
+- **Client missing dream-pad objects behind dialogue door:** Set `OutsideLocations.loading` + `dreamPrepared` during remote pad spawn (mirror vanilla); `enterAllNodes` after dream `setGrid`; remap dream-pad `UniqueObject`s into `UniqueObjects` (overworld first-wins clone trap); PhysicsState interest exempt while dreaming; leave-door apply also `enterAllNodes`.
+- **Long pause before door opens:** Abort world-only dialogue drain on `DialogNpcLock` Release so leave-door GE fires immediately.
+
+### Files
+- `Sync/DreamSyncManager.cs`, `Patches/UniqueObjectsDreamPatch.cs`, `Patches/DreamDoorSyncPatches.cs`
+- `Networking/LanNetworkManager.Handlers.cs`, `Sync/WorldPhysicsSyncService.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.13**)
+
+## 0.7.12 — Dream door force-open + client scrape echo (2026-08-01)
+
+0.7.11 did replay `onCloseDialogue` (host log confirms) but still no leave-door GE / `[DoorSync]`: close arrived mid-`lookKeyhole` drain, `FindNpc` could hit the overworld bunker twin, and EventTrigger requirements often blocked the GE. Client push/drag also doubled scrape (native + MOS from host PhysicsState echo). **Protocol 19 unchanged.**
+
+### Fixed
+- **Dialogue door still shut after talk:** Defer `onCloseDialogue` until world-only drain finishes; prefer dream-pad `door_underground`; also force-fire `onLeaveDoor*` / `DoorDialogue` GameEvents under the pad and `HostEnsureDialogueDoorOpen` (unlock + open + DoorOpen fan-out).
+- **Client double scrape on push/drag:** Longer local push authority; host PhysicsState echo never arms MOS while client recently owned the free-body; refresh authority while E-dragging.
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`, `Patches/DreamDoorSyncPatches.cs`
+- `Sync/WorldPhysicsSyncService.cs`, `Audio/ItemMovingSoundHelper.cs`, `Networking/LanNetworkManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.12**)
+
+## 0.7.11 — Dream door onCloseDialogue + client entry Saving (2026-08-01)
+
+
+Client-led `door_underground` talk still never opened the armored door (no `[DoorSync]` / no leave-door GE). Root cause: door opens via `onCloseDialogue` → `onLeaveDoorDialogue_*` GameEvents; speaker close runs that only on the client, where one-shot `GameEvents.fire` is blocked, and host world-only silent-close intentionally skipped the trigger. Also aborted `lookKeyhole_dream` multi-board (`changePortrait`) before later boards ran. Client dream entry skipped the Saving indicator because SaveSync is suppressed for the whole dream window. **Protocol 19 unchanged.**
+
+### Fixed
+- **Dialogue door never opens (host or client):** On client `DialogNpcLock` Release, host replays `Core.sendTriggerInfo(onCloseDialogue)` under `DialogHostApplyGuard` and polls dream doors. Multi-board / `changePortrait` DialogOutcome applies drain boards before silent close instead of tearing down immediately.
+- **Client missing Saving on dream entry:** Peer remote-dream path runs a local `Save(..., showSavingIndicator: true)` (SaveSync fan-out still suppressed during dream to avoid video hitch).
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs` (`HostFireNpcCloseDialogue`, `HostDrainWorldOnlyDialogue`)
+- `Sync/DreamSyncManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.11**)
+
+## 0.7.10 — Dream dialogue door + host keyhole black (2026-08-01)
+
+
+Client-led `door_underground` talk: host went permanently black on `lookKeyhole_dream` (changePortrait fade), and dialogue door opens never reached peers — no `[DoorSync]` at all. Fallout from 0.7.8’s working `NetworkApplyGuard`: DialogOutcome apply sits under inbound apply-flag, which blocked DoorOpen / GameEventsFired fan-out; world-only `displayDialogue` still ran speaker presentation on the host. **Protocol 19 unchanged.**
+
+### Fixed
+- **Host black on keyhole / scene-shift dialogue:** Suppress fade-to-black `tweenBlackScreen*` while `DialogHostApplyGuard` is active; silent close clears forbidInputs + black layers; block stale `displayNextBoard` after `currentDialogue` was nulled.
+- **Dialogue door not opening for peers (or syncing):** Allow DoorOpen/unlock/unblock + GameEventsFired broadcast when `DialogHostApplyGuard.Active` even under inbound apply; poll dream doors after every DialogOutcome world apply.
+
+### Files
+- `Patches/DialogHostPresentationSuppressPatches.cs` (new), `Patches/DialogHostSilentClosePatch.cs`
+- `Patches/DreamDoorSyncPatches.cs`, `Patches/GameEventsFiredPatch.cs`
+- `Networking/LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.10**)
+
+## 0.7.9 — Host dream entry video after NetworkApplyGuard fix (2026-08-01)
+
+0.7.8 made `NetworkApplyGuard` actually work on every inbound packet. That exposed a latent bug: `HandleCutsceneSync` early-out on `IsApplyingRemoteState` for `ActionDreamEntryTransition` / `ActionSkipTransition`, so the host never played the peer-led entry video (client log showed transition begin → peers; host only got `CutsceneSync:1` in perf and jumped straight into the dream). **Protocol 19 unchanged.**
+
+### Fixed
+- **Peer-led dream entry video on host:** Remove the inbound-handler `IsApplyingRemoteState` gates on dream entry / skip CutsceneSync actions. Outer `ProcessInboundMessage` guard already suppresses rebroadcast via Harmony Prefixes.
+
+### Files
+- `Patches/CutsceneSyncPatches.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.9**)
+
+## 0.7.8 — Dream client GE apply (NetworkApplyGuard) (2026-08-01)
+
+Client entered `dream_home` with wrong clothes and could not see (room masks / START events dead). Logs: endless `[GameEventsSync] fire no-op` for `player_changeClothes_dreamHome`, `ROOM_mask_*`, `START_dreamHome`, `events_start_dreamHome` — never `applied`. Host fired the same GEs fine. **Protocol 19 unchanged.**
+
+### Fixed
+- **NetworkApplyGuard was a no-op:** `struct` + `using (new NetworkApplyGuard())` compiled to `initobj` (zero-init) under net471/C#10 — constructor never ran, `_entered` stayed false, `IsApplyingRemoteState` never set. `GameEventsFiredPatch` kept blocking client one-shots. Guard is now a **`sealed class`** so `new` always runs the ctor. Also: `IsApplyingRemoteState` ORs `NetworkApplyGuard.IsActive` (same pattern as `TraverseHack`), and the GE Prefix checks `IsActive` directly.
+
+### Files
+- `Networking/NetworkApplyGuard.cs`, `Networking/LanNetworkManager.cs`, `Patches/GameEventsFiredPatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.8**)
+- `DarkwoodMP.PathB.Tests/AuditStructureTests.cs` (class-not-struct regression)
 
 ## 0.7.7 — Dream door fire guard + scrape/footsteps/transition (2026-07-28)
 

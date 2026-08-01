@@ -186,7 +186,23 @@ namespace DWMPHorde.Networking
         /// <summary>Handshaked peer ids (host: clients; client: usually {1}). For dream all-dead set (D7).</summary>
         public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
 
-        public static bool IsApplyingRemoteState { get; internal set; }
+        /// <summary>
+        /// True while applying inbound/remote state. ORs <see cref="NetworkApplyGuard.IsActive"/>
+        /// so nested <c>IsApplyingRemoteState = false</c> cannot clear the flag mid-guard
+        /// (same pattern as <see cref="Sync.TraverseHack.ApplyingFromNetwork"/>).
+        /// </summary>
+        public static bool IsApplyingRemoteState
+        {
+            get => _explicitApplyingRemoteState || NetworkApplyGuard.IsActive;
+            internal set => _explicitApplyingRemoteState = value;
+        }
+
+        private static bool _explicitApplyingRemoteState;
+
+        internal static bool GetExplicitApplyingRemoteState() => _explicitApplyingRemoteState;
+
+        internal static void SetExplicitApplyingRemoteState(bool value) =>
+            _explicitApplyingRemoteState = value;
 
         /// <summary>
         /// Returns the RemotePlayerState for the given playerId, creating one if needed.
@@ -1135,6 +1151,8 @@ namespace DWMPHorde.Networking
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
                 _dragClaims[_lastDraggedItemName] = _localPlayerId;
+                // Keep scrape authority so host PhysicsState / DragSync echo cannot arm MOS.
+                DWMPHorde.Audio.ItemMovingSoundHelper.NoteLocalPushAuthority(_lastDraggedItemName);
 
                 // Scrape intent = player walking (same gate as body-push). Not object pos delta —
                 // hinge jitter kept scrape armed for observers after the host stopped walking.

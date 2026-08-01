@@ -19,10 +19,25 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 
 Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Darkwood_Second` (do not share Steam AppData with host).
 
+## Dream bunker “dialogue door” (fact)
+
+Not a normal hinged `Door` → do **not** use `[DoorSync]` / `Door.open` as the success signal.
+
+| Piece | Role |
+|-------|------|
+| `door_underground` | Dialogue NPC (talk target), not the blocker mesh |
+| `door_bunker_ch1_01` / `door_bunker_ch1_01_dream` | Closed visual / collider state |
+| `door_bunker_ch1_01_open` | Open visual / passable state |
+| `onLeaveDoorDialogue_dream_underground` | GameEvents fired on dialogue close (`onCloseDialogue`) that swaps closed↔open |
+
+Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), plus any setActive/swap children — not DoorOpen fan-out.
+
+**Clone trap:** The same names exist on the **overworld bunker** (`door_underground`, `door_bunker_ch1_01`, leave-door GEs). The dream pad is a **clone/copy** under `dream_bunker_underground_01` at ~`(-75000,…)`; overworld twins sit near `(-6342,…)`. Name-only `FindObjectsOfType` / soft GE match will happily hit the wrong world. Always resolve under `DreamSyncManager.GetDreamLocationTransform()` (IsChildOf / distance-to-pad) when `IsDreamActive`. `UniqueObjects` is first-wins — remap pad instances after remote load (`RemapDreamUniqueObjects`). Remote load must set `OutsideLocations.loading` or Cullables register onto World and get hidden behind the door.
+
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.7**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.13**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Protocol:** 19 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.

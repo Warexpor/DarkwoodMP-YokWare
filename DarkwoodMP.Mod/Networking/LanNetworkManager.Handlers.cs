@@ -6291,33 +6291,49 @@ namespace DWMPHorde.Networking
 
                 // Guard must stay active through displayDialogue + teardown: vanilla close
                 // (and startDream close inside displayNextBoard) black-fades + Save → SaveSync.
+                // lookKeyhole_dream changePortrait chains displayNextBoard after 1.5s — do NOT
+                // silent-close immediately or later boards / flags never run (door stays shut).
+                if (_dialogWorldDrainCo != null)
+                {
+                    try { StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
+                    _dialogWorldDrainCo = null;
+                    while (DialogHostApplyGuard.Active)
+                        DialogHostApplyGuard.EndWorldOnly();
+                }
+
                 DialogHostApplyGuard.BeginWorldOnly();
                 try
                 {
                     dw.displayDialogue(msg.TargetDialogueName);
 
-                    // Host wasn't in this talk: silent teardown (no fade / no autosave).
-                    if (!hostWasInThisTalk)
+                    if (hostWasInThisTalk)
+                    {
+                        DialogHostApplyGuard.EndWorldOnly();
+                    }
+                    else if (Core.forbidInputs || (dw.displayingDialogue && dw.currentDialogue != null
+                             && dw.currentDialogue.boards != null && dw.currentDialogue.boards.Count > 1))
+                    {
+                        // Multi-board / portrait chain: keep guard up until drain finishes.
+                        _dialogWorldDrainCo = StartCoroutine(
+                            HostDrainWorldOnlyDialogue(dw, npc));
+                        return;
+                    }
+                    else
                     {
                         if (dw.displayingDialogue || dw.npc != null)
                             dw.close(); // DialogHostSilentClosePatch while guard Active
                         else
                             DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                        DialogHostApplyGuard.EndWorldOnly();
                     }
                 }
-                finally
+                catch
                 {
                     DialogHostApplyGuard.EndWorldOnly();
+                    throw;
                 }
 
-                // Host Flags dialogue tree advanced — fan out tree so peers converge
-                // even if speaker's close packet races or is lost.
-                try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc); }
-                catch (System.Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
-                }
+                HostFinishDialogWorldApply(npc);
                 return;
             }
 
@@ -6343,6 +6359,226 @@ namespace DWMPHorde.Networking
                     DialogHostApplyGuard.EndWorldOnly();
                 }
             }
+        }
+
+        private Coroutine _dialogWorldDrainCo;
+        private string _pendingCloseDialogueNpc;
+
+        private void HostFinishDialogWorldApply(NPC npc)
+        {
+            try { DWMPHorde.Patches.DialogueDoorAftermath.OnHostDialogWorldApplied(); }
+            catch (Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DialogOutcome] door poll: " + ex.Message);
+            }
+
+            try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc); }
+            catch (Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
+            }
+
+            // Client often exits while lookKeyhole drain is still running — replay close after.
+            if (!string.IsNullOrEmpty(_pendingCloseDialogueNpc))
+            {
+                string pending = _pendingCloseDialogueNpc;
+                _pendingCloseDialogueNpc = null;
+                HostFireNpcCloseDialogue(pending);
+            }
+        }
+
+        /// <summary>
+        /// Keep DialogHostApplyGuard up while changePortrait / multi-board chains finish,
+        /// force-advancing stalled WritingText boards, then silent-close.
+        /// </summary>
+        private System.Collections.IEnumerator HostDrainWorldOnlyDialogue(DialogueWindow dw, NPC npc)
+        {
+            float deadline = Time.realtimeSinceStartup + 8f;
+            int lastBoard = int.MinValue;
+            int stallTicks = 0;
+            try
+            {
+                while (dw != null
+                    && DialogHostApplyGuard.Active
+                    && dw.displayingDialogue
+                    && dw.currentDialogue != null
+                    && Time.realtimeSinceStartup < deadline)
+                {
+                    int board = -1;
+                    try { board = Traverse.Create(dw).Field("currentBoard").GetValue<int>(); }
+                    catch { board = -1; }
+
+                    if (board == lastBoard)
+                    {
+                        stallTicks++;
+                        // changePortrait waits ~1.5s + setPortrait; WritingText can stall forever
+                        // with no host UI clicks — force advance after ~2.5s on same board.
+                        if (stallTicks >= 25)
+                        {
+                            try
+                            {
+                                Core.forbidInputs = false;
+                                Traverse.Create(dw).Method("displayNextBoard").GetValue();
+                            }
+                            catch (Exception ex)
+                            {
+                                if (ModRuntime.VerboseLogging)
+                                    ModRuntime.Log?.LogWarning("[DialogOutcome] drain advance: " + ex.Message);
+                                break;
+                            }
+                            stallTicks = 0;
+                            lastBoard = int.MinValue;
+                        }
+                    }
+                    else
+                    {
+                        lastBoard = board;
+                        stallTicks = 0;
+                    }
+
+                    yield return new WaitForSecondsRealtime(0.1f);
+                }
+
+                if (dw != null && DialogHostApplyGuard.Active)
+                {
+                    if (dw.displayingDialogue || dw.npc != null)
+                        dw.close();
+                    else
+                        DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                }
+            }
+            finally
+            {
+                _dialogWorldDrainCo = null;
+                while (DialogHostApplyGuard.Active)
+                    DialogHostApplyGuard.EndWorldOnly();
+                HostFinishDialogWorldApply(npc);
+                ModRuntime.LegacyInfo("[DialogOutcome] world-only drain finished");
+            }
+        }
+
+        /// <summary>
+        /// Replay vanilla DialogueWindow.close's onCloseDialogue on the host so one-shot
+        /// GameEvents (onLeaveDoorDialogue_dream_*) run and Door.open can fan out.
+        /// Prefer dream-pad NPC; also force-fire leave-door GEs and open the metal door
+        /// when EventTrigger requirements blocked the vanilla path (0.7.11 soak).
+        /// </summary>
+        private void HostFireNpcCloseDialogue(string npcName)
+        {
+            // Still draining lookKeyhole boards — close early would miss flags/GE wiring.
+            if (_dialogWorldDrainCo != null)
+            {
+                _pendingCloseDialogueNpc = npcName;
+                ModRuntime.LegacyInfo(
+                    "[DialogOutcome] defer onCloseDialogue until world-only drain finishes NPC="
+                    + npcName);
+                return;
+            }
+
+            NPC npc = FindNpcByName(npcName);
+            if (npc == null || npc.gameObject == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[DialogOutcome] onCloseDialogue skip — NPC '" + npcName + "' not found");
+                return;
+            }
+
+            Vector3 npcPos = npc.transform.position;
+            ModRuntime.LegacyInfo(
+                "[DialogOutcome] host replaying onCloseDialogue for NPC=" + npcName
+                + " at (" + npcPos.x.ToString("F0") + "," + npcPos.z.ToString("F0") + ")");
+
+            DialogHostApplyGuard.BeginWorldOnly();
+            try
+            {
+                if (!npc.gameObject.activeInHierarchy)
+                {
+                    try { npc.gameObject.SetActive(true); }
+                    catch { /* ignore */ }
+                }
+
+                Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onCloseDialogue);
+
+                // Vanilla sendTriggerInfo only checks the root GO. Dream props sometimes
+                // hang EventTriggers on children — fire those too.
+                EventTriggers[] ets = npc.GetComponentsInChildren<EventTriggers>(true);
+                for (int i = 0; i < ets.Length; i++)
+                {
+                    EventTriggers et = ets[i];
+                    if (et == null || et.gameObject == npc.gameObject) continue;
+                    try { et.fireEventTrigger(EventTrigger.Type.onCloseDialogue); }
+                    catch { /* ignore */ }
+                }
+
+                // Belt-and-suspenders: fire onLeaveDoor* / DoorDialogue GameEvents under the
+                // dream pad even when EventTrigger requirements blocked the close path.
+                HostFireDreamLeaveDoorGameEvents(npcPos);
+
+                // Ensure the armored door actually opens + DoorOpen fans out.
+                DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DialogOutcome] onCloseDialogue: " + ex.Message);
+            }
+            finally
+            {
+                DialogHostApplyGuard.EndWorldOnly();
+            }
+
+            try { DWMPHorde.Patches.DialogueDoorAftermath.OnHostDialogWorldApplied(); }
+            catch (Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[DialogOutcome] door poll after close: " + ex.Message);
+            }
+        }
+
+        private static void HostFireDreamLeaveDoorGameEvents(Vector3 nearPos)
+        {
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
+            int fired = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                GameEvents ge = all[i];
+                if (ge == null) continue;
+                string n = ge.name ?? "";
+                if (n.IndexOf("onLeaveDoor", StringComparison.OrdinalIgnoreCase) < 0
+                    && n.IndexOf("DoorDialogue", StringComparison.OrdinalIgnoreCase) < 0
+                    && n.IndexOf("opening_door", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                if (dreamRoot != null
+                    && !ge.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(ge.transform.position, dreamRoot.position) > 250f)
+                    continue;
+                if (dreamRoot == null
+                    && Vector3.Distance(ge.transform.position, nearPos) > 80f)
+                    continue;
+
+                bool wasFired = ge.fired;
+                try
+                {
+                    // Allow re-fire if a prior premature close marked it without opening.
+                    if (wasFired && !ge.multipleFire)
+                        ge.fired = false;
+                    ge.fire();
+                    fired++;
+                    ModRuntime.LegacyInfo(
+                        "[DialogOutcome] host force-fired leave-door GE '" + n
+                        + "' wasFired=" + wasFired);
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DialogOutcome] leave-door GE '" + n + "': " + ex.Message);
+                }
+            }
+            if (fired == 0)
+                ModRuntime.LegacyInfo(
+                    "[DialogOutcome] no onLeaveDoor/DoorDialogue GameEvents under dream pad");
         }
 
         private void HandleDialogTreeState(DialogTreeStateMessage msg)
@@ -6371,7 +6607,34 @@ namespace DWMPHorde.Networking
             {
                 if (msg.Release)
                 {
+                    // Client ended a real talk. Vanilla close → onCloseDialogue runs only on the
+                    // speaker; client one-shot GameEvents are blocked, so the bunker door's
+                    // onLeaveDoorDialogue never fired on anyone. Replay the trigger on host.
+                    int prevOwner = NpcDialogueLock.GetOwner(msg.NpcName);
                     NpcDialogueLock.HostRelease(this, msg.NpcName, msg.OwnerPlayerId);
+
+                    // Abort lookKeyhole world-only drain — waiting for portrait boards caused a
+                    // multi-second pause before leave-door GE (door finally opens late).
+                    if (_dialogWorldDrainCo != null)
+                    {
+                        try { StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
+                        _dialogWorldDrainCo = null;
+                        while (DialogHostApplyGuard.Active)
+                            DialogHostApplyGuard.EndWorldOnly();
+                        try
+                        {
+                            var dw = Singleton<UI>.Instance?.dialogueWindow;
+                            if (dw != null && (dw.displayingDialogue || dw.npc != null))
+                                DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                        }
+                        catch { /* ignore */ }
+                        _pendingCloseDialogueNpc = null;
+                        ModRuntime.LegacyInfo(
+                            "[DialogOutcome] aborted world-only drain on dialog Release (open door now)");
+                    }
+
+                    if (prevOwner < 0 || prevOwner == msg.OwnerPlayerId)
+                        HostFireNpcCloseDialogue(msg.NpcName);
                     return;
                 }
                 if (msg.IsRequest || !msg.Granted)
@@ -6423,22 +6686,40 @@ namespace DWMPHorde.Networking
 
             // Unity 2021.3: includeInactive — dialogue door NPCs often deactivate after talk.
             NPC[] all = UnityEngine.Object.FindObjectsOfType<NPC>(true);
+            Transform dreamRoot = DreamSyncManager.IsDreamActive
+                ? DreamSyncManager.GetDreamLocationTransform()
+                : null;
 
+            NPC bestDream = null;
             NPC bestActive = null;
             NPC bestAny = null;
+            float bestDreamDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
             {
                 NPC n = all[i];
                 if (n == null) continue;
                 if (!NpcNameMatches(n, want)) continue;
                 bestAny = n;
-                if (n.gameObject.activeInHierarchy)
+
+                if (dreamRoot != null
+                    && (n.transform.IsChildOf(dreamRoot)
+                        || Vector3.Distance(n.transform.position, dreamRoot.position) <= 250f))
                 {
-                    bestActive = n;
-                    break;
+                    float d = Vector3.Distance(n.transform.position, dreamRoot.position);
+                    if (d < bestDreamDist)
+                    {
+                        bestDreamDist = d;
+                        bestDream = n;
+                    }
+                    continue;
                 }
+
+                if (n.gameObject.activeInHierarchy && bestActive == null)
+                    bestActive = n;
             }
-            NPC found = bestActive ?? bestAny;
+
+            // Dream pad wins — overworld bunker also has door_underground (wrong EventTriggers).
+            NPC found = bestDream ?? bestActive ?? bestAny;
             if (found == null)
             {
                 ModRuntime.Log?.LogWarning(

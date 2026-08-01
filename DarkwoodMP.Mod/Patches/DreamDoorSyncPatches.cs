@@ -27,7 +27,11 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            // ProcessInboundMessage holds IsApplyingRemoteState for all inbound applies.
+            // DialogOutcome world-only Door.open is host-authoritative and MUST fan out
+            // (was silently dropped after NetworkApplyGuard became a real class in 0.7.8).
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+                return;
 
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null) return;
@@ -100,7 +104,8 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+                return;
 
             Vector3 pos = __instance.transform.position;
             ModRuntime.Network.SendLockedUnlock(new LockedUnlockMessage
@@ -122,7 +127,8 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+                return;
 
             // Re-use DoorOpen with name prefix so client applies unblock+open attempt.
             // Dedicated message would need protocol bump; open handler also unblocks.
@@ -165,6 +171,20 @@ namespace DWMPHorde.Patches
         public static void OnHostGameEventsFired(string eventName)
         {
             if (!IsDialogueDoorEvent(eventName)) return;
+            ArmHostDoorPoll();
+        }
+
+        /// <summary>
+        /// After DialogOutcome world-only displayDialogue — fireWorldEvent / modifyDoor
+        /// may open the bunker door with delays; poll even when GE names are not matched.
+        /// </summary>
+        public static void OnHostDialogWorldApplied()
+        {
+            ArmHostDoorPoll();
+        }
+
+        private static void ArmHostDoorPoll()
+        {
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
             ctrl.StartCoroutine(HostPollOpenedDoors());
@@ -175,6 +195,14 @@ namespace DWMPHorde.Patches
             if (!IsDialogueDoorEvent(eventName)) return;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
+            // After leave-door GE: ensure dream WorldGrid nodes are entered so any
+            // late-registered Cullables behind the door are shown (not only Door.open).
+            try
+            {
+                if (DreamSyncManager.IsDreamActive && Singleton<WorldGrid>.Instance != null)
+                    Singleton<WorldGrid>.Instance.enterAllNodes();
+            }
+            catch { /* ignore */ }
             ctrl.StartCoroutine(ClientForceOpenNearbyDoors(eventPos));
         }
 
@@ -230,6 +258,20 @@ namespace DWMPHorde.Patches
 
         private static void ForceOpenDialogueDoors(Vector3 eventPos)
         {
+            TryForceOpenDialogueDoor(eventPos, broadcast: false);
+        }
+
+        /// <summary>
+        /// Host: unlock/open the dream bunker door near the dialogue NPC and fan out DoorOpen.
+        /// Used when onCloseDialogue / onLeaveDoorDialogue GE did not open anything.
+        /// </summary>
+        public static void HostEnsureDialogueDoorOpen(Vector3 anchor)
+        {
+            TryForceOpenDialogueDoor(anchor, broadcast: true);
+        }
+
+        private static void TryForceOpenDialogueDoor(Vector3 eventPos, bool broadcast)
+        {
             // Anchor: dialogue NPC door_underground under the dream pad only.
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             Vector3 anchor = eventPos;
@@ -263,7 +305,6 @@ namespace DWMPHorde.Patches
                 return;
 
             Door[] all = Object.FindObjectsOfType<Door>(true);
-            int opened = 0;
             Door best = null;
             float bestDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
@@ -283,39 +324,57 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            if (best == null || best.opened)
+            if (best == null)
                 return;
 
-            try
+            if (!best.opened)
             {
-                best.unblock();
-                best.unlock();
+                try
+                {
+                    best.unblock();
+                    best.unlock();
+                }
+                catch { /* ignore */ }
+
+                Locked locked = best.GetComponent<Locked>();
+                if (locked != null)
+                    locked.locked = false;
+                Padlock pad = best.GetComponent<Padlock>();
+                if (pad != null)
+                    pad.locked = false;
+
+                // Host broadcast path must NOT set IsApplyingRemoteState (that blocks DoorOpen
+                // unless DialogHostApplyGuard is also active). Client apply path stays silent.
+                if (broadcast)
+                {
+                    float force = best.type == Door.Type.metal ? 30000f : 0f;
+                    best.open(best.transform.position + Vector3.forward * 2f, null, force);
+                    DoorOpenSyncPatch.BroadcastDoorOpened(best);
+                    ModRuntime.LegacyInfo(
+                        $"[DoorSync] host force-opened dialogue door '{best.name}' (anchor={anchor})");
+                }
+                else
+                {
+                    bool prev = LanNetworkManager.IsApplyingRemoteState;
+                    LanNetworkManager.IsApplyingRemoteState = true;
+                    try
+                    {
+                        float force = best.type == Door.Type.metal ? 30000f : 0f;
+                        best.open(best.transform.position + Vector3.forward * 2f, null, force);
+                    }
+                    finally
+                    {
+                        LanNetworkManager.IsApplyingRemoteState = prev;
+                    }
+                    ModRuntime.LegacyInfo(
+                        $"[DoorSync] client force-opened dialogue door '{best.name}' (anchor={anchor})");
+                }
             }
-            catch { /* ignore */ }
-
-            Locked locked = best.GetComponent<Locked>();
-            if (locked != null)
-                locked.locked = false;
-            Padlock pad = best.GetComponent<Padlock>();
-            if (pad != null)
-                pad.locked = false;
-
-            bool prev = LanNetworkManager.IsApplyingRemoteState;
-            LanNetworkManager.IsApplyingRemoteState = true;
-            try
+            else if (broadcast)
             {
-                float force = best.type == Door.Type.metal ? 30000f : 0f;
-                best.open(best.transform.position + Vector3.forward * 2f, null, force);
-                opened++;
+                // Already open locally — still fan out for peers that missed it.
+                DoorOpenSyncPatch.BroadcastDoorOpened(best);
             }
-            finally
-            {
-                LanNetworkManager.IsApplyingRemoteState = prev;
-            }
-
-            if (opened > 0)
-                ModRuntime.LegacyInfo(
-                    $"[DoorSync] client force-opened dialogue door '{best.name}' (anchor={anchor})");
         }
     }
 }

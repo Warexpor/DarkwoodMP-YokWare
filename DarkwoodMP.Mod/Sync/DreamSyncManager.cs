@@ -352,6 +352,21 @@ namespace DWMPHorde.Sync
                 }
             }
 
+            // Host prepareDream shows Saving; SaveSync is suppressed for the whole dream
+            // window (avoids hitch mid-video). Peer path never ran prepareDream — mirror a
+            // local Save+indicator so clients see the same cue. Fan-out stays suppressed.
+            try
+            {
+                Singleton<SaveManager>.Instance?.Save(
+                    doJson: true, doSaveProfile: true, force: true,
+                    forceSaveStatic: false, showSavingIndicator: true);
+                ModRuntime.LegacyInfo("[DreamSync] peer dream-entry local Save (Saving UI)");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] peer dream-entry Save: " + ex.Message);
+            }
+
             // 1. Entry video: already started on CutsceneSync DreamEntry, or play now (late/missed).
             if (_earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying)
             {
@@ -1110,8 +1125,13 @@ namespace DWMPHorde.Sync
                 if (Singleton<WorldGrid>.Instance.currentGrid != null)
                     Singleton<WorldGrid>.Instance.currentGrid.leave();
                 Singleton<WorldGrid>.Instance.setGrid(locationName);
+                // Dream pads are small pockets — enter every node so props behind the
+                // dialogue door are not left Cullable-hidden if any registered late.
+                try { Singleton<WorldGrid>.Instance.enterAllNodes(); }
+                catch { /* ignore */ }
                 Singleton<WorldGrid>.Instance.refreshPosition(player._transform.position, instant: true, force: true);
             }
+            FinishDreamOutsideLoadFlags();
 
             // Call startDreaming() on the remote player so they receive dream items,
             // proper animation library, dream health, etc. (same as vanilla initiator).
@@ -1302,71 +1322,156 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            // Must unload textures before spawning new location — vanilla
-            // OutsideLocations.spawnLocation does this first thing.
-            if (Singleton<Controller>.Instance != null)
-                Singleton<Controller>.Instance.unloadTextures();
-
-            GameObject markerObj = Core.AddPrefab("LocationMarker",
-                position,
-                Quaternion.Euler(90f, 0f, 0f),
-                null);
-
-            if (markerObj == null)
+            // Mirror OutsideLocations.prepareLocation / prepareDream:
+            // - loading=true → CullableObject.Awake skips registerMe (otherwise objects
+            //   register onto World grid at -75k and WorldGrid.refresh hides far nodes —
+            //   client missing props "behind the door" while host looks complete).
+            // - dreamPrepared=true → Location.activateOverTime uses loadFrames=1.
+            var outsideLoc = Singleton<OutsideLocations>.Instance;
+            bool prevDreamPrepared = false;
+            if (outsideLoc != null)
             {
-                ModRuntime.Log?.LogError("[DreamSync] Failed to create LocationMarker prefab");
-                onComplete?.Invoke(null);
-                yield break;
+                outsideLoc.loading = true;
+            }
+            if (Dreams.Instance != null)
+            {
+                prevDreamPrepared = Dreams.Instance.dreamPrepared;
+                Dreams.Instance.dreamPrepared = true;
             }
 
-            LocationMarker marker = markerObj.GetComponent<LocationMarker>();
-            marker.locationName = locationName;
-
-            if (Singleton<WorldGenerator>.Instance != null)
-                OutsideLocations.createGrid(locationName, marker.transform.position);
-
-            GameObject holder = markerObj;
-            Transform parentTransform = null;
-            if (Singleton<WorldGenerator>.Instance != null && Singleton<WorldGenerator>.Instance.OutsideLocationsGO != null)
+            Location component = null;
+            try
             {
-                holder = Singleton<WorldGenerator>.Instance.OutsideLocationsGO;
-                parentTransform = holder.transform;
+                // Must unload textures before spawning new location — vanilla
+                // OutsideLocations.spawnLocation does this first thing.
+                if (Singleton<Controller>.Instance != null)
+                    Singleton<Controller>.Instance.unloadTextures();
+
+                GameObject markerObj = Core.AddPrefab("LocationMarker",
+                    position,
+                    Quaternion.Euler(90f, 0f, 0f),
+                    null);
+
+                if (markerObj == null)
+                {
+                    ModRuntime.Log?.LogError("[DreamSync] Failed to create LocationMarker prefab");
+                    onComplete?.Invoke(null);
+                    yield break;
+                }
+
+                LocationMarker marker = markerObj.GetComponent<LocationMarker>();
+                marker.locationName = locationName;
+
+                if (Singleton<WorldGenerator>.Instance != null)
+                    OutsideLocations.createGrid(locationName, marker.transform.position);
+
+                GameObject holder = markerObj;
+                Transform parentTransform = null;
+                if (Singleton<WorldGenerator>.Instance != null && Singleton<WorldGenerator>.Instance.OutsideLocationsGO != null)
+                {
+                    holder = Singleton<WorldGenerator>.Instance.OutsideLocationsGO;
+                    parentTransform = holder.transform;
+                }
+
+                yield return marker.StartCoroutine(marker.spawnLocation(holder));
+
+                if (marker.thisLocation == null)
+                {
+                    ModRuntime.Log?.LogError("[DreamSync] marker.thisLocation is null after spawnLocation");
+                    onComplete?.Invoke(null);
+                    yield break;
+                }
+
+                component = marker.thisLocation.GetComponent<Location>();
+
+                if (parentTransform != null)
+                    marker.thisLocation.transform.parent = parentTransform;
+
+                Singleton<OutsideLocations>.Instance.spawnedLocations[locationName] = component;
+                Dreams.Instance.dreamLocation = component;
+                RemapDreamUniqueObjects(component.transform);
+
+                // Activate all child objects — vanilla transportToLocation calls
+                // spawnedLocations[locationName].enter() which does activateChildren(true).
+                // Without this, terrain renderers stay inactive → all-black scene.
+                // Do NOT flush onEnterLocation here — enter() only starts activateOverTime;
+                // GE children need player teleported + startDreaming + finishedLoading first
+                // (otherwise door_underground keeps welcome_opening, not welcome_opening_dream).
+                component.enter();
+
+                // Vanilla Dreams.onLocationSpawned sets inEpilogue for epilogue locations.
+                // Remote load path never hits that — clients would miss crawl/death/UI mode.
+                ApplyEpilogueModeIfNeeded(component, locationName);
+
+                if (holder != markerObj)
+                    UnityEngine.Object.Destroy(markerObj);
+
+                ModRuntime.LegacyInfo($"[DreamSync] Dream scene loaded: {locationName} at {position}");
+                onComplete?.Invoke(component);
             }
-
-            yield return marker.StartCoroutine(marker.spawnLocation(holder));
-
-            if (marker.thisLocation == null)
+            finally
             {
-                ModRuntime.Log?.LogError("[DreamSync] marker.thisLocation is null after spawnLocation");
-                onComplete?.Invoke(null);
-                yield break;
+                // Spawn finished (or failed). CullableObject.Awake already skipped while
+                // loading was true — clear so WorldGrid.refreshPlayerPos can run again.
+                // Do this here so abort paths after a successful spawn cannot leave loading stuck.
+                if (outsideLoc != null)
+                    outsideLoc.loading = false;
+                if (component == null && Dreams.Instance != null)
+                    Dreams.Instance.dreamPrepared = prevDreamPrepared;
             }
+        }
 
-            Location component = marker.thisLocation.GetComponent<Location>();
+        /// <summary>
+        /// Safety clear after dream setGrid (StartLoadDreamScene already clears loading).
+        /// </summary>
+        internal static void FinishDreamOutsideLoadFlags()
+        {
+            try
+            {
+                var outside = Singleton<OutsideLocations>.Instance;
+                if (outside != null)
+                    outside.loading = false;
+            }
+            catch { /* ignore */ }
+        }
 
-            if (parentTransform != null)
-                marker.thisLocation.transform.parent = parentTransform;
+        /// <summary>
+        /// UniqueObjects keeps the first registrant. Overworld bunker wins before the pad
+        /// exists; leave-door / setActive GEs then mutate the wrong twin. Force-map pad
+        /// UniqueObjects into the registry after spawn.
+        /// </summary>
+        internal static void RemapDreamUniqueObjects(Transform dreamRoot)
+        {
+            if (dreamRoot == null) return;
+            try
+            {
+                var uo = Singleton<UniqueObjects>.Instance;
+                if (uo == null || uo.objects == null) return;
 
-            Singleton<OutsideLocations>.Instance.spawnedLocations[locationName] = component;
-            Dreams.Instance.dreamLocation = component;
+                UniqueObject[] all = UnityEngine.Object.FindObjectsOfType<UniqueObject>(true);
+                int remapped = 0;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    UniqueObject u = all[i];
+                    if (u == null || string.IsNullOrEmpty(u.type)) continue;
+                    if (!u.transform.IsChildOf(dreamRoot)
+                        && Vector3.Distance(u.transform.position, dreamRoot.position) > 250f)
+                        continue;
 
-            // Activate all child objects — vanilla transportToLocation calls
-            // spawnedLocations[locationName].enter() which does activateChildren(true).
-            // Without this, terrain renderers stay inactive → all-black scene.
-            // Do NOT flush onEnterLocation here — enter() only starts activateOverTime;
-            // GE children need player teleported + startDreaming + finishedLoading first
-            // (otherwise door_underground keeps welcome_opening, not welcome_opening_dream).
-            component.enter();
-
-            // Vanilla Dreams.onLocationSpawned sets inEpilogue for epilogue locations.
-            // Remote load path never hits that — clients would miss crawl/death/UI mode.
-            ApplyEpilogueModeIfNeeded(component, locationName);
-
-            if (holder != markerObj)
-                UnityEngine.Object.Destroy(markerObj);
-
-            ModRuntime.LegacyInfo($"[DreamSync] Dream scene loaded: {locationName} at {position}");
-            onComplete?.Invoke(component);
+                    if (!uo.objects.TryGetValue(u.type, out UniqueObject cur) || cur != u)
+                    {
+                        uo.objects[u.type] = u;
+                        remapped++;
+                    }
+                }
+                if (remapped > 0)
+                    ModRuntime.LegacyInfo(
+                        "[DreamSync] Remapped " + remapped + " UniqueObject(s) onto dream pad");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] RemapDreamUniqueObjects: " + ex.Message);
+            }
         }
 
         /// <summary>

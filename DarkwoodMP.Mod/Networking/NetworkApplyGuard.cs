@@ -9,8 +9,13 @@ namespace DWMPHorde.Networking
     /// Depth-counted so nested handlers restore correctly.
     /// Inner code must not clear flags while <see cref="IsActive"/>; TraverseHack
     /// getter stays true for the whole outer receive scope.
+    ///
+    /// MUST be a class, not a struct: <c>using (new NetworkApplyGuard())</c> on a struct
+    /// with only an optional-arg ctor compiles to <c>initobj</c> (zero-init) under our
+    /// net471/C#10 toolchain — ctor never runs, guard is a no-op, client one-shot
+    /// GameEvents.fire stays blocked by GameEventsFiredPatch (dream clothes/masks/START).
     /// </summary>
-    internal struct NetworkApplyGuard : IDisposable
+    internal sealed class NetworkApplyGuard : IDisposable
     {
         private static int _depth;
         private static bool _outerPrevIsApplying;
@@ -28,9 +33,9 @@ namespace DWMPHorde.Networking
 
             if (_depth == 0)
             {
-                _outerPrevIsApplying = LanNetworkManager.IsApplyingRemoteState;
+                _outerPrevIsApplying = LanNetworkManager.GetExplicitApplyingRemoteState();
                 _outerPrevTraverseHack = TraverseHack.GetExplicitFlag();
-                LanNetworkManager.IsApplyingRemoteState = true;
+                LanNetworkManager.SetExplicitApplyingRemoteState(true);
                 TraverseHack.SetExplicitFlag(true);
             }
             _depth++;
@@ -43,7 +48,7 @@ namespace DWMPHorde.Networking
             _depth--;
             if (_depth == 0)
             {
-                LanNetworkManager.IsApplyingRemoteState = _outerPrevIsApplying;
+                LanNetworkManager.SetExplicitApplyingRemoteState(_outerPrevIsApplying);
                 TraverseHack.SetExplicitFlag(_outerPrevTraverseHack);
             }
         }
@@ -52,7 +57,7 @@ namespace DWMPHorde.Networking
         internal static void ResetDepth()
         {
             _depth = 0;
-            LanNetworkManager.IsApplyingRemoteState = false;
+            LanNetworkManager.SetExplicitApplyingRemoteState(false);
             TraverseHack.ResetTransientFlags();
         }
     }

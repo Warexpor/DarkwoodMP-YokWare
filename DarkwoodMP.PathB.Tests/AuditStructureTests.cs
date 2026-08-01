@@ -92,6 +92,41 @@ public class AuditStructureTests
         Assert.Contains("addJournalItem", suppress);
         Assert.Contains("showJournalInfoPopup", suppress);
 
+        var present = ReadMod("Patches", "DialogHostPresentationSuppressPatches.cs");
+        Assert.Contains("DialogHostApplyGuard.Active", present);
+        Assert.Contains("tweenBlackScreen", present);
+        Assert.Contains("tweenBlackScreenTop", present);
+
+        var doorSync = ReadMod("Patches", "DreamDoorSyncPatches.cs");
+        Assert.Contains("DialogHostApplyGuard.Active", doorSync);
+        Assert.Contains("OnHostDialogWorldApplied", doorSync);
+
+        Assert.Contains("HostFireNpcCloseDialogue", handlers);
+        Assert.Contains("onCloseDialogue", handlers);
+        Assert.Contains("HostDrainWorldOnlyDialogue", handlers);
+        Assert.Contains("HostEnsureDialogueDoorOpen", doorSync);
+        Assert.Contains("HostFireDreamLeaveDoorGameEvents", handlers);
+        Assert.Contains("defer onCloseDialogue", handlers);
+        Assert.Contains("aborted world-only drain on dialog Release", handlers);
+        Assert.Contains("enterAllNodes", doorSync);
+
+        var dreamSync = ReadMod("Sync", "DreamSyncManager.cs");
+        Assert.Contains("peer dream-entry local Save", dreamSync);
+        Assert.Contains("showSavingIndicator: true", dreamSync);
+        Assert.Contains("outsideLoc.loading = true", dreamSync);
+        Assert.Contains("RemapDreamUniqueObjects", dreamSync);
+        Assert.Contains("FinishDreamOutsideLoadFlags", dreamSync);
+        Assert.Contains("enterAllNodes", dreamSync);
+
+        var uoPatch = ReadMod("Patches", "UniqueObjectsDreamPatch.cs");
+        Assert.Contains("UniqueObjectsDreamGetPatch", uoPatch);
+        Assert.Contains("GetDreamLocationTransform", uoPatch);
+
+        var phys = ReadMod("Sync", "WorldPhysicsSyncService.cs");
+        Assert.Contains("HasRecentPushAuthority", phys);
+        Assert.Contains("clientLocalFreeBody", phys);
+        Assert.Contains("dreamPad", phys);
+
         var guard = ReadMod("Sync", "DialogHostApplyGuard.cs");
         Assert.Contains("SnapshotPersonalJournal", guard);
         Assert.Contains("RestorePersonalJournal", guard);
@@ -182,6 +217,12 @@ public class AuditStructureTests
         var applySlice = handlers.Substring(applyIdx, Math.Min(500, handlers.Length - applyIdx));
         Assert.Contains("NetworkApplyGuard", applySlice);
         Assert.Contains("setFlag", applySlice);
+
+        // Regression: guard MUST be a class. Struct + `using (new NetworkApplyGuard())`
+        // compiled to initobj (ctor never ran) → client dream GEs fire no-op forever.
+        var guard = ReadMod("Networking", "NetworkApplyGuard.cs");
+        Assert.Contains("sealed class NetworkApplyGuard", guard);
+        Assert.DoesNotContain("struct NetworkApplyGuard", guard);
     }
 
     [Fact]
@@ -305,7 +346,7 @@ public class AuditStructureTests
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.7", plugin);
+        Assert.Contains("0.7.13", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
