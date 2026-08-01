@@ -463,7 +463,8 @@ namespace DWMPHorde.Networking
                 FileNames = new string[files.Count],
                 UncompressedSizes = new int[files.Count],
                 CompressedSizes = new int[files.Count],
-                ChunkCounts = new int[files.Count]
+                ChunkCounts = new int[files.Count],
+                CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId)
             };
             int totalChunks = 0;
             for (int i = 0; i < files.Count; i++)
@@ -721,6 +722,10 @@ namespace DWMPHorde.Networking
                 meta.ContentFingerprint = packageFp;
                 meta.LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 meta.Note = "Exact match with host package — reused permanent copy (no overwrite).";
+                if (!string.IsNullOrEmpty(_pendingBegin.CampaignId))
+                    meta.CampaignId = _pendingBegin.CampaignId;
+                else if (string.IsNullOrEmpty(meta.CampaignId))
+                    meta.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(matchSlot);
                 CoopWorldCopyMeta.Write(matchSlot, meta);
 
                 int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
@@ -1024,10 +1029,16 @@ namespace DWMPHorde.Networking
                     JoinedAt = joinedAt,
                     LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
                     ContentFingerprint = diskFp,
+                    CampaignId = !string.IsNullOrEmpty(_pendingBegin.CampaignId)
+                        ? _pendingBegin.CampaignId
+                        : (existing != null ? existing.CampaignId : null),
                     SavBytes = File.Exists(savPath) ? new FileInfo(savPath).Length : 0,
                     SavsBytes = File.Exists(savsPath) ? new FileInfo(savsPath).Length : 0,
                     Note = "Permanent local copy of co-op world. Updated on every session Save. Delete PLAY profile to remove."
                 });
+                if (string.IsNullOrEmpty(_pendingBegin.CampaignId)
+                    && (existing == null || string.IsNullOrEmpty(existing.CampaignId)))
+                    CoopWorldCopyMeta.GetOrCreateCampaignId(profileId);
 
                 Sync.WorldPhysicsSyncService.Reset();
                 Sync.DreamSyncManager.OnDisconnected();

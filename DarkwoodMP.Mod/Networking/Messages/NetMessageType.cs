@@ -93,7 +93,11 @@ namespace DWMPHorde.Networking
         [Forwardable] ExplosionSpawnObject = 43,
         /// <summary>Either peer: the local player started or stopped burning (for proxy visual sync).</summary>
         [ForwardablePlayer] PlayerBurning = 44,
-        /// <summary>Client->Host: client's inventory/skills/state backup sent on save.</summary>
+        /// <summary>
+        /// Client↔Host: inventory/skills backup. Client→host on Save (host stores
+        /// <c>client_backup_p{id}.json</c>); host→client on late-join bulk restore.
+        /// Optional both ways; protocol stays 19.
+        /// </summary>
         ClientStateBackup = 45,
         /// <summary>Either peer: spawn a death bag at a world position on the remote.</summary>
         [Forwardable] DeathBagSpawn = 46,
@@ -279,7 +283,12 @@ namespace DWMPHorde.Networking
         /// Optional; protocol stays 19.
         /// </summary>
         NightShadowSpawnRequest = 127,
+        /// <summary>
+        /// Host→client: dream Item collider isTrigger flags (lamp walk-through / bell solid).
+        /// Optional; protocol stays 19.
+        /// </summary>
+        DreamPropCollider = 128,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 127
+        _Highest = 128
     }
 }

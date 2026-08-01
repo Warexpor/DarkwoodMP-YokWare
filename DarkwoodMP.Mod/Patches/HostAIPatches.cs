@@ -171,6 +171,25 @@ namespace DWMPHorde.Patches
                 return;
             }
 
+            // Sticky: already chasing the host player — do NOT steal aggro to a
+            // closer proxy mid-chase (dream forest spirit / any AI). Vanilla has one
+            // body; CASE 2 used to retarget to whoever was nearer and pull threats
+            // off the player who actually entered the woods.
+            if (__instance.target != null && Player.Instance != null
+                && (__instance.target == Player.Instance.transform
+                    || __instance.target == Player.Instance._transform))
+            {
+                float stickRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
+                Sniffer stickSniff = __instance.GetComponent<Sniffer>();
+                if (stickSniff != null && stickSniff.radius > stickRange)
+                    stickRange = stickSniff.radius;
+                stickRange *= 1.5f;
+                float hostStickDist = Core.trueDistance(
+                    __instance.transform.position, Player.Instance._transform.position);
+                if (hostStickDist <= stickRange)
+                    return;
+            }
+
             // --- CASE 2: Entity is NOT yet chasing any proxy ---
             // Find the closest detectable proxy and start chasing it.
             float maxDist = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
@@ -759,7 +778,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// After forceAttackClosestCharacter runs, if the entity fell through to
     /// attackPlayer() because the proxy has no Character component, redirect
-    /// to the proxy if it's within detection range.
+    /// to the proxy only when that proxy is closer than the host.
     /// </summary>
     [HarmonyPatch(typeof(Character), "forceAttackClosestCharacter")]
     public static class HostForceAttackClosestCharacterPatch
@@ -775,7 +794,8 @@ namespace DWMPHorde.Patches
             if (hostPlayer == null) return;
 
             // Only redirect if entity fell through to attackPlayer()
-            if (__instance.target != hostPlayer.transform)
+            if (__instance.target != hostPlayer.transform
+                && __instance.target != hostPlayer._transform)
                 return;
 
             var net = LanNetworkManager.Instance;
@@ -786,28 +806,94 @@ namespace DWMPHorde.Patches
             if (sniffer != null && sniffer.radius > range)
                 range = sniffer.radius;
 
-            // Find the closest detectable proxy
+            float hostDist = Core.trueDistance(
+                __instance.transform.position, hostPlayer._transform.position);
+
+            // Find the closest detectable proxy that is nearer than the host.
             Transform closestProxy = null;
-            float closestDist = float.MaxValue;
+            float closestDist = hostDist;
             foreach (var proxy in net.GetAllProxies())
             {
                 if (proxy == null) continue;
                 Transform pt = proxy.transform;
-                float distToProxy = (__instance.transform.position - pt.position).sqrMagnitude;
-                if (distToProxy > range * range)
+                float distToProxy = Core.trueDistance(__instance.transform.position, pt.position);
+                if (distToProxy > range || distToProxy >= closestDist)
                     continue;
                 CharBase proxyCB = pt.GetComponent<CharBase>();
                 if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
                     continue;
-                if (distToProxy < closestDist)
-                {
-                    closestDist = distToProxy;
-                    closestProxy = pt;
-                }
+                closestDist = distToProxy;
+                closestProxy = pt;
             }
 
             if (closestProxy != null)
                 __instance.attackCharacter(closestProxy);
+        }
+    }
+
+    /// <summary>
+    /// Vanilla <c>attackPlayer</c> always targets <see cref="Player.Instance"/> (host).
+    /// Redirect to the nearest living player body (host or remote proxy) so
+    /// story spawns (dream forest spirit, etc.) chase whoever is actually there.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "attackPlayer")]
+    public static class HostAttackPlayerNearestPatch
+    {
+        private static bool Prefix(Character __instance)
+        {
+            if (__instance == null || __instance.dummy)
+                return true;
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+                return true;
+            if (!PlayerPositionManager.HasRemotePlayer)
+                return true;
+
+            // Prefer recent EventTriggers proxy enter (client walked into the volume).
+            Transform prefer = ThreatTriggerContext.TryGetRecentProxyTransform(8f);
+            if (prefer == null)
+                prefer = FindNearestPlayerTransform(__instance.transform.position);
+            if (prefer == null)
+                return true;
+
+            if (__instance.aggressiveness != Aggressiveness.defensive)
+                __instance.aggressiveness = Aggressiveness.attackOnSight;
+            __instance.attackCharacter(prefer);
+            return false;
+        }
+
+        internal static Transform FindNearestPlayerTransform(Vector3 from)
+        {
+            Transform best = null;
+            float bestD = float.MaxValue;
+
+            Player host = Player.Instance;
+            if (host != null)
+            {
+                CharBase hcb = host.GetComponent<CharBase>();
+                if (hcb != null && hcb.alive && !hcb.invisible && !hcb.ignoreMe)
+                {
+                    best = host._transform != null ? host._transform : host.transform;
+                    bestD = Core.trueDistance(from, best.position);
+                }
+            }
+
+            var net = LanNetworkManager.Instance;
+            if (net == null) return best;
+
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null) continue;
+                CharBase pcb = proxy.GetComponent<CharBase>();
+                if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
+                    continue;
+                float d = Core.trueDistance(from, proxy.transform.position);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = proxy.transform;
+                }
+            }
+            return best;
         }
     }
 }

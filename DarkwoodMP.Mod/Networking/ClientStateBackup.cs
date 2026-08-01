@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using DWMPHorde.Sync;
 using Newtonsoft.Json;
 using UnityEngine;
 
@@ -11,6 +12,11 @@ namespace DWMPHorde.Networking
     {
         /// <summary>Network player id of the client this snapshot belongs to (0 = unknown/local-only).</summary>
         public int PlayerId;
+        /// <summary>
+        /// Stable co-op campaign id from <see cref="CoopWorldCopyMeta.CampaignId"/>.
+        /// Backups are save/campaign-scoped — restore refused on mismatch.
+        /// </summary>
+        public string CampaignId;
         public string Timestamp;
         public int Day;
         public int GameTimeMinutes;
@@ -76,8 +82,11 @@ namespace DWMPHorde.Networking
                 data.PlayerId = 0;
 
             data.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
 
-            Vector3 pos = player.transform.position;
+            // Never persist dream-pad coords as the rejoin spawn — that throws the
+            // client into empty -50k/-75k space after the pad is torn down.
+            Vector3 pos = ResolveOverworldBackupPosition(player);
             data.PosX = pos.x; data.PosY = pos.y; data.PosZ = pos.z;
 
             data.Health = player.health;
@@ -261,30 +270,102 @@ namespace DWMPHorde.Networking
             return dir;
         }
 
+        private static string SanitizeCampaignIdForPath(string campaignId)
+        {
+            if (string.IsNullOrEmpty(campaignId)) return null;
+            // GUID "N" is hex-only; strip anything else for path safety.
+            var sb = new System.Text.StringBuilder(campaignId.Length);
+            for (int i = 0; i < campaignId.Length; i++)
+            {
+                char c = campaignId[i];
+                if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+                    sb.Append(char.ToLowerInvariant(c));
+            }
+            return sb.Length > 0 ? sb.ToString() : null;
+        }
+
         /// <summary>
-        /// Host-side path for a remote client's backup, keyed by network PlayerId.
-        /// Multi-client: player 2 and 3 must not share a single file.
+        /// Host-side path for a remote client's backup, keyed by network PlayerId + campaign.
         /// </summary>
         public static string GetBackupFilePathForPlayer(int playerId)
         {
             if (playerId <= 0)
                 return GetLocalSelfBackupPath();
-            return GetProfileBackupDirectory() + "/client_backup_p" + playerId + ".json";
+            string campaign = SanitizeCampaignIdForPath(
+                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+            if (string.IsNullOrEmpty(campaign))
+                return GetProfileBackupDirectory() + "/client_backup_p" + playerId + ".json";
+            return GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + campaign + ".json";
         }
 
         /// <summary>
-        /// Local-only path used when this machine snapshots its own inventory
-        /// (e.g. ManualSave before loading a host world). Never collides with host-received peer files.
+        /// Local-only path for this machine's snapshot, keyed by current campaign.
         /// </summary>
         public static string GetLocalSelfBackupPath()
         {
-            return GetProfileBackupDirectory() + "/client_backup_self.json";
+            string campaign = SanitizeCampaignIdForPath(
+                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+            if (string.IsNullOrEmpty(campaign))
+                return GetProfileBackupDirectory() + "/client_backup_self.json";
+            return GetProfileBackupDirectory() + "/client_backup_self_" + campaign + ".json";
         }
 
-        /// <summary>Legacy single-file path (pre multi-client). Kept for load fallback only.</summary>
+        /// <summary>Legacy single-file path (pre multi-client / pre-campaign). Load fallback only.</summary>
         public static string GetLegacyBackupFilePath()
         {
             return GetProfileBackupDirectory() + "/client_backup.json";
+        }
+
+        private static string GetLegacyPlayerBackupPath(int playerId) =>
+            GetProfileBackupDirectory() + "/client_backup_p" + playerId + ".json";
+
+        private static string GetLegacySelfBackupPath() =>
+            GetProfileBackupDirectory() + "/client_backup_self.json";
+
+        /// <summary>True when backup JSON belongs to the active campaign (or both unscoped legacy).</summary>
+        public static bool MatchesCurrentCampaign(ClientStateBackupData data)
+        {
+            if (data == null) return false;
+            string current = CoopWorldCopyMeta.TryGetCurrentCampaignId();
+            if (string.IsNullOrEmpty(current) && string.IsNullOrEmpty(data.CampaignId))
+                return true; // legacy both sides
+            if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(data.CampaignId))
+                return false;
+            return string.Equals(current, data.CampaignId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Pre-0.7.20 backups omit CampaignId. Stamp current campaign and re-save
+        /// so host stop rejecting with "file=(none)".
+        /// </summary>
+        private static ClientStateBackupData MigrateLegacyCampaignIfNeeded(
+            ClientStateBackupData data, int playerIdForPath)
+        {
+            if (data == null) return null;
+            if (MatchesCurrentCampaign(data))
+                return data;
+
+            string current = CoopWorldCopyMeta.TryGetCurrentCampaignId();
+            if (string.IsNullOrEmpty(current) || !string.IsNullOrEmpty(data.CampaignId))
+                return null; // mismatched non-empty id, or no campaign to adopt
+
+            data.CampaignId = current;
+            try
+            {
+                string json = SerializeToJson(data);
+                if (playerIdForPath > 0)
+                    SaveBackupFile(json, playerIdForPath);
+                else
+                    SaveLocalSelfBackupFile(json);
+                ModRuntime.LegacyInfo(
+                    "[ClientBackup] migrated legacy backup → campaign " + current);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] legacy campaign migrate failed: " + ex.Message);
+            }
+            return data;
         }
 
         /// <summary>Save a remote client's backup on the host (or any peer-keyed store).</summary>
@@ -292,7 +373,42 @@ namespace DWMPHorde.Networking
         {
             try
             {
+                // Ensure JSON CampaignId matches disk key when host stamps current campaign.
+                try
+                {
+                    var parsed = DeserializeFromJson(json);
+                    if (parsed != null)
+                    {
+                        string cur = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
+                        if (!string.IsNullOrEmpty(cur)
+                            && !string.Equals(parsed.CampaignId, cur, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Prefer payload's campaign if set (client's view); else stamp host.
+                            if (string.IsNullOrEmpty(parsed.CampaignId))
+                            {
+                                parsed.CampaignId = cur;
+                                json = SerializeToJson(parsed);
+                            }
+                        }
+                    }
+                }
+                catch { /* keep raw json */ }
+
                 string path = GetBackupFilePathForPlayer(playerId);
+                // If JSON has its own CampaignId, write under that key (host world may differ
+                // only if misconfigured — prefer embedded id for file name).
+                try
+                {
+                    var parsed = DeserializeFromJson(json);
+                    if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId) && playerId > 0)
+                    {
+                        string c = SanitizeCampaignIdForPath(parsed.CampaignId);
+                        if (!string.IsNullOrEmpty(c))
+                            path = GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + c + ".json";
+                    }
+                }
+                catch { /* use path from GetBackupFilePathForPlayer */ }
+
                 File.WriteAllText(path, json);
                 ModRuntime.LegacyInfo("[ClientBackup] saved player " + playerId + " → " + path);
             }
@@ -302,12 +418,24 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Save this machine's local self backup (ManualSave / pre-load).</summary>
+        /// <summary>Save this machine's local self backup (ManualSave / pre-load / exit).</summary>
         public static void SaveLocalSelfBackupFile(string json)
         {
             try
             {
                 string path = GetLocalSelfBackupPath();
+                try
+                {
+                    var parsed = DeserializeFromJson(json);
+                    if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId))
+                    {
+                        string c = SanitizeCampaignIdForPath(parsed.CampaignId);
+                        if (!string.IsNullOrEmpty(c))
+                            path = GetProfileBackupDirectory() + "/client_backup_self_" + c + ".json";
+                    }
+                }
+                catch { /* default path */ }
+
                 File.WriteAllText(path, json);
                 ModRuntime.LegacyInfo("[ClientBackup] saved local self → " + path);
             }
@@ -317,23 +445,32 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Load host-stored backup for a specific network player id.</summary>
+        /// <summary>Load host-stored backup for a specific network player id (current campaign only).</summary>
         public static ClientStateBackupData LoadBackupFileForPlayer(int playerId)
         {
             try
             {
                 string path = GetBackupFilePathForPlayer(playerId);
-                if (!File.Exists(path))
+                ClientStateBackupData data = TryReadBackup(path);
+                if (data == null && playerId > 0)
+                    data = TryReadBackup(GetLegacyPlayerBackupPath(playerId));
+                if (data == null)
                 {
-                    // One-shot migration: old single-file layout
                     string legacy = GetLegacyBackupFilePath();
-                    if (playerId > 0 && File.Exists(legacy))
-                        path = legacy;
-                    else
-                        return null;
+                    if (playerId > 0)
+                        data = TryReadBackup(legacy);
                 }
-                string json = File.ReadAllText(path);
-                return DeserializeFromJson(json);
+                if (data == null) return null;
+                data = MigrateLegacyCampaignIfNeeded(data, playerId);
+                if (data == null)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip p" + playerId
+                        + " backup — campaign mismatch (file=(none/mismatched) current="
+                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                    return null;
+                }
+                return data;
             }
             catch (Exception ex)
             {
@@ -342,26 +479,40 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Load local self backup; falls back to legacy <c>client_backup.json</c>.</summary>
+        /// <summary>Load local self backup for the current campaign; legacy fallback if unscoped.</summary>
         public static ClientStateBackupData LoadLocalSelfBackupFile()
         {
             try
             {
-                string path = GetLocalSelfBackupPath();
-                if (!File.Exists(path))
+                ClientStateBackupData data = TryReadBackup(GetLocalSelfBackupPath());
+                if (data == null)
+                    data = TryReadBackup(GetLegacySelfBackupPath());
+                if (data == null)
+                    data = TryReadBackup(GetLegacyBackupFilePath());
+                if (data == null) return null;
+                data = MigrateLegacyCampaignIfNeeded(data, 0);
+                if (data == null)
                 {
-                    path = GetLegacyBackupFilePath();
-                    if (!File.Exists(path))
-                        return null;
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current="
+                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                    return null;
                 }
-                string json = File.ReadAllText(path);
-                return DeserializeFromJson(json);
+                return data;
             }
             catch (Exception ex)
             {
                 ModRuntime.Log?.LogError("[ClientBackup] failed to load local self: " + ex);
                 return null;
             }
+        }
+
+        private static ClientStateBackupData TryReadBackup(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return null;
+            string json = File.ReadAllText(path);
+            return DeserializeFromJson(json);
         }
 
         // --- Back-compat wrappers (single-arg / no-arg used by older call sites) ---
@@ -377,6 +528,16 @@ namespace DWMPHorde.Networking
             Player player = Player.Instance;
             if (player == null) return;
             if (data == null) return;
+
+            if (!MatchesCurrentCampaign(data))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] refused restore — campaign mismatch (backup="
+                    + (data.CampaignId ?? "(none)")
+                    + " current="
+                    + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                return;
+            }
 
             player.experience = data.Experience;
             player.currentLevel = data.CurrentLevel;
@@ -443,12 +604,111 @@ namespace DWMPHorde.Networking
 
             RestoreNightTraderReputations(data);
 
+            // Position was always collected on Save; apply on restore so rejoin returns to exit spot.
+            RestorePosition(data);
+
             ModRuntime.LegacyInfo(
                 "[ClientBackup] restored from backup — level=" + data.CurrentLevel +
                 " exp=" + data.Experience +
                 " skills=" + (data.Skills?.Count ?? 0) +
                 " pts=" + data.SkillPoints +
-                " inv=" + (data.InventoryItems?.Count ?? 0) + " items");
+                " inv=" + (data.InventoryItems?.Count ?? 0) + " items" +
+                " pos=(" + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
+        }
+
+        private static void RestorePosition(ClientStateBackupData data)
+        {
+            Player player = Player.Instance;
+            if (player == null || data == null) return;
+
+            Vector3 pos = new Vector3(data.PosX, data.PosY, data.PosZ);
+            // Uninitialized / missing trailer — never teleport to world origin by accident.
+            if (pos.sqrMagnitude < 0.01f)
+                return;
+
+            // Stale backups taken mid-dream used pad coords; applying them in the
+            // overworld is the "abyss" teleport. Keep inv/skills; skip pose.
+            bool dreamingNow = DreamSyncManager.IsDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming);
+            if (!dreamingNow && IsDreamPadCoordinate(pos))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] skip position restore — dream-pad coords while overworld "
+                    + pos);
+                return;
+            }
+
+            try
+            {
+                player.teleportTo(pos, Quaternion.Euler(90f, 0f, 0f));
+                if (Singleton<WorldGrid>.Instance != null)
+                    Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
+
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net != null && net.IsConnected)
+                    net.TeleportRemoteProxyTo(pos, 0f);
+
+                ModRuntime.LegacyInfo(
+                    "[ClientBackup] restored position " + pos);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] position restore failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Dream pads live around −50k/−75k. Overworld playtest coords are far smaller.
+        /// </summary>
+        internal static bool IsDreamPadCoordinate(Vector3 pos)
+        {
+            const float padAbs = 40000f;
+            return Mathf.Abs(pos.x) >= padAbs || Mathf.Abs(pos.z) >= padAbs;
+        }
+
+        /// <summary>
+        /// While dreaming, vanilla keeps the pre-dream overworld pose in
+        /// <see cref="Dreams.positionCopy"/> — use that for backups.
+        /// Also refuse live pad coords after dream flags clear (endDreaming window /
+        /// corrupted positionCopy) so quit snapshots never reintroduce the abyss.
+        /// </summary>
+        private static Vector3 ResolveOverworldBackupPosition(Player player)
+        {
+            Vector3 live = player.transform.position;
+            bool dreaming = DreamSyncManager.IsDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming);
+
+            if (dreaming)
+            {
+                if (Dreams.Instance != null)
+                {
+                    Vector3 copy = Dreams.Instance.positionCopy;
+                    if (copy.sqrMagnitude > 0.01f && !IsDreamPadCoordinate(copy))
+                        return copy;
+                }
+                if (DreamSyncManager.TryGetPreDreamOverworldPosition(out Vector3 pre))
+                    return pre;
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] mid-dream snapshot — omitting pad position " + live);
+                return Vector3.zero;
+            }
+
+            if (!IsDreamPadCoordinate(live))
+                return live;
+
+            // Overworld flags but body still on pad (corrupted positionCopy / mid-end).
+            if (Dreams.Instance != null)
+            {
+                Vector3 copy = Dreams.Instance.positionCopy;
+                if (copy.sqrMagnitude > 0.01f && !IsDreamPadCoordinate(copy))
+                    return copy;
+            }
+            if (DreamSyncManager.TryGetPreDreamOverworldPosition(out Vector3 pre2))
+                return pre2;
+
+            ModRuntime.Log?.LogWarning(
+                "[ClientBackup] refusing pad coords while overworld — omitting " + live);
+            return Vector3.zero;
         }
 
         /// <summary>

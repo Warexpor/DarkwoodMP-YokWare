@@ -29,6 +29,12 @@ namespace DWMPHorde.Networking
         public string Note;
         /// <summary>SHA1 hex of sav.dat+savs.dat (or join package). Same host package → skip overwrite.</summary>
         public string ContentFingerprint;
+        /// <summary>
+        /// Stable co-op campaign id (GUID). Minted once per world; never overwritten on
+        /// RefreshAfterLocalSave. Client backups and restores are keyed to this — not to
+        /// ContentFingerprint (which changes every Save).
+        /// </summary>
+        public string CampaignId;
         public long SavBytes;
         public long SavsBytes;
 
@@ -178,6 +184,121 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Current profile's stable campaign id, or null if no profile / not stamped yet.
+        /// </summary>
+        public static string TryGetCurrentCampaignId()
+        {
+            if (Core.currentProfile == null) return null;
+            int pid = Core.currentProfile.id;
+            if (pid < 1 || pid > 5) return null;
+            return TryLoad(pid)?.CampaignId;
+        }
+
+        /// <summary>
+        /// Ensure active profile has a CampaignId (mint if missing). Host + client use this
+        /// before writing client backups / sharing world.
+        /// </summary>
+        public static string GetOrCreateCampaignIdForCurrentProfile()
+        {
+            if (Core.currentProfile == null) return null;
+            return GetOrCreateCampaignId(Core.currentProfile.id);
+        }
+
+        public static string GetOrCreateCampaignId(int profileId)
+        {
+            if (profileId < 1 || profileId > 5) return null;
+            try
+            {
+                var meta = TryLoad(profileId);
+                if (meta == null)
+                {
+                    meta = new CoopWorldCopyMeta
+                    {
+                        IsCoopCopy = true,
+                        JoinedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                        Note = "Campaign id auto-stamped."
+                    };
+                }
+
+                if (string.IsNullOrEmpty(meta.CampaignId))
+                {
+                    meta.CampaignId = Guid.NewGuid().ToString("N");
+                    ModLog.Event(LogCat.Save,
+                        "Minted CampaignId " + meta.CampaignId.Substring(0, 8) + "… for prof" + profileId);
+                }
+
+                Write(profileId, meta);
+                return meta.CampaignId;
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "GetOrCreateCampaignId failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>Force a new campaign id (brand-new world gen on this profile).</summary>
+        public static string MintNewCampaignId(int profileId)
+        {
+            if (profileId < 1 || profileId > 5) return null;
+            try
+            {
+                var meta = TryLoad(profileId) ?? new CoopWorldCopyMeta
+                {
+                    IsCoopCopy = true,
+                    JoinedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                    Note = "New world — new campaign id."
+                };
+                string prev = meta.CampaignId;
+                meta.CampaignId = Guid.NewGuid().ToString("N");
+                meta.IsCoopCopy = true;
+                meta.Note = "New world — new campaign id.";
+                Write(profileId, meta);
+                ModLog.Event(LogCat.Save,
+                    "MintNewCampaignId prof" + profileId
+                    + (string.IsNullOrEmpty(prev) ? "" : (" (was " + prev.Substring(0, Math.Min(8, prev.Length)) + "…)"))
+                    + " → " + meta.CampaignId.Substring(0, 8) + "…");
+                return meta.CampaignId;
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "MintNewCampaignId failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>Set CampaignId on a profile (join pipeline from host Begin).</summary>
+        public static void SetCampaignId(int profileId, string campaignId)
+        {
+            if (profileId < 1 || profileId > 5 || string.IsNullOrEmpty(campaignId))
+                return;
+            try
+            {
+                var meta = TryLoad(profileId) ?? new CoopWorldCopyMeta
+                {
+                    IsCoopCopy = true,
+                    JoinedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+                };
+                // Prefer host-authoritative id; do not replace with a different one mid-campaign.
+                if (!string.IsNullOrEmpty(meta.CampaignId)
+                    && !string.Equals(meta.CampaignId, campaignId, StringComparison.OrdinalIgnoreCase))
+                {
+                    ModLog.Event(LogCat.Save,
+                        "CampaignId replace on prof" + profileId + ": "
+                        + meta.CampaignId.Substring(0, Math.Min(8, meta.CampaignId.Length))
+                        + " → " + campaignId.Substring(0, Math.Min(8, campaignId.Length)));
+                }
+                meta.CampaignId = campaignId;
+                meta.IsCoopCopy = true;
+                Write(profileId, meta);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "SetCampaignId failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
         /// After any successful local Save on a co-op profile: refresh meta + content fingerprint.
         /// Keeps the permanent local copy identity in sync with on-disk sav files.
         /// </summary>
@@ -205,6 +326,10 @@ namespace DWMPHorde.Networking
                     };
                 }
 
+                // Preserve stable campaign id across Save fingerprint churn.
+                if (string.IsNullOrEmpty(meta.CampaignId))
+                    meta.CampaignId = Guid.NewGuid().ToString("N");
+
                 string fp = FingerprintProfileSlot(pid);
                 string dir = ProfileDir(pid);
                 string sav = Path.Combine(dir, "sav.dat");
@@ -223,6 +348,7 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Save,
                     "Permanent co-op copy updated after Save → slot " + pid
                     + " day=" + meta.Day + " ch=" + meta.Chapter
+                    + " campaign=" + (meta.CampaignId.Length > 8 ? meta.CampaignId.Substring(0, 8) : meta.CampaignId)
                     + " fp=" + (fp != null && fp.Length > 12 ? fp.Substring(0, 12) : fp)
                     + " sav=" + meta.SavBytes + "b savs=" + meta.SavsBytes + "b");
             }

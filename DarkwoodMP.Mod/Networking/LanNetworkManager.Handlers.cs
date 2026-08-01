@@ -91,6 +91,7 @@ namespace DWMPHorde.Networking
                         "Handshake OK — assigned PlayerId=" + _localPlayerId
                         + " hostId=" + hostId
                         + " (phase 3 / migration reconnect)");
+                    BeginClientBackupRestoreWait();
                 }
                 else
                 {
@@ -322,6 +323,7 @@ namespace DWMPHorde.Networking
             SendFeederStatesTo(playerId);
             SendLureStatesTo(playerId);
             SendDreamSessionBulkTo(playerId);
+            SendStoredClientBackupTo(playerId);
             SyncCurrentLightState();
             SyncExistingWorldLightsTo(playerId);
             SyncExistingGeneratorsTo(playerId);
@@ -2270,16 +2272,31 @@ namespace DWMPHorde.Networking
             // that wires door_underground with the normal bunk dialogue. Queue until pad.
             // onEnterLocation_* also needs finishedLoading + dreaming — early apply leaves
             // welcome_opening (normal bunk) instead of welcome_opening_dream.
+            // Also gate unnamed pad FX (def_glow / def_shadow / carousel) by pad coords.
             bool dreamNamed = !string.IsNullOrEmpty(msg.EventName)
                 && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            bool padCoords = ClientStateBackup.IsDreamPadCoordinate(pos);
             bool isDreamEnter = dreamNamed
                 && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            bool dreamSceneFx = padCoords && !string.IsNullOrEmpty(msg.EventName)
+                && (msg.EventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("podmiana", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("carousel", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("karuzela", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("newborn", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("dimLight", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("SWITCH_", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.EventName.IndexOf("Lamp_dream", System.StringComparison.OrdinalIgnoreCase) >= 0);
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             Location dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
-            if (dreamNamed && DreamSyncManager.IsDreamActive
+            bool padNotReady = DreamSyncManager.IsDreamActive
                 && (dreamRoot == null
-                    || (isDreamEnter && (dreamLoc == null || !dreamLoc.finishedLoading
-                        || Dreams.Instance == null || !Dreams.Instance.dreaming))))
+                    || dreamLoc == null || !dreamLoc.finishedLoading
+                    || Dreams.Instance == null || !Dreams.Instance.dreaming);
+            if ((dreamNamed || dreamSceneFx || (padCoords && DreamSyncManager.IsDreamActive))
+                && padNotReady
+                && (isDreamEnter || dreamNamed || dreamSceneFx || padCoords))
             {
                 if (queueIfMissing)
                 {
@@ -2411,8 +2428,12 @@ namespace DWMPHorde.Networking
             int removed = 0;
             for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
             {
-                string n = _pendingGameEvents[i].EventName ?? "";
-                if (n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                var msg = _pendingGameEvents[i];
+                string n = msg.EventName ?? "";
+                bool dreamName = n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool padPos = ClientStateBackup.IsDreamPadCoordinate(
+                    new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                if (dreamName || padPos)
                 {
                     _pendingGameEvents.RemoveAt(i);
                     removed++;
@@ -2423,8 +2444,9 @@ namespace DWMPHorde.Networking
         }
 
         private float _nextPendingGameEventsFlushTime;
-        private const float PendingGameEventsFlushInterval = 1f;
-        private const float PendingGameEventsMaxAge = 20f;
+        private const float PendingGameEventsFlushInterval = 0.5f;
+        private const float PendingGameEventsMaxAge = 60f;
+        private const float PendingDreamGameEventsMaxAge = 90f;
         private readonly System.Collections.Generic.Dictionary<int, float> _pendingGameEventQueuedAt
             = new System.Collections.Generic.Dictionary<int, float>(16);
 
@@ -2451,36 +2473,34 @@ namespace DWMPHorde.Networking
                 key ^= (int)(msg.PosX * 10f) ^ ((int)(msg.PosZ * 10f) << 10);
                 if (!_pendingGameEventQueuedAt.ContainsKey(key))
                     _pendingGameEventQueuedAt[key] = now;
-                if (now - _pendingGameEventQueuedAt[key] > PendingGameEventsMaxAge)
+
+                bool dreamish = (!string.IsNullOrEmpty(msg.EventName)
+                        && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    || ClientStateBackup.IsDreamPadCoordinate(
+                        new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                float maxAge = dreamish ? PendingDreamGameEventsMaxAge : PendingGameEventsMaxAge;
+                if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);
                     continue;
                 }
 
-                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                GameEvents found = null;
-                float nameR = DreamSyncManager.IsDreamActive ? 80f : 8f;
-                float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
-                if (!string.IsNullOrEmpty(msg.EventName))
-                    found = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
-                if (found == null)
-                    found = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
-                if (found == null) continue;
-
-                // Dream onEnterLocation: object exists but pad not finished — keep queued.
+                // Dream onEnterLocation / pad FX: keep queued until pad finished.
                 bool dreamEnter = !string.IsNullOrEmpty(msg.EventName)
                     && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
                     && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
-                if (dreamEnter)
+                if (dreamEnter || dreamish)
                 {
                     Location dLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
-                    if (dLoc == null || !dLoc.finishedLoading
-                        || Dreams.Instance == null || !Dreams.Instance.dreaming)
+                    if (DreamSyncManager.IsDreamActive
+                        && (dLoc == null || !dLoc.finishedLoading
+                            || Dreams.Instance == null || !Dreams.Instance.dreaming))
                         continue;
                 }
 
-                if (ApplyGameEventsFired(msg, queueIfMissing: true))
+                // Always go through Apply (soft name search) — pre-find skipped def_glow.
+                if (ApplyGameEventsFired(msg, queueIfMissing: false))
                 {
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);
@@ -3516,6 +3536,15 @@ namespace DWMPHorde.Networking
                 return;
 
             _remoteOutsideLocation.Remove(playerId);
+
+            // During join load proxies are torn down / not spawnable — teleport NRE'd
+            // on destroyed dict entries. First live PlayerState will place them.
+            if (!CanSpawnRemoteProxies())
+            {
+                ModRuntime.LegacyInfo(
+                    $"[LocationSync] defer LocationExit p{playerId} (world not ready for proxies)");
+                return;
+            }
 
             // Never leaveAllLocations() — that deactivates locations the LOCAL player
             // may still be inside (2p/3+ desync / blackout).
@@ -5250,7 +5279,8 @@ namespace DWMPHorde.Networking
         public void SendDoorState(DoorState door)
         {
             if (!IsConnected) return;
-            if (IsApplyingRemoteState) return;
+            // DialogHostApplyGuard: host replaying client dialogue close must fan out DoorState.
+            if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
             var msg = new PhysicsStateMessage { Doors = new[] { door } };
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
@@ -5573,21 +5603,24 @@ namespace DWMPHorde.Networking
         public void SendPadlockUnlock(PadlockUnlockMessage msg)
         {
             if (!IsConnected) return;
-            if (IsApplyingRemoteState) return;
+            if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
             Broadcast(NetMessageType.PadlockUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         public void SendLockedUnlock(LockedUnlockMessage msg)
         {
             if (!IsConnected) return;
-            if (IsApplyingRemoteState) return;
+            if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
             Broadcast(NetMessageType.LockedUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         public void SendGameEventsFired(GameEventsFiredMessage msg)
         {
             if (!IsConnected) return;
-            if (IsApplyingRemoteState) return;
+            // ProcessInboundMessage holds IsApplyingRemoteState for DialogNpcLock Release.
+            // HostFireNpcCloseDialogue runs under DialogHostApplyGuard and MUST fan out
+            // leave-door GEs — early return here logged "fired" but never sent (client door stuck).
+            if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
             Broadcast(NetMessageType.GameEventsFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -5932,22 +5965,59 @@ namespace DWMPHorde.Networking
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
-        /// <summary>Sends the client's inventory/skills/state backup to the host.</summary>
+        /// <summary>
+        /// Sends the client's inventory/skills/state backup to the host, and mirrors it
+        /// to local self so RESTORE SELF / rejoin fallback stay current.
+        /// </summary>
         public void SendClientStateBackup()
         {
             if (!IsConnected) return;
             if (_role != NetworkRole.Client) return;
             try
             {
-                var data = ClientStateBackup.CollectBackupData();
-                string json = ClientStateBackup.SerializeToJson(data);
-                Broadcast(NetMessageType.ClientStateBackup, w => new ClientStateBackupMessage { JsonData = json }.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
-                ModRuntime.LegacyInfo("[ClientBackup] sent backup to host (" + (data.InventoryItems?.Count ?? 0) + " items, " + (data.Skills?.Count ?? 0) + " skills)");
+                PersistClientBackupSnapshot(sendToHost: true);
             }
             catch (System.Exception ex)
             {
                 ModRuntime.Log?.LogError("[ClientBackup] failed to send: " + ex);
             }
+        }
+
+        /// <summary>
+        /// Client disconnect / quit while in-world: write local self (+ host if still linked)
+        /// so exit position is not only whatever the last Save captured.
+        /// </summary>
+        private void TrySnapshotClientBackupOnExit()
+        {
+            if (_role != NetworkRole.Client)
+                return;
+            if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
+                return;
+            try
+            {
+                PersistClientBackupSnapshot(sendToHost: IsConnected && _net != null);
+                ModRuntime.LegacyInfo("[ClientBackup] exit snapshot (disconnect/quit)");
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] exit snapshot failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Collect → local self file; optionally push to host.</summary>
+        private void PersistClientBackupSnapshot(bool sendToHost)
+        {
+            var data = ClientStateBackup.CollectBackupData();
+            string json = ClientStateBackup.SerializeToJson(data);
+            ClientStateBackup.SaveLocalSelfBackupFile(json);
+            if (!sendToHost || !IsConnected || _net == null)
+                return;
+            Broadcast(NetMessageType.ClientStateBackup,
+                w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[ClientBackup] sent backup to host (" + (data.InventoryItems?.Count ?? 0)
+                + " items, " + (data.Skills?.Count ?? 0) + " skills, pos=("
+                + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
         }
 
         /// <summary>
@@ -6034,21 +6104,134 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Handles a client state backup from a remote client. Host stores per-PlayerId
-        /// so multi-client saves do not overwrite each other.
+        /// Host→client: push last stored per-player backup after late-join settle so
+        /// week-later rejoins restore inv/skills (host world sav has host character).
+        /// </summary>
+        private void SendStoredClientBackupTo(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0)
+                return;
+            try
+            {
+                var data = ClientStateBackup.LoadBackupFileForPlayer(playerId);
+                if (data == null)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] no stored backup for p" + playerId + " — peer may use local self");
+                    return;
+                }
+                string json = ClientStateBackup.SerializeToJson(data);
+                if (string.IsNullOrEmpty(json))
+                    return;
+                SendToPlayer(playerId, NetMessageType.ClientStateBackup,
+                    w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                ModRuntime.LegacyInfo(
+                    "[ClientBackup] pushed stored backup → p" + playerId
+                    + " (inv=" + (data.InventoryItems?.Count ?? 0)
+                    + " skills=" + (data.Skills?.Count ?? 0) + ")");
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] push to p" + playerId + " failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Client: after phase-3 reconnect, wait for host backup push then fall back to local self.
+        /// </summary>
+        private void BeginClientBackupRestoreWait()
+        {
+            if (_role != NetworkRole.Client)
+                return;
+            _receivedHostClientBackup = false;
+            if (_clientBackupRestoreCo != null)
+            {
+                try { StopCoroutine(_clientBackupRestoreCo); }
+                catch { /* ignore */ }
+                _clientBackupRestoreCo = null;
+            }
+            _clientBackupRestoreCo = StartCoroutine(ClientBackupRestoreWaitRoutine());
+        }
+
+        private System.Collections.IEnumerator ClientBackupRestoreWaitRoutine()
+        {
+            float t = 0f;
+            while (t < ClientBackupHostWaitSec)
+            {
+                if (_role != NetworkRole.Client || !IsConnected)
+                    yield break;
+                if (_receivedHostClientBackup)
+                    yield break;
+                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                    t += UnityEngine.Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            if (_receivedHostClientBackup || _role != NetworkRole.Client)
+                yield break;
+
+            var data = ClientStateBackup.LoadLocalSelfBackupFile();
+            if (data == null)
+            {
+                ModRuntime.LegacyInfo(
+                    "[ClientBackup] no host push and no local self backup — keeping loaded world character");
+                yield break;
+            }
+            if (Player.Instance == null)
+                yield break;
+
+            ClientStateBackup.RestoreFromBackup(data);
+            ModRuntime.LegacyInfo(
+                "[ClientBackup] restored local self fallback (no host backup for this player id)");
+        }
+
+        /// <summary>
+        /// Host stores client→host snapshots. Client applies host→client push (rejoin restore).
         /// </summary>
         private void HandleClientStateBackup(ClientStateBackupMessage msg)
         {
-            if (_role != NetworkRole.Host)
-            {
-                ModRuntime.Log?.LogWarning("[ClientBackup] received backup but not host, ignoring");
-                return;
-            }
             if (string.IsNullOrEmpty(msg.JsonData))
             {
                 ModRuntime.Log?.LogWarning("[ClientBackup] received empty backup data");
                 return;
             }
+
+            if (_role == NetworkRole.Client)
+            {
+                try
+                {
+                    var data = ClientStateBackup.DeserializeFromJson(msg.JsonData);
+                    if (data == null)
+                    {
+                        ModRuntime.Log?.LogWarning("[ClientBackup] host push deserialize failed");
+                        return;
+                    }
+                    _receivedHostClientBackup = true;
+                    ClientStateBackup.SaveLocalSelfBackupFile(msg.JsonData);
+                    if (Player.Instance != null)
+                    {
+                        ClientStateBackup.RestoreFromBackup(data);
+                        ModRuntime.LegacyInfo(
+                            "[ClientBackup] restored host-pushed backup (inv="
+                            + (data.InventoryItems?.Count ?? 0)
+                            + " skills=" + (data.Skills?.Count ?? 0) + ")");
+                    }
+                    else
+                    {
+                        ModRuntime.Log?.LogWarning(
+                            "[ClientBackup] host push arrived before Player — kept as local self for fallback");
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[ClientBackup] host push apply failed: " + ex.Message);
+                }
+                return;
+            }
+
+            if (_role != NetworkRole.Host)
+                return;
 
             int playerId = _currentReceivePlayerId;
             if (playerId <= 0)
@@ -7313,8 +7496,13 @@ namespace DWMPHorde.Networking
         {
             if (playerId <= 0)
                 return;
-            if (_remoteProxies.ContainsKey(playerId))
-                return;
+            if (_remoteProxies.TryGetValue(playerId, out var existing))
+            {
+                // Unity fake-null: destroyed GO still in dict → LocationExit NRE.
+                if (existing != null)
+                    return;
+                _remoteProxies.Remove(playerId);
+            }
             // Silent skip — do not log every network tick during join load.
             if (!CanSpawnRemoteProxies())
                 return;
@@ -7374,10 +7562,13 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (!_remoteProxies.TryGetValue(playerId, out var proxy))
+            if (!_remoteProxies.TryGetValue(playerId, out var proxy) || proxy == null)
             {
+                if (proxy == null && _remoteProxies.ContainsKey(playerId))
+                    _remoteProxies.Remove(playerId);
                 EnsureRemoteProxy(playerId);
-                if (!_remoteProxies.TryGetValue(playerId, out proxy)) return;
+                if (!_remoteProxies.TryGetValue(playerId, out proxy) || proxy == null)
+                    return;
             }
 
             var rb = proxy.GetComponent<Rigidbody>();
@@ -7479,10 +7670,18 @@ namespace DWMPHorde.Networking
         /// Player footstep AudioItems are authored 2D for local steps — force spatialBlend
         /// + linear rolloff so peers don't sound like the listener's own feet, and distance
         /// fades via AudioSource.maxDistance instead of a hard IsNearListener cull.
+        /// Out of hear range: do not Play at all (0.7.14 proxy cull-exempt let every far
+        /// step allocate AudioObjects → periodic duck/hitch while host walks off-map).
         /// </summary>
         private static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running)
         {
             Transform proxyT = proxy.transform;
+            if (proxyT == null) return;
+            // Match ForceSpatialProxyOneShot max clamp upper bound.
+            if (!LocalAudioService.IsNearListener(
+                    proxyT.position, LocalAudioService.DefaultMaxSpatialDistance))
+                return;
+
             Player local = Player.Instance;
             if (local == null) return;
 
@@ -8654,15 +8853,25 @@ namespace DWMPHorde.Networking
                         // Spatial remote SFX (flashlight, hits, etc.): 3D at proxy.
                         // Keep reverb/lowpass from AudioController (bunker wetness).
                         audioObj.primaryAudioSource.spatialBlend = 1f;
-                        audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
 
                         if (isHitFeedback)
                         {
+                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
                             audioObj.primaryAudioSource.minDistance = 8f;
                             audioObj.primaryAudioSource.maxDistance = 80f;
                         }
+                        else if (spatialTool)
+                        {
+                            // Flashlight/torch clicks: Linear + short AudioItem maxDistance
+                            // zeroed the soft tail ("cuts off near the end") at bunker range.
+                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
+                            audioObj.primaryAudioSource.minDistance = 8f;
+                            audioObj.primaryAudioSource.maxDistance =
+                                LocalAudioService.DefaultMaxSpatialDistance;
+                        }
                         else
                         {
+                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
                             AudioItem item = AudioController.GetAudioItem(msg.SoundId);
                             float itemMin = (item != null && item.overrideAudioSourceSettings)
                                 ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
@@ -9688,6 +9897,8 @@ namespace DWMPHorde.Networking
             _pendingHeavyLateJoinBulk.Clear();
             _peersLoadingWorld.Clear();
             _peersCoopReconnect.Clear();
+            _receivedHostClientBackup = false;
+            _clientBackupRestoreCo = null;
             _hostWasShareableForWaitingClients = false;
             _pendingTradeInventories.Clear();
             _constructedSites.Clear();

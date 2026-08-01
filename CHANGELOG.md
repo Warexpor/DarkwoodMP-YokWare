@@ -2,11 +2,182 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.13** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.25** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.25 — Dream prop collider parity (lamp solid / bell ghost) (2026-08-02)
+
+Live soak: bunker `Lamp_dream_underground` still blocked the client (host walk-through); church bell was solid for host but walk-through for client. Host log showed `body-push Lamp_dream_underground` — client was streaming a **non-trigger** lamp via PhysicsState while host’s lamp is a **trigger** (skipped by scan). Same class as missed `GameEvent` `isColliderTrigger` mutations. **Protocol 19 unchanged** (optional msg **128** `DreamPropCollider`).
+
+### Fixed
+- **`IsSceneFixedLightItem`:** any `isLight` / `ItemLight` / dream `Lamp*` — never PhysicsState free-body; repair drops kinematic lock.
+- **No dream pad ItemsDatabase spawns** from PhysicsState (duplicate wrong colliders).
+- **`DreamPropCollider` (128):** host broadcasts Item `isTrigger` under the dream pad (after load, peer `DreamEntered`, and host GEs); client applies — lamp walk-through / bell solid parity.
+
+### Files
+- `Sync/WorldPhysicsSyncService.cs`, `DreamSyncManager.cs`
+- `Networking/Messages/DreamMessages.cs`, `NetMessageType.cs`, `LanNetworkManager*.cs`
+- `Patches/GameEventsFiredPatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.25**)
+
+## 0.7.24 — Post-dream abyss + LocationExit NRE + dream GE flush (2026-08-02)
+
+Log triage after 0.7.23: client still backed up pad coords after `DreamEnded`, `LocationExit` NRE during join, empty dream preset on end, and dream GEs (`def_glow`, `onEnterLocation_*`, karuzela/lamp) queued forever. **Protocol 19 unchanged.**
+
+### Fixed
+- **Remote dream entry `positionCopy`:** `LoadDreamSceneCoroutine` teleported onto the pad *before* `startDreaming()`, so vanilla `saveCurrentPlayerState()` overwrote overworld `positionCopy` with −75k. Restored after `startDreaming` (mirrors `timeCopy` fix); set `_localDreamPreset` on remote entry.
+- **`endDreaming` safety snap:** if still on pad after end, teleport to `positionCopy` / pre-dream pose.
+- **ClientBackup collect:** refuse pad coords even when dream flags already clear; fall back to pre-dream pose.
+- **LocationExit:** defer while proxies cannot spawn; purge destroyed proxy dict entries before `GetComponent`.
+- **Campaign backup migrate:** stamp empty `CampaignId` on legacy JSON → stop `file=(none)` skip.
+- **DreamEnded preset:** `ResolveActivePresetName()` (local → session → Dreams.preset) for fan-out / complete logs.
+- **Dream GE flush:** pad-coord + named FX (`def_glow`, `podmiana`, `karuzela`, `SWITCH_`, `dimLight`, …) wait for `finishedLoading`; flush uses soft Apply (not pre-find); max age 90s; load wait 15s.
+
+### Dream event sync notes (audit)
+- Full mutating beats are vanilla `GameEvents.fire()` — host fan-out already via `GameEventsFired`. Bunker carousel = `area_karuzela_*`; lamp/newborn chain = `SWITCH_*` / `podmiana_*` / lamp remove. Flush timing was the main client miss; portrait/newborn spawn still soak-test (parked if `trueTargets` fail on LoadDream path).
+
+### Files
+- `Sync/DreamSyncManager.cs`, `Patches/DreamSyncPatches.cs`
+- `Networking/ClientStateBackup.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.24**)
+
+## 0.7.23 — Client backup no longer teleports into dream abyss (2026-08-02)
+
+Rejoin restored `ClientStateBackup` position `(-74891, -80204)` — dream-pad coords from a mid-dream / exit snapshot — into the overworld (empty −75k space). Host had no campaign-keyed backup so local self fallback applied. **Protocol 19 unchanged.**
+
+### Fixed
+- **Collect:** while dreaming, store vanilla `Dreams.positionCopy` (overworld), never live pad pose.
+- **Restore:** refuse pad-range coords (`|x|`/`|z|` ≥ 40k) when not currently dreaming; inv/skills still apply.
+
+### Files
+- `Networking/ClientStateBackup.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.23**)
+
+## 0.7.22 — Client AI/AoE damage parity (normalHit) (2026-08-02)
+
+0.7.21 forwarded `damagesAroundMe` to proxies, but client `HandleDamagePlayer` always applied `getHit` with **normalHit=true** (armor). Vanilla spirit/AoE uses **normalHit=false**, so the client still felt soft. **Protocol 19 unchanged** (optional `NormalHit`/`CanInterrupt` trailers on msg 9).
+
+### Fixed
+- **`DamagePlayerMessage`:** carries `NormalHit` + `CanInterrupt`; `ProxyDamagePatch` forwards caller flags (AoE keeps armor-bypass).
+- Client apply uses those flags instead of hardcoding interrupt/armor-on.
+
+### Files
+- `Networking/Messages/PlayerMessages.cs`, `LanNetworkManager.Combat.cs`, `Patches/ProxyDamagePatch.cs` (+ other DamagePlayer construction sites)
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.22**)
+
+## 0.7.21 — Dream door hitch + forest spirit / client melee damage (2026-08-02)
+
+Dream bunker door open hitch (both peers). Dream forest spirit chased/damaged the wrong peer with hugely overscaled hits. **Protocol 19 unchanged.**
+
+### Fixed
+- **Client melee overdamage:** Host `MeleeSensor` hits on `RemotePlayerProxy` never destroyed the sensor (vanilla does after one hit) and had no per-proxy debounce — multi-collider proxies got `DamagePlayer` every FixedUpdate. Now consume sensor + 0.25s debounce + log `[ProxyMelee]`.
+- **Forest spirit / AI aggro steal:** `HostCanSeeEnemy` no longer retargets mid-chase from host → closer client; `forceAttackClosestCharacter` only redirects when proxy is nearer than host; `attackPlayer` picks recent EventTriggers proxy or nearest player body.
+- **Dream spirit spawn:** `special_spawnDreamForestSpirit` anchors near the peer who entered `area_forestSpirit_runaway_*` when that was a proxy.
+- **`damagesAroundMe`:** AoE ticks can hit the chased proxy (via `CharBase.getHit` → `ProxyDamagePatch`), not only `Player.Instance`.
+- **Door-open hitch:** Defer `enterAllNodes` one frame; cache `FindObjectsOfType<Door>`; stop host poll / client force-open once door is handled; fewer retries.
+
+### Files
+- `Patches/HostCombatPatches.cs`, `HostAIPatches.cs`, `HostDamageAroundMePatch.cs`, `DreamForestSpiritSpawnPatch.cs`, `ThreatTriggerContext.cs`, `EventTriggersProxyPatches.cs`, `DreamDoorSyncPatches.cs`, `ModRuntime.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.21**)
+
+## 0.7.20 — Client backups keyed to campaign / save (2026-08-02)
+
+Backups were last-write-wins per profile+playerId with no world attachment — wrong campaign could restore. **Protocol 19 unchanged** (optional `CampaignId` trailer on `WorldSaveBegin`).
+
+### Changed
+- **Stable `CampaignId`** in `dwmp_coop_meta.json` (GUID; survives Save fingerprint churn; reminted on brand-new worldgen).
+- Host sends `CampaignId` in world-share Begin; client stores it on the permanent copy.
+- Backup files: `client_backup_p{id}_{campaignId}.json` / `client_backup_self_{campaignId}.json`; JSON embeds `CampaignId`.
+- Load/restore refused on campaign mismatch (legacy unscoped files only apply when current meta also has no id).
+
+### Files
+- `Networking/CoopWorldCopyMeta.cs`, `ClientStateBackup.cs`, `WorldSaveShareService.cs`, `Messages/WorldSaveShareMessages.cs`
+- `Patches/WorldGenSharePatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.20**)
+
+## 0.7.19 — Client backup restores exit position (2026-08-02)
+
+PosX/Y/Z were already written into `ClientStateBackup` JSON on Save but never applied. Quit without Save left a stale exit spot. **Protocol 19 unchanged.**
+
+### Fixed / Changed
+- **Restore position** on backup apply (`teleportTo` + WorldGrid refresh + proxy teleport).
+- **Exit snapshot:** client `StopNetwork` while in-world writes local self (+ host push if still linked) so disconnect captures current pos/inv.
+
+### Note
+Backups live under the **active profile folder** (`…/1_4Save/profN/`), last-write-wins per player id — not fingerprinted to a specific world save package.
+
+### Files
+- `Networking/ClientStateBackup.cs`, `LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.19**)
+
+## 0.7.18 — Client inv/skills survive multi-session rejoins (2026-08-02)
+
+Same campaign across days: client loaded host `sav.dat` (host character) and never auto-restored. Backups were stored on host (`client_backup_p{id}.json`) but not pushed back; local `client_backup_self.json` was only written on ManualSave. **Protocol 19 unchanged** (reuse msg 45 both ways).
+
+### Fixed
+- **Client Save → local self backup:** every `SendClientStateBackup` also writes `client_backup_self.json`.
+- **Host push on late-join bulk:** `SendStoredClientBackupTo` after settle; client applies + mirrors to local self.
+- **Local self fallback:** if no host file within ~12s after phase-3 reconnect, restore local self once.
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`, `LanNetworkManager.cs`, `Messages/NetMessageType.cs`
+- `docs/COOP_COVERAGE.md` (2.10 deferred cleared)
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.18**)
+
+## 0.7.17 — Dead mid-dream: no success rewards (2026-08-02)
+
+Spectating peers who died mid-dream still saw the shared exit video (correct) but then ran the **success** outcome in `endDreaming`, granting createInvItem / journal rewards they should not get. Pre-dream inventory restore is unchanged. **Protocol 19 unchanged.**
+
+### Fixed
+- **Dead-in-dream success loot:** At story `endDreaming`, if `FinalDreamsceneManager.IsLocalDead`, swap `outcomePreset` to `playerDeath` (or none) before grants — inventory/hotbar restore still runs. Hard-cleanup personal `ApplyOutcomeEffects` also skips when local is dead.
+
+### Files
+- `Patches/DreamSyncPatches.cs`, `Sync/DreamSyncManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.17**)
+
+## 0.7.16 — Far peer footstep audio hitch (2026-08-02)
+
+Client heard periodic audio hitches while host walked outside hearing range. 0.7.14 exempted all `RemotePlayerProxy`-parented plays from distance cull so edge fade was smooth — but every far footstep still called `AudioController.Play` (silent Linear rolloff), which can duck/allocate voices on a cadence. Host proxy enter of `area_footsteps_*` also fired surface GEs uselessly. **Protocol 19 unchanged.**
+
+### Fixed
+- **Periodic out-of-range peer audio hitch:** Skip `PlayProxyFootstepSound` when peer is beyond hear range; proxy AudioSuppression exempt only while near listener.
+- **Proxy `area_footsteps` / `soundarea` triggers:** Do not fire those EventTriggers for remote proxies (local body + proxy `checkGround` own surfaces).
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`, `Patches/AudioSuppressionPatch.cs`, `Patches/EventTriggersProxyPatches.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.16**)
+
+## 0.7.15 — Client dialogue door + flashlight click tail (2026-08-02)
+
+Client opened the dream bunker door (dialogue) → host saw it open, client stayed closed. Host logged `[GameEventsSync] fired` for `onLeaveDoorDialogue_dream_underground` but never sent the packet: `SendGameEventsFired` early-returned on `IsApplyingRemoteState` while handling inbound `DialogNpcLock` Release (host-talk path was fine). Also host flashlight on/off click on client sounded truncated near the end (Linear rolloff + short AudioItem maxDistance). **Protocol 19 unchanged.**
+
+### Fixed
+- **Client-opened dream door stuck closed locally:** Allow `SendGameEventsFired` / `SendDoorState` / lock-unlock fan-out when `DialogHostApplyGuard` is active (same exception as DoorOpen postfix).
+- **Remote flashlight click cuts off near the end:** Spatial tool SFX use Logarithmic rolloff and full `DefaultMaxSpatialDistance` instead of Linear + short item range.
+
+### Files
+- `Networking/LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.15**)
+
+## 0.7.14 — Shared dream exit video + lamp walk + audio range hitch (2026-08-01)
+
+0.7.13 dream pad playthrough worked until host bed-exit: client hit `NullReferenceException: routine is null` on skipped `endDream` GameEvent (Harmony IEnumerator Prefix), then hard `ApplyRemoteDreamCleanup` with no exit video — game broken while host returned cleanly. Also client walk-blocked on `Lamp_dream_underground` (PhysicsState kinematic lock) and a one-step footstep hitch when host left hearing range (hard 650f AudioSuppression vs spatial rolloff). **Protocol 19 unchanged.**
+
+### Fixed
+- **Client broken on host dream finish:** Skip `endDream`/`startDream` GE with an empty coroutine (no `StartCoroutine(null)`); host broadcasts `DreamEnded` at `initiateEndDreaming` so peers play the same outcome transition video; client host-ordered story end runs vanilla `initiateEndDreaming` instead of hard cleanup.
+- **Dream lamp blocks client walk:** Exclude non-draggable light Items from PhysicsState scan/apply (LightState owns them); unstick kinematic if already locked.
+- **Out-of-range peer footstep hitch:** Do not hard-cull `AudioController.Play` parented under `RemotePlayerProxy` — let spatial `maxDistance` roll off.
+
+### Parked
+- **Lamp plot swap → newborn / intense calling:** Client got LightState on/off; full GE spawn/portrait parity for that beat not verified this pass — recheck after exit soak.
+
+### Files
+- `Patches/GameEventDreamAuthorityPatch.cs`, `Patches/DreamSyncPatches.cs`, `Sync/DreamSyncManager.cs`
+- `Sync/WorldPhysicsSyncService.cs`, `Patches/AudioSuppressionPatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.14**)
 
 ## 0.7.13 — Dream pad missing props + door open delay (2026-08-01)
 

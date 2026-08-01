@@ -195,30 +195,69 @@ namespace DWMPHorde.Patches
             if (!IsDialogueDoorEvent(eventName)) return;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
-            // After leave-door GE: ensure dream WorldGrid nodes are entered so any
-            // late-registered Cullables behind the door are shown (not only Door.open).
+            // Defer WorldGrid work off the GE apply frame — synchronous enterAllNodes
+            // during leave-door was hitching both peers for hundreds of ms.
+            ctrl.StartCoroutine(ClientAfterDialogueDoorRoutine(eventPos));
+        }
+
+        public static void Reset()
+        {
+            _broadcastedOpen.Clear();
+            _doorFindCache = null;
+            _doorFindCacheTime = -999f;
+            _clientDoorOpened = false;
+        }
+
+        private static Door[] _doorFindCache;
+        private static float _doorFindCacheTime = -999f;
+        private static bool _clientDoorOpened;
+        private const float DoorFindCacheTtl = 2.5f;
+
+        private static Door[] GetDoorsCached()
+        {
+            if (_doorFindCache != null && Time.unscaledTime - _doorFindCacheTime < DoorFindCacheTtl)
+                return _doorFindCache;
+            _doorFindCache = Object.FindObjectsOfType<Door>(true);
+            _doorFindCacheTime = Time.unscaledTime;
+            return _doorFindCache;
+        }
+
+        private static IEnumerator ClientAfterDialogueDoorRoutine(Vector3 eventPos)
+        {
+            // One deferred grid refresh (not every force-open retry).
+            yield return null;
             try
             {
                 if (DreamSyncManager.IsDreamActive && Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.enterAllNodes();
             }
             catch { /* ignore */ }
-            ctrl.StartCoroutine(ClientForceOpenNearbyDoors(eventPos));
-        }
 
-        public static void Reset()
-        {
-            _broadcastedOpen.Clear();
+            float[] waits = { 0.1f, 0.4f, 0.9f };
+            float elapsed = 0f;
+            for (int w = 0; w < waits.Length; w++)
+            {
+                float step = waits[w] - elapsed;
+                elapsed = waits[w];
+                if (step > 0f)
+                    yield return new WaitForSecondsRealtime(step);
+                if (_clientDoorOpened) yield break;
+                ForceOpenDialogueDoors(eventPos);
+            }
         }
 
         private static IEnumerator HostPollOpenedDoors()
         {
-            // GameEvent.fire uses WaitForSeconds(delay) — cover 0–3s of delayed open/unlock.
-            float[] waits = { 0.05f, 0.25f, 0.5f, 1f, 1.5f, 2.5f, 3.5f };
+            // GameEvent.fire uses WaitForSeconds(delay) — cover 0–2s of delayed open/unlock.
+            // Stop once we have broadcast an open dream door (avoid repeated FindObjects).
+            float[] waits = { 0.05f, 0.25f, 0.5f, 1f, 2f };
             for (int w = 0; w < waits.Length; w++)
             {
                 yield return new WaitForSecondsRealtime(waits[w] - (w > 0 ? waits[w - 1] : 0f));
+                int before = _broadcastedOpen.Count;
                 TryBroadcastAnyOpenedDoors();
+                if (_broadcastedOpen.Count > before)
+                    yield break;
             }
         }
 
@@ -228,7 +267,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role != NetworkRole.Host) return;
 
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
-            Door[] all = Object.FindObjectsOfType<Door>(true);
+            Door[] all = GetDoorsCached();
             for (int i = 0; i < all.Length; i++)
             {
                 Door d = all[i];
@@ -243,16 +282,6 @@ namespace DWMPHorde.Patches
                 int id = d.GetInstanceID();
                 if (!_broadcastedOpen.Add(id)) continue;
                 DoorOpenSyncPatch.BroadcastDoorOpened(d);
-            }
-        }
-
-        private static IEnumerator ClientForceOpenNearbyDoors(Vector3 eventPos)
-        {
-            float[] waits = { 0.1f, 0.4f, 0.9f, 1.6f, 2.5f };
-            for (int w = 0; w < waits.Length; w++)
-            {
-                yield return new WaitForSecondsRealtime(waits[w] - (w > 0 ? waits[w - 1] : 0f));
-                ForceOpenDialogueDoors(eventPos);
             }
         }
 
@@ -304,7 +333,7 @@ namespace DWMPHorde.Patches
             if (!foundNpc)
                 return;
 
-            Door[] all = Object.FindObjectsOfType<Door>(true);
+            Door[] all = GetDoorsCached();
             Door best = null;
             float bestDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
@@ -366,6 +395,7 @@ namespace DWMPHorde.Patches
                     {
                         LanNetworkManager.IsApplyingRemoteState = prev;
                     }
+                    _clientDoorOpened = true;
                     ModRuntime.LegacyInfo(
                         $"[DoorSync] client force-opened dialogue door '{best.name}' (anchor={anchor})");
                 }
@@ -374,6 +404,10 @@ namespace DWMPHorde.Patches
             {
                 // Already open locally — still fan out for peers that missed it.
                 DoorOpenSyncPatch.BroadcastDoorOpened(best);
+            }
+            else
+            {
+                _clientDoorOpened = true;
             }
         }
     }

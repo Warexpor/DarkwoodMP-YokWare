@@ -14,6 +14,8 @@ namespace DWMPHorde.Networking
         public int[] UncompressedSizes;
         public int[] CompressedSizes;
         public int[] ChunkCounts;
+        /// <summary>Stable campaign id (optional trailer; protocol 19). Keys client backups.</summary>
+        public string CampaignId;
 
         public void Serialize(NetWriter w)
         {
@@ -28,6 +30,7 @@ namespace DWMPHorde.Networking
                 w.Put(CompressedSizes != null && i < CompressedSizes.Length ? CompressedSizes[i] : 0);
                 w.Put(ChunkCounts != null && i < ChunkCounts.Length ? ChunkCounts[i] : 0);
             }
+            w.Put(CampaignId ?? "");
         }
 
         public static WorldSaveBeginMessage Deserialize(NetReader r)
@@ -53,6 +56,7 @@ namespace DWMPHorde.Networking
                 msg.CompressedSizes[i] = r.GetInt();
                 msg.ChunkCounts[i] = r.GetInt();
             }
+            msg.CampaignId = r.AvailableBytes > 0 ? r.GetString() : null;
             return msg;
         }
     }

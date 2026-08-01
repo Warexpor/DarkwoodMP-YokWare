@@ -37,7 +37,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.13**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.25**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Protocol:** 19 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.

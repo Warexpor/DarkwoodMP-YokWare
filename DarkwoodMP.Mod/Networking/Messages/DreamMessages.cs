@@ -357,4 +357,55 @@ namespace DWMPHorde.Networking
             SceneIndex = r.GetInt()
         };
     }
+
+    /// <summary>
+    /// Host→client: dream-pad Item collider isTrigger parity (lamp walk-through vs bell solid).
+    /// Optional; protocol stays 19.
+    /// </summary>
+    public struct DreamPropColliderMessage
+    {
+        public struct Entry
+        {
+            public string Name;
+            public float PosX, PosY, PosZ;
+            public bool IsTrigger;
+        }
+
+        public Entry[] Entries;
+
+        public void Serialize(NetWriter w)
+        {
+            Entry[] e = Entries ?? System.Array.Empty<Entry>();
+            int n = e.Length > 64 ? 64 : e.Length;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put(e[i].Name ?? "");
+                w.Put(e[i].PosX);
+                w.Put(e[i].PosY);
+                w.Put(e[i].PosZ);
+                w.Put(e[i].IsTrigger);
+            }
+        }
+
+        public static DreamPropColliderMessage Deserialize(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0) n = 0;
+            if (n > 64) n = 64;
+            var entries = new Entry[n];
+            for (int i = 0; i < n; i++)
+            {
+                entries[i] = new Entry
+                {
+                    Name = r.GetString(),
+                    PosX = r.GetFloat(),
+                    PosY = r.GetFloat(),
+                    PosZ = r.GetFloat(),
+                    IsTrigger = r.GetBool()
+                };
+            }
+            return new DreamPropColliderMessage { Entries = entries };
+        }
+    }
 }

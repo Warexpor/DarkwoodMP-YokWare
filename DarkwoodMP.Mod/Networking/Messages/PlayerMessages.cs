@@ -288,6 +288,10 @@ namespace DWMPHorde.Networking
         public float AttackerPosX, AttackerPosY, AttackerPosZ;
         public bool CanCutInHalf;
         public bool ShowRedScreen;
+        /// <summary>Vanilla <c>normalHit</c>. False for AoE ticks (no armor). Optional wire trailer.</summary>
+        public bool NormalHit;
+        /// <summary>Vanilla <c>canInterrupt</c>. Optional wire trailer; default true.</summary>
+        public bool CanInterrupt;
 
         public void Serialize(NetWriter w)
         {
@@ -295,17 +299,30 @@ namespace DWMPHorde.Networking
             w.Put(AttackerPosX); w.Put(AttackerPosY); w.Put(AttackerPosZ);
             w.Put(CanCutInHalf);
             w.Put(ShowRedScreen);
+            w.Put(NormalHit);
+            w.Put(CanInterrupt);
         }
 
-        public static DamagePlayerMessage Deserialize(NetReader r) => new DamagePlayerMessage
+        public static DamagePlayerMessage Deserialize(NetReader r)
         {
-            Damage = r.GetInt(),
-            AttackerPosX = r.GetFloat(),
-            AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat(),
-            CanCutInHalf = r.GetBool(),
-            ShowRedScreen = r.GetBool()
-        };
+            var msg = new DamagePlayerMessage
+            {
+                Damage = r.GetInt(),
+                AttackerPosX = r.GetFloat(),
+                AttackerPosY = r.GetFloat(),
+                AttackerPosZ = r.GetFloat(),
+                CanCutInHalf = r.GetBool(),
+                ShowRedScreen = r.GetBool(),
+                // Pre-0.7.22 peers omit trailers — melee/FF defaults.
+                NormalHit = true,
+                CanInterrupt = true
+            };
+            if (r.AvailableBytes > 0)
+                msg.NormalHit = r.GetBool();
+            if (r.AvailableBytes > 0)
+                msg.CanInterrupt = r.GetBool();
+            return msg;
+        }
     }
 
     public struct PlayerDiedMessage

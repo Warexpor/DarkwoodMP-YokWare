@@ -109,6 +109,11 @@ public class AuditStructureTests
         Assert.Contains("defer onCloseDialogue", handlers);
         Assert.Contains("aborted world-only drain on dialog Release", handlers);
         Assert.Contains("enterAllNodes", doorSync);
+        Assert.Contains("ClientAfterDialogueDoorRoutine", doorSync);
+        Assert.Contains("GetDoorsCached", doorSync);
+        // Client dialogue Release → HostFire under NetworkApplyGuard must still fan-out GEs.
+        Assert.Contains("IsApplyingRemoteState && !DialogHostApplyGuard.Active", handlers);
+        Assert.Contains("SendGameEventsFired", handlers);
 
         var dreamSync = ReadMod("Sync", "DreamSyncManager.cs");
         Assert.Contains("peer dream-entry local Save", dreamSync);
@@ -117,6 +122,18 @@ public class AuditStructureTests
         Assert.Contains("RemapDreamUniqueObjects", dreamSync);
         Assert.Contains("FinishDreamOutsideLoadFlags", dreamSync);
         Assert.Contains("enterAllNodes", dreamSync);
+        Assert.Contains("TryBeginHostOrderedStoryEnd", dreamSync);
+        Assert.Contains("NotifyPeersStoryEndBeginning", dreamSync);
+        Assert.Contains("Host-ordered story end", dreamSync);
+        Assert.Contains("local dead, personal rewards skipped", dreamSync);
+
+        var dreamPatches = ReadMod("Patches", "DreamSyncPatches.cs");
+        Assert.Contains("DowngradeSuccessRewardsIfDeadInDream", dreamPatches);
+        Assert.Contains("inventory restore only (no success rewards)", dreamPatches);
+
+        var geAuth = ReadMod("Patches", "GameEventDreamAuthorityPatch.cs");
+        Assert.Contains("EmptyRoutine", geAuth);
+        Assert.Contains("ref IEnumerator __result", geAuth);
 
         var uoPatch = ReadMod("Patches", "UniqueObjectsDreamPatch.cs");
         Assert.Contains("UniqueObjectsDreamGetPatch", uoPatch);
@@ -126,6 +143,10 @@ public class AuditStructureTests
         Assert.Contains("HasRecentPushAuthority", phys);
         Assert.Contains("clientLocalFreeBody", phys);
         Assert.Contains("dreamPad", phys);
+        Assert.Contains("IsSceneFixedLightItem", phys);
+
+        var audioSup = ReadMod("Patches", "AudioSuppressionPatch.cs");
+        Assert.Contains("RemotePlayerProxy", audioSup);
 
         var guard = ReadMod("Sync", "DialogHostApplyGuard.cs");
         Assert.Contains("SnapshotPersonalJournal", guard);
@@ -346,7 +367,7 @@ public class AuditStructureTests
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.13", plugin);
+        Assert.Contains("0.7.25", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
@@ -357,6 +378,50 @@ public class AuditStructureTests
         var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
         Assert.Contains("DialogNpcLock = 112", netTypes);
         Assert.Contains("DialogTreeState = 113", netTypes);
+
+        var handlers = ReadMod("Networking", "LanNetworkManager.Handlers.cs");
+        Assert.Contains("SendStoredClientBackupTo", handlers);
+        Assert.Contains("BeginClientBackupRestoreWait", handlers);
+        Assert.Contains("SaveLocalSelfBackupFile(json)", handlers);
+        Assert.Contains("restored host-pushed backup", handlers);
+        Assert.Contains("TrySnapshotClientBackupOnExit", ReadMod("Networking", "LanNetworkManager.cs"));
+        Assert.Contains("RestorePosition", ReadMod("Networking", "ClientStateBackup.cs"));
+        Assert.Contains("MatchesCurrentCampaign", ReadMod("Networking", "ClientStateBackup.cs"));
+        Assert.Contains("IsDreamPadCoordinate", ReadMod("Networking", "ClientStateBackup.cs"));
+        Assert.Contains("ResolveOverworldBackupPosition", ReadMod("Networking", "ClientStateBackup.cs"));
+        Assert.Contains("MigrateLegacyCampaignIfNeeded", ReadMod("Networking", "ClientStateBackup.cs"));
+        Assert.Contains("TryGetPreDreamOverworldPosition", ReadMod("Sync", "DreamSyncManager.cs"));
+        Assert.Contains("ResolveActivePresetName", ReadMod("Sync", "DreamSyncManager.cs"));
+        Assert.Contains("haveOverworldPosCopy", ReadMod("Sync", "DreamSyncManager.cs"));
+        Assert.Contains("PendingDreamGameEventsMaxAge", ReadMod("Networking", "LanNetworkManager.Handlers.cs"));
+        Assert.Contains("defer LocationExit", ReadMod("Networking", "LanNetworkManager.Handlers.cs"));
+        Assert.Contains("post-endDreaming snap off pad", ReadMod("Patches", "DreamSyncPatches.cs"));
+        Assert.Contains("karuzela", ReadMod("Networking", "LanNetworkManager.Handlers.cs"));
+        Assert.Contains("HostBroadcastDreamPropColliders", ReadMod("Sync", "WorldPhysicsSyncService.cs"));
+        Assert.Contains("DreamPropCollider", ReadMod("Networking", "Messages", "NetMessageType.cs"));
+        Assert.Contains("IsSceneFixedLightItem", ReadMod("Sync", "WorldPhysicsSyncService.cs"));
+        Assert.Contains("CampaignId", ReadMod("Networking", "CoopWorldCopyMeta.cs"));
+        Assert.Contains("MintNewCampaignId", ReadMod("Networking", "CoopWorldCopyMeta.cs"));
+
+        var hostCombat = ReadMod("Patches", "HostCombatPatches.cs");
+        Assert.Contains("RemovePooledPrefab(\"Sensors\"", hostCombat);
+        Assert.Contains("ProxyHitDebounce", hostCombat);
+        Assert.Contains("[ProxyMelee]", hostCombat);
+
+        var hostAi = ReadMod("Patches", "HostAIPatches.cs");
+        Assert.Contains("HostAttackPlayerNearestPatch", hostAi);
+        Assert.Contains("Sticky: already chasing the host", hostAi);
+
+        var dmgMsg = ReadMod("Networking", "Messages", "PlayerMessages.cs");
+        Assert.Contains("public bool NormalHit", dmgMsg);
+        Assert.Contains("public bool CanInterrupt", dmgMsg);
+        Assert.Contains("normalHit: msg.NormalHit", ReadMod("Networking", "LanNetworkManager.Combat.cs"));
+        Assert.Contains("NormalHit = normalHit", ReadMod("Patches", "ProxyDamagePatch.cs"));
+
+        Assert.True(File.Exists(Path.Combine(RepoRoot, "DarkwoodMP.Mod", "Patches", "DreamForestSpiritSpawnPatch.cs")));
+        Assert.True(File.Exists(Path.Combine(RepoRoot, "DarkwoodMP.Mod", "Patches", "ThreatTriggerContext.cs")));
+        Assert.True(File.Exists(Path.Combine(RepoRoot, "DarkwoodMP.Mod", "Patches", "HostDamageAroundMePatch.cs")));
+        Assert.Contains("CampaignId", ReadMod("Networking", "Messages", "WorldSaveShareMessages.cs"));
     }
 
     [Fact]
@@ -434,7 +499,7 @@ public class AuditStructureTests
         Assert.Contains("ThrowableDespawn = 125", netTypes);
         Assert.Contains("TrapBulk = 126", netTypes);
         Assert.Contains("NightShadowSpawnRequest = 127", netTypes);
-        Assert.Contains("_Highest = 127", netTypes);
+        Assert.Contains("_Highest = 128", netTypes);
         // Protocol stays 19 (optional messages).
         Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
 

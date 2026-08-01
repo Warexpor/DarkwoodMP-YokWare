@@ -324,7 +324,9 @@ namespace DWMPHorde.Players
                         AttackerPosX = pos.x,
                         AttackerPosY = pos.y,
                         AttackerPosZ = pos.z,
-                        ShowRedScreen = true
+                        ShowRedScreen = true,
+                        NormalHit = true,
+                        CanInterrupt = true
                     }.Serialize(w);
                 }, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }

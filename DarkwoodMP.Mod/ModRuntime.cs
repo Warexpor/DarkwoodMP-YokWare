@@ -75,6 +75,8 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(LanNetworkManager.ResetConsumedDropGuids);
                 NetworkResetRegistry.Register(EntityStateBroadcastService.Stop);
                 NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
+                NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
+                NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
                 NetworkResetRegistry.Register(ClientMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
                 NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);

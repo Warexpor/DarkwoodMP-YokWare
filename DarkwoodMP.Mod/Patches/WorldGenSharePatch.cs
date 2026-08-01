@@ -46,6 +46,11 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
+
+            // Brand-new forest → new campaign id so old client backups cannot apply.
+            if (Core.currentProfile != null)
+                CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
+
             if (!net.IsConnected || !net.IsHandshakeComplete)
             {
                 ModLog.Event(LogCat.Save,

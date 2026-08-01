@@ -90,6 +90,19 @@ namespace DWMPHorde.Patches
                 }
             }
 
+            // Peer proxy SFX: allow within hear range so spatial rolloff can fade at the
+            // edge (hard 650f block caused a one-step hitch). Beyond range: suppress so
+            // far footsteps don't allocate/duck AudioController voices every step.
+            if (parentObj != null
+                && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
+            {
+                Vector3 proxyPos = parentObj.position;
+                if (pos == Vector3.zero)
+                    pos = proxyPos;
+                return LocalAudioService.IsNearListener(
+                    pos, LocalAudioService.DefaultMaxAudioDistance);
+            }
+
             // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
             if (LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
                 return true;

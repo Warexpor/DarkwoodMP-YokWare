@@ -128,6 +128,14 @@ namespace DWMPHorde.Networking
         private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
 
         /// <summary>
+        /// Client: host pushed ClientStateBackup this session (skip local-self fallback).
+        /// </summary>
+        private bool _receivedHostClientBackup;
+        private Coroutine _clientBackupRestoreCo;
+        /// <summary>Wait for host late-join backup before falling back to local self file.</summary>
+        private const float ClientBackupHostWaitSec = 12f;
+
+        /// <summary>
         /// Host: last observed HostHasShareableWorld for rising-edge auto-share to title clients.
         /// </summary>
         private bool _hostWasShareableForWaitingClients;
@@ -425,6 +433,10 @@ namespace DWMPHorde.Networking
         {
             // Intentional tear — never treat ensuing peer-down as host-crash migration.
             _suppressHostMigration = true;
+
+            // Before tearing the wire: snapshot client exit pos/inv so next rejoin is current
+            // even if they quit without a coordinated Save. Skip title/offline-load tear.
+            TrySnapshotClientBackupOnExit();
 
             // Snapshot for public session-stop line before we wipe peers/ids
             NetworkRole wasRole = _role;
@@ -2050,6 +2062,9 @@ namespace DWMPHorde.Networking
                             break;
                         case NetMessageType.DreamEntered:
                             HandleDreamEntered(DreamEnteredMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.DreamPropCollider:
+                            HandleDreamPropCollider(DreamPropColliderMessage.Deserialize(new NetReader(payload)));
                             break;
                         case NetMessageType.DreamSessionBulk:
                             HandleDreamSessionBulk(DreamSessionBulkMessage.Deserialize(new NetReader(payload)));
