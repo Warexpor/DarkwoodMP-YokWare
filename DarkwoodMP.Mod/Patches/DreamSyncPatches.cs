@@ -32,6 +32,8 @@ namespace DWMPHorde.Patches
 
                 if (net.Role == NetworkRole.Host)
                 {
+                    // Depleted save pool → empty Random.Range throw → stuck black void.
+                    EnsureHostRandomPoolHasEligible(Dreams.Instance);
                     // Let vanilla roll; postfix broadcasts resolved name + TryBegin.
                     __state = StateHostRolled;
                     return true;
@@ -64,6 +66,48 @@ namespace DWMPHorde.Patches
                 ModRuntime.Log?.LogWarning("[DreamSync] getPreset prefix: " + ex.Message);
                 return true;
             }
+        }
+
+        /// <summary>
+        /// When saved presetList has no eligible random dreams left, refill from
+        /// allPresets so prepareDream("") cannot IndexOutOfRange and hang the entry.
+        /// </summary>
+        private static void EnsureHostRandomPoolHasEligible(Dreams dreams)
+        {
+            if (dreams?.presetList == null || dreams.allPresets == null) return;
+            if (CountEligibleRandom(dreams) > 0) return;
+
+            int added = 0;
+            for (int i = 0; i < dreams.allPresets.Count; i++)
+            {
+                DreamPreset p = dreams.allPresets[i];
+                if (p == null || !p.isRandomDream) continue;
+                if (dreams.presetList.Contains(p)) continue;
+                dreams.presetList.Add(p);
+                added++;
+            }
+            if (added > 0)
+            {
+                ModRuntime.LegacyInfo(
+                    "[DreamSync] Refilled random dream pool (+" + added
+                    + ") — save had depleted presetList");
+            }
+        }
+
+        private static int CountEligibleRandom(Dreams dreams)
+        {
+            int n = 0;
+            int chapter = Singleton<WorldGenerator>.Instance != null
+                ? Singleton<WorldGenerator>.Instance.chapterID
+                : 1;
+            for (int i = 0; i < dreams.presetList.Count; i++)
+            {
+                DreamPreset p = dreams.presetList[i];
+                if (p == null || !p.isRandomDream) continue;
+                if (chapter == 1 && p.chapter1) n++;
+                else if (chapter == 2 && p.chapter2) n++;
+            }
+            return n;
         }
 
         private static void Postfix(Dreams __instance, DreamPreset __result, int __state)

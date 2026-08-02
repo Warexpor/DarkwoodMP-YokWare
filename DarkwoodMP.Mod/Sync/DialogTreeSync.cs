@@ -13,19 +13,27 @@ namespace DWMPHorde.Sync
     /// </summary>
     public static class DialogTreeSync
     {
-        public static void TryBroadcastFromNpc(NPC npc)
+        public static void TryBroadcastFromNpc(NPC npc, bool force = false)
         {
             if (npc == null) return;
             CharacterDialogue cd = npc.characterDialogue;
             if (cd == null) return;
-            TryBroadcast(cd, npc);
+            TryBroadcast(cd, npc, force);
         }
 
-        public static void TryBroadcast(CharacterDialogue cd, NPC npc = null)
+        /// <param name="force">
+        /// Host DialogOutcome finish runs under ProcessInboundMessage's NetworkApplyGuard
+        /// after DialogHostApplyGuard has ended — still must flush tree to the speaker.
+        /// </param>
+        public static void TryBroadcast(CharacterDialogue cd, NPC npc = null, bool force = false)
         {
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            // Same class as door GE / FlagSync: world-only dialog apply must fan out.
+            if (!force
+                && LanNetworkManager.IsApplyingRemoteState
+                && !DialogHostApplyGuard.Active)
+                return;
             if (cd == null || string.IsNullOrEmpty(cd.name)) return;
 
             string payload = EncodeFromGame(cd, npc);

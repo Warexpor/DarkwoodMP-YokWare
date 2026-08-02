@@ -70,6 +70,7 @@ namespace DWMPHorde.Patches
 
             DreamSyncManager.FreezeWorld();
             DreamSyncManager.MarkLocalEntryTransitionPlayed();
+            DreamSyncManager.ArmClientEntryWatchdog();
 
             ModRuntime.LegacyInfo(
                 $"[DreamSync] Client intercepted entry transition — DreamStartRequest sent for '{dreamName}'");
