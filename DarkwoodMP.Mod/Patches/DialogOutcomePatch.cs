@@ -73,14 +73,20 @@ namespace DWMPHorde.Patches
             var dw = Singleton<UI>.Instance?.dialogueWindow;
             if (dw == null || dw.npc == null) return;
 
+            string target = __instance.destDialogueName ?? "";
+            // Vanilla onPress is a no-op until boardFinished — do not ghost-sync those clicks
+            // (host would advance while client UI stays on the prior node → lookAt* loops).
+            string nowName = dw.currentDialogue != null ? (dw.currentDialogue.fullName ?? "") : "";
+            if (string.IsNullOrEmpty(target) || !string.Equals(nowName, target, System.StringComparison.Ordinal))
+                return;
+
             var dci = __instance.GetComponent<DialogChoiceIndex>();
             int index = dci != null ? dci.Index : -1;
 
             int boardIdx = Traverse.Create(dw).Field("currentBoard").GetValue<int>();
-            string target = __instance.destDialogueName ?? "";
 
             // Prefer target dialogue name; index alone is fragile when requirements differ.
-            if (string.IsNullOrEmpty(target) && index < 0) return;
+            if (index < 0 && string.IsNullOrEmpty(target)) return;
 
             string sourceDialogue = __state ?? "";
 

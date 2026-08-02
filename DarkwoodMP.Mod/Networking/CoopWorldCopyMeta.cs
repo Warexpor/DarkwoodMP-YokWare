@@ -195,6 +195,17 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Current profile's sav package fingerprint, or null if unset.
+        /// </summary>
+        public static string TryGetCurrentContentFingerprint()
+        {
+            if (Core.currentProfile == null) return null;
+            int pid = Core.currentProfile.id;
+            if (pid < 1 || pid > 5) return null;
+            return TryLoad(pid)?.ContentFingerprint;
+        }
+
+        /// <summary>
         /// Ensure active profile has a CampaignId (mint if missing). Host + client use this
         /// before writing client backups / sharing world.
         /// </summary>

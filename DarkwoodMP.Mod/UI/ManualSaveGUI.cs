@@ -115,12 +115,23 @@ namespace DWMPHorde
             if (_scheduledBackupRestore && Player.Instance != null)
             {
                 _scheduledBackupRestore = false;
-                // Local self snapshot (not host-keyed peer file) — multi-client safe
-                var data = Networking.ClientStateBackup.LoadLocalSelfBackupFile();
-                if (data != null)
+                // Host character lives in sav.dat — never overlay ClientBackup on host.
+                // Clients / offline co-op copies need personal inv/skills over host body.
+                var net = ModRuntime.Network as Networking.LanNetworkManager;
+                bool isHost = net != null && net.IsConnected && net.Role == Networking.NetworkRole.Host;
+                if (isHost)
                 {
-                    Networking.ClientStateBackup.RestoreFromBackup(data);
-                    ModRuntime.LegacyInfo("[ManualSave] restored local self backup after load");
+                    ModRuntime.LegacyInfo(
+                        "[ManualSave] skip backup restore on host — sav.dat is authoritative");
+                }
+                else
+                {
+                    var data = Networking.ClientStateBackup.LoadLocalSelfBackupFile();
+                    if (data != null)
+                    {
+                        Networking.ClientStateBackup.RestoreFromBackup(data);
+                        ModRuntime.LegacyInfo("[ManualSave] restored local self backup after load");
+                    }
                 }
             }
         }
@@ -320,10 +331,19 @@ namespace DWMPHorde
                 Core.currentProfile.majorVersion = meta.majorVersion;
                 Core.currentProfile.minorVersion = meta.minorVersion;
 
-                // Snapshot this machine's inventory before overwriting with host world files
+                // Snapshot personal inv/skills before slot files overwrite the profile.
+                // Skip empty collects so we never clobber a good self backup (title/load race).
                 var backupData = Networking.ClientStateBackup.CollectBackupData();
-                string backupJson = Networking.ClientStateBackup.SerializeToJson(backupData);
-                Networking.ClientStateBackup.SaveLocalSelfBackupFile(backupJson);
+                if (Networking.ClientStateBackup.HasMeaningfulProgress(backupData))
+                {
+                    string backupJson = Networking.ClientStateBackup.SerializeToJson(backupData);
+                    Networking.ClientStateBackup.SaveLocalSelfBackupFile(backupJson);
+                }
+                else
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ManualSave] skip pre-load self snapshot — player not ready / empty");
+                }
 
                 Singleton<SaveManager>.Instance.saveGameProfiles();
 
@@ -334,7 +354,10 @@ namespace DWMPHorde
                 Sync.DreamSyncManager.OnDisconnected();
                 Sync.MultiplayerMapManager.Reset();
 
-                _scheduledBackupRestore = true;
+                // Only clients need post-load overlay (host uses slot character as-is).
+                var net = ModRuntime.Network as Networking.LanNetworkManager;
+                bool isHost = net != null && net.IsConnected && net.Role == Networking.NetworkRole.Host;
+                _scheduledBackupRestore = !isHost;
 
                 int chapterId = meta.chapter > 0 ? meta.chapter : 1;
 

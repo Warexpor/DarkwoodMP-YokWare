@@ -87,7 +87,11 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            if (LanNetworkManager.IsApplyingRemoteState)
+            // DialogOutcome world-only apply runs under ProcessInboundMessage's
+            // NetworkApplyGuard — same door-GE exception: still fan out story flags
+            // so the speaking client unlocks the next dialogue options.
+            if (LanNetworkManager.IsApplyingRemoteState
+                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;
@@ -190,7 +194,9 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            if (LanNetworkManager.IsApplyingRemoteState)
+            // See FlagSyncBoolPatch — DialogOutcome world-only must still FlagSync.
+            if (LanNetworkManager.IsApplyingRemoteState
+                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;

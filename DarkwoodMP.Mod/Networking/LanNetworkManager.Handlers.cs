@@ -6008,6 +6008,28 @@ namespace DWMPHorde.Networking
         private void PersistClientBackupSnapshot(bool sendToHost)
         {
             var data = ClientStateBackup.CollectBackupData();
+            // Mid-dream omit left 0,0,0 — keep prior exit pose from existing self file.
+            if (data != null && data.PosX == 0f && data.PosY == 0f && data.PosZ == 0f)
+            {
+                try
+                {
+                    var prev = ClientStateBackup.LoadLocalSelfBackupFile();
+                    if (prev != null && (prev.PosX != 0f || prev.PosZ != 0f)
+                        && !ClientStateBackup.IsDreamPadCoordinate(
+                            new Vector3(prev.PosX, prev.PosY, prev.PosZ)))
+                    {
+                        data.PosX = prev.PosX;
+                        data.PosY = prev.PosY;
+                        data.PosZ = prev.PosZ;
+                    }
+                }
+                catch { /* keep zeros */ }
+            }
+            if (!ClientStateBackup.HasMeaningfulProgress(data))
+            {
+                ModRuntime.LegacyInfo("[ClientBackup] skip persist — empty snapshot");
+                return;
+            }
             string json = ClientStateBackup.SerializeToJson(data);
             ClientStateBackup.SaveLocalSelfBackupFile(json);
             if (!sendToHost || !IsConnected || _net == null)
@@ -6208,14 +6230,47 @@ namespace DWMPHorde.Networking
                         return;
                     }
                     _receivedHostClientBackup = true;
-                    ClientStateBackup.SaveLocalSelfBackupFile(msg.JsonData);
+
+                    // Local self is source of truth on this box. Host push only fills a gap.
+                    ClientStateBackupData hostData = data;
+                    ClientStateBackupData local = null;
+                    try { local = ClientStateBackup.LoadLocalSelfBackupFile(); }
+                    catch { local = null; }
+
+                    if (local != null && ClientStateBackup.MatchesCurrentCampaign(local))
+                    {
+                        int localScore = ClientStateBackup.ProgressScore(local);
+                        int hostScore = ClientStateBackup.ProgressScore(hostData);
+                        bool localNewer = ClientStateBackup.TryParseBackupTimestamp(local)
+                            >= ClientStateBackup.TryParseBackupTimestamp(hostData);
+                        if (localScore >= hostScore || localNewer)
+                        {
+                            data = local;
+                            ModRuntime.LegacyInfo(
+                                "[ClientBackup] prefer local self over host push (localScore="
+                                + localScore + " hostScore=" + hostScore + ")");
+                        }
+                    }
+
+                    if (!ClientStateBackup.MatchesCurrentCampaign(data)
+                        || !ClientStateBackup.HasMeaningfulProgress(data))
+                    {
+                        ModRuntime.LegacyInfo(
+                            "[ClientBackup] ignore host push — no usable backup for this campaign"
+                            + " — keeping loaded character");
+                        return;
+                    }
+
+                    string chosenJson = ClientStateBackup.SerializeToJson(data);
+                    ClientStateBackup.SaveLocalSelfBackupFile(chosenJson);
                     if (Player.Instance != null)
                     {
                         ClientStateBackup.RestoreFromBackup(data);
                         ModRuntime.LegacyInfo(
-                            "[ClientBackup] restored host-pushed backup (inv="
+                            "[ClientBackup] restored backup (inv="
                             + (data.InventoryItems?.Count ?? 0)
-                            + " skills=" + (data.Skills?.Count ?? 0) + ")");
+                            + " skills=" + (data.Skills?.Count ?? 0)
+                            + " src=" + (ReferenceEquals(data, local) ? "local-self" : "host-push") + ")");
                     }
                     else
                     {
@@ -6556,7 +6611,8 @@ namespace DWMPHorde.Networking
                     ModRuntime.Log?.LogWarning("[DialogOutcome] door poll: " + ex.Message);
             }
 
-            try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc); }
+            // force: still under ProcessInboundMessage NetworkApplyGuard after world-only End.
+            try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc, force: true); }
             catch (Exception ex)
             {
                 if (ModRuntime.VerboseLogging)

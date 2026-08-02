@@ -615,8 +615,60 @@ namespace DWMPHorde.Sync
                 FadeOutDreamTransition();
                 _earlyEntryTransitionPlayed = false;
                 _earlyEntryTransitionDoneAt = 0f;
+                try
+                {
+                    if (Dreams.Instance != null && !Dreams.Instance.dreaming)
+                        Dreams.Instance.dreamPrepared = false;
+                }
+                catch { /* ignore */ }
+                Core.EnteringDream = false;
                 UnfreezeWorld();
             }
+        }
+
+        /// <summary>
+        /// Client sent DreamStartRequest and is holding opaque black. If host never
+        /// delivers DreamStarted, clear the void so the player is not stuck blind.
+        /// </summary>
+        public static void ArmClientEntryWatchdog()
+        {
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+            ctrl.StartCoroutine(ClientEntryWatchdog());
+        }
+
+        private static IEnumerator ClientEntryWatchdog()
+        {
+            float deadline = Time.realtimeSinceStartup + 25f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (DreamSession.IsActive || _localDreamActive || IsDreamActive)
+                    yield break;
+                if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                    break;
+                yield return null;
+            }
+            if (DreamSession.IsActive || _localDreamActive || IsDreamActive)
+                yield break;
+
+            ModRuntime.Log?.LogWarning(
+                "[DreamSync] Client entry watchdog — no DreamStarted, clearing black void");
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            Core.EnteringDream = false;
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+            UnfreezeWorld(restoreTime: false);
         }
 
         private static void FadeOutDreamTransition()

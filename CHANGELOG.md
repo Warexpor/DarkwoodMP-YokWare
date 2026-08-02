@@ -2,11 +2,54 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.25** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.27** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.27 — Dream black void + ClientBackup policy rewrite (2026-08-02)
+
+Client skill/sleep dream → silent black void (no pad, no body). Host `prepareDream("")` after empty `DreamStartRequest` never reached `DreamStarted`; watchdog force-cleared host while client stayed black. Separately ClientBackup still applied wrong/empty inv+skills (ManualSave on host restored empty self; fingerprint gate was a no-op on legacy files and host/client hashes diverge anyway). **Protocol 19 unchanged.**
+
+### Dream void
+- **Root:** depleted `presetList` in the save → vanilla empty roll IndexOutOfRange (or hang after Save); no `DreamStarted` fan-out; client held opaque black.
+- **Fix:** refill random pool from `allPresets` before host roll; reset `dreamPrepared` on prepare failure / host watchdog; client 25s entry watchdog clears black/`EnteringDream`.
+
+### ClientBackup (holes closed)
+- **Policy:** campaign-keyed only (dropped fingerprint match — host vs client package hashes diverge after share).
+- **Refuse empty** collect/restore/push (no more lvl0/inv0 wipe).
+- **Host never** overlays ClientBackup after ManualSave load (sav.dat is the host body).
+- **Prefer local self** over host push when richer/newer; host push only fills a gap.
+- **Pre-load snapshot** skips empty collects so title/load races cannot clobber a good self file.
+- Exit mid-dream with omitted pose keeps prior overworld coords instead of writing `(0,0)`.
+
+### Files
+- `Patches/DreamSyncPatches.cs`, `DreamEntryClientPatch.cs`
+- `Sync/DreamSyncManager.cs`, `Networking/LanNetworkManager.DreamHandlers.cs`
+- `Networking/ClientStateBackup.cs`, `LanNetworkManager.Handlers.cs`, `UI/ManualSaveGUI.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.27**)
+
+## 0.7.26 — Client oven dialogue softlock + backup-per-save (2026-08-02)
+
+Client stuck looping oven `lookAtOven` ↔ `lookAtBottle` with no new options; host applied each choice world-only but story flags / dialogue tree never came back. Separately, host late-join pushed a mid-dream ClientBackup (`inv=2`, pad coords, Aug 1 stamp) onto today's save of the same `CampaignId`. **Protocol 19 unchanged.**
+
+### Root cause (dialogue)
+- Client defers `setFlag` during talk (`DialogClientWorldDefer`); host must FlagSync after DialogOutcome.
+- Host DialogOutcome runs under `ProcessInboundMessage`'s `NetworkApplyGuard`, so `FlagSync` Postfix and `DialogTreeSync.TryBroadcast` early-outed — same class of bug as the dream-door GE miss.
+- Extra: client `DialogueButton.onPress` is a no-op until `boardFinished`, but our Postfix still sent `DialogOutcomeSync` → host advanced while client UI stayed put (duplicate `lookAtOven→lookAtBottle` spam).
+
+### Fixed
+- **FlagSync** (bool + int): fan out when `DialogHostApplyGuard.Active` even under inbound apply.
+- **DialogTree** host flush after world-only apply: `TryBroadcastFromNpc(..., force: true)`.
+- **DialogOutcome client send:** only after vanilla actually switched to the target node.
+- **ClientBackup:** embed `ContentFingerprint`; refuse load/restore/push on fingerprint mismatch within the same campaign (rewound/old host save). Prefer newer local self over stale host push.
+
+### Files
+- `Patches/FlagSyncPatches.cs`, `DialogOutcomePatch.cs`
+- `Sync/DialogTreeSync.cs`
+- `Networking/LanNetworkManager.Handlers.cs`, `ClientStateBackup.cs`, `CoopWorldCopyMeta.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.26**)
 
 ## 0.7.25 — Dream prop collider parity (lamp solid / bell ghost) (2026-08-02)
 

@@ -191,6 +191,12 @@ namespace DWMPHorde.Networking
                 catch (Exception ex)
                 {
                     ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
+                    try
+                    {
+                        if (Singleton<Dreams>.Instance != null)
+                            Singleton<Dreams>.Instance.dreamPrepared = false;
+                    }
+                    catch { /* ignore */ }
                 }
                 return;
             }

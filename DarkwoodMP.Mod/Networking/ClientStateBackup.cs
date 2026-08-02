@@ -17,6 +17,11 @@ namespace DWMPHorde.Networking
         /// Backups are save/campaign-scoped — restore refused on mismatch.
         /// </summary>
         public string CampaignId;
+        /// <summary>
+        /// Host world package fingerprint at collect time. Refuses restore when the
+        /// loaded save was rewound / swapped within the same CampaignId.
+        /// </summary>
+        public string ContentFingerprint;
         public string Timestamp;
         public int Day;
         public int GameTimeMinutes;
@@ -83,6 +88,7 @@ namespace DWMPHorde.Networking
 
             data.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
+            data.ContentFingerprint = CoopWorldCopyMeta.TryGetCurrentContentFingerprint();
 
             // Never persist dream-pad coords as the rejoin spawn — that throws the
             // client into empty -50k/-75k space after the pad is torn down.
@@ -322,7 +328,10 @@ namespace DWMPHorde.Networking
         private static string GetLegacySelfBackupPath() =>
             GetProfileBackupDirectory() + "/client_backup_self.json";
 
-        /// <summary>True when backup JSON belongs to the active campaign (or both unscoped legacy).</summary>
+        /// <summary>
+        /// True when backup JSON belongs to the active campaign (or both unscoped legacy).
+        /// Fingerprint matching was removed — host/client package hashes diverge after share.
+        /// </summary>
         public static bool MatchesCurrentCampaign(ClientStateBackupData data)
         {
             if (data == null) return false;
@@ -332,6 +341,40 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(data.CampaignId))
                 return false;
             return string.Equals(current, data.CampaignId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>True when backup has meaningful progression (not an empty wipe snapshot).</summary>
+        public static bool HasMeaningfulProgress(ClientStateBackupData data)
+        {
+            if (data == null) return false;
+            if (data.CurrentLevel > 0 || data.Experience > 0) return true;
+            if (data.SkillPoints > 0) return true;
+            if (data.Skills != null && data.Skills.Count > 0) return true;
+            if (data.InventoryItems != null && data.InventoryItems.Count > 0) return true;
+            if (data.HotbarItems != null && data.HotbarItems.Count > 0) return true;
+            return false;
+        }
+
+        /// <summary>Rough richness score for choosing between two backups.</summary>
+        public static int ProgressScore(ClientStateBackupData data)
+        {
+            if (data == null) return 0;
+            int score = data.CurrentLevel * 1000 + data.Experience
+                + data.SkillPoints * 50
+                + (data.Skills?.Count ?? 0) * 100
+                + (data.InventoryItems?.Count ?? 0) * 10
+                + (data.HotbarItems?.Count ?? 0) * 10;
+            return score;
+        }
+
+        /// <summary>Parse backup Timestamp for freshness compares (0 on failure).</summary>
+        public static DateTime TryParseBackupTimestamp(ClientStateBackupData data)
+        {
+            if (data == null || string.IsNullOrEmpty(data.Timestamp))
+                return DateTime.MinValue;
+            if (DateTime.TryParse(data.Timestamp, out DateTime dt))
+                return dt;
+            return DateTime.MinValue;
         }
 
         /// <summary>
@@ -423,6 +466,25 @@ namespace DWMPHorde.Networking
         {
             try
             {
+                // Never clobber a good self file with an empty collect (title/load race).
+                try
+                {
+                    var incoming = DeserializeFromJson(json);
+                    if (incoming != null && !HasMeaningfulProgress(incoming))
+                    {
+                        var existing = TryReadBackup(GetLocalSelfBackupPath())
+                            ?? TryReadBackup(GetLegacySelfBackupPath());
+                        if (existing != null && HasMeaningfulProgress(existing)
+                            && MatchesCurrentCampaign(existing))
+                        {
+                            ModRuntime.LegacyInfo(
+                                "[ClientBackup] refuse overwrite local self with empty snapshot");
+                            return;
+                        }
+                    }
+                }
+                catch { /* write anyway */ }
+
                 string path = GetLocalSelfBackupPath();
                 try
                 {
@@ -470,6 +532,12 @@ namespace DWMPHorde.Networking
                         + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
                     return null;
                 }
+                if (!HasMeaningfulProgress(data))
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip p" + playerId + " backup — empty/no progress");
+                    return null;
+                }
                 return data;
             }
             catch (Exception ex)
@@ -496,6 +564,11 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo(
                         "[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current="
                         + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                    return null;
+                }
+                if (!HasMeaningfulProgress(data))
+                {
+                    ModRuntime.LegacyInfo("[ClientBackup] skip local self — empty/no progress");
                     return null;
                 }
                 return data;
@@ -536,6 +609,13 @@ namespace DWMPHorde.Networking
                     + (data.CampaignId ?? "(none)")
                     + " current="
                     + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                return;
+            }
+
+            if (!HasMeaningfulProgress(data))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] refused restore — empty backup would wipe character");
                 return;
             }
 
