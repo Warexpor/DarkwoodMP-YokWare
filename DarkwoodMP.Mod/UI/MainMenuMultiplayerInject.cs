@@ -51,11 +51,13 @@ namespace DWMPHorde
         private static int _lastScreenW;
         private static int _lastScreenH;
         private static bool _menu0WasActive;
+        private static bool _launchLobbyTried;
 
         public static void OnUpdate()
         {
             try
             {
+                TryConsumeSteamLaunchLobby();
                 if (_joinPending)
                     PollJoinState();
                 else
@@ -1061,6 +1063,25 @@ namespace DWMPHorde
                 return;
             tm.text = text;
             tm.Commit();
+        }
+
+        private static void TryConsumeSteamLaunchLobby()
+        {
+            if (_launchLobbyTried)
+                return;
+            var net = ModRuntime.Network;
+            if (net == null)
+                return;
+            // Wait until title is up so Soft reconnect / mid-load does not steal the invite.
+            try
+            {
+                if (!Core.mainMenu)
+                    return;
+            }
+            catch { return; }
+
+            _launchLobbyTried = true;
+            net.TryConsumePendingSteamLaunchLobby();
         }
 
         /// <summary>Marks our UI roots so purge never touches vanilla menu buttons.</summary>

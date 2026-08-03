@@ -23,6 +23,12 @@ libs/**/*.dll
 !libs/LiteNetLib.dll
 !libs/README.md
 
+# Decompiled / third-party reference dumps (local only — never ship)
+reference/
+**/friend-dll-decomp/
+*.ilspy*
+*.decompiled/
+
 # Logs / temp
 *.log
 logs/

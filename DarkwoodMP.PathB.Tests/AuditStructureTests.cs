@@ -367,7 +367,7 @@ public class AuditStructureTests
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.25", plugin);
+        Assert.Contains("0.7.29", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
@@ -383,7 +383,7 @@ public class AuditStructureTests
         Assert.Contains("SendStoredClientBackupTo", handlers);
         Assert.Contains("BeginClientBackupRestoreWait", handlers);
         Assert.Contains("SaveLocalSelfBackupFile(json)", handlers);
-        Assert.Contains("restored host-pushed backup", handlers);
+        Assert.Contains("restored backup (inv=", handlers);
         Assert.Contains("TrySnapshotClientBackupOnExit", ReadMod("Networking", "LanNetworkManager.cs"));
         Assert.Contains("RestorePosition", ReadMod("Networking", "ClientStateBackup.cs"));
         Assert.Contains("MatchesCurrentCampaign", ReadMod("Networking", "ClientStateBackup.cs"));
@@ -499,7 +499,9 @@ public class AuditStructureTests
         Assert.Contains("ThrowableDespawn = 125", netTypes);
         Assert.Contains("TrapBulk = 126", netTypes);
         Assert.Contains("NightShadowSpawnRequest = 127", netTypes);
-        Assert.Contains("_Highest = 128", netTypes);
+        Assert.Contains("DreamPropCollider = 128", netTypes);
+        Assert.Contains("VoiceData = 129", netTypes);
+        Assert.Contains("_Highest = 129", netTypes);
         // Protocol stays 19 (optional messages).
         Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
 

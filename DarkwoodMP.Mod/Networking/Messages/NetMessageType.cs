@@ -288,7 +288,12 @@ namespace DWMPHorde.Networking
         /// Optional; protocol stays 19.
         /// </summary>
         DreamPropCollider = 128,
+        /// <summary>
+        /// Either peer: Steam Voice compressed samples. Host fans out Unreliable (not Forwardable).
+        /// Optional; protocol stays 19.
+        /// </summary>
+        VoiceData = 129,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 128
+        _Highest = 129
     }
 }

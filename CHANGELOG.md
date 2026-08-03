@@ -2,11 +2,51 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.27** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.29** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.29 — Steam SNS join tear + connect timeout (2026-08-03)
+
+Client Steam join could stick on “joining lobby…” if SNS closed before peer map, or hang forever if `Connected` never arrived. **Protocol 19 unchanged.**
+
+- Pre-handshake SNS close/problem → `OnSteamLobbyFailed` / `StopNetwork` (no silent no-op).
+- Mid-join `OnSteamSessionFailed` without peer map → tear client session.
+- 20s ConnectP2P timeout in `SteamCoopTransport.Poll` → `SNS timeout`.
+
+### Files
+- `Networking/Steam/SteamCoopTransport.cs`, `LanNetworkManager.Steam.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.29**)
+
+## 0.7.28 — Voice/walkie + SteamNetworkingSockets (2026-08-03)
+
+Ported Steam Voice proximity chat, craftable walkie radio, and Steam session transport from a friend's Melon/Yokyy DLL onto Path B Horde (protocol **19** unchanged). Full Yokyy sync dump (`ActionEvent`, SyncCheck, InteractionLock, …) stays deferred.
+
+### Steam SNS (2B)
+- Replaced classic `SteamNetworking` P2P with **SteamNetworkingSockets** (`CreateListenSocketP2P` / `ConnectP2P` / poll group) under `SteamCoopTransport`.
+- Lobby keys still `yokware` / `proto` / `conn` / `name`; join now **rejects protocol mismatch**.
+- Relay warm + send-buffer knobs (`SteamRelay`); lobby type config `friends|public|private`; `+connect_lobby` consume.
+- LAN LiteNetLib path unchanged. Still **no** Steam host migration.
+
+### Voice + Walkie (1A)
+- `NetMessageType.VoiceData = 129` (optional; host fans out Unreliable).
+- Steam `GetVoice` / `DecompressVoice` proximity mix + walkie radio LPF when both carry a walkie.
+- Craftable `walkie_talkie` (2 scrap + 1 nail, workbench lvl 1) with embedded icon.
+- Config: `VoiceEnabled`, `VoiceMode` (ptt/open), `VoicePttKey` (default V), ranges/gain, `WalkieItemName`.
+
+### Parked
+- Friend Melon sync stack / ActionEvent combat path
+- Steam host migration / PeerRoster on Steam
+- Text ChatHud re-enable (`Enabled = false`)
+
+### Files
+- `Networking/Steam/SteamCoopTransport.cs`, `SteamRelay.cs`, `LanNetworkManager.Steam.cs`
+- `Audio/VoiceChatService.cs`, `Networking/Messages/VoiceDataMessage.cs`, `NetMessageType.cs`
+- `Items/WalkieItem.cs`, `Resources/walkie_talkie.png`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.28**)
+- Friend DLL decompile stays local under `reference/` (gitignored)
 
 ## 0.7.27 — Dream black void + ClientBackup policy rewrite (2026-08-02)
 
