@@ -50,6 +50,10 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
+  </ItemGroup>
+
   <!-- BepInEx: Harmony + plugin core from game install -->
   <ItemGroup Condition="'$(Loader)' == 'BepInEx'">
     <Reference Include="0Harmony">
@@ -139,6 +143,10 @@
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>$(GameDir)\Darkwood_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameDir)\Darkwood_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.AudioModule">

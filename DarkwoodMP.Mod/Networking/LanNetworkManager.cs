@@ -861,7 +861,9 @@ namespace DWMPHorde.Networking
 
             _net?.PollEvents();
             PollSteamBackend();
+            Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
+            Items.WalkieItem.Tick();
 
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             TryFlushPendingFlags();
@@ -2236,6 +2238,23 @@ namespace DWMPHorde.Networking
                                     var chatWriter = new NetWriter();
                                     chat.Serialize(chatWriter);
                                     payload = chatWriter.CopyData();
+                                }
+                                break;
+                            }
+                        case NetMessageType.VoiceData:
+                            {
+                                var voice = VoiceDataMessage.Deserialize(new NetReader(payload));
+                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                                    voice.PlayerId = _currentReceivePlayerId;
+                                Audio.VoiceChatService.OnVoiceData(voice);
+                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                                {
+                                    var vw = new NetWriter();
+                                    voice.Serialize(vw);
+                                    byte[] body = vw.CopyData();
+                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.VoiceData,
+                                        w => w.PutRaw(body), DeliveryMethod.Unreliable);
+                                    _suppressForwardThisMessage = true;
                                 }
                                 break;
                             }

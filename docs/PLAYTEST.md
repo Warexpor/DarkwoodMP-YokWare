@@ -48,6 +48,25 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
 
 ---
 
+## 1b. Steam SNS smoke (0.7.28+)
+
+Steam path uses **SteamNetworkingSockets** (not classic P2P). Both peers need Steam logged on + same protocol 19 DLL.
+
+1. Host: MULTIPLAYER → **HOST STEAM** → wait for lobby id in SETTINGS
+2. Host: invite overlay (or paste lobby id to friend)
+3. Client: **JOIN STEAM** with lobby id (or accept invite / `+connect_lobby`)
+4. Expect: `Steam SNS peer connected` / `Steam SNS connected to host` then Handshake + proxies
+5. Host leave / disconnect: client tears cleanly (`Steam host left` / connection lost)
+
+- [ ] Host create lobby + SNS listen
+- [ ] Client join (password + proto match)
+- [ ] In-world proxies + entity sync
+- [ ] Host leave → client disconnect (no LAN migration on Steam)
+
+Voice (Steam Voice API; works on LAN too if Steam is up): default PTT **V**, open-mic via config `VoiceMode=open`. Walkie: craft `walkie_talkie` (2 scrap + 1 nail, WB lvl 1), hold + RMB for radio TX.
+
+---
+
 ## 1. Join pipeline (critical)
 
 1. Host: MULTIPLAYER → HOST → load/continue → **in world**

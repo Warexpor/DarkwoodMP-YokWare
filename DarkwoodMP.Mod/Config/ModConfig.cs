@@ -16,6 +16,8 @@ namespace DWMPHorde.Config
         public static ConfigEntry<string> HostPassword { get; private set; }
         /// <summary>Last Steam lobby id (ulong) for Steam join field / host display.</summary>
         public static ConfigEntry<string> SteamLobbyId { get; private set; }
+        /// <summary>Steam lobby visibility: friends | public | private.</summary>
+        public static ConfigEntry<string> SteamLobbyType { get; private set; }
         /// <summary>
         /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
         /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
@@ -43,6 +45,14 @@ namespace DWMPHorde.Config
         /// Requires PeerRoster gossip; keep true for dual-box crash recovery.
         /// </summary>
         public static ConfigEntry<bool> HostMigrationEnabled { get; private set; }
+        public static ConfigEntry<bool> VoiceEnabled { get; private set; }
+        public static ConfigEntry<string> VoiceMode { get; private set; }
+        public static ConfigEntry<string> VoicePttKey { get; private set; }
+        public static ConfigEntry<float> VoiceVolume { get; private set; }
+        public static ConfigEntry<float> VoiceGain { get; private set; }
+        public static ConfigEntry<float> VoiceRangeFull { get; private set; }
+        public static ConfigEntry<float> VoiceRangeMax { get; private set; }
+        public static ConfigEntry<string> WalkieItemName { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -108,6 +118,8 @@ namespace DWMPHorde.Config
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match. Also used as Steam lobby conn key.");
             SteamLobbyId = config.Bind("Network", "SteamLobbyId", "",
                 "Steam lobby id (ulong) for Steam join. Host auto-fills when creating a Steam lobby. Friends can also use the Steam invite overlay.");
+            SteamLobbyType = config.Bind("Network", "SteamLobbyType", "friends",
+                "Steam host lobby visibility: friends | public | private.");
             SaveRootOverride = config.Bind("Saves", "SaveRootOverride", "",
                 "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
                 + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
@@ -132,6 +144,22 @@ namespace DWMPHorde.Config
                 "Host clamps peer-reported attack/FF damage to this max (anti-grief). No per-message rate limit — multi-hit weapons need every pellet to apply.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
+            VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
+                "Steam Voice proximity/walkie chat when Steam client is logged on.");
+            VoiceMode = config.Bind("Voice", "VoiceMode", "ptt",
+                "ptt = push-to-talk (VoicePttKey). open = always transmit while connected.");
+            VoicePttKey = config.Bind("Voice", "VoicePttKey", "V",
+                "Unity KeyCode name for push-to-talk (default V).");
+            VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
+                "Playback volume multiplier for remote voice.");
+            VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
+                "Gain applied after Steam DecompressVoice.");
+            VoiceRangeFull = config.Bind("Voice", "VoiceRangeFull", 8f,
+                "Distance (m) at which proximity voice is full volume.");
+            VoiceRangeMax = config.Bind("Voice", "VoiceRangeMax", 28f,
+                "Distance (m) beyond which proximity voice is silent.");
+            WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
+                "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
 
             // Support = join/session/combat Events + [Perf] Core without Legacy flood.

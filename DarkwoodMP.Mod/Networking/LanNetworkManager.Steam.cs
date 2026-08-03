@@ -9,7 +9,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// Steam P2P backend — separate from LiteNetLib LAN. Same Ironbark/Horde messages over SteamNetworking.
+    /// Steam SNS backend — separate from LiteNetLib LAN. Same Horde messages over SteamNetworkingSockets.
     /// Host migration stays LAN-only (Steam path tears cleanly on host leave).
     /// </summary>
     public sealed partial class LanNetworkManager
@@ -87,7 +87,7 @@ namespace DWMPHorde.Networking
             _currentReceiveSteamId = CSteamID.Nil;
         }
 
-        /// <summary>Host: friends-only Steam lobby + P2P. Separate from <see cref="StartHost"/>.</summary>
+        /// <summary>Host: Steam lobby + SteamNetworkingSockets listen. Separate from <see cref="StartHost"/>.</summary>
         public void StartHostSteam()
         {
             StopNetwork();
@@ -105,6 +105,9 @@ namespace DWMPHorde.Networking
             _backend = ConnectionBackend.Steam;
             NoteSessionPort(0);
 
+            // Ensure SNS callbacks exist before StartHost so +connect_lobby is parsed.
+            _ = Steam;
+
             if (!Steam.StartHost())
             {
                 StatusText = "Steam host failed";
@@ -115,7 +118,7 @@ namespace DWMPHorde.Networking
 
             StatusText = "Steam host — creating lobby…";
             ModLog.Event(LogCat.Network,
-                "Hosting via Steam P2P | v" + PluginInfo.DisplayVersion
+                "Hosting via Steam SNS | v" + PluginInfo.DisplayVersion
                 + " proto=" + PluginInfo.ProtocolVersion
                 + " maxPlayers=" + (Config.ModConfig.MaxPlayers?.Value ?? 8));
         }
@@ -197,6 +200,20 @@ namespace DWMPHorde.Networking
             Steam.OpenInviteOverlay();
         }
 
+        /// <summary>One-shot: join lobby from Steam `+connect_lobby` launch arg while offline on title.</summary>
+        public bool TryConsumePendingSteamLaunchLobby()
+        {
+            if (_role != NetworkRole.Offline)
+                return false;
+            Steam.EnsureCallbacks();
+            ulong lobby = Steam.ConsumePendingLaunchLobby();
+            if (lobby == 0)
+                return false;
+            ModLog.Event(LogCat.Session, "Steam +connect_lobby → join " + lobby);
+            ConnectSteamLobby(new CSteamID(lobby));
+            return true;
+        }
+
         // --- callbacks from SteamCoopTransport ---
 
         internal void OnSteamLobbyReady(CSteamID lobbyId, bool isHost)
@@ -254,9 +271,20 @@ namespace DWMPHorde.Networking
         {
             if (_backend != ConnectionBackend.Steam)
                 return;
-            if (!_steamIdToPlayer.TryGetValue(remote.m_SteamID, out int playerId))
+            if (_steamIdToPlayer.TryGetValue(remote.m_SteamID, out int playerId))
+            {
+                HandleSteamPeerDisconnected(playerId, "SNS fail");
                 return;
-            HandleSteamPeerDisconnected(playerId, "P2P fail");
+            }
+
+            // Client mid-join: SNS died before OnSteamLobbyReady mapped the host peer.
+            if (_role == NetworkRole.Client)
+            {
+                ModLog.Warn(LogCat.Network, "Steam SNS fail before peer map — tearing join");
+                _suppressHostMigration = true;
+                StopNetwork();
+                StatusText = "Steam SNS failed";
+            }
         }
 
         internal void CloseAllSteamSessions()
