@@ -369,7 +369,7 @@ public class AuditStructureTests
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 19", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.29", plugin);
+        Assert.Contains("0.7.39", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
@@ -503,7 +503,8 @@ public class AuditStructureTests
         Assert.Contains("NightShadowSpawnRequest = 127", netTypes);
         Assert.Contains("DreamPropCollider = 128", netTypes);
         Assert.Contains("VoiceData = 129", netTypes);
-        Assert.Contains("_Highest = 129", netTypes);
+        Assert.Contains("ActivateCursorAction = 130", netTypes);
+        Assert.Contains("_Highest = 130", netTypes);
         // Protocol stays 19 (optional messages).
         Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
 

@@ -153,7 +153,8 @@ namespace DWMPHorde.Networking
         private List<PeerRosterEntry> BuildRosterEntries()
         {
             var list = new List<PeerRosterEntry>(8);
-            string hostIp = GetPrimaryLanIPv4() ?? "127.0.0.1";
+            // Cached — GetAllNetworkInterfaces every 4s roster tick was the ~upd=65ms hitch.
+            string hostIp = GetCachedPrimaryLanIPv4() ?? "127.0.0.1";
             list.Add(new PeerRosterEntry
             {
                 PlayerId = _localPlayerId,
@@ -663,6 +664,31 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Network,
                 "Rebind peer id " + provisionalId + " → preferred " + preferredId);
             return preferredId;
+        }
+
+        private static string _cachedLanIPv4;
+        private static float _cachedLanIPv4At = -999f;
+        private const float LanIPv4CacheSec = 60f;
+
+        /// <summary>
+        /// LAN IPv4 for roster gossip. NetworkInterface.GetAllNetworkInterfaces is expensive
+        /// on Windows (~40–80ms) — must not run on the 4s roster timer.
+        /// </summary>
+        private static string GetCachedPrimaryLanIPv4()
+        {
+            float now = Time.unscaledTime;
+            if (!string.IsNullOrEmpty(_cachedLanIPv4) && now - _cachedLanIPv4At < LanIPv4CacheSec)
+                return _cachedLanIPv4;
+            _cachedLanIPv4 = GetPrimaryLanIPv4();
+            _cachedLanIPv4At = now;
+            return _cachedLanIPv4;
+        }
+
+        /// <summary>Force refresh on host start / bind so roster is not stuck on a stale NIC.</summary>
+        internal static void InvalidateLanIPv4Cache()
+        {
+            _cachedLanIPv4 = null;
+            _cachedLanIPv4At = -999f;
         }
 
         private static string GetPrimaryLanIPv4()

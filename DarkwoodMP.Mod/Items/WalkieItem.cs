@@ -27,27 +27,37 @@ namespace DWMPHorde.Items
         private static bool _langDone;
         private static float _nextAttempt;
         private static bool _warnedNoDb;
+        /// <summary>True after icon sprite is in a collection (or texture load failed permanently).</summary>
+        private static bool _iconSettled;
 
         public static void Tick()
         {
+            // Settled: never call InjectIcon again — FindObjectsOfTypeAll was the ~50ms/5s hitch.
+            if (_iconSettled)
+                return;
             if (Time.unscaledTime < _nextAttempt)
                 return;
-            bool settled = _template != null && _langDone
-                && (_template.iconType == ItemType || _iconTextureFailed);
-            _nextAttempt = Time.unscaledTime + (settled ? 5f : 1f);
+            _nextAttempt = Time.unscaledTime + 1f;
             try { InjectLocalization(); } catch { /* ignore */ }
             if (_template == null)
             {
                 try { EnsureTemplate(Singleton<ItemsDatabase>.Instance); }
                 catch { /* ignore */ }
             }
-            if (Player.Instance == null || _template == null || _iconTextureFailed)
+            if (_iconTextureFailed)
+            {
+                _iconSettled = true;
+                return;
+            }
+            if (Player.Instance == null || _template == null)
                 return;
             try { InjectIcon(); }
             catch (Exception ex)
             {
                 ModLog.Warn(LogCat.Audio, "Walkie icon: " + ex.Message);
             }
+            if (_template != null && _template.iconType == ItemType)
+                _iconSettled = true;
         }
 
         [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.hasItem))]
@@ -255,8 +265,12 @@ namespace DWMPHorde.Items
                 injected = true;
                 ModLog.Event(LogCat.Audio, "Walkie sprite injected into '" + inst.name + "'");
             }
-            if (injected && _template.iconType != ItemType)
-                _template.iconType = ItemType;
+            if (injected)
+            {
+                if (_template.iconType != ItemType)
+                    _template.iconType = ItemType;
+                _iconSettled = true;
+            }
         }
 
         private static void AppendDefinition(tk2dSpriteCollectionData col, Texture2D tex)

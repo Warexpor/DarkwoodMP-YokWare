@@ -16,8 +16,15 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Door), "open", new[] { typeof(Vector3), typeof(Transform), typeof(float) })]
     public static class DoorOpenSyncPatch
     {
-        private static void Postfix(Door __instance)
+        private static void Prefix(Door __instance, out bool __state)
         {
+            __state = __instance != null && TraverseHack.ReadDoorOpened(__instance);
+        }
+
+        private static void Postfix(Door __instance, bool __state)
+        {
+            // Already open before this call — skip rebroadcast (client spam / already-open host).
+            if (__state) return;
             BroadcastDoorOpened(__instance);
         }
 

@@ -341,7 +341,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host: one heavy late-join phase per peer per frame (FindObjects / large scans).
+        /// Host: one heavy late-join phase per frame total (not one per peer).
         /// </summary>
         private void TickHeavyLateJoinBulk()
         {
@@ -390,7 +390,7 @@ namespace DWMPHorde.Networking
                             _pendingHeavyLateJoinBulk.Remove(playerId);
                             ModLog.Event(LogCat.Session,
                                 "Late-join heavy bulk complete → player " + playerId);
-                            continue;
+                            return;
                     }
                 }
                 catch (System.Exception ex)
@@ -410,6 +410,9 @@ namespace DWMPHorde.Networking
                 {
                     _pendingHeavyLateJoinBulk[playerId] = phase;
                 }
+
+                // One peer × one phase per frame — avoids stacked FOOT in flushPending.
+                return;
             }
         }
 
@@ -2363,6 +2366,19 @@ namespace DWMPHorde.Networking
 
             if (best == null)
             {
+                // Host-spawned spirit FX (def_glow / def_shadow) often have no durable
+                // GameEvents on the client. Queuing them → FindObjectsOfType every 0.5s
+                // for 90s → periodic stutters and dream-end failure.
+                if (IsEphemeralDreamFxEvent(msg.EventName)
+                    && DreamSyncManager.IsDreamActive
+                    && !padNotReady)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[GameEventsSync] drop missing ephemeral FX '" + msg.EventName
+                        + "' (no client GE — not queued)");
+                    return true;
+                }
+
                 if (queueIfMissing)
                 {
                     QueuePendingGameEvent(msg);
@@ -2443,9 +2459,10 @@ namespace DWMPHorde.Networking
                 var msg = _pendingGameEvents[i];
                 string n = msg.EventName ?? "";
                 bool dreamName = n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool ephemeral = IsEphemeralDreamFxEvent(n);
                 bool padPos = ClientStateBackup.IsDreamPadCoordinate(
                     new Vector3(msg.PosX, msg.PosY, msg.PosZ));
-                if (dreamName || padPos)
+                if (dreamName || ephemeral || padPos)
                 {
                     _pendingGameEvents.RemoveAt(i);
                     removed++;
@@ -2453,6 +2470,13 @@ namespace DWMPHorde.Networking
             }
             if (removed > 0)
                 ModRuntime.LegacyInfo($"[GameEventsSync] cleared {removed} pending dream GE(s) on dream end");
+        }
+
+        private static bool IsEphemeralDreamFxEvent(string eventName)
+        {
+            if (string.IsNullOrEmpty(eventName)) return false;
+            return eventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || eventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private float _nextPendingGameEventsFlushTime;
@@ -5921,6 +5945,15 @@ namespace DWMPHorde.Networking
         private bool _saveSyncBroadcastPending;
         private bool _saveSyncHostNeedsApply;
         private const float SaveSyncHostCooldownSec = 3f;
+        /// <summary>After any peer day/night death Save cascade — drop redundant SaveSync.</summary>
+        private float _deathSaveSyncSuppressUntil = -999f;
+        private const float DeathSaveSyncSuppressSec = 6f;
+
+        /// <summary>Arm after local/remote death so vanilla Save spam does not re-Save the host.</summary>
+        public void NoteDeathSaveSyncWindow()
+        {
+            _deathSaveSyncSuppressUntil = UnityEngine.Time.unscaledTime + DeathSaveSyncSuppressSec;
+        }
 
         /// <summary>
         /// After a local Save: host debounces broadcast; client requests host fan-out only.
@@ -5930,6 +5963,13 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             if (_isRemoteSaveInProgress) return;
             if (_role == NetworkRole.Offline) return;
+
+            if (UnityEngine.Time.unscaledTime < _deathSaveSyncSuppressUntil)
+            {
+                ModLog.Event(LogCat.Save,
+                    "SaveSync suppressed (death window) role=" + _role);
+                return;
+            }
 
             if (_role == NetworkRole.Host)
             {
@@ -6069,6 +6109,24 @@ namespace DWMPHorde.Networking
             {
                 if (_currentReceivePlayerId <= 0)
                     return;
+                if (UnityEngine.Time.unscaledTime < _deathSaveSyncSuppressUntil)
+                {
+                    ModLog.Event(LogCat.Save,
+                        "SaveSync ignore p" + _currentReceivePlayerId
+                        + " request — death suppress window");
+                    return;
+                }
+                // Host + peers already coordinated a Save within the debounce window
+                // (typical: end-dream vanilla Save on every box → host broadcast then
+                // client requests → second host Save ~3s later, upd≈400ms). Drop the
+                // redundant request; do not re-Save or re-broadcast.
+                if (UnityEngine.Time.unscaledTime - _lastSaveSyncBroadcastAt < SaveSyncHostCooldownSec)
+                {
+                    ModLog.Event(LogCat.Save,
+                        "SaveSync ignore p" + _currentReceivePlayerId
+                        + " request — recent host broadcast");
+                    return;
+                }
                 ModLog.Event(LogCat.Save,
                     "SaveSync request from p" + _currentReceivePlayerId + " → host debounce");
                 HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false);

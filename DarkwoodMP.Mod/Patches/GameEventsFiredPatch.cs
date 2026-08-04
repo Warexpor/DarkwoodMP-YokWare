@@ -75,6 +75,12 @@ namespace DWMPHorde.Patches
 
             string eventName = __instance.name ?? "";
 
+            // Host-spawned spirit FX — client rarely has a durable GameEvents at those
+            // coords; broadcasting queued FindObjectsOfType forever (dream-end stutter).
+            if (eventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || eventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
             // Dream scene can keep ticking one frame after session End — don't fan out.
             if (!string.IsNullOrEmpty(eventName)
                 && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0

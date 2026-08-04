@@ -15,6 +15,7 @@ namespace DWMPHorde.Logging
     {
         private static readonly Stopwatch Sw = new Stopwatch();
         private static readonly Stopwatch FootSw = new Stopwatch();
+        private static readonly Stopwatch SegSw = new Stopwatch();
 
         private static bool _active;
         private static string _roleTag = "?";
@@ -50,7 +51,16 @@ namespace DWMPHorde.Logging
         private static int _hostEntSendSnaps;
         private static int _hostEntSendCount;
 
+        private static string _segName;
+        private static string _lastSegName = "";
+        private static double _segMaxMs;
+        private static string _segMaxName = "";
+        private static double _frameSegMaxMs;
+        private static string _frameSegMaxName = "";
+
         private const float ReportInterval = 2f;
+        /// <summary>Log a one-shot Event when an Update sub-segment exceeds this (ms).</summary>
+        private const double SegSpikeMs = 25.0;
 
         public static bool IsActive => _active;
 
@@ -92,7 +102,53 @@ namespace DWMPHorde.Logging
             Array.Clear(_pktByType, 0, _pktByType.Length);
             _pendLure = _pendLock = _pendLight = _pendTrap = _pendFeeder = _pendSaw = _pendConstruct = 0;
             _hostEntSendSnaps = _hostEntSendCount = 0;
+            _segName = null;
+            _lastSegName = "";
+            _segMaxMs = 0;
+            _segMaxName = "";
+            _frameSegMaxMs = 0;
+            _frameSegMaxName = "";
             Sw.Reset();
+        }
+
+        /// <summary>
+        /// Begin a named Update sub-segment (after MarkPoll). End with
+        /// <see cref="EndUpdateSegment"/>. Uses a separate stopwatch — does not
+        /// disturb poll/upd accounting. Spikes ≥ <see cref="SegSpikeMs"/> emit Event.
+        /// Keep segments contiguous so a main-thread stall always lands in one name.
+        /// </summary>
+        public static void BeginUpdateSegment(string name)
+        {
+            if (!_active || string.IsNullOrEmpty(name)) return;
+            // Nested/overlapping Begin without End — close prior so gap isn't lost.
+            if (!string.IsNullOrEmpty(_segName))
+                EndUpdateSegment();
+            _segName = name;
+            SegSw.Restart();
+        }
+
+        public static void EndUpdateSegment()
+        {
+            if (!_active || string.IsNullOrEmpty(_segName)) return;
+            SegSw.Stop();
+            double ms = SegSw.Elapsed.TotalMilliseconds;
+            _lastSegName = _segName;
+            if (ms > _segMaxMs)
+            {
+                _segMaxMs = ms;
+                _segMaxName = _segName;
+            }
+            if (ms > _frameSegMaxMs)
+            {
+                _frameSegMaxMs = ms;
+                _frameSegMaxName = _segName;
+            }
+            if (ms >= SegSpikeMs)
+            {
+                ModLog.Event(LogCat.Core,
+                    "[PerfSeg] role=" + _roleTag + " " + _segName + "=" + ms.ToString("F1") + "ms");
+            }
+            _segName = null;
         }
 
         public static void FrameBegin()
@@ -109,13 +165,28 @@ namespace DWMPHorde.Logging
         {
             if (!_active) return;
             _pollMs += Sw.Elapsed.TotalMilliseconds;
+            _frameSegMaxMs = 0;
+            _frameSegMaxName = "";
             Sw.Restart();
         }
 
         public static void MarkUpdateRest()
         {
             if (!_active) return;
-            _updateRestMs += Sw.Elapsed.TotalMilliseconds;
+            // Close any open segment so its time is attributed before we stop upd.
+            if (!string.IsNullOrEmpty(_segName))
+                EndUpdateSegment();
+            double frameMs = Sw.Elapsed.TotalMilliseconds;
+            _updateRestMs += frameMs;
+            if (frameMs >= SegSpikeMs)
+            {
+                string hot = !string.IsNullOrEmpty(_frameSegMaxName)
+                    ? _frameSegMaxName + ":" + _frameSegMaxMs.ToString("F1")
+                    : "none";
+                ModLog.Event(LogCat.Core,
+                    "[PerfSeg] role=" + _roleTag + " updFrame=" + frameMs.ToString("F1")
+                    + "ms hotSeg=" + hot);
+            }
             Sw.Restart();
         }
 
@@ -294,6 +365,11 @@ namespace DWMPHorde.Logging
                 sb.Append(" | hostEntSend snaps=").Append(_hostEntSendSnaps);
                 sb.Append(" ents=").Append(_hostEntSendCount);
             }
+            if (_segMaxMs >= 1.0 && !string.IsNullOrEmpty(_segMaxName))
+            {
+                sb.Append(" | segMax=").Append(_segMaxName);
+                sb.Append(':').Append(_segMaxMs.ToString("F1"));
+            }
 
             ModLog.Event(LogCat.Core, sb.ToString());
             ResetAccumulators();
@@ -384,5 +460,7 @@ namespace DWMPHorde.Logging
             CoopPerfProbe.SetPendingCounts(lure, locks, light, trap, feeder, saw, construct);
         public static void NoteEntityBroadcast(int entityCount) =>
             CoopPerfProbe.NoteEntityBroadcast(entityCount);
+        public static void BeginUpdateSegment(string name) => CoopPerfProbe.BeginUpdateSegment(name);
+        public static void EndUpdateSegment() => CoopPerfProbe.EndUpdateSegment();
     }
 }
