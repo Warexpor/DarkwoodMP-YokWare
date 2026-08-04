@@ -116,11 +116,31 @@ namespace DWMPHorde.Patches
 
                 if (closestPlayer != null)
                 {
+                    float nearR = (float)__instance.nearViewDistance * __instance.aniSightRangeModifier;
                     bool needAcquire = __instance.target == null
                         || (__instance.target != closestPlayer
                             && __instance.behaviour != Character.Behaviour.chasingTarget);
                     if (needAcquire)
-                        __instance.attackCharacter(closestPlayer);
+                    {
+                        // Vanilla: far = sight/listen; near = chase commit.
+                        // Do not attackCharacter at farViewDistance (felt like aggro from too far).
+                        if (closestD <= nearR)
+                        {
+                            __instance.canSeeEnemyNear = true;
+                            __instance.canSeeEnemyFar = true;
+                            __instance.attackCharacter(closestPlayer);
+                        }
+                        else
+                        {
+                            __instance.canSeeEnemyFar = true;
+                            __instance.target = closestPlayer;
+                            if (__instance.aggressiveness != Aggressiveness.neutral
+                                && __instance.behaviour != Character.Behaviour.chasingTarget
+                                && __instance.behaviour != Character.Behaviour.escaping
+                                && __instance.behaviour != Character.Behaviour.running)
+                                __instance.stopAndListenTo(closestPlayer.position);
+                        }
+                    }
                 }
             }
 
@@ -290,12 +310,32 @@ namespace DWMPHorde.Patches
                 preferIsProxy = false;
             }
 
-            // Flee fauna (rabbits, ravens): do NOT force runAway toward proxy every
-            // canSeeEnemy tick — that looked like chasing both players. Vanilla AI
-            // already flees from the local Player body only.
+            // Flee fauna (rabbits, ravens): still flee from proxy like vanilla flees
+            // from Player — but never attackCharacter. Skipping flee entirely made
+            // client approach a no-op (crows stood on corpses). Do not spam:
+            // only (re)issue runAway when not already escaping/running from preferT.
             if (__instance.aggressiveness == Aggressiveness.flee ||
                 __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
             {
+                bool alreadyFleeingPrefer = __instance.target == preferT
+                    && (__instance.behaviour == Character.Behaviour.escaping
+                        || __instance.behaviour == Character.Behaviour.running);
+                if (!alreadyFleeingPrefer)
+                {
+                    __instance.target = preferT;
+                    __instance.canSeeEnemyFar = true;
+                    if (preferDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
+                        __instance.canSeeEnemyNear = true;
+                    if (__instance.flier != null && __instance.flier.inFlight)
+                    {
+                        // Still retarget flee while airborne so client scare isn't a no-op mid-flight.
+                        __instance.runAway(preferT.position);
+                    }
+                    else
+                        __instance.runAway(preferT.position);
+                    if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
+                        __instance.wantToDespawn = true;
+                }
                 return;
             }
 
@@ -339,9 +379,11 @@ namespace DWMPHorde.Patches
                 __instance.target = bestProxyT;
                 __instance.canSeeEnemyFar = true;
                 if (bestDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
+                {
                     __instance.canSeeEnemyNear = true;
-                if (__instance.behaviour != Character.Behaviour.chasingTarget)
-                    __instance.attackCharacter(bestProxyT);
+                    if (__instance.behaviour != Character.Behaviour.chasingTarget)
+                        __instance.attackCharacter(bestProxyT);
+                }
             }
             else if (preferIsProxy
                 && __instance.behaviour != Character.Behaviour.chasingTarget
@@ -350,7 +392,6 @@ namespace DWMPHorde.Patches
                 && __instance.attacksFaction(Faction.player))
             {
                 // Commit chase like vanilla near-sight acquisition on a real Player.
-                // Predators only — never rabbits/ravens that somehow reach this branch.
                 __instance.attackCharacter(preferT);
             }
         }
@@ -426,9 +467,11 @@ namespace DWMPHorde.Patches
                 return true;
 
             // Vanilla would remove because host is far;
-            // keep alive if nearest player (host or remote) is close enough
+            // keep alive only if nearest player is in a near band (not full 3500 stream radius)
+            // so temporary/fleeAndDespawn wildlife does not live forever across the map.
+            const float TempKeepRange = 1400f;
             bool keepAlive = false;
-            if (__instance.temporarySpawned && distSq <= 3500f * 3500f)
+            if (__instance.temporarySpawned && distSq <= TempKeepRange * TempKeepRange)
                 keepAlive = true;
             if (__instance.wantToDespawn && distSq <= 1500f * 1500f)
                 keepAlive = true;
@@ -454,8 +497,9 @@ namespace DWMPHorde.Patches
 
             float distSq = PlayerPositionManager.SqrDistanceToNearestPlayer(__instance.transform.position);
 
+            const float TempKeepRange = 1400f;
             bool removed = false;
-            if (__instance.temporarySpawned && distSq > 3500f * 3500f)
+            if (__instance.temporarySpawned && distSq > TempKeepRange * TempKeepRange)
             {
                 __instance.removeMe();
                 removed = true;
@@ -598,8 +642,11 @@ namespace DWMPHorde.Patches
 
                 case Aggressiveness.flee:
                 case Aggressiveness.fleeAndDespawn:
-                    // Do not runAway from proxy contact — constant flee-to-proxy felt like chase.
-                    // Vanilla still flees from the host Player body on Player collision.
+                    // Vanilla onCollideWith(Player) → runAway. Proxy has no Player —
+                    // restore flee-on-bump so client can scare rabbits/crows.
+                    __instance.runAway(proxy.transform.position);
+                    if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
+                        __instance.wantToDespawn = true;
                     return;
 
                 default:
@@ -868,6 +915,12 @@ namespace DWMPHorde.Patches
             if (__instance.aggressiveness != Aggressiveness.defensive)
                 __instance.aggressiveness = Aggressiveness.attackOnSight;
             __instance.attackCharacter(prefer);
+
+            // Event / temp spawns: do not inherit host bigLocation waypoints (dog walks
+            // to host macro map). Clear patrol; chase stays on the triggering player.
+            if (__instance.temporarySpawned && __instance.waypoints != null)
+                __instance.waypoints.Clear();
+
             return false;
         }
 

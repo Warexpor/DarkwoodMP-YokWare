@@ -56,6 +56,15 @@ namespace DWMPHorde.Audio
             new Dictionary<string, float>(StringComparer.Ordinal);
         private const float LocalPushAuthorityGrace = 1.25f;
 
+        /// <summary>
+        /// Names the local client just put in a PhysicsState send. Host echo of those
+        /// free-bodies must not arm MOS (native ItemSounds already playing = 2× scrape).
+        /// Wider than touch-based ownership: covers frames where colliders briefly miss.
+        /// </summary>
+        private static readonly Dictionary<string, float> _clientPhysicsSentUntil =
+            new Dictionary<string, float>(StringComparer.Ordinal);
+        private const float ClientPhysicsSentGrace = 2f;
+
         private static float _playerSlowSince = -1f;
 
         /// <summary>True if scrape start should be ignored for this object name.</summary>
@@ -156,6 +165,31 @@ namespace DWMPHorde.Audio
             _localPushAuthorityUntil[objectName] = Time.unscaledTime + LocalPushAuthorityGrace;
         }
 
+        /// <summary>
+        /// Client: mark free-body just serialized into outbound PhysicsState.
+        /// Prevents host echo from double-arming scrape for the pusher.
+        /// </summary>
+        public static void NoteClientPhysicsSent(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return;
+            _clientPhysicsSentUntil[objectName] = Time.unscaledTime + ClientPhysicsSentGrace;
+            NoteLocalPushAuthority(objectName);
+        }
+
+        /// <summary>True while this peer recently sent this free-body in PhysicsState.</summary>
+        public static bool HasRecentClientPhysicsSent(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName)) return false;
+            if (!_clientPhysicsSentUntil.TryGetValue(objectName, out float until))
+                return false;
+            if (Time.unscaledTime >= until)
+            {
+                _clientPhysicsSentUntil.Remove(objectName);
+                return false;
+            }
+            return true;
+        }
+
         /// <summary>True while NoteLocalPushAuthority grace is still live.</summary>
         public static bool HasRecentPushAuthority(string objectName)
         {
@@ -182,6 +216,7 @@ namespace DWMPHorde.Audio
             _remoteScrape.Clear();
             _localPushActive.Clear();
             _localPushAuthorityUntil.Clear();
+            _clientPhysicsSentUntil.Clear();
             _playerSlowSince = -1f;
         }
 

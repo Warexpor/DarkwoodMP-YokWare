@@ -314,7 +314,7 @@ namespace DWMPHorde.Sync
                 // Client free-body send: refresh authority so host PhysicsState echo cannot
                 // arm MOS while native ItemSounds owns the scrape (round-trip latency gap).
                 if (net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
-                    ItemMovingSoundHelper.NoteLocalPushAuthority(rootName);
+                    ItemMovingSoundHelper.NoteClientPhysicsSent(rootName);
             }
         }
 
@@ -1053,7 +1053,8 @@ namespace DWMPHorde.Sync
                             && echoNet.Role == NetworkRole.Client
                             && !string.IsNullOrEmpty(obj.Name)
                             && (ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name)
-                                || ItemMovingSoundHelper.HasRecentPushAuthority(obj.Name));
+                                || ItemMovingSoundHelper.HasRecentPushAuthority(obj.Name)
+                                || ItemMovingSoundHelper.HasRecentClientPhysicsSent(obj.Name));
                         if (localDragClaim
                             || clientLocalFreeBody
                             || (!string.IsNullOrEmpty(obj.Name)

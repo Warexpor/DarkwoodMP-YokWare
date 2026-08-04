@@ -64,6 +64,14 @@ namespace DWMPHorde.Networking
         public byte HealthPct;
         public string EntityName;
         public string PrefabPath;
+        /// <summary>bit0=sleeping, bit1=eating (protocol 20+).</summary>
+        public byte Flags;
+
+        public const byte FlagSleeping = 1;
+        public const byte FlagEating = 2;
+
+        public bool Sleeping => (Flags & FlagSleeping) != 0;
+        public bool Eating => (Flags & FlagEating) != 0;
 
         public void Serialize(NetWriter w)
         {
@@ -76,6 +84,7 @@ namespace DWMPHorde.Networking
             w.Put(HealthPct);
             w.Put(EntityName ?? "");
             w.Put(PrefabPath ?? "");
+            w.Put(Flags);
         }
 
         public static EntitySnapshotNet Deserialize(NetReader r) => new EntitySnapshotNet
@@ -90,7 +99,8 @@ namespace DWMPHorde.Networking
             Alive = r.GetBool(),
             HealthPct = r.GetByte(),
             EntityName = r.GetString(),
-            PrefabPath = r.GetString()
+            PrefabPath = r.GetString(),
+            Flags = r.GetByte()
         };
     }
 

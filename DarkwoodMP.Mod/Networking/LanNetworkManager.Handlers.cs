@@ -1313,6 +1313,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Client: set up deathDrop Item on host-dead NPCs (AI die does not run locally).
         /// Called from Update, not from EntityState RX (avoids poll hitch every 2s).
+        /// Waits for death anim (or CorpseFinalizeDelay) so pose is not frozen mid-clip.
         /// </summary>
         private void TickClientCorpseSetup()
         {
@@ -1330,6 +1331,11 @@ namespace DWMPHorde.Networking
                 if (c.alive && c.Health > 0) continue;
                 if (c.GetComponent<Item>() != null) continue;
 
+                // Arm deferred corpse if die() patch missed (late join / already dead).
+                ClientEntityInterpolationService.NoteClientDeathForCorpse(c);
+                if (!ClientEntityInterpolationService.ShouldFinalizeClientCorpse(c))
+                    continue;
+
                 Item item = c.gameObject.AddComponent<Item>();
                 item.name = c.name.ToLower() + "_corpse";
                 if (c.searched)
@@ -1339,6 +1345,7 @@ namespace DWMPHorde.Networking
                     c.inventory.invType = Inventory.InvType.deathDrop;
 
                 c.isActive = false;
+                ClientEntityInterpolationService.ClearPendingCorpse(c);
 
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[Death] Set up corpse for '{c.name}' at {c.transform.position}");
@@ -4921,63 +4928,10 @@ namespace DWMPHorde.Networking
 
         private void HandleWorkbenchLock(WorkbenchLockMessage msg)
         {
-            if (string.IsNullOrEmpty(msg.WorkbenchKey)) return;
-
-            if (_role == NetworkRole.Host)
-            {
-                if (msg.Release)
-                {
-                    int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _currentReceivePlayerId;
-                    Sync.WorkbenchOpenLock.HostRelease(this, msg.WorkbenchKey, owner);
-                    return;
-                }
-                if (msg.IsRequest || !msg.Granted)
-                {
-                    int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _currentReceivePlayerId;
-                    Sync.WorkbenchOpenLock.HostTryGrant(this, msg.WorkbenchKey, owner);
-                }
-                return;
-            }
-
-            // Client: mirror host lock state.
-            if (msg.Release)
-            {
-                Sync.WorkbenchOpenLock.Release(msg.WorkbenchKey, msg.OwnerPlayerId);
-                return;
-            }
-
-            if (msg.Granted)
-            {
-                Sync.WorkbenchOpenLock.TryAcquire(msg.WorkbenchKey, msg.OwnerPlayerId);
-                return;
-            }
-
-            // Denied for requestor only.
-            if (msg.OwnerPlayerId != LocalPlayerId)
-                return;
-
-            Sync.WorkbenchOpenLock.Release(msg.WorkbenchKey, msg.OwnerPlayerId);
-            try
-            {
-                var player = Player.Instance;
-                if (player != null && player.openedItemInventory != null)
-                {
-                    Workbench wb = player.openedItemInventory.GetComponent<Workbench>();
-                    if (wb == null)
-                        wb = player.openedItemInventory.transform.parent?.GetComponent<Workbench>();
-                    if (wb != null && Sync.WorkbenchOpenLock.KeyFor(wb) == msg.WorkbenchKey)
-                    {
-                        try { wb.close(); } catch { /* ignore */ }
-                        try { player.closeOpenedItemInventory(); } catch { /* ignore */ }
-                    }
-                }
-                player?.displayMessage("Someone is already using the workbench…");
-            }
-            catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[WorkbenchLock] deny close: " + ex.Message);
-            }
+            // PARKED 0.7.40: exclusive workbench open disabled — ignore wire traffic.
+            // Keep handler so protocol 19 WorkbenchLock packets do not warn/unknown.
+            // Old grant/deny/release body lived here; restore from git history 0.7.39 if needed.
+            _ = msg;
         }
 
         private static void SyncItemAmount(Inventory inv, string itemType, int desiredAmount)
@@ -8242,6 +8196,14 @@ namespace DWMPHorde.Networking
                     case EntitySoundType.Escaping:
                         c.sounds.playEscapingLoop();
                         break;
+                    case EntitySoundType.EscapingStart:
+                        if (!string.IsNullOrEmpty(c.sounds.escapingStart))
+                            c.sounds.playSingleInstance(c.sounds.escapingStart);
+                        break;
+                    case EntitySoundType.EscapingStart2:
+                        if (!string.IsNullOrEmpty(c.sounds.escapingStart2))
+                            c.sounds.play(c.sounds.escapingStart2);
+                        break;
                     case EntitySoundType.Attack1:
                         if (!string.IsNullOrEmpty(c.sounds.attack1))
                             c.sounds.play(c.sounds.attack1);
@@ -8251,11 +8213,13 @@ namespace DWMPHorde.Networking
                             c.sounds.play(c.sounds.attack2);
                         break;
                     case EntitySoundType.Death:
-                        if (!string.IsNullOrEmpty(c.sounds.death))
-                            c.sounds.play(c.sounds.death);
+                        // Same path as Alive->dead snap — one death SFX max.
+                        ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
                         break;
                     case EntitySoundType.GetHit:
-                        // Decompile: playGetHitByAxe1 is the public get-hit one-shot.
+                        // Attacker already played local hit presentation — skip echo.
+                        if (ClientEntityInterpolationService.ShouldIgnoreGetHitEcho(msg.HostId))
+                            break;
                         c.sounds.playGetHitByAxe1();
                         break;
                     default:
@@ -8910,7 +8874,8 @@ namespace DWMPHorde.Networking
             {
                 // Local pusher/dragger still owns native ItemSounds — host quiet/stop echo
                 // must not kill our scrape mid-push (same double-scrape family).
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName))
+                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName)
+                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
                 {
                     DWMPHorde.Audio.MovingObjectSoundService.StopImmediate(msg.ObjectName);
                     return;
@@ -8933,7 +8898,8 @@ namespace DWMPHorde.Networking
                 if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
                     return;
                 // Local free-body pusher hears native ItemSounds only — never arm MOS/PlayerAudio.
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName))
+                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName)
+                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
                     return;
                 // Already playing via PhysicsState→MOS: ignore redundant start (T2).
                 if (DWMPHorde.Audio.MovingObjectSoundService.IsPlaying(msg.ObjectName))

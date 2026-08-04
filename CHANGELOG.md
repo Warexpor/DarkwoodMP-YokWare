@@ -2,11 +2,104 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.39** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.43** and continue from there.
 
-Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
+Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **21** (unchanged from 0.7.42).
 
 ---
+
+## 0.7.43 — Client entity present: death SFX, floaty roam, corpse vanish, claim (2026-08-04)
+
+Playtest after 0.7.42: rabbit runs in then freezes/vanishes on approach; roaming dogs float with no anim until aggro; client kill = silent death; looted dog corpse disappears in front of client. **Protocol 21** (no wire change — both boxes still need this DLL).
+
+### Roots
+- **EntitySound send cull used 3D distance** while interest is XZ-only — player Y ~−1984 vs NPC Y can exceed 1400 and drop Death/flee SFX. `IsNearAnyListener` now XZ.
+- **Death SFX** also plays on Alive→dead snap (`NoteLocalDeathPresentation`); EntitySound Death shares that path (one play max). Fixes silent kill when host cull/order races.
+- **Floaty roam:** after `SetActive` cycle, clip name stuck while `Playing=false` — restart clip when stopped.
+- **Corpse vanish:** phantom stale cleanup `Destroy`’d dead GOs ~5s after host stopped streaming; far-target hide used host pos while local corpse still at feet. Never hide/destroy dead/Item corpses; hide only when **local** pos is outside interest.
+- **`EnsureEntityAwake`** no longer force-revives `isActive` on corpses.
+- **`ClaimClosestRadius` 250→60** (log: claimed Dog at d=214).
+
+### Files
+- `LocalAudioService.cs`, `ClientEntityInterpolationService.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.43**, proto **21**)
+
+## 0.7.42 — Entity audio / AI root-cause (flee SFX, hit react, far aggro, roam) (2026-08-04)
+
+Playtest after 0.7.41: crow flee silent on client; wrong/double entity loops; beartrap death 2×; client melee no hit SFX/Hit roll; dogs aggro from too far; fled crows freeze mid-map; too many visible roamers; micro-event dog walks off to host waypoints. **Protocol 21** (EscapingStart/Start2 — both boxes must update).
+
+### EntitySound = vanilla CharacterSounds surface
+- Forward `escapingStart` / `escapingStart2`; suppress nested Idle while `playEscapingLoop` (single Escaping message).
+- Resolved idle loop name (`idleLoopAggressive` when chasing).
+- Client host-synced: `die2` soundless; suppress local `play`/`playSingleInstance`/foot (EntitySound + PlayerAudio own them) — fixes beartrap death triple.
+
+### Client melee hit presentation
+- On `PlayerAttack` send: local `playGetHitByAxe1` + `Hit1/2/3`; ignore host GetHit echo ~0.35s.
+
+### Far aggro
+- `HostCanSeeEnemyPatch` CASE 3: `attackCharacter` only within **nearViewDistance**; far = listen/sight flags.
+- EotF / ProxyAggro: commit only at near (smell alone no longer far-instant attacks).
+
+### Lifecycle / presentation
+- `StopDriving` / far snaps: hide fleeing/phantom entities (no frozen crow statues).
+- Outside interest: deactivate never-host-synced locals.
+- `HostCheckStuffPatch`: temp keep-alive **1400** (not 3500).
+- Event/temp dogs: clear host `bigLocation` waypoints after `spawnCharacterAround` / `attackPlayer` redirect.
+
+### Files
+- `EntitySoundSyncPatches.cs`, `SyncMessages.cs`, `LanNetworkManager.Handlers.cs`, `ClientEntityInterpolationService.cs`, `ClientCombatPatches.cs`, `HostAIPatches.cs`, `LanNetworkManager.cs`, `NightSpawnRedirectPatches.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.42**, proto **21**)
+
+## 0.7.41 — Entity P1 audit pass (broadcast, interest, sleep/eat, corpse) (2026-08-04)
+
+Composer audit vs vanilla `Character*`: no confirmed P0; ship residual P1s. **Protocol 20** (EntityState `Flags` byte — both boxes must update).
+
+### Broadcast starvation
+- Cap **192 → 256**; two-pass fill (near 1400 any player first, then 3500 band) so dense night packs do not starve combat NPCs at end of tracker list.
+
+### Client interest vs destroy
+- Keep drive/wake interest at **1400** (FPS; host still streams 3500).
+- Unmatched/unmapped destroy only **inside interest**; grace **3s**; pending match **0.9s** — far save NPCs stay for claim when the player walks up.
+
+### Sleep / eat on wire
+- `EntitySnapshotNet.Flags` bit0=sleeping bit1=eating; client applies to `Character.sleeping` / `eating` so corpse-eating / sleep pose is not idle-only.
+
+### ProxyAggro LOS
+- `ProxyAggroCheck` now requires FOV+raycast (or smell) like `HostCanSeeEnemyPatch` — no through-wall predator acquire on nearView alone.
+
+### Client corpse pipeline
+- `CharacterDeathCorpsePatch` transfers death inventory only; Item + `isActive=false` deferred to `TickClientCorpseSetup` after death anim or **1.2s** (avoids freezing mid-death clip).
+
+### Files
+- `EntityStateBroadcastService.cs`, `WorldMessages.cs`, `ClientEntityInterpolationService.cs`, `LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`, `CharacterDeathCorpsePatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.41**, proto **20**)
+
+## 0.7.40 — Flee from client, phantom dogs, client scrape 2×, workbench lock off (2026-08-04)
+
+Playtest 0.7.39 entity pass: crows/rabbits ignored the client (stood on corpses); client saw extra stale dogs (no anim) next to live synced ones; client push/drag scrape felt doubled; workbench exclusive-open message unwanted. **Protocol 19 unchanged.**
+
+### Flee fauna vs client (P0)
+- 0.7.39 skipped *all* proxy flee to stop "chase feel" — client approach became a no-op (host AI never `runAway` from proxy).
+- **Fix:** host `canSeeEnemy` / proxy collide restore `runAway(proxy)` for `flee` / `fleeAndDespawn` only (no `attackCharacter`). Still skip ProxyAggro 0.5s spam.
+
+### Client phantom / stale dogs (P0)
+- Pending match timed out at **0.2s** + MatchRadius **15** → `AddPrefab` phantom while save NPC sat elsewhere → duplicate frozen twin (AI off, no EntityState).
+- Unmatched cleanup skipped characters **without** a stable id → ghosts never culled.
+- **Fix:** claim closest same-name within **250** before phantom; pending timeout **0.6s**; destroy unmapped locals after grace.
+
+### Client double scrape (P1)
+- Host PhysicsState echo could arm MOS while native `ItemSounds` already played for the pusher.
+- **Fix:** `NoteClientPhysicsSent` grace (2s) on outbound free-bodies; ApplySnapshot / MOS / PlayerAudio honor it.
+
+### Workbench lock (parked)
+- Exclusive open + "Someone is already using the workbench…" **disabled** (patches + handler no-op). Wire ID kept.
+
+### Parked
+- Crafting item desync if both use same bench at once (expected with lock off).
+
+### Files
+- `HostAIPatches.cs`, `ClientEntityInterpolationService.cs`, `ItemMovingSoundHelper.cs`, `MovingObjectSoundService.cs`, `WorldPhysicsSyncService.cs`, `WorkbenchLockPatches.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.40**)
 
 ## 0.7.39 — Walkie hitch, flee-fauna chase, scrape/Save/door hygiene (2026-08-04)
 

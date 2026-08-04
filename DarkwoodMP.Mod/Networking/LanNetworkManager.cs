@@ -1385,10 +1385,47 @@ namespace DWMPHorde.Networking
 
                     // Sniffer: within smell radius → aggro (was inverted: skipped when close).
                     Sniffer entitySniffer = c.GetComponent<Sniffer>();
-                    bool inSniff = entitySniffer != null && distToProxy < entitySniffer.radius;
+                    float sniffRadius = entitySniffer != null ? entitySniffer.radius : 0f;
+                    bool inSniff = entitySniffer != null && distToProxy < sniffRadius;
 
-                    float proxRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
-                    if (!inSniff && (proxRange <= 0f || distToProxy > proxRange))
+                    float nearRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
+                    // Commit only at nearView (vanilla). Smell alone must not instant-attack from afar.
+                    if (nearRange <= 0f || distToProxy > nearRange)
+                    {
+                        skippedFar++;
+                        continue;
+                    }
+
+                    // Match HostCanSeeEnemyPatch: FOV + raycast (or smell without LOS at near).
+                    Vector3 toProxy = proxyT.position - c.transform.position;
+                    bool inFOV = Vector3.Angle(toProxy, c.transform.up) <= (float)c.fieldOfViewRange;
+                    if (!inFOV && !inSniff)
+                    {
+                        skippedFar++;
+                        continue;
+                    }
+
+                    bool detected = false;
+                    if (inSniff && !inFOV)
+                    {
+                        detected = true;
+                    }
+                    else
+                    {
+                        Collider myCollider = c.GetComponent<Collider>();
+                        if (Physics.Raycast(c.transform.position, toProxy, out var hit, distToProxy,
+                                GameplayConstants.HitscanLayerMask))
+                        {
+                            if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
+                            {
+                                RemotePlayerProxy hitProxy = hit.collider.GetComponentInParent<RemotePlayerProxy>();
+                                if (hitProxy != null && hitProxy == proxy)
+                                    detected = true;
+                            }
+                        }
+                    }
+
+                    if (!detected)
                     {
                         skippedFar++;
                         continue;
