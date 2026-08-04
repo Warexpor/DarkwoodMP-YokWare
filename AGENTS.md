@@ -9,7 +9,7 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 |------|------|
 | **Project (repo)** | `C:\MyProjects\DarkwoodMP-YokWare` |
 | **Host game (Steam)** | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood` |
-| **Client game (SecondDarkwood)** | `C:\MyProjects\SecondDarkwood\Darkwood` |
+| **Client game (SecondDarkwood)** | `C:\MyProjects\SecondDarkwood\Darkwood` (**GOG** Galaxy build — not Steam) |
 | **Vanilla decompile** | `C:\Users\amicu\Desktop\Darkwood DECOMPILED` |
 | **Decompile C#** | `C:\Users\amicu\Desktop\Darkwood DECOMPILED\Scripts\Assembly-CSharp` |
 | **Host BepInEx / log** | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood\BepInEx\` → `LogOutput.log` |
@@ -18,6 +18,8 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 | **Client plugin deploy** | `C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins\DarkwoodMP.Mod.dll` |
 
 Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Darkwood_Second` (do not share Steam AppData with host).
+
+**Steamworks co-op:** SecondDarkwood is **GOG** (`Galaxy64.dll` / `goggame-1578751181.*`) — `SteamManager` never inits there. Dual-box Steam host/join is impossible; use **LAN** for Steam+SecondDarkwood, or two real Steam installs/accounts for SNS. **0.7.47:** Steam↔Steam UI timeout 35s, early invite callbacks, host SNS accept without lobby-member race, relay warm retry.
 
 ## Dream bunker “dialogue door” (fact)
 
@@ -37,7 +39,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.46**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.47**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
 - **Protocol:** 22 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam

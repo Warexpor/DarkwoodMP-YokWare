@@ -581,13 +581,16 @@ namespace DWMPHorde.Networking.Steam
         {
             if (!_lobbyId.IsValid() || !steamId.IsValid())
                 return false;
+            // Classic P2P accepted any host-side session. Member-list lag after JoinLobby
+            // used to refuse valid clients (n>=1 host-only → not-in-list → CloseConnection).
+            if (_hosting)
+                return true;
             int n = SteamMatchmaking.GetNumLobbyMembers(_lobbyId);
             for (int i = 0; i < n; i++)
             {
                 if (SteamMatchmaking.GetLobbyMemberByIndex(_lobbyId, i) == steamId)
                     return true;
             }
-            // Soft: allow if lobby member list not yet populated
             return n == 0;
         }
 

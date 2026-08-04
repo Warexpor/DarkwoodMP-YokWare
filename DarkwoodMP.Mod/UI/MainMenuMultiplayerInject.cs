@@ -31,6 +31,8 @@ namespace DWMPHorde
         private const float RowSpacing = 60f;
         private const int UiPollInterval = 15;
         private const float JoinTimeoutSec = 15f;
+        /// <summary>Steam SNS: lobby enter + ConnectP2P (20s) + handshake headroom.</summary>
+        private const float SteamJoinTimeoutSec = 35f;
 
         private static MainMenu _menu;
         private static GameObject _mpButton;
@@ -884,8 +886,10 @@ namespace DWMPHorde
                 return;
             }
 
+            bool steamJoin = net.IsSteamSession;
+            float joinTimeout = steamJoin ? SteamJoinTimeoutSec : JoinTimeoutSec;
             if (net.Role == NetworkRole.Offline
-                || Time.realtimeSinceStartup - _joinStartedAt > JoinTimeoutSec)
+                || Time.realtimeSinceStartup - _joinStartedAt > joinTimeout)
             {
                 bool wasTimeout = net.Role != NetworkRole.Offline;
                 _joinPending = false;
@@ -895,7 +899,9 @@ namespace DWMPHorde
                 RefreshSessionButtons();
                 ModLog.Event(LogCat.Session,
                     wasTimeout
-                        ? "Join timeout — check IP/port/password in SETTINGS (and firewall)."
+                        ? (steamJoin
+                            ? "Steam join timeout — lobby id / password / proto / friends, or SNS relay."
+                            : "Join timeout — check IP/port/password in SETTINGS (and firewall).")
                         : "Connection closed.");
             }
         }
@@ -1067,10 +1073,15 @@ namespace DWMPHorde
 
         private static void TryConsumeSteamLaunchLobby()
         {
-            if (_launchLobbyTried)
-                return;
             var net = ModRuntime.Network;
             if (net == null)
+                return;
+
+            // Register overlay-invite + SNS status callbacks as soon as Network exists
+            // (do not wait for HOST/JOIN STEAM — otherwise invites are dropped).
+            net.EnsureSteamCallbacks();
+
+            if (_launchLobbyTried)
                 return;
             // Wait until title is up so Soft reconnect / mid-load does not steal the invite.
             try
