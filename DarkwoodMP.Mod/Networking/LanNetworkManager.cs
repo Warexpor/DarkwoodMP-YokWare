@@ -2157,6 +2157,10 @@ namespace DWMPHorde.Networking
                             HandleActivateCursorAction(
                                 ActivateCursorActionMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.LocationTransport:
+                            HandleLocationTransport(
+                                LocationTransportMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.ConstructibleConstruction:
                             HandleConstructible(ConstructibleMessage.Deserialize(new NetReader(payload)));
                             break;

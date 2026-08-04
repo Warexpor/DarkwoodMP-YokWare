@@ -773,4 +773,26 @@ namespace DWMPHorde.Networking
                 ObjectName = r.GetString()
             };
     }
+
+    /// <summary>
+    /// Host→requesting client: run OutsideLocations.createLocation (spawn + transport).
+    /// </summary>
+    public struct LocationTransportMessage
+    {
+        public string LocationName;
+        public bool FromWorld;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(LocationName ?? "");
+            w.Put(FromWorld);
+        }
+
+        public static LocationTransportMessage Deserialize(NetReader r) =>
+            new LocationTransportMessage
+            {
+                LocationName = r.GetString(),
+                FromWorld = r.GetBool()
+            };
+    }
 }

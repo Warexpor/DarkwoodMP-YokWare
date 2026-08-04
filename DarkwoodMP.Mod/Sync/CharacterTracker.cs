@@ -144,7 +144,9 @@ namespace DWMPHorde.Sync
                         && !string.Equals(cName + "(Clone)", searchName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    float dSq = (c.transform.position - pos).sqrMagnitude;
+                    float dx = c.transform.position.x - pos.x;
+                    float dz = c.transform.position.z - pos.z;
+                    float dSq = dx * dx + dz * dz;
                     if (dSq < radiusSq && dSq < bestDistSq)
                     {
                         bestDistSq = dSq;
@@ -186,7 +188,9 @@ namespace DWMPHorde.Sync
                     if (!string.Equals(cName, searchName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    float dSq = (c.transform.position - pos).sqrMagnitude;
+                    float dx = c.transform.position.x - pos.x;
+                    float dz = c.transform.position.z - pos.z;
+                    float dSq = dx * dx + dz * dz;
                     if (dSq < bestDistSq)
                     {
                         bestDistSq = dSq;

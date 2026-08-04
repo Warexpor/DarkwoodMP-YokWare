@@ -85,37 +85,50 @@ namespace DWMPHorde.Networking
             return nearest;
         }
 
-        /// <summary>Returns true if any player (host or remote) is within sqrDist of fromPos.</summary>
+        /// <summary>Returns true if any player (host or remote) is within sqrDist of fromPos (XZ).</summary>
         public static bool IsAnyPlayerWithinSq(Vector3 fromPos, float sqrDist)
         {
-            if (Vector3.SqrMagnitude(_hostPos - fromPos) < sqrDist) return true;
+            float dxh = _hostPos.x - fromPos.x;
+            float dzh = _hostPos.z - fromPos.z;
+            if (dxh * dxh + dzh * dzh < sqrDist) return true;
             foreach (var kvp in _remotePlayers)
             {
                 if ((Time.time - kvp.Value.LastUpdateTime) >= 3f) continue;
-                if (Vector3.SqrMagnitude(kvp.Value.Position - fromPos) < sqrDist) return true;
+                Vector3 p = kvp.Value.Position;
+                float dx = p.x - fromPos.x;
+                float dz = p.z - fromPos.z;
+                if (dx * dx + dz * dz < sqrDist) return true;
             }
             return false;
         }
 
-        /// <summary>Returns true if any remote player is within sqrDist of fromPos.</summary>
+        /// <summary>Returns true if any remote player is within sqrDist of fromPos (XZ).</summary>
         public static bool IsAnyRemoteWithinSq(Vector3 fromPos, float sqrDist)
         {
             float now = Time.time;
             foreach (var kvp in _remotePlayers)
             {
                 if (now - kvp.Value.LastUpdateTime >= 3f) continue;
-                if (Vector3.SqrMagnitude(kvp.Value.Position - fromPos) < sqrDist) return true;
+                Vector3 p = kvp.Value.Position;
+                float dx = p.x - fromPos.x;
+                float dz = p.z - fromPos.z;
+                if (dx * dx + dz * dz < sqrDist) return true;
             }
             return false;
         }
 
         public static float SqrDistanceToNearestPlayer(Vector3 fromPos)
         {
-            float d = Vector3.SqrMagnitude(_hostPos - fromPos);
+            float dxh = _hostPos.x - fromPos.x;
+            float dzh = _hostPos.z - fromPos.z;
+            float d = dxh * dxh + dzh * dzh;
             foreach (var kvp in _remotePlayers)
             {
                 if ((Time.time - kvp.Value.LastUpdateTime) >= 3f) continue;
-                float dr = Vector3.SqrMagnitude(kvp.Value.Position - fromPos);
+                Vector3 p = kvp.Value.Position;
+                float dx = p.x - fromPos.x;
+                float dz = p.z - fromPos.z;
+                float dr = dx * dx + dz * dz;
                 if (dr < d) d = dr;
             }
             return d;

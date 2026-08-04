@@ -458,7 +458,7 @@ namespace DWMPHorde.Patches
                 : float.MaxValue;
 
             bool vanillaWouldRemove = false;
-            if (__instance.temporarySpawned && distToHost > 3500f)
+            if (__instance.temporarySpawned && distToHost > GameplayConstants.EntityActivationRange)
                 vanillaWouldRemove = true;
             if (__instance.wantToDespawn && distToHost > 1500f)
                 vanillaWouldRemove = true;
@@ -778,7 +778,7 @@ namespace DWMPHorde.Patches
             if (!PlayerPositionManager.HasRemotePlayer)
                 return;
 
-            float activationRange = 3500f;
+            float activationRange = GameplayConstants.EntityActivationRange;
             if (__instance.currentGrid == null) return;
             var nodes = __instance.currentGrid.nodes;
 
@@ -818,7 +818,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             Vector2 np = __instance.position;
-            float activationRange = 3500f;
+            float activationRange = GameplayConstants.EntityActivationRange;
 
             foreach (Vector3 proxyPos in PlayerPositionManager.GetAllRemotePositions())
             {

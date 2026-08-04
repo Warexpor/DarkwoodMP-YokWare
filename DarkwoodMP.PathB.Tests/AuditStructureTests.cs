@@ -367,9 +367,9 @@ public class AuditStructureTests
     public void Wire_PathBIsProtocol19_VersionIs07x_Not10()
     {
         var plugin = ReadMod("PluginInfo.cs");
-        Assert.Contains("ProtocolVersion = 21", plugin);
+        Assert.Contains("ProtocolVersion = 22", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.43", plugin);
+        Assert.Contains("0.7.46", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
@@ -504,9 +504,9 @@ public class AuditStructureTests
         Assert.Contains("DreamPropCollider = 128", netTypes);
         Assert.Contains("VoiceData = 129", netTypes);
         Assert.Contains("ActivateCursorAction = 130", netTypes);
-        Assert.Contains("_Highest = 130", netTypes);
-        // Protocol stays 19 (optional messages).
-        Assert.Contains("ProtocolVersion = 21", ReadMod("PluginInfo.cs"));
+        Assert.Contains("LocationTransport = 131", netTypes);
+        Assert.Contains("_Highest = 131", netTypes);
+        Assert.Contains("ProtocolVersion = 22", ReadMod("PluginInfo.cs"));
 
         var worldMsgs = ReadMod("Networking", "Messages", "WorldMessages.cs");
         Assert.Contains("FeederStateMessage", worldMsgs);

@@ -12,11 +12,11 @@ namespace DWMPHorde
         /// BepInEx plugin version (semver). 0.7.x = active Path B line.
         /// Earlier "0.9.x" labels were too ambitious — see CHANGELOG Versioning.
         /// </summary>
-        public const string Version = "0.7.43";
+        public const string Version = "0.7.46";
         /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.7.43 Path B (entity present/death SFX)";
-        /// <summary>Horde LAN wire protocol. 21 = EntitySound EscapingStart/Start2.</summary>
-        public const int ProtocolVersion = 21;
+        public const string DisplayVersion = "0.7.46 Path B (death grid + destroy/light/attack)";
+        /// <summary>Horde LAN wire protocol. 22 = LocationTransport (per-player bunker enter).</summary>
+        public const int ProtocolVersion = 22;
         public const int DefaultPort = 7788;
         public const string Authors = "Warexpor & Yokyy";
         public const string Description = "Darkwood co-op — Horde host-authoritative sync (Path B)";

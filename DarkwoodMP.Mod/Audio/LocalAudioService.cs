@@ -16,6 +16,8 @@ namespace DWMPHorde.Audio
         public const float DefaultMaxAudioDistance = 650f;
         public const float DefaultMinSpatialDistance = 30f;
         public const float DefaultMaxSpatialDistance = 650f;
+        /// <summary>Peer hear gate: stay open until exit band so boundary walking does not flicker Play on/off.</summary>
+        public const float PeerHearHysteresis = 40f;
         public const float ForwardMinIntervalSec = 0.08f;
 
         private static readonly Dictionary<string, float> _lastForwardTime =
@@ -23,6 +25,9 @@ namespace DWMPHorde.Audio
 
         private static readonly Dictionary<string, AudioClip> _clipCache =
             new Dictionary<string, AudioClip>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Per-peer sticky hear gate (enter at max, exit at max+hysteresis).</summary>
+        private static readonly Dictionary<int, bool> _peerHearOpen = new Dictionary<int, bool>(8);
 
         /// <summary>
         /// Where the local player is listening from (spectator target when spectating).
@@ -72,6 +77,38 @@ namespace DWMPHorde.Audio
         public static bool IsNearListenerXz(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
         {
             return DistanceToListenerXz(worldPosition) <= maxDistance;
+        }
+
+        /// <summary>
+        /// Peer world SFX gate with XZ + hysteresis. Enter at <paramref name="maxDistance"/>,
+        /// exit at max+<see cref="PeerHearHysteresis"/> — stops footstep Play flicker at the edge.
+        /// </summary>
+        public static bool IsPeerAudioInRange(int peerId, Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
+        {
+            float d = DistanceToListenerXz(worldPosition);
+            bool open = _peerHearOpen.TryGetValue(peerId, out bool was) && was;
+            if (open)
+            {
+                if (d > maxDistance + PeerHearHysteresis)
+                    open = false;
+            }
+            else if (d <= maxDistance)
+            {
+                open = true;
+            }
+            _peerHearOpen[peerId] = open;
+            return open;
+        }
+
+        /// <summary>Stateless peer/world gate: XZ with exit band (suppression path without peer id).</summary>
+        public static bool IsNearListenerPeerBand(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
+        {
+            return DistanceToListenerXz(worldPosition) <= maxDistance + PeerHearHysteresis;
+        }
+
+        public static void ResetPeerHearGates()
+        {
+            _peerHearOpen.Clear();
         }
 
         /// <summary>

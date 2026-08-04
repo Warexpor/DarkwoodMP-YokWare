@@ -30,10 +30,10 @@ namespace DWMPHorde.Networking
 
         private const float SnapshotInterval = 0.1f;
         private const float MaxInterpDelay = 0.3f;
-        /// <summary>Was 0.2s / 0.6s — give claim/inactive match more time before phantom.</summary>
-        private const float PendingMatchTimeout = 0.9f;
-        private const float MatchRadius = 15f;
-        /// <summary>Claim existing same-name NPC before AddPrefab phantom (save pos drift). Was 250 — claimed dogs at 214u and teleported wrong locals.</summary>
+        /// <summary>Was 0.9s — give XZ claim/inactive match more time before phantom on save POIs.</summary>
+        private const float PendingMatchTimeout = 1.5f;
+        private const float MatchRadius = 25f;
+        /// <summary>Claim existing same-name NPC before AddPrefab phantom (save pos drift). Was 250 — claimed dogs at 214u.</summary>
         private const float ClaimClosestRadius = 60f;
         private const float PhantomCleanupDelay = 5f;
         /// <summary>Grace before destroying local-only NPCs inside interest (was 1s — too eager).</summary>
@@ -44,8 +44,8 @@ namespace DWMPHorde.Networking
         private const float CorpseFinalizeDelay = 1.2f;
 
         /// <summary>
-        /// Host entity broadcast radius is ~3500. Applying those far snapshots called
-        /// EnsureEntityAwake (SetActive + isActive) on WorldGrid-culled NPCs map-wide →
+        /// Host entity broadcast radius matches client interest (~1400). Applying far
+        /// snapshots called EnsureEntityAwake on WorldGrid-culled NPCs map-wide →
         /// client FPS died while co-op connected; recovered when host left (no more snaps).
         /// Only fully drive / wake entities near the local listener. Far locals are left
         /// alone (not destroyed) so claim can work when the player walks up.
@@ -787,14 +787,16 @@ namespace DWMPHorde.Networking
                         p.EntityName, p.Position, _hostSyncedIds);
                     if (closest != null)
                     {
-                        float claimDist = Vector3.Distance(closest.transform.position, p.Position);
+                        float claimDx = closest.transform.position.x - p.Position.x;
+                        float claimDz = closest.transform.position.z - p.Position.z;
+                        float claimDist = Mathf.Sqrt(claimDx * claimDx + claimDz * claimDz);
                         if (claimDist <= ClaimClosestRadius)
                         {
                             CharacterTracker.AssignId(closest, p.HostId);
                             _hostSyncedIds.Add(p.HostId);
                             _everHostSyncedIds.Add(p.HostId);
                             EnsureEntityAwake(closest);
-                            closest.transform.position = p.Position;
+                            // Do NOT teleport on claim — host pose arrives via interp (save desync).
                             if (ModRuntime.VerboseLogging || claimDist > MatchRadius)
                                 ModRuntime.LegacyInfo(
                                     $"[Entity] claimed closest local {p.EntityName}(id={p.HostId}) d={claimDist:F0}");
@@ -805,11 +807,12 @@ namespace DWMPHorde.Networking
                                 _states[p.HostId] = claimState;
                             }
                             claimState.staleSince = 0f;
-                            _displayPositions[p.HostId] = p.Position;
-                            _displayRotations[p.HostId] = p.RotY;
+                            Vector3 localPos = closest.transform.position;
+                            _displayPositions[p.HostId] = localPos;
+                            _displayRotations[p.HostId] = closest.transform.eulerAngles.y;
                             claimState.isFirst = false;
-                            claimState.previousPosition = p.Position;
-                            claimState.previousRotY = p.RotY;
+                            claimState.previousPosition = localPos;
+                            claimState.previousRotY = closest.transform.eulerAngles.y;
                             claimState.targetPosition = p.Position;
                             claimState.targetRotY = p.RotY;
                             claimState.arrivalTime = now;
@@ -987,11 +990,15 @@ namespace DWMPHorde.Networking
 
             // 3. Clean up unmatched client-only entities (rate-limited).
             // Only cull inside client interest — far save NPCs must stay so claim can
-            // map them when the player walks up (host still streams at 3500).
+            // map them when the player walks up (host streams at EntityActivationRange).
             if (!_receivedFirstSnapshot) return;
             if (now - _firstSnapshotTime < UnmatchedCleanupDelay) return;
             if (now < _nextUnmatchedCleanupTime) return;
             _nextUnmatchedCleanupTime = now + UnmatchedCleanupInterval;
+
+            // While pending claim/phantom pipeline is busy, do not destroy unmapped save locals —
+            // they are the claim targets. Destroying them mid-storm caused mass desync at POIs.
+            bool pendingBusy = _pendingMatches.Count > 0;
 
             Player localPlayer = Player.Instance;
             int nChars = CharacterTracker.CopyAll(out Character[] allChars);
@@ -1022,8 +1029,14 @@ namespace DWMPHorde.Networking
                 // Client save NPCs with no host id: AI is frozen and they never
                 // receive EntityState → permanent stale dogs/crows. Destroy after grace
                 // once host has been streaming (same window as id'd unmatched).
+                // Skip while pending matches exist — those GOs are claim targets.
                 if (!CharacterTracker.TryGetStableId(c, out short sid))
                 {
+                    if (pendingBusy)
+                    {
+                        _unmatchedSince.Remove(c);
+                        continue;
+                    }
                     if (!_unmatchedSince.TryGetValue(c, out float firstUnmapped))
                     {
                         _unmatchedSince[c] = now;
@@ -1048,6 +1061,12 @@ namespace DWMPHorde.Networking
 
                 // Also skip if currently host-synced
                 if (_hostSyncedIds.Contains(sid))
+                {
+                    _unmatchedSince.Remove(c);
+                    continue;
+                }
+
+                if (pendingBusy)
                 {
                     _unmatchedSince.Remove(c);
                     continue;
@@ -1216,7 +1235,9 @@ namespace DWMPHorde.Networking
                 if (!string.Equals(cname, searchName, System.StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                float dSq = (c.transform.position - position).sqrMagnitude;
+                float dx = c.transform.position.x - position.x;
+                float dz = c.transform.position.z - position.z;
+                float dSq = dx * dx + dz * dz;
                 if (dSq < radiusSq && dSq < bestDistSq)
                 {
                     bestDistSq = dSq;

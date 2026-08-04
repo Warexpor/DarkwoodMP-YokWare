@@ -160,9 +160,9 @@ namespace DWMPHorde.Networking
             if (msg.TargetNameHash != 0)
             {
                 target = CharacterTracker.FindByStableId(msg.TargetNameHash);
-                if (target != null && target.alive)
+                // Return even if dead — HandlePlayerAttack silently drops !alive (no spam log).
+                if (target != null)
                     return target;
-                target = null;
             }
 
             if (string.IsNullOrEmpty(msg.TargetName))
@@ -171,19 +171,21 @@ namespace DWMPHorde.Networking
             float matchR = GameplayConstants.PlayerAttackNameMatchRadius;
             // Prefer tight match around client's reported hit position (phantom/host drift).
             target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR);
-            if (target != null && target.alive)
+            if (target != null)
                 return target;
 
             // Wider ring still anchored at targetPos (not map-wide closest name).
             target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR * 2.5f);
-            if (target != null && target.alive)
+            if (target != null)
                 return target;
 
             // Last resort: closest by name, but only if within match radius of reported pos.
             Character loose = CharacterTracker.FindClosestByName(msg.TargetName, targetPos);
-            if (loose != null && loose.alive)
+            if (loose != null)
             {
-                float dSq = Vector3.SqrMagnitude(loose.transform.position - targetPos);
+                float dx = loose.transform.position.x - targetPos.x;
+                float dz = loose.transform.position.z - targetPos.z;
+                float dSq = dx * dx + dz * dz;
                 if (dSq <= (matchR * 3f) * (matchR * 3f))
                     return loose;
             }

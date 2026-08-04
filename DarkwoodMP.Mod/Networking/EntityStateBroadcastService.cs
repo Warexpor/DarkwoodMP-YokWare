@@ -66,7 +66,7 @@ namespace DWMPHorde.Networking
             int count = 0;
 
             Vector3 hostPos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
-            // 3500-unit radius around host or any remote — matches WorldGrid proxy cull.
+            // Matches WorldGrid proxy cull / client interest (XZ).
             float maxDistSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
             float priorityDistSq = PriorityDistance * PriorityDistance;
 
@@ -90,7 +90,9 @@ namespace DWMPHorde.Networking
                         continue;
 
                     Vector3 cPos = c.transform.position;
-                    float dHost = Vector3.SqrMagnitude(cPos - hostPos);
+                    float dxh = cPos.x - hostPos.x;
+                    float dzh = cPos.z - hostPos.z;
+                    float dHost = dxh * dxh + dzh * dzh;
                     bool nearHost = dHost <= priorityDistSq;
                     bool nearRemote = PlayerPositionManager.IsAnyRemoteWithinSq(cPos, priorityDistSq);
                     bool inPriority = nearHost || nearRemote;

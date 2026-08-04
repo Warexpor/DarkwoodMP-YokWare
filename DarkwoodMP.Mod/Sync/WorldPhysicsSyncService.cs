@@ -828,7 +828,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Reads the triggered/snapped/sprung/isTriggered field from a trap GameObject.</summary>
-        private static bool ReadTrapTriggered(GameObject go)
+        internal static bool ReadTrapTriggered(GameObject go)
         {
             Component[] allComponents = go.GetComponents<Component>();
             foreach (Component comp in allComponents)
@@ -1305,10 +1305,14 @@ namespace DWMPHorde.Sync
 
             string needle = string.IsNullOrEmpty(objectName) ? null : objectName.ToLowerInvariant();
             GameObject best = null;
-            float bestDist = float.MaxValue;
+            float bestDistSq = float.MaxValue;
+            const float overlapR = 8f;
+            const float scanR = 12f;
+            float overlapSq = overlapR * overlapR;
+            float scanSq = scanR * scanR;
 
             // 1) OverlapSphere: any nearby root matching name/type OR harvest keywords.
-            Collider[] nearby = Physics.OverlapSphere(pos, 2.5f);
+            Collider[] nearby = Physics.OverlapSphere(pos, overlapR);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
@@ -1330,10 +1334,10 @@ namespace DWMPHorde.Sync
                 if (!ShouldDestroyWorldPickup(root, needle))
                     continue;
 
-                float d = Vector3.Distance(root.transform.position, pos);
-                if (d < bestDist)
+                float dSq = XzDistSq(root.transform.position, pos);
+                if (dSq < bestDistSq && dSq <= overlapSq)
                 {
-                    bestDist = d;
+                    bestDistSq = dSq;
                     best = root;
                 }
             }
@@ -1348,11 +1352,11 @@ namespace DWMPHorde.Sync
                     if (it == null || !it.gameObject.scene.IsValid()) continue;
                     string itemType = it.invItem != null ? it.invItem.type : null;
                     if (!NameOrItemTypeMatches(it.gameObject, itemType, needle)) continue;
-                    float d = Vector3.Distance(it.transform.position, pos);
-                    if (d > 4f) continue;
-                    if (d < bestDist)
+                    float dSq = XzDistSq(it.transform.position, pos);
+                    if (dSq > scanSq) continue;
+                    if (dSq < bestDistSq)
                     {
-                        bestDist = d;
+                        bestDistSq = dSq;
                         best = it.gameObject;
                     }
                 }
@@ -1366,12 +1370,17 @@ namespace DWMPHorde.Sync
                         if (inv == null || inv.invType != Inventory.InvType.itemInv) continue;
                         if (!inv.gameObject.scene.IsValid()) continue;
                         string slotType = FirstSlotType(inv);
-                        if (!NameOrItemTypeMatches(inv.gameObject, slotType, needle)) continue;
-                        float d = Vector3.Distance(inv.transform.position, pos);
-                        if (d > 4f) continue;
-                        if (d < bestDist)
+                        // Empty after take: still match by position alone within tight XZ.
+                        bool nameOk = NameOrItemTypeMatches(inv.gameObject, slotType, needle);
+                        float dSq = XzDistSq(inv.transform.position, pos);
+                        if (!nameOk && dSq > 4f * 4f) continue;
+                        if (!nameOk && string.IsNullOrEmpty(slotType) && dSq <= 4f * 4f)
+                        { /* empty itemInv near pickup pos */ }
+                        else if (!nameOk) continue;
+                        if (dSq > scanSq) continue;
+                        if (dSq < bestDistSq)
                         {
-                            bestDist = d;
+                            bestDistSq = dSq;
                             best = inv.gameObject;
                         }
                     }
@@ -1382,8 +1391,11 @@ namespace DWMPHorde.Sync
             if (best == null && !string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
-                if (named != null && Vector3.Distance(named.transform.position, pos) < 8f)
+                if (named != null && XzDistSq(named.transform.position, pos) < 12f * 12f)
+                {
                     best = named;
+                    bestDistSq = XzDistSq(named.transform.position, pos);
+                }
             }
 
             if (best == null)
@@ -1409,7 +1421,15 @@ namespace DWMPHorde.Sync
                 UnityEngine.Object.DestroyImmediate(best);
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
-            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + best.name + "\" at " + pos + " d=" + bestDist.ToString("F1"));
+            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + best.name + "\" at " + pos
+                + " d=" + Mathf.Sqrt(bestDistSq).ToString("F1"));
+        }
+
+        private static float XzDistSq(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return dx * dx + dz * dz;
         }
 
         private static string FirstSlotType(Inventory inv)
@@ -1429,12 +1449,26 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(itemType)
                 && itemType.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
                 return true;
-            // Display name "Shiny stone" vs type shiny_rock
+            // Display name "Scrap metal" vs type scrap_metal / scrapMetal
             if (!string.IsNullOrEmpty(itemType))
             {
-                string t = itemType.ToLowerInvariant().Replace('_', ' ');
-                if (n.Contains(t) || needleLower.Replace('_', ' ').Contains(t))
+                string t = itemType.ToLowerInvariant();
+                string tSpaced = t.Replace('_', ' ');
+                string needleSpaced = needleLower.Replace('_', ' ');
+                if (n.Contains(tSpaced) || needleSpaced.Contains(tSpaced) || tSpaced.Contains(needleSpaced))
                     return true;
+                // Localized display: Language.Get(type + "_name") == "Scrap metal"
+                try
+                {
+                    string display = Language.Get(itemType + "_name", "Items");
+                    if (!string.IsNullOrEmpty(display)
+                        && display.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    if (!string.IsNullOrEmpty(display)
+                        && display.ToLowerInvariant() == needleSpaced)
+                        return true;
+                }
+                catch { /* Language table may not be ready */ }
             }
             return false;
         }
@@ -1822,6 +1856,8 @@ namespace DWMPHorde.Sync
                         if (TryWriteBool(tr, "triggered", true)) break;
                     }
                 }
+                // Disarm while occupied: vanilla interrupt clears inBearTrap (BeartrapStop).
+                ReleaseLocalBearTrapIfNear(go.transform.position);
                 ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
                 return;
             }
@@ -1914,7 +1950,14 @@ namespace DWMPHorde.Sync
                 // Cancel disarm in progress
                 Item item = go.GetComponent<Item>();
                 if (item != null)
-                    item.onTriggerFire();
+                {
+                    try { item.onTriggerFire(); }
+                    catch (System.Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning(
+                            "[TrapApply] onTriggerFire failed on " + go.name + ": " + ex.Message);
+                    }
+                }
 
                 // Destroy Item only if the prefab is configured to remove it
                 // (if dontDestroyItemAfterTriggering is true, Item stays for hover/name display)
@@ -1933,6 +1976,28 @@ namespace DWMPHorde.Sync
                     if (item != null)
                         item.invItem = null;
                 }
+            }
+        }
+
+        /// <summary>
+        /// After silent disarm: free local player still flagged inBearTrap on this trap.
+        /// </summary>
+        private static void ReleaseLocalBearTrapIfNear(Vector3 trapPos)
+        {
+            Player local = Player.Instance;
+            if (local == null || !local.inBearTrap) return;
+            float dx = local.transform.position.x - trapPos.x;
+            float dz = local.transform.position.z - trapPos.z;
+            if (dx * dx + dz * dz > 100f * 100f) return;
+            try
+            {
+                local.interruptAllActions(doDropItem: false, stopBeartrap: true);
+                ModRuntime.LegacyInfo("[TrapApply] released local inBearTrap after silent disarm");
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[TrapApply] interruptAllActions failed: " + ex.Message);
+                local.inBearTrap = false;
             }
         }
 
@@ -2514,7 +2579,7 @@ namespace DWMPHorde.Sync
                 && !Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
                 return true; // treat as done — host will re-send if player enters area via live LightState
 
-            Item item = FindLightByPos(pos, ls.ItemName);
+            Item item = FindLightByPos(pos, ls.ItemName, ls.ItemType);
             if (item == null)
             {
                 // Scene lamps only — do not spawn random prefabs from ItemType (duplicates).
@@ -2591,39 +2656,91 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Finds a light Item by position (+ optional name). OverlapSphere only —
-        /// never FindObjectsOfType (periodic hitch source on dual-box client).
+        /// Finds a light Item by position (+ optional name/type). OverlapSphere first;
+        /// inactive hierarchy fallback (dream door-swap / unloaded hideout lamps).
         /// </summary>
-        private static Item FindLightByPos(Vector3 pos, string name)
+        private static Item FindLightByPos(Vector3 pos, string name, string itemType = null)
         {
-            // Prefer tight sphere; widen once if miss (still O(nearby), not full scene).
-            Item best = FindLightInSphere(pos, name, 5f);
+            Item best = FindLightInSphere(pos, name, itemType, 5f);
             if (best != null) return best;
-            return FindLightInSphere(pos, name, 20f);
+            best = FindLightInSphere(pos, name, itemType, 20f);
+            if (best != null) return best;
+            return FindLightInactiveScan(pos, name, itemType, 25f);
         }
 
-        private static Item FindLightInSphere(Vector3 pos, string name, float radius)
+        private static Item FindLightInSphere(Vector3 pos, string name, string itemType, float radius)
         {
             Collider[] nearby = Physics.OverlapSphere(pos, radius);
             Item best = null;
-            float bestDist = radius;
+            float bestDistSq = radius * radius;
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
                 Item item = nearby[i].GetComponentInParent<Item>();
                 if (item == null) continue;
-                if (!string.IsNullOrEmpty(name) && !item.name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                if (!LightNameOrTypeMatches(item, name, itemType))
                     continue;
                 if (!item.isLight && !item.switchable)
                     continue;
-                float d = Vector3.Distance(item.transform.position, pos);
-                if (d < bestDist)
+                float dSq = XzDistSq(item.transform.position, pos);
+                if (dSq < bestDistSq)
                 {
-                    bestDist = d;
+                    bestDistSq = dSq;
                     best = item;
                 }
             }
             return best;
+        }
+
+        /// <summary>Include inactive GOs (dream pad lamps under closed door hierarchy).</summary>
+        private static Item FindLightInactiveScan(Vector3 pos, string name, string itemType, float maxDist)
+        {
+            float maxSq = maxDist * maxDist;
+            Item[] all = UnityEngine.Object.FindObjectsOfType<Item>(true);
+            Item best = null;
+            float bestSq = maxSq;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item item = all[i];
+                if (item == null || !item.gameObject.scene.IsValid()) continue;
+                if (!item.isLight && !item.switchable) continue;
+                if (!LightNameOrTypeMatches(item, name, itemType)) continue;
+                float dSq = XzDistSq(item.transform.position, pos);
+                if (dSq < bestSq)
+                {
+                    bestSq = dSq;
+                    best = item;
+                }
+            }
+            return best;
+        }
+
+        private static bool LightNameOrTypeMatches(Item item, string name, string itemType)
+        {
+            if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType))
+                return true;
+            string iname = item.name ?? "";
+            string bare = iname.Replace("(Clone)", "").Trim();
+            if (!string.IsNullOrEmpty(name))
+            {
+                if (iname.Equals(name, StringComparison.OrdinalIgnoreCase)
+                    || bare.Equals(name, StringComparison.OrdinalIgnoreCase)
+                    || iname.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            if (!string.IsNullOrEmpty(itemType))
+            {
+                string t = item.invItem != null ? item.invItem.type : null;
+                if (!string.IsNullOrEmpty(t)
+                    && t.Equals(itemType, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (bare.Equals(itemType, StringComparison.OrdinalIgnoreCase)
+                    || iname.IndexOf(itemType, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            // Name miss but type empty — allow nearest switchable in sphere callers
+            // only when both filters empty (handled above). With name set and no match: fail.
+            return string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType);
         }
 
         /// <summary>Called from HandlePlayerAudio's IsStopSignal handler when the
