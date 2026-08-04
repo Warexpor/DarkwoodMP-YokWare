@@ -4,9 +4,9 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.7.7** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
+| **Product** | YokWare Branch **0.7.46** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
-| **Live wire** | Horde protocol **19** (LiteNetLib `NetMessageType`, IDs through **126**, optional **112–126**) |
+| **Live wire** | Horde protocol **22** (LiteNetLib `NetMessageType`, IDs through **131**; optional trailers **112–131**) |
 | **Research wire** | **Ironbark v2** (`DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
 | **License** | **GPLv3** — see [LICENSE](LICENSE) |
@@ -21,15 +21,15 @@ Deep audit: **[docs/DARKWOOD_MP_AUDIT.md](docs/DARKWOOD_MP_AUDIT.md)** · Join: 
 
 ## Two wires — one ships, one doesn’t
 
-### Ship: Horde protocol 19
+### Ship: Horde protocol 22
 
 What peers actually speak in co-op:
 
-- LiteNetLib UDP, connection key (`HostPassword` / open LAN)
-- `NetMessageType : byte` message IDs (through **126**; reserved holes; optional trailers **112–126**)
+- LiteNetLib UDP + optional SteamNetworkingSockets (lobby join); connection key (`HostPassword` / open LAN)
+- `NetMessageType : byte` message IDs (through **131**; optional **112–131**, e.g. voice **129**, `ActivateCursorAction` **130**, `LocationTransport` **131**)
 - Host-authoritative simulation; clients mute local AI/time where patched
 - `[Forwardable]` attribute for fan-out, handlers in `LanNetworkManager`
-- **Same mod build on every peer** (same protocol 19 + feature msgs)
+- **Same mod build on every peer** (same protocol **22** + feature msgs)
 
 ### Redundant: Ironbark v2
 
@@ -37,12 +37,12 @@ Ironbark is a typed-packet protocol sitting in `DarkwoodMP.Protocol/` with
 `IronbarkRegistry`, `ITransport` abstraction, `u16` message IDs (~156 types),
 capability handshake bits, and a dedicated server (`DarkwoodMP.Server/`).
 
-It has **no live bridge** to Horde 19. None of it runs in co-op. It’s ~3k lines
+It has **no live bridge** to Horde 22. None of it runs in co-op. It’s ~3k lines
 of codecs, tests, and server plumbing that do nothing at runtime.
 
-| | Horde 19 (ship) | Ironbark v2 (redundant) |
+| | Horde 22 (ship) | Ironbark v2 (redundant) |
 |--|-----------------|------------------------|
-| Message IDs | `byte` (through 126) | `u16` (156 typed packets) |
+| Message IDs | `byte` (through 131) | `u16` (156 typed packets) |
 | Code footprint | ~40k LOC in Mod | ~3k LOC in Protocol + ~2k in Server |
 | Transport | LiteNetLib direct | `ITransport` abstraction |
 | Routing | `[Forwardable]` attributes | `IronbarkRegistry` entries |
@@ -67,7 +67,7 @@ Pick **one** loader per game process. Both variants are the same Path B mod; bui
 2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
    (or take `bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
 3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **19**, version **0.7.7**.
+4. Launch — banner: **YokWare Branch**, Path B, protocol **22**, version **0.7.46**.
 
 ### MelonLoader
 

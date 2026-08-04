@@ -1,5 +1,7 @@
 # Audit: logging coverage + DLL bloat / redundancy
 
+> **Historical snapshot (2026-07-15).** For current presets/fields use `DarkwoodMP.Mod/docs/LOGGING.md`. Live product **0.7.46**.
+
 Date: 2026-07-15 · Target: `DarkwoodMP.Mod` Path B (YokWare)  
 DLL: ~**790 KB** (`DarkwoodMP.Mod.dll`) · Source: ~**46k LOC** / **186** `.cs` files
 

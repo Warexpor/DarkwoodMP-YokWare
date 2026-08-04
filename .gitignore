@@ -6,6 +6,8 @@ GamePath.local.props
 .vs/
 .idea/
 *.swp
+*~
+*.bak
 
 # Build
 bin/
@@ -14,6 +16,12 @@ artifacts/
 build/
 [Bb]in/
 [Oo]bj/
+TestResults/
+*.trx
+*.coverage
+coverage/
+*.nupkg
+project.lock.json
 
 # Loader / game reference binaries (never commit MelonLoader or game assemblies)
 libs/MelonLoader/*.dll
@@ -52,3 +60,6 @@ appsettings.*.local.json
 CLAUDE.md
 CLAUDE_old.md
 .grok/
+.cursor/
+.vscode/
+*.DotSettings.user

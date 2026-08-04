@@ -1,7 +1,9 @@
 # DWMP Horde Remaster — Co-op Coverage Checklist
 
 Living audit of every sync domain against vanilla Darkwood.  
-Protocol baseline: **19** · Plugin: **0.7.7** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Optional msg IDs **112–126** · Mode: **N-player LAN (3+ supported), host-authoritative**
+Protocol baseline: **22** · Plugin: **0.7.46** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Msg IDs through **131** (optional **112–131**) · Mode: **N-player LAN (3+ supported), host-authoritative**
+
+**Ship deltas:** always prefer root `CHANGELOG.md` (newest first). Domain rows below may lag a few ships; treat header + CHANGELOG as authority for protocol/version.
 
 **Target:** host + multiple clients (not dual-only). Happy path and playtests must consider **at least 3 humans** (host + 2 clients) unless a domain is explicitly host-local.
 
@@ -177,7 +179,7 @@ Protocol baseline: **19** · Plugin: **0.7.7** (live **0.7.x** line — older **
 
 ##### 1.8 mandatory smoke sheet (dual / triple client)
 
-Set `VerboseLightSync = true` on at least one client for log greps. Both installs must be **same DLL / protocol 19**.
+Set `VerboseLightSync = true` on at least one client for log greps. Both installs must be **same DLL / protocol 22**.
 
 | # | Steps | Pass if |
 |---|--------|---------|
