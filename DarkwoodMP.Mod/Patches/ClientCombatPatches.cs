@@ -119,6 +119,8 @@ namespace DWMPHorde.Patches
                 if (rb != null) c = rb.GetComponent<Character>();
             }
             if (c == null) return true;
+            // Corpse hits: host drops !alive silently — don't spam PlayerAttack.
+            if (!c.alive) return false;
 
             // Prefer host stable id when known; 0 → host resolves by name+hit pos (phantoms).
             short nameHash = 0;

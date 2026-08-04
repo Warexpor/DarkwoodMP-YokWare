@@ -75,14 +75,29 @@ namespace DWMPHorde.Patches
             if (worldItem != null)
             {
                 Vector3 pos = worldItem.transform.position;
+                // Prefer invItem.type over localized display name ("Scrap metal") so
+                // peer DestroyObjectByPos can match GO / type without Language tables.
+                string sendName = worldItem.name;
+                Item asItem = worldItem.GetComponent<Item>();
+                if (asItem != null && asItem.invItem != null
+                    && !string.IsNullOrEmpty(asItem.invItem.type))
+                    sendName = asItem.invItem.type;
+                else
+                {
+                    Inventory inv = worldItem.GetComponent<Inventory>();
+                    if (inv != null && inv.slots != null && inv.slots.Count > 0
+                        && !InvItemClass.isNull(inv.slots[0].invItem)
+                        && !string.IsNullOrEmpty(inv.slots[0].invItem.type))
+                        sendName = inv.slots[0].invItem.type;
+                }
                 net.SendWorldObjectRemoved(new WorldObjectRemovedMessage
                 {
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    ObjectName = worldItem.name
+                    ObjectName = sendName
                 });
-                ModRuntime.LegacyInfo("[SendPickup] sent WorldObjectRemoved for " + worldItem.name + " at " + pos);
+                ModRuntime.LegacyInfo("[SendPickup] sent WorldObjectRemoved for " + sendName + " at " + pos);
             }
         }
 

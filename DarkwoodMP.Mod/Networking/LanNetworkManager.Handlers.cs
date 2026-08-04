@@ -3476,6 +3476,43 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Day death respawn: same proxy snap as return-to-world, plus LocationExit so
+        /// peers drop us from _remoteOutsideLocation (stale bunker membership).
+        /// </summary>
+        public void OnLocalReturnedToWorldAfterDeath()
+        {
+            if (!IsConnected) return;
+            try
+            {
+                bool wasIn = _previousInOutsideLocation
+                    || !string.IsNullOrEmpty(_previousLocationName);
+                OnLocalReturnedToWorld();
+
+                Vector3 pos = Player.Instance != null
+                    ? Player.Instance.transform.position
+                    : Vector3.zero;
+                if (wasIn || pos != Vector3.zero)
+                {
+                    Broadcast(NetMessageType.LocationExit,
+                        w => new LocationExitMessage
+                        {
+                            PosX = pos.x,
+                            PosY = pos.y,
+                            PosZ = pos.z,
+                            PlayerId = _localPlayerId
+                        }.Serialize(w),
+                        DeliveryMethod.ReliableOrdered);
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] death LocationExit pid={_localPlayerId} at {pos}");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "OnLocalReturnedToWorldAfterDeath: " + ex.Message);
+            }
+        }
+
         private void ResyncRemoteProxiesForOutsideLocation(string locationName)
         {
             var ol = Singleton<OutsideLocations>.Instance;
@@ -3717,11 +3754,36 @@ namespace DWMPHorde.Networking
                 : Sync.TrapNetworkId.GetOrMintHost(go);
             Sync.TrapNetworkId.Ensure(go, trapId);
 
-            // Client TrapTriggered is stomp/walk path — full boom. Silent disarm uses TrapState direct.
-            WorldPhysicsSyncService.ApplyTrapState(go, triggered: true, silentDisarm: false);
+            // Already disarmed/sprung — never re-boom (late TrapTriggered after silent disarm).
+            if (WorldPhysicsSyncService.ReadTrapTriggered(go))
+            {
+                ModRuntime.LegacyInfo(
+                    $"[TrapTrigger] Host: trap already triggered id={trapId} at {pos} — skip");
+                return;
+            }
+
+            try
+            {
+                // Client TrapTriggered is stomp/walk path — full boom. Silent disarm uses TrapState direct.
+                WorldPhysicsSyncService.ApplyTrapState(go, triggered: true, silentDisarm: false);
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogError(
+                    $"[TrapTrigger] ApplyTrapState failed id={trapId}: {ex.Message}");
+                return;
+            }
+
+            if (go == null) return;
             var triggerSnd = go.GetComponent<Trigger>();
             if (triggerSnd != null && !string.IsNullOrEmpty(triggerSnd.activateSound))
-                AudioController.Play(triggerSnd.activateSound, pos);
+            {
+                try { AudioController.Play(triggerSnd.activateSound, pos); }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[TrapTrigger] activateSound failed: " + ex.Message);
+                }
+            }
 
             Vector3 key = new Vector3(
                 Mathf.Round(pos.x * 10f) / 10f,
@@ -4088,37 +4150,8 @@ namespace DWMPHorde.Networking
 
         private void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
         {
-            Item item = null;
-            Collider[] nearby = Physics.OverlapSphere(pos, 2f);
-            for (int i = 0; i < nearby.Length; i++)
-            {
-                if (nearby[i] == null) continue;
-                item = nearby[i].GetComponentInParent<Item>();
-                if (item != null) break;
-            }
-
-            if (item == null)
-            {
-                // Fallback: scan all items by position (handles cases where the
-                // item's collider is disabled or the item moved after death).
-                Item best = null;
-                float bestDist = 5f;
-                Item[] all = UnityEngine.Object.FindObjectsOfType<Item>();
-                for (int i = 0; i < all.Length; i++)
-                {
-                    Item candidate = all[i];
-                    if (candidate == null || !candidate.destructible) continue;
-                    float d = Vector3.Distance(candidate.transform.position, pos);
-                    if (d < bestDist)
-                    {
-                        bestDist = d;
-                        best = candidate;
-                    }
-                }
-                item = best;
-                if (item != null && ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[ItemDmgEvent] fallback found '{item.name}' at dist={bestDist:F2}");
-            }
+            // Prefer XZ match — client wardrobe Y often drifts after body-push / layer offset.
+            Item item = FindDestructibleItemXz(pos, 25f);
 
             if (item == null)
             {
@@ -7806,7 +7839,7 @@ namespace DWMPHorde.Networking
         {
             Transform proxyT = proxy.transform;
             if (proxyT == null) return;
-            if (!LocalAudioService.IsNearListener(
+            if (!LocalAudioService.IsNearListenerPeerBand(
                     proxyT.position, LocalAudioService.DefaultMaxSpatialDistance))
                 return;
 
@@ -8907,7 +8940,7 @@ namespace DWMPHorde.Networking
 
                 Vector3 bodyPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 if (!float.IsNaN(msg.PosX)
-                    && !LocalAudioService.IsNearListener(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
+                    && !LocalAudioService.IsNearListenerPeerBand(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
                     return;
 
                 GameObject go = GameObject.Find(msg.ObjectName);
@@ -8951,7 +8984,12 @@ namespace DWMPHorde.Networking
                     return;
             }
 
-            if (!LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
+            if (playerId > 0)
+            {
+                if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, LocalAudioService.DefaultMaxAudioDistance))
+                    return;
+            }
+            else if (!LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
                 return;
 
             TraverseHack.ApplyingFromNetwork = true;
@@ -9087,10 +9125,9 @@ namespace DWMPHorde.Networking
 
             if (msg.TargetType == 2)
             {
-                // 1u was tight for client/host pivot mismatch on furniture.
-                if (TryHitDestructibleItemAt(pos, 1.5f, damage, attackerT))
-                    return;
-                if (TryHitDestructibleItemAt(pos, 4f, damage, attackerT))
+                // Client hit Y often differs from host (body-push / location layer) —
+                // match on XZ with a wider radius before giving up.
+                if (TryHitDestructibleItemAt(pos, 25f, damage, attackerT))
                     return;
                 ModRuntime.LegacyInfo("[MeleeWorldHit] destructible item not found at " + pos);
             }
@@ -9098,24 +9135,53 @@ namespace DWMPHorde.Networking
 
         private static bool TryHitDestructibleItemAt(Vector3 pos, float radius, int damage, Transform attackerT)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, radius);
+            Item best = FindDestructibleItemXz(pos, radius);
+            if (best == null) return false;
+            best.getHit(damage, attackerT, true);
+            return true;
+        }
+
+        /// <summary>Nearest destructible Item by XZ distance (ignore Y drift).</summary>
+        private static Item FindDestructibleItemXz(Vector3 pos, float maxDist)
+        {
+            float maxSq = maxDist * maxDist;
             Item best = null;
-            float bestD = radius + 1f;
+            float bestSq = maxSq;
+
+            Collider[] nearby = Physics.OverlapSphere(pos, maxDist);
             for (int i = 0; i < nearby.Length; i++)
             {
                 if (nearby[i] == null) continue;
                 Item item = nearby[i].GetComponentInParent<Item>();
                 if (item == null || !item.destructible) continue;
-                float d = Vector3.Distance(item.transform.position, pos);
-                if (d < bestD)
+                float dx = item.transform.position.x - pos.x;
+                float dz = item.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq < bestSq)
                 {
-                    bestD = d;
+                    bestSq = dSq;
                     best = item;
                 }
             }
-            if (best == null) return false;
-            best.getHit(damage, attackerT, true);
-            return true;
+
+            if (best != null) return best;
+
+            // Collider disabled / moved after death — scan destructibles by XZ.
+            Item[] all = UnityEngine.Object.FindObjectsOfType<Item>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item candidate = all[i];
+                if (candidate == null || !candidate.destructible) continue;
+                float dx = candidate.transform.position.x - pos.x;
+                float dz = candidate.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq < bestSq)
+                {
+                    bestSq = dSq;
+                    best = candidate;
+                }
+            }
+            return best;
         }
 
         private void HandleGasTrailSpawn(GasTrailSpawnMessage msg)

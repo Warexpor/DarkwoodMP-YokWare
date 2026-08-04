@@ -1,6 +1,7 @@
 using DWMPHorde.Audio;
 using DWMPHorde.Networking;
 using DWMPHorde.Spectator;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -90,21 +91,28 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            // Peer proxy SFX: allow within hear range so spatial rolloff can fade at the
-            // edge (hard 650f block caused a one-step hitch). Beyond range: suppress so
-            // far footsteps don't allocate/duck AudioController voices every step.
+            // Peer proxy SFX: XZ + exit band so spatial rolloff can fade without Play flicker
+            // at exactly 650 (hard bool gate caused enter/exit hitch).
             if (parentObj != null
                 && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
             {
                 Vector3 proxyPos = parentObj.position;
                 if (pos == Vector3.zero)
                     pos = proxyPos;
-                return LocalAudioService.IsNearListener(
+                return LocalAudioService.IsNearListenerPeerBand(
                     pos, LocalAudioService.DefaultMaxAudioDistance);
             }
 
+            // Host CharacterSounds (dog growl/aggro near client): entity interest is 1400 XZ,
+            // not the 650 peer band — otherwise host hears silence while clients get EntitySound.
+            if (TraverseHack.InsideCharacterSounds)
+            {
+                return LocalAudioService.IsNearAnyListener(
+                    pos, ClientEntityInterpolationService.ClientInterestDistance);
+            }
+
             // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
-            if (LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
+            if (LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
                 return true;
 
             __result = null;

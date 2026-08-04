@@ -9,8 +9,13 @@ namespace DWMPHorde
         /// <summary>Default occlusion mask for scrape / moving-object audio.</summary>
         public const int DefaultOcclusionLayerMask = 32769;
 
-        /// <summary>WorldGrid / AI activation range (world units).</summary>
-        public const float EntityActivationRange = 3500f;
+        /// <summary>
+        /// Host WorldGrid proxy bubble + entity broadcast near-band (world units).
+        /// Was 3500 — dual bubble woke 200–340 ents past the 256 snapshot cap → client
+        /// phantom/claim/destroy storms when both players entered save-heavy areas.
+        /// Aligned with client entity interest (1400).
+        /// </summary>
+        public const float EntityActivationRange = 1400f;
 
         /// <summary>
         /// Max attacker→target distance for client PlayerAttack on host.

@@ -298,7 +298,12 @@ namespace DWMPHorde.Networking
         /// Optional; protocol stays 19 — both boxes need the same DLL.
         /// </summary>
         ActivateCursorAction = 130,
+        /// <summary>
+        /// Host→requesting client: transport into an OutsideLocation (bunker enter).
+        /// Protocol 22 — both boxes need this DLL.
+        /// </summary>
+        LocationTransport = 131,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 130
+        _Highest = 131
     }
 }

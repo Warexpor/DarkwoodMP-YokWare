@@ -2,11 +2,85 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.43** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.46** and continue from there.
 
-Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **21** (unchanged from 0.7.42).
+Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **22** (LocationTransport).
 
 ---
+
+## 0.7.46 — Death→blackness grid hygiene + parked destroy/light/attack (2026-08-04)
+
+Playtest after wolfman: client day-death respawned into blackness (shit-show cascade); logs also had ObjectDestroy miss, LightApply queue spam, HandlePlayerAttack null on dead dogs. **Protocol 22** (no new wire — both boxes still need this DLL).
+
+### Death → blackness (root of post-wolf cascade)
+- Vanilla day death: `transportToHome` then `OutsideLocations.onPlayerDeath` → `setGrid("World")` + `leaveAllLocations` but **never** `currentGrid.leave()` / `refreshPosition` (unlike `returnToWorld`).
+- Client at hideout coords on a stale outside-location / bunker grid → black void. **0.7.45 LocationTransport only covers bunker cursor enter — not death.**
+- Fix: postfix `onPlayerDeath` + `transportToHome` → leave grid, `setGrid(World)`, force `refreshPosition`, `LocationExit` fan-out, flush pending lights.
+
+### ObjectDestroy miss
+- Pickup sent localized display name (`"Scrap metal"`); peer GO/type mismatch + 3D distance.
+- Fix: send `invItem.type` when known; XZ match; Language display↔type; empty `itemInv` near pos.
+
+### LightApply queue
+- OverlapSphere-only miss on inactive dream/hideout lamps; `ItemType` unused; no flush after location settle.
+- Fix: inactive `FindObjectsOfType(true)` XZ fallback; name/type/(Clone); flush pending on location settle/return/death.
+
+### HandlePlayerAttack target null
+- Resolver required `alive` then logged null for corpse hits.
+- Fix: resolve without alive gate; host still silent-drops `!alive`; client skips send on corpses.
+
+### Files
+- `OutsideLocationVisibilityPatches.cs`, `LanNetworkManager.Handlers.cs`
+- `WorldPhysicsSyncService.cs`, `DroppedItemSyncPatches.cs`, `LanNetworkManager.Combat.cs`, `ClientCombatPatches.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.46**)
+
+## 0.7.45 — Location enter, trap disarm, wardrobe destroy, dog audio (2026-08-04)
+
+Playtest on 0.7.44: client bunker enter TPs **host**; black sublocation; host silent when dogs aggro client; wardrobe dies on host / stays on client; host disarm leave client trapped + TrapTriggered NRE. **Protocol 22** (new `LocationTransport`).
+
+### Location enter (bunker / side loc)
+- Client `CustomCursorAction` `_enter` was host-`activate()` → host ran `transportPlayerToObject` alone (no `GameEventsFired` for that path). `LocationEnter` only places proxies.
+- Fix: host skips activate for `_enter`; resolves dest OutsideLocation; `LocationTransport` → requester `OutsideLocations.createLocation`. 2s debounce on spam.
+
+### Dog aggro audio on host
+- Host `CharacterSounds` culled at peer band **650** while entity interest is **1400**.
+- Fix: `InsideCharacterSounds` uses `IsNearAnyListener(1400)`.
+
+### Wardrobe / destructible
+- MeleeWorldHit + Barricade destroy matched in **3D**; client Y drift (body-push / layer) → miss.
+- Fix: XZ match radius 25 for hit + `HandleItemDamageEvent`.
+
+### Trap disarm
+- Silent disarm only `switchToTriggered` — never cleared `inBearTrap`. Late `TrapTriggered` boom NRE'd on mid-destroy Item.
+- Fix: silent disarm → `interruptAllActions(stopBeartrap)`; skip already-triggered / silent-disarm client sends; null-safe ApplyTrapState.
+
+### Parked (addressed in 0.7.46)
+- ObjectDestroy display-name miss, LightApply queue, HandlePlayerAttack null on dead dogs.
+
+### Files
+- `CustomCursorActionSyncPatches.cs`, `NetMessageType.cs`, `WorldMessages.cs`, `LanNetworkManager.cs` / `.Handlers.cs`
+- `AudioSuppressionPatch.cs`, `WorldPhysicsSyncService.cs`, `ClientTrapTriggerPatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.45**, proto **22**)
+
+## 0.7.44 — Save-POI entity desync + peer hear-range audio hitch (2026-08-04)
+
+Playtest: weird audio hitch when peers cross hearing range; **massive desync** when host+client approach save-related entities together. **Protocol 21** (no wire change).
+
+### Peer audio hitch
+- Hard `IsNearListener(650)` play gate flickered `AudioController.Play` on/off each footstep at the edge (voice-pool duck).
+- Fix: XZ + exit band (`PeerHearHysteresis` 40) / per-peer sticky gate for `HandlePlayerAudio`; same band in footstep + `AudioSuppressionPatch`.
+
+### Save-entity desync cascade
+- Dual **3500** WorldGrid bubble woke 200–340 ents past **256** snapshot cap → pending timeout → phantom spawn + unmapped destroy + claim teleports.
+- **`EntityActivationRange` 3500→1400** (align with client interest); WorldGrid proxy enter/leave uses it.
+- Match/claim/inactive/broadcast distances use **XZ** (same Y-plane bug class as 0.7.43 audio).
+- Claim no longer teleports local GO; interp from local pose.
+- Unmapped/unmatched destroy paused while pending matches exist.
+- Pending timeout 0.9→1.5s; MatchRadius 15→25 (XZ).
+
+### Files
+- `LocalAudioService.cs`, `AudioSuppressionPatch.cs`, `LanNetworkManager.Handlers.cs`, `GameplayConstants.cs`, `HostAIPatches.cs`, `PlayerPositionManager.cs`, `CharacterTracker.cs`, `EntityStateBroadcastService.cs`, `ClientEntityInterpolationService.cs`, `ModRuntime.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.44**)
 
 ## 0.7.43 — Client entity present: death SFX, floaty roam, corpse vanish, claim (2026-08-04)
 

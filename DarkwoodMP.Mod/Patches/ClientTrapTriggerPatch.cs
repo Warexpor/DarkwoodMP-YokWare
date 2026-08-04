@@ -22,6 +22,11 @@ namespace DWMPHorde.Patches
                 return;
             if (TraverseHack.ApplyingFromNetwork)
                 return;
+            // Silent disarm / already sprung — do not ask host to boom.
+            if (TrapDisarmHarvestTracker.IsSilentDisarm)
+                return;
+            if (__instance.triggered)
+                return;
 
             Vector3 pos = __instance.transform.position;
             int trapId = TrapNetworkId.GetId(__instance.gameObject);
