@@ -2396,10 +2396,22 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo(
                 $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} firedNow={best.fired} at {best.transform.position}");
 
-            // Dream dialogue doors: trueTargets often fail on client LoadDream path —
-            // force-open nearby doors after delayed GameEvent coroutines would have run.
-            DWMPHorde.Patches.DialogueDoorAftermath.OnClientGameEventsApplied(
-                best.name ?? msg.EventName, best.transform.position);
+            // Only when GE fire was a no-op / door still closed — otherwise ForceOpen
+            // plays a second openSound after modifyDoor from onLeaveDoorDialogue_*.
+            string geName = best.name ?? msg.EventName ?? "";
+            bool leaveDoor = geName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || geName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!leaveDoor)
+            {
+                DWMPHorde.Patches.DialogueDoorAftermath.OnClientGameEventsApplied(
+                    geName, best.transform.position);
+            }
+            else
+            {
+                // Deferred check: open only if GE coroutine failed to open.
+                DWMPHorde.Patches.DialogueDoorAftermath.OnClientLeaveDoorGameEventsApplied(
+                    geName, best.transform.position);
+            }
             return true;
         }
 
@@ -6142,6 +6154,13 @@ namespace DWMPHorde.Networking
                         "[ClientBackup] no stored backup for p" + playerId + " — peer may use local self");
                     return;
                 }
+                if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip push → p" + playerId
+                        + " — stale backup on fresh day-1 world");
+                    return;
+                }
                 string json = ClientStateBackup.SerializeToJson(data);
                 if (string.IsNullOrEmpty(json))
                     return;
@@ -6258,6 +6277,13 @@ namespace DWMPHorde.Networking
                         ModRuntime.LegacyInfo(
                             "[ClientBackup] ignore host push — no usable backup for this campaign"
                             + " — keeping loaded character");
+                        return;
+                    }
+
+                    if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
+                    {
+                        ModRuntime.LegacyInfo(
+                            "[ClientBackup] ignore host push — stale backup on fresh day-1 world");
                         return;
                     }
 
@@ -6542,6 +6568,11 @@ namespace DWMPHorde.Networking
                 DialogHostApplyGuard.BeginWorldOnly();
                 try
                 {
+                    // World-only apply needs an active DialogueWindow (lookKeyhole boards
+                    // StartCoroutine setPortrait — inactive GO → stuck Core.forbidInputs).
+                    if (dw.gameObject != null && !dw.gameObject.activeSelf)
+                        dw.gameObject.SetActive(true);
+
                     dw.displayDialogue(msg.TargetDialogueName);
 
                     if (hostWasInThisTalk)
@@ -6565,10 +6596,24 @@ namespace DWMPHorde.Networking
                         DialogHostApplyGuard.EndWorldOnly();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    ModRuntime.Log?.LogWarning(
+                        "[DialogOutcome] world-only displayDialogue failed: " + ex.Message);
+                    try
+                    {
+                        DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                    }
+                    catch { /* ignore */ }
+                    try
+                    {
+                        Core.forbidInputs = false;
+                        Core.cantChangeForbidInputs = false;
+                    }
+                    catch { /* ignore */ }
                     DialogHostApplyGuard.EndWorldOnly();
-                    throw;
+                    HostFinishDialogWorldApply(npc);
+                    return;
                 }
 
                 HostFinishDialogWorldApply(npc);
@@ -6659,6 +6704,10 @@ namespace DWMPHorde.Networking
                             try
                             {
                                 Core.forbidInputs = false;
+                                if (dw.currentDialogue == null || dw.npc == null)
+                                    break;
+                                // displayNextBoard is private — Traverse, but only when dialogue live
+                                // (bypassing guard on null caused listen_dream NRE + stuck inputs).
                                 Traverse.Create(dw).Method("displayNextBoard").GetValue();
                             }
                             catch (Exception ex)
@@ -6693,6 +6742,14 @@ namespace DWMPHorde.Networking
                 _dialogWorldDrainCo = null;
                 while (DialogHostApplyGuard.Active)
                     DialogHostApplyGuard.EndWorldOnly();
+                try
+                {
+                    Core.forbidInputs = false;
+                    Core.cantChangeForbidInputs = false;
+                    if (dw != null)
+                        dw.forbidInputs = false;
+                }
+                catch { /* ignore */ }
                 HostFinishDialogWorldApply(npc);
                 ModRuntime.LegacyInfo("[DialogOutcome] world-only drain finished");
             }
@@ -6753,10 +6810,12 @@ namespace DWMPHorde.Networking
 
                 // Belt-and-suspenders: fire onLeaveDoor* / DoorDialogue GameEvents under the
                 // dream pad even when EventTrigger requirements blocked the close path.
-                HostFireDreamLeaveDoorGameEvents(npcPos);
+                int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
 
-                // Ensure the armored door actually opens + DoorOpen fans out.
-                DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
+                // If leave-door GE already opened the door (modifyDoor), skip force-open —
+                // otherwise client hears openSound twice (GE + DoorOpen).
+                if (leaveFired == 0)
+                    DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
             }
             catch (Exception ex)
             {
@@ -6775,7 +6834,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static void HostFireDreamLeaveDoorGameEvents(Vector3 nearPos)
+        private static int HostFireDreamLeaveDoorGameEvents(Vector3 nearPos)
         {
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
@@ -6818,6 +6877,7 @@ namespace DWMPHorde.Networking
             if (fired == 0)
                 ModRuntime.LegacyInfo(
                     "[DialogOutcome] no onLeaveDoor/DoorDialogue GameEvents under dream pad");
+            return fired;
         }
 
         private void HandleDialogTreeState(DialogTreeStateMessage msg)
@@ -7728,12 +7788,12 @@ namespace DWMPHorde.Networking
         /// fades via AudioSource.maxDistance instead of a hard IsNearListener cull.
         /// Out of hear range: do not Play at all (0.7.14 proxy cull-exempt let every far
         /// step allocate AudioObjects → periodic duck/hitch while host walks off-map).
+        /// Gate matches maxDistance / AudioSuppression (DefaultMaxSpatialDistance).
         /// </summary>
         private static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running)
         {
             Transform proxyT = proxy.transform;
             if (proxyT == null) return;
-            // Match ForceSpatialProxyOneShot max clamp upper bound.
             if (!LocalAudioService.IsNearListener(
                     proxyT.position, LocalAudioService.DefaultMaxSpatialDistance))
                 return;
@@ -7788,9 +7848,11 @@ namespace DWMPHorde.Networking
                 ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
             float itemMax = (item != null && item.overrideAudioSourceSettings)
                 ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
-            // Footsteps: closer near-field than guns so they attenuate across a room.
+            // Closer near-field than guns so steps attenuate across a room; silence at
+            // DefaultMaxSpatialDistance (same as Play gate + AudioSuppression).
             audioObj.primaryAudioSource.minDistance = Mathf.Clamp(itemMin, 8f, 40f);
-            audioObj.primaryAudioSource.maxDistance = Mathf.Clamp(itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
+            audioObj.primaryAudioSource.maxDistance = Mathf.Clamp(
+                itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
         }
 
         private void HandlePlayerSound(PlayerSoundMessage msg)
@@ -8918,10 +8980,12 @@ namespace DWMPHorde.Networking
                         }
                         else if (spatialTool)
                         {
-                            // Flashlight/torch clicks: Linear + short AudioItem maxDistance
-                            // zeroed the soft tail ("cuts off near the end") at bunker range.
+                            // Flashlight/torch: Log + full peer range. Tiny minDistance buried
+                            // the soft click tail under attenuation while the attack still
+                            // read — keep near-field at DefaultMinSpatialDistance.
                             audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
-                            audioObj.primaryAudioSource.minDistance = 8f;
+                            audioObj.primaryAudioSource.minDistance =
+                                LocalAudioService.DefaultMinSpatialDistance;
                             audioObj.primaryAudioSource.maxDistance =
                                 LocalAudioService.DefaultMaxSpatialDistance;
                         }

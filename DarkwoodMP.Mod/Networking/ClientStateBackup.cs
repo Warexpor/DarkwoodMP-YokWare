@@ -329,7 +329,27 @@ namespace DWMPHorde.Networking
             GetProfileBackupDirectory() + "/client_backup_self.json";
 
         /// <summary>
-        /// True when backup JSON belongs to the active campaign (or both unscoped legacy).
+        /// True when backup looks like a prior playthrough applied onto a fresh day-1 world
+        /// (CampaignId reused because mint was skipped). Used to refuse host push / restore.
+        /// </summary>
+        public static bool LooksLikeStaleBackupOnFreshWorld(ClientStateBackupData data)
+        {
+            if (data == null || !HasMeaningfulProgress(data)) return false;
+            var ctrl = Singleton<Controller>.Instance;
+            int day = ctrl != null ? ctrl.day : (Core.currentProfile != null ? Core.currentProfile.day : 0);
+            if (day > 1) return false;
+            // Day-1 world with a progressed character (lvl/skills/inv) from another fingerprint.
+            string curFp = CoopWorldCopyMeta.TryGetCurrentContentFingerprint();
+            if (string.IsNullOrEmpty(curFp) || string.IsNullOrEmpty(data.ContentFingerprint))
+                return data.CurrentLevel >= 2 || (data.Skills != null && data.Skills.Count >= 2);
+            if (string.Equals(curFp, data.ContentFingerprint, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return data.CurrentLevel >= 1
+                || (data.Skills != null && data.Skills.Count > 0)
+                || (data.InventoryItems != null && data.InventoryItems.Count > 0);
+        }
+
+        /// <summary>True when backup JSON belongs to the active campaign (or both unscoped legacy).
         /// Fingerprint matching was removed — host/client package hashes diverge after share.
         /// </summary>
         public static bool MatchesCurrentCampaign(ClientStateBackupData data)

@@ -8,15 +8,17 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// 4.3 Event triggers / requirements:
     /// Vanilla EventTriggers.OnTriggerEnter/Exit only reacts to Player.Instance.
-    /// Remote peers are represented as RemotePlayerProxy on the host — without this
-    /// patch, a client walking into an area volume never fires host GameEvents
-    /// (and thus never reaches 4.2 GameEventsFired sync).
+    /// Remote peers are RemotePlayerProxy — without proxy enter, a client walking
+    /// into a volume never fires host GameEvents (4.2 GameEventsFired).
     ///
-    /// Host: also treat proxy colliders as player enter/exit (same entered/exited counters).
-    /// Client: skip local volume enter/exit when multiplayer is live (host is authority;
-    /// one-shots already blocked in 4.2; avoids double multipleFire FX).
-    /// Sight: host isCurrentlyInSightOfPlayer also true if any proxy has LOS.
-    /// Requirements stay host-side Flags/world state (FlagSync + GameEvents cover most).
+    /// multipleFire GEs (dream karuzela RotateIt, ambients) are intentionally NOT
+    /// broadcast (GameEventsFiredPatch) — they were meant to run locally on each
+    /// peer. That only works if:
+    ///   1) Client Player.Instance still gets vanilla OnTriggerEnter (do NOT suppress),
+    ///   2) Each peer also runs proxy enter for other players' proxies (host body on
+    ///      client, client body on host).
+    /// One-shots stay host-auth: GameEventsFiredPatch Prefix blocks client one-shot
+    /// fire(); host broadcasts; client Apply under NetworkApplyGuard.
     /// </summary>
     internal static class EventTriggersAuth
     {
@@ -39,71 +41,45 @@ namespace DWMPHorde.Patches
                 return false;
             return true;
         }
-    }
 
-    /// <summary>
-    /// Client: host owns EventTriggers volume enter/exit. Skip entire method so
-    /// client walking into a zone does not run local fireEventTrigger (4.2 already
-    /// blocks one-shot GameEvents; this also prevents multipleFire double-FX).
-    /// Host/offline: run vanilla.
-    /// </summary>
-    [HarmonyPatch(typeof(EventTriggers), "OnTriggerEnter", new[] { typeof(Collider) })]
-    public static class EventTriggersClientEnterSuppressPatch
-    {
-        private static bool Prefix()
+        /// <summary>Footstep / SoundArea volumes — local body only (proxy path owns peer steps).</summary>
+        internal static bool IsLocalBodyOnlyVolume(string etName)
         {
-            if (!EventTriggersAuth.IsMultiplayerConnected())
-                return true;
-            if (ModRuntime.Network.Role == NetworkRole.Host)
-                return true;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(EventTriggers), "OnTriggerExit", new[] { typeof(Collider) })]
-    public static class EventTriggersClientExitSuppressPatch
-    {
-        private static bool Prefix()
-        {
-            if (!EventTriggersAuth.IsMultiplayerConnected())
-                return true;
-            if (ModRuntime.Network.Role == NetworkRole.Host)
-                return true;
-            return false;
+            if (string.IsNullOrEmpty(etName)) return false;
+            return etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 
     /// <summary>
-    /// Host: after vanilla Player.Instance handling, fire area enter for proxies.
+    /// After vanilla Player.Instance handling, fire area enter for remote proxies
+    /// on every peer (host + client). Host: client walked in. Client: host walked in
+    /// (multipleFire world FX like karuzela RotateIt).
     /// </summary>
     [HarmonyPatch(typeof(EventTriggers), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class EventTriggersProxyEnterPatch
     {
         private static void Postfix(EventTriggers __instance, Collider other)
         {
-            if (!EventTriggersAuth.IsHost()) return;
+            if (!EventTriggersAuth.IsMultiplayerConnected()) return;
             if (__instance == null || other == null) return;
             if (!__instance.reactsToPlayer) return;
             if (!EventTriggersAuth.CanFireTriggers(__instance)) return;
             if (Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.loading)
                 return;
 
-            // Host Player.Instance enter — clear proxy threat preference.
+            // Local Player.Instance enter — host clears proxy threat preference.
             if (other.GetComponentInParent<Player>() != null)
             {
-                ThreatTriggerContext.NoteHostEnter();
+                if (EventTriggersAuth.IsHost())
+                    ThreatTriggerContext.NoteHostEnter();
                 return;
             }
 
             RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null) return;
 
-            // Footstep / SoundArea volumes only make sense for the local body — proxy enter
-            // was starting host-local surface GEs and could fan audio weirdness to peers.
-            // Remote steps use PlayProxyFootstepSound + proxy checkGround instead.
-            string etName = __instance.name ?? "";
-            if (etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
                 return;
 
             // Mirror vanilla multi-collider guard: only first "logical" enter counts.
@@ -112,7 +88,9 @@ namespace DWMPHorde.Patches
             if (__instance.entered != 0 && Helpers.isComponentAtPos(pos, mask, __instance))
                 return;
 
-            ThreatTriggerContext.NoteProxyEnter(proxy);
+            if (EventTriggersAuth.IsHost())
+                ThreatTriggerContext.NoteProxyEnter(proxy);
+
             __instance.fireEventTrigger(EventTrigger.Type.area);
             __instance.entered++;
             ModRuntime.LegacyInfo(
@@ -121,14 +99,14 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host: after vanilla Player.Instance handling, fire area exit for proxies.
+    /// Proxy exit on every peer — pairs with enter (multipleFire EventTrigger resets on exit).
     /// </summary>
     [HarmonyPatch(typeof(EventTriggers), "OnTriggerExit", new[] { typeof(Collider) })]
     public static class EventTriggersProxyExitPatch
     {
         private static void Postfix(EventTriggers __instance, Collider other)
         {
-            if (!EventTriggersAuth.IsHost()) return;
+            if (!EventTriggersAuth.IsMultiplayerConnected()) return;
             if (__instance == null || other == null) return;
             if (!__instance.reactsToPlayer) return;
             if (!EventTriggersAuth.CanFireTriggers(__instance)) return;
@@ -136,9 +114,7 @@ namespace DWMPHorde.Patches
             RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null) return;
 
-            string etName = __instance.name ?? "";
-            if (etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
                 return;
 
             Vector3 pos = proxy.transform.position;
@@ -196,14 +172,11 @@ namespace DWMPHorde.Patches
             int radius = (int)et.inSightOfPlayerRadius;
             if (radius > 0)
             {
-                // Match vanilla radius path: Player.canSee(from, to, radius).
                 if (Player.Instance != null)
                     return Player.Instance.canSee(proxyT, et.transform, radius);
                 return Core.canSee(proxyT, et.transform);
             }
 
-            // Approximate FOV: proxy faces along transform.up (same as player body).
-            // Allow close proximity without facing; farther needs ~half-FOV and LOS.
             Vector3 toTarget = dest - proxyT.position;
             float halfFov = 55f;
             if (dist > 6f && Vector3.Angle(toTarget, proxyT.up) > halfFov)

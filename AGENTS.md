@@ -37,7 +37,8 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.25**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.33**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
 - **Protocol:** 19 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.
@@ -56,6 +57,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 
 - Free rewrite / online research OK when it unblocks playtest bugs.
 - Prefer vanilla parity via decompile over guessing.
+- **Never crutch.** No magic tighter ranges, forced 2D, swallow-and-hope, or “paper over the edge” audio/sync hacks. Find the real cause (wrong settings, double path, lifecycle kill, bad gate vs `maxDistance` mismatch) and fix that. Symptom patches ship as bugs.
 - **Always dual-deploy after shippable code changes:** `dotnet build DarkwoodMP.Mod -c Release` (DeployToGameDirs is automatic). Do not leave playtest boxes on an old DLL.
 - After light/flare/torch work: check **both** host + client `LogOutput.log`.
 - Logging guide: `DarkwoodMP.Mod\docs\LOGGING.md`

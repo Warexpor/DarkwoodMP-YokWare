@@ -43,13 +43,15 @@ namespace DWMPHorde.Patches
             if (Core.loadingGame || Core.loadedGame || Core.doLoadChapterSave)
                 return;
 
+            // Brand-new forest → new campaign id even when offline / not hosting yet.
+            // Old bug: mint only ran as Host, so "new world then host MP" reused the
+            // previous CampaignId and pushed stale ClientBackup inv/skills onto day-1.
+            if (Core.currentProfile != null)
+                CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
+
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
-
-            // Brand-new forest → new campaign id so old client backups cannot apply.
-            if (Core.currentProfile != null)
-                CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
 
             if (!net.IsConnected || !net.IsHandshakeComplete)
             {

@@ -116,10 +116,10 @@ namespace DWMPHorde
             {
                 _scheduledBackupRestore = false;
                 // Host character lives in sav.dat — never overlay ClientBackup on host.
-                // Clients / offline co-op copies need personal inv/skills over host body.
+                // Role==Host alone: IsConnected is PeerCount>0, so solo host before any
+                // client join used to restore and overwrite the host body with an old self.
                 var net = ModRuntime.Network as Networking.LanNetworkManager;
-                bool isHost = net != null && net.IsConnected && net.Role == Networking.NetworkRole.Host;
-                if (isHost)
+                if (net != null && net.Role == Networking.NetworkRole.Host)
                 {
                     ModRuntime.LegacyInfo(
                         "[ManualSave] skip backup restore on host — sav.dat is authoritative");
@@ -324,6 +324,10 @@ namespace DWMPHorde
                 CopyIfExists(slotDir + "/sav.dat", profDir + "/sav.dat");
                 CopyIfExists(slotDir + "/savs.dat", profDir + "/savs.dat");
                 CopyIfExists(slotDir + "/savch.dat", profDir + "/savch.dat");
+
+                // Loading a ManualSave slot is a different save instance — remint so
+                // ClientBackup from another slot/campaign cannot apply.
+                Networking.CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
 
                 Core.currentProfile.day = meta.day;
                 Core.currentProfile.chapter = meta.chapter;

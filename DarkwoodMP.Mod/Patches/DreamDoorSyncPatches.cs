@@ -200,6 +200,41 @@ namespace DWMPHorde.Patches
             ctrl.StartCoroutine(ClientAfterDialogueDoorRoutine(eventPos));
         }
 
+        /// <summary>
+        /// Leave-door GE already runs modifyDoor → openSound. Only force-open if still
+        /// closed after GE delays (avoids double openSound with DoorOpen / ForceOpen).
+        /// </summary>
+        public static void OnClientLeaveDoorGameEventsApplied(string eventName, Vector3 eventPos)
+        {
+            if (!IsDialogueDoorEvent(eventName)) return;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+            ctrl.StartCoroutine(ClientLeaveDoorBackupOpenRoutine(eventPos));
+        }
+
+        private static IEnumerator ClientLeaveDoorBackupOpenRoutine(Vector3 eventPos)
+        {
+            yield return new WaitForSecondsRealtime(1.2f);
+            if (_clientDoorOpened) yield break;
+            // If a dream-pad door near the event is already open, GE succeeded — no ForceOpen.
+            Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            Door[] all = GetDoorsCached();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Door d = all[i];
+                if (d == null || !d.opened) continue;
+                if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    continue;
+                if (Vector3.Distance(d.transform.position, eventPos) < 120f)
+                {
+                    _clientDoorOpened = true;
+                    yield break;
+                }
+            }
+            ForceOpenDialogueDoors(eventPos);
+        }
+
         public static void Reset()
         {
             _broadcastedOpen.Clear();
@@ -378,12 +413,18 @@ namespace DWMPHorde.Patches
                 {
                     float force = best.type == Door.Type.metal ? 30000f : 0f;
                     best.open(best.transform.position + Vector3.forward * 2f, null, force);
-                    DoorOpenSyncPatch.BroadcastDoorOpened(best);
+                    // DoorOpenSyncPatch.Postfix already broadcast — do not dual-send.
                     ModRuntime.LegacyInfo(
                         $"[DoorSync] host force-opened dialogue door '{best.name}' (anchor={anchor})");
                 }
                 else
                 {
+                    // GE modifyDoor may already be opening — skip second openSound.
+                    if (best.opened)
+                    {
+                        _clientDoorOpened = true;
+                        return;
+                    }
                     bool prev = LanNetworkManager.IsApplyingRemoteState;
                     LanNetworkManager.IsApplyingRemoteState = true;
                     try

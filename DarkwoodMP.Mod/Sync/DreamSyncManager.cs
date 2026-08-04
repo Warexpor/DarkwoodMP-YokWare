@@ -642,13 +642,18 @@ namespace DWMPHorde.Sync
             float deadline = Time.realtimeSinceStartup + 25f;
             while (Time.realtimeSinceStartup < deadline)
             {
-                if (DreamSession.IsActive || _localDreamActive || IsDreamActive)
+                // Do NOT use IsDreamActive — it includes _earlyEntryTransitionPlayed, which
+                // made this watchdog exit immediately after peer CutsceneSync and never clear
+                // the void when DreamStarted never arrived.
+                if (_localDreamActive
+                    || (Dreams.Instance != null && Dreams.Instance.dreaming))
                     yield break;
                 if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                     break;
                 yield return null;
             }
-            if (DreamSession.IsActive || _localDreamActive || IsDreamActive)
+            if (_localDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming))
                 yield break;
 
             ModRuntime.Log?.LogWarning(
