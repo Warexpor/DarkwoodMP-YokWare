@@ -2,11 +2,130 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.33** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.39** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.39 — Walkie hitch, flee-fauna chase, scrape/Save/door hygiene (2026-08-04)
+
+Playtest 0.7.38: `[PerfSeg] hotSeg=walkie` ~50–64ms every ~5s both boxes; rabbits/ravens chased both players while dogs correctly fought the client; lamp/stool MOS start/stop thrash; death SaveSync storm; door open spam. **Protocol 19 unchanged.**
+
+### Walkie hitch (P0)
+- `WalkieItem.Tick` kept calling `InjectIcon` → `FindObjectsOfTypeAll&lt;tk2dSpriteCollectionData&gt;` every 5s after settle.
+- **Fix:** `_iconSettled` — never scan again once icon injected (or texture failed).
+
+### Flee-fauna chase (P0)
+- `ProxyAggroCheck` + `HostCanSeeEnemy` / proxy collide forced `runAway`/`attackCharacter` toward proxies for flee animals → chase feel.
+- **Fix:** predators only (`attacksFaction(player)`); skip `flee`/`fleeAndDespawn`; no proxy flee-on-collide; `attackCharacter(proxy)` blocked for non-predators. Dogs unchanged.
+
+### MOS scrape thrash (P1)
+- Body-push quiet threshold **0.1** + two quiet ticks before soft-stop (host→client and client→host paths).
+
+### Death SaveSync storm (P1)
+- Day/night death arms suppress; first Save still fans out, then **6s** drop of further SaveSync requests/broadcasts.
+
+### Door open spam (P1)
+- `Door.open` Postfix skips broadcast if door was already open (Prefix `__state`).
+
+### Late-join flush (P2)
+- `TickHeavyLateJoinBulk`: **one peer × one phase per frame** (was all peers).
+
+### Parked
+- First-join mid-share disconnect; entityBroadcast baseline cost; entTick Character FOOT bursts.
+
+### Files
+- `Items/WalkieItem.cs`, `Networking/LanNetworkManager.cs`, `HostAIPatches.cs`, `WorldPhysicsSyncService.cs`, `SaveSyncPatches.cs`, `DeathStateTracker.cs`, `DreamDoorSyncPatches.cs`, `LanNetworkManager.Handlers.cs`, `HostDeathSendPatch.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.39**)
+
+## 0.7.38 — Hitch gap probe (contiguous Update segs) (2026-08-04)
+
+0.7.37 playtest: steady `upd≈55–60` still had `segMax=(none)` — stall was outside wrapped blocks. **No behavior fix claimed.** Protocol 19 unchanged.
+
+### Probe
+- Contiguous Update segments: walkie, flushPending, peerRoster, scenarioApply, gameEvents, meleeDebounce, flagSync, entityBroadcast, proxyAggro, timeShadow, physTimer.
+- `[PerfSeg] updFrame=Xms hotSeg=name:ms` when a single Update slice ≥25ms (names the hottest sub-seg that frame).
+
+### Files
+- `Logging/CoopPerfProbe.cs`, `Networking/LanNetworkManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.38**)
+
+## 0.7.37 — Lamp body-push scrape silent + hitch seg probes (2026-08-04)
+
+Playtest after 0.7.36: host body-push of `Lamp_old_yellow_01` moved on client but scrape was silent; E-drag scrape was fine. Chairs / wardrobe push+drag scraped OK. Periodic `upd≈50–70` hitch still present (`footN=0`, ~4s cadence) despite LAN IP cache. **Protocol 19 unchanged.**
+
+### Lamp push scrape (root cause)
+- `IsSceneFixedLightItem` treated every `Item.isLight` as a wall lamp and **skipped PhysicsState free-body build**.
+- Body-push scrape for observers is armed from PhysicsState→MOS; DragSync still ran for E-drag → drag heard, push silent.
+- **Fix:** only treat lights as fixed when they are **not** `draggable` and have **no** ItemSounds moving scrape. Floor lamps stream pose like stools.
+
+### Remaining hitch (instrumented, not claimed fixed)
+- Logs: SaveSync dedup / DoorTracker / fullRbScan fixes hold; `upd` spike still ~every 4s on **both** host and client with `footN=0` (not PeerRoster packet correlation).
+- **Added:** Update sub-segment probes (`[PerfSeg]` when ≥25ms; Perf line `segMax=name:ms`) for flushPending / peerRoster / gameEvents / flagSync / entityBroadcast / proxyAggro.
+
+### Files
+- `Sync/WorldPhysicsSyncService.cs` (`IsSceneFixedLightItem`)
+- `Logging/CoopPerfProbe.cs`, `Networking/LanNetworkManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.37**)
+
+## 0.7.36 — Periodic hitch cadence + post-dream Save spike (2026-08-04)
+
+Playtest after 0.7.35: host (and client) felt small periodic frame hitches; after dream exit a larger hitch lined up with SaveSync. **Protocol 19 unchanged.**
+
+### ~4s `upd≈60–80` hitch
+- Host roster gossip every 4s called `NetworkInterface.GetAllNetworkInterfaces()` for LAN IPv4 — known Windows main-thread stall (~40–80ms), showed as `upd` with `footN=0`.
+- **Fix:** cache LAN IPv4 for 60s; invalidate on `StartHost`.
+
+### ~30s `objInterp≈45` hitch
+- `DoorTracker.Cleanup` ran `FindObjectsOfType<Door>` from LateUpdate `UpdateObjectInterpolation` every 30s (uninstrumented FOOT).
+- **Fix:** null-purge only; register doors on `OnEnable` as well as Awake (chunk re-enable).
+
+### Post-dream SaveSync spike (`upd≈400+`)
+- Host end-dream Save → broadcast; client independent vanilla Save → SaveSync request → after 3s cooldown host Saved **again** + re-broadcast.
+- **Fix:** ignore client SaveSync requests while still inside the host broadcast cooldown.
+
+### Files
+- `Networking/HostMigration.cs`, `LanNetworkManager.cs`, `LanNetworkManager.Handlers.cs`
+- `Sync/EntityTrackers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.36**)
+
+## 0.7.35 — Client dream bed "Lie down" no-op (2026-08-04)
+
+Playtest after 0.7.34: client pressing the dream-exit **Lie down** (`CustomCursorAction` → `onActivate` → one-shot GE `item` → `endDream` / `dream_underground_bed`) did nothing; host pressing the same ended the dream for both. **Protocol 19 unchanged** (optional msg `ActivateCursorAction = 130`).
+
+### Root cause
+- Client one-shot `GameEvents.fire` is blocked by design (`GameEventsFiredPatch`).
+- `CustomCursorAction.activate` / ItemMenu `onActivate` had no client→host request (unlike `Examinable` / `ExamineObject`), so the press never reached the host.
+
+### Fix
+- Client defers `Core.sendTriggerInfo(..., onActivate)` when the target has `CustomCursorAction` → host runs `activate()` (authoritative GE + `initiateEndDreaming` fan-out).
+- Dream-pad resolve prefers pad instances (clone trap).
+
+### Parked / still watching
+- Host post-dream micro-hitches — addressed in **0.7.36**.
+
+### Files
+- `Patches/CustomCursorActionSyncPatches.cs` (new)
+- `Networking/Messages/NetMessageType.cs`, `WorldMessages.cs`, `LanNetworkManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.35**)
+
+## 0.7.34 — Host dialog text leak + dream-end GE stutter (2026-08-04)
+
+Playtest after 0.7.33: host saw client dialogue lines on their DialogueWindow; dream end failed with periodic client stutters (`upd=700ms+`) until hostLostMidDream. **Protocol 19 unchanged.**
+
+### Host sees peer dialogue text
+- World-only `displayDialogue` still activated the dialogue text root (only blackscreen was suppressed).
+- **Fix:** while `DialogHostApplyGuard` is active, hide dialogue/options/items/portrait and `WritingText.forceFinish` so boards drain without on-screen peer lines.
+
+### Dream-end stutter / cannot finish
+- Host forest-spirit `def_glow` / `def_shadow` one-shots fan out; client has no durable GE at chase coords → pending queue + `FindObjectsOfType` every 0.5s for up to 90s.
+- **Fix:** do not broadcast those ephemeral FX; if a miss still arrives after pad ready, drop (do not queue); clear them on dream end with other pad pending.
+
+### Files
+- `Patches/DialogHostPresentationSuppressPatches.cs`, `Patches/GameEventsFiredPatch.cs`
+- `Networking/LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.34**)
 
 ## 0.7.33 — Dream karuzela rotate on client (2026-08-04)
 

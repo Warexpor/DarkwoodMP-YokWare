@@ -739,4 +739,28 @@ namespace DWMPHorde.Networking
             DisplayedDescriptionPool = r.GetBool()
         };
     }
+
+    /// <summary>
+    /// Client→host: CustomCursorAction onActivate (dream bed Lie down → endDream GE).
+    /// </summary>
+    public struct ActivateCursorActionMessage
+    {
+        public float PosX, PosY, PosZ;
+        public string ObjectName;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(ObjectName ?? "");
+        }
+
+        public static ActivateCursorActionMessage Deserialize(NetReader r) =>
+            new ActivateCursorActionMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                ObjectName = r.GetString()
+            };
+    }
 }

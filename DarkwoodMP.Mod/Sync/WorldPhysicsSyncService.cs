@@ -968,8 +968,8 @@ namespace DWMPHorde.Sync
                             if (_objectInterp.TryGetValue(goId, out var existingInterp))
                                 baseline = existingInterp.TargetPos;
                             float posDelta = Vector3.Distance(baseline, objPos);
-                            // 0.001 was too sensitive (float noise + micro jitter = "always moving").
-                            bool posChanged = posDelta >= 0.02f;
+                            // 0.02 was too sensitive (micro jitter → start/stop/MOS re-arm thrash).
+                            bool posChanged = posDelta >= 0.1f;
 
                             // Always refresh kinematic hold while client reports the object.
                             // Gate only blocks brand-new sessions right after a clean stop.
@@ -999,15 +999,24 @@ namespace DWMPHorde.Sync
                                 _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
                                 _pushNameToGid[obj.Name] = goId;
                                 _pushGidToName[goId] = obj.Name;
+                                _pushStationaryCount[goId] = 0;
                             }
-                            else if (!gated && _bodyPushSoundActive.Remove(obj.Name))
+                            else if (!gated && _bodyPushSoundActive.Contains(obj.Name))
                             {
-                                // First quiet tick → stop decision now (≤ one PhysicsState interval).
-                                ModRuntime.LegacyInfo("[SND] body-push stop (quiet) " + obj.Name);
-                                LanNetworkManager.NotifyBodyPushStopped(obj.Name);
-                                _bodyPushSoundTimer.Remove(goId);
-                                _pushNameToGid.Remove(obj.Name);
-                                _pushGidToName.Remove(goId);
+                                // Two quiet ticks before stop — micro flaps were MOS re-arm thrash.
+                                if (!_pushStationaryCount.TryGetValue(goId, out int quietN))
+                                    quietN = 0;
+                                quietN++;
+                                _pushStationaryCount[goId] = quietN;
+                                if (quietN >= 2 && _bodyPushSoundActive.Remove(obj.Name))
+                                {
+                                    ModRuntime.LegacyInfo("[SND] body-push stop (quiet) " + obj.Name);
+                                    LanNetworkManager.NotifyBodyPushStopped(obj.Name);
+                                    _bodyPushSoundTimer.Remove(goId);
+                                    _pushNameToGid.Remove(obj.Name);
+                                    _pushGidToName.Remove(goId);
+                                    _pushStationaryCount.Remove(goId);
+                                }
                             }
 
                             // Hard desync only: snap start of interp. Routine push must lerp
@@ -1077,7 +1086,7 @@ namespace DWMPHorde.Sync
                                 var __isnd = __ic.GetComponent<ItemSounds>();
                                 if (__isnd != null)
                                 {
-                                    if (__pd >= 0.03f)
+                                    if (__pd >= 0.1f)
                                     {
                                         // Remote host→client motion: MOS only (MarkRemoteScrape inside NoteMoving).
                                         MovingObjectSoundService.NoteMoving(__ic.gameObject, obj.Name, __isnd);
@@ -1089,12 +1098,19 @@ namespace DWMPHorde.Sync
                                     else if (_lastPushSoundTime.ContainsKey(__gid)
                                         || ItemMovingSoundHelper.IsRemoteScrape(obj.Name))
                                     {
-                                        // First quiet net tick — soft stop (no PostStop suppress).
-                                        ItemMovingSoundHelper.SoftStopNetwork(obj.Name);
-                                        _lastPushSoundTime.Remove(__gid);
-                                        _pushStationaryCount.Remove(__gid);
-                                        _pushNameToGid.Remove(obj.Name);
-                                        _pushGidToName.Remove(__gid);
+                                        // Need two quiet ticks before soft-stop (avoids scrape chatter).
+                                        if (!_pushStationaryCount.TryGetValue(__gid, out int quietN))
+                                            quietN = 0;
+                                        quietN++;
+                                        _pushStationaryCount[__gid] = quietN;
+                                        if (quietN >= 2)
+                                        {
+                                            ItemMovingSoundHelper.SoftStopNetwork(obj.Name);
+                                            _lastPushSoundTime.Remove(__gid);
+                                            _pushStationaryCount.Remove(__gid);
+                                            _pushNameToGid.Remove(obj.Name);
+                                            _pushGidToName.Remove(__gid);
+                                        }
                                     }
                                 }
                             }
@@ -1536,17 +1552,28 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Scene lamps / switch lights — LightState owns them; PhysicsState must not
-        /// kinematic-lock (client walk-blocker). Dream plot lamps often fail the narrow
-        /// <c>isLight &amp;&amp; !draggable</c> check and still stream as free-bodies
-        /// (host log: body-push Lamp_dream_underground) while host collider is trigger.
+        /// Wall / fixed lamps — LightState owns on/off; PhysicsState must not
+        /// kinematic-lock (client walk-blocker).
+        /// Floor / pushable lamps (<c>draggable</c> or ItemSounds moving scrape) are
+        /// free bodies: stream pose so observers hear body-push MOS (DragSync already
+        /// covered E-drag). Blanket <c>isLight</c> skip made Lamp_old_yellow_01 silent
+        /// on push while chairs/wardrobe scraped normally.
         /// </summary>
         private static bool IsSceneFixedLightItem(GameObject go)
         {
             if (go == null) return false;
             Item item = go.GetComponent<Item>();
+            // Movable lamps: same free-body path as stools / wardrobes.
+            if (item != null && item.draggable)
+                return false;
+            ItemSounds sounds = go.GetComponent<ItemSounds>();
+            if (sounds != null
+                && (!string.IsNullOrEmpty(sounds.movingSound)
+                    || !string.IsNullOrEmpty(sounds.movingSound_grass)))
+                return false;
+
             if (item != null && item.isLight)
-                return true; // LightState owns on/off; never PhysicsState free-body
+                return true;
             if (go.GetComponent<ItemLight>() != null)
                 return true;
             string n = go.name ?? "";

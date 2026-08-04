@@ -293,7 +293,12 @@ namespace DWMPHorde.Networking
         /// Optional; protocol stays 19.
         /// </summary>
         VoiceData = 129,
+        /// <summary>
+        /// Client→host: CustomCursorAction onActivate (dream bed "Lie down", etc.).
+        /// Optional; protocol stays 19 — both boxes need the same DLL.
+        /// </summary>
+        ActivateCursorAction = 130,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 129
+        _Highest = 130
     }
 }

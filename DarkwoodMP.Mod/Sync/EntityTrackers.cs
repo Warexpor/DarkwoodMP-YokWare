@@ -35,7 +35,10 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>Removes null entries and rescans for dynamically spawned doors (runs at most every 30s).</summary>
+        /// <summary>
+        /// Null-purge only. Full FindObjectsOfType&lt;Door&gt; here hitch LateUpdate (~45ms)
+        /// every 30s; Awake + OnEnable registration covers chunk-spawned doors.
+        /// </summary>
         public static void Cleanup()
         {
             float now = Time.time;
@@ -43,16 +46,6 @@ namespace DWMPHorde.Sync
                 return;
             _lastCleanupTime = now;
             _doors.RemoveAll(d => d == null);
-
-            // Periodically re-scan for Door instances that were spawned dynamically
-            // (e.g. by world-grid chunk loading) after the Awake patch ran.
-            Door[] all = UnityEngine.Object.FindObjectsOfType<Door>();
-            for (int i = 0; i < all.Length && i < 256; i++)
-            {
-                Door d = all[i];
-                if (d != null && !_doors.Contains(d))
-                    _doors.Add(d);
-            }
         }
 
         /// <summary>Clears all tracked doors.</summary>
@@ -102,6 +95,19 @@ namespace DWMPHorde.Sync
     /// <summary>Harmony patch: registers doors with the tracker on Awake.</summary>
     [HarmonyPatch(typeof(Door), "Awake")]
     public static class DoorAwakePatch
+    {
+        private static void Postfix(Door __instance)
+        {
+            DoorTracker.Add(__instance);
+        }
+    }
+
+    /// <summary>
+    /// Chunk / pool re-enable can skip a second Awake — register on OnEnable too
+    /// so DoorTracker never needs a scene-wide FOOT rescan.
+    /// </summary>
+    [HarmonyPatch(typeof(Door), "OnEnable")]
+    public static class DoorOnEnablePatch
     {
         private static void Postfix(Door __instance)
         {

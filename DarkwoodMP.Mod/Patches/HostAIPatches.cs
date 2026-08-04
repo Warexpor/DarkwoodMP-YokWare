@@ -290,14 +290,12 @@ namespace DWMPHorde.Patches
                 preferIsProxy = false;
             }
 
-            // Flee animals: always from nearest player body (host or any proxy)
+            // Flee fauna (rabbits, ravens): do NOT force runAway toward proxy every
+            // canSeeEnemy tick — that looked like chasing both players. Vanilla AI
+            // already flees from the local Player body only.
             if (__instance.aggressiveness == Aggressiveness.flee ||
                 __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
             {
-                Vector3 nearest = PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
-                __instance.runAway(nearest);
-                if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                    __instance.wantToDespawn = true;
                 return;
             }
 
@@ -335,7 +333,8 @@ namespace DWMPHorde.Patches
             }
 
             if (preferIsProxy && bestProxy.RemoteHasEnemyOfTheForest
-                && __instance.faction == Faction.animalAggressive)
+                && __instance.faction == Faction.animalAggressive
+                && __instance.attacksFaction(Faction.player))
             {
                 __instance.target = bestProxyT;
                 __instance.canSeeEnemyFar = true;
@@ -347,9 +346,11 @@ namespace DWMPHorde.Patches
             else if (preferIsProxy
                 && __instance.behaviour != Character.Behaviour.chasingTarget
                 && __instance.aggressiveness != Aggressiveness.neutral
-                && __instance.canSeeEnemyNear)
+                && __instance.canSeeEnemyNear
+                && __instance.attacksFaction(Faction.player))
             {
                 // Commit chase like vanilla near-sight acquisition on a real Player.
+                // Predators only — never rabbits/ravens that somehow reach this branch.
                 __instance.attackCharacter(preferT);
             }
         }
@@ -372,6 +373,12 @@ namespace DWMPHorde.Patches
                 return false;
             if (destTransform.GetComponent<RemotePlayerProxy>() == null)
                 return true;
+
+            // Rabbits/ravens/non-predators must never chase a remote proxy.
+            if (__instance.aggressiveness == Aggressiveness.flee
+                || __instance.aggressiveness == Aggressiveness.fleeAndDespawn
+                || !__instance.attacksFaction(Faction.player))
+                return false;
 
             if (__instance.sleeping && !__instance.wakeUpOnlyManually)
             {
@@ -591,10 +598,13 @@ namespace DWMPHorde.Patches
 
                 case Aggressiveness.flee:
                 case Aggressiveness.fleeAndDespawn:
-                    __instance.runAway(proxy.transform.position);
+                    // Do not runAway from proxy contact — constant flee-to-proxy felt like chase.
+                    // Vanilla still flees from the host Player body on Player collision.
                     return;
 
                 default:
+                    if (!__instance.attacksFaction(Faction.player))
+                        return;
                     __instance.attackCharacter(proxy.transform);
                     break;
             }

@@ -369,6 +369,7 @@ namespace DWMPHorde.Networking
             }
 
             StatusText = "Hosting on port " + port;
+            InvalidateLanIPv4Cache();
             string keyHint = string.IsNullOrEmpty(Config.ModConfig.HostPassword?.Value?.Trim())
                 ? "open LAN"
                 : "password protected";
@@ -863,8 +864,12 @@ namespace DWMPHorde.Networking
             PollSteamBackend();
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
-            Items.WalkieItem.Tick();
 
+            if (perf) ClientPerfProbe.BeginUpdateSegment("walkie");
+            Items.WalkieItem.Tick();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
+
+            if (perf) ClientPerfProbe.BeginUpdateSegment("flushPending");
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             TryFlushPendingFlags();
             TryFlushPendingJournal();
@@ -897,8 +902,14 @@ namespace DWMPHorde.Networking
             TickHeavyLateJoinBulk();
             TickHostWorldShareWhenReady();
             TickSaveSyncBroadcast();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
+
+            if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
             TickPeerRosterGossip();
             TickHostMigrationRetry();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
+
+            if (perf) ClientPerfProbe.BeginUpdateSegment("scenarioApply");
             if (_hasPendingScenarioEvent && Singleton<NightScenarios>.Instance != null)
             {
                 _hasPendingScenarioEvent = false;
@@ -906,8 +917,13 @@ namespace DWMPHorde.Networking
                 _pendingScenarioEvent = default;
                 ApplyScenarioEventFired(ev);
             }
-            TryFlushPendingGameEvents();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
 
+            if (perf) ClientPerfProbe.BeginUpdateSegment("gameEvents");
+            TryFlushPendingGameEvents();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
+
+            if (perf) ClientPerfProbe.BeginUpdateSegment("meleeDebounce");
             // Periodic cleanup of stale melee hit debounce entries
             if (_meleeHitDebounce.Count > 0)
             {
@@ -921,6 +937,7 @@ namespace DWMPHorde.Networking
                 foreach (string key in stale)
                     _meleeHitDebounce.Remove(key);
             }
+            if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (!IsConnected || !_handshakeComplete)
             {
@@ -931,8 +948,10 @@ namespace DWMPHorde.Networking
             // Flush flag updates that were deferred by cooldown (host + client→host H1)
             if (_role == NetworkRole.Host || _role == NetworkRole.Client)
             {
+                if (perf) ClientPerfProbe.BeginUpdateSegment("flagSync");
                 Patches.FlagSyncBoolPatch.TickFlush();
                 Patches.FlagSyncIntPatch.TickFlush();
+                if (perf) ClientPerfProbe.EndUpdateSegment();
             }
 
             _sendTimer += Time.deltaTime;
@@ -943,15 +962,20 @@ namespace DWMPHorde.Networking
             // Host: broadcast entity states to clients
             if (_role == NetworkRole.Host && !shareBusy)
             {
+                if (perf) ClientPerfProbe.BeginUpdateSegment("entityBroadcast");
                 EntityStateBroadcastService.Tick();
+                if (perf) ClientPerfProbe.EndUpdateSegment();
 
                 _proxyAggroTimer += Time.deltaTime;
                 if (_proxyAggroTimer >= 0.5f)
                 {
                     _proxyAggroTimer = 0f;
+                    if (perf) ClientPerfProbe.BeginUpdateSegment("proxyAggro");
                     ProxyAggroCheck();
+                    if (perf) ClientPerfProbe.EndUpdateSegment();
                 }
 
+                if (perf) ClientPerfProbe.BeginUpdateSegment("timeShadow");
                 _timeSyncTimer += Time.deltaTime;
                 if (_timeSyncTimer >= TimeSyncInterval)
                 {
@@ -965,6 +989,7 @@ namespace DWMPHorde.Networking
                     _shadowBroadcastTimer = 0f;
                     BroadcastShadowStates();
                 }
+                if (perf) ClientPerfProbe.EndUpdateSegment();
             }
 
             // Both host and client send their local physics state:
@@ -972,11 +997,16 @@ namespace DWMPHorde.Networking
             // - Client sends to host so it can merge + forward
             // Skip while local player is in a dream -- dream objects don't exist
             // in the shared world and would cause phantom spawns on the other side.
+            if (perf) ClientPerfProbe.BeginUpdateSegment("physTimer");
             _physicsSendTimer += Time.deltaTime;
             // Physics: always while awake; dream free-bodies allowed (D12 — not full forest).
-            if (_physicsSendTimer >= PhysicsSendInterval && !shareBusy)
-            {
+            bool physTick = _physicsSendTimer >= PhysicsSendInterval && !shareBusy;
+            if (physTick)
                 _physicsSendTimer = 0f;
+            if (perf) ClientPerfProbe.EndUpdateSegment();
+
+            if (physTick)
+            {
                 bool clientNotReady = _role == NetworkRole.Client
                     && (Core.mainMenu || Core.loadingGame || !Core.coreStarted);
                 if (!clientNotReady)
@@ -992,6 +1022,10 @@ namespace DWMPHorde.Networking
                         else
                             Send(NetMessageType.PhysicsState, w => snap.Serialize(w));
                     }
+                }
+                else if (perf)
+                {
+                    ClientPerfProbe.MarkUpdateRest();
                 }
             }
             else if (perf)
@@ -1290,6 +1324,7 @@ namespace DWMPHorde.Networking
                 int aggroed = 0;
                 int skippedFar = 0;
                 int skippedAlreadyTargeting = 0;
+                int skippedFleeFauna = 0;
                 bool proxyHasEotF = proxy.RemoteHasEnemyOfTheForest;
 
                 foreach (Character c in all)
@@ -1316,36 +1351,35 @@ namespace DWMPHorde.Networking
                         continue;
                     }
 
+                    // Flee-only fauna (rabbits, ravens, etc.): never ProxyAggro.
+                    // Forcing runAway(proxy) every 0.5s made them ping-pong / "chase" both players.
+                    // Vanilla AI already reacts to the local Player body.
+                    if (c.aggressiveness == Aggressiveness.flee
+                        || c.aggressiveness == Aggressiveness.fleeAndDespawn)
+                    {
+                        skippedFleeFauna++;
+                        continue;
+                    }
+
+                    bool attacksPlayer = c.attacksFaction(Faction.player);
+
+                    // Neutral wildlife: only EotF + animalAggressive combat edge (must also attack).
                     if (c.aggressiveness == Aggressiveness.neutral)
                     {
-                        if (!proxyHasEotF || c.faction != Faction.animalAggressive)
+                        if (!proxyHasEotF || c.faction != Faction.animalAggressive || !attacksPlayer)
                         {
                             skippedFar++;
                             continue;
                         }
                     }
 
-                    if (!c.attacksFaction(Faction.player))
+                    // Strict: only true predators get attackCharacter(proxy).
+                    // runsAwayFromFaction-only animals used to fall through → runAway(proxy) chase feel.
+                    if (!attacksPlayer)
                     {
-                        bool runsFromPlayer = HarmonyLib.Traverse.Create(c)
-                            .Method("runsAwayFromFaction", Faction.player)
-                            .GetValue<bool>();
-                        if (!runsFromPlayer)
-                        {
-                            if (!proxyHasEotF || c.faction != Faction.animalAggressive)
-                            {
-                                skippedFar++;
-                                continue;
-                            }
-                        }
+                        skippedFleeFauna++;
+                        continue;
                     }
-
-                    bool runsFromProxy = c.aggressiveness == Aggressiveness.flee ||
-                        c.aggressiveness == Aggressiveness.fleeAndDespawn ||
-                        (c.attacksFaction(Faction.player) == false &&
-                         HarmonyLib.Traverse.Create(c)
-                             .Method("runsAwayFromFaction", Faction.player)
-                             .GetValue<bool>());
 
                     float distToProxy = Vector3.Distance(c.transform.position, proxyT.position);
 
@@ -1361,30 +1395,23 @@ namespace DWMPHorde.Networking
                     }
 
                     if (c.sleeping)
-                    {
                         c.wakeup();
-                        if (runsFromProxy)
-                            c.runAway(proxyT.position);
-                        else
-                            c.attackCharacter(proxyT);
-                        aggroed++;
-                        continue;
-                    }
 
-                    if (runsFromProxy)
-                        c.runAway(proxyT.position);
-                    else
-                        c.attackCharacter(proxyT);
+                    c.attackCharacter(proxyT);
                     aggroed++;
                 }
 
-                if ((aggroed > 0 || ++_aggroLogCounter % 10 == 0) && ModRuntime.VerboseLogging)
+                if ((aggroed > 0 || skippedFleeFauna > 0 || ++_aggroLogCounter % 10 == 0)
+                    && ModRuntime.VerboseLogging)
                 {
                     float now = Time.time;
                     if (now - _lastAggroLogTime >= 5f)
                     {
                         _lastAggroLogTime = now;
-                        ModRuntime.LegacyInfo($"[Proxy] player {kvp.Key}: checked {all.Length} chars, aggroed={aggroed}, far={skippedFar}, alreadyTargetingOthers={skippedAlreadyTargeting}");
+                        ModRuntime.LegacyInfo(
+                            $"[Proxy] player {kvp.Key}: checked {all.Length} chars, aggroed={aggroed}, "
+                            + $"far={skippedFar}, alreadyTargeting={skippedAlreadyTargeting}, "
+                            + $"fleeSkip={skippedFleeFauna}");
                     }
                 }
 
@@ -2088,6 +2115,10 @@ namespace DWMPHorde.Networking
                             break;
                         case NetMessageType.ExamineObject:
                             HandleExamineObject(ExamineObjectMessage.Deserialize(new NetReader(payload)));
+                            break;
+                        case NetMessageType.ActivateCursorAction:
+                            HandleActivateCursorAction(
+                                ActivateCursorActionMessage.Deserialize(new NetReader(payload)));
                             break;
                         case NetMessageType.ConstructibleConstruction:
                             HandleConstructible(ConstructibleMessage.Deserialize(new NetReader(payload)));

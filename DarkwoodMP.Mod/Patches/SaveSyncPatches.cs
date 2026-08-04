@@ -51,6 +51,11 @@ namespace DWMPHorde.Patches
                 "Local Save complete (" + ModRuntime.Network.Role
                 + ") → SaveSync request/broadcast (host debounced fan-out)");
             ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true);
+
+            // After the first post-death Save fans out, suppress the peer Save storm.
+            if (DeathStateTracker.ConsumeDeathSaveSuppressArm()
+                && ModRuntime.Network is LanNetworkManager lnm)
+                lnm.NoteDeathSaveSyncWindow();
         }
 
         /// <summary>

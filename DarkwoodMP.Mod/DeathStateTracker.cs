@@ -100,6 +100,7 @@ namespace DWMPHorde
             SkipMorningRepBonus = true;
             LocalDeathPosition = pos;
             LocalBagSynced = false;
+            _armDeathSaveSuppress = true;
             ModLog.Event(LogCat.Death, $"Local night death at {pos}");
         }
 
@@ -110,6 +111,7 @@ namespace DWMPHorde
                 return;
             _remoteDeathPositions[playerId] = pos;
             RemoteNightDeathCount = _remoteDeathPositions.Count;
+            _armDeathSaveSuppress = true;
             ModLog.Event(LogCat.Death, $"Remote night death for player {playerId} (count={RemoteNightDeathCount}/{TotalRemoteCount})");
         }
 
@@ -119,19 +121,31 @@ namespace DWMPHorde
             return playerId > 0 && _remoteDeathPositions.ContainsKey(playerId);
         }
 
+        private static bool _armDeathSaveSuppress;
+
         public static void OnLocalDayDeath()
         {
             LocalNightDeath = false;
+            _armDeathSaveSuppress = true;
             ModLog.Event(LogCat.Death, "Local day death (normal respawn)");
         }
 
         public static void OnRemoteDayDeath(int playerId)
         {
+            _armDeathSaveSuppress = true;
             if (_remoteDeathPositions.Remove(playerId))
             {
                 RemoteNightDeathCount = _remoteDeathPositions.Count;
                 ModLog.Event(LogCat.Death, $"Remote day death for player {playerId} (count={RemoteNightDeathCount}/{TotalRemoteCount})");
             }
+        }
+
+        /// <summary>True once after a day death — SaveSyncPatch arms suppress after the first fan-out.</summary>
+        public static bool ConsumeDeathSaveSuppressArm()
+        {
+            if (!_armDeathSaveSuppress) return false;
+            _armDeathSaveSuppress = false;
+            return true;
         }
 
         /// <returns>True when disconnect bookkeeping satisfies morning-resolve policy.</returns>
