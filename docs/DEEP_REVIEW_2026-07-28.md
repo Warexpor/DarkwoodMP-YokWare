@@ -1,6 +1,8 @@
 # DarkwoodMP-YokWare — Deep Review (2026-07-28)
 
-Static code audit of Path B Horde (protocol **19**). **No** BepInEx logs or game-install directory reads.
+> **Historical snapshot.** Live ship is **0.7.46** / protocol **22** — see root `CHANGELOG.md` + `docs/PLAYTEST.md`.
+
+Static code audit of Path B Horde (protocol **19** at review time). **No** BepInEx logs or game-install directory reads.
 
 Interactive summary: open the canvas beside chat  
 `C:\Users\amicu\.cursor\projects\c-MyProjects-DarkwoodMP-YokWare\canvases\darkwoodmp-deep-review.canvas.tsx`

@@ -1,5 +1,7 @@
 # Darkwood Game API Reference (verified)
 
+> Reference dump of game types for Harmony targets. Machine `GameDir` may differ — see root `AGENTS.md` (Steam + SecondDarkwood). Live mod **0.7.46**.
+
 Verified against `Assembly-CSharp.dll` of the installed game
 (`X:\SteamLibrary\steamapps\common\Darkwood`) via MetadataLoadContext dump.
 These are the real types/members the mod's Harmony patches target.

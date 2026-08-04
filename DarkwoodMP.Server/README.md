@@ -1,6 +1,8 @@
 # YokWare Branch — Dedicated Server
 
-Standalone **reliable relay** for YokWare Branch **0.9** (Ironbark Protocol **v2**).  
+> **Research only — not the Path B LAN load path.** Live co-op uses in-process Horde protocol **22** (LiteNetLib / Steam SNS). This tree relays **Ironbark v2**.
+
+Standalone **reliable relay** for YokWare Branch Ironbark Protocol **v2** (historical product label **0.9**).  
 Runs on **.NET 8.0**. License: **GPLv3** (same as the mod).
 
 **Default model:** `AuthoritativeWorld=false` — the server does **not** simulate the Darkwood world. In-game **time/sim authority** is the client with the lowest player id (`IsTimeAuthority`). Enemies use `EntityState` / `EntitySpawn` from game peers (relay only).

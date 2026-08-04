@@ -1,6 +1,8 @@
 # Ironbark Message Table
 
-**Protocol:** Ironbark **v2** · **Product:** YokWare `0.9`  
+> **Not the live co-op wire** — see `IRONBARK_PROTOCOL.md`. Path B uses Horde protocol **22**.
+
+**Protocol:** Ironbark **v2** · **Product label (historical):** YokWare `0.9`  
 See `IRONBARK_PROTOCOL.md` for doctrine.
 
 ## v2 frame

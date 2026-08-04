@@ -1,5 +1,7 @@
 # Dream sync review vs vanilla (2026-07-28)
 
+> **Historical snapshot.** Live ship is **0.7.46** / protocol **22** — see root `CHANGELOG.md` + `docs/PLAYTEST.md` §6–§7. Status `0.9.3` below is a historical mislabel.
+
 Code + decompile only. No log files. Interactive summary: Cursor canvas `dream-sync-review`.
 
 ## Status (0.9.3)

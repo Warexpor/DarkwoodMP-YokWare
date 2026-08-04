@@ -1,7 +1,7 @@
 # Residuals (Path B)
 
-**Product:** YokWare Branch **0.7.7** · Horde protocol **19**  
-(Older **0.9.x** notes below were too ambitious — live line is **0.7.x**.)
+**Product:** YokWare Branch **0.7.46** · Horde protocol **22**  
+(Older **0.9.x** notes below were too ambitious — live line is **0.7.x**. Ship log: **CHANGELOG.md**.)
 
 Living detail: **CHANGELOG.md**, **DarkwoodMP.Mod/docs/COOP_COVERAGE.md**, playtest: **docs/PLAYTEST.md**.
 
@@ -11,24 +11,30 @@ Living detail: **CHANGELOG.md**, **DarkwoodMP.Mod/docs/COOP_COVERAGE.md**, playt
 
 - [ ] **Handlers.cs monolith** — split deferred; no behavior change this pass
 - [ ] **Ironbark ↔ Horde bridge** — research only; not LAN load path (delete dead weight later)
-- [ ] **Mid-dream host migration rehydrate** — refused/disconnect in 0.9.3; full rehydrate still unsupported
+- [ ] **Mid-dream host migration rehydrate** — refused/disconnect in historical 0.9.3; full rehydrate still unsupported
 - [ ] **FlagSync allowlist** — intentional story path; grief vector accepted on trusted LAN
 - [ ] **Embedded `msg.PlayerId` spoof** (other domains) — LocationEnter/Exit + chat + PlayerState fixed; audit remaining Forwardable payloads
 - [ ] **Landmark placement full determinism** if share fails before gen (`WorldGenSharePatch` mitigates connected dual-gen; hard-block on terminal share failure)
-- [ ] **Live dual/triple campaign soak** (human playtest) — **docs/PLAYTEST.md** §5 + §6
+- [ ] **Live dual/triple campaign soak** (human playtest) — **docs/PLAYTEST.md** §5 + §6 + §7
 - [ ] **Credits continuous co-op** (by design: credits stop network)
 - [ ] **SyncCheck / full InteractionLock / ItemState** (still deferred product)
+- [ ] **Workbench exclusive-open lock** — intentionally parked/no-op since **0.7.40** (handlers ignore wire)
 
-## Dream sync (0.9.5)
+## Recent closed (do not re-park)
 
-0.9.4 soak left wrong overworld bunk GE, host black screen, client entry stingers. **0.9.5** root-cause fixes — see **CHANGELOG** `0.9.5`. Human sign-off: **docs/PLAYTEST.md** §6c.
+See **CHANGELOG** **0.7.43–0.7.46**: entity present/death SFX/corpse, peer hear hysteresis, save-POI XZ interest, bunker `LocationTransport`, trap disarm release, wardrobe XZ destroy, dog aggro audio range, death→World grid hygiene, ObjectDestroy/LightApply match, corpse `PlayerAttack` null spam.
+
+## Dream sync (historical 0.9.5 labels)
+
+Historical soak notes used **0.9.x** labels — live line is **0.7.x**. Human sign-off still: **docs/PLAYTEST.md** §6c–§6e; bunker enter / day-death grid: §7.
 
 ## Deep-review playtest (not signed off)
 
-Run dual-box (host + SecondDarkwood) after **0.9.2+** / **0.9.3** waves:
+Run dual-box (host + SecondDarkwood):
 
 - **§5** — SaveSync, night disconnect, trade, SceneLoad, workbench, shotgun FF
-- **§6** — Dream sync full harden (GE dual-fire, chain inventory, story-end nack, epilog 1a, peer drop)
+- **§6** — Dream sync harden
+- **§7** — Location enter, death grid, traps/destructibles (0.7.45+)
 
 ## Removed / do not use
 

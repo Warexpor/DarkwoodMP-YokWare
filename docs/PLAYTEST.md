@@ -1,6 +1,6 @@
 # YokWare Branch — Path B playtest checklist
 
-**Product:** 0.7.7 Path B (Horde LAN, protocol 19) — older **0.9.x** checklist titles below are historical mislabels  
+**Product:** **0.7.46** Path B (Horde LAN, protocol **22**) — older **0.9.x** checklist titles below are historical mislabels  
 
 **Ship loader:** BepInEx 5.x  
 **Optional:** MelonLoader dual-build  
@@ -20,7 +20,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx
 # auto-deploys Steam + SecondDarkwood plugins if present
 ```
 
-- [ ] Plugin loads (`YokWare Branch` / protocol 19 / 0.7.7)
+- [ ] Plugin loads (`YokWare Branch` / protocol **22** / **0.7.46**)
 - [ ] SecondDarkwood log: `Save root override` → `Darkwood_Second` (dual-box)
 - [ ] Title **MULTIPLAYER** injects; F2 settings; Ctrl+C chat
 
@@ -50,7 +50,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
 
 ## 1b. Steam SNS smoke (0.7.28+)
 
-Steam path uses **SteamNetworkingSockets** (not classic P2P). Both peers need Steam logged on + same protocol 19 DLL.
+Steam path uses **SteamNetworkingSockets** (not classic P2P). Both peers need Steam logged on + same protocol **22** DLL.
 
 1. Host: MULTIPLAYER → **HOST STEAM** → wait for lobby id in SETTINGS
 2. Host: invite overlay (or paste lobby id to friend)
@@ -165,7 +165,7 @@ Dual-box — after bunker + random meadow soak:
 
 ## 6. Dream sync full harden (0.9.3) — prior
 
-Dual-box; same DLL; protocol 19. Prefer Support logging on both.
+Dual-box; same DLL; protocol **22**. Prefer Support logging on both.
 
 | # | Scenario | Pass if |
 |---|----------|---------|
@@ -184,3 +184,27 @@ Dual-box; same DLL; protocol 19. Prefer Support logging on both.
 - [ ] 6.5 All-dead transition
 - [ ] 6.6 Epilog 1a remote parity
 - [ ] 6.7 Peer drop mid-dream
+
+---
+
+## 7. Location / death / world objects (0.7.45–0.7.46)
+
+Same DLL both boxes; protocol **22**.
+
+| # | Scenario | Pass if |
+|---|----------|---------|
+| 7.1 | **Client bunker enter** — client uses `_enter` cursor on overworld bunker | **Client** loads location (loading screen); host stays put (no host TP) |
+| 7.2 | **Day death → hideout** — client dies daytime after outside-location / wolfman path | Respawn at hideout with **World** grid (not black void); peers get LocationExit |
+| 7.3 | **Host disarm beartrap** while client trapped | Client released (`inBearTrap` cleared); no late TrapTriggered boom / NRE |
+| 7.4 | **Client destroys wardrobe** | Destructible gone on **both**; no host-only destroy |
+| 7.5 | **Dogs aggro client far from host** | Host hears growl/aggro within entity interest (~1400 XZ) |
+| 7.6 | **Peer hear enter/exit** | Crossing footstep/voice range: spatial fade, **no** hard hitch |
+| 7.7 | **Pickup / light after location** | Scrap/lantern ObjectDestroy lands; pending lights flush after settle |
+
+- [ ] 7.1 Client bunker LocationTransport
+- [ ] 7.2 Death grid hygiene (no blackness)
+- [ ] 7.3 Trap silent disarm releases peer
+- [ ] 7.4 Wardrobe XZ destroy both sides
+- [ ] 7.5 Host hears far client dog aggro
+- [ ] 7.6 Peer audio range no hitch
+- [ ] 7.7 ObjectDestroy / LightApply after location

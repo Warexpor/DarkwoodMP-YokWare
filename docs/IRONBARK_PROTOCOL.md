@@ -1,8 +1,10 @@
 # Ironbark Protocol
 
+> **Not the live co-op wire.** Path B peers speak Horde protocol **22** (`NetMessageType`). Ironbark v2 lives under `DarkwoodMP.Protocol/` + `DarkwoodMP.Server/` for research / future bridge only.
+
 **Codename:** Ironbark · **Abbrev:** IBP · **Product:** YokWare Branch  
 **Status:** **v2 complete** + **wave G** (burn, explosion secondary FX, reliable EntitySpawn, join locks, Caps honesty)  
-**Product version stays `0.9`** — IBP wire is **`Ironbark.Version = 2`**.
+**IBP product label historically `0.9`** — IBP wire is **`Ironbark.Version = 2`**. Live Horde product line is **0.7.x**.
 
 ---
 

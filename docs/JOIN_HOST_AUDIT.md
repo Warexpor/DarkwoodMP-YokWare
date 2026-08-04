@@ -1,5 +1,7 @@
 # Host / Join system audit (Path B Horde)
 
+> **Living happy-path doc** (join phases still apply). Live protocol **22** / product **0.7.46** — see `CHANGELOG.md`. Bug table below is historical root-cause log.
+
 ## Intended happy path (strict order)
 
 1. **Host:** MULTIPLAYER → HOST GAME → enter chapter (Player exists). Stays in-world.

@@ -1,6 +1,8 @@
 # Path B — Feature inventory (Horde base vs Yokyy / prior YokWare merge)
 
-**Product:** YokWare Branch `0.9.2` (unreleased **0.9.2+** in `CHANGELOG.md`)  
+> **Snapshot (2026-07-11).** Live product is **0.7.46** / Horde protocol **22** — see root `CHANGELOG.md` + `README.md`. Rows below are the Path B port inventory; do not treat `0.9.2` as the ship version.
+
+**Product (at write):** YokWare Branch `0.9.2` (historical mislabel; now **0.7.x**)  
 **Date:** 2026-07-11  
 **Doctrine:** **Horde remaster is the shippable sync base.** Prior Yokyy-core merge is archived under `archive/yokyy-merge-0.9/` and is **not** the load path.
 
@@ -22,8 +24,8 @@ Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
 | GPLv3 + Warexpor ownership + Yokyy credit | **ported** | LICENSE, COPYRIGHT, CONTRIBUTORS, PluginInfo.Authors. |
 | Public docs / README truth | **ported** | README + CHANGELOG state Path B. |
 | Dual BepInEx deploy (Steam + SecondDarkwood) | **ported** | `DarkwoodMP.Mod.csproj` DeployToGameDirs. |
-| Dedicated server project | **deferred** | Tree keeps `DarkwoodMP.Server` + Ironbark protocol as **research / future bridge**. Horde LAN wire is protocol **19**, not Ironbark v2 — connecting them without a full re-protocol is unsafe. |
-| Ironbark typed wire as live load path | **deferred** | Live clients use **Horde NetMessageType protocol 19**. Ironbark sources remain under `DarkwoodMP.Protocol` for codec tests and future server bridge. |
+| Dedicated server project | **deferred** | Tree keeps `DarkwoodMP.Server` + Ironbark protocol as **research / future bridge**. Horde LAN wire is protocol **22**, not Ironbark v2 — connecting them without a full re-protocol is unsafe. |
+| Ironbark typed wire as live load path | **deferred** | Live clients use **Horde NetMessageType protocol 22**. Ironbark sources remain under `DarkwoodMP.Protocol` for codec tests and future server bridge. |
 | Dual MelonLoader packaging | **present** | `-p:Loader=MelonLoader` dual entry (`MelonModMain`); ship default remains BepInEx. |
 | Native **MULTIPLAYER** main-menu button (Yokyy) | **ported + fixed** | `MainMenuMultiplayerInject` — HOST/JOIN/SETTINGS/RESTORE/DISCONNECT/BACK; InputScript + menu ticks; config flush; join timeout. |
 | Chat / HUD overlay (Yokyy) | **ported + hardened** | `ChatHud` + `ChatMessage` (111); Ctrl+C; length/rate clamps; session status strip. |
@@ -55,7 +57,7 @@ Status key: **ported** | **present-in-horde** | **fixed** | **deferred**
 | Night death / morning rep skip | **present-in-horde** |
 | Host grant / migration (LAN) | **present-in-horde** |
 
-Deep audit trail: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` (Horde). Live deltas: `CHANGELOG.md` **0.9.2+**.
+Deep audit trail: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md` (Horde). Live deltas: root `CHANGELOG.md` (**0.7.x**, current **0.7.46**).
 
 ---
 
