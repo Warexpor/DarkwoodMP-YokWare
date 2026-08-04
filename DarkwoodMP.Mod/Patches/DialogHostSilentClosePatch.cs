@@ -80,6 +80,7 @@ namespace DWMPHorde.Patches
             {
                 Core.forbidInputs = false;
                 Core.cantChangeForbidInputs = false;
+                dw.forbidInputs = false;
                 var ui = Singleton<UI>.Instance;
                 if (ui != null)
                 {

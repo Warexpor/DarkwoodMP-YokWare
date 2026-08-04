@@ -44,5 +44,23 @@ namespace DWMPHorde.Patches
                 return false;
             return true;
         }
+
+        /// <summary>
+        /// World-only host apply: changePortrait sets Core.forbidInputs and relies on a
+        /// delayed Invoke to clear it. Silent-close / inactive DialogueWindow cancels that
+        /// Invoke → host stuck unable to walk/look/inv. Clear immediately after each board.
+        /// </summary>
+        private static void Postfix(DialogueWindow __instance)
+        {
+            if (!DialogHostApplyGuard.Active) return;
+            try
+            {
+                Core.forbidInputs = false;
+                Core.cantChangeForbidInputs = false;
+                if (__instance != null)
+                    __instance.forbidInputs = false;
+            }
+            catch { /* ignore */ }
+        }
     }
 }

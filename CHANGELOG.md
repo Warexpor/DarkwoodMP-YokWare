@@ -2,11 +2,84 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.29** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.33** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol stays **19**.
 
 ---
+
+## 0.7.33 — Dream karuzela rotate on client (2026-08-04)
+
+Client walked into `area_karuzela_rotate_dream_underground` → host carousel spun, client stayed still. **Protocol 19 unchanged.**
+
+### Root cause
+- Host proxy enter fired the volume; `GameEvents` is `multipleFire` so `GameEventsFiredPatch` does not broadcast (by design — ambients run locally).
+- Client `OnTriggerEnter` was fully suppressed, so the client never ran that local multipleFire path either.
+
+### Fix
+- Drop client EventTriggers enter/exit suppress (one-shots still blocked at `GameEvents.fire` Prefix).
+- Run proxy area enter/exit on **all** peers so host walking into the volume also starts RotateIt on clients.
+
+### Files
+- `Patches/EventTriggersProxyPatches.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.33**)
+
+## 0.7.32 — Undo audio crutches (flashlight 2D / footstep 280) (2026-08-04)
+
+0.7.31 papered over remote SFX with a 2D flashlight path and a tighter 280 footstep gate. Both were symptom patches. **Protocol 19 unchanged.**
+
+### Audio (root-cause)
+- **Flashlight/torch:** stay spatial at the proxy (bunker reverb). Soft-tail cut was tiny `minDistance` burying the quiet end under attenuation — use Logarithmic + `DefaultMinSpatialDistance` / `DefaultMaxSpatialDistance`, not 2D.
+- **Proxy footsteps:** gate + `maxDistance` match `DefaultMaxSpatialDistance` (same as `AudioSuppression`). No invented 280 ceiling.
+
+### Files
+- `Audio/LocalAudioService.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.32**)
+
+## 0.7.31 — Backup/save isolation + dream door lock + audio edges (2026-08-04)
+
+Playtest after 0.7.30: client inv/skills still bled across saves; dream `door_underground` double-open sound; host input fully locked after that dialogue; remote flashlight click cut near the end; host footsteps whispered/cut just outside hearing range. **Protocol 19 unchanged.**
+
+### ClientBackup
+- Solo host (`PeerCount==0`) used to restore `client_backup_self` over sav.dat (`IsConnected` gate was wrong).
+- ManualSave slot load remints CampaignId.
+- Host push refused when day-1 world + progressed backup fingerprint mismatch (stale CampaignId reuse).
+
+### Dream door (`door_underground` / `onLeaveDoorDialogue_dream_underground`)
+- Skip `HostEnsureDialogueDoorOpen` when leave-door GE already fired (was GE openSound + DoorOpen openSound).
+- Client leave-door: deferred backup ForceOpen only if still closed after GE delay.
+- Drop redundant second `BroadcastDoorOpened` after host `open()`.
+
+### Host input lock
+- World-only `displayDialogue` NRE / inactive DialogueWindow left `Core.forbidInputs` stuck after `changePortrait`.
+- Clear forbidInputs on displayNextBoard Postfix (guard), SilentClose, drain finally, and catch path; re-activate DialogueWindow before world-only apply.
+
+### Audio (superseded by 0.7.32)
+- Had forced flashlight 2D + footstep 280 cap — reverted.
+
+### Files
+- `UI/ManualSaveGUI.cs`, `Networking/ClientStateBackup.cs`, `LanNetworkManager.Handlers.cs`
+- `Patches/DreamDoorSyncPatches.cs`, `DialogHostSilentClosePatch.cs`, `DialogHostPresentationSuppressPatches.cs`
+- `Audio/LocalAudioService.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.31**)
+
+## 0.7.30 — New-world ClientBackup leak + dream prepare NRE (2026-08-04)
+
+Host new world in a reused profile slot pushed a prior campaign’s ClientBackup (`inv=2` / dream-pad coords) onto day-1. Separately, skill dream entry froze peers: host `prepareDream` died inside `prepareLocation` → `closeInventory` NRE, so `DreamStarted` never fans out. **Protocol 19 unchanged.**
+
+### ClientBackup
+- **Root:** `MintNewCampaignId` only ran when already Host — offline “new game then host MP” reused leftover `dwmp_coop_meta` CampaignId and matched old `client_backup_p*_….json`.
+- **Fix:** mint on any fresh worldgen (not only Host role).
+
+### Dream
+- **Root (host Player.log):** `NullReferenceException` in `Player.closeInventory` during `OutsideLocations.prepareLocation` (often dangling `talkedToNPC` without Inventory after world-only dialog). Session stuck Starting; client waited then `hostLostMidDream`.
+- **Fix:** clear NPC-without-Inventory before close; swallow closeInventory NRE so prepare can finish; on prepareLocation failure abort session + DreamEnded reject to peers.
+- **Watchdog:** client entry watchdog no longer treats early CutsceneSync as “dream active” (was exiting immediately and never clearing the void).
+
+### Files
+- `Patches/WorldGenSharePatch.cs`, `Patches/PlayerInventoryPatches.cs`
+- `Sync/DreamSyncManager.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.30**)
 
 ## 0.7.29 — Steam SNS join tear + connect timeout (2026-08-03)
 

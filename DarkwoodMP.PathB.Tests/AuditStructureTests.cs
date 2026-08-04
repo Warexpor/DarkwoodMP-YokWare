@@ -262,13 +262,15 @@ public class AuditStructureTests
     }
 
     [Fact]
-    public void Story_EventTriggers_ProxyAndClientSuppress_Present()
+    public void Story_EventTriggers_ProxyEnterOnAllPeers_Present()
     {
         var et = ReadMod("Patches", "EventTriggersProxyPatches.cs");
         Assert.Contains("OnTriggerEnter", et);
         Assert.Contains("RemotePlayerProxy", et);
         Assert.Contains("fireEventTrigger", et);
-        Assert.Contains("EventTriggersClientEnterSuppressPatch", et);
+        // multipleFire (karuzela) runs locally — no client enter suppress; proxy enter on all peers.
+        Assert.DoesNotContain("EventTriggersClientEnterSuppressPatch", et);
+        Assert.Contains("IsMultiplayerConnected", et);
     }
 
     [Fact]

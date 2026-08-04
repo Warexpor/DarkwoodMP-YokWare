@@ -222,8 +222,7 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// True for SFX that should stay non-spatial on the remote peer (UI / equip get-hide).
-        /// Flashlight on/off is NOT prefer2d — peers need proxy position + indoor reverb
-        /// (bunker). Only keep true 2D for personal equip one-shots that sound wrong as 3D.
+        /// Flashlight/torch/lighter stay spatial via <see cref="IsRemotePlayerSpatialToolSound"/>.
         /// </summary>
         public static bool IsPrefer2dNetworkOneShot(string audioID)
         {
@@ -231,10 +230,6 @@ namespace DWMPHorde.Audio
                 return false;
             if (IsPlayerHitFeedbackSound(audioID))
                 return false; // hits stay spatial on the victim proxy
-
-            // Flashlight / torch / lighter: spatial at proxy (see HandlePlayerAudio).
-            if (IsRemotePlayerSpatialToolSound(audioID))
-                return false;
 
             // Equip put-away / pull-out one-shots (parentless in vanilla).
             if (audioID.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
@@ -245,8 +240,7 @@ namespace DWMPHorde.Audio
                 || audioID.IndexOf("_hide", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Live item fields: equip get/hide only as 2D. activate/deactivate already
-            // excluded above via IsRemotePlayerSpatialToolSound (flashlight etc.).
+            // Live item fields: equip get/hide only as 2D.
             if (IsCurrentItemActionSound(audioID))
             {
                 Player p = Player.Instance;
