@@ -16,7 +16,6 @@ namespace DWMPHorde.Networking.Steam
         {
             if (_warmed)
                 return;
-            _warmed = true;
             try
             {
                 SteamNetworkingUtils.InitRelayNetworkAccess();
@@ -25,6 +24,7 @@ namespace DWMPHorde.Networking.Steam
                 SetGlobalInt((ESteamNetworkingConfigValue)10, 262144);
                 SetGlobalInt((ESteamNetworkingConfigValue)11, 4194304);
                 SetGlobalInt((ESteamNetworkingConfigValue)25, 90000);
+                _warmed = true;
                 ModLog.Event(LogCat.Network,
                     "Steam SNS relay warmed (send buf 4MB, rate 256KB-4MB/s, timeout 90s)");
             }

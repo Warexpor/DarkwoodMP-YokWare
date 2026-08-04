@@ -2,11 +2,26 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.46** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.47** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **22** (LocationTransport).
 
 ---
+
+## 0.7.47 — Steam↔Steam SNS join harden (2026-08-04)
+
+Steam friend join could fail with no useful client log trail: UI killed the session at **15s** while SNS `ConnectP2P` still had **20s**, host refused peers whose lobby membership had not replicated yet, overlay invites needed a prior HOST/JOIN to register callbacks, and a failed relay warm never retried. **Protocol 22** unchanged.
+
+### Fixes
+- MULTIPLAYER join timeout: Steam **35s** (LAN stays 15s); Steam-specific timeout message (not IP/port).
+- `EnsureSteamCallbacks` on title tick once Steam is ready — overlay `GameLobbyJoinRequested` works without clicking HOST/JOIN first.
+- Host SNS `AcceptConnection`: classic P2P parity (do not refuse on lobby member-list lag).
+- `SteamRelay.WarmRelay`: set warmed flag only after successful `InitRelayNetworkAccess`.
+
+### Files
+- `UI/MainMenuMultiplayerInject.cs`, `Networking/LanNetworkManager.Steam.cs`
+- `Networking/Steam/SteamCoopTransport.cs`, `Networking/Steam/SteamRelay.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.47**)
 
 ## 0.7.46 — Death→blackness grid hygiene + parked destroy/light/attack (2026-08-04)
 

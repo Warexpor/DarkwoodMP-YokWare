@@ -200,6 +200,14 @@ namespace DWMPHorde.Networking
             Steam.OpenInviteOverlay();
         }
 
+        /// <summary>Register Steam lobby/SNS callbacks early (overlay invites before HOST/JOIN).</summary>
+        public void EnsureSteamCallbacks()
+        {
+            if (!SteamCoopTransport.IsSteamReady(out _))
+                return;
+            Steam.EnsureCallbacks();
+        }
+
         /// <summary>One-shot: join lobby from Steam `+connect_lobby` launch arg while offline on title.</summary>
         public bool TryConsumePendingSteamLaunchLobby()
         {
