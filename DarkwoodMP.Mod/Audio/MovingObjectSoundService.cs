@@ -71,7 +71,8 @@ namespace DWMPHorde.Audio
                 return;
             // Local pusher/dragger owns native ItemSounds only — never arm MOS on top
             // (client double-scrape when host PhysicsState / residual NoteMoving raced).
-            if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName))
+            if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName)
+                || ItemMovingSoundHelper.HasRecentClientPhysicsSent(objectName))
             {
                 if (IsPlaying(objectName) || IsFading(objectName))
                     StopImmediate(objectName);
@@ -109,7 +110,8 @@ namespace DWMPHorde.Audio
                 return;
             if (ItemMovingSoundHelper.IsScrapeSuppressed(objectName))
                 return;
-            if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName))
+            if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName)
+                || ItemMovingSoundHelper.HasRecentClientPhysicsSent(objectName))
             {
                 if (IsPlaying(objectName) || IsFading(objectName))
                     StopImmediate(objectName);

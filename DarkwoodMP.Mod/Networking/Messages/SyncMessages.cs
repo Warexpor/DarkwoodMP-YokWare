@@ -160,6 +160,10 @@ namespace DWMPHorde.Networking
     {
         Growl = 0, Attack1 = 1, Attack2 = 2, Death = 3, Curious = 4,
         Aggressive = 5, Defensive = 6, Escaping = 7, Idle = 8, GetHit = 9,
+        /// <summary>Protocol 21: vanilla runAway stinger (playSingleInstance).</summary>
+        EscapingStart = 10,
+        /// <summary>Protocol 21: vanilla runAway crow overlay (play).</summary>
+        EscapingStart2 = 11,
     }
 
     public struct EntitySoundMessage

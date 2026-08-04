@@ -52,18 +52,35 @@ namespace DWMPHorde.Audio
             return Vector3.Distance(GetListenPosition(), worldPosition);
         }
 
+        /// <summary>
+        /// XZ distance — Darkwood player Y is often ~-1984 while NPC Y can differ by thousands;
+        /// 3D culls silently drop EntitySound (death/flee) even when the mob is next to the client.
+        /// </summary>
+        public static float DistanceToListenerXz(Vector3 worldPosition)
+        {
+            Vector3 listen = GetListenPosition();
+            float dx = worldPosition.x - listen.x;
+            float dz = worldPosition.z - listen.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
         public static bool IsNearListener(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
         {
             return DistanceToListener(worldPosition) <= maxDistance;
         }
 
+        public static bool IsNearListenerXz(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
+        {
+            return DistanceToListenerXz(worldPosition) <= maxDistance;
+        }
+
         /// <summary>
-        /// True if the local listener OR any remote proxy is within range.
+        /// True if the local listener OR any remote proxy is within range (XZ).
         /// Host send-side cull for EntitySound: do not drop SFX when only a client is near the mob (3+).
         /// </summary>
         public static bool IsNearAnyListener(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
         {
-            if (IsNearListener(worldPosition, maxDistance))
+            if (IsNearListenerXz(worldPosition, maxDistance))
                 return true;
 
             var net = ModRuntime.Network as Networking.LanNetworkManager;
@@ -76,9 +93,8 @@ namespace DWMPHorde.Audio
                 if (proxy == null) continue;
                 Vector3 p = proxy.transform.position;
                 float dx = p.x - worldPosition.x;
-                float dy = p.y - worldPosition.y;
                 float dz = p.z - worldPosition.z;
-                if (dx * dx + dy * dy + dz * dz <= maxSq)
+                if (dx * dx + dz * dz <= maxSq)
                     return true;
             }
             return false;

@@ -106,6 +106,19 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo($"[NightSpawnRedirect] spawnCharacterAround → proxy P{target.PlayerId} at {target.transform.position}");
             }
         }
+
+        /// <summary>
+        /// Vanilla copies host <c>whereAmI.bigLocation.waypoints</c> — event dogs then
+        /// patrol toward the host macro map. Clear for temp MP spawns.
+        /// </summary>
+        private static void Postfix(Character __result)
+        {
+            if (__result == null || !__result.temporarySpawned) return;
+            if (ModRuntime.Network?.Role != NetworkRole.Host) return;
+            if (!PlayerPositionManager.HasRemotePlayer) return;
+            if (__result.waypoints != null)
+                __result.waypoints.Clear();
+        }
     }
 
     // ─── NightWorm redirect (post-spawn reposition) ───────────────────

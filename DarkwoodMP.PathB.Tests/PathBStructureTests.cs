@@ -32,8 +32,8 @@ public class PathBStructureTests
         var text = File.ReadAllText(Path.Combine(ModDir, "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
-        Assert.Contains("0.7.29", text);
-        Assert.Contains("ProtocolVersion = 19", text);
+        Assert.Contains("0.7.43", text);
+        Assert.Contains("ProtocolVersion = 21", text);
         Assert.Contains("Horde", text);
     }
 

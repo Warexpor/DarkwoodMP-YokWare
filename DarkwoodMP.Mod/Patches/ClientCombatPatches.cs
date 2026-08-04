@@ -133,7 +133,8 @@ namespace DWMPHorde.Patches
                 return false;
             _lastCharHitTime[debounceKey] = now;
 
-            // Hit SFX comes from host EntitySoundType.GetHit after damage applies.
+            // Hit SFX + Hit roll locally (host owns damage). Echo GetHit is ignored briefly.
+            ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash);
 
             Vector3 pos = Player.Instance != null
                 ? Player.Instance.transform.position

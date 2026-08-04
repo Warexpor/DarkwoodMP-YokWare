@@ -14,7 +14,10 @@ namespace DWMPHorde.Networking
         private static float _sendTimer;
         private const float SendInterval = 0.1f;
 
-        private const int MaxEntitiesPerPacket = 192;
+        /// <summary>Was 192 — dense night + wildlife starved end-of-list entities.</summary>
+        private const int MaxEntitiesPerPacket = 256;
+        /// <summary>Near-player band filled first so far wildlife cannot starve combat NPCs.</summary>
+        private const float PriorityDistance = 1400f;
         private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket];
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
         /// <summary>Round-robin start index so a full tracker list is not starved by the per-packet cap.</summary>
@@ -64,75 +67,51 @@ namespace DWMPHorde.Networking
 
             Vector3 hostPos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
             // 3500-unit radius around host or any remote — matches WorldGrid proxy cull.
-            float maxDistSq = 3500f * 3500f;
+            float maxDistSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
+            float priorityDistSq = PriorityDistance * PriorityDistance;
 
             if (_scanStart < 0 || _scanStart >= nAll)
                 _scanStart = 0;
 
-            // Round-robin so entities at the end of the tracker list still get updates
-            // when more than MaxEntitiesPerPacket are dirty/in-range.
-            for (int n = 0; n < nAll && count < maxEntities; n++)
+            // Pass 0: near any player (combat / presentation critical).
+            // Pass 1: rest of host broadcast radius (fills remaining slots).
+            for (int pass = 0; pass < 2 && count < maxEntities; pass++)
             {
-                int i = (_scanStart + n) % nAll;
-                Character c = all[i];
-                if (c == null) continue;
-
-                // During dreams: stream dream NPCs only — skip frozen overworld AI (D12).
-                if (Sync.DreamSyncManager.IsDreamActive
-                    && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
-                    continue;
-
-                Vector3 cPos = c.transform.position;
-                float d1 = Vector3.SqrMagnitude(cPos - hostPos);
-                // Skip entities too far from both the host and all remote players
-                if (d1 > maxDistSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, maxDistSq))
-                    continue;
-
-                // Prefer Character.animator (cached body) over raw GetComponent for presentation.
-                tk2dSpriteAnimator anim = null;
-                try { anim = c.animator; } catch { /* dismantled */ }
-                if (anim == null)
-                    anim = c.GetComponent<tk2dSpriteAnimator>();
-                string clip = anim != null && anim.CurrentClip != null ? anim.CurrentClip.name : "";
-                short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
-                Vector3 rot = c.transform.eulerAngles;
-
-                string entityName = c.name;
-                // Strip "(Clone)" suffix added by Unity when instantiating prefabs
-                if (entityName.EndsWith("(Clone)"))
-                    entityName = entityName.Substring(0, entityName.Length - 7);
-
-                string prefabPath = "";
-                var ppc = c.GetComponent<PrefabPathComponent>();
-                if (ppc != null)
-                    prefabPath = ppc.Path;
-
-                short id = CharacterTracker.GetStableId(c);
-                if (id == 0)
-                    continue;
-
-                var snap = new EntitySnapshotNet
+                bool nearOnly = pass == 0;
+                for (int n = 0; n < nAll && count < maxEntities; n++)
                 {
-                    Index = id,
-                    PosX = cPos.x,
-                    PosY = cPos.y,
-                    PosZ = cPos.z,
-                    RotY = rot.y,
-                    Clip = clip,
-                    ClipFrame = clipFrame,
-                    Alive = c.alive,
-                    HealthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100),
-                    EntityName = entityName,
-                    PrefabPath = prefabPath
-                };
+                    int i = (_scanStart + n) % nAll;
+                    Character c = all[i];
+                    if (c == null) continue;
 
-                // Dirty-check: skip if nothing changed since last send
-                if (_lastSent.TryGetValue(id, out var last) && !HasChanged(last, snap))
-                    continue;
+                    // During dreams: stream dream NPCs only — skip frozen overworld AI (D12).
+                    if (Sync.DreamSyncManager.IsDreamActive
+                        && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
+                        continue;
 
-                _lastSent[id] = snap;
-                _buffer[count] = snap;
-                count++;
+                    Vector3 cPos = c.transform.position;
+                    float dHost = Vector3.SqrMagnitude(cPos - hostPos);
+                    bool nearHost = dHost <= priorityDistSq;
+                    bool nearRemote = PlayerPositionManager.IsAnyRemoteWithinSq(cPos, priorityDistSq);
+                    bool inPriority = nearHost || nearRemote;
+                    if (nearOnly != inPriority)
+                        continue;
+
+                    // Skip entities too far from both the host and all remote players
+                    if (dHost > maxDistSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, maxDistSq))
+                        continue;
+
+                    if (!TryBuildSnapshot(c, cPos, out EntitySnapshotNet snap))
+                        continue;
+
+                    // Dirty-check: skip if nothing changed since last send
+                    if (_lastSent.TryGetValue(snap.Index, out var last) && !HasChanged(last, snap))
+                        continue;
+
+                    _lastSent[snap.Index] = snap;
+                    _buffer[count] = snap;
+                    count++;
+                }
             }
 
             // Advance scan window for next tick
@@ -174,6 +153,54 @@ namespace DWMPHorde.Networking
             }
         }
 
+        private static bool TryBuildSnapshot(Character c, Vector3 cPos, out EntitySnapshotNet snap)
+        {
+            snap = default;
+            // Prefer Character.animator (cached body) over raw GetComponent for presentation.
+            tk2dSpriteAnimator anim = null;
+            try { anim = c.animator; } catch { /* dismantled */ }
+            if (anim == null)
+                anim = c.GetComponent<tk2dSpriteAnimator>();
+            string clip = anim != null && anim.CurrentClip != null ? anim.CurrentClip.name : "";
+            short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
+            Vector3 rot = c.transform.eulerAngles;
+
+            string entityName = c.name;
+            // Strip "(Clone)" suffix added by Unity when instantiating prefabs
+            if (entityName.EndsWith("(Clone)"))
+                entityName = entityName.Substring(0, entityName.Length - 7);
+
+            string prefabPath = "";
+            var ppc = c.GetComponent<PrefabPathComponent>();
+            if (ppc != null)
+                prefabPath = ppc.Path;
+
+            short id = CharacterTracker.GetStableId(c);
+            if (id == 0)
+                return false;
+
+            byte flags = 0;
+            if (c.sleeping) flags |= EntitySnapshotNet.FlagSleeping;
+            if (c.eating) flags |= EntitySnapshotNet.FlagEating;
+
+            snap = new EntitySnapshotNet
+            {
+                Index = id,
+                PosX = cPos.x,
+                PosY = cPos.y,
+                PosZ = cPos.z,
+                RotY = rot.y,
+                Clip = clip,
+                ClipFrame = clipFrame,
+                Alive = c.alive,
+                HealthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100),
+                EntityName = entityName,
+                PrefabPath = prefabPath,
+                Flags = flags
+            };
+            return true;
+        }
+
         private static int _sendCount;
         private static int _fullResyncCounter;
         private static bool _paused;
@@ -200,7 +227,8 @@ namespace DWMPHorde.Networking
                 || last.RotY != current.RotY
                 || last.Clip != current.Clip || last.ClipFrame != current.ClipFrame
                 || last.Alive != current.Alive || last.HealthPct != current.HealthPct
-                || last.EntityName != current.EntityName || last.PrefabPath != current.PrefabPath;
+                || last.EntityName != current.EntityName || last.PrefabPath != current.PrefabPath
+                || last.Flags != current.Flags;
         }
     }
 }

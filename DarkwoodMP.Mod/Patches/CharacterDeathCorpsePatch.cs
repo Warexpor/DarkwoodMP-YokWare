@@ -13,6 +13,9 @@ namespace DWMPHorde.Patches
     /// MUST NOT run on host: setting isActive=false makes Character.Update
     /// early-out before processAnims, freezing the death pose (host killer bug).
     /// Host keeps vanilla death anim → setDeathCollider at clip end.
+    ///
+    /// Item + isActive=false are deferred to TickClientCorpseSetup so death anim
+    /// can play first (immediate isActive=false froze the pose mid-clip).
     /// </summary>
     [HarmonyPatch(typeof(Character), "die")]
     public static class CharacterDeathCorpsePatch
@@ -27,20 +30,10 @@ namespace DWMPHorde.Patches
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
 
-            // Equivalent of setDeathCollider(): Item component so corpse is searchable.
-            if (__instance.GetComponent<Item>() == null)
-            {
-                Item item = __instance.gameObject.AddComponent<Item>();
-                item.name = __instance.name.ToLower() + "_corpse";
-                if (__instance.searched)
-                    item.searched = true;
-            }
+            ClientEntityInterpolationService.NoteClientDeathForCorpse(__instance);
 
             if (__instance.inventory != null)
                 __instance.inventory.invType = Inventory.InvType.deathDrop;
-
-            // Client Update is already skipped; keep flag consistent with destroyComponents2.
-            __instance.isActive = false;
 
             // Transfer NPC deathInventory (die2 path can miss when AI Update is blocked).
             NPC npc = __instance.GetComponent<NPC>();

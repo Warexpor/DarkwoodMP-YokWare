@@ -367,15 +367,15 @@ public class AuditStructureTests
     public void Wire_PathBIsProtocol19_VersionIs07x_Not10()
     {
         var plugin = ReadMod("PluginInfo.cs");
-        Assert.Contains("ProtocolVersion = 19", plugin);
+        Assert.Contains("ProtocolVersion = 21", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.39", plugin);
+        Assert.Contains("0.7.43", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
         var ironbark = File.ReadAllText(Path.Combine(RepoRoot, "DarkwoodMP.Protocol", "Ironbark.cs"));
         Assert.Contains("Version = 2", ironbark);
-        Assert.DoesNotContain("ProtocolVersion = 2", plugin);
+        // Ironbark Version=2 is separate from PluginInfo ProtocolVersion (20+).
 
         var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
         Assert.Contains("DialogNpcLock = 112", netTypes);
@@ -506,7 +506,7 @@ public class AuditStructureTests
         Assert.Contains("ActivateCursorAction = 130", netTypes);
         Assert.Contains("_Highest = 130", netTypes);
         // Protocol stays 19 (optional messages).
-        Assert.Contains("ProtocolVersion = 19", ReadMod("PluginInfo.cs"));
+        Assert.Contains("ProtocolVersion = 21", ReadMod("PluginInfo.cs"));
 
         var worldMsgs = ReadMod("Networking", "Messages", "WorldMessages.cs");
         Assert.Contains("FeederStateMessage", worldMsgs);
@@ -537,12 +537,14 @@ public class AuditStructureTests
         var wbPatches = ReadMod("Patches", "WorkbenchLockPatches.cs");
         Assert.Contains("Workbench", wbPatches);
         Assert.Contains("open", wbPatches);
-        // Vanilla Workbench.close is empty — release on Inventory.hide / closeInventory.
+        // 0.7.40: exclusive lock parked — patches still present as no-ops.
+        Assert.Contains("PARKED", wbPatches);
         Assert.Contains("Inventory", wbPatches);
         Assert.Contains("hide", wbPatches);
 
         var handlers = ReadMod("Networking", "LanNetworkManager.Handlers.cs");
-        Assert.Contains("closeOpenedItemInventory", handlers);
+        Assert.Contains("HandleWorkbenchLock", handlers);
+        Assert.Contains("exclusive workbench open disabled", handlers);
         Assert.Contains("HandleFeederState", handlers);
         Assert.Contains("HandleLureState", handlers);
         Assert.Contains("HandleSleepEndRequest", handlers);
