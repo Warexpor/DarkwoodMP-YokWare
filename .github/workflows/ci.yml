@@ -21,7 +21,7 @@ jobs:
             9.0.x
 
       - name: Protocol tests
-        run: dotnet test DarkwoodMP.Protocol.Tests/DarkwoodMP.Protocol.Tests.csproj -c Release --verbosity minimal
+        run: dotnet test research/DarkwoodMP.Protocol.Tests/DarkwoodMP.Protocol.Tests.csproj -c Release --verbosity minimal
 
       - name: Dedicated server build
-        run: dotnet build DarkwoodMP.Server/DarkwoodMP.Server.csproj -c Release --verbosity minimal
+        run: dotnet build research/DarkwoodMP.Server/DarkwoodMP.Server.csproj -c Release --verbosity minimal

@@ -82,86 +82,39 @@ namespace DWMPHorde.Patches
         }
     }
 
-    // ---- Map ----
+    // ---- UI open/show paths: hold pause suppression for the whole menu ----
 
     [HarmonyPatch(typeof(Map), "open")]
-    internal static class MapOpenNoPausePatch
+    [HarmonyPatch(typeof(Journal), "open")]
+    [HarmonyPatch(typeof(Journal), "showNote")]
+    [HarmonyPatch(typeof(Padlock), "activate")]
+    [HarmonyPatch(typeof(DialogueWindow), "SetDialogue")]
+    [HarmonyPatch(typeof(SkillPointsMenu), "open")]
+    [HarmonyPatch(typeof(SkillSlotsMenu), "open")]
+    [HarmonyPatch(typeof(InteractiveItem), "open")]
+    internal static class UiOpenNoPausePatches
     {
         private static void Prefix() => PauseSuppression.BeginNoPause();
         private static void Postfix() => PauseSuppression.EndNoPause();
     }
+
+    // ---- UI close/hide paths: hold unpause suppression ----
 
     [HarmonyPatch(typeof(Map), "close")]
-    internal static class MapCloseNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    // ---- Journal ----
-
-    [HarmonyPatch(typeof(Journal), "open")]
-    internal static class JournalOpenNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
     [HarmonyPatch(typeof(Journal), "close")]
-    internal static class JournalCloseNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    [HarmonyPatch(typeof(Journal), "showNote")]
-    internal static class JournalShowNoteNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
     [HarmonyPatch(typeof(Journal), "hideNote")]
-    internal static class JournalHideNoteNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    // ---- Padlock ----
-
-    [HarmonyPatch(typeof(Padlock), "activate")]
-    internal static class PadlockActivateNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
     [HarmonyPatch(typeof(Padlock), "deactivate")]
-    internal static class PadlockDeactivateNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    // ---- Dialogue (SetDialogue is private; Harmony still patches it) ----
-
-    [HarmonyPatch(typeof(DialogueWindow), "SetDialogue")]
-    internal static class DialogueSetDialogueNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
-    /// <summary>Dialogue close path calls Core.unpause — keep world running if still in freeze sources only.</summary>
     [HarmonyPatch(typeof(DialogueWindow), "close")]
-    internal static class DialogueCloseNoUnpausePatch
+    [HarmonyPatch(typeof(SkillPointsMenu), "close")]
+    [HarmonyPatch(typeof(SkillSlotsMenu), "close")]
+    [HarmonyPatch(typeof(InteractiveItem), "close")]
+    internal static class UiCloseNoUnpausePatches
     {
         private static void Prefix() => PauseSuppression.BeginNoUnpause();
         private static void Postfix() => PauseSuppression.EndNoUnpause();
     }
 
-    // ---- Leveling / skill menus ----
+    // ---- Leveling / skill menus (delayed coroutine pause; different body) ----
 
     /// <summary>
     /// LevelingMenu.show starts a coroutine that later calls Core.pause().
@@ -188,50 +141,6 @@ namespace DWMPHorde.Patches
                 PauseSuppression.SuppressPause--;
         }
 
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    [HarmonyPatch(typeof(SkillPointsMenu), "open")]
-    internal static class SkillPointsMenuOpenNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
-    [HarmonyPatch(typeof(SkillPointsMenu), "close")]
-    internal static class SkillPointsMenuCloseNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    [HarmonyPatch(typeof(SkillSlotsMenu), "open")]
-    internal static class SkillSlotsMenuOpenNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
-    [HarmonyPatch(typeof(SkillSlotsMenu), "close")]
-    internal static class SkillSlotsMenuCloseNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
-    }
-
-    // ---- Interactive item menus (compressor UI, etc.) ----
-
-    [HarmonyPatch(typeof(InteractiveItem), "open")]
-    internal static class InteractiveItemOpenNoPausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
-    }
-
-    [HarmonyPatch(typeof(InteractiveItem), "close")]
-    internal static class InteractiveItemCloseNoUnpausePatch
-    {
-        private static void Prefix() => PauseSuppression.BeginNoUnpause();
         private static void Postfix() => PauseSuppression.EndNoUnpause();
     }
 }

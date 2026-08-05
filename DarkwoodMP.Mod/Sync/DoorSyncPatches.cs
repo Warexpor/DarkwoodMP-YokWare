@@ -6,6 +6,13 @@ using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
+    /// <summary>Rounds a world position to a 0.1-unit key used by sync messages.</summary>
+    internal static class WorldPos
+    {
+        public static Vector3 Key(Vector3 p) =>
+            new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+    }
+
     /// <summary>Harmony patch: intercepts Door.open() and broadcasts the open state to all peers.</summary>
     [HarmonyPatch(typeof(Door), "open", new[] { typeof(Vector3), typeof(Transform), typeof(float) })]
     public static class DoorOpenPatch
@@ -26,7 +33,7 @@ namespace DWMPHorde.Sync
             // Dual path: DoorState (PhysicsState) + DreamDoorSync DoorOpen.
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Vector3 openerPos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
 
@@ -77,7 +84,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Vector3 openerPos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
 
@@ -129,7 +136,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             int trapId = 0;
             if (ModRuntime.Network.Role == NetworkRole.Host)
@@ -221,7 +228,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
@@ -252,7 +259,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
@@ -283,7 +290,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
@@ -394,10 +401,7 @@ namespace DWMPHorde.Sync
             }
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             int option = forceOption >= 0 ? forceOption : __instance.chosenOption;
             RegisterConstructed(key, option);
@@ -417,10 +421,7 @@ namespace DWMPHorde.Sync
         {
             if (c == null) return;
             Vector3 p = c.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
             int option = forceOption >= 0 ? forceOption : c.chosenOption;
             RegisterConstructed(key, option);
         }
@@ -497,10 +498,7 @@ namespace DWMPHorde.Sync
             }
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             ModRuntime.Network.SendInteractiveItemSwitch(new InteractiveItemSwitchMessage
             {
@@ -537,10 +535,7 @@ namespace DWMPHorde.Sync
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             ModRuntime.Network.SendInteractiveItemSwitch(new InteractiveItemSwitchMessage
             {
@@ -562,10 +557,7 @@ namespace DWMPHorde.Sync
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             ModRuntime.Network.SendInteractiveItemSwitch(new InteractiveItemSwitchMessage
             {
@@ -590,10 +582,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             ModRuntime.Network.SendPadlockUnlock(new PadlockUnlockMessage
             {
@@ -620,10 +609,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(
-                Mathf.Round(p.x * 10f) / 10f,
-                Mathf.Round(p.y * 10f) / 10f,
-                Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             ModRuntime.Network.SendLockedUnlock(new LockedUnlockMessage
             {
@@ -647,7 +633,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
@@ -679,7 +665,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 p = __instance.transform.position;
-            Vector3 key = new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
+            Vector3 key = WorldPos.Key(p);
 
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";

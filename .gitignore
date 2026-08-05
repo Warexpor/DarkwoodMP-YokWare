@@ -27,9 +27,6 @@ project.lock.json
 libs/MelonLoader/*.dll
 libs/MelonLoader/**/*.dll
 libs/**/*.dll
-# Exception: LiteNetLib is required for Horde-based mod builds (not a game assembly)
-!libs/LiteNetLib.dll
-!libs/README.md
 
 # Decompiled / third-party reference dumps (local only — never ship)
 reference/

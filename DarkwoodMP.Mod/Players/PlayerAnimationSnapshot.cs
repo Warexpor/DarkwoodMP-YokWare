@@ -84,15 +84,6 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Reads whether the player's sprite is flipped horizontally.
-        /// </summary>
-        public static bool ReadFlipX(Player player)
-        {
-            tk2dSprite sprite = player != null ? player.GetComponentInChildren<tk2dSprite>(true) : null;
-            return sprite != null && sprite.FlipX;
-        }
-
-        /// <summary>
         /// Reads the current frame index of the torso animation.
         /// Returns -1 if the player or animator is unavailable.
         /// </summary>

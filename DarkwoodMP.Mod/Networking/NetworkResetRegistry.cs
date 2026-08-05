@@ -19,11 +19,6 @@ namespace DWMPHorde.Networking
                 _resets.Add(reset);
         }
 
-        public static void Unregister(Action reset)
-        {
-            _resets.Remove(reset);
-        }
-
         /// <summary>
         /// Run every registered reset. Each action is isolated — one throw
         /// must not skip the rest (session leak on partial cleanup).

@@ -16,12 +16,13 @@ namespace DWMPHorde.Patches
     public static class ItemDoublePickupPatch
     {
         private static readonly HashSet<string> PlayerPlacedContainerKeys = new HashSet<string>();
-        private static bool _disarmInProgress;
+        /// <summary>Type of the item currently being disarmed (null = none armed).</summary>
+        private static string _disarmType;
 
         public static void Reset()
         {
             PlayerPlacedContainerKeys.Clear();
-            _disarmInProgress = false;
+            _disarmType = null;
             _pendingShares.Clear();
         }
 
@@ -97,21 +98,16 @@ namespace DWMPHorde.Patches
 
         [HarmonyPatch(typeof(Inventory), "addItemTypeToPlayer")]
         [HarmonyPrefix]
-        private static void OnAddItemTypeToPlayer(Inventory __instance, string type, int amount, bool dropIfNoRoom)
-        {
-            Log($"addItemTypeToPlayer called: type='{type}', amount={amount}, disarmFlag={_disarmInProgress}");
-        }
-
-        [HarmonyPatch(typeof(Inventory), "addItemTypeToPlayer")]
-        [HarmonyPrefix]
         private static void OnAddItemTypeToPlayer_DoDouble(string type, ref int amount)
         {
             if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
-            if (!_disarmInProgress)
+            // Only double the exact item being disarmed — never a different pickup
+            // that happens to arrive while a disarm is in flight (global-bool bug).
+            if (!LootPolicy.ShouldDoubleDisarm(_disarmType, type))
                 return;
-            _disarmInProgress = false;
+            _disarmType = null;
             int mult = GetItemMultiplier();
-            Log($"  --> DOUBLING from {amount} to {amount * mult}");
+            Log($"  --> DOUBLING {type} from {amount} to {amount * mult}");
             amount *= mult;
         }
 
@@ -131,7 +127,18 @@ namespace DWMPHorde.Patches
                 return;
             }
             Log("  --> WILL double via addItemTypeToPlayer");
-            _disarmInProgress = true;
+            _disarmType = __instance.invItem.type;
+        }
+
+        [HarmonyPatch(typeof(Item), "disarm")]
+        [HarmonyPostfix]
+        private static void OnDisarmPostfix()
+        {
+            // addItemTypeToPlayer (synchronous inside disarm) already consumed the
+            // armed type when it doubled. If it is still set here, disarm took a path
+            // that never doubled (e.g. item went into an open inventory) — drop the
+            // stale type so the next unrelated pickup of the same type is not falsely doubled.
+            _disarmType = null;
         }
 
         /// <summary>
@@ -236,8 +243,11 @@ namespace DWMPHorde.Patches
 
         [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
         [HarmonyPostfix]
-        private static void OnTransferAllToPlayerPostfix(InvSlot __instance)
+        private static void OnTransferAllToPlayerPostfix(InvSlot __instance, bool __result)
         {
+            // Only grant the personal bonus when the transfer actually succeeded
+            // (full-stack take returns false on no room — item stays in container).
+            if (!__result) return;
             ApplyPendingShareForSlot(__instance, "OnTransferAllToPlayerPostfix");
         }
 

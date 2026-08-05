@@ -19,7 +19,7 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 
 Dual-box saves: SecondDarkwood auto-isolates to `LocalLow\Acid Wizard Studio\Darkwood_Second` (do not share Steam AppData with host).
 
-**Steamworks co-op:** SecondDarkwood is **GOG** (`Galaxy64.dll` / `goggame-1578751181.*`) — `SteamManager` never inits there. Dual-box Steam host/join is impossible; use **LAN** for Steam+SecondDarkwood, or two real Steam installs/accounts for SNS. **0.7.47:** Steam↔Steam UI timeout 35s, early invite callbacks, host SNS accept without lobby-member race, relay warm retry.
+**Steamworks co-op:** SecondDarkwood is **GOG** (`Galaxy64.dll` / `goggame-1578751181.*`) — `SteamManager` never inits there. Dual-box Steam host/join is impossible; use **LAN** for Steam+SecondDarkwood, or two real Steam installs/accounts for SNS. **0.7.47:** Steam↔Steam UI timeout 35s, early invite callbacks, host SNS accept without lobby-member race, relay warm retry. **0.7.48:** research/ + archive/ quarantined out of the ship path; host rejects forwarded messages from non-owners and non-lobby Steam SNS connections; FF-off spares host player; LiteNetLib via NuGet.
 
 ## Dream bunker “dialogue door” (fact)
 
@@ -39,7 +39,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.47**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.48**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
 - **Protocol:** 22 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam

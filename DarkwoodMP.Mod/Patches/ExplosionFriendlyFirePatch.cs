@@ -19,6 +19,18 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Explodes), "explode")]
     public static class ExplosionFriendlyFirePatch
     {
+        // Host player health snapshot so an FF-off remote teammate blast can be rolled back
+        // (vanilla explode() damages Player.Instance directly — the proxy loop below can't spare it).
+        private static float _hostHealthBefore;
+        private static bool _hostAliveBefore;
+
+        private static void Prefix(Explodes __instance)
+        {
+            Player host = Player.Instance;
+            _hostAliveBefore = host != null && host.alive;
+            _hostHealthBefore = host != null ? host.health : -1f;
+        }
+
         private static void Postfix(Explodes __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;
@@ -91,6 +103,20 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[ExplosionFF] blast at {blastPos} → player {proxy.PlayerId} dmg={damage} " +
                     $"(playerSourced={playerSourced} ff={ffEnabled} thrower={throwerPlayerId})");
+            }
+
+            // FF-off: a remote player's blast must not damage the host's own player either.
+            // Vanilla explode() already applied its blast to Player.Instance; roll it back
+            // when the thrower is a teammate (never for the thrower's own blast or env blasts).
+            if (playerSourced && !ffEnabled && throwerPlayerId > 0 && throwerPlayerId != net.LocalPlayerId)
+            {
+                Player host = Player.Instance;
+                if (host != null && _hostHealthBefore >= 0f && host.health < _hostHealthBefore)
+                {
+                    host.health = _hostHealthBefore;
+                    ModRuntime.LegacyInfo(
+                        "[ExplosionFF] FF-off remote throw: restored host health to " + _hostHealthBefore);
+                }
             }
         }
 

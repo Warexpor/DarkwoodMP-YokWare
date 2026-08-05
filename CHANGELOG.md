@@ -2,11 +2,52 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.47** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.48** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **22** (LocationTransport).
 
 ---
+
+## 0.7.48 — CI fix (2026-08-06)
+
+- Fixed `ci.yml` paths: the protocol tests and dedicated-server build were still pointed at the root-level `DarkwoodMP.Protocol.Tests/` and `DarkwoodMP.Server/`, which the refactor pass moved under `research/`. The `protocol-and-server` check now runs `research/DarkwoodMP.Protocol.Tests` and `research/DarkwoodMP.Server` (verified locally: 13/13 tests pass, server builds clean). No mod code touched.
+
+## 0.7.48 — Refactor & trust hardening pass (2026-08-06) — **EXPERIMENTAL**
+
+Seven-phase orchestration run: quarantine the research/legacy trees out of the ship path, fix every adversarial-audit finding (correctness + security/trust), collapse patch boilerplate, strip dead code, make tests behavior-based, align deps/version, and ship. **Protocol 22 unchanged** (both boxes still need this DLL). Ships as **0.7.48-exp** — treat as experimental until the refactor + trust hardening have had playtest soak.
+
+### Quarantine (ship path)
+- `DarkwoodMP.Protocol/`, `DarkwoodMP.Server/`, `DarkwoodMP.Protocol.Tests/` moved to `research/` behind a standalone `DarkwoodMP.Research.sln`; the main solution now ships Mod + PathB.Tests + EntitySpawner only.
+- `scripts/pack-release.ps1` no longer builds the research server or Protocol.Tests; install notes say not to load `archive/yokyy-merge-0.9` or `research/` assemblies. Both stay alive, out of the game.
+
+### Correctness (adversarial audit)
+- **Disarm double is type-scoped**: `ItemDoublePickupPatch` now arms `_disarmType` per item type (was a global bool) and clears it in the disarm postfix, so an open-inventory disarm can no longer falsely double the next unrelated pickup of the same type.
+- **Transfer-all loot bonus gated on success**: the personal share only applies when `transferItemAllToPlayer` returned true — no bonus on a failed / full-inventory transfer (dupe edge).
+- **FastProjectile dict leak fixed**: `OnDestroy` unregisters the `GetInstanceID` entry, so recycled instance ids no longer collide with stale sweep state.
+- **Startup fix**: the initial `FastProjectileCleanupPatch` targeted `FastProjectile.OnDestroy`, which the game type does not declare — Harmony `PatchAll()` threw and the mod failed to load. Retargeted to `FastProjectile.onCollide` (the real collision/despawn path) and hardened the sweep's first-seen logic so a recycled instance id can never inherit stale stall state.
+
+### Security / trust (adversarial audit)
+- **RemotePlayerForward impersonation (HIGH)**: the host now rejects any forward whose claimed `OriginalPlayerId` does not match the actual sending peer — a peer can no longer masquerade as another player.
+- **Container minting (MED)**: the host clamps client `PlaceItem` amount to `0 < amount ≤ 999`; oversized amounts are dropped instead of minting items into a container.
+- **Steam SNS lobby trust (MED)**: the host no longer accepts any Steam user's SNS connection. A connecting peer must be a lobby member, or appear within a 4s grace window (member-list replication lag); otherwise the connection is rejected.
+- **FF-off host protection (MED)**: a remote teammate's thrown explosive no longer damages the host's own player — vanilla `Explodes.explode()` health loss is rolled back for remote-thrown blasts when friendly fire is off (thrower's own blast and environmental blasts still hurt).
+
+### Patch collapse / dead code
+- Client-AI-disable patches collapsed 28 → 5 classes; world-pause patches 15 → 10; removed no-op/log-only patches (`ClientCoopSaveAllowLog`, audio-ambience no-op, `FastProjectileAwake` no-op, inventory open/close log-only, item dump postfix).
+- Deleted dead code: `PushableEntity`, host-migration save-checkpoint methods, `CoopPlayerRegistry` nearest-player helpers, `RemotePlayerState.Reset`, `SecondPlayerAnimController.ApplySnapshot` overload, `PlayerVisionController.SyncFovConeFrom(PlayerVisionController)` overload, `ClientStateBackup` back-compat wrappers, `ClientSaveBridge` pending-host-session, `PlayerAnimationSnapshot.ReadFlipX`, `PlayerControlRouter.GetMainForVision`, `NetworkResetRegistry.Unregister`, `WorldSyncService` unused props/Instance and `LanNetworkManager.WorldSync` property.
+- `DoorTracker`/`GeneratorTracker` collapsed into generic `ListTracker<T>`; the repeated 0.1-unit position key extracted as `WorldPos.Key` (~15 call sites).
+
+### Tests / deps / version
+- Brittle source-text tests now assert the version family (`0.7.x`) instead of an exact build — suite is 52/52 green.
+- LiteNetLib 1.3.5 moved from vendored `libs/LiteNetLib.dll` to `PackageReference` (research server already pinned the same version; wire behavior unchanged).
+- Version drift aligned: csproj claimed `0.9.2` while the product ships `0.7.x` — now consistent at **0.7.48**.
+- Removed stale one-shot audit docs (`AUDIT_LOGGING_AND_REDUNDANCY`, `DEEP_REVIEW_2026-07-28`, `DREAM_SYNC_REVIEW_2026-07-28`) — their findings were already captured in this file.
+
+### Files
+- `DarkwoodMP.Mod/`: `Networking/LanNetworkManager*.cs`, `Networking/Steam/SteamCoopTransport.cs`, `Patches/*` (collapse + trust), `Sync/EntityTrackers.cs`, `Sync/DoorSyncPatches.cs`, `Sync/PushableEntity.cs` (del), `Players/*`, `PluginInfo.cs`, `AssemblyInfo.cs`, `DarkwoodMP.Mod.csproj`
+- `research/` (moved + standalone sln), `DarkwoodMP.PathB.Tests/`, `scripts/pack-release.ps1`, `.gitignore`, `libs/README.md`, `README.md`, `AGENTS.md`, `docs/` (3 stale audit docs removed)
+
+
 
 ## 0.7.47 — Steam↔Steam SNS join harden (2026-08-04)
 

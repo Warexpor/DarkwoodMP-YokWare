@@ -5,7 +5,6 @@ namespace DWMPHorde.Networking
     /// </summary>
     public static class ClientSaveBridge
     {
-        private static WorldSessionMessage _pendingHostSession;
         private static string _lastClientSaveNote;
 
         /// <summary>
@@ -86,7 +85,6 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static void NoteClientShouldMatchHost(WorldSessionMessage session)
         {
-            _pendingHostSession = session;
             _lastClientSaveNote =
                 "Host session: "
                 + session.SaveSlotName
@@ -97,20 +95,9 @@ namespace DWMPHorde.Networking
                 + ". Stay on title — host auto-pushes world when in-game; you pick a permanent local profile slot, then ENTER WORLD.";
         }
 
-        /// <summary>
-        /// Attempts to retrieve a previously stored pending host session.
-        /// Returns true if a session with a valid save slot name is available.
-        /// </summary>
-        public static bool TryGetPendingHostSession(out WorldSessionMessage session)
-        {
-            session = _pendingHostSession;
-            return session.SaveSlotName != null;
-        }
-
         /// <summary>Clear pending host session note on disconnect.</summary>
         public static void Reset()
         {
-            _pendingHostSession = default;
             _lastClientSaveNote = null;
         }
     }

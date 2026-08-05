@@ -576,40 +576,6 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Network, "Simulation authority reclaimed (entities+clock+AI host path)");
         }
 
-        private void TryHostMigrationSaveCheckpoint()
-        {
-            // Defer heavy Save off the promote frame — dual-box mid-session Save was a multi-second
-            // hitch on the new host (looked like "FPS dies after grant").
-            try
-            {
-                if (this == null || !isActiveAndEnabled) return;
-                StartCoroutine(HostMigrationSaveCheckpointDeferred());
-            }
-            catch (Exception ex)
-            {
-                ModLog.Warn(LogCat.Save, "Host grant Save schedule failed: " + ex.Message);
-            }
-        }
-
-        private IEnumerator HostMigrationSaveCheckpointDeferred()
-        {
-            // Let a few frames settle after bind + reclaim.
-            for (int i = 0; i < 30; i++)
-                yield return null;
-            try
-            {
-                if (Singleton<SaveManager>.Instance == null) yield break;
-                if (Core.mainMenu || Core.loadingGame) yield break;
-                if (_role != NetworkRole.Host) yield break;
-                Singleton<SaveManager>.Instance.Save(doJson: true);
-                ModLog.Event(LogCat.Save, "Host grant checkpoint Save() (deferred after promote)");
-            }
-            catch (Exception ex)
-            {
-                ModLog.Warn(LogCat.Save, "Host grant Save checkpoint failed: " + ex.Message);
-            }
-        }
-
         private void ConnectToHostPreservingId(string address, int port, int electHostId)
         {
             int keepId = _localPlayerId;

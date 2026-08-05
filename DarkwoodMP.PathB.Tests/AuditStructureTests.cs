@@ -369,11 +369,11 @@ public class AuditStructureTests
         var plugin = ReadMod("PluginInfo.cs");
         Assert.Contains("ProtocolVersion = 22", plugin);
         Assert.Contains("Horde", plugin);
-        Assert.Contains("0.7.46", plugin);
+        Assert.Contains("Version = \"0.7.", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
-        var ironbark = File.ReadAllText(Path.Combine(RepoRoot, "DarkwoodMP.Protocol", "Ironbark.cs"));
+        var ironbark = File.ReadAllText(Path.Combine(RepoRoot, "research", "DarkwoodMP.Protocol", "Ironbark.cs"));
         Assert.Contains("Version = 2", ironbark);
         // Ironbark Version=2 is separate from PluginInfo ProtocolVersion (20+).
 

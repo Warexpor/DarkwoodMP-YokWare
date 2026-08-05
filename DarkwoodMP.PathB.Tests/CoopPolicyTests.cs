@@ -52,6 +52,19 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void LootPolicy_DisarmDouble_IsTypeScoped()
+    {
+        // Regression: the disarm double must only fire for the exact item disarmed.
+        // A global "in progress" bool wrongly doubled any pickup arriving in-flight.
+        Assert.True(LootPolicy.ShouldDoubleDisarm("gasoline", "gasoline"));
+        // Different item arriving while a disarm is pending must NOT be doubled.
+        Assert.False(LootPolicy.ShouldDoubleDisarm("gasoline", "nails"));
+        // No item armed -> nothing doubles.
+        Assert.False(LootPolicy.ShouldDoubleDisarm(null, "gasoline"));
+        Assert.False(LootPolicy.ShouldDoubleDisarm("", "gasoline"));
+    }
+
+    [Fact]
     public void NpcLock_SameNpc_DifferentOwner_DeniedWhileHeld()
     {
         float now = 100f;

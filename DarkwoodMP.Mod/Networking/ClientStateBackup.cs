@@ -608,14 +608,6 @@ namespace DWMPHorde.Networking
             return DeserializeFromJson(json);
         }
 
-        // --- Back-compat wrappers (single-arg / no-arg used by older call sites) ---
-
-        /// <summary>Deprecated name: saves as local self backup.</summary>
-        public static void SaveBackupFile(string json) => SaveLocalSelfBackupFile(json);
-
-        /// <summary>Deprecated name: loads local self backup.</summary>
-        public static ClientStateBackupData LoadBackupFile() => LoadLocalSelfBackupFile();
-
         public static void RestoreFromBackup(ClientStateBackupData data)
         {
             Player player = Player.Instance;

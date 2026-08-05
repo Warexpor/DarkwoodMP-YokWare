@@ -24,15 +24,6 @@ namespace DWMPHorde.Patches
     /// Music and ambience are global — never distance-cull.
     /// (Previously shared SuppressFarAudio and killed menu/BGM tracks.)
     /// </summary>
-    [HarmonyPatch(typeof(AudioController), "_PlayAsMusicOrAmbienceSound")]
-    public static class AudioAmbienceSuppressionPatch
-    {
-        private static bool Prefix()
-        {
-            return true;
-        }
-    }
-
     internal static class AudioSuppressionLogic
     {
         /// <summary>

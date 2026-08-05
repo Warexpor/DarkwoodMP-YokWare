@@ -50,28 +50,5 @@ namespace DWMPHorde.Networking
         // Drag tracking: GameObject names of items being dragged by this remote player.
         // Used cross-peer (InstanceIDs don't match across processes).
         public readonly HashSet<string> DragItemNames = new HashSet<string>();
-
-        public void Reset()
-        {
-            InBearTrap = false;
-            BearTrapPos = Vector3.zero;
-            TrapNetId = 0;
-            HasLightProtection = false;
-            HasNightShadows = false;
-            IsDeadInDream = false;
-            FlareLight = null;
-            FlareFx = null;
-            FlareItemType = null;
-            ItemLight = null;
-            AppliedLightItemType = null;
-            AppliedLightOn = false;
-            AppliedFlash = false;
-            AppliedEmitter = false;
-            AppliedItemLight = false;
-            AppliedAmbient = false;
-            AppliedLightRadius = 0f;
-            DragItemIds.Clear();
-            DragItemNames.Clear();
-        }
     }
 }
