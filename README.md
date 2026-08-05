@@ -4,9 +4,9 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.7.46** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
+| **Product** | YokWare Branch **0.7.48** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
-| **Live wire** | Horde protocol **22** (LiteNetLib `NetMessageType`, IDs through **131**; optional trailers **112–131**) |
+| **Live wire** | Horde protocol **22** (LiteNetLib `NetMessageType`, IDs through **131**; optional msgs **112–131**) |
 | **Research wire** | **Ironbark v2** (`research/DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
 | **License** | **GPLv3** — see [LICENSE](LICENSE) |
@@ -43,7 +43,7 @@ of codecs, tests, and server plumbing that do nothing at runtime.
 | | Horde 22 (ship) | Ironbark v2 (redundant) |
 |--|-----------------|------------------------|
 | Message IDs | `byte` (through 131) | `u16` (156 typed packets) |
-| Code footprint | ~40k LOC in Mod | ~3k LOC in Protocol + ~2k in Server |
+| Code footprint | ~54k LOC in Mod | ~3k LOC in Protocol + ~2k in Server |
 | Transport | LiteNetLib direct | `ITransport` abstraction |
 | Routing | `[Forwardable]` attributes | `IronbarkRegistry` entries |
 | Capability negotiation | Protocol version only | Capability bits at handshake |
@@ -65,19 +65,19 @@ Pick **one** loader per game process. Both variants are the same Path B mod; bui
 
 1. Install [BepInEx](https://docs.bepinex.dev/) 5.x for Darkwood (match game arch).
 2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
-   (or take `bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
+   (or take `DarkwoodMP.Mod/bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
 3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **22**, version **0.7.46**.
+4. Launch — banner: **YokWare Branch**, Path B, protocol **22**, version **0.7.48-exp**.
 
 ### MelonLoader
 
 1. Install MelonLoader 0.7.x for Darkwood.
 2. Once: `pwsh scripts/fetch-melonloader-refs.ps1` (refs under `libs/MelonLoader`, not committed).
 3. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader`.
-4. Copy `bin/Release/MelonLoader/DarkwoodMP.Mod.dll` + `LiteNetLib.dll` into `Darkwood/Mods/`.
+4. Copy `DarkwoodMP.Mod/bin/Release/MelonLoader/DarkwoodMP.Mod.dll` + `LiteNetLib.dll` into `Darkwood/Mods/`.
 5. Config lands under Melon UserData (`YokWare/com.yokware.branch.cfg`).
 
-**In-game (both loaders):** title **MULTIPLAYER** · **F2** settings · **F3** manual save · **F4** spectator · **Ctrl+C** chat.
+**In-game (both loaders):** title **MULTIPLAYER** · **F2** settings · **F3** manual save · **F4** spectator · **Ctrl+C** chat (off by default).
 
 All peers need the **same** mod build and the **same loader family** (do not mix BepInEx plugin + Melon Mods DLL on one process). Host enters chapter first; clients JOIN → world share → offline load → co-op reconnect.
 
@@ -98,14 +98,14 @@ All peers need the **same** mod build and the **same loader family** (do not mix
 dotnet build DarkwoodMP.sln -c Release
 
 # Loader variants (same product; different entry + output folder)
-dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx      # → bin/Release/BepInEx/ ; deploys Steam + SecondDarkwood if present
-dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader  # → bin/Release/MelonLoader/
+dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx      # → DarkwoodMP.Mod/bin/Release/BepInEx/ ; deploys Steam + SecondDarkwood if present
+dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader  # → DarkwoodMP.Mod/bin/Release/MelonLoader/
 
 dotnet test DarkwoodMP.PathB.Tests -c Release
 dotnet test research\DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec (research)
 ```
 
-`libs/LiteNetLib.dll` is required for both loader builds.
+**LiteNetLib 1.3.5 comes from NuGet** (`PackageReference`); ship the `LiteNetLib.dll` from the build output alongside the mod DLL — there is no vendored copy under `libs/`.
 
 ---
 
@@ -136,6 +136,9 @@ dotnet test research\DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec (re
 | `research/DarkwoodMP.Server/` | Dedicated Ironbark relay (**not** a Horde LAN peer) |
 | `DarkwoodMP.PathB.Tests/` | Structural + policy Path B gates |
 | `archive/yokyy-merge-0.9/` | **Path A freeze** — Yokyy-core merge; reference only |
+| `reference/friend-dll-decomp/` | Friend-DLL decompile dump; local-only (gitignored — never build/load) |
+| `scripts/` | Release packager (`pack-release.ps1`) + MelonLoader ref fetcher |
+| `libs/` | Fetched loader refs (MelonLoader), not committed |
 | `docs/` | Audit, join, Ironbark protocol, inventory |
 
 ---
