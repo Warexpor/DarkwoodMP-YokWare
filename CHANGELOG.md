@@ -11,6 +11,7 @@ Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — the
 ## 0.7.48 — CI fix (2026-08-06)
 
 - Fixed `ci.yml` paths: the protocol tests and dedicated-server build were still pointed at the root-level `DarkwoodMP.Protocol.Tests/` and `DarkwoodMP.Server/`, which the refactor pass moved under `research/`. The `protocol-and-server` check now runs `research/DarkwoodMP.Protocol.Tests` and `research/DarkwoodMP.Server` (verified locally: 13/13 tests pass, server builds clean). No mod code touched.
+- README: fixed stale `0.7.46` → `0.7.48` / `0.7.48-exp` (banner line now carries the experimental tag), corrected the `libs/LiteNetLib.dll` sourcing claim (now NuGet 1.3.5), disambiguated `DarkwoodMP.Mod/bin/...` output paths, and added `reference/`, `scripts/`, `libs/` to the Layout table.
 
 ## 0.7.48 — Refactor & trust hardening pass (2026-08-06) — **EXPERIMENTAL**
 
