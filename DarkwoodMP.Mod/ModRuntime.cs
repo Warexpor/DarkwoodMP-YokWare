@@ -100,8 +100,8 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
                 NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
                 // Session maps that previously leaked across reconnects (0.5 audit)
-                NetworkResetRegistry.Register(DoorTracker.Clear);
-                NetworkResetRegistry.Register(GeneratorTracker.Clear);
+                NetworkResetRegistry.Register(ListTracker<Door>.Clear);
+                NetworkResetRegistry.Register(ListTracker<Generator>.Clear);
                 NetworkResetRegistry.Register(HostCheckStuffPatch.Reset);
                 NetworkResetRegistry.Register(GasolineTrailSpawnPatch.Reset);
                 NetworkResetRegistry.Register(ThrowableSyncPatch.Reset);

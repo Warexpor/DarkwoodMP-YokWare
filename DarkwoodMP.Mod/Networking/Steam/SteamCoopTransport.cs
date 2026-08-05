@@ -59,6 +59,13 @@ namespace DWMPHorde.Networking.Steam
         private ulong _pendingLaunchLobby;
 
         private static readonly TimeSpan ClientConnectTimeout = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan HostLobbyGrace = TimeSpan.FromSeconds(4);
+
+        // Connections the host has not yet accepted because the peer was not (yet)
+        // visible in the lobby member list — member-list replication can lag after
+        // JoinLobby. Re-checked in Poll(); rejected if still absent after the grace window.
+        private struct PendingHostConnect { public HSteamNetConnection Conn; public DateTime Since; }
+        private readonly Dictionary<ulong, PendingHostConnect> _pendingHostConnects = new Dictionary<ulong, PendingHostConnect>();
 
         public bool IsActive => _active;
         public bool IsHosting => _hosting;
@@ -302,6 +309,7 @@ namespace DWMPHorde.Networking.Steam
             _clientTransportReady = false;
             _clientConnectStartedUtc = DateTime.MinValue;
             _reliableOutbox.Clear();
+            _pendingHostConnects.Clear();
         }
 
         private void CloseAllConnections()
@@ -362,6 +370,9 @@ namespace DWMPHorde.Networking.Steam
 
             if (_hosting)
             {
+                if (_pendingHostConnects.Count > 0)
+                    ResolvePendingHostConnects();
+
                 if (_pollGroup != HSteamNetPollGroup.Invalid)
                     DrainMessages(() => SteamNetworkingSockets.ReceiveMessagesOnPollGroup(
                         _pollGroup, _recvBuffer, MaxMessagesPerPoll));
@@ -519,18 +530,22 @@ namespace DWMPHorde.Networking.Steam
             switch (state)
             {
                 case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connecting:
-                    if (!LobbyAllowsSteamId(steamId))
+                    if (LobbyAllowsSteamId(steamId))
                     {
-                        ModLog.Event(LogCat.Network,
-                            "Steam SNS refuse " + steamId.m_SteamID + " (not in lobby)");
-                        SteamNetworkingSockets.CloseConnection(
-                            cb.m_hConn, CloseReasonRejected, "not in lobby", false);
+                        AcceptHostConnection(cb.m_hConn);
                     }
-                    else if (SteamNetworkingSockets.AcceptConnection(cb.m_hConn)
-                             != EResult.k_EResultOK)
+                    else
                     {
-                        SteamNetworkingSockets.CloseConnection(
-                            cb.m_hConn, CloseReasonGeneric, "accept failed", false);
+                        // Member-list can lag after JoinLobby; park the connection and
+                        // re-check in Poll() before rejecting — blocks random Steam
+                        // users who are not (and never will be) lobby members.
+                        _pendingHostConnects[steamId.m_SteamID] = new PendingHostConnect
+                        {
+                            Conn = cb.m_hConn,
+                            Since = DateTime.UtcNow
+                        };
+                        ModLog.Event(LogCat.Network,
+                            "Steam SNS pending " + steamId.m_SteamID + " (lobby list grace)");
                     }
                     break;
 
@@ -581,17 +596,49 @@ namespace DWMPHorde.Networking.Steam
         {
             if (!_lobbyId.IsValid() || !steamId.IsValid())
                 return false;
-            // Classic P2P accepted any host-side session. Member-list lag after JoinLobby
-            // used to refuse valid clients (n>=1 host-only → not-in-list → CloseConnection).
-            if (_hosting)
-                return true;
             int n = SteamMatchmaking.GetNumLobbyMembers(_lobbyId);
             for (int i = 0; i < n; i++)
             {
                 if (SteamMatchmaking.GetLobbyMemberByIndex(_lobbyId, i) == steamId)
                     return true;
             }
+            // Host-only lobby (no members listed yet): the connecting peer is the first
+            // joiner whose member-list entry has not replicated — allow through the grace
+            // window instead of refusing them out of hand.
             return n == 0;
+        }
+
+        private void AcceptHostConnection(HSteamNetConnection conn)
+        {
+            if (SteamNetworkingSockets.AcceptConnection(conn) != EResult.k_EResultOK)
+            {
+                SteamNetworkingSockets.CloseConnection(
+                    conn, CloseReasonGeneric, "accept failed", false);
+            }
+        }
+
+        private void ResolvePendingHostConnects()
+        {
+            var resolved = new List<ulong>();
+            foreach (var kvp in _pendingHostConnects)
+            {
+                if (LobbyAllowsSteamId(new CSteamID(kvp.Key)))
+                {
+                    AcceptHostConnection(kvp.Value.Conn);
+                    ModLog.Event(LogCat.Network, "Steam SNS accepted " + kvp.Key + " (lobby list resolved)");
+                    resolved.Add(kvp.Key);
+                }
+                else if (DateTime.UtcNow - kvp.Value.Since > HostLobbyGrace)
+                {
+                    SteamNetworkingSockets.CloseConnection(
+                        kvp.Value.Conn, CloseReasonRejected, "not in lobby", false);
+                    ModLog.Warn(LogCat.Network,
+                        "Steam SNS refused " + kvp.Key + " (not in lobby after grace)");
+                    resolved.Add(kvp.Key);
+                }
+            }
+            foreach (ulong id in resolved)
+                _pendingHostConnects.Remove(id);
         }
 
         private void TrackConn(HSteamNetConnection conn, ulong steamId)

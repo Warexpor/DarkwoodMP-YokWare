@@ -134,21 +134,6 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Copies live FOV cone angles/radius from another PlayerVisionController (after getFOVAngle has run on the source).
-        /// </summary>
-        public void SyncFovConeFrom(PlayerVisionController source)
-        {
-            if (source == null)
-                return;
-
-            CopyLightCone(_fovLogic, source._fovLogic);
-            CopyLightCone(_fovLight, source._fovLight);
-            CopyLightCone(_fovDot, source._fovDot);
-            // Do NOT copy PlayerLightDot (lantern ambient) — that is per-player via net sync.
-            // Copying it made the spectated proxy inherit the local player's lantern radius.
-        }
-
-        /// <summary>
         /// Refreshes the main player's FOV angles then copies them to this controller's lights.
         /// Use this for one-time syncs (e.g. on enter spectate).
         /// </summary>

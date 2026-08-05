@@ -19,6 +19,9 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
+        /// <summary>Host-side cap on a single client ContainerAction.PlaceItem amount (anti-mint).</summary>
+        private const int MaxContainerPlaceAmount = 999;
+
         private void HandleHandshake(HandshakeMessage handshake)
         {
             if (handshake.ProtocolVersion != PluginInfo.ProtocolVersion)
@@ -2205,7 +2208,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
 
-            IList<Generator> gens = Sync.GeneratorTracker.GetAll();
+            IList<Generator> gens = Sync.ListTracker<Generator>.GetAll();
             int sent = 0;
             const int maxSend = 32;
             for (int i = 0; i < gens.Count && sent < maxSend; i++)
@@ -2663,6 +2666,17 @@ namespace DWMPHorde.Networking
             }
             else if (msg.Action == ContainerAction.PlaceItem)
             {
+                // Host trust: clamp a client-side place amount so a peer cannot mint
+                // items into a container with an oversized amount field.
+                if (_role == NetworkRole.Host && !IsApplyingRemoteState
+                    && (msg.Amount <= 0 || msg.Amount > MaxContainerPlaceAmount))
+                {
+                    _suppressForwardThisMessage = true;
+                    ModLog.Warn(LogCat.Container,
+                        "[Container] PlaceItem denied — amount out of bounds: " + msg.Amount);
+                    return;
+                }
+
                 if (msg.IsPlayerPlaced)
                     Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
 
@@ -3172,7 +3186,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            Door door = Sync.DoorTracker.FindByPosition(pos);
+            Door door = Sync.ListTracker<Door>.FindByPosition(pos);
             if (door == null)
                 door = FindDoorByPosLoose(pos, 4f);
             if (door == null && !string.IsNullOrEmpty(doorName))
@@ -5206,11 +5220,11 @@ namespace DWMPHorde.Networking
         private static Door FindDoorByPosLoose(Vector3 pos, float radius)
         {
             // Tracker first (tight), then looser match, then physics overlap (B7).
-            Door d = Sync.DoorTracker.FindByPosition(pos, 0.5f);
+            Door d = Sync.ListTracker<Door>.FindByPosition(pos, 0.5f);
             if (d != null) return d;
-            d = Sync.DoorTracker.FindByPosition(pos, Mathf.Min(1.5f, radius));
+            d = Sync.ListTracker<Door>.FindByPosition(pos, Mathf.Min(1.5f, radius));
             if (d != null) return d;
-            d = Sync.DoorTracker.FindByPosition(pos, radius);
+            d = Sync.ListTracker<Door>.FindByPosition(pos, radius);
             if (d != null) return d;
 
             Collider[] nearby = Physics.OverlapSphere(pos, radius);

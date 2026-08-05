@@ -97,11 +97,5 @@ namespace DWMPHorde.Players
         {
             _proxies.Clear();
         }
-
-        public static Player GetMainForVision()
-        {
-            EnsureMainRegistered();
-            return _main != null ? _main : Player.Instance;
-        }
     }
 }

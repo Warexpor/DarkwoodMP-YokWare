@@ -49,7 +49,8 @@ namespace DWMPHorde.Patches
             ExplosionSpawnFlagTracker.ActivationDepth++;
 
             var net = ModRuntime.Network;
-            ModRuntime.LegacyInfo("[FX] entered role=" + (net?.Role.ToString() ?? "null") + " obj=" + __instance?.name + " hasThrown=" + (__instance.GetComponent<ThrownItem>() != null));
+            if (ModRuntime.VerboseLogging)
+                ModRuntime.LegacyInfo("[FX] entered role=" + (net?.Role.ToString() ?? "null") + " obj=" + __instance?.name + " hasThrown=" + (__instance.GetComponent<ThrownItem>() != null));
 
             ExplosionSpawnFlagTracker.CurrentExplodes = __instance;
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
@@ -74,13 +75,13 @@ namespace DWMPHorde.Patches
                     if (isProxySpawned)
                     {
                         ExplosionSpawnFlagTracker.IsHostSynced = true;
-                        ModRuntime.LegacyInfo("[FX] IsHostSynced=true");
+                        if (ModRuntime.VerboseLogging)
+                            ModRuntime.LegacyInfo("[FX] IsHostSynced=true");
                     }
                 }
             }
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = true;
-            ModRuntime.LegacyInfo("[FX] IsInsideSpawnObjects=true");
         }
 
         [HarmonyPostfix]
@@ -90,7 +91,6 @@ namespace DWMPHorde.Patches
             if (ExplosionSpawnFlagTracker.ActivationDepth > 0)
                 return; // Still inside a nested explosion — outer Postfix will clear
 
-            ModRuntime.LegacyInfo("[FX] POSTFIX clearing flags");
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
             ExplosionSpawnFlagTracker.IsHostSynced = false;
             ExplosionSpawnFlagTracker.CurrentExplodes = null;
@@ -130,36 +130,34 @@ namespace DWMPHorde.Patches
 
             bool flag = ExplosionSpawnFlagTracker.IsInsideSpawnObjects;
             var log = ModRuntime.Log;
-            if (flag)
+            if (flag && ModRuntime.VerboseLogging)
                 log?.LogInfo("[FX] ENTERED flag=true prefab=" + (prefab?.name ?? "null") + " role=" + (ModRuntime.Network?.Role.ToString() ?? "null"));
 
             if (!flag) return;
             var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) { log?.LogInfo("[FX] not host"); return; }
-            if (TraverseHack.ApplyingFromNetwork) { log?.LogInfo("[FX] applyingFromNetwork"); return; }
-            if (__result == null || prefab == null) { log?.LogInfo("[FX] null result|prefab"); return; }
+            if (net == null || net.Role != NetworkRole.Host) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+            if (__result == null || prefab == null) return;
 
-            if (ExplosionSpawnFlagTracker.IsHostSynced) { log?.LogInfo("[FX] IsHostSynced"); return; }
+            if (ExplosionSpawnFlagTracker.IsHostSynced) return;
 
             if (ExplosionSpawnFlagTracker.CurrentExplodes != null)
             {
                 Object ep = ExplosionSpawnFlagTracker.CurrentExplodes.explosionPrefab;
-                if (ep != null && prefab == ep) { log?.LogInfo("[FX] explosionPrefab match, skip"); return; }
+                if (ep != null && prefab == ep) return;
             }
 
             // Gas puddles / flamable scatter: GasTrail channel owns layout (host-only).
             // Sending both ExplosionSpawnObject + GasTrail doubles client density ("wild").
             if (GasSyncPolicy.IsGasolineTrailPrefab(prefab))
-            {
-                log?.LogInfo("[FX] gasoline secondary — GasTrail channel only, skip ExplosionSpawnObject");
                 return;
-            }
 
             string prefabName = prefab.name;
-            if (string.IsNullOrEmpty(prefabName)) { log?.LogInfo("[FX] empty name"); return; }
+            if (string.IsNullOrEmpty(prefabName)) return;
 
             Vector3 euler = quaternion.eulerAngles;
-            log?.LogInfo("[FX] SENDING " + prefabName + " at " + position + " rot=" + euler);
+            if (ModRuntime.VerboseLogging)
+                log?.LogInfo("[FX] SENDING " + prefabName + " at " + position + " rot=" + euler);
             net.SendExplosionSpawnObject(prefabName, position, euler);
         }
     }

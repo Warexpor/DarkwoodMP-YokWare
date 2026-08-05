@@ -39,6 +39,13 @@ namespace DWMPHorde.Patches
             _stallSince.Clear();
         }
 
+        /// <summary>Remove tracking for a projectile id (called on despawn/destroy).</summary>
+        public static void ResetEntry(int id)
+        {
+            _spawnedAt.Remove(id);
+            _stallSince.Remove(id);
+        }
+
         private static bool Prefix(FastProjectile __instance)
         {
             if (__instance == null || !__instance.active)
@@ -51,7 +58,12 @@ namespace DWMPHorde.Patches
             int id = __instance.GetInstanceID();
             float now = Time.unscaledTime;
             if (!_spawnedAt.ContainsKey(id))
+            {
                 _spawnedAt[id] = now;
+                // Fresh projectile — never inherit stale stall state from a recycled
+                // instance id (a previous projectile destroyed outside onCollide/sweep).
+                _stallSince.Remove(id);
+            }
 
             Rigidbody rb = __instance.GetComponent<Rigidbody>();
             float speed = rb != null ? rb.velocity.magnitude : 0f;
@@ -146,17 +158,18 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Legacy Awake hook kept so older code paths / docs still compile.
-    /// Sweep distance is owned by <see cref="FastProjectileSweepPatch"/> every FixedUpdate;
-    /// Awake no longer installs a permanent 15u ray (that was the freeze kill-beam).
+    /// Clean up sweep tracking when a projectile hits (vanilla collision/despawn path),
+    /// so GetInstanceID entries never leak and a recycled id is not misread as aged/stalled.
+    /// FastProjectile declares no OnDestroy, so onCollide is the hook for its normal death.
     /// </summary>
-    [HarmonyPatch(typeof(FastProjectile), "Awake")]
-    public static class FastProjectileAwakePatch
+    [HarmonyPatch(typeof(FastProjectile), "onCollide")]
+    public static class FastProjectileCleanupPatch
     {
         private static void Postfix(FastProjectile __instance)
         {
-            // no-op under network: FixedUpdate patch sets distance from velocity.
-            // Offline: leave vanilla collider-based distance alone.
+            if (__instance == null) return;
+            int id = __instance.GetInstanceID();
+            FastProjectileSweepPatch.ResetEntry(id);
         }
     }
 }

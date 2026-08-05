@@ -178,7 +178,6 @@ namespace DWMPHorde.Networking
         public int ConnectedPlayerCount => PeerCount;
         public int LocalPlayerId => _localPlayerId;
         public string StatusText { get; internal set; } = "Offline";
-        public WorldSyncService WorldSync => _worldSync;
         /// <summary>Snapshot of connected peer player-ids (LAN or Steam). Safe to mutate after call.</summary>
         public IReadOnlyCollection<int> ConnectedPlayerIds
         {
@@ -346,7 +345,7 @@ namespace DWMPHorde.Networking
         private void Awake()
         {
             Instance = this;
-            _worldSync = new WorldSyncService(ModRuntime.Log);
+            _worldSync = new WorldSyncService();
             _worldSaveShare = new WorldSaveShareService(this);
             Sync.DreamAudioPlayer.Initialize();
         }
@@ -2239,6 +2238,16 @@ namespace DWMPHorde.Networking
                         case NetMessageType.RemotePlayerForward:
                             {
                                 var fwd = RemotePlayerForwardMessage.Deserialize(new NetReader(payload));
+                                // Host trust: only the original player may ask the host to re-broadcast
+                                // their own message. A claimed OriginalPlayerId that differs from the
+                                // actual sender is impersonation — drop it.
+                                if (_role == NetworkRole.Host && fwd.OriginalPlayerId != _currentReceivePlayerId)
+                                {
+                                    ModLog.Warn(LogCat.Network,
+                                        "Reject RemotePlayerForward: claimed p" + fwd.OriginalPlayerId
+                                        + " from p" + _currentReceivePlayerId);
+                                    break;
+                                }
                                 int saved = _currentReceivePlayerId;
                                 _currentReceivePlayerId = fwd.OriginalPlayerId;
                                 _isForwardedMessage = true;

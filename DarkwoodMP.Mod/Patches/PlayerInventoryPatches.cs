@@ -33,23 +33,6 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Logs remote proxy inventory toggle attempts for debugging inventory-state desyncs.
-    /// </summary>
-    [HarmonyPatch(typeof(Player), "initiateOpenCloseInventory", new System.Type[0])]
-    public static class InitiateOpenCloseInventoryNoParamPatch
-    {
-        private static void Prefix(Player __instance)
-        {
-            if (!PlayerControlRouter.HasSecond)
-                return;
-            Player proxy = PlayerControlRouter.GetProxyByInstance(__instance);
-            if (proxy == null)
-                return;
-            ModRuntime.LegacyInfo($"[Proxy {proxy.name} initiateOpenCloseInventory()] entered. wantToInv={__instance.wantToInventory}, gotInv={__instance.gotInventory}, gettingInv={__instance.gettingInventory}, hidingInv={__instance.hidingInventory}");
-        }
-    }
-
-    /// <summary>
     /// Logs remote proxy inventory close events.
     /// </summary>
     [HarmonyPatch(typeof(Player), "closeInventory")]

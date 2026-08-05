@@ -7,7 +7,7 @@
 | **Product** | YokWare Branch **0.7.46** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
 | **Live wire** | Horde protocol **22** (LiteNetLib `NetMessageType`, IDs through **131**; optional trailers **112–131**) |
-| **Research wire** | **Ironbark v2** (`DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
+| **Research wire** | **Ironbark v2** (`research/DarkwoodMP.Protocol` / dedicated server tree) — not the live LAN peer |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
 | **License** | **GPLv3** — see [LICENSE](LICENSE) |
 | **Co-authors** | Warexpor & Yokyy |
@@ -33,9 +33,9 @@ What peers actually speak in co-op:
 
 ### Redundant: Ironbark v2
 
-Ironbark is a typed-packet protocol sitting in `DarkwoodMP.Protocol/` with
+Ironbark is a typed-packet protocol sitting in `research/DarkwoodMP.Protocol/` with
 `IronbarkRegistry`, `ITransport` abstraction, `u16` message IDs (~156 types),
-capability handshake bits, and a dedicated server (`DarkwoodMP.Server/`).
+capability handshake bits, and a dedicated server (`research/DarkwoodMP.Server/`).
 
 It has **no live bridge** to Horde 22. None of it runs in co-op. It’s ~3k lines
 of codecs, tests, and server plumbing that do nothing at runtime.
@@ -102,7 +102,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx      # → bin/Release/
 dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader  # → bin/Release/MelonLoader/
 
 dotnet test DarkwoodMP.PathB.Tests -c Release
-dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
+dotnet test research\DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec (research)
 ```
 
 `libs/LiteNetLib.dll` is required for both loader builds.
@@ -132,8 +132,8 @@ dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
 |------|------|
 | `DarkwoodMP.Mod/` | **Ship** — Horde Path B (BepInEx + MelonLoader variants) |
 | `DarkwoodMP.EntitySpawner/` | F5 spawner plugin (BepInEx) |
-| `DarkwoodMP.Protocol/` | Ironbark codec + packets (tests / future bridge) |
-| `DarkwoodMP.Server/` | Dedicated Ironbark relay (**not** a Horde LAN peer) |
+| `research/DarkwoodMP.Protocol/` | Ironbark codec + packets (research / future bridge) |
+| `research/DarkwoodMP.Server/` | Dedicated Ironbark relay (**not** a Horde LAN peer) |
 | `DarkwoodMP.PathB.Tests/` | Structural + policy Path B gates |
 | `archive/yokyy-merge-0.9/` | **Path A freeze** — Yokyy-core merge; reference only |
 | `docs/` | Audit, join, Ironbark protocol, inventory |
@@ -151,7 +151,7 @@ dotnet test DarkwoodMP.Protocol.Tests -c Release   # Ironbark codec
 | **Why archived** | Brief testing showed Yokyy-style bugs and worse sound/sync vs pure Horde remaster — so Path B became the shippable load path |
 | **Load path?** | **No.** Do **not** build/install this tree for play. Archive README: [do not load](archive/yokyy-merge-0.9/README.md) |
 | **Ship path** | Repo root [`DarkwoodMP.Mod/`](DarkwoodMP.Mod/) (Path B Horde base) |
-| **Why keep it** | Feature reference for deliberate ports (e.g. SyncCheck, Yokyy UI/server patterns). Chat and other pieces already ported into Path B where useful. Ironbark sources also live under root `DarkwoodMP.Protocol/` (Warexpor). |
+| **Why keep it** | Feature reference for deliberate ports (e.g. SyncCheck, Yokyy UI/server patterns). Chat and other pieces already ported into Path B where useful. Ironbark sources also live under `research/DarkwoodMP.Protocol/` (Warexpor). |
 
 Solution/CI default targets **Path B only**. Opening projects under `archive/yokyy-merge-0.9/` is for archaeology, not shipping.
 

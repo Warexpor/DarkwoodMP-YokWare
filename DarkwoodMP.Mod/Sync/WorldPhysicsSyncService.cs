@@ -549,7 +549,7 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
                 return;
 
-            DoorTracker.Cleanup();
+            ListTracker<Door>.Cleanup();
 
             Player local = Player.Instance;
             if (local == null) return;
@@ -559,7 +559,7 @@ namespace DWMPHorde.Sync
             // are detected even if the host player is far away.
             List<Vector3> allProxyPositions = GetAllProxyPositions();
 
-            IList<Door> allDoors = DoorTracker.GetAll();
+            IList<Door> allDoors = ListTracker<Door>.GetAll();
             for (int i = 0; i < allDoors.Count; i++)
             {
                 Door door = allDoors[i];
@@ -702,7 +702,7 @@ namespace DWMPHorde.Sync
             // synced even when the host player is far from any of them.
             List<Vector3> allProxyPositions = GetAllProxyPositions();
 
-            IList<Generator> allGens = GeneratorTracker.GetAll();
+            IList<Generator> allGens = ListTracker<Generator>.GetAll();
             for (int i = 0; i < allGens.Count; i++)
             {
                 Generator gen = allGens[i];
@@ -2020,7 +2020,7 @@ namespace DWMPHorde.Sync
         /// <summary>Finds a Door by position — first checks the tracker, then falls back to a scene-wide search.</summary>
         private static Door FindDoorByPos(Vector3 pos)
         {
-            Door door = DoorTracker.FindByPosition(pos);
+            Door door = ListTracker<Door>.FindByPosition(pos);
             if (door != null)
                 return door;
 
@@ -2034,7 +2034,7 @@ namespace DWMPHorde.Sync
                 if (d == null) continue;
                 if (Vector3.Distance(d.transform.position, pos) < 2f)
                 {
-                    DoorTracker.Add(d);
+                    ListTracker<Door>.Add(d);
                     return d;
                 }
             }
@@ -2072,7 +2072,7 @@ namespace DWMPHorde.Sync
 
             Generator gen = go.GetComponent<Generator>();
             if (gen != null)
-                GeneratorTracker.Add(gen);
+                ListTracker<Generator>.Add(gen);
 
             ModRuntime.LegacyInfo("[GeneratorSync] spawned type=" + gs.ItemType + " at " + pos);
             return gen;
@@ -2081,7 +2081,7 @@ namespace DWMPHorde.Sync
         /// <summary>Finds a Generator by position via the tracker.</summary>
         private static Generator FindGeneratorByPos(Vector3 pos)
         {
-            Generator gen = GeneratorTracker.FindByPosition(pos);
+            Generator gen = ListTracker<Generator>.FindByPosition(pos);
             if (gen != null)
                 return gen;
 
@@ -2094,7 +2094,7 @@ namespace DWMPHorde.Sync
                 if (g == null) continue;
                 if (Vector3.Distance(g.transform.position, pos) < 2f)
                 {
-                    GeneratorTracker.Add(g);
+                    ListTracker<Generator>.Add(g);
                     return g;
                 }
             }
@@ -2114,7 +2114,7 @@ namespace DWMPHorde.Sync
 
             // Periodic door tracker cleanup on both host and client — rescans
             // for any doors whose Awake was missed by the Harmony patch.
-            DoorTracker.Cleanup();
+            ListTracker<Door>.Cleanup();
 
             _objectInterpDeadKeys.Clear();
             _objectInterpKeys.Clear();
@@ -2804,8 +2804,8 @@ namespace DWMPHorde.Sync
             _destroyDebounce.Clear();
             _pendingLights.Clear();
             MovingObjectSoundService.Reset();
-            DoorTracker.Clear();
-            GeneratorTracker.Clear();
+            ListTracker<Door>.Clear();
+            ListTracker<Generator>.Clear();
             CharacterTracker.Clear();
         }
 

@@ -214,6 +214,22 @@ namespace DWMPHorde
     }
 
     /// <summary>
+    /// Co-op loot share: the disarm double must only fire for the exact item being
+    /// disarmed. A global "arm in progress" bool wrongly doubles any pickup that
+    /// arrives while a disarm is in flight — so the decision is type-scoped.
+    /// </summary>
+    public static class LootPolicy
+    {
+        /// <summary>
+        /// True only when an item of <paramref name="incomingType"/> is being added
+        /// to the player and it matches the type currently armed for disarm-doubling.
+        /// </summary>
+        public static bool ShouldDoubleDisarm(string armedType, string incomingType)
+            => !string.IsNullOrEmpty(armedType)
+               && string.Equals(armedType, incomingType, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Chapter load tears the scene; co-op must rebind rather than silent solo.
     /// Credits may still end the session (documented residual).
     /// </summary>

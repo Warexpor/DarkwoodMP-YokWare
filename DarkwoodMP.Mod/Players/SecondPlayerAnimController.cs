@@ -332,20 +332,14 @@ namespace DWMPHorde.Players
             }
         }
 
-        /// <summary>
-        /// Convenience overload that applies only locomotion state and flip, keeping existing facing.
-        /// </summary>
-        public void ApplySnapshot(LocomotionState state, bool flipX)
-        {
-            ApplyNetworkSnapshot(state, flipX, (short)transform.eulerAngles.y, false, (short)transform.eulerAngles.y, null, null);
-        }
-
         public void ResetDeathState()
         {
             _deathClipPlayed = false;
         }
 
-        /// <summary>Immediate death pose on PlayerDied (before next PlayerState tick).</summary>
+        /// <summary>
+        /// Immediate death pose on PlayerDied (before next PlayerState tick).
+        /// </summary>
         public void PlayDeathClip(string clipName = "Death1")
         {
             if (string.IsNullOrEmpty(clipName))
