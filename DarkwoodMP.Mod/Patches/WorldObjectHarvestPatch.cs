@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -27,6 +28,9 @@ namespace DWMPHorde.Patches
 
             // Group name checks by component type to reduce false positives
             bool isTrap = name.Contains("trap") || name.Contains("bear") || name.Contains("snap") || name.Contains("animal");
+            Trigger trigComp = go.GetComponent<Trigger>();
+            if (trigComp != null && trigComp.isBearTrap)
+                isTrap = true;
             bool isDestructible = name.Contains("barrel") || name.Contains("tank") || name.Contains("glass") || name.Contains("chain");
             bool isHarvestable = name.Contains("mushroom") || name.Contains("_exp") || name.Contains("bio_");
 
@@ -34,7 +38,7 @@ namespace DWMPHorde.Patches
                 return;
 
             // Component validation: verify the object type matches
-            if (isTrap && go.GetComponent<Trigger>() == null && go.GetComponent<Character>() == null)
+            if (isTrap && trigComp == null && go.GetComponent<Character>() == null)
                 return;
             if (isDestructible && go.GetComponent<Explodes>() == null && go.GetComponent<Item>() == null)
                 return;
@@ -73,7 +77,8 @@ namespace DWMPHorde.Patches
                 ObjectName = go.name
             });
 
-            ModRuntime.LegacyInfo("[TrapDestroy] sent removed \"" + go.name + "\" at " + key);
+            ModLog.Event(LogCat.World, "[TrapDestroy] sent removed \"" + go.name + "\" at " + key
+                + " bear=" + (trigComp != null && trigComp.isBearTrap));
         }
     }
 }

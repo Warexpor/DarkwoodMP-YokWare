@@ -63,7 +63,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         private static readonly Dictionary<string, float> _clientPhysicsSentUntil =
             new Dictionary<string, float>(StringComparer.Ordinal);
-        private const float ClientPhysicsSentGrace = 2f;
+        private const float ClientPhysicsSentGrace = 4f;
 
         private static float _playerSlowSince = -1f;
 
@@ -440,49 +440,18 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// Quiet/network stop: vanilla fade now, but do NOT arm PostStopSuppress and do
-        /// NOT zero/sleep the rigidbody. Sparse PhysicsState + ForceStop thrash was the
-        /// "1s scrape delay" — suppress ate the next NoteMoving after every quiet tick.
-        /// Intentional ends (drag release, local push stop) still use <see cref="ForceStopByName"/>.
-        /// Local pusher/dragger: only kill MOS — never touch native movingSoundAO (double-scrape / mute).
+        /// Quiet/network stop: fade MOS only. Never touch native ItemSounds /
+        /// AudioController globals — StopAllVariants(GetPlayingAudioObjects) was
+        /// killing the local pusher's scrape and letting it re-arm → 2–3× feel.
         /// </summary>
         public static void SoftStopNetwork(string objectName, float fadeSec = IntentionalStopFade)
         {
             if (string.IsNullOrEmpty(objectName)) return;
-
-            // Local owner: kill residual MOS immediately; leave native ItemSounds alone.
-            if (IsLocalPushOrDragOwner(objectName))
-            {
-                ClearRemoteScrape(objectName);
+            ClearRemoteScrape(objectName);
+            if (fadeSec <= 0f)
                 MovingObjectSoundService.StopImmediate(objectName);
-                return;
-            }
-
-            GameObject go = GameObject.Find(objectName);
-            string soundId = null;
-            if (go != null)
-            {
-                ItemSounds sounds = go.GetComponent<ItemSounds>();
-                soundId = MovingObjectSoundService.ResolveMovingSoundId(sounds);
-                if (sounds != null)
-                {
-                    try
-                    {
-                        var ao = Traverse.Create(sounds).Field("movingSoundAO").GetValue<AudioObject>();
-                        if (ao != null)
-                        {
-                            ao.Stop(fadeSec);
-                            Traverse.Create(sounds).Field("movingSoundAO").SetValue(null);
-                        }
-                    }
-                    catch
-                    {
-                        // Traverse failure — MOS StopAllVariants still runs
-                    }
-                }
-            }
-
-            MovingObjectSoundService.StopAllVariants(objectName, soundId, fadeSec);
+            else
+                MovingObjectSoundService.StopNetworkMosOnly(objectName, fadeSec);
         }
     }
 }

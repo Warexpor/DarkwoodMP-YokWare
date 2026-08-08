@@ -376,14 +376,23 @@ namespace DWMPHorde.Networking
                 _net.StatusText = ProgressText;
                 yield return null;
 
-                byte[] raw;
-                try
+                // Read+Deflate off the main thread — 9MB savs.dat Deflate was a ~400ms+ hitch.
+                byte[] raw = null;
+                Exception ioEx = null;
+                bool ioDone = false;
+                string pathCapture = path;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    raw = File.ReadAllBytes(path);
-                }
-                catch (Exception ex)
+                    try { raw = File.ReadAllBytes(pathCapture); }
+                    catch (Exception ex) { ioEx = ex; }
+                    finally { ioDone = true; }
+                });
+                while (!ioDone)
+                    yield return null;
+
+                if (ioEx != null)
                 {
-                    ModLog.Error(LogCat.Save, "Failed reading " + name, ex);
+                    ModLog.Error(LogCat.Save, "Failed reading " + name, ioEx);
                     continue;
                 }
 
@@ -394,7 +403,27 @@ namespace DWMPHorde.Networking
                 _net.StatusText = ProgressText;
                 yield return null;
 
-                byte[] compressed = Deflate(raw);
+                byte[] compressed = null;
+                Exception packEx = null;
+                bool packDone = false;
+                byte[] rawCapture = raw;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try { compressed = Deflate(rawCapture); }
+                    catch (Exception ex) { packEx = ex; }
+                    finally { packDone = true; }
+                });
+                while (!packDone)
+                    yield return null;
+
+                if (packEx != null)
+                {
+                    ModLog.Error(LogCat.Save, "Failed compressing " + name, packEx);
+                    continue;
+                }
+                if (compressed == null || compressed.Length == 0)
+                    continue;
+
                 yield return null;
 
                 int chunkCount = (compressed.Length + ChunkSize - 1) / ChunkSize;

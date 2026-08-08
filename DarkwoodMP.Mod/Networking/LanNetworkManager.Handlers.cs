@@ -377,16 +377,30 @@ namespace DWMPHorde.Networking
                         case 2:
                             SendConstructedSitesTo(playerId);
                             break;
+                        // Locks/interactives: one FindObjectsOfType per frame (was 172ms stacked).
                         case 3:
-                            SyncExistingLocksAndInteractives(playerId);
+                            SyncExistingPadlocksTo(playerId);
                             break;
                         case 4:
-                            SendBarricadeStateTo(playerId);
+                            SyncExistingLockedsTo(playerId);
                             break;
                         case 5:
+                            SyncExistingInteractivesTo(playerId);
+                            break;
+                        // Barricades: Door / Window / Item FOOT split (was 120ms stacked).
+                        case 6:
+                            SendBarricadeDoorsTo(playerId);
+                            break;
+                        case 7:
+                            SendBarricadeWindowsTo(playerId);
+                            break;
+                        case 8:
+                            SendBarricadeItemsTo(playerId);
+                            break;
+                        case 9:
                             SendGasStateTo(playerId);
                             break;
-                        case 6:
+                        case 10:
                             SyncExistingDeathBags(playerId);
                             break;
                         default:
@@ -1571,29 +1585,19 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Bridge called from WorldPhysicsSyncService when a body-pushed
-        /// object goes quiet. Soft-stops MOS (no PostStop suppress) and tells peers.</summary>
+        /// object goes quiet. Soft-stops MOS on this peer only.
+        /// Do NOT Broadcast PlayerAudio stop — that flooded the pushing client and
+        /// SoftStop used to kill their native ItemSounds (2–3× scrape). Observers
+        /// already fade via PhysicsState quiet / DragSync STOP.</summary>
         public static void NotifyBodyPushStopped(string objectName)
         {
             if (Instance == null) return;
             if (string.IsNullOrEmpty(objectName)) return;
 
-            // Quiet end — SoftStop so the next motion packet re-arms scrape immediately.
-            // ForceStop+suppress here caused the classic ~1s scrape blackout mid-push.
             DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(objectName);
             Sync.WorldPhysicsSyncService.TryStopBodyPushSound(objectName);
-
-            if (Instance._role == NetworkRole.Host)
-            {
-                Instance.Broadcast(NetMessageType.PlayerAudio, w =>
-                {
-                    new PlayerAudioMessage
-                    {
-                        IsStopSignal = true,
-                        ObjectName = objectName
-                    }.Serialize(w);
-                }, DeliveryMethod.ReliableOrdered);
-            }
         }
+
 
         /// <summary>Spawn an item on this peer so the remote drag can be reflected.</summary>
         private Item SpawnDraggedItem(DragSyncMessage msg)
@@ -2112,14 +2116,13 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host join bulk: unlocked padlocks/doors and interactive isOn state for late joiners.
+        /// Host join bulk: unlocked padlocks for late joiners (one FOOT).
         /// </summary>
-        private void SyncExistingLocksAndInteractives(int targetPlayerId)
+        private void SyncExistingPadlocksTo(int targetPlayerId)
         {
             if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
 
-            int padlocks = 0, locked = 0, interactive = 0;
-
+            int padlocks = 0;
             Padlock[] pads = UnityEngine.Object.FindObjectsOfType<Padlock>(true);
             for (int i = 0; i < pads.Length; i++)
             {
@@ -2135,7 +2138,16 @@ namespace DWMPHorde.Networking
                     DeliveryMethod.ReliableOrdered);
                 padlocks++;
             }
+            if (padlocks > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Padlocks → p" + targetPlayerId + ": " + padlocks);
+        }
 
+        /// <summary>Host join bulk: unlocked Locked components (one FOOT).</summary>
+        private void SyncExistingLockedsTo(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
+
+            int locked = 0;
             Locked[] locks = UnityEngine.Object.FindObjectsOfType<Locked>(true);
             for (int i = 0; i < locks.Length; i++)
             {
@@ -2151,7 +2163,16 @@ namespace DWMPHorde.Networking
                     DeliveryMethod.ReliableOrdered);
                 locked++;
             }
+            if (locked > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Lockeds → p" + targetPlayerId + ": " + locked);
+        }
 
+        /// <summary>Host join bulk: InteractiveItem isOn (one FOOT).</summary>
+        private void SyncExistingInteractivesTo(int targetPlayerId)
+        {
+            if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
+
+            int interactive = 0;
             InteractiveItem[] items = UnityEngine.Object.FindObjectsOfType<InteractiveItem>(true);
             for (int i = 0; i < items.Length; i++)
             {
@@ -2170,10 +2191,19 @@ namespace DWMPHorde.Networking
                     DeliveryMethod.ReliableOrdered);
                 interactive++;
             }
+            if (interactive > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Interactives → p" + targetPlayerId + ": " + interactive);
+        }
 
-            if (padlocks + locked + interactive > 0)
-                ModRuntime.LegacyInfo(
-                    $"[BulkSync] Locks/interactives → p{targetPlayerId}: pad={padlocks} locked={locked} on={interactive}");
+        /// <summary>
+        /// Host join bulk: unlocked padlocks/doors and interactive isOn (all FOOTs).
+        /// Prefer staggered TickHeavyLateJoinBulk phases; kept for any direct callers.
+        /// </summary>
+        private void SyncExistingLocksAndInteractives(int targetPlayerId)
+        {
+            SyncExistingPadlocksTo(targetPlayerId);
+            SyncExistingLockedsTo(targetPlayerId);
+            SyncExistingInteractivesTo(targetPlayerId);
         }
 
         /// <summary>
@@ -2429,6 +2459,11 @@ namespace DWMPHorde.Networking
                     $"[GameEventsSync] skip already-fired '{best.name}' at {best.transform.position}");
                 return true;
             }
+
+            string geName = best.name ?? msg.EventName ?? "";
+            bool leaveDoor = geName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || geName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
             using (new NetworkApplyGuard())
             {
                 best.fire();
@@ -2442,11 +2477,7 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo(
                 $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} firedNow={best.fired} at {best.transform.position}");
 
-            // Only when GE fire was a no-op / door still closed — otherwise ForceOpen
-            // plays a second openSound after modifyDoor from onLeaveDoorDialogue_*.
-            string geName = best.name ?? msg.EventName ?? "";
-            bool leaveDoor = geName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || geName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            // After GE (which owns openSound): mute late DoorOpen / skip ForceOpen.
             if (!leaveDoor)
             {
                 DWMPHorde.Patches.DialogueDoorAftermath.OnClientGameEventsApplied(
@@ -2454,7 +2485,6 @@ namespace DWMPHorde.Networking
             }
             else
             {
-                // Deferred check: open only if GE coroutine failed to open.
                 DWMPHorde.Patches.DialogueDoorAftermath.OnClientLeaveDoorGameEventsApplied(
                     geName, best.transform.position);
             }
@@ -3281,7 +3311,23 @@ namespace DWMPHorde.Networking
                 }
 
                 float force = door.type == Door.Type.metal ? 30000f : 0f;
-                door.open(pos, null, force);
+                // Leave-door GE already played openSound — mute Door.open audio on apply.
+                string prevSound = null;
+                bool mute = DWMPHorde.Patches.DialogueDoorAftermath.ShouldMuteRemoteDoorOpenSound;
+                if (mute)
+                {
+                    prevSound = door.openSound;
+                    door.openSound = "";
+                }
+                try
+                {
+                    door.open(pos, null, force);
+                }
+                finally
+                {
+                    if (mute)
+                        door.openSound = prevSound;
+                }
             }
             finally
             {
@@ -4043,16 +4089,26 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Host: push barricade / door / furniture state so late joiners match
-        /// host fortifications (including partial main door HP and item health).
-        /// DamageAmount = -1 marks bulk/state (no combat hit FX on apply).
+        /// host fortifications. Prefer staggered SendBarricadeDoors/Windows/ItemsTo.
         /// </summary>
         internal void SendBarricadeStateTo(int targetPlayerId)
         {
             if (_role != NetworkRole.Host) return;
-
             int sent = 0;
-            const int maxSend = 512;
+            sent += SendBarricadeDoorsTo(targetPlayerId, maxSend: 512);
+            sent += SendBarricadeWindowsTo(targetPlayerId, maxSend: 512 - sent);
+            int itemSent = SendBarricadeItemsTo(targetPlayerId, maxSend: 512 - sent, maxItems: 256);
+            sent += itemSent;
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} barricade/door/item states to player {targetPlayerId} (items={itemSent})"
+                : $"[BulkSync] Sent {sent} barricade/door/item states to all clients (items={itemSent})");
+        }
 
+        /// <summary>Host join bulk: Door barricade/HP FOOT only.</summary>
+        private int SendBarricadeDoorsTo(int targetPlayerId, int maxSend = 512)
+        {
+            if (_role != NetworkRole.Host) return 0;
+            int sent = 0;
             Door[] doors = UnityEngine.Object.FindObjectsOfType<Door>();
             for (int i = 0; i < doors.Length && sent < maxSend; i++)
             {
@@ -4097,7 +4153,6 @@ namespace DWMPHorde.Networking
                 }
                 else if (door.baseHealth > 0 && door.health < door.baseHealth)
                 {
-                    // B1: partial main HP on unboarded door (not destroyed)
                     var msg = new BarricadeEventMessage
                     {
                         PosX = key.x, PosY = key.y, PosZ = key.z,
@@ -4112,7 +4167,16 @@ namespace DWMPHorde.Networking
                     sent++;
                 }
             }
+            if (sent > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Barricade doors → p" + targetPlayerId + ": " + sent);
+            return sent;
+        }
 
+        /// <summary>Host join bulk: Window barricade FOOT only.</summary>
+        private int SendBarricadeWindowsTo(int targetPlayerId, int maxSend = 512)
+        {
+            if (_role != NetworkRole.Host) return 0;
+            int sent = 0;
             Window[] windows = UnityEngine.Object.FindObjectsOfType<Window>();
             for (int i = 0; i < windows.Length && sent < maxSend; i++)
             {
@@ -4138,10 +4202,17 @@ namespace DWMPHorde.Networking
                 SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
                 sent++;
             }
+            if (sent > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Barricade windows → p" + targetPlayerId + ": " + sent);
+            return sent;
+        }
 
-            // B2: destructible furniture — absolute HP snapshot (or destroyed)
+        /// <summary>Host join bulk: destructible Item FOOT only.</summary>
+        private int SendBarricadeItemsTo(int targetPlayerId, int maxSend = 512, int maxItems = 256)
+        {
+            if (_role != NetworkRole.Host) return 0;
+            int sent = 0;
             int itemSent = 0;
-            const int maxItems = 256;
             Item[] items = UnityEngine.Object.FindObjectsOfType<Item>();
             for (int i = 0; i < items.Length && itemSent < maxItems && sent < maxSend; i++)
             {
@@ -4176,10 +4247,9 @@ namespace DWMPHorde.Networking
                 sent++;
                 itemSent++;
             }
-
-            ModRuntime.LegacyInfo(targetPlayerId > 0
-                ? $"[BulkSync] Sent {sent} barricade/door/item states to player {targetPlayerId} (items={itemSent})"
-                : $"[BulkSync] Sent {sent} barricade/door/item states to all clients (items={itemSent})");
+            if (itemSent > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Barricade items → p" + targetPlayerId + ": " + itemSent);
+            return itemSent;
         }
 
         private void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
@@ -5342,13 +5412,19 @@ namespace DWMPHorde.Networking
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>
+        /// Host: when a client sends silent trap disarm, mint id if missing then fan-out
+        /// so 2p host apply is not the only peer that sees the trap dead.
+        /// </summary>
         public void SendTrapState(TrapState ts)
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
             var msg = new PhysicsStateMessage { Traps = new[] { ts } };
-            ModRuntime.LegacyInfo("[TrapSync] sending trap triggered id=" + ts.TrapNetId
-                + " at " + ts.PosX + "," + ts.PosY + "," + ts.PosZ);
+            ModLog.Event(LogCat.World, "[TrapSync] sending trap triggered id=" + ts.TrapNetId
+                + " silent=" + (ts.OccupantPlayerId == TrapState.OccupantSilentDisarm)
+                + " at " + ts.PosX + "," + ts.PosY + "," + ts.PosZ
+                + " role=" + _role);
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -5721,6 +5797,10 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
+            // Disarm destroy path used to fire TrapDestroy + disarm-postfix + progressBar
+            // (3× WorldObjectRemoved → peer FOOT thrash + NRE). One wire send per key.
+            if (!Sync.WorldPhysicsSyncService.TryClaimOutboundObjectRemove(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
+                return;
             Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
         }
 
@@ -6615,8 +6695,11 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                bool hostWasInThisTalk = dw.npc != null && dw.npc.name == msg.NpcName
-                    && dw.displayingDialogue;
+                bool hostWasInThisTalk = Player.Instance != null
+                    && Player.Instance.inDialogue
+                    && dw.opened
+                    && dw.npc != null
+                    && dw.npc.name == msg.NpcName;
 
                 dw.npc = npc;
                 if (Player.Instance != null)
@@ -6655,9 +6738,17 @@ namespace DWMPHorde.Networking
                     _dialogWorldDrainCo = null;
                     while (DialogHostApplyGuard.Active)
                         DialogHostApplyGuard.EndWorldOnly();
+                    // Scrub leftover oven/keyhole backdrop before the next world-only apply.
+                    try
+                    {
+                        DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                    }
+                    catch { /* ignore */ }
                 }
 
                 DialogHostApplyGuard.BeginWorldOnly();
+                if (!hostWasInThisTalk)
+                    DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
                 try
                 {
                     // World-only apply needs an active DialogueWindow (lookKeyhole boards
@@ -6725,6 +6816,7 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo($"[DialogOutcome] Host world-only click decision index={msg.DecisionIndex} NPC={msg.NpcName}");
                 DialogHostApplyGuard.BeginWorldOnly();
+                DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
                 try
                 {
                     btn.getClicked();
@@ -6732,6 +6824,9 @@ namespace DWMPHorde.Networking
                 finally
                 {
                     DialogHostApplyGuard.EndWorldOnly();
+                    var dwUi = Singleton<UI>.Instance?.dialogueWindow;
+                    if (dwUi == null || !dwUi.displayingDialogue)
+                        DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dwUi);
                 }
             }
         }
@@ -6878,6 +6973,16 @@ namespace DWMPHorde.Networking
                 "[DialogOutcome] host replaying onCloseDialogue for NPC=" + npcName
                 + " at (" + npcPos.x.ToString("F0") + "," + npcPos.z.ToString("F0") + ")");
 
+            // Pre-arm mute window before onCloseDialogue / leave-door GE so peer DoorOpen
+            // applies without a second openSound (GE already played it).
+            string npcLower = npcName ?? "";
+            bool dialogueDoorNpc =
+                npcLower.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || (npcLower.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    && npcLower.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            if (dialogueDoorNpc)
+                DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
+
             DialogHostApplyGuard.BeginWorldOnly();
             try
             {
@@ -6908,6 +7013,8 @@ namespace DWMPHorde.Networking
                 // otherwise client hears openSound twice (GE + DoorOpen).
                 if (leaveFired == 0)
                     DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
+                else
+                    DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
             }
             catch (Exception ex)
             {
@@ -7017,6 +7124,8 @@ namespace DWMPHorde.Networking
                             var dw = Singleton<UI>.Instance?.dialogueWindow;
                             if (dw != null && (dw.displayingDialogue || dw.npc != null))
                                 DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+                            else
+                                DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
                         }
                         catch { /* ignore */ }
                         _pendingCloseDialogueNpc = null;
@@ -7625,7 +7734,26 @@ namespace DWMPHorde.Networking
             }
 
             // Forward client-originated free-body physics and event-style door/trap/gen
-            // snapshots to other clients (3+ support).
+            // snapshots to other clients (3+ support). Host already applied above.
+            // For silent trap disarm from client: also ensure host re-broadcasts with minted id
+            // when the inbound packet had TrapNetId=0 (so late flush / logs stay consistent).
+            if (isClientOrigin && isEventStyle && tc > 0 && _role == NetworkRole.Host
+                && state.Traps != null)
+            {
+                for (int i = 0; i < state.Traps.Length; i++)
+                {
+                    TrapState entry = state.Traps[i];
+                    if (entry.TrapNetId > 0) continue;
+                    if (entry.OccupantPlayerId != TrapState.OccupantSilentDisarm)
+                        continue;
+                    Vector3 tp = new Vector3(entry.PosX, entry.PosY, entry.PosZ);
+                    GameObject go = Sync.WorldPhysicsSyncService.FindTrapByPos(tp);
+                    if (go == null) continue;
+                    entry.TrapNetId = Sync.TrapNetworkId.GetOrMintHost(go);
+                    state.Traps[i] = entry;
+                }
+            }
+
             if (isClientOrigin && (oc > 0 || isEventStyle))
                 SendToAllExcept(_currentReceivePlayerId, NetMessageType.PhysicsState, w => state.Serialize(w));
         }
@@ -8979,7 +9107,8 @@ namespace DWMPHorde.Networking
                     return;
                 // Local free-body pusher hears native ItemSounds only — never arm MOS/PlayerAudio.
                 if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
+                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName)
+                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentPushAuthority(msg.ObjectName))
                     return;
                 // Already playing via PhysicsState→MOS: ignore redundant start (T2).
                 if (DWMPHorde.Audio.MovingObjectSoundService.IsPlaying(msg.ObjectName))
@@ -9473,15 +9602,19 @@ namespace DWMPHorde.Networking
             if (proxy == null) return;
             if (string.IsNullOrEmpty(msg.LibraryName)) return;
 
+            tk2dSpriteAnimator anim = proxy.GetComponent<tk2dSpriteAnimator>();
+            if (anim == null) return;
+            // Skip no-op applies — Resources.Load per duplicate packet was free hitch fuel.
+            if (anim.Library != null
+                && string.Equals(anim.Library.name, msg.LibraryName, System.StringComparison.Ordinal))
+                return;
+
             var lib = Resources.Load(msg.LibraryName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
             if (lib == null)
             {
                 ModRuntime.Log?.LogWarning("[AnimLib] library not found: " + msg.LibraryName);
                 return;
             }
-
-            tk2dSpriteAnimator anim = proxy.GetComponent<tk2dSpriteAnimator>();
-            if (anim == null) return;
 
             var prev = Sync.WorldPhysicsSyncService._suppressBroadcast;
             Sync.WorldPhysicsSyncService._suppressBroadcast = true;
@@ -10107,10 +10240,13 @@ namespace DWMPHorde.Networking
         {
             if (_role == NetworkRole.Host)
             {
-                // P3.7: reject joins mid-dream unless config allows (default: reject)
+                // P3.7: reject joins mid-dream unless config allows (default: reject).
+                // Match Steam gate: IsDreamActive covers entry transition before DreamSession.Active.
                 bool allowDreamJoin = Config.ModConfig.AllowJoinDuringDream != null
                     && Config.ModConfig.AllowJoinDuringDream.Value;
-                if (!allowDreamJoin && Sync.DreamSession.ShouldRejectNewConnections)
+                if (!allowDreamJoin
+                    && (Sync.DreamSession.ShouldRejectNewConnections
+                        || Sync.DreamSyncManager.IsDreamActive))
                 {
                     ModLog.Event(LogCat.Network, "Rejecting connection — dream session active");
                     request.Reject();

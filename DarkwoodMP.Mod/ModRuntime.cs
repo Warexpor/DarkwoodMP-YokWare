@@ -77,6 +77,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
                 NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
+                NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
                 NetworkResetRegistry.Register(ClientMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
                 NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
@@ -112,6 +113,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(DialogOutcomeIndexPatch.ResetCounter);
                 NetworkResetRegistry.Register(PauseSuppression.Reset);
                 NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
+                NetworkResetRegistry.Register(DialogHostPresentation.Reset);
                 NetworkResetRegistry.Register(DialogClientWorldDefer.Reset);
                 NetworkResetRegistry.Register(NpcDialogueLock.Reset);
                 NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);

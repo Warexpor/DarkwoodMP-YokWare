@@ -7,6 +7,7 @@
     <RootNamespace>DarkwoodMP.PathB.Tests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="LiteNetLib" Version="1.3.5" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -18,5 +19,8 @@
   <ItemGroup>
     <Compile Include="..\DarkwoodMP.Mod\CoopPolicy.cs" Link="Shipped\CoopPolicy.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Sync\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetWriter.cs" Link="Shipped\NetWriter.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\ForwardableAttribute.cs" Link="Shipped\ForwardableAttribute.cs" />
   </ItemGroup>
 </Project>

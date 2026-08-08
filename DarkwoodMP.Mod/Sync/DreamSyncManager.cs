@@ -97,16 +97,44 @@ namespace DWMPHorde.Sync
         {
             ClearStoryEndDefer();
             ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
+            Core.EnteringDream = false;
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+
             if (DreamSession.IsActive)
                 DreamSession.End(reason);
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
                 ApplyRemoteDreamCleanup(reason);
             else
             {
+                try
+                {
+                    if (Dreams.Instance != null)
+                    {
+                        Dreams.Instance.wantToDream = false;
+                        Dreams.Instance.dreamPrepared = false;
+                    }
+                }
+                catch { /* ignore */ }
                 UnfreezeWorld(restoreTime: false);
                 FinalDreamsceneManager.OnDreamEnded();
             }
             _localDreamActive = false;
+            _localDreamPreset = null;
         }
 
         /// <summary>
@@ -139,23 +167,22 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>Delegates to DreamSession for pool mirror bookkeeping (not a re-entry ban).</summary>
+        /// <summary>Party-once: preset already finished by the shared session.</summary>
         public static bool IsDreamCompleted(int playerId, string presetName)
         {
-            // H4: never abort remote load for named re-entry — MirrorPoolRemove is separate.
-            return false;
+            return DreamSession.IsPresetCompleted(presetName);
         }
 
-        /// <summary>Delegates to DreamSession for pool mirror bookkeeping (not a re-entry ban).</summary>
+        /// <summary>Party-once: preset already finished by the shared session.</summary>
         public static bool IsDreamCompleted(string presetName)
         {
-            return false;
+            return DreamSession.IsPresetCompleted(presetName);
         }
 
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
-            // H4: completions are pool-mirror only — do not skip named re-entry.
+            // Party-once is enforced in TryBegin / startDreaming — this is the live start path.
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
@@ -397,11 +424,7 @@ namespace DWMPHorde.Sync
         public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition)
         {
             if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
-            if (DreamSession.IsPresetCompleted(presetName))
-            {
-                ModRuntime.LegacyInfo($"[DreamSync] Skipping completed dream on remote (p{playerId}): {presetName}");
-                return;
-            }
+            // Host already refused completed presets in TryBegin / HandleDreamStarted.
             _remoteDreamActive[playerId] = true;
             _currentDreamPreset[playerId] = presetName;
 
@@ -817,6 +840,20 @@ namespace DWMPHorde.Sync
                     proxy.FreezePosition = false;
             }
 
+            // Tear down local dream / entry overlay before clearing session maps.
+            // Without this, disconnect mid-dream leaves FreezeWorld + EnteringDream stuck.
+            bool localDreaming = Dreams.Instance != null && Dreams.Instance.dreaming;
+            if (localDreaming || _localDreamActive || _earlyEntryTransitionPlayed || Core.EnteringDream
+                || DreamSession.IsActive)
+            {
+                ForceLocalDreamCleanup("disconnected");
+            }
+            else
+            {
+                UnfreezeWorld(restoreTime: false);
+                Core.EnteringDream = false;
+            }
+
             // Clean up any active remote dreams
             foreach (var kvp in _currentDreamPreset)
             {
@@ -842,6 +879,37 @@ namespace DWMPHorde.Sync
             _preDreamGridName.Clear();
             FreezeTracker.Reset();
             DreamSession.Reset();
+        }
+
+        /// <summary>Pad spawn failed after FreezeWorld — clear session + unfreeze peers.</summary>
+        private static void AbortFailedRemoteDreamLoad(int playerId, string reason)
+        {
+            if (_remoteDreamActive.ContainsKey(playerId))
+                _remoteDreamActive[playerId] = false;
+            _remoteDreamActive.Remove(playerId);
+            _currentDreamPreset.Remove(playerId);
+            _preDreamPosition.Remove(playerId);
+            _preDreamGridName.Remove(playerId);
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            Core.EnteringDream = false;
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+            UnfreezeWorld(restoreTime: false);
+            if (DreamSession.IsActive)
+                DreamSession.AbortStarting(reason);
+            FinalDreamsceneManager.OnDreamEnded();
+            ModRuntime.Log?.LogWarning("[DreamSync] AbortFailedRemoteDreamLoad: " + reason);
         }
 
         /// <summary>Marks a preset completed via DreamSession (sole authority).</summary>
@@ -1292,11 +1360,7 @@ namespace DWMPHorde.Sync
             if (IsDreamCompleted(playerId, locationName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] Aborting remote dream load — already completed: {locationName}");
-                if (_remoteDreamActive.ContainsKey(playerId))
-                    _remoteDreamActive[playerId] = false;
-                UnfreezeWorld();
-                FinalDreamsceneManager.OnDreamEnded();
-                _currentDreamPreset.Remove(playerId);
+                AbortFailedRemoteDreamLoad(playerId, "already_completed");
                 yield break;
             }
 
@@ -1305,17 +1369,16 @@ namespace DWMPHorde.Sync
 
             if (component == null)
             {
+                ModRuntime.Log?.LogWarning(
+                    "[DreamSync] Dream pad load failed — aborting remote entry: " + locationName);
+                AbortFailedRemoteDreamLoad(playerId, "load_failed");
                 yield break;
             }
 
             if (IsDreamCompleted(playerId, locationName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] Aborting remote dream entry — completed during load: {locationName}");
-                if (_remoteDreamActive.ContainsKey(playerId))
-                    _remoteDreamActive[playerId] = false;
-                UnfreezeWorld();
-                FinalDreamsceneManager.OnDreamEnded();
-                _currentDreamPreset.Remove(playerId);
+                AbortFailedRemoteDreamLoad(playerId, "already_completed");
                 yield break;
             }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde.Logging;
+using DWMPHorde.Networking;
 using UnityEngine;
 
 namespace DWMPHorde.Audio
@@ -69,10 +70,12 @@ namespace DWMPHorde.Audio
             // After intentional stop, ignore late network/physics residual restarts (5.2).
             if (ItemMovingSoundHelper.IsScrapeSuppressed(objectName))
                 return;
-            // Local pusher/dragger owns native ItemSounds only — never arm MOS on top
-            // (client double-scrape when host PhysicsState / residual NoteMoving raced).
+            // Local pusher/dragger owns native ItemSounds only — never arm MOS on top.
+            // Do NOT use proximity/"live RB" heuristics here: that silenced host→client
+            // observer scrape when the client stood near a free-body host was pushing.
             if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName)
-                || ItemMovingSoundHelper.HasRecentClientPhysicsSent(objectName))
+                || ItemMovingSoundHelper.HasRecentClientPhysicsSent(objectName)
+                || ItemMovingSoundHelper.HasRecentPushAuthority(objectName))
             {
                 if (IsPlaying(objectName) || IsFading(objectName))
                     StopImmediate(objectName);
@@ -88,6 +91,8 @@ namespace DWMPHorde.Audio
             float volume = Mathf.Clamp01(sounds.volumeModifier * LocalAudioService.GetItemVolumeScale(soundId));
             EnsurePlaying(go, objectName, soundId, volume);
         }
+
+        // IsLocalSimOwner removed — proximity/live-RB heuristic silenced host→client scrape.
 
         /// <summary>Object barely moved this tick — build hysteresis then fade.</summary>
         public static void NoteStationary(string objectName)
@@ -232,17 +237,20 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// Stop MOS source + any AudioController objects for the same clip id.
-        /// Fade defaults to vanilla ItemSounds moving stop (0.5s).
+        /// Stop MOS source. Optional <paramref name="alsoKillAudioController"/> kills every
+        /// AudioController object with the same clip id — ONLY for intentional local ForceStop
+        /// (drag release). Soft/network stops must pass false or the local pusher's native
+        /// scrape is murdered and re-arms as a double/triple.
         /// </summary>
-        public static void StopAllVariants(string objectName, string soundId, float fadeSec = DefaultFadeSeconds)
+        public static void StopAllVariants(string objectName, string soundId, float fadeSec = DefaultFadeSeconds,
+            bool alsoKillAudioController = true)
         {
             if (fadeSec <= 0f)
                 StopImmediate(objectName);
             else
                 BeginFade(objectName, fadeSec);
 
-            if (string.IsNullOrEmpty(soundId))
+            if (!alsoKillAudioController || string.IsNullOrEmpty(soundId))
                 return;
 
             try
@@ -263,10 +271,21 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Network/remote intentional stop: decide *now*, vanilla 0.5s fade from that frame.
+        /// MOS only — do not global-kill AudioController clips (native ItemSounds shares ids).
         /// </summary>
         public static void StopNetwork(string objectName, string soundId = null)
         {
-            StopAllVariants(objectName, soundId, VanillaMovingStopFade);
+            StopNetworkMosOnly(objectName, VanillaMovingStopFade);
+        }
+
+        /// <summary>Fade/stop MOS entry only — never AudioController.GetPlayingAudioObjects.</summary>
+        public static void StopNetworkMosOnly(string objectName, float fadeSec)
+        {
+            if (string.IsNullOrEmpty(objectName)) return;
+            if (fadeSec <= 0f)
+                StopImmediate(objectName);
+            else
+                BeginFade(objectName, fadeSec);
         }
 
         /// <summary>Call once per frame (from physics interp LateUpdate path).</summary>

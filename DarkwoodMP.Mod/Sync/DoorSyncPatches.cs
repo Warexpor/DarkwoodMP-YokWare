@@ -179,9 +179,11 @@ namespace DWMPHorde.Sync
 
         private static void Prefix(Player __instance)
         {
-            InsideTrapPlacement = true;
+            // ONLY while placing — was true for disarm/craft too, which blocked
+            // ObjectDestroyTrapPatch when beartraps Destroy() on successful disarm.
+            InsideTrapPlacement = __instance != null && __instance.placingItem;
             _pendingType = null;
-            if (!__instance.placingItem) return;
+            if (!InsideTrapPlacement) return;
             if (InvItemClass.isNull(__instance.currentItem)) return;
             ProxyItem proxy = __instance.proxyItem;
             if (proxy == null) return;

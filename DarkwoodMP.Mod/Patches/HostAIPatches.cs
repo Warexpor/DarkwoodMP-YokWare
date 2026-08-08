@@ -856,6 +856,17 @@ namespace DWMPHorde.Patches
                 && __instance.target != hostPlayer._transform)
                 return;
 
+            // Dream bunker spirit stays on sticky owner — do not steal to nearer proxy.
+            if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
+            {
+                Transform sticky = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
+                if (sticky != null)
+                {
+                    __instance.attackCharacter(sticky);
+                    return;
+                }
+            }
+
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
@@ -906,8 +917,13 @@ namespace DWMPHorde.Patches
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
 
-            // Prefer recent EventTriggers proxy enter (client walked into the volume).
-            Transform prefer = ThreatTriggerContext.TryGetRecentProxyTransform(8f);
+            // Dream bunker spirit: never retarget off the spawn owner (ThreatTrigger
+            // "recent proxy" steal was hitting far clients still on the dream path).
+            Transform prefer = null;
+            if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
+                prefer = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
+            if (prefer == null)
+                prefer = ThreatTriggerContext.TryGetRecentProxyTransform(8f);
             if (prefer == null)
                 prefer = FindNearestPlayerTransform(__instance.transform.position);
             if (prefer == null)

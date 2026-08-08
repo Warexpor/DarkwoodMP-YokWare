@@ -15,6 +15,8 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "switchAniLibrary")]
     public static class PlayerAnimLibraryPatch
     {
+        private static string _lastSentLibrary;
+
         private static void Postfix(Player __instance)
         {
             var net = ModRuntime.Network;
@@ -24,6 +26,11 @@ namespace DWMPHorde.Patches
 
             string libName = __instance.torsoAnimator.Library.name;
             if (string.IsNullOrEmpty(libName)) return;
+            // switchAniLibrary can fire dozens of times per weapon swap / sleep wake —
+            // logs showed PlayerAnimLibrary:111 in a 2s window. Only send on change.
+            if (string.Equals(libName, _lastSentLibrary, System.StringComparison.Ordinal))
+                return;
+            _lastSentLibrary = libName;
 
             net.SendPlayerAnimLibrary(new PlayerAnimLibraryMessage
             {

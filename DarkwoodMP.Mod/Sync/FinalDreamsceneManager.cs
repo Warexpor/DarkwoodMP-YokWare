@@ -64,6 +64,7 @@ namespace DWMPHorde.Sync
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
             DWMPHorde.Patches.DialogueDoorAftermath.Reset();
+            DreamForestSpiritAggro.Reset();
             ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
         }
 

@@ -34,6 +34,9 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (TraverseHack.ApplyingFromNetwork) return;
+            // Leave-door GE already syncs via GameEventsFired — DoorOpen is a second openSound.
+            if (DialogueDoorAftermath.SuppressDialogueDoorOpenBroadcast)
+                return;
             // ProcessInboundMessage holds IsApplyingRemoteState for all inbound applies.
             // DialogOutcome world-only Door.open is host-authoritative and MUST fan out
             // (was silently dropped after NetworkApplyGuard became a real class in 0.7.8).
@@ -47,11 +50,14 @@ namespace DWMPHorde.Patches
             string name = door.name ?? "";
 
             // During dreams only fan-out doors that belong to the dream pad.
+            // Entry transition: IsDreamActive but dreamLocation not ready — suppress all
+            // door fan-out so overworld twins do not leak mid-video.
             if (DreamSyncManager.IsDreamActive)
             {
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
-                if (dreamRoot != null
-                    && !door.transform.IsChildOf(dreamRoot)
+                if (dreamRoot == null)
+                    return;
+                if (!door.transform.IsChildOf(dreamRoot)
                     && Vector3.Distance(pos, dreamRoot.position) > 200f)
                     return;
             }
@@ -166,6 +172,13 @@ namespace DWMPHorde.Patches
         private static readonly HashSet<int> _broadcastedOpen =
             new HashSet<int>();
 
+        /// <summary>
+        /// Leave-door GE already owns openSound/setActive. Skip DoorOpen fan-out + ForceOpen
+        /// for a few seconds so the client does not hear openSound twice.
+        /// </summary>
+        private static float _leaveDoorGeTime = -999f;
+        private const float LeaveDoorMuteSec = 3.5f;
+
         public static bool IsDialogueDoorEvent(string eventName)
         {
             if (string.IsNullOrEmpty(eventName)) return false;
@@ -175,9 +188,24 @@ namespace DWMPHorde.Patches
                 || eventName.IndexOf("opening_door", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        public static bool SuppressDialogueDoorOpenBroadcast =>
+            Time.unscaledTime - _leaveDoorGeTime < LeaveDoorMuteSec;
+
+        public static bool ShouldMuteRemoteDoorOpenSound =>
+            Time.unscaledTime - _leaveDoorGeTime < LeaveDoorMuteSec;
+
+        public static void NoteLeaveDoorGameEvent()
+        {
+            _leaveDoorGeTime = Time.unscaledTime;
+            _clientDoorOpened = true;
+        }
+
         public static void OnHostGameEventsFired(string eventName)
         {
             if (!IsDialogueDoorEvent(eventName)) return;
+            if (eventName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || eventName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                NoteLeaveDoorGameEvent();
             ArmHostDoorPoll();
         }
 
@@ -208,12 +236,14 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Leave-door GE already runs modifyDoor → openSound. Only force-open if still
-        /// closed after GE delays (avoids double openSound with DoorOpen / ForceOpen).
+        /// Leave-door GE already runs modifyDoor → openSound. Mark GE as owner of the open
+        /// so ForceOpen / DoorOpen do not play a second openSound (setActive doors often
+        /// leave Door.opened=false, which previously always ForceOpened).
         /// </summary>
         public static void OnClientLeaveDoorGameEventsApplied(string eventName, Vector3 eventPos)
         {
             if (!IsDialogueDoorEvent(eventName)) return;
+            NoteLeaveDoorGameEvent();
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
             ctrl.StartCoroutine(ClientLeaveDoorBackupOpenRoutine(eventPos));
@@ -248,6 +278,7 @@ namespace DWMPHorde.Patches
             _doorFindCache = null;
             _doorFindCacheTime = -999f;
             _clientDoorOpened = false;
+            _leaveDoorGeTime = -999f;
         }
 
         private static Door[] _doorFindCache;
@@ -427,7 +458,7 @@ namespace DWMPHorde.Patches
                 else
                 {
                     // GE modifyDoor may already be opening — skip second openSound.
-                    if (best.opened)
+                    if (best.opened || ShouldMuteRemoteDoorOpenSound)
                     {
                         _clientDoorOpened = true;
                         return;
@@ -437,7 +468,16 @@ namespace DWMPHorde.Patches
                     try
                     {
                         float force = best.type == Door.Type.metal ? 30000f : 0f;
-                        best.open(best.transform.position + Vector3.forward * 2f, null, force);
+                        string prevSound = best.openSound;
+                        best.openSound = "";
+                        try
+                        {
+                            best.open(best.transform.position + Vector3.forward * 2f, null, force);
+                        }
+                        finally
+                        {
+                            best.openSound = prevSound;
+                        }
                     }
                     finally
                     {

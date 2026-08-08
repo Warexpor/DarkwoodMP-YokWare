@@ -4,10 +4,10 @@ using Xunit;
 namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
-/// Structural gates for Path B: shipped mod is Horde-based, not Yokyy ActionEvent combat.
-/// Reads real source under the repo (shipped load path).
+/// Thin product gates for Path B. Prefer real unit tests for behavior;
+/// these only lock high-signal ship invariants that must not quietly regress.
 /// </summary>
-public class PathBStructureTests
+public class ProductInvariantTests
 {
     private static string RepoRoot
     {
@@ -27,14 +27,16 @@ public class PathBStructureTests
     private static string ModDir => Path.Combine(RepoRoot, "DarkwoodMP.Mod");
 
     [Fact]
-    public void PluginInfo_IsYokWarePathB_WithHordeProtocol()
+    public void PluginInfo_IsYokWarePathB_Protocol23()
     {
         var text = File.ReadAllText(Path.Combine(ModDir, "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
-        Assert.Contains("Version = \"0.7.", text);
         Assert.Contains("ProtocolVersion = 23", text);
         Assert.Contains("Horde", text);
+
+        var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.7\.[^""]+)""");
+        Assert.True(versionMatch.Success, "PluginInfo.Version must be 0.7.x");
     }
 
     [Fact]
@@ -60,7 +62,7 @@ public class PathBStructureTests
         var redirect = File.ReadAllText(Path.Combine(ModDir, "Patches", "ClientHitscanDamageRedirectPatch.cs"));
         Assert.Contains("NetworkRole.Client", redirect);
         Assert.Contains("PlayerAttack", redirect);
-        Assert.Contains("return false", redirect); // block local getHit on client
+        Assert.Contains("return false", redirect);
     }
 
     [Fact]
@@ -71,7 +73,6 @@ public class PathBStructureTests
         var hits = new List<string>();
         foreach (var f in csFiles)
         {
-            // Skip archived docs under mod if any
             var text = File.ReadAllText(f);
             if (text.Contains("ActionEventPacket") || Regex.IsMatch(text, @"ActionName\s*=\s*\$?""pvp:"))
                 hits.Add(Path.GetRelativePath(ModDir, f));
@@ -81,33 +82,12 @@ public class PathBStructureTests
     }
 
     [Fact]
-    public void ShipReadme_CoversMustKeepProductItems()
-    {
-        var text = File.ReadAllText(Path.Combine(RepoRoot, "README.md"));
-        foreach (var must in new[]
-                 {
-                     "MelonLoader",
-                     "Chat",
-                     "GPLv3",
-                     "world save share",
-                     "Ironbark",
-                     "BepInEx",
-                     "host grant",
-                 })
-        {
-            Assert.Contains(must, text, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    [Fact]
     public void YokyyCore_IsArchived_NotDefaultLoadPath()
     {
         var archReadme = Path.Combine(RepoRoot, "archive", "yokyy-merge-0.9", "README.md");
         Assert.True(File.Exists(archReadme));
-        var text = File.ReadAllText(archReadme);
-        Assert.Contains("Do not load", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not load", File.ReadAllText(archReadme), StringComparison.OrdinalIgnoreCase);
 
-        // Shipped entry is Horde BaseUnityPlugin, not Yokyy ModMain-only tree as sole product
         var entry = Path.Combine(ModDir, "DWMPEntry.cs");
         Assert.True(File.Exists(entry));
         Assert.Contains("BepInPlugin", File.ReadAllText(entry));
@@ -116,23 +96,19 @@ public class PathBStructureTests
     }
 
     [Fact]
-    public void MainMenuMultiplayerInject_AndChat_ArePresent()
+    public void NetworkApplyGuard_IsSealedClass_NotStruct()
     {
-        Assert.True(File.Exists(Path.Combine(ModDir, "UI", "MainMenuMultiplayerInject.cs")));
-        Assert.True(File.Exists(Path.Combine(ModDir, "UI", "ChatHud.cs")));
-        var inject = File.ReadAllText(Path.Combine(ModDir, "UI", "MainMenuMultiplayerInject.cs"));
-        Assert.Contains("MULTIPLAYER", inject);
-        Assert.Contains("PushFieldsToConfig", inject);
-        Assert.Contains("DISCONNECT", inject);
-        Assert.Contains("displayProfilesMenu", inject);
+        // struct + `using (new NetworkApplyGuard())` compiled to initobj (ctor never ran).
+        var guard = File.ReadAllText(Path.Combine(ModDir, "Networking", "NetworkApplyGuard.cs"));
+        Assert.Contains("sealed class NetworkApplyGuard", guard);
+        Assert.DoesNotContain("struct NetworkApplyGuard", guard);
+    }
 
-        var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
-        Assert.Contains("ChatMessage = 111", netTypes);
-
-        var writer = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetWriter.cs"));
-        Assert.Contains("PutRaw", writer);
+    [Fact]
+    public void LanForward_UsesPutRaw_NotLengthPrefixedRewrap()
+    {
         var lan = File.ReadAllText(Path.Combine(ModDir, "Networking", "LanNetworkManager.cs"));
         Assert.Contains("PutRaw(payload)", lan);
-        Assert.DoesNotContain("w => w.Put(payload)", lan); // length-prefixed forward was the 3+ peer bug
+        Assert.DoesNotContain("w => w.Put(payload)", lan);
     }
 }

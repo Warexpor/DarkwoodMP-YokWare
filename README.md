@@ -4,7 +4,7 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.7.67** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
+| **Product** | YokWare Branch **0.7.76** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
 | **Live wire** | Horde protocol **23** (LiteNetLib `NetMessageType`; optional Steam SNS lobby path) |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
@@ -44,7 +44,7 @@ Pick **one** loader per game process. Both variants are the same Path B mod; bui
 2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
    (or take `DarkwoodMP.Mod/bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
 3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **23**, version **0.7.67**.
+4. Launch — banner: **YokWare Branch**, Path B, protocol **23**, version **0.7.76**.
 
 ### MelonLoader
 
@@ -90,13 +90,14 @@ dotnet test DarkwoodMP.PathB.Tests -c Release
 
 ## What Path B is / is not (0.7.x)
 
-**Is:** Horde combat/entity/AI mute, containers (host take-deny), dreams (still hardening), spectator, **world save share**, join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk, host-only time, dialogue tree sync, traps/lights, **host grant (LAN + Steam)**, dual-box save root isolation, BepInEx + MelonLoader. **Not** near-1.0 — product line is **0.7.x**. Detail: **CHANGELOG**.
+**Is:** Horde combat/entity/AI mute, containers (host take-deny), **dreams** (bunker dialogue door / forest-spirit sticky aggro still soak), spectator, **world save share**, join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk (FOOT-split), host-only time, dialogue tree sync (host world-only suppress for peer overlays), traps/lights/scrape audio, **host grant (LAN + Steam)**, dual-box save root isolation, BepInEx + MelonLoader. **Not** near-1.0 — product line is **0.7.x**. Detail: **CHANGELOG**.
 
 **Is not (yet / residual):**
 
 | Topic | Status |
 |-------|--------|
 | Live campaign polish / full 2-box soak | Ongoing playtest |
+| Dream dialogue UI / leave-door audio edge cases | Hardening in **0.7.75–0.7.76**; keep soak |
 | Location/landmark *placement* without successful share | Mitigated (client new-gen blocked); full seed lock is L |
 | Ironbark live client ↔ Horde LAN bridge | Not in ship tree |
 | Continuous co-op through **credits** | Network stops at credits (by design); mid-campaign chapter **does** resume |
@@ -109,7 +110,7 @@ dotnet test DarkwoodMP.PathB.Tests -c Release
 | Path | Role |
 |------|------|
 | `DarkwoodMP.Mod/` | **Ship** — Horde Path B (BepInEx + MelonLoader variants) |
-| `DarkwoodMP.PathB.Tests/` | Structural + policy Path B gates |
+| `DarkwoodMP.PathB.Tests/` | Product / wire / NetWriter Path B gates |
 | `DarkwoodMP.EntitySpawner/` | F5 spawner plugin (BepInEx) |
 | `DarkwoodMP.sln` | Solution wrapper for the three projects above |
 | `archive/yokyy-merge-0.9/` | **Path A freeze** — reference only; do not load |
@@ -148,4 +149,4 @@ GPLv3 — see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), [CONTRIBUTORS](CONTRIB
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](CHANGELOG.md) (current ship **0.7.76**).

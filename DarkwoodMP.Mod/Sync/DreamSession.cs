@@ -115,8 +115,10 @@ namespace DWMPHorde.Sync
 
         public static void MarkCompleted(string preset)
         {
-            if (!string.IsNullOrEmpty(preset))
-                _completedPresets.Add(preset);
+            if (string.IsNullOrEmpty(preset)) return;
+            _completedPresets.Add(preset);
+            // Keep random pool aligned so depleted-list refill cannot re-offer it.
+            MirrorPoolRemove(preset);
         }
 
         /// <summary>Host (or local solo) begins a session. Returns false if blocked.</summary>
@@ -135,7 +137,15 @@ namespace DWMPHorde.Sync
                 ModLog.Event(LogCat.Dream, $"Reject begin — already active ({Current}): {presetName}");
                 return false;
             }
-            // H4: _completedPresets drives MirrorPoolRemove only — do not forever-ban named re-entry.
+
+            // Party-once: any peer already finished this preset → do not start again.
+            if (IsPresetCompleted(presetName))
+            {
+                ModLog.Event(LogCat.Dream,
+                    "Reject begin — party already completed: " + presetName);
+                MirrorPoolRemove(presetName);
+                return false;
+            }
 
             SessionId = _nextSessionId++;
             PresetName = presetName;
@@ -265,11 +275,11 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = null;
         }
 
-        /// <summary>Abort Starting if prepare failed.</summary>
+        /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
         public static void AbortStarting(string reason)
         {
-            if (Current != State.Starting) return;
-            ModLog.Event(LogCat.Dream, "Abort Starting: " + reason);
+            if (Current != State.Starting && Current != State.Active) return;
+            ModLog.Event(LogCat.Dream, "Abort session (" + Current + "): " + reason);
             FinalDreamsceneManager.OnDreamEnded();
             Current = State.Idle;
             PresetName = null;
@@ -325,11 +335,15 @@ namespace DWMPHorde.Sync
             {
                 for (int i = 0; i < completed.Length; i++)
                 {
-                    if (!string.IsNullOrEmpty(completed[i]))
-                        _completedPresets.Add(completed[i]);
+                    if (string.IsNullOrEmpty(completed[i])) continue;
+                    _completedPresets.Add(completed[i]);
+                    MirrorPoolRemove(completed[i]);
                 }
             }
             ApplyLvlFlags(lvlFlags);
+            // Party-once skill gate: bunker completion counts as hadDreamAtLvl2 even if flag lagged.
+            if (IsPresetCompleted("dream_bunker_underground_01") && Dreams.Instance != null)
+                Dreams.Instance.hadDreamAtLvl2 = true;
             ModLog.Event(LogCat.Dream,
                 "Applied session snapshot completed=" + _completedPresets.Count
                 + " lvlFlags=" + lvlFlags);

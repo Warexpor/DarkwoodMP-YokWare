@@ -12,9 +12,9 @@ namespace DWMPHorde
         /// BepInEx plugin version (semver). 0.7.x = active Path B line.
         /// Earlier "0.9.x" labels were too ambitious — see CHANGELOG Versioning.
         /// </summary>
-        public const string Version = "0.7.67";
+        public const string Version = "0.7.76";
         /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.7.67 Path B (Steam host grant)";
+        public const string DisplayVersion = "0.7.76 Path B (dialog overlay + door sound)";
         /// <summary>Horde LAN wire protocol. 23 = EntityDespawn (removeMe).</summary>
         public const int ProtocolVersion = 23;
         public const int DefaultPort = 7788;
