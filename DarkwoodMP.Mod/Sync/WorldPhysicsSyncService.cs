@@ -70,9 +70,46 @@ namespace DWMPHorde.Sync
         /// <summary>Object names with an active body-push scrape (start once, stop once).</summary>
         private static readonly HashSet<string> _bodyPushSoundActive =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // Position-based debounce for DestroyObjectByPos to prevent harvest dupes.
+        // Position-based debounce for DestroyObjectByPos / outbound WorldObjectRemoved.
         private static readonly Dictionary<int, float> _destroyDebounce = new Dictionary<int, float>();
+        private static readonly Dictionary<int, float> _outboundRemoveDebounce = new Dictionary<int, float>();
         private const float DestroyDebounceTime = 0.5f;
+        private const float OutboundRemoveDebounceTime = 0.75f;
+
+        /// <summary>
+        /// Claim a one-shot outbound WorldObjectRemoved for this pose+name.
+        /// Returns false if the same remove was already sent recently.
+        /// </summary>
+        public static bool TryClaimOutboundObjectRemove(float x, float y, float z, string objectName)
+        {
+            int key = MakePosNameKey(x, y, z, objectName);
+            float now = Time.unscaledTime;
+            if (_outboundRemoveDebounce.TryGetValue(key, out float last)
+                && (now - last) < OutboundRemoveDebounceTime)
+                return false;
+            _outboundRemoveDebounce[key] = now;
+            // Opportunistic prune so the dict cannot grow without bound across a long session.
+            if (_outboundRemoveDebounce.Count > 64)
+            {
+                var stale = new List<int>(8);
+                foreach (var kv in _outboundRemoveDebounce)
+                {
+                    if (now - kv.Value >= OutboundRemoveDebounceTime)
+                        stale.Add(kv.Key);
+                }
+                for (int i = 0; i < stale.Count; i++)
+                    _outboundRemoveDebounce.Remove(stale[i]);
+            }
+            return true;
+        }
+
+        private static int MakePosNameKey(float x, float y, float z, string objectName)
+        {
+            int posKey = (int)(x * 10f) ^ ((int)(y * 10f) << 10) ^ ((int)(z * 10f) << 20);
+            if (!string.IsNullOrEmpty(objectName))
+                posKey ^= objectName.GetHashCode();
+            return posKey;
+        }
 
         // Cooldown tracker for host body-push sound in ApplySnapshot else branch.
         // Prevents AudioController.Play spam at 10Hz — only plays every ~0.3s.
@@ -974,8 +1011,12 @@ namespace DWMPHorde.Sync
                             if (_objectInterp.TryGetValue(goId, out var existingInterp))
                                 baseline = existingInterp.TargetPos;
                             float posDelta = Vector3.Distance(baseline, objPos);
+                            // After DragSync, first PhysicsState can report multi-meter jumps
+                            // (interp target vs live pose) → MOS start/stop thrash. Snap without sound.
+                            const float BodyPushMaxArmDelta = 1.25f;
                             // 0.02 was too sensitive (micro jitter → start/stop/MOS re-arm thrash).
                             bool posChanged = posDelta >= 0.1f;
+                            bool armScrape = posChanged && posDelta <= BodyPushMaxArmDelta;
 
                             // Always refresh kinematic hold while client reports the object.
                             // Gate only blocks brand-new sessions right after a clean stop.
@@ -987,10 +1028,8 @@ namespace DWMPHorde.Sync
                                 _clientKinematic[goId] = (rb, Time.time + 0.5f, obj.Name);
                             }
 
-                            // Scrape: arm on motion; first quiet packet → stop decision *now*.
-                            // SoftStop (no suppress) + NoteMoving re-arm cancels a premature
-                            // fade if the next tick is motion again. Do not hold residual volume.
-                            if (posChanged && !gated)
+                            // Scrape: arm on sane motion only; first quiet packet → stop decision *now*.
+                            if (armScrape && !gated)
                             {
                                 if (_bodyPushSoundActive.Add(obj.Name))
                                 {
@@ -1005,6 +1044,16 @@ namespace DWMPHorde.Sync
                                 _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
                                 _pushNameToGid[obj.Name] = goId;
                                 _pushGidToName[goId] = obj.Name;
+                                _pushStationaryCount[goId] = 0;
+                            }
+                            else if (posChanged && posDelta > BodyPushMaxArmDelta)
+                            {
+                                // Hard jump after drag — retarget quietly, no scrape.
+                                if (_bodyPushSoundActive.Remove(obj.Name))
+                                {
+                                    ModRuntime.LegacyInfo("[SND] body-push skip jump d=" + posDelta.ToString("F3") + " " + obj.Name);
+                                    LanNetworkManager.NotifyBodyPushStopped(obj.Name);
+                                }
                                 _pushStationaryCount[goId] = 0;
                             }
                             else if (!gated && _bodyPushSoundActive.Contains(obj.Name))
@@ -1062,8 +1111,9 @@ namespace DWMPHorde.Sync
                                     StringComparison.Ordinal);
                         }
                         catch { /* dismantled */ }
-                        // Client free-body: if we're the one sending PhysicsState for it, host
-                        // echo must never arm MOS (native ItemSounds already plays — double scrape).
+                        // Client free-body we are pushing/sending — never MOS from host echo.
+                        // Do NOT gate on "RB non-kinematic" alone: host-pushed lamps stay
+                        // non-kinematic on the client and that silenced observer scrape.
                         bool clientLocalFreeBody = echoNet != null
                             && echoNet.Role == NetworkRole.Client
                             && !string.IsNullOrEmpty(obj.Name)
@@ -1203,7 +1253,9 @@ namespace DWMPHorde.Sync
                             go = FindTrapByPos(tPos);
                         if (go == null)
                         {
-                            TrapNetworkId.QueuePending(ts.TrapNetId, tPos, ts.Triggered);
+                            TrapNetworkId.QueuePending(
+                                ts.TrapNetId, tPos, ts.Triggered,
+                                silentDisarm: ts.OccupantPlayerId == TrapState.OccupantSilentDisarm);
                             trapSkipped++;
                             continue;
                         }
@@ -1212,7 +1264,9 @@ namespace DWMPHorde.Sync
                             TrapNetworkId.Ensure(go, ts.TrapNetId);
                         else if (ModRuntime.Network is LanNetworkManager n
                                  && n.Role == NetworkRole.Host)
+                        {
                             TrapNetworkId.GetOrMintHost(go);
+                        }
 
                         bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;
                         if (ModRuntime.VerboseLogging)
@@ -1319,6 +1373,18 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(objectName) && objectName.ToLowerInvariant().Contains("audioobject"))
                 return;
 
+            // Debounce BEFORE OverlapSphere / FindObjectsOfType — triple WorldObjectRemoved
+            // from disarm was paying FOOT cost 3× and then NRE'ing on DestroyImmediate+name.
+            int posKey = MakePosNameKey(pos.x, pos.y, pos.z, objectName);
+            float now = Time.time;
+            if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy)
+                && (now - lastDestroy) < DestroyDebounceTime)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
+                return;
+            }
+
             string needle = string.IsNullOrEmpty(objectName) ? null : objectName.ToLowerInvariant();
             GameObject best = null;
             float bestDistSq = float.MaxValue;
@@ -1331,22 +1397,24 @@ namespace DWMPHorde.Sync
             Collider[] nearby = Physics.OverlapSphere(pos, overlapR);
             for (int i = 0; i < nearby.Length; i++)
             {
-                if (nearby[i] == null) continue;
-                GameObject root = nearby[i].gameObject;
-                Rigidbody rb = nearby[i].attachedRigidbody;
-                if (rb != null) root = rb.gameObject;
+                Collider col = nearby[i];
+                if (col == null) continue;
+                GameObject root = col.gameObject;
                 if (root == null) continue;
+                Rigidbody rb = col.attachedRigidbody;
+                if (rb != null && rb.gameObject != null) root = rb.gameObject;
 
                 // Prefer Item / itemInv Inventory roots for world pickups (shiny stone, etc.).
-                Item item = nearby[i].GetComponentInParent<Item>();
-                if (item != null) root = item.gameObject;
+                Item item = col.GetComponentInParent<Item>();
+                if (item != null && item.gameObject != null) root = item.gameObject;
                 else
                 {
-                    Inventory inv = nearby[i].GetComponentInParent<Inventory>();
-                    if (inv != null && inv.invType == Inventory.InvType.itemInv)
+                    Inventory inv = col.GetComponentInParent<Inventory>();
+                    if (inv != null && inv.invType == Inventory.InvType.itemInv && inv.gameObject != null)
                         root = inv.gameObject;
                 }
 
+                if (root == null) continue;
                 if (!ShouldDestroyWorldPickup(root, needle))
                     continue;
 
@@ -1359,21 +1427,27 @@ namespace DWMPHorde.Sync
             }
 
             // 2) Scene scan by display name / invItem.type near pos (no collider items).
-            if (best == null && needle != null)
+            // Skip FOOT for obvious trap names when OverlapSphere already had a chance —
+            // beartrap always has a Trigger collider; miss without FOOT is fine (already gone).
+            bool trapNeedle = needle != null
+                && (needle.Contains("trap") || needle.Contains("bear") || needle.Contains("snap"));
+            if (best == null && needle != null && !trapNeedle)
             {
                 Item[] items = UnityEngine.Object.FindObjectsOfType<Item>();
                 for (int i = 0; i < items.Length; i++)
                 {
                     Item it = items[i];
-                    if (it == null || !it.gameObject.scene.IsValid()) continue;
+                    if (it == null) continue;
+                    GameObject go = it.gameObject;
+                    if (go == null || !go.scene.IsValid()) continue;
                     string itemType = it.invItem != null ? it.invItem.type : null;
-                    if (!NameOrItemTypeMatches(it.gameObject, itemType, needle)) continue;
-                    float dSq = XzDistSq(it.transform.position, pos);
+                    if (!NameOrItemTypeMatches(go, itemType, needle)) continue;
+                    float dSq = XzDistSq(go.transform.position, pos);
                     if (dSq > scanSq) continue;
                     if (dSq < bestDistSq)
                     {
                         bestDistSq = dSq;
-                        best = it.gameObject;
+                        best = go;
                     }
                 }
 
@@ -1384,11 +1458,11 @@ namespace DWMPHorde.Sync
                     {
                         Inventory inv = invs[i];
                         if (inv == null || inv.invType != Inventory.InvType.itemInv) continue;
-                        if (!inv.gameObject.scene.IsValid()) continue;
+                        GameObject go = inv.gameObject;
+                        if (go == null || !go.scene.IsValid()) continue;
                         string slotType = FirstSlotType(inv);
-                        // Empty after take: still match by position alone within tight XZ.
-                        bool nameOk = NameOrItemTypeMatches(inv.gameObject, slotType, needle);
-                        float dSq = XzDistSq(inv.transform.position, pos);
+                        bool nameOk = NameOrItemTypeMatches(go, slotType, needle);
+                        float dSq = XzDistSq(go.transform.position, pos);
                         if (!nameOk && dSq > 4f * 4f) continue;
                         if (!nameOk && string.IsNullOrEmpty(slotType) && dSq <= 4f * 4f)
                         { /* empty itemInv near pickup pos */ }
@@ -1397,7 +1471,7 @@ namespace DWMPHorde.Sync
                         if (dSq < bestDistSq)
                         {
                             bestDistSq = dSq;
-                            best = inv.gameObject;
+                            best = go;
                         }
                     }
                 }
@@ -1416,28 +1490,36 @@ namespace DWMPHorde.Sync
 
             if (best == null)
             {
+                // Still claim debounce so follow-up removes of a already-gone trap skip FOOT.
+                _destroyDebounce[posKey] = now;
                 ModRuntime.LegacyInfo("[ObjectDestroy] miss name=\"" + (objectName ?? "") + "\" at " + pos);
                 return;
             }
 
-            int posKey = (int)(pos.x * 10f) ^ ((int)(pos.y * 10f) << 10) ^ ((int)(pos.z * 10f) << 20);
-            float now = Time.time;
-            if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy) && (now - lastDestroy) < DestroyDebounceTime)
-            {
-                if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
-                return;
-            }
             _destroyDebounce[posKey] = now;
 
+            string destroyedName = objectName;
+            try
+            {
+                if (best != null)
+                    destroyedName = best.name;
+            }
+            catch { /* destroyed Unity object */ }
+
             RemoveObjectFromInterpolation(best);
-            Core.RemovePooledPrefab(best.transform);
+            try
+            {
+                if (best.transform != null)
+                    Core.RemovePooledPrefab(best.transform);
+            }
+            catch { /* ignore */ }
             try
             {
                 TraverseHack.ApplyingFromNetwork = true;
                 UnityEngine.Object.DestroyImmediate(best);
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
-            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + best.name + "\" at " + pos
+            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + (destroyedName ?? "") + "\" at " + pos
                 + " d=" + Mathf.Sqrt(bestDistSq).ToString("F1"));
         }
 
@@ -1458,7 +1540,9 @@ namespace DWMPHorde.Sync
         private static bool NameOrItemTypeMatches(GameObject go, string itemType, string needleLower)
         {
             if (go == null || string.IsNullOrEmpty(needleLower)) return false;
-            string n = go.name.ToLowerInvariant();
+            string n;
+            try { n = go.name.ToLowerInvariant(); }
+            catch { return false; }
             string bare = n.Replace("(clone)", "").Trim();
             if (n == needleLower || n.Contains(needleLower) || needleLower.Contains(bare))
                 return true;
@@ -1492,7 +1576,9 @@ namespace DWMPHorde.Sync
         private static bool ShouldDestroyWorldPickup(GameObject root, string needleLower)
         {
             if (root == null) return false;
-            string rootName = root.name.ToLowerInvariant();
+            string rootName;
+            try { rootName = root.name.ToLowerInvariant(); }
+            catch { return false; }
             if (rootName.Contains("mushroom") || rootName.Contains("exp") || rootName.Contains("bio")
                 || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap") || rootName.Contains("animal")
                 || rootName.Contains("barrel") || rootName.Contains("tank") || rootName.Contains("glass") || rootName.Contains("chain")
@@ -1857,20 +1943,25 @@ namespace DWMPHorde.Sync
         {
             if (go == null) return;
 
-            bool current = ReadTrapTriggered(go);
-            if (current == triggered) return;
-
-            // Successful harvest/disarm: vanilla staysAfterDisarming keeps the object and only
-            // flips to the "disarmed/triggered" presentation — never boom or Destroy.
+            // Silent disarm first: even if ReadTrapTriggered already true, peer may still
+            // have active=true (catchable). Never early-out before forcing the belt.
             if (triggered && silentDisarm)
             {
                 Trigger tSilent = go.GetComponent<Trigger>();
                 if (tSilent != null)
                 {
-                    bool prev = TraverseHack.ApplyingFromNetwork;
-                    TraverseHack.ApplyingFromNetwork = true;
-                    try { tSilent.switchToTriggered(); }
-                    finally { TraverseHack.ApplyingFromNetwork = prev; }
+                    if (!tSilent.triggered)
+                    {
+                        bool prev = TraverseHack.ApplyingFromNetwork;
+                        TraverseHack.ApplyingFromNetwork = true;
+                        try { tSilent.switchToTriggered(); }
+                        finally { TraverseHack.ApplyingFromNetwork = prev; }
+                    }
+
+                    // Belt: switchToTriggered should clear these; force so peers cannot re-catch.
+                    tSilent.triggered = true;
+                    tSilent.active = false;
+                    tSilent.canDisarm = false;
                 }
                 else
                 {
@@ -1887,6 +1978,9 @@ namespace DWMPHorde.Sync
                 ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
                 return;
             }
+
+            bool current = ReadTrapTriggered(go);
+            if (current == triggered) return;
 
             Component[] allComponents = go.GetComponents<Component>();
             foreach (Component comp in allComponents)

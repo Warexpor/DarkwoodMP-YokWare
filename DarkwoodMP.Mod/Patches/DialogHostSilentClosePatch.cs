@@ -81,12 +81,6 @@ namespace DWMPHorde.Patches
                 Core.forbidInputs = false;
                 Core.cantChangeForbidInputs = false;
                 dw.forbidInputs = false;
-                var ui = Singleton<UI>.Instance;
-                if (ui != null)
-                {
-                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0f);
-                    ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0f);
-                }
             }
             catch { /* non-fatal */ }
 
@@ -109,6 +103,10 @@ namespace DWMPHorde.Patches
                 if (dw.gameObject != null && dw.gameObject.activeSelf && !dw.opened)
                     dw.gameObject.SetActive(false);
             }
+
+            // Scrub portrait/video/blackScreen after teardown — delayed setPortrait otherwise
+            // re-enables speaker sprites on the non-talking peer (oven lookAt / lookKeyhole).
+            DialogHostPresentation.ScrubAndDisarm(dw);
 
             ModRuntime.LegacyInfo("[DialogOutcome] silent host close (no fade/save/SaveSync)");
         }

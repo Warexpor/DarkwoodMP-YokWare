@@ -72,6 +72,7 @@ appsettings.*.local.json
 /docs/
 /research/
 /scripts/
+/tools/
 /libs/
 
 # Agent / editor local

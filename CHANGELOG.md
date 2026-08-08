@@ -2,11 +2,176 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.67** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.76** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **23** (EntityDespawn).
 
 ---
+
+## 0.7.76 — Dialog overlay + leave-door openSound (2026-08-08)
+
+0.7.75 soak: oven/door dialogue sprites still flashed on host; client still heard dialogue-door open twice.
+
+### Overlay leak
+- `HideSpeakerVisuals` never disabled `background` (full-screen dialogue backdrop) — that was the oven lookAt* / keyhole flash.
+- `wasInTalk` treated world-only drain as a real host talk (`displayingDialogue`), so later outcomes skipped sticky suppress (`lookAtPot` failed empty).
+- Now: hide `background` + wipe dialogue/options children; `wasInTalk` only when `Player.inDialogue && dw.opened`; scrub when interrupting a drain.
+
+### Double openSound
+- Host `Door.open` inside leave-door GE broadcast `DoorOpen` *before* `GameEventsFired` — client opened (sound) then GE modifyDoor opened again (sound).
+- Leave-door mute window now suppresses `DoorOpen` fan-out; client keeps a single GE openSound.
+
+Protocol **23**.
+
+## 0.7.75 — Dream dialogue UI leak + door sound + forest spirit (2026-08-08)
+
+Dream soak (0.7.74 dual-box): three remaining dream/dialogue issues.
+
+### Dialogue sprite leak (oven lookAt* / lookKeyhole)
+Host world-only `displayDialogue` hid text once, but delayed `changePortrait`/`setPortrait` re-enabled the portrait renderer after dialog Release aborted the drain — speaker sprites flashed on the non-talking peer.
+- Sticky presentation suppress across EndWorldOnly until silent-close scrub.
+- `setPortrait` postfix re-hides; silent-close stops VideoPlayer + clears blackScreenTop alpha.
+
+### Dream leave-door double openSound (client)
+Leave-door GE plays openSound; setActive doors often leave `Door.opened=false`, so ForceOpen/DoorOpen played it again.
+- Mark leave-door GE as owner of the open (`_clientDoorOpened` + mute window).
+- Remote `HandleDoorOpen` nulls `openSound` during that window; ForceOpen skipped/muted.
+
+### Forest spirit attacked far client
+Host went off-route → `[DreamSpirit] spawned … near host`, then client entered `area_forestSpirit_runaway_01` and `ThreatTriggerContext` stole aggro → `DamagePlayer` on the client still on-path.
+- Sticky spawn owner (`DreamForestSpiritAggro`); `attackPlayer` / forceAttackClosest never retarget off that owner.
+
+Protocol **23**.
+
+## 0.7.74 — Beartrap remove hitch (2026-08-08)
+
+Client disarm/remove hitch was trackable: `WorldObjectRemoved:3` + `NullReferenceException` in `DestroyObjectByPos` (`best.name` after `DestroyImmediate`) + FOOT miss on follow-ups (`poll=173`).
+
+### Fix
+- Outbound `SendWorldObjectRemoved` debounced (TrapDestroy + disarm + progressBar no longer triple-fire).
+- Inbound destroy debounce before OverlapSphere/FOOT; skip Item/Inventory FOOT for trap/bear needles; capture name before destroy; null-safe name reads.
+- Disarm Postfix no longer double-sends destroy (ObjectDestroy owns the wire).
+
+Generator turn-on hitch remains mostly vanilla (`maxMs` with flat poll/upd) — not addressed here.
+
+Protocol **23**.
+
+## 0.7.73 — Join hitch FOOT split + share pack off-main (2026-08-08)
+
+Perf logs (0.7.72 dual-box): steady ~100fps; hitches clustered on join.
+
+### What the probe showed
+- Host `flushPending` 43→172→120ms during late-join heavy bulk (`Locks/interactives`, `barricade` each stacked multiple `FindObjectsOfType`).
+- Host `upd=437` / `maxMs=440–1020` while packing `savs.dat` (~9MB Deflate) on the main thread after force-save.
+- Client `poll=868` / `maxMs=590` ingesting WorldSaveChunk + LightState flood (join cost; not fully removable).
+- Mid-session: `PlayerAnimLibrary:111` in 2s — `switchAniLibrary` re-sent identical libraries.
+
+### Fix
+- Late-join heavy phases: one FOOT type per frame (padlock / Locked / InteractiveItem / Door / Window / Item).
+- World share: `ReadAllBytes` + Deflate on ThreadPool; coroutine yields until done.
+- Anim library: send/apply only when the name actually changes.
+
+### Still expected
+- First join still stutters some (world chunk flood + vanilla `Save()` when force-save runs). Those are larger than one FOOT.
+- Occasional `maxMs` with flat poll/upd = Unity/GC outside our Update segments.
+
+Protocol **23**.
+
+## 0.7.72 — Host-push scrape + beartrap destroy sync (2026-08-08)
+
+Playtest on 0.7.71: host pushing lamp → client silent; client disarm/pickup beartrap → host trap untouched. Zero `[HarvestSync]`/`[TrapDestroy]` in logs.
+
+### Scrape (host→client silence regression)
+- `clientLiveRb` + proximity `IsLocalSimOwner` treated any nearby non-kinematic free-body as local-owned → skipped PhysicsState `NoteMoving` for observers.
+- **Fix:** ownership = contact / drag / client-PhysicsState-sent only. SoftStop stays MOS-only (client double path still protected).
+
+### Beartrap (client disarm never left the wire)
+- `TrapPlacementPatch.InsideTrapPlacement` was true for **every** `progressBarCompleted`, including disarm → `ObjectDestroyTrapPatch` suppressed the Destroy() removal packet.
+- Beartraps use `staysAfterDisarming=false` → Destroy, not `switchToTriggered`; silent TrapState gate also skipped because Trigger still looked live.
+- **Fix:** InsideTrapPlacement only while `placingItem`; disarm Postfix / progressBar belt send `WorldObjectRemoved` when `Item.disabled`.
+
+Protocol **23**. Retest: host push lamp (client hears scrape); client disarm beartrap (host trap gone; look for `[HarvestSync] remove` / `[TrapDestroy]`).
+
+## 0.7.71 — Scrape/trap log root causes (2026-08-08)
+
+Playtest on 0.7.70: client lamp scrape still multi; beartrap disarm still unsynced. Both DLLs were 0.7.70 — fixes missed the real paths.
+
+### Scrape (host log: `body-push start d=3.5` + MOS re-arm thrash; client `PlayerAudio` flood)
+- After client DragSync STOP, host PhysicsState armed MOS on 3m+ jumps and `NotifyBodyPushStopped` **Broadcast** `PlayerAudio` stop to the pushing client.
+- SoftStop → `StopAllVariants` → `AudioController.GetPlayingAudioObjects(movingSound)` killed the **client's native** scrape; it re-armed → 2–3×.
+- **Fix:** SoftStop / network stop = MOS only (never global AudioController kill); stop broadcasting body-push PlayerAudio; skip scrape arm when posDelta > 1.25 (post-drag jump).
+
+### Beartrap (zero `HarvestSync` / `TrapSync` lines in either log)
+- Silent disarm postfix never logged — packet never left. Added force-send on `Item.disarm` Postfix + `progressBarCompleted` when Trigger is sprung; louder `ModLog.Event` World category; destroy path recognizes `Trigger.isBearTrap`.
+
+Protocol **23**. Retest: client push/drag lamp (one scrape); disarm beartrap (look for `[HarvestSync]` on both logs).
+
+## 0.7.70 — Host hint gone + client scrape + beartrap disarm (2026-08-08)
+
+### Host LAN/Steam floating hint
+- Removed the on-title GUI box / SETTINGS line “Hosting LAN — load/continue a save now.” Profiles door still opens after HOST; log line remains.
+
+### Client lamp/push scrape still 2–3×
+- Host PhysicsState echo could still arm MOS on top of native `ItemSounds` while the client free-body stayed non-kinematic.
+- **Fix:** skip MOS when local sim owns the RB (client + non-kinematic + near walking player); honor push-authority grace in NoteMoving / PlayerAudio; bump client PhysicsState-sent grace to 4s; ApplySnapshot skips host echo while client RB is live.
+
+### Bear trap disarm not synced
+- Silent disarm sync used a name filter; after `switchToTriggered`, `canDisarm` is already false — some traps never sent a packet, so the peer kept `active` and could still catch.
+- **Fix:** any `Item.disarm` → `switchToTriggered` broadcasts silent `TrapState` (no name gate); apply forces `triggered/active/canDisarm`; pending flush keeps silent flag; host mints TrapNetId=0 before 3p fan-out.
+
+Protocol **23**. Files: `MultiplayerMenu.cs`, `MainMenuMultiplayerInject.cs`, `MovingObjectSoundService.cs`, `ItemMovingSoundHelper.cs`, `WorldPhysicsSyncService.cs`, `TrapDisarmHarvestSync.cs`, `TrapNetworkId.cs`, `LanNetworkManager*.cs`.
+
+## 0.7.69 — Dream party-once (skill + preset) (2026-08-08)
+
+Design: one peer’s skill dream pulls everyone in; after the party finishes that dream, the other peer’s same-level skill confirm must **not** start it again. Random later dreams: each rolled preset once per party.
+
+### What was wrong
+- H4 treated `_completedPresets` as pool-mirror only and allowed named re-entry (`TryBegin` never checked completed).
+- Skill “once” relied only on `hadDreamAtLvl*` sync; completed bunker did not force the lvl2 gate if flags lagged.
+- Random pool refill from `allPresets` could put already-finished dreams back into `presetList`.
+
+### Fix
+- `TryBegin` rejects completed presets (party-once).
+- Host `DreamStartRequest` / `DreamStarted` drop or nack `already_completed`.
+- `startDreaming` / `prepareDream` block completed on host; reject clears `wantToDream`.
+- `MarkCompleted` + `ApplySnapshot` also `MirrorPoolRemove`; bunker completion forces `hadDreamAtLvl2`.
+- `SkillsMenu.confirmSkills` Prefix: if bunker completed → set `hadDreamAtLvl2` before vanilla checks.
+- Random refill / eligible count skip completed presets.
+- `ForceLocalDreamCleanup` clears `wantToDream` / `dreamPrepared` on reject nack.
+
+Protocol **23**. Files: `DreamSession.cs`, `DreamSyncManager.cs`, `LanNetworkManager.DreamHandlers.cs`, `DreamSyncPatches.cs`.
+
+### Playtest
+1. Client hits lvl2 skills → both enter bunker → finish.
+2. Host hits lvl2 skills → **no** dream transition.
+3. Later skill levels: one shared random per level; same preset not re-rolled for the party.
+
+## 0.7.68 — Dream re-entry + stuck-session aborts (2026-08-08)
+
+Code audit of dream sync (no fresh dual-box fail report). Second entry into a previously completed named dream left the client frozen in the overworld while the host was on the pad; several abort paths never unfroze.
+
+### H4 regression — remote skip of completed presets
+- `OnRemoteDreamStarted` still early-returned on `DreamSession.IsPresetCompleted` even though H4 treats completions as pool-mirror only (`IsDreamCompleted` always false; host prepares re-entry).
+- Client got `DreamStarted`, session went Active, never loaded the pad → frozen world until reload.
+- **Fix:** remove that gate; re-entry loads like the first entry.
+
+### Abort / disconnect recovery
+- Pad spawn `component == null` used to `yield break` after `FreezeWorld` with no unfreeze / session clear.
+- `OnDisconnected` cleared maps but not `EnteringDream` / freeze / local `destroyDream`.
+- Rejected / ignored `DreamStartRequest` sent no nack → client black void for 25s watchdog.
+- **Fix:** `AbortFailedRemoteDreamLoad`; disconnect routes through `ForceLocalDreamCleanup` (clears overlay + EnteringDream); host `DreamEnded rejected:*` on start-request ignore / TryBegin / prepare fail; `AbortStarting` also clears Active without MarkCompleted.
+
+### Join + UniqueObjects + door fan-out
+- LAN join only checked `DreamSession.IsActive`; Steam already used `IsDreamActive` (covers entry transition). LAN now matches.
+- Host `startDreaming` Postfix remaps pad `UniqueObject`s (was client-only after remote load).
+- Door fan-out suppressed entirely when dream-active but `dreamLocation` not ready yet (avoids overworld twin leak mid-entry video).
+
+Protocol **23**. Files: `DreamSyncManager.cs`, `DreamSession.cs`, `LanNetworkManager.DreamHandlers.cs`, `LanNetworkManager.Handlers.cs`, `DreamSyncPatches.cs`, `DreamDoorSyncPatches.cs`.
+
+### Parked / still soak
+- Dream chain: `DreamStarted` ignored if `_remoteDreamActive` already true after a lost `DreamChainStart` (needs preset-change fallback).
+- Portrait/newborn `trueTargets` on LoadDream path (older 0.7.24 note).
+- Human dual-box re-soak of bunker door + second named re-entry after this build.
 
 ## 0.7.67 — Steam host grant / migration (2026-08-08)
 

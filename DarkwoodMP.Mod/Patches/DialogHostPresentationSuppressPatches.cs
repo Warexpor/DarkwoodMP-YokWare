@@ -1,6 +1,7 @@
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.Video;
 
 namespace DWMPHorde.Patches
 {
@@ -8,13 +9,15 @@ namespace DWMPHorde.Patches
     /// Host world-only DialogOutcome replay must not present speaker-only UI:
     /// lookKeyhole_dream changePortrait fades blackScreenTop opaque then schedules
     /// a fade-out after silent close — host stays black forever (0.7.9 soak).
+    /// Oven lookAt* / keyhole also re-enable the portrait renderer via delayed
+    /// setPortrait after guard ends on dialog Release — sticky suppress covers that.
     /// </summary>
     [HarmonyPatch(typeof(UI), nameof(UI.tweenBlackScreen))]
     public static class DialogHostSuppressBlackScreenPatch
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostApplyGuard.Active) return true;
+            if (!DialogHostPresentation.ShouldSuppress) return true;
             // Allow clearing; block fade-to-black from changePortrait / journal note.
             return _color.a < 0.01f;
         }
@@ -25,7 +28,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostApplyGuard.Active) return true;
+            if (!DialogHostPresentation.ShouldSuppress) return true;
             return _color.a < 0.01f;
         }
     }
@@ -53,7 +56,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         private static void Postfix(DialogueWindow __instance)
         {
-            if (!DialogHostApplyGuard.Active) return;
+            if (!DialogHostPresentation.ShouldSuppress) return;
             try
             {
                 Core.forbidInputs = false;
@@ -73,48 +76,142 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.displayDialogue))]
     public static class DialogHostSuppressDialogueTextPatch
     {
+        private static void Prefix(DialogueWindow __instance)
+        {
+            if (!DialogHostPresentation.ShouldSuppress) return;
+            DialogHostPresentation.HideSpeakerVisuals(__instance);
+        }
+
         private static void Postfix(DialogueWindow __instance)
         {
-            if (!DialogHostApplyGuard.Active) return;
+            if (!DialogHostPresentation.ShouldSuppress) return;
+            DialogHostPresentation.HideSpeakerVisuals(__instance);
+        }
+    }
+
+    /// <summary>
+    /// changePortrait's delayed setPortrait re-enables the portrait renderer after
+    /// SilentClose / EndWorldOnly — keep it scrubbed while sticky suppress is armed.
+    /// </summary>
+    [HarmonyPatch(typeof(DialogueWindow), "setPortrait")]
+    public static class DialogHostSuppressSetPortraitPatch
+    {
+        private static void Postfix(DialogueWindow __instance)
+        {
+            if (!DialogHostPresentation.ShouldSuppress) return;
             DialogHostPresentation.HideSpeakerVisuals(__instance);
         }
     }
 
     internal static class DialogHostPresentation
     {
+        /// <summary>
+        /// Survives EndWorldOnly until ScrubAndDisarm — pending changePortrait Invokes
+        /// otherwise flash portrait/video on the non-speaker after dialog Release abort.
+        /// </summary>
+        private static bool _stickySuppress;
+
+        public static bool ShouldSuppress =>
+            _stickySuppress || DialogHostApplyGuard.Active;
+
+        public static void ArmStickySuppress()
+        {
+            _stickySuppress = true;
+        }
+
+        public static void ScrubAndDisarm(DialogueWindow dw)
+        {
+            HideSpeakerVisuals(dw);
+            ClearBlackScreens();
+            _stickySuppress = false;
+        }
+
+        public static void Reset()
+        {
+            _stickySuppress = false;
+        }
+
         internal static void HideSpeakerVisuals(DialogueWindow dw)
         {
             if (dw == null) return;
             try
             {
-                if (dw.dialogue != null && dw.dialogue.gameObject != null)
-                    dw.dialogue.gameObject.SetActive(false);
-                if (dw.options != null && dw.options.gameObject != null)
-                    dw.options.gameObject.SetActive(false);
+                // Oven lookAt* / keyhole: background is the full-screen dialogue backdrop —
+                // HideSpeakerVisuals previously left it enabled → host saw peer overlays.
+                if (dw.background != null)
+                {
+                    var br = dw.background.GetComponent<Renderer>();
+                    if (br != null) br.enabled = false;
+                }
+                if (dw.inventoryBackground != null && dw.inventoryBackground.gameObject != null)
+                    dw.inventoryBackground.gameObject.SetActive(false);
+                if (dw.trading != null && dw.trading.gameObject != null)
+                    dw.trading.gameObject.SetActive(false);
+
+                if (dw.dialogue != null)
+                {
+                    try { dw.dialogue.DestroyChildren(); } catch { /* ignore */ }
+                    if (dw.dialogue.gameObject != null)
+                        dw.dialogue.gameObject.SetActive(false);
+                }
+                if (dw.options != null)
+                {
+                    try { dw.options.DestroyChildren(); } catch { /* ignore */ }
+                    if (dw.options.gameObject != null)
+                        dw.options.gameObject.SetActive(false);
+                }
                 if (dw.showItems != null && dw.showItems.gameObject != null)
                     dw.showItems.gameObject.SetActive(false);
+
                 if (dw.portrait != null)
                 {
+                    try
+                    {
+                        var vp = dw.portrait.GetComponent<VideoPlayer>();
+                        if (vp != null)
+                        {
+                            if (vp.isPlaying) vp.Stop();
+                            vp.clip = null;
+                        }
+                    }
+                    catch { /* ignore */ }
+
                     var r = dw.portrait.GetComponent<Renderer>();
                     if (r != null) r.enabled = false;
                 }
             }
             catch { /* ignore */ }
 
-            // Typewriter on inactive parents won't callback — force-finish so board drain moves.
             try
             {
-                if (dw.currentBoardElements == null) return;
-                for (int i = 0; i < dw.currentBoardElements.Count; i++)
-                {
-                    Transform t = dw.currentBoardElements[i];
-                    if (t == null) continue;
-                    var wt = t.GetComponent<WritingText>();
-                    if (wt != null)
-                        wt.forceFinish();
-                }
+                if (dw.currentBoardElements != null)
+                    dw.currentBoardElements.Clear();
             }
             catch { /* ignore */ }
+        }
+
+        internal static void ClearBlackScreens()
+        {
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui == null) return;
+                ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0f);
+                ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0f);
+                ForceClearSpriteAlpha(ui.blackScreen != null ? ui.blackScreen.transform : null);
+                ForceClearSpriteAlpha(ui.blackScreenTop != null ? ui.blackScreenTop.transform : null);
+            }
+            catch { /* ignore */ }
+        }
+
+        private static void ForceClearSpriteAlpha(Transform t)
+        {
+            if (t == null) return;
+            var spr = t.GetComponent<tk2dBaseSprite>();
+            if (spr == null) return;
+            Color c = spr.color;
+            c.a = 0f;
+            spr.color = c;
         }
     }
 }

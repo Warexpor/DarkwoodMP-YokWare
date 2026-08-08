@@ -23,6 +23,7 @@ namespace DWMPHorde.Sync
             public int NetId;
             public Vector3 Pos;
             public bool Triggered;
+            public bool SilentDisarm;
             public float QueuedAt;
         }
 
@@ -118,7 +119,7 @@ namespace DWMPHorde.Sync
             return GetId(best);
         }
 
-        public static void QueuePending(int netId, Vector3 pos, bool triggered)
+        public static void QueuePending(int netId, Vector3 pos, bool triggered, bool silentDisarm = false)
         {
             for (int i = 0; i < Pending.Count; i++)
             {
@@ -129,6 +130,7 @@ namespace DWMPHorde.Sync
                         NetId = netId > 0 ? netId : Pending[i].NetId,
                         Pos = pos,
                         Triggered = triggered,
+                        SilentDisarm = silentDisarm || Pending[i].SilentDisarm,
                         QueuedAt = Time.time
                     };
                     return;
@@ -139,6 +141,7 @@ namespace DWMPHorde.Sync
                 NetId = netId,
                 Pos = pos,
                 Triggered = triggered,
+                SilentDisarm = silentDisarm,
                 QueuedAt = Time.time
             });
         }
@@ -146,7 +149,9 @@ namespace DWMPHorde.Sync
         private static float _nextPendingFlushTime;
         private const float PendingFlushInterval = 3f;
 
-        public static int FlushPending(System.Func<Vector3, string, GameObject> findByPos, System.Action<GameObject, bool> apply)
+        public static int FlushPending(
+            System.Func<Vector3, string, GameObject> findByPos,
+            System.Action<GameObject, bool, bool> apply)
         {
             if (Pending.Count == 0) return 0;
             // findByPos is OverlapSphere-only now, but still rate-limit retries.
@@ -174,7 +179,7 @@ namespace DWMPHorde.Sync
                 else if (ModRuntime.Network != null && ModRuntime.Network.Role == Networking.NetworkRole.Host)
                     GetOrMintHost(go);
 
-                apply?.Invoke(go, p.Triggered);
+                apply?.Invoke(go, p.Triggered, p.SilentDisarm);
                 Pending.RemoveAt(i);
                 applied++;
             }

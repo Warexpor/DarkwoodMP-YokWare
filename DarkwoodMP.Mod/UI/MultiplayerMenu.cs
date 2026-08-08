@@ -127,16 +127,6 @@ namespace DWMPHorde
             if (!_windowRectInitialized)
                 ResetWindowRect();
 
-            // Brief host hint even when SETTINGS is closed (profiles screen after HOST).
-            if (!_visible && !string.IsNullOrEmpty(_hostNextStepHint) && Core.mainMenu)
-            {
-                float scale = UiScale;
-                float w = 420f * scale;
-                Rect hintRect = new Rect((Screen.width - w) * 0.5f, 28f * scale, w, 36f * scale);
-                GUI.Box(hintRect, "");
-                GUI.Label(hintRect, "  " + _hostNextStepHint);
-            }
-
             if (!_visible)
                 return;
 
@@ -166,8 +156,6 @@ namespace DWMPHorde
             _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
 
             GUILayout.Label("Status: " + (Network != null ? Network.StatusText : "No network"), GUILayout.ExpandWidth(true));
-            if (!string.IsNullOrEmpty(_hostNextStepHint))
-                GUILayout.Label(_hostNextStepHint, GUILayout.ExpandWidth(true));
             if (Network != null && Network.WorldSaveShare != null
                 && !string.IsNullOrEmpty(Network.WorldSaveShare.ProgressText))
                 GUILayout.Label(Network.WorldSaveShare.ProgressText, GUILayout.ExpandWidth(true));

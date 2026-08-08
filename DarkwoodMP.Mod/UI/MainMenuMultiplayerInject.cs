@@ -1016,10 +1016,9 @@ namespace DWMPHorde
 
             _joinPending = false;
             _hostingHint = true;
-            MultiplayerMenu.SetHostNextStepHint("Hosting LAN — load/continue a save now.");
             ModLog.Event(LogCat.Session,
                 "Hosting LAN on port " + port
-                + " — load/continue a save NOW. Clients on JOIN get the world only after you are in-chapter.");
+                + " — load a save; clients on JOIN get the world after you are in-chapter.");
             ClosePanel();
             if (_menu != null)
                 _menu.displayProfilesMenu();
@@ -1048,10 +1047,9 @@ namespace DWMPHorde
 
             _joinPending = false;
             _hostingHint = true;
-            MultiplayerMenu.SetHostNextStepHint("Hosting Steam — load a save; invite via SETTINGS.");
             ModLog.Event(LogCat.Session,
-                "Hosting Steam lobby — invite friends via overlay (SETTINGS shows lobby id). "
-                + "Load/continue a save; clients join after you are in-chapter.");
+                "Hosting Steam lobby — invite via overlay (SETTINGS shows lobby id). "
+                + "Load a save; clients join after you are in-chapter.");
             ClosePanel();
             if (_menu != null)
                 _menu.displayProfilesMenu();

@@ -83,6 +83,9 @@ namespace DWMPHorde.Patches
                 DreamPreset p = dreams.allPresets[i];
                 if (p == null || !p.isRandomDream) continue;
                 if (dreams.presetList.Contains(p)) continue;
+                string n = DreamSession.ResolvePresetName(p);
+                // Party-once: never refill a preset the party already finished.
+                if (DreamSession.IsPresetCompleted(n)) continue;
                 dreams.presetList.Add(p);
                 added++;
             }
@@ -104,6 +107,8 @@ namespace DWMPHorde.Patches
             {
                 DreamPreset p = dreams.presetList[i];
                 if (p == null || !p.isRandomDream) continue;
+                if (DreamSession.IsPresetCompleted(DreamSession.ResolvePresetName(p)))
+                    continue;
                 if (chapter == 1 && p.chapter1) n++;
                 else if (chapter == 2 && p.chapter2) n++;
             }
@@ -122,7 +127,21 @@ namespace DWMPHorde.Patches
                 {
                     DreamSession.SetPendingHostPreset(resolved);
                     if (!DreamSession.IsActive)
-                        DreamSession.TryBegin(resolved);
+                    {
+                        if (!DreamSession.TryBegin(resolved))
+                        {
+                            // Party-once / session race — do not continue into a completed roll.
+                            ModRuntime.LegacyInfo(
+                                "[DreamSync] Host random roll rejected TryBegin: " + resolved);
+                            try
+                            {
+                                if (__instance != null)
+                                    __instance.dreamPrepared = false;
+                            }
+                            catch { /* ignore */ }
+                            return;
+                        }
+                    }
                     else
                         // prepareDream("") may have left session on a stale previous preset.
                         DreamSession.UpdateActivePreset(resolved);
@@ -200,6 +219,14 @@ namespace DWMPHorde.Patches
                     return true;
                 }
 
+                // Party-once / session busy — clear sticky prepare flags.
+                try
+                {
+                    __instance.wantToDream = false;
+                    __instance.dreamPrepared = false;
+                }
+                catch { /* ignore */ }
+
                 ModRuntime.LegacyInfo(
                     $"[DreamSync] Host prepareDream aborted — TryBegin rejected '{name}'"
                     + $" (session {DreamSession.Current})");
@@ -231,7 +258,15 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
             {
-                // H4: Completions only drive MirrorPoolRemove — named dreams may re-enter like SP.
+                // Party-once: host must not start a preset the session already finished.
+                if (DreamSession.IsPresetCompleted(preset)
+                    && !LanNetworkManager.IsApplyingRemoteState)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[DreamSync] Block startDreaming — party already completed: " + preset);
+                    __state = true;
+                    return false;
+                }
 
                 if (LanNetworkManager.IsApplyingRemoteState)
                 {
@@ -305,6 +340,8 @@ namespace DWMPHorde.Patches
                 locPos = __instance.dreamLocation.transform.position;
 
             DreamSyncManager.OnLocalDreamStarted(__instance.preset.name, locPos);
+            if (__instance.dreamLocation != null)
+                DreamSyncManager.RemapDreamUniqueObjects(__instance.dreamLocation.transform);
             DreamSession.MarkActive();
         }
     }
@@ -649,6 +686,26 @@ namespace DWMPHorde.Patches
                 hostPreset = __instance.preset.name;
             DreamSyncManager.NotifyPeersStoryEndBeginning(hostPreset, outcome);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Party-once skill dreams: before vanilla checks hadDreamAtLvl*, force local flags from
+    /// the shared session so the second peer confirming skills does not re-fire bunker/random.
+    /// </summary>
+    [HarmonyPatch(typeof(SkillsMenu), "confirmSkills")]
+    public static class SkillsMenuDreamPartyOncePatch
+    {
+        private static void Prefix()
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            var d = Dreams.Instance;
+            if (d == null) return;
+
+            // Snapshot may have arrived earlier; re-apply bunker completion → lvl2 gate.
+            if (DreamSession.IsPresetCompleted("dream_bunker_underground_01"))
+                d.hadDreamAtLvl2 = true;
         }
     }
 }

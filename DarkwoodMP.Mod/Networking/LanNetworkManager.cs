@@ -107,7 +107,8 @@ namespace DWMPHorde.Networking
         /// One phase per peer per frame so host join frame does not freeze.
         /// </summary>
         private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
-        private const int HeavyLateJoinPhaseCount = 7; // weather…deathbags (phases 0–6)
+        private const int HeavyLateJoinPhaseCount = 11; // weather…deathbags; FOOTs one type/frame
+
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
         private const float ClientBulkSettleSeconds = 8f;
         /// <summary>Phase-3 reconnect: client already finished offline load — short settle only.</summary>
@@ -884,7 +885,7 @@ namespace DWMPHorde.Networking
             Sync.WorldPhysicsSyncService.TryFlushPendingLights();
             Sync.TrapNetworkId.FlushPending(
                 (p, n) => Sync.WorldPhysicsSyncService.FindTrapByPos(p, n),
-                (go, trig) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig));
+                (go, trig, silent) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig, silentDisarm: silent));
             Sync.WorldPhysicsSyncService.TickThrownLightExpiry(this);
             TickClientCorpseSetup();
             if (perf)

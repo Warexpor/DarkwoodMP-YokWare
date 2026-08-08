@@ -27,6 +27,15 @@ namespace DWMPHorde.Networking
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
+            // Party-once: ignore stale DreamStarted for a preset the party already finished.
+            if (!string.IsNullOrEmpty(msg.PresetName)
+                && DreamSession.IsPresetCompleted(msg.PresetName))
+            {
+                ModRuntime.LegacyInfo(
+                    "[DreamSync] Drop DreamStarted — party already completed: " + msg.PresetName);
+                return;
+            }
+
             if (!string.IsNullOrEmpty(msg.PresetName))
             {
                 DreamSession.SetPendingHostPreset(msg.PresetName);
@@ -159,6 +168,8 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host)
                 return;
 
+            int requesterId = _currentReceivePlayerId;
+
             // Client may have leveled (hadDreamAtLvl*) — union before prepare.
             if (msg.LvlFlags != 0)
                 DreamSession.ApplyLvlFlags(msg.LvlFlags);
@@ -171,6 +182,7 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — session active");
+                    SendDreamEndedRejected(requesterId, "session_active");
                     return;
                 }
                 if (Singleton<Dreams>.Instance == null
@@ -179,6 +191,7 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — dream already prepared/active");
+                    SendDreamEndedRejected(requesterId, "already_prepared");
                     return;
                 }
 
@@ -197,7 +210,18 @@ namespace DWMPHorde.Networking
                             Singleton<Dreams>.Instance.dreamPrepared = false;
                     }
                     catch { /* ignore */ }
+                    DreamSession.AbortStarting(ex.Message);
+                    SendDreamEndedRejected(requesterId, "prepare_failed");
                 }
+                return;
+            }
+
+            // Party-once: named skill/dialogue dream already finished by any peer.
+            if (DreamSession.IsPresetCompleted(msg.PresetName))
+            {
+                ModLog.Event(LogCat.Dream,
+                    "[DreamSync] reject start request — party already completed: " + msg.PresetName);
+                SendDreamEndedRejected(requesterId, "already_completed");
                 return;
             }
 
@@ -214,13 +238,17 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] ignore start request — session " + DreamSession.Current
                     + " preset=" + DreamSession.PresetName + " req=" + msg.PresetName);
+                SendDreamEndedRejected(requesterId, "session_active");
                 return;
             }
-            // H4: no IsPresetCompleted forever-ban — MirrorPoolRemove only.
 
             if (!DreamSession.TryBegin(msg.PresetName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] TryBegin failed for request: {msg.PresetName}");
+                SendDreamEndedRejected(requesterId,
+                    DreamSession.IsPresetCompleted(msg.PresetName)
+                        ? "already_completed"
+                        : "try_begin_failed");
                 return;
             }
 
@@ -237,6 +265,7 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogError("[DreamSync] prepareDream failed: " + ex);
                 DreamSession.AbortStarting(ex.Message);
+                SendDreamEndedRejected(requesterId, "prepare_failed");
             }
         }
 
