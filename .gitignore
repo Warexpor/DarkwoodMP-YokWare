@@ -67,6 +67,13 @@ secrets.*
 *.pfx
 appsettings.*.local.json
 
+# Local-only workspace (not part of the public ship tree)
+/AGENTS.md
+/docs/
+/research/
+/scripts/
+/libs/
+
 # Agent / editor local
 .claude/
 CLAUDE.md
