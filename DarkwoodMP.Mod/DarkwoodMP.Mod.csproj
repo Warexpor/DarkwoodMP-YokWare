@@ -23,8 +23,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.7.48</Version>
-    <InformationalVersion>0.7.48-path-b</InformationalVersion>
+    <Version>0.7.52</Version>
+    <InformationalVersion>0.7.52-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
@@ -53,6 +53,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle_sm.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_hover_sm.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_hover.png" />
   </ItemGroup>
 
   <!-- BepInEx: Harmony + plugin core from game install -->

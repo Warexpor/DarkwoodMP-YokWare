@@ -53,6 +53,19 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>Host→clients: Character.removeMe (flee-despawn wildlife, temp spawns).</summary>
+    public struct EntityDespawnMessage
+    {
+        public short EntityId;
+
+        public void Serialize(NetWriter w) => w.Put(EntityId);
+
+        public static EntityDespawnMessage Deserialize(NetReader r) => new EntityDespawnMessage
+        {
+            EntityId = r.GetShort()
+        };
+    }
+
     public struct EntitySnapshotNet
     {
         public short Index;

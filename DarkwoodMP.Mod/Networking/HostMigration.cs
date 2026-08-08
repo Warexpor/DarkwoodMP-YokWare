@@ -5,14 +5,17 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using DWMPHorde.Logging;
+using DWMPHorde.Networking.Steam;
 using LiteNetLib;
+using Steamworks;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// Full host-crash / host-leave grant for n+ LAN:
+    /// Full host-crash / host-leave grant for n+ LAN and Steam SNS:
     /// roster gossip → deterministic elect → soft promote or reconnect → reclaim sim authority.
+    /// Steam roster Address = SteamID64; reconnect is ConnectP2P (lobby kept when possible).
     /// </summary>
     public sealed partial class LanNetworkManager
     {
@@ -60,11 +63,15 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Tear LiteNetLib only — keep chapter/player state for host grant promote.
+        /// Tear LiteNetLib / Steam transport only — keep chapter/player state for host grant promote.
         /// </summary>
-        private void StopTransportOnly(string reason)
+        /// <param name="leaveSteamLobby">
+        /// Steam: false keeps lobby membership during host-grant (elect promote / survivor reconnect).
+        /// </param>
+        private void StopTransportOnly(string reason, bool leaveSteamLobby = true)
         {
-            ModLog.Event(LogCat.Network, "StopTransportOnly: " + reason);
+            ModLog.Event(LogCat.Network, "StopTransportOnly: " + reason
+                + (IsSteamSession ? " leaveLobby=" + leaveSteamLobby : ""));
             if (_net != null)
             {
                 try { _net.Stop(); }
@@ -74,7 +81,7 @@ namespace DWMPHorde.Networking
                 }
                 _net = null;
             }
-            ShutdownSteamBackend();
+            ShutdownSteamBackend(leaveLobby: leaveSteamLobby);
             ClearAllPeerSlots();
             _handshakedPeers.Clear();
             _handshakeComplete = false;
@@ -103,7 +110,10 @@ namespace DWMPHorde.Networking
         {
             if (!_migrationInProgress || _role != NetworkRole.Client)
                 return;
-            if (string.IsNullOrEmpty(_migrationTargetAddress) || _migrationTargetPort <= 0)
+            if (string.IsNullOrEmpty(_migrationTargetAddress))
+                return;
+            bool steamTarget = IsSteamRosterAddress(_migrationTargetAddress);
+            if (!steamTarget && _migrationTargetPort <= 0)
                 return;
             if (Time.unscaledTime < _migrationRetryAt)
                 return;
@@ -125,21 +135,31 @@ namespace DWMPHorde.Networking
                 _migrationRetryAt = Time.unscaledTime + MigrationRetrySec;
                 ModLog.Event(LogCat.Network,
                     "Migration reconnect try " + _migrationRetryCount + "/" + MigrationMaxRetries
-                    + " → " + _migrationTargetAddress + ":" + _migrationTargetPort);
-                ConnectToHostPreservingId(_migrationTargetAddress, _migrationTargetPort, _migrationElectId);
+                    + " → " + _migrationTargetAddress
+                    + (steamTarget ? " (Steam)" : (":" + _migrationTargetPort)));
+                if (steamTarget)
+                    ConnectSteamPreservingId(_migrationTargetAddress, _migrationElectId);
+                else
+                    ConnectToHostPreservingId(_migrationTargetAddress, _migrationTargetPort, _migrationElectId);
             }
         }
 
         internal void BroadcastPeerRoster()
         {
-            if (_role != NetworkRole.Host || _net == null)
+            if (_role != NetworkRole.Host)
+                return;
+            if (!IsSteamSession && _net == null)
+                return;
+            if (IsSteamSession && (_steam == null || !_steam.IsActive))
                 return;
 
             var list = BuildRosterEntries();
             var msg = new PeerRosterMessage
             {
                 HostPlayerId = _localPlayerId,
-                SessionPort = _sessionPort,
+                SessionPort = IsSteamSession
+                    ? SteamCoopTransport.MigrationVirtualPort
+                    : _sessionPort,
                 Entries = list.ToArray()
             };
             ApplyPeerRosterLocal(msg);
@@ -147,11 +167,15 @@ namespace DWMPHorde.Networking
             Broadcast(NetMessageType.PeerRoster, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             // Trace only — was flooding Support/Dev Event every 4s (not a hitch, but noise).
             ModLog.Trace(LogCat.Network, () => "[HostMigration] roster peers=" + list.Count
-                + " hostId=" + _localPlayerId + " port=" + _sessionPort);
+                + " hostId=" + _localPlayerId
+                + (IsSteamSession ? " steam" : (" port=" + _sessionPort)));
         }
 
         private List<PeerRosterEntry> BuildRosterEntries()
         {
+            if (IsSteamSession)
+                return BuildSteamRosterEntries();
+
             var list = new List<PeerRosterEntry>(8);
             // Cached — GetAllNetworkInterfaces every 4s roster tick was the ~upd=65ms hitch.
             string hostIp = GetCachedPrimaryLanIPv4() ?? "127.0.0.1";
@@ -181,6 +205,45 @@ namespace DWMPHorde.Networking
                 });
             }
             return list;
+        }
+
+        private List<PeerRosterEntry> BuildSteamRosterEntries()
+        {
+            var list = new List<PeerRosterEntry>(8);
+            int port = SteamCoopTransport.MigrationVirtualPort;
+            CSteamID self = SteamCoopTransport.LocalSteamId();
+            if (self.IsValid())
+            {
+                list.Add(new PeerRosterEntry
+                {
+                    PlayerId = _localPlayerId,
+                    Address = self.m_SteamID.ToString(),
+                    Port = port
+                });
+            }
+
+            foreach (var kvp in _steamPeers)
+            {
+                if (!kvp.Value.IsValid()) continue;
+                list.Add(new PeerRosterEntry
+                {
+                    PlayerId = kvp.Key,
+                    Address = kvp.Value.m_SteamID.ToString(),
+                    Port = port
+                });
+            }
+            return list;
+        }
+
+        /// <summary>Roster Address is a SteamID64 decimal string (not IPv4).</summary>
+        private static bool IsSteamRosterAddress(string address)
+        {
+            if (string.IsNullOrEmpty(address))
+                return false;
+            // SteamID64 is 17 digits starting with 7656…; IPv4 has dots.
+            if (address.IndexOf('.') >= 0)
+                return false;
+            return ulong.TryParse(address, out ulong id) && id > 0x0110000100000000UL;
         }
 
         private void HandlePeerRoster(PeerRosterMessage msg)
@@ -252,17 +315,24 @@ namespace DWMPHorde.Networking
 
             _handoffInProgress = true;
             BroadcastPeerRoster();
+
+            if (IsSteamSession && _steamPeers.TryGetValue(elect, out CSteamID electSid))
+                Steam.TransferLobbyOwner(electSid);
+
             Broadcast(NetMessageType.HostHandoff, w => new HostHandoffMessage
             {
                 ElectPlayerId = elect,
-                SessionPort = _sessionPort
+                SessionPort = IsSteamSession
+                    ? SteamCoopTransport.MigrationVirtualPort
+                    : _sessionPort
             }.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             ModLog.Event(LogCat.Network,
-                "Graceful host leave — handoff to p" + elect);
+                "Graceful host leave — handoff to p" + elect
+                + (IsSteamSession ? " (Steam)" : ""));
             StatusText = "Handing host to p" + elect + "…";
 
-            // Flush packets then FREE listen port immediately so elect can bind the same port.
+            // Flush packets then FREE listen port / tear SNS so elect can promote.
             // Full StopNetwork after a short delay for local registry cleanup.
             _suppressHostMigration = true;
             StartCoroutine(GracefulHostLeaveReleasePortThenStop(0.15f, 0.4f));
@@ -303,6 +373,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Duplicate signals (handoff + SNS fail + lobby left) must not tear a running grant.
+            if (_migrationInProgress)
+                return;
+
             // Refuse mid-dream authority flip — tear down dream state then disconnect.
             if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
             {
@@ -318,14 +392,6 @@ namespace DWMPHorde.Networking
                 }
                 StopNetwork();
                 StatusText = "Host lost mid-dream — disconnected";
-                return;
-            }
-
-            // Steam P2P has no listen-port handoff; survivors just disconnect.
-            if (IsSteamSession)
-            {
-                ModLog.Event(LogCat.Network, "Host migration skipped on Steam backend (" + reason + ")");
-                StopNetwork();
                 return;
             }
 
@@ -381,7 +447,8 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Network,
                 "HOST GRANT migration (" + reason + "): elect=" + elect
                 + " local=" + _localPlayerId + " deadHost=" + deadHost
-                + " candidates=" + candidates.Count);
+                + " candidates=" + candidates.Count
+                + (IsSteamSession ? " steam" : " lan"));
 
             int keepId = _localPlayerId;
             CleanupDeadHostLocal(deadHost);
@@ -412,8 +479,6 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Dual-box same machine: roster may say 127.0.0.1 for everyone — fine.
-            // Prefer connect address from config if elect address is loopback and we used LAN before.
             string addr = target.Value.Address;
             int port = target.Value.Port > 0 ? target.Value.Port : _sessionPort;
             _migrationTargetAddress = addr;
@@ -423,7 +488,10 @@ namespace DWMPHorde.Networking
             _migrationRetryAt = Time.unscaledTime + MigrationRetrySec;
             _localPlayerId = keepId;
             StatusText = "Host lost — reconnecting to p" + elect + "…";
-            ConnectToHostPreservingId(addr, port, elect);
+            if (IsSteamSession || IsSteamRosterAddress(addr))
+                ConnectSteamPreservingId(addr, elect);
+            else
+                ConnectToHostPreservingId(addr, port, elect);
         }
 
         private void CleanupDeadHostLocal(int deadHost)
@@ -445,7 +513,12 @@ namespace DWMPHorde.Networking
 
         private void PromoteLocalToHost(int keepId, string reason)
         {
-            StopTransportOnly("promote after " + reason);
+            bool steam = IsSteamSession;
+            StopTransportOnly("promote after " + reason, leaveSteamLobby: !steam);
+            // Steam: keep lobby membership; re-arm backend after StopTransportOnly cleared it.
+            if (steam)
+                _backend = ConnectionBackend.Steam;
+
             _role = NetworkRole.Host;
             _localPlayerId = keepId;
             _hostPlayerId = keepId;
@@ -459,6 +532,12 @@ namespace DWMPHorde.Networking
 
             // Reclaim sim: release client host-sync freeze so AI/entities run under us.
             ReclaimSimulationAuthorityAfterPromote();
+
+            if (steam)
+            {
+                PromoteLocalToSteamHost(keepId, reason);
+                return;
+            }
 
             _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
             int port = _sessionPort > 0 ? _sessionPort : PluginInfo.DefaultPort;
@@ -504,6 +583,82 @@ namespace DWMPHorde.Networking
             BroadcastPeerRoster();
             // Time authority is us now — push clock to reconnecting peers as they join.
             try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+        }
+
+        private void PromoteLocalToSteamHost(int keepId, string reason)
+        {
+            var allow = new List<ulong>(8);
+            for (int i = 0; i < _peerRoster.Count; i++)
+            {
+                PeerRosterEntry e = _peerRoster[i];
+                if (e.PlayerId == keepId) continue;
+                if (ulong.TryParse(e.Address, out ulong sid) && sid != 0)
+                    allow.Add(sid);
+            }
+
+            if (!Steam.BeginHostingAfterMigration())
+            {
+                ModLog.Error(LogCat.Network, "Steam host grant promote failed");
+                _role = NetworkRole.Offline;
+                _backend = ConnectionBackend.None;
+                _migrationInProgress = false;
+                StatusText = "Host grant failed (Steam)";
+                return;
+            }
+
+            Steam.ArmMigrationAllowlist(allow, 60);
+            _backend = ConnectionBackend.Steam;
+            NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
+            _handshakeComplete = false;
+            _handshakedPeers.Clear();
+            _migrationInProgress = false;
+            StatusText = "HOST GRANTED — Steam (p" + keepId + ")";
+            ModLog.Event(LogCat.Network,
+                "HOST GRANTED (Steam): local p" + keepId + " | reason=" + reason);
+
+            BroadcastPeerRoster();
+            try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+        }
+
+        private void ConnectSteamPreservingId(string steamIdRaw, int electHostId)
+        {
+            if (!ulong.TryParse(steamIdRaw, out ulong sid) || sid == 0)
+            {
+                ModLog.Error(LogCat.Network, "Steam migration: bad elect steam id '" + steamIdRaw + "'");
+                _migrationInProgress = false;
+                StopNetwork();
+                StatusText = "Host lost — bad Steam route";
+                return;
+            }
+
+            int keepId = _localPlayerId;
+            // Keep lobby when possible (graceful SetLobbyOwner); crash allowlist covers the rest.
+            StopTransportOnly("migration steam reconnect", leaveSteamLobby: false);
+            _role = NetworkRole.Client;
+            _localPlayerId = keepId;
+            _hostPlayerId = electHostId > 0 ? electHostId : _hostPlayerId;
+            _backend = ConnectionBackend.Steam;
+
+            var hostSid = new CSteamID(sid);
+            if (!Steam.ConnectP2PDirect(hostSid))
+            {
+                ModLog.Error(LogCat.Network, "Steam migration ConnectP2P failed");
+                _backend = ConnectionBackend.None;
+                _role = NetworkRole.Offline;
+                // Leave _migrationInProgress so TickHostMigrationRetry can try again.
+                StatusText = "Migrating — Steam connect failed, retrying…";
+                return;
+            }
+
+            int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
+            _steamPeers[hostKey] = hostSid;
+            _steamIdToPlayer[sid] = hostKey;
+            NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
+            StatusText = "Migrating → Steam " + sid + " as p" + keepId;
+            ModLog.Event(LogCat.Network,
+                "Migration Steam connect as p" + keepId + " → " + sid
+                + " electHost=" + hostKey);
+            // Handshake fires from OnSteamLobbyReady when SNS Connected.
         }
 
         /// <summary>

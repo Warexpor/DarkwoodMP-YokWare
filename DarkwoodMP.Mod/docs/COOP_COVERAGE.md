@@ -45,7 +45,7 @@ Protocol baseline: **22** · Plugin: **0.7.46** (live **0.7.x** line — older *
 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
-| 0.0 | Host grant / migration | **OK (v1)** | Crash + graceful leave: PeerRoster 123, HostHandoff 124, elect lowest id, sim reclaim, preferred ids. `HostMigrationEnabled`. LAN. |
+| 0.0 | Host grant / migration | **OK (v1)** | Crash + graceful leave: PeerRoster 123, HostHandoff 124, elect lowest id, sim reclaim, preferred ids. `HostMigrationEnabled`. LAN + Steam (SteamID roster / ConnectP2P). |
 | 0.1 | Session / handshake / protocol | **OK** | Code closed 2026-07-09. Reliable handshake/session; multi-peer IDs; max players; dream-join reject; Direct forward reliable. WorldSession still advisory (no hard wrong-save reject — F0.5 / later). Playtest smoke still recommended. |
 | 0.2 | Save / world share / load | **OK** | Code closed 2026-07-09. Per-PlayerId host backups; local self backup for ManualSave; SaveSync + WorldSaveShare to all. Mid-campaign still “load matching / Resend.” **2026-07-28:** SaveSync host debounce + client request-only; share-fail hard-block join/worldgen. |
 | 0.3 | Time / day / night cycle | **OK** | TimeSync host authority + sleep adopt. **2026-07-11:** host-auth `endAfterNight` (`AfterNightEndRequest` 122); edge TimeSync flush; client personal heal on day roll; `DoUpdateTime` only (not full FixedUpdate suppress). |

@@ -10,7 +10,7 @@ namespace DWMPHorde.Networking
 {
     /// <summary>
     /// Steam SNS backend — separate from LiteNetLib LAN. Same Horde messages over SteamNetworkingSockets.
-    /// Host migration stays LAN-only (Steam path tears cleanly on host leave).
+    /// Host migration uses SteamID roster + ConnectP2P (same elect/promote as LAN).
     /// </summary>
     public sealed partial class LanNetworkManager
     {
@@ -248,11 +248,14 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _steamPeers[1] = hostSid;
-            _steamIdToPlayer[hostSid.m_SteamID] = 1;
+            int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
+            _steamPeers[hostKey] = hostSid;
+            _steamIdToPlayer[hostSid.m_SteamID] = hostKey;
             Steam.AcceptSession(hostSid);
             CompleteClientPeerJoin();
-            StatusText = "Steam connected — handshaking…";
+            StatusText = _migrationInProgress
+                ? "Steam migrating — handshaking…"
+                : "Steam connected — handshaking…";
         }
 
         internal void OnSteamLobbyFailed(string reason)
@@ -269,10 +272,12 @@ namespace DWMPHorde.Networking
         {
             if (_backend != ConnectionBackend.Steam || _role != NetworkRole.Client)
                 return;
-            // No LAN-style host migration on Steam — clean stop.
-            _suppressHostMigration = true;
-            StopNetwork();
-            StatusText = "Steam host left";
+            if (_suppressHostMigration)
+                return;
+            if (_migrationInProgress)
+                return;
+            ModLog.Event(LogCat.Network, "Steam host left lobby — attempting host grant");
+            TryBeginHostMigration("steam host left lobby");
         }
 
         internal void OnSteamSessionFailed(CSteamID remote)
@@ -516,9 +521,8 @@ namespace DWMPHorde.Networking
             {
                 if (_suppressHostMigration)
                     return;
-                // Steam: no host migration — stop.
-                _suppressHostMigration = true;
-                StopNetwork();
+                // Client lost host SNS — same grant path as LAN peer drop.
+                TryBeginHostMigration("steam host SNS lost");
             }
         }
 
@@ -529,12 +533,13 @@ namespace DWMPHorde.Networking
             _steam.Poll();
         }
 
-        private void ShutdownSteamBackend()
+        private void ShutdownSteamBackend(bool leaveLobby = true)
         {
             if (_steam != null && _steam.IsActive)
-                _steam.Shutdown();
+                _steam.Shutdown(leaveLobby);
             // Do not clear peer maps here when called from ClearAllPeerSlots path —
             // always wipe steam routing so a later LAN session cannot leak Steam ids.
+            // Host-grant reconnect rebuilds maps after ConnectP2PDirect / promote.
             _steamPeers.Clear();
             _steamIdToPlayer.Clear();
             _currentReceiveSteamId = CSteamID.Nil;

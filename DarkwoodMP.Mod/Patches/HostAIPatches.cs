@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -957,6 +958,30 @@ namespace DWMPHorde.Patches
                 }
             }
             return best;
+        }
+    }
+
+    /// <summary>
+    /// Host removeMe (flee-despawn crows/rabbits, temp wildlife) never reached the client —
+    /// EntityState just stopped, and _everHostSyncedIds blocked unmatched cleanup → permanent
+    /// ghost birds the host no longer has.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "removeMe")]
+    public static class HostCharacterRemoveMeDespawnPatch
+    {
+        private static void Prefix(Character __instance)
+        {
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+                return;
+            if (!ModRuntime.Network.IsConnected)
+                return;
+            if (__instance == null)
+                return;
+
+            if (!CharacterTracker.TryGetStableId(__instance, out short id) || id == 0)
+                return;
+
+            LanNetworkManager.Instance?.SendEntityDespawn(id);
         }
     }
 }

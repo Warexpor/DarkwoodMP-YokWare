@@ -2,11 +2,213 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.48** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.67** and continue from there.
 
-Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **22** (LocationTransport).
+Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **23** (EntityDespawn).
 
 ---
+
+## 0.7.67 — Steam host grant / migration (2026-08-08)
+
+Steam sessions used to tear on host drop (`Host migration skipped on Steam`). LAN already had PeerRoster elect + promote.
+
+- Steam PeerRoster now carries **SteamID64** (same msg 123; Address string).
+- Elect promotes via SNS listen (+ keep lobby / CreateLobby); survivors **ConnectP2P** to elect.
+- Graceful leave: `SetLobbyOwner` then handoff; crash: migration allowlist accepts roster peers without lobby membership.
+- Duplicate handoff/SNS/lobby-left signals no longer `StopNetwork` a running grant.
+
+Protocol **23**. Files: `HostMigration.cs`, `SteamCoopTransport.cs`, `LanNetworkManager.Steam.cs`.
+
+## 0.7.66 — Restore self actually gated (2026-08-08)
+
+SETTINGS → Advanced "Restore self" was always clickable, logged-only on title, and **unsafe on host** (could overlay `client_backup_self` onto the host body — ManualSave already blocked that path).
+
+- Button enabled only **in-chapter**, **not Host**, with a usable campaign-scoped self-backup on disk.
+- Shows on-disk backup summary + yellow result line (no more silent ModLog-only).
+- Still needed: clients load the host world character; personal inv/skills/pos live in ClientStateBackup (auto on join, manual as recovery).
+
+Protocol **23**. File: `MultiplayerMenu.cs`.
+
+## 0.7.65 — MULTIPLAYER layout nudge + smaller panel (2026-08-08)
+
+Title MULTIPLAYER sat a full row below EXIT; HOST/JOIN panel rows used full Video/Profiles text size and 60px spacing (felt large behind the title door).
+
+- Title MULTIPLAYER nudged **+16** PositionMe units up toward EXIT.
+- Panel rows: **70%** label scale + **46** spacing (was native size / 60); hitboxes refit to the smaller glyphs.
+
+Protocol **23**. File: `MainMenuMultiplayerInject.cs`.
+
+## 0.7.64 — MULTIPLAYER size match + new hover (2026-08-08)
+
+Idle/hover letter faces jumped size on rollover (old hover bloom filled more of the shared canvas). Button also read larger than PLAY/OPTIONS.
+
+- New hover generated on pure black (white + soft bloom); idle+hover rebuilt on one 640×160 canvas with **matched solid-letter bbox**.
+- On-screen letter height cut to **55% of title row** (was 82%); mesh face caps size instead of forcing larger.
+- Hitbox still follows idle opaque UVs via `FitButtonHitbox` (shrinks with the glyph).
+
+Protocol **23**. Files: `multiplayer_*_sm.png`, `MenuButtonArt.cs`.
+
+## 0.7.63 — MULTIPLAYER idle regen (2026-08-08)
+
+Stale title MULTIPLAYER still looked corrupted because the old full-size idle sat on a bright/white ground — keying that into `*_sm` shredded the glyph. Hover stayed fine and is unchanged.
+
+- New idle generated on **pure black** (OPTIONS bevel style), keyed cleanly, BOX-fit onto the hover 582×143 canvas.
+- Hover sprite untouched.
+
+Protocol **23**. Files: `Resources/MenuButtons/multiplayer_idle_sm.png`, `multiplayer_idle.png`.
+
+## 0.7.62 — MULTIPLAYER idle glyph fix (2026-08-08)
+
+Stale title MULTIPLAYER was a melted blob while hover looked correct. Root cause: `multiplayer_idle_sm.png` (the embedded ship asset) had been rebuilt by thresholding the hover bloom into a solid mask — that fills counters and merges stems. The good full-size `multiplayer_idle.png` was never what the DLL loaded (`csproj` embeds `*_sm.png`).
+
+- Regenerated `multiplayer_idle_sm.png` from the good full idle: BG-keyed, BOX-downscaled onto the hover canvas (582×143), dark AA only (0 bright boundary pixels).
+- Hover asset unchanged.
+
+Protocol **23**. File: `Resources/MenuButtons/multiplayer_idle_sm.png`.
+
+## 0.7.61 — MULTIPLAYER idle fringe fix (2026-08-08)
+
+Stale title button still showed a bright jagged halo: idle PNG had **binary alpha** with **bright boundary pixels** (~56% of silhouette edges rgb>150). Hover looked fine because its fringe is semi-transparent **dark** bloom, not a white matte.
+
+- Regenerated `multiplayer_idle_sm.png` on the **same 582×143 canvas** as hover: solid glyph from hover core mask, OPTIONS-style silver bevel, **dark 2px AA** at the silhouette (0 bright boundary pixels).
+- Letter footprint matches hover core bbox — swap should not jump size.
+
+Protocol **23**. File: `Resources/MenuButtons/multiplayer_idle_sm.png`.
+
+## 0.7.60 — Clean MULTIPLAYER idle (2026-08-08)
+
+Cursed stale look was the procedural bevel morph (ghost lines through stems, muddy counters). Hover was fine.
+
+Idle is now a recolor of the **hover solid glyph** (silver gradient + 1px SE lip + top highlight) — same pixels as perfect hover letters, no bloom.
+
+Protocol **23**. File: `Resources/MenuButtons/multiplayer_idle_sm.png`.
+
+## 0.7.59 — Idle MULTIPLAYER = hover glyph (clean) (2026-08-08)
+
+Idle was still a separate AI sprite (wider silhouette + bright fringe “glitch” pixels). Hover looked correct.
+
+- Rebuild idle from the **hover solid-letter mask** (same footprint), silver gradient + short SE bevel, **binary alpha** (no fringe).
+- Hitbox still follows idle opaque UVs (= hover face).
+
+Protocol **23**. File: `Resources/MenuButtons/multiplayer_idle_sm.png`.
+
+## 0.7.58 — MULTIPLAYER hitbox follows glyph (2026-08-08)
+
+0.7.57 shrunk idle art inside the padded canvas but the hitbox still used the full quad (including empty margins). Now fits the collider to idle opaque UVs so click/hover match the visible letters.
+
+Protocol **23**. Files: `MainMenuMultiplayerInject.cs`, `MenuButtonArt.cs`.
+
+## 0.7.57 — MULTIPLAYER idle size matches hover (2026-08-08)
+
+Idle wordmark was wider in the shared texture than the hover glyph core, so stale looked bigger than hover-on. Idle core scaled down and centered on the hover core; same quad, no jump on rollover.
+
+Protocol **23**. File: `Resources/MenuButtons/multiplayer_idle_sm.png`.
+
+## 0.7.56 — Menu button hitboxes (2026-08-08)
+
+Hover/click used the cloned **EXIT** `BoxCollider`, which is too narrow for MULTIPLAYER art and too large for Options-sized HOST/JOIN rows.
+
+- `FitButtonHitbox` resizes the root collider to the visible art/label bounds (with raycast thickness + small pad).
+- Applied on title MULTIPLAYER, every panel row, label text changes (join progress), and title relayout.
+
+Protocol **23**. Files: `MainMenuMultiplayerInject.cs`, `MenuButtonArt.cs`.
+
+## 0.7.55 — Title MULTIPLAYER art polish (2026-08-08)
+
+Matched title MULTIPLAYER sprites to native OPTIONS from playtest crops:
+
+- **Idle:** regenerated bevelled silver wordmark closer to OPTIONS (gradient + crisp highlight/shadow).
+- **Hover:** bright white letters + soft outer bloom (was cream/flat); no yellow tint.
+- Idle/hover share one canvas so swap does not stretch; size accounts for bloom padding so letter faces stay OPTIONS-tall (~82% of title row).
+
+Protocol **23**. Files: `Resources/MenuButtons/multiplayer_*_sm.png`, `MenuButtonArt.cs`.
+
+## 0.7.54 — Title art scale + panel hover (2026-08-08)
+
+- **MULTIPLAYER art too small:** sized off undersized collider face (~27px). Now uses title row spacing × resolution (`60 * HeightModifier * 0.72`) and/or quit sprite mesh height so it matches PLAY letter size.
+- **Panel HOST/JOIN too big:** stopped scaling Video/Profiles text up to the title quit hitbox; keep native Options size (shrink-only if wider than hitbox).
+- **Panel hover missing:** idle and rollover were both forced white. Copy Video/Profiles `baseColor`/`rolloverColor` (fallback gray→white).
+
+Protocol **23**. Files: `MenuButtonArt.cs`, `MainMenuMultiplayerInject.cs`.
+
+## 0.7.53 — MULTIPLAYER art size=0 fix (2026-08-08)
+
+Title MULTIPLAYER injected but invisible: art sized from `Collider.bounds.size.y`, which is ~0 on Darkwood's flat CamUI hitboxes → log `size=0.00x0.00`, no text fallback because attach "succeeded".
+
+- Size from `BoxCollider.size × lossyScale` (two largest axes = visible face); reject near-zero and fall back to settings-style text.
+- Same face measure for panel `tk2dTextMesh` fit so HOST/JOIN aren't scaled against a zero AABB axis.
+
+Protocol **23** unchanged. Files: `MenuButtonArt.cs`, `MainMenuMultiplayerInject.cs`.
+
+## 0.7.52 — Menu button art + settings-font panel (2026-08-08)
+
+Visual polish on the title MULTIPLAYER flow. Protocol **23** unchanged.
+
+### Title MULTIPLAYER
+- Idle/hover PNGs (beveled pixel look matching PLAY/OPTIONS refs) embedded and drawn on the title row; hover swaps when `Button.rolledOver`.
+- Sprites are BG-keyed + tight-cropped; scaled by **letter height ≈ 62% of quit hitbox** (width from aspect — longer than PLAY is fine).
+- Render fix: CamUI-facing quad + `tk2d/BlendVertexColor` (earlier MeshRenderer was injected but invisible — collider still worked). Falls back to settings-style text if art/shader fails.
+
+### Panel behind MULTIPLAYER
+- HOST / JOIN / SETTINGS / LAN|Steam rows now clone the **Video/Profiles** `tk2dTextMesh` (outlined white bitmap), not the version string font — same family as Options/Profiles screenshots.
+- Panel label height ≈ **42%** of the title hitbox so they read closer to Options rows than stretched version text.
+
+### Files
+- `MenuButtonArt.cs`, `MainMenuMultiplayerInject.cs`, `Resources/MenuButtons/*`, `DarkwoodMP.Mod.csproj`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.52**, proto **23**)
+
+## 0.7.51 — Multiplayer title menu polish (2026-08-08)
+
+One-pass UX fix for the clunky MULTIPLAYER title flow. Protocol **23** unchanged. No custom title-button sprites.
+
+### Title panel IA
+- After MULTIPLAYER: **HOST / JOIN / SETTINGS / BACK** (DISCONNECT only when online).
+- HOST → LAN | Steam; JOIN → LAN | Steam. RESTORE SELF removed from the title stack (lives under SETTINGS → Advanced).
+
+### Labels + host hint
+- Idle join rows stay **JOIN LAN** / **JOIN STEAM** (no more idle `JOIN GAME`).
+- Progress text (`CONNECTING…`, `ENTER WORLD`, …) only on the active join row; timeout/disconnect resets both.
+- After host: brief on-screen hint + root **HOSTING — LOAD SAVE** when reopening MULTIPLAYER.
+
+### SETTINGS IMGUI
+- Config fields only at top (IP/port/password/lobby). Duplicate Host/Join buttons removed.
+- Invite / Resend / Disconnect / Restore self under **Advanced**. Shorter copy + one-line footer.
+
+### Files
+- `MainMenuMultiplayerInject.cs`, `MultiplayerMenu.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.51**, proto **23**)
+
+## 0.7.50 — Wardrobe loot vanish + client scrape 2× (2026-08-08)
+
+Playtest on 0.7.49: host `Wardrobe_Big_1_Burned` **disappeared** after client looted it; client lamp drag/push scrape felt **doubled**. Protocol **23** unchanged.
+
+### Wardrobe vanished on host
+- `DestroyEmptyItemInvAt` ran after container `RemoveItem` for any empty `itemInv`. Wardrobes/chests use `itemInv` too (not only shiny-stone pickups) → emptying the wardrobe destroyed the furniture GO on the host.
+- **Fix:** only destroy emptied inventories whose `Item.isDroppedItem` is true (vanilla dropped-pickup parity). Furniture containers stay.
+
+### Client drag/push doubled scrape
+- Host logs: body-push MOS thrash on `Lamp_old_yellow_01` while DragSync was live — PhysicsState still streamed claimed/dragged free-bodies beside DragSync, so host armed MOS start/stop; client also ForceStopped native on own DragSync STOP echo.
+- **Fix:** never put drag-claimed / beingDragged objects in PhysicsState snapshots; own DragSync echo skips MOS when locally dragging; own STOP only SoftStops MOS (local ForceStop already ran); host→client PhysicsState also skips while locally dragging that item.
+
+### Files
+- `WorldPhysicsSyncService.cs`, `LanNetworkManager.Handlers.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.50**, proto **23**)
+
+## 0.7.49 — Crow despawn ghosts + dog floaty roam (2026-08-08)
+
+Playtest: client saw far un-aggroed dogs **sliding with no anim**; scaring corpse crows fled then **froze as client-only ghosts** (host still had crows on the body; host could not see the stale crow). **Protocol 23** (`EntityDespawn` — both boxes need this DLL).
+
+### Crow / flee wildlife ghosts
+- Host `Character.removeMe` (flee-despawn / temp cull) never told the client. EntityState stopped, but `_everHostSyncedIds` blocked unmatched cleanup → permanent frozen birds.
+- **Fix:** host broadcasts `EntityDespawn` on `removeMe`; client destroys that id immediately. Stale host-synced alive entities (no snaps for ~5s) are destroyed too (corpses spared).
+
+### Dog floaty roam (client)
+- Client AI is off — presentation is host clip only. Dual-`Play` of the body clip onto `legsAnimator` fought vanilla `animator.legs` linkage and froze walk cycles until aggro clips took over.
+- Host near-remote snapshots now prefer `clipToPlay` and `enableComponents(true)` when `isActive`/animator were off after WorldGrid edge cases.
+
+### Files
+- `ClientEntityInterpolationService.cs`, `EntityStateBroadcastService.cs`, `HostAIPatches.cs`, `LanNetworkManager*.cs`, `WorldMessages.cs`, `NetMessageType.cs`
+- `PluginInfo.cs` / `AssemblyInfo.cs` (**0.7.49**, proto **23**)
 
 ## 0.7.48 — CI fix (2026-08-06)
 

@@ -303,7 +303,12 @@ namespace DWMPHorde.Networking
         /// Protocol 22 — both boxes need this DLL.
         /// </summary>
         LocationTransport = 131,
+        /// <summary>
+        /// Host→clients: Character.removeMe / despawn (fled crows, temp wildlife).
+        /// Protocol 23 — both boxes need this DLL.
+        /// </summary>
+        [Forwardable] EntityDespawn = 132,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 131
+        _Highest = 132
     }
 }
