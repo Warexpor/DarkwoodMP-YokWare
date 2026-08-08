@@ -81,23 +81,18 @@ public class PathBStructureTests
     }
 
     [Fact]
-    public void InventoryDoc_CoversMustKeepProductItems()
+    public void ShipReadme_CoversMustKeepProductItems()
     {
-        var inv = Path.Combine(RepoRoot, "docs", "PATH_B_FEATURE_INVENTORY.md");
-        Assert.True(File.Exists(inv), "Missing docs/PATH_B_FEATURE_INVENTORY.md");
-        var text = File.ReadAllText(inv);
+        var text = File.ReadAllText(Path.Combine(RepoRoot, "README.md"));
         foreach (var must in new[]
                  {
-                     "Dedicated server",
-                     "Ironbark",
                      "MelonLoader",
                      "Chat",
-                     "SyncCheck",
-                     "ItemState",
-                     "ClientStateBackup",
                      "GPLv3",
-                     "present-in-horde",
-                     "deferred",
+                     "world save share",
+                     "Ironbark",
+                     "BepInEx",
+                     "host grant",
                  })
         {
             Assert.Contains(must, text, StringComparison.OrdinalIgnoreCase);
