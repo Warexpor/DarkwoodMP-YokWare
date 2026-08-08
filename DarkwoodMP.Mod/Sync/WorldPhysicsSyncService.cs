@@ -263,11 +263,17 @@ namespace DWMPHorde.Sync
                 if (IsSceneFixedLightItem(rootGo)) continue;
 
                 Item itemComp = rootGo.GetComponent<Item>();
-                if (itemComp != null && itemComp.beingDragged)
-                {
-                    if (net != null && net._dragClaims.ContainsKey(rootName))
-                        continue;
-                }
+                // E-drag is DragSync-only. Never stream claimed / beingDragged free-bodies
+                // as PhysicsState — that armed host body-push MOS beside DragSync scrape
+                // (start/stop thrash) and could echo MOS onto the dragging client.
+                if (net != null && !string.IsNullOrEmpty(rootName)
+                    && (net._dragClaims.ContainsKey(rootName)
+                        || net._remoteDragItemNames.Contains(rootName)))
+                    continue;
+                if (itemComp != null && (itemComp.beingDragged
+                    || (Player.Instance != null && Player.Instance.dragging
+                        && Player.Instance.itemBeingDragged == itemComp)))
+                    continue;
 
                 if (net != null && net._remoteDragItemIds.Contains(rootId))
                     continue;
@@ -1047,6 +1053,15 @@ namespace DWMPHorde.Sync
                         bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
                             && echoNet._dragClaims.TryGetValue(obj.Name, out int claimPid)
                             && claimPid == echoNet.LocalPlayerId;
+                        bool localDraggingItem = false;
+                        try
+                        {
+                            Player lp = Player.Instance;
+                            localDraggingItem = lp != null && lp.dragging && lp.itemBeingDragged != null
+                                && string.Equals(lp.itemBeingDragged.gameObject.name, obj.Name,
+                                    StringComparison.Ordinal);
+                        }
+                        catch { /* dismantled */ }
                         // Client free-body: if we're the one sending PhysicsState for it, host
                         // echo must never arm MOS (native ItemSounds already plays — double scrape).
                         bool clientLocalFreeBody = echoNet != null
@@ -1056,6 +1071,7 @@ namespace DWMPHorde.Sync
                                 || ItemMovingSoundHelper.HasRecentPushAuthority(obj.Name)
                                 || ItemMovingSoundHelper.HasRecentClientPhysicsSent(obj.Name));
                         if (localDragClaim
+                            || localDraggingItem
                             || clientLocalFreeBody
                             || (!string.IsNullOrEmpty(obj.Name)
                                 && ItemMovingSoundHelper.IsLocalPushOrDragOwner(obj.Name)))
@@ -1502,12 +1518,22 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// After a remote peer emptied an itemInv world pickup, destroy the visual GO if slots are empty.
+        /// After a remote peer emptied an itemInv <b>world pickup</b> (shiny stone etc.),
+        /// destroy the visual GO if slots are empty.
+        /// Furniture containers (wardrobes, chests) also use <c>itemInv</c> — never destroy those.
+        /// Vanilla only auto-destroys emptied <see cref="Item.isDroppedItem"/> pickups.
         /// </summary>
         public static void DestroyEmptyItemInvAt(Vector3 pos)
         {
             Inventory inv = WorldQueryHelper.FindInventoryByPos(pos, 3f);
             if (inv == null || inv.invType != Inventory.InvType.itemInv) return;
+
+            // Wardrobes / chests / desks share itemInv with ground pickups. Only
+            // destroy emptied dropped-item pickups (getDroppedItem parity).
+            Item item = inv.GetComponent<Item>() ?? inv.GetComponentInParent<Item>();
+            if (item == null || !item.isDroppedItem)
+                return;
+
             if (inv.slots != null)
             {
                 for (int i = 0; i < inv.slots.Count; i++)

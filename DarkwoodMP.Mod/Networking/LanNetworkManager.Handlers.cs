@@ -1383,16 +1383,19 @@ namespace DWMPHorde.Networking
                 _dragEndedAt.Remove(msg.ObjectName);
             }
 
+            bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
+                Player.Instance.itemBeingDragged != null &&
+                string.Equals(Player.Instance.itemBeingDragged.gameObject.name, msg.ObjectName,
+                    System.StringComparison.Ordinal);
+
             // Own DragSync echo (host rebroadcast): native ItemSounds already owns scrape —
             // applying MOS here doubles the sound for the dragging client.
-            if (msg.IsDragging && msg.ClaimedByPlayerId == LocalPlayerId)
+            if (msg.IsDragging
+                && (msg.ClaimedByPlayerId == LocalPlayerId || locallyDraggingThis))
                 return;
 
             // If a remote player claims an item we're dragging, force-stop our
             // drag to resolve the conflict and prevent double-drag desync.
-            bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
-                Player.Instance.itemBeingDragged != null &&
-                Player.Instance.itemBeingDragged.gameObject.name == msg.ObjectName;
             if (locallyDraggingThis && msg.IsDragging
                 && msg.ClaimedByPlayerId >= 0 && msg.ClaimedByPlayerId != LocalPlayerId)
             {
@@ -1404,13 +1407,30 @@ namespace DWMPHorde.Networking
 
             if (!msg.IsDragging)
             {
-                // Intentional end: kill native ItemSounds residual + MOS with snappy fade.
-                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(msg.ObjectName);
-                // Host: same intentional stop signal as body-push so residual PhysicsState
-                // after claim clear cannot re-arm scrape on observers.
-                if (_role == NetworkRole.Host && !string.IsNullOrEmpty(msg.ObjectName))
-                    NotifyBodyPushStopped(msg.ObjectName);
-                ModRuntime.LegacyInfo("[DragSync] STOP IsDragging=false for " + msg.ObjectName + " — ForceStopByName issued");
+                bool ownStop = msg.ClaimedByPlayerId == LocalPlayerId
+                    || locallyDraggingThis
+                    || (_dragClaims.TryGetValue(msg.ObjectName ?? "", out int stopClaim)
+                        && stopClaim == LocalPlayerId)
+                    || DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName);
+
+                if (ownStop)
+                {
+                    // Local owner already ForceStopped on release — only kill residual MOS.
+                    // ForceStopByName here zeroed RB + re-armed suppress while native still
+                    // owned scrape on the next residual PhysicsState (felt like 2× scrape).
+                    DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
+                }
+                else
+                {
+                    // Intentional end for observers: kill native residual + MOS.
+                    DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(msg.ObjectName);
+                    // Host: same intentional stop signal as body-push so residual PhysicsState
+                    // after claim clear cannot re-arm scrape on observers.
+                    if (_role == NetworkRole.Host && !string.IsNullOrEmpty(msg.ObjectName))
+                        NotifyBodyPushStopped(msg.ObjectName);
+                    ModRuntime.LegacyInfo("[DragSync] STOP IsDragging=false for " + msg.ObjectName + " — ForceStopByName issued");
+                }
+
                 _lastDragSyncPos.Remove(msg.ObjectName);
                 CleanupSpawnedDragProxy(msg.ObjectName);
                 // Remove remote-drag tracking for items of this name so
@@ -2632,8 +2652,8 @@ namespace DWMPHorde.Networking
                             slot.invItem.removeAmount(msg.Amount);
                         }
 
-                        // World itemInv pickups (shiny stone): empty inventory still leaves the GO.
-                        // Destroy visual so peer no longer sees a ghost that cannot be taken.
+                        // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
+                        // DestroyEmptyItemInvAt only destroys Item.isDroppedItem — not wardrobes/chests.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
@@ -5452,6 +5472,19 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             Broadcast(NetMessageType.ThrowableDespawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        public void SendEntityDespawn(short entityId)
+        {
+            if (_role != NetworkRole.Host || !IsConnected || entityId == 0) return;
+            var msg = new EntityDespawnMessage { EntityId = entityId };
+            Broadcast(NetMessageType.EntityDespawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        private void HandleEntityDespawn(EntityDespawnMessage msg)
+        {
+            if (_role != NetworkRole.Client) return;
+            ClientEntityInterpolationService.ApplyHostDespawn(msg.EntityId);
         }
 
         private void HandleThrowableDespawn(ThrowableDespawnMessage msg)

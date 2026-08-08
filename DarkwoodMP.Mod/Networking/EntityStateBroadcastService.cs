@@ -158,12 +158,41 @@ namespace DWMPHorde.Networking
         private static bool TryBuildSnapshot(Character c, Vector3 cPos, out EntitySnapshotNet snap)
         {
             snap = default;
+
+            // Near a remote: WorldGrid edge cases can leave isActive/animator off while the
+            // GO is still tracked — client then gets empty clips + sliding sprites. Wake
+            // presentation components so processAnims can own Walk/Idle again.
+            if (c.alive
+                && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, PriorityDistance * PriorityDistance)
+                && (!c.isActive || (c.animator != null && !c.animator.enabled)))
+            {
+                try
+                {
+                    if (!c.gameObject.activeSelf)
+                        c.gameObject.SetActive(true);
+                    c.enableComponents(true);
+                }
+                catch { /* dismantled mid-frame */ }
+            }
+
             // Prefer Character.animator (cached body) over raw GetComponent for presentation.
             tk2dSpriteAnimator anim = null;
             try { anim = c.animator; } catch { /* dismantled */ }
             if (anim == null)
                 anim = c.GetComponent<tk2dSpriteAnimator>();
-            string clip = anim != null && anim.CurrentClip != null ? anim.CurrentClip.name : "";
+
+            // clipToPlay is what processAnims decided this frame; CurrentClip can be null
+            // after enableComponents / SetActive cycles while clipToPlay is still Walk/Idle.
+            string clip = "";
+            try
+            {
+                if (!string.IsNullOrEmpty(c.clipToPlay))
+                    clip = c.clipToPlay;
+            }
+            catch { /* odd prefab */ }
+            if (string.IsNullOrEmpty(clip) && anim != null && anim.CurrentClip != null)
+                clip = anim.CurrentClip.name;
+
             short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
             Vector3 rot = c.transform.eulerAngles;
 

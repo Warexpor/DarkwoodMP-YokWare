@@ -33,7 +33,7 @@ public class PathBStructureTests
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
         Assert.Contains("Version = \"0.7.", text);
-        Assert.Contains("ProtocolVersion = 22", text);
+        Assert.Contains("ProtocolVersion = 23", text);
         Assert.Contains("Horde", text);
     }
 

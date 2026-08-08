@@ -367,7 +367,7 @@ public class AuditStructureTests
     public void Wire_PathBIsProtocol19_VersionIs07x_Not10()
     {
         var plugin = ReadMod("PluginInfo.cs");
-        Assert.Contains("ProtocolVersion = 22", plugin);
+        Assert.Contains("ProtocolVersion = 23", plugin);
         Assert.Contains("Horde", plugin);
         Assert.Contains("Version = \"0.7.", plugin);
         Assert.DoesNotContain("Version = \"1.0", plugin);
@@ -505,8 +505,8 @@ public class AuditStructureTests
         Assert.Contains("VoiceData = 129", netTypes);
         Assert.Contains("ActivateCursorAction = 130", netTypes);
         Assert.Contains("LocationTransport = 131", netTypes);
-        Assert.Contains("_Highest = 131", netTypes);
-        Assert.Contains("ProtocolVersion = 22", ReadMod("PluginInfo.cs"));
+        Assert.Contains("_Highest = 132", netTypes);
+        Assert.Contains("ProtocolVersion = 23", ReadMod("PluginInfo.cs"));
 
         var worldMsgs = ReadMod("Networking", "Messages", "WorldMessages.cs");
         Assert.Contains("FeederStateMessage", worldMsgs);
@@ -576,10 +576,16 @@ public class AuditStructureTests
         var hostMig = ReadMod("Networking", "HostMigration.cs");
         Assert.Contains("TryBeginHostMigration", hostMig);
         Assert.Contains("PromoteLocalToHost", hostMig);
+        Assert.Contains("PromoteLocalToSteamHost", hostMig);
+        Assert.Contains("ConnectSteamPreservingId", hostMig);
         Assert.Contains("BroadcastPeerRoster", hostMig);
         Assert.Contains("TryGracefulHostLeave", hostMig);
         Assert.Contains("ReclaimSimulationAuthorityAfterPromote", hostMig);
         Assert.Contains("HostMigrationPolicy.ElectNewHost", hostMig);
+        var steamTransport = ReadMod("Networking", "Steam", "SteamCoopTransport.cs");
+        Assert.Contains("BeginHostingAfterMigration", steamTransport);
+        Assert.Contains("ConnectP2PDirect", steamTransport);
+        Assert.Contains("ArmMigrationAllowlist", steamTransport);
         Assert.Contains("PeerRoster", netTypes);
         Assert.Contains("HostHandoff", netTypes);
         Assert.Contains("HostMigrationEnabled", ReadMod("Config", "ModConfig.cs"));

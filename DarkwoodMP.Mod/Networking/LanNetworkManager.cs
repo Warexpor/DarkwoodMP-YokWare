@@ -1950,6 +1950,9 @@ namespace DWMPHorde.Networking
                         case NetMessageType.EntityState:
                             HandleEntityState(EntityStateMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.EntityDespawn:
+                            HandleEntityDespawn(EntityDespawnMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.PlayerAttack:
                             HandlePlayerAttack(PlayerAttackMessage.Deserialize(new NetReader(payload)));
                             break;

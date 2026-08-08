@@ -10,8 +10,8 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 | **Project (repo)** | `C:\MyProjects\DarkwoodMP-YokWare` |
 | **Host game (Steam)** | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood` |
 | **Client game (SecondDarkwood)** | `C:\MyProjects\SecondDarkwood\Darkwood` (**GOG** Galaxy build — not Steam) |
-| **Vanilla decompile** | `C:\Users\amicu\Desktop\Darkwood DECOMPILED` |
-| **Decompile C#** | `C:\Users\amicu\Desktop\Darkwood DECOMPILED\Scripts\Assembly-CSharp` |
+| **Vanilla decompile** | `C:\Users\amicu\Desktop\Dev\Darkwood DECOMPILED` |
+| **Decompile C#** | `C:\Users\amicu\Desktop\Dev\Darkwood DECOMPILED\Scripts\Assembly-CSharp` |
 | **Host BepInEx / log** | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood\BepInEx\` → `LogOutput.log` |
 | **Client BepInEx / log** | `C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\` → `LogOutput.log` |
 | **Host plugin deploy** | `...\Darkwood\BepInEx\plugins\DarkwoodMP.Mod.dll` |
@@ -39,9 +39,9 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.7.x** (current **0.7.48**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.7.x** (current **0.7.61**). Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
-- **Protocol:** 22 (keep both installs same DLL)
+- **Protocol:** 23 (keep both installs same DLL)
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.
   → `Object.FindObjectsOfType<T>(includeInactive: true)` is valid; prefer it for

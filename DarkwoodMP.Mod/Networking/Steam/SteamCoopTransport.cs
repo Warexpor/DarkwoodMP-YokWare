@@ -67,12 +67,20 @@ namespace DWMPHorde.Networking.Steam
         private struct PendingHostConnect { public HSteamNetConnection Conn; public DateTime Since; }
         private readonly Dictionary<ulong, PendingHostConnect> _pendingHostConnects = new Dictionary<ulong, PendingHostConnect>();
 
+        /// <summary>
+        /// Steam IDs allowed to ConnectP2P during host-grant (roster survivors).
+        /// Covers crash migration when the old lobby is gone and peers are not members yet.
+        /// </summary>
+        private readonly HashSet<ulong> _migrationAllow = new HashSet<ulong>();
+        private DateTime _migrationAllowUntilUtc = DateTime.MinValue;
+
         public bool IsActive => _active;
         public bool IsHosting => _hosting;
         public CSteamID LobbyId => _lobbyId;
         public CSteamID HostSteamId => _hostSteamId;
         public string LobbyIdString => _lobbyId.IsValid() ? _lobbyId.m_SteamID.ToString() : "";
         public ulong PendingLaunchLobby => _pendingLaunchLobby;
+        public const int MigrationVirtualPort = VirtualPort;
 
         public SteamCoopTransport(LanNetworkManager owner)
         {
@@ -267,9 +275,9 @@ namespace DWMPHorde.Networking.Steam
             return false;
         }
 
-        public void Shutdown()
+        public void Shutdown(bool leaveLobby = true)
         {
-            ShutdownInternal(leaveLobby: true);
+            ShutdownInternal(leaveLobby);
         }
 
         private void ShutdownInternal(bool leaveLobby)
@@ -295,13 +303,18 @@ namespace DWMPHorde.Networking.Steam
                 _pollGroup = HSteamNetPollGroup.Invalid;
             }
 
-            if (leaveLobby && _lobbyId.IsValid())
+            if (leaveLobby)
             {
-                try { SteamMatchmaking.LeaveLobby(_lobbyId); }
-                catch { /* tear */ }
+                if (_lobbyId.IsValid())
+                {
+                    try { SteamMatchmaking.LeaveLobby(_lobbyId); }
+                    catch { /* tear */ }
+                }
+                _lobbyId = CSteamID.Nil;
+                _migrationAllow.Clear();
+                _migrationAllowUntilUtc = DateTime.MinValue;
             }
 
-            _lobbyId = CSteamID.Nil;
             _hostSteamId = CSteamID.Nil;
             _serverConn = HSteamNetConnection.Invalid;
             _active = false;
@@ -310,6 +323,191 @@ namespace DWMPHorde.Networking.Steam
             _clientConnectStartedUtc = DateTime.MinValue;
             _reliableOutbox.Clear();
             _pendingHostConnects.Clear();
+        }
+
+        /// <summary>
+        /// Host-grant: allow roster Steam IDs to ConnectP2P without lobby membership.
+        /// </summary>
+        public void ArmMigrationAllowlist(IEnumerable<ulong> steamIds, double seconds = 45)
+        {
+            _migrationAllow.Clear();
+            if (steamIds != null)
+            {
+                foreach (ulong id in steamIds)
+                {
+                    if (id != 0)
+                        _migrationAllow.Add(id);
+                }
+            }
+            _migrationAllowUntilUtc = DateTime.UtcNow.AddSeconds(seconds);
+            ModLog.Event(LogCat.Network,
+                "Steam migration allowlist armed n=" + _migrationAllow.Count
+                + " for " + seconds.ToString("0") + "s");
+        }
+
+        private bool MigrationAllows(CSteamID steamId)
+        {
+            if (!steamId.IsValid())
+                return false;
+            if (DateTime.UtcNow > _migrationAllowUntilUtc)
+                return false;
+            return _migrationAllow.Contains(steamId.m_SteamID);
+        }
+
+        /// <summary>Graceful leave: pass lobby ownership before the old host disconnects.</summary>
+        public bool TransferLobbyOwner(CSteamID newOwner)
+        {
+            if (!_lobbyId.IsValid() || !newOwner.IsValid())
+                return false;
+            try
+            {
+                bool ok = SteamMatchmaking.SetLobbyOwner(_lobbyId, newOwner);
+                ModLog.Event(LogCat.Network,
+                    "Steam SetLobbyOwner → " + newOwner.m_SteamID + " ok=" + ok);
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "SetLobbyOwner failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Host-grant promote: listen on SNS; keep existing lobby if still a member, else CreateLobby.
+        /// Caller must already have torn the client SNS role (Shutdown leaveLobby:false).
+        /// </summary>
+        public bool BeginHostingAfterMigration()
+        {
+            if (!IsSteamReady(out string fail))
+            {
+                ModLog.Error(LogCat.Network, "Steam promote failed: " + fail);
+                return false;
+            }
+
+            EnsureCallbacks();
+            CloseAllConnections();
+            if (_listenSocket != HSteamListenSocket.Invalid)
+            {
+                try { SteamNetworkingSockets.CloseListenSocket(_listenSocket); }
+                catch { /* tear */ }
+                _listenSocket = HSteamListenSocket.Invalid;
+            }
+            if (_pollGroup != HSteamNetPollGroup.Invalid)
+            {
+                try { SteamNetworkingSockets.DestroyPollGroup(_pollGroup); }
+                catch { /* tear */ }
+                _pollGroup = HSteamNetPollGroup.Invalid;
+            }
+
+            SteamRelay.WarmRelay();
+            if (!CreateListenSocket())
+                return false;
+
+            _hosting = true;
+            _active = true;
+            _hostSteamId = LocalSteamId();
+            _clientTransportReady = false;
+            _clientConnectStartedUtc = DateTime.MinValue;
+
+            if (_lobbyId.IsValid() && IsLocalInLobby(_lobbyId))
+            {
+                try
+                {
+                    CSteamID owner = SteamMatchmaking.GetLobbyOwner(_lobbyId);
+                    if (owner != LocalSteamId())
+                        SteamMatchmaking.SetLobbyOwner(_lobbyId, LocalSteamId());
+                }
+                catch (Exception ex)
+                {
+                    ModLog.Warn(LogCat.Network, "Promote SetLobbyOwner: " + ex.Message);
+                }
+                ApplyHostLobbyData();
+                _owner.OnSteamLobbyReady(_lobbyId, isHost: true);
+                ModLog.Event(LogCat.Network,
+                    "Steam promote: hosting existing lobby " + _lobbyId.m_SteamID);
+                return true;
+            }
+
+            _lobbyId = CSteamID.Nil;
+            int max = Mathf.Clamp(ModConfig.MaxPlayers?.Value ?? 8, 2, 16);
+            ELobbyType lobbyType = ResolveLobbyType();
+            SteamAPICall_t call = SteamMatchmaking.CreateLobby(lobbyType, max);
+            _crLobbyCreated.Set(call);
+            ModLog.Event(LogCat.Network,
+                "Steam promote: CreateLobby (old lobby gone) type=" + lobbyType);
+            return true;
+        }
+
+        /// <summary>
+        /// Host-grant reconnect: ConnectP2P to elected host Steam ID (lobby optional).
+        /// </summary>
+        public bool ConnectP2PDirect(CSteamID hostSteamId)
+        {
+            if (!IsSteamReady(out string fail))
+            {
+                ModLog.Error(LogCat.Network, "Steam migration connect failed: " + fail);
+                return false;
+            }
+            if (!hostSteamId.IsValid() || hostSteamId == LocalSteamId())
+            {
+                ModLog.Error(LogCat.Network, "Steam migration connect: bad host steam id");
+                return false;
+            }
+
+            EnsureCallbacks();
+            CloseAllConnections();
+            if (_listenSocket != HSteamListenSocket.Invalid)
+            {
+                try { SteamNetworkingSockets.CloseListenSocket(_listenSocket); }
+                catch { /* tear */ }
+                _listenSocket = HSteamListenSocket.Invalid;
+            }
+            if (_pollGroup != HSteamNetPollGroup.Invalid)
+            {
+                try { SteamNetworkingSockets.DestroyPollGroup(_pollGroup); }
+                catch { /* tear */ }
+                _pollGroup = HSteamNetPollGroup.Invalid;
+            }
+
+            SteamRelay.WarmRelay();
+            _hosting = false;
+            _active = true;
+            _clientTransportReady = false;
+            _hostSteamId = hostSteamId;
+
+            SteamNetworkingIdentity identity = default;
+            identity.SetSteamID(hostSteamId);
+            _serverConn = SteamNetworkingSockets.ConnectP2P(ref identity, VirtualPort, 0, null);
+            if (_serverConn == HSteamNetConnection.Invalid)
+            {
+                ModLog.Error(LogCat.Network, "ConnectP2PDirect failed");
+                return false;
+            }
+
+            _clientConnectStartedUtc = DateTime.UtcNow;
+            ModLog.Event(LogCat.Network,
+                "Steam migration ConnectP2P → " + hostSteamId.m_SteamID
+                + " lobby=" + (_lobbyId.IsValid() ? _lobbyId.m_SteamID.ToString() : "none"));
+            return true;
+        }
+
+        private static bool IsLocalInLobby(CSteamID lobbyId)
+        {
+            if (!lobbyId.IsValid())
+                return false;
+            try
+            {
+                CSteamID self = LocalSteamId();
+                int n = SteamMatchmaking.GetNumLobbyMembers(lobbyId);
+                for (int i = 0; i < n; i++)
+                {
+                    if (SteamMatchmaking.GetLobbyMemberByIndex(lobbyId, i) == self)
+                        return true;
+                }
+            }
+            catch { /* steam tear */ }
+            return false;
         }
 
         private void CloseAllConnections()
@@ -594,7 +792,12 @@ namespace DWMPHorde.Networking.Steam
 
         private bool LobbyAllowsSteamId(CSteamID steamId)
         {
-            if (!_lobbyId.IsValid() || !steamId.IsValid())
+            if (!steamId.IsValid())
+                return false;
+            // Host-grant survivors reconnect by Steam ID before (re)joining the lobby.
+            if (MigrationAllows(steamId))
+                return true;
+            if (!_lobbyId.IsValid())
                 return false;
             int n = SteamMatchmaking.GetNumLobbyMembers(_lobbyId);
             for (int i = 0; i < n; i++)

@@ -519,9 +519,17 @@ namespace DWMPHorde.Networking
 
             ApplyClipToAnimator(body, entityId, clip, clipFrame, alive: true, trackDeath: false);
 
-            tk2dSpriteAnimator legs = c.legsAnimator;
+            // Dogs/NPCs wire animator.legs = legsAnimator — body Play drives linked legs.
+            // Dual-Play(bodyClip) on legs freezes walk cycles (floaty roam until aggro).
+            tk2dSpriteAnimator legs = null;
+            try { legs = c.legsAnimator; } catch { /* dismantled */ }
             if (legs != null && legs != body)
-                ApplyClipToAnimator(legs, entityId, clip, clipFrame, alive: true, trackDeath: false);
+            {
+                bool linked = false;
+                try { linked = body != null && body.legs == legs; } catch { /* no .legs */ }
+                if (!linked)
+                    ApplyClipToAnimator(legs, entityId, clip, clipFrame, alive: true, trackDeath: false);
+            }
         }
 
         private static tk2dSpriteAnimator ResolveBodyAnimator(Character c)
@@ -636,6 +644,8 @@ namespace DWMPHorde.Networking
                 // → floaty roam sprites until clip name changes (aggro). Restart if stopped.
                 if ((clipChanged || !anim.Playing) && anim.GetClipByName(clip) != null)
                 {
+                    if (!anim.enabled)
+                        anim.enabled = true;
                     anim.Play(clip);
 
                     // Align only at clip boundaries (start of attack/hitreact).
@@ -916,10 +926,20 @@ namespace DWMPHorde.Networking
                         _displayRotations.Remove(id);
                         _hostSyncedIds.Remove(id);
                         _spawnedPhantomIds.Remove(id);
+                        _everHostSyncedIds.Remove(id);
                     }
                     else if (!isPhantom && state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
                     {
-                        if (staleChar != null)
+                        // Host stopped streaming (removeMe / left world). Previously we only
+                        // dropped interp state — _everHostSyncedIds kept the GO forever →
+                        // frozen crow/dog ghosts the host no longer has.
+                        if (staleChar != null && staleChar.alive && staleChar.GetComponent<Item>() == null)
+                        {
+                            if (ModRuntime.VerboseLogging)
+                                ModRuntime.LegacyInfo($"[Entity] destroying stale host-synced: {staleChar.name}(id={id})");
+                            Object.Destroy(staleChar.gameObject);
+                        }
+                        else if (staleChar != null)
                         {
                             Rigidbody rb = staleChar.GetComponent<Rigidbody>();
                             if (rb != null)
@@ -929,6 +949,7 @@ namespace DWMPHorde.Networking
                         _displayPositions.Remove(id);
                         _displayRotations.Remove(id);
                         _hostSyncedIds.Remove(id);
+                        _everHostSyncedIds.Remove(id);
                     }
                     continue;
                 }
@@ -1129,6 +1150,37 @@ namespace DWMPHorde.Networking
         }
 
         private static float _firstSnapshotTime;
+
+        /// <summary>
+        /// Host Character.removeMe — destroy the matching client GO immediately.
+        /// </summary>
+        public static void ApplyHostDespawn(short entityId)
+        {
+            if (entityId == 0) return;
+
+            Character c = CharacterTracker.FindByStableId(entityId);
+            // Never despawn lootable corpses via removeMe echo.
+            if (c != null && (!c.alive || c.GetComponent<Item>() != null))
+                return;
+
+            _states.Remove(entityId);
+            _displayPositions.Remove(entityId);
+            _displayRotations.Remove(entityId);
+            _hostSyncedIds.Remove(entityId);
+            _spawnedPhantomIds.Remove(entityId);
+            _everHostSyncedIds.Remove(entityId);
+            _audioStoppedIds.Remove(entityId);
+            _deathAnimationPlayed.Remove(entityId);
+            _localHitEchoIgnoreUntil.Remove(entityId);
+            _localDeathSoundPlayed.Remove(entityId);
+
+            if (c != null && c.gameObject != null)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo($"[Entity] host despawn: {c.name}(id={entityId})");
+                Object.Destroy(c.gameObject);
+            }
+        }
 
         private static void EnsureEntityAwake(Character c)
         {

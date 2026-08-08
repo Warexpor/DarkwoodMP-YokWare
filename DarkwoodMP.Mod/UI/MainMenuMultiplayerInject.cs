@@ -8,19 +8,18 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Native tk2d title MULTIPLAYER button — <b>Yokyy presentation</b>, hardened lifecycle.
-    ///
-    /// Presentation (do not freestyle):
-    ///   clone quitBtn → strip LocalizedText/sprites → root collider only →
-    ///   tk2dTextMesh label from MainMenu.CurrentVersion → PositionMe.offset + init().
-    ///
-    /// Lifecycle (this overhaul):
-    ///   edge-triggered inject when Menu0 becomes showable; one owned GO;
-    ///   DestroyImmediate purge of our tags only (no scene-wide Find spam);
-    ///   never stack; heal wiring without rebuilding when still interactive.
+    /// Native tk2d title MULTIPLAYER button — Host/Join doors, then LAN|Steam.
+    /// Presentation: clone quitBtn → strip LocalizedText/sprites → tk2dTextMesh from CurrentVersion.
     /// </summary>
     public static class MainMenuMultiplayerInject
     {
+        private enum PanelView
+        {
+            Root,
+            Host,
+            Join
+        }
+
         private const string MpButtonName = "YokWare_MultiplayerBtn";
         private const string PanelName = "YokWare_MenuPanel";
         private const string LabelName = "YokWare_Label";
@@ -29,16 +28,34 @@ namespace DWMPHorde
         private const string TagKindRow = "row";
 
         private const float RowSpacing = 60f;
+        /// <summary>Nudge title MULTIPLAYER up toward EXIT (PositionMe offset units).</summary>
+        private const float MpButtonNudgeUp = 16f;
+        /// <summary>HOST/JOIN panel rows — tighter than title RowSpacing.</summary>
+        private const float PanelRowSpacing = 46f;
+        /// <summary>Panel tk2d labels vs Video/Profiles native size.</summary>
+        private const float PanelLabelScale = 0.70f;
         private const int UiPollInterval = 15;
         private const float JoinTimeoutSec = 15f;
-        /// <summary>Steam SNS: lobby enter + ConnectP2P (20s) + handshake headroom.</summary>
         private const float SteamJoinTimeoutSec = 35f;
 
         private static MainMenu _menu;
         private static GameObject _mpButton;
         private static GameObject _panel;
-        private static GameObject _joinButton;
+
+        private static GameObject _hostDoorBtn;
+        private static GameObject _joinDoorBtn;
+        private static GameObject _settingsBtn;
         private static GameObject _disconnectButton;
+        private static GameObject _backRootBtn;
+        private static GameObject _hostLanBtn;
+        private static GameObject _hostSteamBtn;
+        private static GameObject _joinLanBtn;
+        private static GameObject _joinSteamBtn;
+        private static GameObject _backSubBtn;
+
+        private static PanelView _panelView = PanelView.Root;
+        private static bool _joinViaSteam;
+        private static bool _hostingHint;
 
         private static bool _joinPending;
         private static float _joinStartedAt;
@@ -48,12 +65,14 @@ namespace DWMPHorde
         private static bool _worldRequest25sSent;
         private static int _lastUiPoll;
 
-        /// <summary>Menu0 instance id we last injected for (scene rebuild → re-inject).</summary>
         private static int _boundMenu0Id;
         private static int _lastScreenW;
         private static int _lastScreenH;
         private static bool _menu0WasActive;
         private static bool _launchLobbyTried;
+
+        private static GameObject ActiveJoinButton =>
+            _joinViaSteam ? _joinSteamBtn : _joinLanBtn;
 
         public static void OnUpdate()
         {
@@ -85,14 +104,13 @@ namespace DWMPHorde
         }
 
         // ------------------------------------------------------------------
-        // Lifecycle (ownership, no inject storms)
+        // Lifecycle
         // ------------------------------------------------------------------
 
         private static void TickUiLifecycle()
         {
             if (!Core.mainMenu)
             {
-                // In-chapter: keep owned GOs (Menu0 often survives for ESC). Drop menu cache only.
                 SoftClearMenuCache();
                 _menu0WasActive = false;
                 return;
@@ -104,7 +122,6 @@ namespace DWMPHorde
             bool menu0Active = _menu.Menu0 != null && _menu.Menu0.activeInHierarchy;
             bool panelActive = _panel != null && _panel && _panel.activeSelf;
 
-            // ESC re-showed Menu0 while panel still open — yield to vanilla menu
             if (panelActive && menu0Active)
             {
                 _panel.SetActive(false);
@@ -139,12 +156,23 @@ namespace DWMPHorde
             if (_mpButton != null && !_mpButton)
                 _mpButton = null;
             if (_panel != null && !_panel)
-            {
-                _panel = null;
-                _joinButton = null;
-                _disconnectButton = null;
-            }
+                ClearPanelRefs();
             _menu = null;
+        }
+
+        private static void ClearPanelRefs()
+        {
+            _panel = null;
+            _hostDoorBtn = null;
+            _joinDoorBtn = null;
+            _settingsBtn = null;
+            _disconnectButton = null;
+            _backRootBtn = null;
+            _hostLanBtn = null;
+            _hostSteamBtn = null;
+            _joinLanBtn = null;
+            _joinSteamBtn = null;
+            _backSubBtn = null;
         }
 
         private static bool ResolveMenu()
@@ -154,9 +182,6 @@ namespace DWMPHorde
             return _menu != null && _menu.Menu0 != null && _menu.quitBtn != null;
         }
 
-        /// <summary>
-        /// One interactive MULTIPLAYER row under quitBtn's parent. Presentation = Yokyy.
-        /// </summary>
         private static void EnsureMultiplayerButton(bool forceRebuild)
         {
             if (!ResolveMenu())
@@ -168,7 +193,6 @@ namespace DWMPHorde
                 return;
             }
 
-            // Scoped purge — only our tagged/named nodes near this menu (no full-scene scan).
             int purged = PurgeOurUiNearMenu();
             _mpButton = null;
 
@@ -188,8 +212,9 @@ namespace DWMPHorde
         {
             if (!IsOwnedInteractive(_mpButton, TagKindMp) || _menu?.Menu0 == null)
                 return;
-            float y = ComputeVanillaLowestOffsetY() - RowSpacing;
+            float y = TitleMultiplayerOffsetY();
             SetRow(_mpButton, y);
+            FitButtonHitbox(_mpButton);
             _lastScreenW = Screen.width;
             _lastScreenH = Screen.height;
         }
@@ -210,10 +235,6 @@ namespace DWMPHorde
             return col != null && col.enabled;
         }
 
-        /// <summary>
-        /// DestroyImmediate only YokWare_* under Menu0 / quit parent / panel parent.
-        /// Avoids FindObjectsOfType thrash and never touches vanilla buttons.
-        /// </summary>
         private static int PurgeOurUiNearMenu()
         {
             int n = 0;
@@ -235,7 +256,6 @@ namespace DWMPHorde
                 if (!seen.Add(rid))
                     continue;
 
-                // Children first — collect, then destroy
                 var kill = new List<GameObject>(8);
                 CollectOurNodes(root, kill);
                 for (int i = 0; i < kill.Count; i++)
@@ -255,9 +275,7 @@ namespace DWMPHorde
                 }
             }
 
-            _panel = null;
-            _joinButton = null;
-            _disconnectButton = null;
+            ClearPanelRefs();
             return n;
         }
 
@@ -265,18 +283,15 @@ namespace DWMPHorde
         {
             if (root == null)
                 return;
-            // Depth-first: destroy leaves via list (DestroyImmediate on parent kills children)
             YokWareUiTag[] tags = root.GetComponentsInChildren<YokWareUiTag>(true);
             for (int i = 0; i < tags.Length; i++)
             {
                 if (tags[i] == null || tags[i].gameObject == null)
                     continue;
-                // Only top-level owned roots (mp button, panel) — not labels (children of button)
                 if (tags[i].Kind == TagKindMp || tags[i].Kind == TagKindPanel)
                     kill.Add(tags[i].gameObject);
             }
 
-            // Legacy name-only clones from older builds (no tag)
             Transform[] all = root.GetComponentsInChildren<Transform>(true);
             for (int i = 0; i < all.Length; i++)
             {
@@ -286,13 +301,13 @@ namespace DWMPHorde
                 if (t.name != MpButtonName && t.name != PanelName)
                     continue;
                 if (t.GetComponent<YokWareUiTag>() != null)
-                    continue; // already queued via tag
+                    continue;
                 kill.Add(t.gameObject);
             }
         }
 
         // ------------------------------------------------------------------
-        // Presentation (Yokyy — clone quit, label, PositionMe)
+        // Presentation
         // ------------------------------------------------------------------
 
         private static void InjectMultiplayerButton()
@@ -301,18 +316,36 @@ namespace DWMPHorde
             if (template == null || template.GetComponent<Button>() == null)
                 return;
 
+            // Title door: generated bevel art (matches PLAY/OPTIONS). Fallback = text label.
             _mpButton = CloneButton(template, template.transform.parent,
-                MpButtonName, "MULTIPLAYER", OpenPanel, TagKindMp);
+                MpButtonName, "MULTIPLAYER", OpenPanel, TagKindMp, useTextLabel: false);
 
-            float y = ComputeVanillaLowestOffsetY() - RowSpacing;
+            float y = TitleMultiplayerOffsetY();
             SetRow(_mpButton, y);
             WireButton(_mpButton, OpenPanel);
+
+            // Attach after SetRow so collider bounds match final pose.
+            if (!MenuButtonArt.TryAttachMultiplayerArt(_mpButton))
+            {
+                tk2dTextMesh tm = CreateLabel(_mpButton.transform, "MULTIPLAYER", settingsStyle: true);
+                Button btn = _mpButton.GetComponent<Button>();
+                if (btn != null && tm != null)
+                    ApplySettingsButtonColors(btn, tm);
+                FitButtonHitbox(_mpButton);
+            }
+
             if (_mpButton != null)
                 _mpButton.transform.SetAsLastSibling();
 
             ModLog.Event(LogCat.Session,
                 "Injected MULTIPLAYER button @ " + Screen.width + "x" + Screen.height
                 + " offsetY=" + y.ToString("F1"));
+        }
+
+        private static float TitleMultiplayerOffsetY()
+        {
+            // One row below EXIT, then nudge up so it sits closer to the vanilla stack.
+            return ComputeVanillaLowestOffsetY() - RowSpacing + MpButtonNudgeUp;
         }
 
         private static float ComputeVanillaLowestOffsetY()
@@ -344,9 +377,7 @@ namespace DWMPHorde
                 try { UnityEngine.Object.DestroyImmediate(_panel); }
                 catch { UnityEngine.Object.Destroy(_panel); }
             }
-            _panel = null;
-            _joinButton = null;
-            _disconnectButton = null;
+            ClearPanelRefs();
 
             if (!ResolveMenu())
                 return;
@@ -358,37 +389,82 @@ namespace DWMPHorde
             _panel.transform.SetParent(_menu.Menu0.transform.parent, false);
             Tag(_panel, TagKindPanel);
 
-            GameObject host = CloneButton(template, _panel.transform, "YokWare_HostBtn", "HOST LAN", OnHostClicked, TagKindRow);
-            _joinButton = CloneButton(template, _panel.transform, "YokWare_JoinBtn", "JOIN LAN", OnJoinClicked, TagKindRow);
-            GameObject hostSteam = CloneButton(template, _panel.transform, "YokWare_HostSteamBtn", "HOST STEAM", OnHostSteamClicked, TagKindRow);
-            GameObject joinSteam = CloneButton(template, _panel.transform, "YokWare_JoinSteamBtn", "JOIN STEAM", OnJoinSteamClicked, TagKindRow);
-            GameObject settings = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked, TagKindRow);
-            GameObject restore = CloneButton(template, _panel.transform, "YokWare_RestoreBtn", "RESTORE SELF", OnRestoreClicked, TagKindRow);
+            _hostDoorBtn = CloneButton(template, _panel.transform, "YokWare_HostDoor", "HOST", () => ShowPanelView(PanelView.Host), TagKindRow);
+            _joinDoorBtn = CloneButton(template, _panel.transform, "YokWare_JoinDoor", "JOIN", () => ShowPanelView(PanelView.Join), TagKindRow);
+            _settingsBtn = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked, TagKindRow);
             _disconnectButton = CloneButton(template, _panel.transform, "YokWare_DiscBtn", "DISCONNECT", OnDisconnectClicked, TagKindRow);
-            GameObject back = CloneButton(template, _panel.transform, "YokWare_BackBtn", "BACK", ClosePanel, TagKindRow);
+            _backRootBtn = CloneButton(template, _panel.transform, "YokWare_BackRoot", "BACK", ClosePanel, TagKindRow);
 
-            // Yokyy order: label laid out at current pose, then SetRow moves parent.
-            SetRow(host, 0f);
-            SetRow(_joinButton, -RowSpacing);
-            SetRow(hostSteam, -RowSpacing * 2f);
-            SetRow(joinSteam, -RowSpacing * 3f);
-            SetRow(settings, -RowSpacing * 4f);
-            SetRow(restore, -RowSpacing * 5f);
-            SetRow(_disconnectButton, -RowSpacing * 6f);
-            SetRow(back, -RowSpacing * 7f);
+            _hostLanBtn = CloneButton(template, _panel.transform, "YokWare_HostLan", "HOST LAN", OnHostLanClicked, TagKindRow);
+            _hostSteamBtn = CloneButton(template, _panel.transform, "YokWare_HostSteam", "HOST STEAM", OnHostSteamClicked, TagKindRow);
+            _joinLanBtn = CloneButton(template, _panel.transform, "YokWare_JoinLan", "JOIN LAN", OnJoinLanClicked, TagKindRow);
+            _joinSteamBtn = CloneButton(template, _panel.transform, "YokWare_JoinSteam", "JOIN STEAM", OnJoinSteamClicked, TagKindRow);
+            _backSubBtn = CloneButton(template, _panel.transform, "YokWare_BackSub", "BACK", () => ShowPanelView(PanelView.Root), TagKindRow);
+
+            ShowPanelView(PanelView.Root);
+        }
+
+        private static void ShowPanelView(PanelView view)
+        {
+            _panelView = view;
+            bool root = view == PanelView.Root;
+            bool host = view == PanelView.Host;
+            bool join = view == PanelView.Join;
+
+            SetActiveSafe(_hostDoorBtn, root);
+            SetActiveSafe(_joinDoorBtn, root);
+            SetActiveSafe(_settingsBtn, root);
+            SetActiveSafe(_backRootBtn, root);
+            SetActiveSafe(_hostLanBtn, host);
+            SetActiveSafe(_hostSteamBtn, host);
+            SetActiveSafe(_joinLanBtn, join);
+            SetActiveSafe(_joinSteamBtn, join);
+            SetActiveSafe(_backSubBtn, host || join);
+
+            var net = ModRuntime.Network as LanNetworkManager;
+            bool online = net != null && net.Role != NetworkRole.Offline;
+            SetActiveSafe(_disconnectButton, root && online);
+
+            if (root)
+            {
+                int row = 0;
+                SetRow(_hostDoorBtn, -PanelRowSpacing * row++);
+                SetRow(_joinDoorBtn, -PanelRowSpacing * row++);
+                SetRow(_settingsBtn, -PanelRowSpacing * row++);
+                if (online)
+                    SetRow(_disconnectButton, -PanelRowSpacing * row++);
+                SetRow(_backRootBtn, -PanelRowSpacing * row);
+            }
+            else if (host)
+            {
+                SetRow(_hostLanBtn, 0f);
+                SetRow(_hostSteamBtn, -PanelRowSpacing);
+                SetRow(_backSubBtn, -PanelRowSpacing * 2f);
+            }
+            else
+            {
+                SetRow(_joinLanBtn, 0f);
+                SetRow(_joinSteamBtn, -PanelRowSpacing);
+                SetRow(_backSubBtn, -PanelRowSpacing * 2f);
+            }
 
             RefreshSessionButtons();
         }
 
+        private static void SetActiveSafe(GameObject go, bool active)
+        {
+            if (go != null && go)
+                go.SetActive(active);
+        }
+
         private static GameObject CloneButton(GameObject template, Transform parent,
-            string name, string label, Action onFire, string tagKind)
+            string name, string label, Action onFire, string tagKind, bool useTextLabel = true)
         {
             GameObject go = UnityEngine.Object.Instantiate(template, parent);
             go.name = name;
             go.SetActive(true);
             Tag(go, tagKind);
 
-            // Texture-word title buttons → strip art, use editable label (Yokyy).
             LocalizedText[] locs = go.GetComponentsInChildren<LocalizedText>(true);
             for (int i = 0; i < locs.Length; i++)
             {
@@ -402,7 +478,6 @@ namespace DWMPHorde
                     rends[i].enabled = false;
             }
 
-            // Only root collider — child colliders steal hover (dead button symptom).
             StripChildColliders(go);
             Collider rootCol = go.GetComponent<Collider>();
             if (rootCol != null)
@@ -420,13 +495,256 @@ namespace DWMPHorde
                 btn.OnFire = () => Guarded(onFire);
             }
 
-            tk2dTextMesh tm = CreateLabel(go.transform, label);
-            if (btn != null && tm != null)
+            if (useTextLabel)
             {
-                btn.textMesh = tm;
-                btn.baseColor = tm.color;
+                // Panel rows: same outlined bitmap look as Video / Profiles menus.
+                tk2dTextMesh tm = CreateLabel(go.transform, label, settingsStyle: true);
+                if (tm != null)
+                {
+                    tm.transform.localScale *= PanelLabelScale;
+                    if (btn != null)
+                        ApplySettingsButtonColors(btn, tm);
+                }
+                FitButtonHitbox(go);
             }
             return go;
+        }
+
+        /// <summary>
+        /// Resize the root BoxCollider to the visible art/label. quitBtn's hitbox is too
+        /// narrow for MULTIPLAYER and too large for Options-sized panel rows — Button
+        /// raycasts that collider for hover/click.
+        /// </summary>
+        internal static void FitButtonHitbox(GameObject buttonGo)
+        {
+            if (buttonGo == null || !buttonGo)
+                return;
+
+            Renderer visual = null;
+            Transform art = buttonGo.transform.Find("YokWare_BtnArt");
+            if (art != null)
+                visual = art.GetComponent<Renderer>();
+            if (visual == null)
+            {
+                tk2dTextMesh tm = buttonGo.GetComponentInChildren<tk2dTextMesh>(true);
+                if (tm != null)
+                    visual = tm.GetComponent<Renderer>();
+            }
+            if (visual == null)
+                return;
+
+            // Art quad includes transparent padding — shrink to opaque glyph UVs so the
+            // hitbox matches the smaller idle letters (not the full padded canvas).
+            Bounds wb;
+            if (art != null && TryOpaqueQuadWorldBounds(art, visual, out wb))
+            {
+                // ok
+            }
+            else
+            {
+                wb = visual.bounds;
+            }
+
+            if (wb.size.sqrMagnitude < 0.01f)
+                return;
+
+            // Flat CamUI quads have ~0 thickness on one world axis — raycasts need depth.
+            const float minThick = 12f;
+            Vector3 size = wb.size;
+            if (size.x <= size.y && size.x <= size.z)
+                wb.Expand(new Vector3(Mathf.Max(0f, minThick - size.x), 0f, 0f));
+            else if (size.y <= size.z)
+                wb.Expand(new Vector3(0f, Mathf.Max(0f, minThick - size.y), 0f));
+            else
+                wb.Expand(new Vector3(0f, 0f, Mathf.Max(0f, minThick - size.z)));
+
+            // Comfort pad so hover engages slightly outside the glyph.
+            wb.Expand(new Vector3(wb.size.x * 0.10f, wb.size.y * 0.10f, wb.size.z * 0.10f));
+
+            Transform t = buttonGo.transform;
+            Vector3 c = wb.center;
+            Vector3 e = wb.extents;
+            Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            Vector3 max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            for (int xi = -1; xi <= 1; xi += 2)
+            {
+                for (int yi = -1; yi <= 1; yi += 2)
+                {
+                    for (int zi = -1; zi <= 1; zi += 2)
+                    {
+                        Vector3 local = t.InverseTransformPoint(c + new Vector3(e.x * xi, e.y * yi, e.z * zi));
+                        min = Vector3.Min(min, local);
+                        max = Vector3.Max(max, local);
+                    }
+                }
+            }
+
+            Vector3 localSize = max - min;
+            if (localSize.x < 0.5f) localSize.x = 0.5f;
+            if (localSize.y < 0.5f) localSize.y = 0.5f;
+            if (localSize.z < 0.5f) localSize.z = 0.5f;
+
+            BoxCollider box = buttonGo.GetComponent<BoxCollider>();
+            if (box == null)
+                box = buttonGo.AddComponent<BoxCollider>();
+            box.center = (min + max) * 0.5f;
+            box.size = localSize;
+            box.enabled = true;
+
+            // Only the root collider should receive the menu raycast.
+            StripChildColliders(buttonGo);
+        }
+
+        /// <summary>
+        /// World bounds of the opaque region of the CamUI-facing unit quad (−0.5..0.5).
+        /// Uses idle texture when present so padding/bloom does not inflate the hitbox.
+        /// </summary>
+        private static bool TryOpaqueQuadWorldBounds(Transform art, Renderer visual, out Bounds worldBounds)
+        {
+            worldBounds = default;
+            if (art == null || visual == null)
+                return false;
+
+            Texture2D tex = null;
+            if (visual.sharedMaterial != null)
+                tex = visual.sharedMaterial.mainTexture as Texture2D;
+
+            // Prefer idle resource (stable letter core — ignores hover bloom padding).
+            if (!MenuButtonArt.TryGetIdleOpaqueUv(out float u0, out float v0, out float u1, out float v1))
+            {
+                if (tex == null || !TryOpaqueUv(tex, 28, out u0, out v0, out u1, out v1))
+                    return false;
+            }
+
+            // Unit quad mesh: UV (0,0)=(-0.5,-0.5), (1,1)=(0.5,0.5)
+            Vector3[] corners =
+            {
+                art.TransformPoint(new Vector3(Mathf.Lerp(-0.5f, 0.5f, u0), Mathf.Lerp(-0.5f, 0.5f, v0), 0f)),
+                art.TransformPoint(new Vector3(Mathf.Lerp(-0.5f, 0.5f, u1), Mathf.Lerp(-0.5f, 0.5f, v0), 0f)),
+                art.TransformPoint(new Vector3(Mathf.Lerp(-0.5f, 0.5f, u0), Mathf.Lerp(-0.5f, 0.5f, v1), 0f)),
+                art.TransformPoint(new Vector3(Mathf.Lerp(-0.5f, 0.5f, u1), Mathf.Lerp(-0.5f, 0.5f, v1), 0f)),
+            };
+            worldBounds = new Bounds(corners[0], Vector3.zero);
+            for (int i = 1; i < corners.Length; i++)
+                worldBounds.Encapsulate(corners[i]);
+            return worldBounds.size.sqrMagnitude > 0.01f;
+        }
+
+        private static bool TryOpaqueUv(Texture2D tex, byte alphaThr,
+            out float u0, out float v0, out float u1, out float v1)
+        {
+            u0 = v0 = 0f;
+            u1 = v1 = 1f;
+            if (tex == null)
+                return false;
+            try
+            {
+                Color32[] px = tex.GetPixels32();
+                int w = tex.width;
+                int h = tex.height;
+                int xMin = w, xMax = -1, yMin = h, yMax = -1;
+                for (int y = 0; y < h; y++)
+                {
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (px[row + x].a <= alphaThr)
+                            continue;
+                        if (x < xMin) xMin = x;
+                        if (x > xMax) xMax = x;
+                        if (y < yMin) yMin = y;
+                        if (y > yMax) yMax = y;
+                    }
+                }
+                if (xMax < xMin || yMax < yMin)
+                    return false;
+                u0 = xMin / (float)w;
+                u1 = (xMax + 1) / (float)w;
+                v0 = yMin / (float)h;
+                v1 = (yMax + 1) / (float)h;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Vanilla Options hover = idle gray → rollover white. We had forced both to white.
+        /// </summary>
+        private static void ApplySettingsButtonColors(Button btn, tk2dTextMesh tm)
+        {
+            if (btn == null || tm == null)
+                return;
+
+            Button refBtn = FindSettingsStyleButton();
+            Color idle;
+            Color hover;
+            if (refBtn != null)
+            {
+                hover = refBtn.rolloverColor;
+                if (refBtn.textMesh != null)
+                    idle = refBtn.textMesh.color;
+                else
+                    idle = refBtn.baseColor;
+            }
+            else
+            {
+                idle = new Color(0.55f, 0.55f, 0.55f, 1f);
+                hover = Color.white;
+            }
+
+            // If the reference was already hovered/white, keep a visible delta.
+            if (ColorsNearlyEqual(idle, hover))
+            {
+                idle = new Color(0.55f, 0.55f, 0.55f, 1f);
+                hover = Color.white;
+            }
+
+            tm.color = idle;
+            tm.color2 = idle;
+            tm.Commit();
+            btn.baseColor = idle;
+            btn.rolloverColor = hover;
+            btn.textMesh = tm;
+        }
+
+        private static bool ColorsNearlyEqual(Color a, Color b)
+        {
+            return Mathf.Abs(a.r - b.r) < 0.04f
+                && Mathf.Abs(a.g - b.g) < 0.04f
+                && Mathf.Abs(a.b - b.b) < 0.04f
+                && Mathf.Abs(a.a - b.a) < 0.04f;
+        }
+
+        private static Button FindSettingsStyleButton()
+        {
+            if (_menu == null)
+                return null;
+            if (_menu.VideoMenu != null)
+            {
+                Transform fs = _menu.VideoMenu.transform.Find("FullscreenBtn");
+                if (fs != null)
+                {
+                    Button b = fs.GetComponent<Button>();
+                    if (b != null && b.textMesh != null)
+                        return b;
+                }
+                Button[] btns = _menu.VideoMenu.GetComponentsInChildren<Button>(true);
+                for (int i = 0; i < btns.Length; i++)
+                {
+                    if (btns[i] != null && btns[i].textMesh != null)
+                        return btns[i];
+                }
+            }
+            if (_menu.profilesMenuBack != null)
+            {
+                Button back = _menu.profilesMenuBack.GetComponent<Button>();
+                if (back != null && back.textMesh != null)
+                    return back;
+            }
+            return null;
         }
 
         private static void WireButton(GameObject go, Action onFire)
@@ -482,16 +800,50 @@ namespace DWMPHorde
             tag.Kind = kind;
         }
 
-        /// <summary>
-        /// Label = clone of MainMenu.CurrentVersion (game font). Strip PositionMe.
-        /// Size/place against button collider in world space (Yokyy).
-        /// </summary>
-        private static tk2dTextMesh CreateLabel(Transform parent, string text)
+        private static tk2dTextMesh FindLabelSource(bool settingsStyle)
         {
-            tk2dTextMesh source = _menu != null ? _menu.CurrentVersion : null;
+            if (_menu == null)
+                return null;
+
+            if (settingsStyle)
+            {
+                // Video options / Profiles use the outlined white bitmap look from the screenshots.
+                if (_menu.VideoMenu != null)
+                {
+                    Transform fs = _menu.VideoMenu.transform.Find("FullscreenBtn");
+                    if (fs != null)
+                    {
+                        Button b = fs.GetComponent<Button>();
+                        if (b != null && b.textMesh != null)
+                            return b.textMesh;
+                    }
+                    Button[] btns = _menu.VideoMenu.GetComponentsInChildren<Button>(true);
+                    for (int i = 0; i < btns.Length; i++)
+                    {
+                        if (btns[i] != null && btns[i].textMesh != null)
+                            return btns[i].textMesh;
+                    }
+                }
+                if (_menu.profilesMenuBack != null)
+                {
+                    Button back = _menu.profilesMenuBack.GetComponent<Button>();
+                    if (back != null && back.textMesh != null)
+                        return back.textMesh;
+                    tk2dTextMesh backTm = _menu.profilesMenuBack.GetComponentInChildren<tk2dTextMesh>(true);
+                    if (backTm != null)
+                        return backTm;
+                }
+            }
+
+            return _menu.CurrentVersion;
+        }
+
+        private static tk2dTextMesh CreateLabel(Transform parent, string text, bool settingsStyle)
+        {
+            tk2dTextMesh source = FindLabelSource(settingsStyle);
             if (source == null)
             {
-                ModLog.Warn(LogCat.Session, "MainMenu.CurrentVersion missing — button label blank");
+                ModLog.Warn(LogCat.Session, "Menu label source missing — button label blank");
                 return null;
             }
 
@@ -524,7 +876,11 @@ namespace DWMPHorde
             if (tm == null)
                 return null;
             tm.anchor = TextAnchor.MiddleCenter;
+            if (tm.maxChars < text.Length + 4)
+                tm.maxChars = text.Length + 8;
             tm.text = text;
+            // Colors: settingsStyle applied by ApplySettingsButtonColors (idle≠hover).
+            // Non-settings fallback keeps source colors.
             tm.Commit();
 
             Collider col = parent.GetComponent<Collider>();
@@ -533,14 +889,28 @@ namespace DWMPHorde
                 rend.enabled = true;
 
             if (col != null && rend != null
-                && rend.bounds.size.y > 0.001f && rend.bounds.size.x > 0.001f)
+                && rend.bounds.size.x > 0.001f && rend.bounds.size.y > 0.001f)
             {
-                float fitH = col.bounds.size.y * 0.65f / rend.bounds.size.y;
-                float fitW = col.bounds.size.x * 1.05f / rend.bounds.size.x;
-                float factor = Mathf.Clamp(Mathf.Min(fitH, fitW), 0.02f, 50f);
-                labelGo.transform.localScale *= factor;
+                if (settingsStyle)
+                {
+                    // Keep Video/Profiles native size — only shrink if wider than hitbox.
+                    // Scaling up to the title quit collider made HOST/JOIN huge vs Options.
+                    if (TryHitboxFace(parent.gameObject, out float faceW, out _))
+                    {
+                        float fitW = faceW * 0.95f / rend.bounds.size.x;
+                        if (fitW < 0.99f)
+                            labelGo.transform.localScale *= Mathf.Max(fitW, 0.35f);
+                    }
+                }
+                else if (TryHitboxFace(parent.gameObject, out float faceW, out float faceH))
+                {
+                    float fitH = faceH * 0.62f / rend.bounds.size.y;
+                    float fitW = faceW * 0.92f / rend.bounds.size.x;
+                    float factor = Mathf.Clamp(Mathf.Min(fitH, fitW), 0.02f, 50f);
+                    labelGo.transform.localScale *= factor;
+                }
 
-                Vector3 pos = col.bounds.center;
+                Vector3 pos = parent.position;
                 GameObject camObj = Core.CamUI;
                 Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
                 if (cam != null)
@@ -548,6 +918,30 @@ namespace DWMPHorde
                 labelGo.transform.position = pos;
             }
             return tm;
+        }
+
+        /// <summary>
+        /// Visible face of a flat UI BoxCollider (world AABB.y is often ~0 under CamUI).
+        /// </summary>
+        private static bool TryHitboxFace(GameObject go, out float faceW, out float faceH)
+        {
+            faceW = faceH = 0f;
+            if (go == null)
+                return false;
+            var box = go.GetComponent<BoxCollider>();
+            if (box == null)
+                return false;
+            Vector3 lossy = go.transform.lossyScale;
+            float ax = Mathf.Abs(box.size.x * lossy.x);
+            float ay = Mathf.Abs(box.size.y * lossy.y);
+            float az = Mathf.Abs(box.size.z * lossy.z);
+            float t = ax, u = ay, v = az;
+            if (t > u) { float s = t; t = u; u = s; }
+            if (u > v) { float s = u; u = v; v = s; }
+            if (t > u) { float s = t; t = u; u = s; }
+            faceH = u;
+            faceW = v;
+            return faceH > 0.05f && faceW > 0.05f;
         }
 
         private static void SetRow(GameObject go, float y)
@@ -571,7 +965,7 @@ namespace DWMPHorde
         }
 
         // ------------------------------------------------------------------
-        // Click handlers (Horde network)
+        // Click handlers
         // ------------------------------------------------------------------
 
         private static void OpenPanel()
@@ -584,7 +978,7 @@ namespace DWMPHorde
                 return;
             _menu.Menu0.SetActive(false);
             _panel.SetActive(true);
-            RefreshSessionButtons();
+            ShowPanelView(PanelView.Root);
         }
 
         private static void ClosePanel()
@@ -595,7 +989,7 @@ namespace DWMPHorde
                 _menu.Menu0.SetActive(true);
         }
 
-        private static void OnHostClicked()
+        private static void OnHostLanClicked()
         {
             MultiplayerMenu.EnsureExists();
             MultiplayerMenu.PushFieldsToConfig();
@@ -621,6 +1015,8 @@ namespace DWMPHorde
             }
 
             _joinPending = false;
+            _hostingHint = true;
+            MultiplayerMenu.SetHostNextStepHint("Hosting LAN — load/continue a save now.");
             ModLog.Event(LogCat.Session,
                 "Hosting LAN on port " + port
                 + " — load/continue a save NOW. Clients on JOIN get the world only after you are in-chapter.");
@@ -651,73 +1047,29 @@ namespace DWMPHorde
             }
 
             _joinPending = false;
+            _hostingHint = true;
+            MultiplayerMenu.SetHostNextStepHint("Hosting Steam — load a save; invite via SETTINGS.");
             ModLog.Event(LogCat.Session,
                 "Hosting Steam lobby — invite friends via overlay (SETTINGS shows lobby id). "
                 + "Load/continue a save; clients join after you are in-chapter.");
-            // Open invite once lobby id exists (async CreateLobby) — user can also press SETTINGS.
             ClosePanel();
             if (_menu != null)
                 _menu.displayProfilesMenu();
         }
 
-        private static void OnJoinSteamClicked()
+        private static void OnJoinLanClicked()
         {
-            MultiplayerMenu.EnsureExists();
-            MultiplayerMenu.PushFieldsToConfig();
-
-            var net = ModRuntime.Network;
-            if (net == null || _joinPending)
-                return;
-
-            var lanReady = net as LanNetworkManager;
-            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
-            {
-                SetLabel(_joinButton, "CHOOSE SLOT");
-                JoinWorldSlotPicker.EnsureExists();
-                return;
-            }
-            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
-            {
-                if (lanReady.WorldSaveShare.HasTerminalShareFailure)
-                {
-                    ModLog.Warn(LogCat.Session,
-                        "ENTER WORLD blocked — " + lanReady.WorldSaveShare.ProgressText);
-                    SetLabel(_joinButton, "SHARE FAIL");
-                    return;
-                }
-                if (lanReady.WorldSaveShare.TryBeginEnterWorld())
-                    SetLabel(_joinButton, "LOADING…");
-                return;
-            }
-
-            if (net.Role != NetworkRole.Offline)
-            {
-                // Reuse LAN join mid-session world request path.
-                OnJoinClicked();
-                return;
-            }
-
-            string lobby = (ModConfig.SteamLobbyId != null ? ModConfig.SteamLobbyId.Value : "") ?? "";
-            lobby = lobby.Trim();
-            if (string.IsNullOrEmpty(lobby))
-            {
-                ModLog.Event(LogCat.Session, "JOIN STEAM: set lobby id in SETTINGS (or accept a Steam invite).");
-                MultiplayerMenu.ShowSettings();
-                return;
-            }
-
-            net.ConnectSteam(lobby);
-            _joinPending = true;
-            _joinStartedAt = Time.realtimeSinceStartup;
-            _handshakeAt = 0f;
-            _loggedWaitingWorld = false;
-            _worldRequest10sSent = false;
-            _worldRequest25sSent = false;
-            SetLabel(_joinButton, "STEAM…");
-            ModLog.Event(LogCat.Session, "Connecting Steam lobby " + lobby + " …");
+            _joinViaSteam = false;
+            BeginOrContinueJoin(steam: false);
         }
 
-        private static void OnJoinClicked()
+        private static void OnJoinSteamClicked()
+        {
+            _joinViaSteam = true;
+            BeginOrContinueJoin(steam: true);
+        }
+
+        private static void BeginOrContinueJoin(bool steam)
         {
             MultiplayerMenu.EnsureExists();
             MultiplayerMenu.PushFieldsToConfig();
@@ -726,30 +1078,25 @@ namespace DWMPHorde
             if (net == null || _joinPending)
                 return;
 
-            // Mid-menu: package in RAM — user must pick permanent profile slot first.
             var lanReady = net as LanNetworkManager;
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
             {
-                SetLabel(_joinButton, "CHOOSE SLOT");
+                SetJoinProgress("CHOOSE SLOT");
                 JoinWorldSlotPicker.EnsureExists();
-                ModLog.Event(LogCat.Session,
-                    "JOIN while awaiting slot pick — open permanent world copy picker (IMGUI)");
                 return;
             }
-
-            // Phase 1 done: permanent copy on disk — explicit ENTER WORLD starts offline load (phase 2).
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
             {
                 if (lanReady.WorldSaveShare.HasTerminalShareFailure)
                 {
                     ModLog.Warn(LogCat.Session,
                         "ENTER WORLD blocked — " + lanReady.WorldSaveShare.ProgressText);
-                    SetLabel(_joinButton, "SHARE FAIL");
+                    SetJoinProgress("SHARE FAIL");
                     return;
                 }
                 if (lanReady.WorldSaveShare.TryBeginEnterWorld())
                 {
-                    SetLabel(_joinButton, "LOADING…");
+                    SetJoinProgress("LOADING…");
                     ModLog.Event(LogCat.Session, "ENTER WORLD — starting offline load (phase 2)");
                 }
                 return;
@@ -758,20 +1105,19 @@ namespace DWMPHorde
             if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
             {
                 var lan = net as LanNetworkManager;
-                // Still downloading — JOIN pulls share (or no-ops if already in progress).
                 if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
                 {
-                    SetLabel(_joinButton, "DOWNLOADING…");
+                    SetJoinProgress("DOWNLOADING…");
                     return;
                 }
                 if (lan != null && lan.RequestHostWorld("join-button"))
                 {
-                    SetLabel(_joinButton, "REQUESTING WORLD…");
+                    SetJoinProgress("REQUESTING WORLD…");
                     ModLog.Event(LogCat.Session, "JOIN while connected — WorldRequest sent to host.");
                 }
                 else
                 {
-                    SetLabel(_joinButton, "WAITING…");
+                    SetJoinProgress("WAITING…");
                     ModLog.Event(LogCat.Session,
                         "JOIN while connected — request rate-limited or share already in progress.");
                 }
@@ -781,6 +1127,29 @@ namespace DWMPHorde
             if (net.Role != NetworkRole.Offline)
             {
                 ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
+                return;
+            }
+
+            if (steam)
+            {
+                string lobby = (ModConfig.SteamLobbyId != null ? ModConfig.SteamLobbyId.Value : "") ?? "";
+                lobby = lobby.Trim();
+                if (string.IsNullOrEmpty(lobby))
+                {
+                    ModLog.Event(LogCat.Session, "JOIN STEAM: set lobby id in SETTINGS (or accept a Steam invite).");
+                    MultiplayerMenu.ShowSettings();
+                    return;
+                }
+
+                net.ConnectSteam(lobby);
+                _joinPending = true;
+                _joinStartedAt = Time.realtimeSinceStartup;
+                _handshakeAt = 0f;
+                _loggedWaitingWorld = false;
+                _worldRequest10sSent = false;
+                _worldRequest25sSent = false;
+                SetJoinProgress("STEAM…");
+                ModLog.Event(LogCat.Session, "Connecting Steam lobby " + lobby + " …");
                 return;
             }
 
@@ -800,32 +1169,14 @@ namespace DWMPHorde
             _loggedWaitingWorld = false;
             _worldRequest10sSent = false;
             _worldRequest25sSent = false;
-            SetLabel(_joinButton, "CONNECTING...");
+            SetJoinProgress("CONNECTING…");
             ModLog.Event(LogCat.Session, "Connecting to " + ip + ":" + port + " …");
         }
 
         private static void OnSettingsClicked()
         {
             MultiplayerMenu.EnsureExists();
-            // Toggle: open if closed, close if open (writes fields on close).
             MultiplayerMenu.ShowSettings();
-        }
-
-        private static void OnRestoreClicked()
-        {
-            if (Player.Instance == null)
-            {
-                ModLog.Event(LogCat.Save, "Load into a game first before RESTORE SELF.");
-                return;
-            }
-            var data = ClientStateBackup.LoadLocalSelfBackupFile();
-            if (data == null)
-            {
-                ModLog.Event(LogCat.Save, "No local self-backup found.");
-                return;
-            }
-            ClientStateBackup.RestoreFromBackup(data);
-            ModLog.Event(LogCat.Save, "Applied local self-backup.");
         }
 
         private static void OnDisconnectClicked()
@@ -834,15 +1185,17 @@ namespace DWMPHorde
             if (net == null)
                 return;
             _joinPending = false;
+            _hostingHint = false;
+            MultiplayerMenu.ClearHostNextStepHint();
             if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
             {
-                SetLabel(_joinButton, "JOIN GAME");
+                ResetJoinLabelsIdle();
                 RefreshSessionButtons();
                 ModLog.Event(LogCat.Session, "Host disconnect — handing off to elect…");
                 return;
             }
             net.StopNetwork();
-            SetLabel(_joinButton, "JOIN GAME");
+            ResetJoinLabelsIdle();
             RefreshSessionButtons();
             ModLog.Event(LogCat.Session, "Disconnected.");
         }
@@ -850,6 +1203,26 @@ namespace DWMPHorde
         // ------------------------------------------------------------------
         // Join / session feedback
         // ------------------------------------------------------------------
+
+        private static void SetJoinProgress(string text)
+        {
+            ResetInactiveJoinLabel();
+            SetLabel(ActiveJoinButton, text);
+        }
+
+        private static void ResetInactiveJoinLabel()
+        {
+            if (_joinViaSteam)
+                SetLabel(_joinLanBtn, "JOIN LAN");
+            else
+                SetLabel(_joinSteamBtn, "JOIN STEAM");
+        }
+
+        private static void ResetJoinLabelsIdle()
+        {
+            SetLabel(_joinLanBtn, "JOIN LAN");
+            SetLabel(_joinSteamBtn, "JOIN STEAM");
+        }
 
         private static void PollJoinState()
         {
@@ -881,12 +1254,12 @@ namespace DWMPHorde
             if (net.Role == NetworkRole.Host)
             {
                 _joinPending = false;
-                SetLabel(_joinButton, "JOIN GAME");
+                ResetJoinLabelsIdle();
                 RefreshSessionButtons();
                 return;
             }
 
-            bool steamJoin = net.IsSteamSession;
+            bool steamJoin = net.IsSteamSession || _joinViaSteam;
             float joinTimeout = steamJoin ? SteamJoinTimeoutSec : JoinTimeoutSec;
             if (net.Role == NetworkRole.Offline
                 || Time.realtimeSinceStartup - _joinStartedAt > joinTimeout)
@@ -895,7 +1268,7 @@ namespace DWMPHorde
                 _joinPending = false;
                 if (wasTimeout)
                     net.StopNetwork();
-                SetLabel(_joinButton, "JOIN GAME");
+                ResetJoinLabelsIdle();
                 RefreshSessionButtons();
                 ModLog.Event(LogCat.Session,
                     wasTimeout
@@ -919,8 +1292,6 @@ namespace DWMPHorde
             if (_handshakeAt <= 0f)
                 return;
 
-            // Slot pick / ENTER WORLD / download already active — do NOT auto WorldRequest
-            // (that forced a second share + overwrite while the player was still choosing a slot).
             if (net.WorldSaveShare != null
                 && (net.WorldSaveShare.IsAwaitingSlotPick
                     || net.WorldSaveShare.IsAwaitingEnterWorld
@@ -942,13 +1313,13 @@ namespace DWMPHorde
             {
                 _worldRequest10sSent = true;
                 if (net.RequestHostWorld("title-wait-10s"))
-                    SetLabel(_joinButton, "REQUESTING WORLD…");
+                    SetJoinProgress("REQUESTING WORLD…");
             }
             else if (!receiving && waited >= 25f && !_worldRequest25sSent)
             {
                 _worldRequest25sSent = true;
                 if (net.RequestHostWorld("title-wait-25s"))
-                    SetLabel(_joinButton, "REQUESTING WORLD…");
+                    SetJoinProgress("REQUESTING WORLD…");
             }
         }
 
@@ -986,17 +1357,17 @@ namespace DWMPHorde
                 return;
             if (IsShareFailureBlocked(net))
             {
-                SetLabel(_joinButton, "SHARE FAIL");
+                SetJoinProgress("SHARE FAIL");
                 return;
             }
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
             {
-                SetLabel(_joinButton, "CHOOSE SLOT");
+                SetJoinProgress("CHOOSE SLOT");
                 return;
             }
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
             {
-                SetLabel(_joinButton, "ENTER WORLD");
+                SetJoinProgress("ENTER WORLD");
                 return;
             }
             string prog = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : null;
@@ -1004,31 +1375,31 @@ namespace DWMPHorde
             {
                 if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "SHARE FAIL");
+                    SetJoinProgress("SHARE FAIL");
                 else if (prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Permanent copy", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("World ready", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "ENTER WORLD");
+                    SetJoinProgress("ENTER WORLD");
                 else if (prog.IndexOf("Pick a profile", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("permanent", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "CHOOSE SLOT");
+                    SetJoinProgress("CHOOSE SLOT");
                 else if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Writ", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Inflat", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Verif", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "DOWNLOADING…");
+                    SetJoinProgress("DOWNLOADING…");
                 else if (prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
                          || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "LOADING…");
+                    SetJoinProgress("LOADING…");
                 else if (prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetLabel(_joinButton, "REQUESTING WORLD…");
+                    SetJoinProgress("REQUESTING WORLD…");
                 else
-                    SetLabel(_joinButton, "CONNECTED");
+                    SetJoinProgress("CONNECTED");
             }
             else if (net.IsHandshakeComplete)
             {
-                SetLabel(_joinButton, "CONNECTED");
+                SetJoinProgress("CONNECTED");
             }
         }
 
@@ -1037,25 +1408,48 @@ namespace DWMPHorde
             var net = ModRuntime.Network as LanNetworkManager;
             bool online = net != null && net.Role != NetworkRole.Offline;
 
-            if (_disconnectButton != null && _disconnectButton)
-                _disconnectButton.SetActive(online);
+            if (_panelView == PanelView.Root)
+            {
+                SetActiveSafe(_disconnectButton, online);
+                // Relayout root when disconnect appears/disappears
+                int row = 0;
+                SetRow(_hostDoorBtn, -PanelRowSpacing * row++);
+                SetRow(_joinDoorBtn, -PanelRowSpacing * row++);
+                SetRow(_settingsBtn, -PanelRowSpacing * row++);
+                if (online)
+                    SetRow(_disconnectButton, -PanelRowSpacing * row++);
+                SetRow(_backRootBtn, -PanelRowSpacing * row);
+            }
+
+            if (net != null && net.Role == NetworkRole.Host && _hostingHint)
+                SetLabel(_hostDoorBtn, "HOSTING — LOAD SAVE");
+            else if (!online)
+            {
+                _hostingHint = false;
+                SetLabel(_hostDoorBtn, "HOST");
+            }
 
             if (_joinPending)
                 return;
-            if (_joinButton == null || !_joinButton || net == null)
+
+            if (net == null)
                 return;
 
+            if (net.Role == NetworkRole.Host)
+            {
+                ResetJoinLabelsIdle();
+                return;
+            }
+
             if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
-                SetLabel(_joinButton, "CHOOSE SLOT");
+                SetJoinProgress("CHOOSE SLOT");
             else if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld
                      && !IsShareFailureBlocked(net))
-                SetLabel(_joinButton, "ENTER WORLD");
+                SetJoinProgress("ENTER WORLD");
             else if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
                 UpdateJoinLabelFromShare(net);
-            else if (net.Role == NetworkRole.Host)
-                SetLabel(_joinButton, "HOSTING");
-            else
-                SetLabel(_joinButton, "JOIN GAME");
+            else if (!online)
+                ResetJoinLabelsIdle();
         }
 
         private static void SetLabel(GameObject buttonGo, string text)
@@ -1069,6 +1463,7 @@ namespace DWMPHorde
                 return;
             tm.text = text;
             tm.Commit();
+            FitButtonHitbox(buttonGo);
         }
 
         private static void TryConsumeSteamLaunchLobby()
@@ -1077,13 +1472,10 @@ namespace DWMPHorde
             if (net == null)
                 return;
 
-            // Register overlay-invite + SNS status callbacks as soon as Network exists
-            // (do not wait for HOST/JOIN STEAM — otherwise invites are dropped).
             net.EnsureSteamCallbacks();
 
             if (_launchLobbyTried)
                 return;
-            // Wait until title is up so Soft reconnect / mid-load does not steal the invite.
             try
             {
                 if (!Core.mainMenu)
@@ -1095,7 +1487,6 @@ namespace DWMPHorde
             net.TryConsumePendingSteamLaunchLobby();
         }
 
-        /// <summary>Marks our UI roots so purge never touches vanilla menu buttons.</summary>
         private sealed class YokWareUiTag : MonoBehaviour
         {
             public string Kind;

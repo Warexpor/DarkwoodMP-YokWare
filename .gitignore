@@ -33,6 +33,21 @@ reference/
 **/friend-dll-decomp/
 *.ilspy*
 *.decompiled/
+.tmp-ilspy/
+.tmp-ilspy*/
+.tmp-ilspy*/**
+**/.tmp-ilspy*/
+**/*.decompiled.cs
+
+# Scratch / agent temp (sprite extracts, previews, one-off scripts)
+.tmp/
+.tmp-*/
+.tmp-*
+**/.tmp-*/
+.impeccable/
+
+# Menu button WIP backups (ship idle/hover + refs only)
+DarkwoodMP.Mod/Resources/MenuButtons/*_prev.png
 
 # Logs / temp
 *.log

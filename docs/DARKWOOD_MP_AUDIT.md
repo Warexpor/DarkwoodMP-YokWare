@@ -4,7 +4,7 @@
 
 **Date:** 2026-07-10  
 **Mod:** `C:\MyProjects\DarkwoodMP-YokWare` (YokWare Branch **0.9.2 Path B**, Horde wire **ProtocolVersion=19**)  
-**Original SP reference:** `C:\Users\amicu\Desktop\Darkwood DECOMPILED\Scripts\Assembly-CSharp` (~1107 game `.cs` files)  
+**Original SP reference:** `C:\Users\amicu\Desktop\Dev\Darkwood DECOMPILED\Scripts\Assembly-CSharp` (~1107 game `.cs` files)  
 **Note:** Objective path `C:\Users\amicu\Desktop\Darkwood` is missing; decompiled tree is authoritative.  
 **Scope:** Static / IL-path analysis of game logic + mod patches/networking. Live 2-client campaign playtest is residual risk (`docs/TODO.md` short list; detail in `CHANGELOG.md` / `COOP_COVERAGE.md`).
 

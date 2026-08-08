@@ -41,8 +41,8 @@ namespace DWMPHorde.Config
         public static ConfigEntry<bool> AllowJoinDuringDream { get; private set; }
         public static ConfigEntry<int> MaxPeerDamage { get; private set; }
         /// <summary>
-        /// On host crash/timeout, survivors elect lowest player id as new host (n+ LAN).
-        /// Requires PeerRoster gossip; keep true for dual-box crash recovery.
+        /// On host crash/timeout, survivors elect lowest player id as new host (LAN + Steam).
+        /// Requires PeerRoster gossip; keep true for dual-box / friends crash recovery.
         /// </summary>
         public static ConfigEntry<bool> HostMigrationEnabled { get; private set; }
         public static ConfigEntry<bool> VoiceEnabled { get; private set; }
