@@ -1,4 +1,4 @@
-# Protocol + dedicated server (always). Full mod DLL needs Darkwood GameDir — local only.
+# Path B structural/policy tests (no Darkwood GameDir). Full mod DLL stays local-only.
 name: ci
 
 on:
@@ -8,7 +8,7 @@ on:
     branches: [main, master]
 
 jobs:
-  protocol-and-server:
+  path-b-tests:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,12 +16,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            9.0.x
+          dotnet-version: 9.0.x
 
-      - name: Protocol tests
-        run: dotnet test research/DarkwoodMP.Protocol.Tests/DarkwoodMP.Protocol.Tests.csproj -c Release --verbosity minimal
-
-      - name: Dedicated server build
-        run: dotnet build research/DarkwoodMP.Server/DarkwoodMP.Server.csproj -c Release --verbosity minimal
+      - name: Path B tests
+        run: dotnet test DarkwoodMP.PathB.Tests/DarkwoodMP.PathB.Tests.csproj -c Release --verbosity minimal
