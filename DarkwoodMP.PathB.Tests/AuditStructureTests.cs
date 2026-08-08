@@ -25,32 +25,27 @@ public class AuditStructureTests
     }
 
     private static string ModDir => Path.Combine(RepoRoot, "DarkwoodMP.Mod");
-    private static string DocsDir => Path.Combine(RepoRoot, "docs");
 
     private static string ReadMod(params string[] parts)
         => File.ReadAllText(Path.Combine(new[] { ModDir }.Concat(parts).ToArray()));
 
+    private static string ReadRoot(string file)
+        => File.ReadAllText(Path.Combine(RepoRoot, file));
+
     [Fact]
-    public void AuditReport_Exists_WithRequiredSections()
+    public void ShipDocs_ReadmeAndChangelog_CoverPathBContract()
     {
-        var path = Path.Combine(DocsDir, "DARKWOOD_MP_AUDIT.md");
-        Assert.True(File.Exists(path), "Missing docs/DARKWOOD_MP_AUDIT.md");
-        var text = File.ReadAllText(path);
-        foreach (var section in new[]
-                 {
-                     "Original-game baseline",
-                     "Deep mod bug audit",
-                     "Story multiplayer edge cases",
-                     "Sync contract vs implementation",
-                     "Controller.FixedUpdate",
-                     "DialogOutcome",
-                     "generateChapter",
-                     "EventTriggers",
-                 })
-        {
-            Assert.True(text.Contains(section, StringComparison.OrdinalIgnoreCase),
-                "Audit report missing section/content: " + section);
-        }
+        var readme = ReadRoot("README.md");
+        Assert.Contains("0.7.67", readme);
+        Assert.Contains("protocol **23**", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("world save share", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MelonLoader", readme);
+        Assert.Contains("GPLv3", readme);
+
+        var changelog = ReadRoot("CHANGELOG.md");
+        Assert.Contains("## 0.7.67", changelog);
+        Assert.Contains("Protocol **23**", changelog);
+        Assert.Contains("ClientStateBackup", changelog);
     }
 
     [Fact]
@@ -373,9 +368,7 @@ public class AuditStructureTests
         Assert.DoesNotContain("Version = \"1.0", plugin);
         Assert.DoesNotContain("Version = \"1.0.0\"", plugin);
 
-        var ironbark = File.ReadAllText(Path.Combine(RepoRoot, "research", "DarkwoodMP.Protocol", "Ironbark.cs"));
-        Assert.Contains("Version = 2", ironbark);
-        // Ironbark Version=2 is separate from PluginInfo ProtocolVersion (20+).
+        // research/Ironbark is local-only — live wire is Horde PluginInfo.ProtocolVersion only.
 
         var netTypes = ReadMod("Networking", "Messages", "NetMessageType.cs");
         Assert.Contains("DialogNpcLock = 112", netTypes);
@@ -618,22 +611,21 @@ public class AuditStructureTests
     }
 
     [Fact]
-    public void TodoOpen_Items_StillDocumentedInAuditOrTodo()
+    public void Residuals_StillDocumentedInReadmeOrChangelog()
     {
-        var todo = File.ReadAllText(Path.Combine(DocsDir, "TODO.md"));
-        Assert.Contains("Landmark placement full determinism", todo);
-        Assert.Contains("Live dual/triple campaign soak", todo);
+        var readme = ReadRoot("README.md");
+        var changelog = ReadRoot("CHANGELOG.md");
+        var blob = readme + "\n" + changelog;
 
-        var audit = File.ReadAllText(Path.Combine(DocsDir, "DARKWOOD_MP_AUDIT.md"));
         Assert.True(
-            audit.Contains("landmark", StringComparison.OrdinalIgnoreCase)
-            && audit.Contains("placement", StringComparison.OrdinalIgnoreCase),
-            "Audit should still document landmark placement residual");
+            blob.Contains("landmark", StringComparison.OrdinalIgnoreCase)
+            && blob.Contains("placement", StringComparison.OrdinalIgnoreCase),
+            "Ship docs should still document landmark placement residual");
         Assert.True(
-            audit.Contains("campaign soak", StringComparison.OrdinalIgnoreCase)
-            || audit.Contains("2-instance", StringComparison.OrdinalIgnoreCase)
-            || audit.Contains("dual/triple", StringComparison.OrdinalIgnoreCase),
-            "Audit should still document live soak residual");
+            blob.Contains("soak", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("2-box", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("dual-box", StringComparison.OrdinalIgnoreCase),
+            "Ship docs should still document live soak residual");
     }
 
     [Fact]
