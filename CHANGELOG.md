@@ -8,6 +8,20 @@ Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — the
 
 ---
 
+## 0.7.77 — Repo cleanup: delete legacy trees + scratch (2026-08-09)
+
+Removed dead weight that was never the Path B load path.
+
+### Deleted
+- **`archive/yokyy-merge-0.9/`** — frozen Path A (177 tracked files); git history still has it if needed.
+- **Local-only:** `research/` (Ironbark protocol + dedicated server), `reference/` (friend DLL decomp), root `.tmp-*` menu-sprite scripts/previews, `.tmp-menu-sprites/`, `.impeccable/`.
+- **Stale docs:** `docs/decompile docs/`, audit HTML (`test-panel.html`), superseded audit/Ironbark markdown.
+
+### Kept
+- Ship tree (`DarkwoodMP.Mod/`, PathB tests, EntitySpawner), `docs/PLAYTEST.md`, `docs/TODO.md`, `docs/PATH_B_FEATURE_INVENTORY.md`, `scripts/`, `tools/`.
+
+No mod code or protocol change. Protocol **23**.
+
 ## 0.7.76 — Dialog overlay + leave-door openSound (2026-08-08)
 
 0.7.75 soak: oven/door dialogue sprites still flashed on host; client still heard dialogue-door open twice.
