@@ -12,25 +12,21 @@
 | **Co-authors** | Warexpor & Yokyy |
 
 > Path A (Yokyy structure + partial Horde ports) failed brief testing.  
-> **Path B is the load path.** Frozen Path A sources: `archive/yokyy-merge-0.9/` — **do not load**.
+> **Path B is the load path.** Legacy Path A / Ironbark trees were removed from the repo (see **CHANGELOG**).
 
 ---
 
-## Two wires — one ships, one doesn’t
+## Wire
 
-### Ship: Horde protocol 23
+### Horde protocol 23
 
-What peers actually speak in co-op:
+What peers speak in co-op:
 
 - LiteNetLib UDP + optional SteamNetworkingSockets (friends lobby); connection key (`HostPassword` / open LAN)
 - `NetMessageType : byte` message IDs (through current set; voice **129**, etc.)
 - Host-authoritative simulation; clients mute local AI/time where patched
 - Same Horde framing on LAN and Steam; backend is exclusive per session
 - **Same mod build on every peer** (same protocol **23**)
-
-### Not shipped: Ironbark / research server
-
-Older Ironbark codec + dedicated-server experiments are **local-only** (gitignored `research/`). They are not the live co-op wire and are not required to build or play Path B.
 
 ---
 
@@ -99,7 +95,7 @@ dotnet test DarkwoodMP.PathB.Tests -c Release
 | Live campaign polish / full 2-box soak | Ongoing playtest |
 | Dream dialogue UI / leave-door audio edge cases | Hardening in **0.7.75–0.7.76**; keep soak |
 | Location/landmark *placement* without successful share | Mitigated (client new-gen blocked); full seed lock is L |
-| Ironbark live client ↔ Horde LAN bridge | Not in ship tree |
+| Ironbark live client ↔ Horde LAN bridge | Removed (was research-only) |
 | Continuous co-op through **credits** | Network stops at credits (by design); mid-campaign chapter **does** resume |
 | SyncCheck digest heal, full InteractionLock matrix, ItemState upgrades | Deferred |
 
@@ -113,25 +109,9 @@ dotnet test DarkwoodMP.PathB.Tests -c Release
 | `DarkwoodMP.PathB.Tests/` | Product / wire / NetWriter Path B gates |
 | `DarkwoodMP.EntitySpawner/` | F5 spawner plugin (BepInEx) |
 | `DarkwoodMP.sln` | Solution wrapper for the three projects above |
-| `archive/yokyy-merge-0.9/` | **Path A freeze** — reference only; do not load |
 | `CHANGELOG.md` | Ship log |
 
-Local checkouts may also have gitignored folders (`docs/`, `research/`, `scripts/`, `libs/`, `AGENTS.md`) for audits, Ironbark experiments, and agent notes — not required to build or play.
-
----
-
-## Path A (archived source)
-
-**Yes — Path A is still in this repo.** It is frozen, not deleted.
-
-| | |
-|--|--|
-| **Location** | [`archive/yokyy-merge-0.9/`](archive/yokyy-merge-0.9/) |
-| **What it is** | Pre–Path B product: **Yokyy structure** + partial Horde ports |
-| **Load path?** | **No.** Do **not** build/install this tree for play |
-| **Ship path** | Repo root [`DarkwoodMP.Mod/`](DarkwoodMP.Mod/) (Path B Horde base) |
-
-Solution/CI default targets **Path B only**.
+Local checkouts may also have gitignored folders (`docs/`, `scripts/`, `libs/`, `AGENTS.md`) for playtest notes and agent memory — not required to build or play.
 
 ---
 
