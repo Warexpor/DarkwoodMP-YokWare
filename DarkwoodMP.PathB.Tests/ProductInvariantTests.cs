@@ -82,11 +82,11 @@ public class ProductInvariantTests
     }
 
     [Fact]
-    public void YokyyCore_IsArchived_NotDefaultLoadPath()
+    public void YokyyCore_RemovedFromShipTree_PathBEntryOnly()
     {
-        var archReadme = Path.Combine(RepoRoot, "archive", "yokyy-merge-0.9", "README.md");
-        Assert.True(File.Exists(archReadme));
-        Assert.Contains("Do not load", File.ReadAllText(archReadme), StringComparison.OrdinalIgnoreCase);
+        var archiveRoot = Path.Combine(RepoRoot, "archive", "yokyy-merge-0.9");
+        Assert.False(Directory.Exists(archiveRoot),
+            "Frozen Path A tree must stay out of the public ship path.");
 
         var entry = Path.Combine(ModDir, "DWMPEntry.cs");
         Assert.True(File.Exists(entry));

@@ -22,6 +22,9 @@ Removed dead weight that was never the Path B load path.
 
 No mod code or protocol change. Protocol **23**.
 
+### CI
+- `ProductInvariantTests.YokyyCore_RemovedFromShipTree_PathBEntryOnly` — archive deletion broke the old “frozen tree still present” gate.
+
 ## 0.7.76 — Dialog overlay + leave-door openSound (2026-08-08)
 
 0.7.75 soak: oven/door dialogue sprites still flashed on host; client still heard dialogue-door open twice.
