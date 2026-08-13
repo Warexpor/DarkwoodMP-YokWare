@@ -1,53 +1,100 @@
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using LiteNetLib;
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Client co-op: wrap displayNextBoard so world outcomes are host-only.
     /// Clears dialogue-triggered wantToDream so DreamStartRequest is not raced
-    /// with DialogOutcome host prepare.
+    /// with DialogOutcome host prepare. Also commits linear/source boards (msg 90).
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
     public static class DialogClientWorldDeferBoardPatch
     {
-        private static void Prefix(DialogueWindow __instance, out bool __state)
+        private static bool Prefix(DialogueWindow __instance, out bool __state)
         {
             __state = false;
-            if (__instance == null) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (!DialogHostApplyGuard.ShouldRunDisplayNextBoard())
+                return false;
+
+            if (__instance == null) return true;
+            if (LanNetworkManager.IsApplyingRemoteState) return true;
 
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
-                return;
+                return true;
             if (!DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false))
-                return;
+                return true;
 
             DialogClientWorldDefer.Begin();
             __state = true;
+            return true;
         }
 
         private static void Postfix(DialogueWindow __instance, bool __state)
         {
-            if (!__state) return;
-            try
+            if (__state)
             {
-                // Host will start dialogue dreams via DialogOutcome → displayDialogue.
-                if (__instance != null)
-                    __instance.dreamToStart = null;
-                var dreams = Dreams.Instance;
-                if (dreams != null && dreams.wantToDream && !dreams.dreaming && !dreams.dreamPrepared)
+                try
                 {
-                    // Only clear if we are not already mid host-driven prepare.
-                    if (!DreamSession.IsActive)
-                        dreams.wantToDream = false;
+                    if (__instance != null)
+                        __instance.dreamToStart = null;
+                    var dreams = Dreams.Instance;
+                    if (dreams != null && dreams.wantToDream && !dreams.dreaming && !dreams.dreamPrepared)
+                    {
+                        if (!DreamSession.IsActive)
+                            dreams.wantToDream = false;
+                    }
+                }
+                finally
+                {
+                    DialogClientWorldDefer.End();
                 }
             }
-            finally
-            {
-                DialogClientWorldDefer.End();
-            }
+
+            TrySendBoardCommit(__instance);
+            TrySuppressHostCook(__instance);
+        }
+
+        private static void TrySendBoardCommit(DialogueWindow dw)
+        {
+            if (dw == null || dw.npc == null || dw.currentDialogue == null) return;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (DialogHostApplyGuard.Active) return;
+
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
+                return;
+
+            string name = dw.currentDialogue.fullName ?? "";
+            if (string.IsNullOrEmpty(name)) return;
+            if (DialogBoardCommit.IsRecentDest(name))
+                return;
+
+            int boardIdx = Traverse.Create(dw).Field("currentBoard").GetValue<int>();
+            net.Send(NetMessageType.DialogOutcomeSync,
+                w => new DialogOutcomeSyncMessage
+                {
+                    NpcName = dw.npc.name,
+                    DecisionIndex = -1,
+                    DialogueName = name,
+                    BoardIndex = boardIdx,
+                    TargetDialogueName = ""
+                }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+
+            if (ModRuntime.VerboseLogging)
+                ModRuntime.LegacyInfo(
+                    $"[DialogOutcome] board commit NPC={dw.npc.name} dialogue={name} board={boardIdx}");
+        }
+
+        private static void TrySuppressHostCook(DialogueWindow dw)
+        {
+            if (dw == null || !DialogHostApplyGuard.Active) return;
+            if (!DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(true)) return;
+            dw.wantToCook = false;
         }
     }
 
@@ -98,6 +145,17 @@ namespace DWMPHorde.Patches
 
     [HarmonyPatch(typeof(OutsideLocations), "returnToWorld")]
     public static class DialogDeferReturnToWorldPatch
+    {
+        private static bool Prefix()
+        {
+            if (!DialogClientWorldDefer.Active)
+                return true;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Map), "showElement", typeof(string))]
+    public static class DialogDeferMarkOnMapPatch
     {
         private static bool Prefix()
         {

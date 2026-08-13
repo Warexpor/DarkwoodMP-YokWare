@@ -101,6 +101,28 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>Compact per-peer bag presence for EventTrigger haveItem (protocol 24).</summary>
+    public struct PeerHasItemMessage
+    {
+        public int PlayerId;
+        public string ItemType;
+        public int Amount;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PlayerId);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+        }
+
+        public static PeerHasItemMessage Deserialize(NetReader r) => new PeerHasItemMessage
+        {
+            PlayerId = r.GetInt(),
+            ItemType = r.GetString(),
+            Amount = r.GetInt()
+        };
+    }
+
     /// <summary>
     /// NPC dialogue lock (0.9.2): client request or host grant/deny/release fan-out.
     /// IsRequest=true only on client→host acquire attempts.
@@ -210,7 +232,7 @@ namespace DWMPHorde.Networking
         public static WorkbenchLevelMessage Deserialize(NetReader r) => new WorkbenchLevelMessage { Level = r.GetInt() };
     }
 
-    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3 }
+    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3, Remove = 4 }
 
     public struct JournalItemMessage
     {

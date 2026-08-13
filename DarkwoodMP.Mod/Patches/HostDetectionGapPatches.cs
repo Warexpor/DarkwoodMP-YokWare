@@ -269,4 +269,160 @@ namespace DWMPHorde.Patches
             return false;
         }
     }
+
+    /// <summary>
+    /// InSightOfPlayer (banshee agitation, sight events) only tested host FOV.
+    /// </summary>
+    [HarmonyPatch(typeof(InSightOfPlayer), "checkSight")]
+    public static class HostInSightOfPlayerCheckSightPatch
+    {
+        private static bool Prefix(InSightOfPlayer __instance, bool force)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null)
+                return true;
+
+            bool seen = HostPlayerIdentity.AnyInSight(__instance.transform, __instance.playerCanBeFarAway);
+            var t = Traverse.Create(__instance);
+            if (seen)
+            {
+                if (!__instance.inSightOfPlayer || force)
+                {
+                    __instance.inSightOfPlayer = true;
+                    t.Field("timeInSightOfPlayer").SetValue(Time.time);
+                }
+                if (!__instance.firedInSight)
+                    t.Method("doInSight").GetValue();
+            }
+            else
+            {
+                if (__instance.inSightOfPlayer || force)
+                {
+                    __instance.inSightOfPlayer = false;
+                    t.Field("timeOutOfSightOfPlayer").SetValue(Time.time);
+                }
+                if (!__instance.firedOutOfSight)
+                    t.Method("doOutOfSight").GetValue();
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Shooter.Start binds playerIsTarget to the host; shoot() damages Player.Instance
+    /// even when the ray is aimed at someone else.
+    /// </summary>
+    [HarmonyPatch(typeof(Shooter), "Start")]
+    public static class HostShooterStartPatch
+    {
+        private static void Postfix(Shooter __instance)
+        {
+            if (__instance == null || !__instance.playerIsTarget)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            GameObject go = HostPlayerIdentity.NearestLivingGo(__instance.transform.position);
+            if (go != null)
+                __instance.target = go;
+        }
+    }
+
+    [HarmonyPatch(typeof(Shooter), "shoot")]
+    public static class HostShooterShootPatch
+    {
+        private static bool Prefix(Shooter __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null || __instance.target == null)
+                return true;
+
+            GameObject nearest = HostPlayerIdentity.NearestLivingGo(__instance.transform.position);
+            if (nearest != null)
+                __instance.target = nearest;
+
+            Transform targetT = __instance.target.transform;
+            Vector3 vector = new Vector3(__instance.transform.position.x, 0f, __instance.transform.position.z);
+            Vector3 vector2 = new Vector3(targetT.position.x, 0f, targetT.position.z);
+            Traverse.Create(__instance).Field("lastTimeShot").SetValue(Time.time);
+            if (!string.IsNullOrEmpty(__instance.shootSound))
+                AudioController.Play(__instance.shootSound, __instance.transform);
+
+            float num = UnityEngine.Random.Range(0f - __instance.accuracy, __instance.accuracy);
+            if (!Core.canSee(__instance.transform, targetT))
+                num *= 1.5f;
+            Vector3 vector3 = Quaternion.Euler(0f, num, 0f) * (vector2 - vector).normalized;
+            float num2 = Core.trueDistance(vector, vector2)
+                + UnityEngine.Random.Range(0f - __instance.radius, __instance.radius);
+
+            CharBase cb = targetT.GetComponent<CharBase>();
+            if (cb != null && cb.alive && Core.canSee(__instance.transform, targetT))
+            {
+                cb.getHit(
+                    __instance.damage / Core.trueDistance(__instance.transform, targetT),
+                    null,
+                    CanCutInHalf: false,
+                    byPlayer: false,
+                    canInterrupt: false,
+                    normalHit: false,
+                    showRedScreen: true);
+            }
+
+            if (Physics.Raycast(vector, vector3, out var hitInfo, num2, 16809985))
+            {
+                Core.AddPrefab(
+                    __instance.wallHitPrefab,
+                    hitInfo.point,
+                    Quaternion.Euler(90f, Helpers.angleBetween(vector, hitInfo.point, __instance.transform.forward), 0f),
+                    null);
+            }
+            else
+            {
+                Core.AddPrefab(
+                    __instance.hitPrefab,
+                    vector + vector3 * num2,
+                    Quaternion.Euler(90f, 0f, 0f),
+                    null);
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The Three mercy attacks keyed off host HP only.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "checkBrotherWeakAttack")]
+    public static class HostBrotherWeakAttackPatch
+    {
+        private static bool Prefix(Character __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null || __instance.attacks == null || __instance.attacks.Count < 3)
+                return true;
+
+            float minHp = Player.Instance != null ? Player.Instance.health : float.MaxValue;
+            var net = LanNetworkManager.Instance;
+            if (net != null)
+            {
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy == null)
+                        continue;
+                    CharBase cb = proxy.GetComponent<CharBase>();
+                    if (cb != null && cb.alive && cb.Health < minHp)
+                        minHp = cb.Health;
+                }
+            }
+
+            if (minHp >= 20f)
+                return true;
+
+            __instance.attacks[0].disabled = true;
+            __instance.attacks[1].disabled = true;
+            __instance.attacks[2].disabled = false;
+            return false;
+        }
+    }
 }

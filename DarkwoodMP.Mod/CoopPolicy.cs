@@ -21,8 +21,8 @@ namespace DWMPHorde
     }
 
     /// <summary>
-    /// Remote dialog outcomes on host must not mutate host personal inventory/journal.
-    /// World flags / events / NPC dialogue state / reputation still apply.
+    /// Dialog outcome buckets. Physical bag stays speaker-personal (C2).
+    /// Journal identity and session mutations are host-authoritative.
     /// </summary>
     public static class DialogApplyPolicy
     {
@@ -37,8 +37,22 @@ namespace DWMPHorde
         public const string TypeEndDream = "endDream";
         public const string TypeTransportOutside = "transportToOutsideLoc";
         public const string TypeReturnToWorld = "returnToWorld";
+        public const string TypeModifyReputation = "modifyReputation";
+        public const string TypeMarkOnMap = "markOnMap";
+        public const string TypeEnableDialogue = "enableDialogue";
+        public const string TypeAddSpecialOption = "addSpecialDialogueOption";
+        public const string TypeSetDontWantToTalk = "setDontWantToTalk";
+        public const string TypeChangePortrait = "changePortrait";
+        public const string TypeChangePortraitOverlay = "changePortraitWithOverlayAnim";
+        public const string TypeCook = "cook";
+        public const string TypeExitDialogue = "exitDialogue";
+        public const string TypeExitDialogueLong = "exitDialogueLong";
+        public const string TypeDisplayMainOptions = "displayMainOptions";
+        public const string TypeDontSaveAfterExit = "dontSaveAfterExit";
+        public const string TypeDontTweenBlack = "dontTweenBlackScreenWhenExiting";
+        public const string TypeSwitchToDialogue = "switchToDialogue";
 
-        /// <summary>Personal rewards that already applied on the speaking client.</summary>
+        /// <summary>Physical bag give/remove — speaker only; host suppresses on remote apply.</summary>
         public static bool IsPersonalRewardType(string outcomeType)
         {
             if (string.IsNullOrEmpty(outcomeType)) return false;
@@ -46,6 +60,18 @@ namespace DWMPHorde
             {
                 case TypeGiveItem:
                 case TypeRemoveItem:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Shared journal identity — host apply + JournalItem fan-out.</summary>
+        public static bool IsWorldJournalOutcomeType(string outcomeType)
+        {
+            if (string.IsNullOrEmpty(outcomeType)) return false;
+            switch (outcomeType)
+            {
                 case TypeGiveJournalItem:
                 case TypeAddJournalEntry:
                     return true;
@@ -56,7 +82,7 @@ namespace DWMPHorde
 
         /// <summary>
         /// World / session outcomes: client defers during displayNextBoard so host
-        /// DialogOutcome apply is sole author (avoids double flag/event/dream).
+        /// DialogOutcome apply is sole author.
         /// </summary>
         public static bool IsWorldAuthOutcomeType(string outcomeType)
         {
@@ -69,11 +95,52 @@ namespace DWMPHorde
                 case TypeEndDream:
                 case TypeTransportOutside:
                 case TypeReturnToWorld:
+                case TypeModifyReputation:
+                case TypeMarkOnMap:
+                case TypeEnableDialogue:
+                case TypeAddSpecialOption:
+                case TypeSetDontWantToTalk:
                     return true;
                 default:
                     return false;
             }
         }
+
+        /// <summary>Speaker UI / cook / close — do not open cook menu on host remote apply.</summary>
+        public static bool IsSpeakerPresentationOutcomeType(string outcomeType)
+        {
+            if (string.IsNullOrEmpty(outcomeType)) return false;
+            switch (outcomeType)
+            {
+                case TypeCook:
+                case TypeExitDialogue:
+                case TypeExitDialogueLong:
+                case TypeDisplayMainOptions:
+                case TypeDontSaveAfterExit:
+                case TypeDontTweenBlack:
+                case TypeSwitchToDialogue:
+                case TypeChangePortrait:
+                case TypeChangePortraitOverlay:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Model C: morning traders keep per-player standing.</summary>
+        public static bool IsPerPlayerReputationNpcName(string npcName)
+        {
+            if (string.IsNullOrEmpty(npcName)) return false;
+            if (npcName == "NightTrader" || npcName == "TheThree")
+                return true;
+            if (npcName.StartsWith("NightTrader") || npcName.StartsWith("TheThree"))
+                return true;
+            return false;
+        }
+
+        /// <summary>Shared NPC reputation defers on client; night traders apply locally.</summary>
+        public static bool ShouldDeferSharedReputation(bool isNightTrader)
+            => !isNightTrader;
 
         public static bool ShouldSuppressPersonalInventoryMutation(bool hostApplyingRemoteOutcome)
             => hostApplyingRemoteOutcome;
@@ -83,6 +150,10 @@ namespace DWMPHorde
         /// </summary>
         public static bool ShouldDeferWorldOnClient(bool isConnected, bool isClient, bool applyingRemote)
             => isConnected && isClient && !applyingRemote;
+
+        /// <summary>Host remote apply must not open cook / leveling UI.</summary>
+        public static bool ShouldSuppressCookOnHostRemoteApply(bool hostApplyingRemoteOutcome)
+            => hostApplyingRemoteOutcome;
     }
 
     /// <summary>

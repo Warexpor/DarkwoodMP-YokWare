@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 
@@ -12,7 +14,8 @@ namespace DWMPHorde.Patches
     {
         internal static void SendJournalItem(JournalItemKind kind, string type)
         {
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+                return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (string.IsNullOrEmpty(type)) return;
             var msg = new JournalItemMessage { Kind = kind, Type = type };
@@ -21,6 +24,56 @@ namespace DWMPHorde.Patches
             // Broadcast: host → all peers (Send is first-peer-only and breaks 3+).
             // Client → host only; host Forwardable rebroadcasts to the rest.
             net.Broadcast(NetMessageType.JournalItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        internal static void SendJournalRemove(string type)
+        {
+            SendJournalItem(JournalItemKind.Remove, type);
+        }
+
+        private static HashSet<string> _snapKeys;
+        private static HashSet<string> _snapNotes;
+        private static HashSet<string> _snapItems;
+
+        /// <summary>Host world-only apply: detect journal dict removes and fan them out.</summary>
+        internal static void BeginWorldApplyDiff()
+        {
+            _snapKeys = CopyKeys(Singleton<UI>.Instance?.journal?.keysDict);
+            _snapNotes = CopyKeys(Singleton<UI>.Instance?.journal?.notesDict);
+            _snapItems = CopyKeys(Singleton<UI>.Instance?.journal?.itemsDict);
+        }
+
+        internal static void EndWorldApplyDiffAndBroadcastRemoves()
+        {
+            try
+            {
+                var journal = Singleton<UI>.Instance?.journal;
+                BroadcastMissing(_snapKeys, journal?.keysDict);
+                BroadcastMissing(_snapNotes, journal?.notesDict);
+                BroadcastMissing(_snapItems, journal?.itemsDict);
+            }
+            finally
+            {
+                _snapKeys = null;
+                _snapNotes = null;
+                _snapItems = null;
+            }
+        }
+
+        private static HashSet<string> CopyKeys<T>(Dictionary<string, T> dict)
+        {
+            if (dict == null) return null;
+            return new HashSet<string>(dict.Keys);
+        }
+
+        private static void BroadcastMissing<T>(HashSet<string> snap, Dictionary<string, T> now)
+        {
+            if (snap == null || now == null) return;
+            foreach (string key in snap)
+            {
+                if (!now.ContainsKey(key))
+                    SendJournalRemove(key);
+            }
         }
     }
 

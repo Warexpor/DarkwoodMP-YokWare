@@ -13,26 +13,33 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(NPC), "set_reputation", new[] { typeof(int) })]
     public static class ReputationSyncPatch
     {
-        private static void Prefix(NPC __instance, object[] __args)
+        private static bool Prefix(NPC __instance, object[] __args)
         {
             int value = (int)__args[0];
 
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
+            if (__instance == null)
+                return true;
+
+            // Client board: do not mutate shared NPC reputation (host applies once).
+            if (DWMPHorde.Sync.DialogClientWorldDefer.Active
+                && DialogApplyPolicy.ShouldDeferSharedReputation(
+                    ReputationSyncUtil.IsPerPlayerReputationNpc(__instance)))
+                return false;
+
+            if (LanNetworkManager.IsApplyingRemoteState
+                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                return true;
 
             var net = LanNetworkManager.Instance;
             if (net == null || !net.IsConnected)
-                return;
+                return true;
 
-            if (__instance == null) return;
-
-            // Per-player morning traders (NightTrader / The Three)
             if (ReputationSyncUtil.IsPerPlayerReputationNpc(__instance))
-                return;
+                return true;
 
             string npcName = __instance.name;
             if (string.IsNullOrEmpty(npcName))
-                return;
+                return true;
 
             ModRuntime.LegacyInfo($"[RepSync] broadcasting shared rep '{npcName}': {value}");
 
@@ -42,9 +49,9 @@ namespace DWMPHorde.Patches
                 Reputation = value
             };
 
-            // Host → all clients; client → host (Forwardable rebroadcasts to other peers).
             net.Broadcast(NetMessageType.ReputationSync, w => msg.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
+            return true;
         }
     }
 
@@ -78,13 +85,7 @@ namespace DWMPHorde.Patches
                     return ch.isNightTrader;
             }
 
-            // Unloaded NPC: prefab-rooted names (Core.AddPrefab keeps type name).
-            if (npcName == "NightTrader" || npcName == "TheThree")
-                return true;
-            if (npcName.StartsWith("NightTrader") || npcName.StartsWith("TheThree"))
-                return true;
-
-            return false;
+            return DialogApplyPolicy.IsPerPlayerReputationNpcName(npcName);
         }
     }
 }

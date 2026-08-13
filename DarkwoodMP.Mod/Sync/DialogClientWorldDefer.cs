@@ -4,7 +4,8 @@ namespace DWMPHorde.Sync
     /// While client applies DialogueWindow.displayNextBoard outcomes in co-op,
     /// suppress world/session mutations (flags, world events, local dream/transport).
     /// Host applies those once via DialogOutcomeSync (audit: double world apply).
-    /// Personal give/remove/journal still run on the speaking client.
+    /// Personal bag give/remove still run on the speaking client.
+    /// Journal identity applies locally (idempotent host fan-out) so the speaker can read notes.
     /// </summary>
     public static class DialogClientWorldDefer
     {

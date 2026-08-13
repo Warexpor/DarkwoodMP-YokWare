@@ -90,6 +90,8 @@ namespace DWMPHorde.Patches
 
             string sourceDialogue = __state ?? "";
 
+            DialogBoardCommit.NoteChoiceDest(target);
+
             net.Send(NetMessageType.DialogOutcomeSync,
                 w => new DialogOutcomeSyncMessage
                 {
@@ -101,14 +103,6 @@ namespace DWMPHorde.Patches
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
-            // Tree flush every choice (not only on close) so peers converge mid-conversation.
-            try { DialogTreeSync.TryBroadcastFromNpc(dw.npc); }
-            catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[DialogTree] post-choice flush: " + ex.Message);
-            }
-
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] Client → host: NPC={dw.npc.name} " +
                 $"source={sourceDialogue} board={boardIdx} " +
@@ -119,5 +113,27 @@ namespace DWMPHorde.Patches
     internal class DialogChoiceIndex : UnityEngine.MonoBehaviour
     {
         public int Index;
+    }
+
+    /// <summary>Skip dest-board commits after onPress (host drain applies dest).</summary>
+    internal static class DialogBoardCommit
+    {
+        internal static string LastChoiceDest;
+        internal static int LastChoiceTick;
+
+        internal static void NoteChoiceDest(string dest)
+        {
+            LastChoiceDest = dest ?? "";
+            LastChoiceTick = System.Environment.TickCount;
+        }
+
+        internal static bool IsRecentDest(string dialogueName)
+        {
+            if (string.IsNullOrEmpty(dialogueName) || string.IsNullOrEmpty(LastChoiceDest))
+                return false;
+            if (!string.Equals(dialogueName, LastChoiceDest, System.StringComparison.Ordinal))
+                return false;
+            return System.Environment.TickCount - LastChoiceTick < 2000;
+        }
     }
 }
