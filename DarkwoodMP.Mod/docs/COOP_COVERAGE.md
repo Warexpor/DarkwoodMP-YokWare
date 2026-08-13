@@ -1,7 +1,7 @@
 # DWMP Horde Remaster — Co-op Coverage Checklist
 
 Living audit of every sync domain against vanilla Darkwood.  
-Protocol baseline: **24** · Plugin: **0.7.79** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Msg IDs through **133** (`PeerHasItem`) · Mode: **N-player LAN (3+ supported), host-authoritative**
+Protocol baseline: **24** · Plugin: **0.7.80** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Msg IDs through **133** (`PeerHasItem`) · Mode: **N-player LAN (3+ supported), host-authoritative**
 
 **Ship deltas:** always prefer root `CHANGELOG.md` (newest first). Domain rows below may lag a few ships; treat header + CHANGELOG as authority for protocol/version.
 

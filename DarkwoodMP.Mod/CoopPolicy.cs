@@ -282,6 +282,17 @@ namespace DWMPHorde
                 return leaverWasNightDead;
             return remainingRemoteDeadCount >= remainingRemoteCount;
         }
+
+        /// <summary>
+        /// Night AllRemoteDead must not under-count a handshaked peer whose
+        /// proxy has not spawned yet (would skipDay while they are still alive).
+        /// </summary>
+        public static int SessionRemoteCount(int proxyCount, int handshakedRemoteCount)
+        {
+            if (proxyCount < 0) proxyCount = 0;
+            if (handshakedRemoteCount < 0) handshakedRemoteCount = 0;
+            return proxyCount > handshakedRemoteCount ? proxyCount : handshakedRemoteCount;
+        }
     }
 
     /// <summary>
@@ -375,6 +386,53 @@ namespace DWMPHorde
             if (mainMenu) return false;
             if (!hasPlayableWorld) return false;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Split-map presence: host simulation must keep remote bubbles even when
+    /// vanilla location transport force-leaves the grid the host just left.
+    /// </summary>
+    public static class CoopWorldPresencePolicy
+    {
+        /// <summary>
+        /// Keep a WorldGrid node that a remote occupies. Vanilla
+        /// <c>Grid.leave()</c> uses force=true; that must not wipe client forest
+        /// while the host is in a bunker / doctor house / village.
+        /// </summary>
+        public static bool ShouldKeepNodeForRemote(bool hostWithRemotes, bool remoteNear)
+            => hostWithRemotes && remoteNear;
+
+        /// <summary>
+        /// Keep a Location GO a remote is still inside. Vanilla
+        /// <c>leaveAllLocations</c> force-leaves every other pad.
+        /// </summary>
+        public static bool ShouldKeepLocationForRemote(bool hostWithRemotes, bool remoteInside)
+            => hostWithRemotes && remoteInside;
+
+        /// <summary>
+        /// Local return-to-world must not yank proxies still inside a pad
+        /// (host exits bunker while client B remains).
+        /// </summary>
+        public static bool ShouldSnapRemoteProxyOnLocalWorldReturn(bool remoteStillInOutsideLocation)
+            => !remoteStillInOutsideLocation;
+
+        public static bool LocationNamesMatch(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            if (string.Equals(a, b, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            return string.Equals(StripDoneSuffix(a), StripDoneSuffix(b),
+                System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string StripDoneSuffix(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length <= 5)
+                return name ?? "";
+            if (name.EndsWith("_done", System.StringComparison.OrdinalIgnoreCase))
+                return name.Substring(0, name.Length - 5);
+            return name;
         }
     }
 }

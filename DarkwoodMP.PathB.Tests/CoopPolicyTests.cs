@@ -224,4 +224,28 @@ public class CoopPolicyTests
         Assert.True(WorldSharePolicy.IsShareFailureMessage(msg));
         Assert.False(WorldSharePolicy.IsShareFailureMessage("Receiving host world 50%"));
     }
+
+    [Fact]
+    public void WorldPresence_KeepsRemoteBubbleEvenOnForceLeave()
+    {
+        Assert.True(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, true));
+        Assert.False(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, false));
+        Assert.False(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(false, true));
+        Assert.True(CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, true));
+        Assert.False(CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, false));
+        Assert.True(CoopWorldPresencePolicy.LocationNamesMatch(
+            "outside_doctor_house_01", "outside_doctor_house_01_done"));
+        Assert.False(CoopWorldPresencePolicy.LocationNamesMatch(
+            "outside_doctor_house_01", "outside_bunker_ch1_01"));
+        Assert.False(CoopWorldPresencePolicy.ShouldSnapRemoteProxyOnLocalWorldReturn(true));
+        Assert.True(CoopWorldPresencePolicy.ShouldSnapRemoteProxyOnLocalWorldReturn(false));
+    }
+
+    [Fact]
+    public void NightDeath_SessionRemoteCount_UsesMaxOfProxyAndHandshake()
+    {
+        Assert.Equal(2, NightDeathPolicy.SessionRemoteCount(proxyCount: 1, handshakedRemoteCount: 2));
+        Assert.Equal(2, NightDeathPolicy.SessionRemoteCount(proxyCount: 2, handshakedRemoteCount: 1));
+        Assert.Equal(0, NightDeathPolicy.SessionRemoteCount(proxyCount: 0, handshakedRemoteCount: 0));
+    }
 }
