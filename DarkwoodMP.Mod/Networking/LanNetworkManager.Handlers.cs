@@ -3390,6 +3390,11 @@ namespace DWMPHorde.Networking
                 if (shouldPlace)
                     PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
 
+                // Host never setGrid for a remote-only pad; wake that location's
+                // WorldGrid nodes around remotes so bunker Cullables/AI run.
+                if (_role == NetworkRole.Host)
+                    TryEnterLocationGridNearRemotes(locName);
+
                 // Peer just got location geometry — re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
                 if (_role == NetworkRole.Host && firstEnterThisLoc && playerId != _localPlayerId)
@@ -3540,11 +3545,15 @@ namespace DWMPHorde.Networking
             {
                 _previousInOutsideLocation = false;
                 _previousLocationName = "";
-                // Proxies of peers still inside locations: keep tracking; geometry re-enters on next LocationEnter.
-                // Hard-snap any proxies we still have to last known world/pos so they are not left at bunker coords
-                // while we stand on the map (PlayerState continues to refine).
+                // Hard-snap world-side proxies so they are not left at bunker coords
+                // while we stand on the map. Skip peers still inside a pad — yanking
+                // them to last-known world pos is the 3p "host left, client still in
+                // cellar" ghost.
                 foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_remoteProxies))
                 {
+                    if (!CoopWorldPresencePolicy.ShouldSnapRemoteProxyOnLocalWorldReturn(
+                        _remoteOutsideLocation.ContainsKey(kvp.Key)))
+                        continue;
                     if (PlayerPositionManager.TryGetRemote(kvp.Key, out Vector3 pos, out float rotY))
                         TeleportRemoteProxyTo(pos, rotY, kvp.Key);
                 }
@@ -3687,6 +3696,42 @@ namespace DWMPHorde.Networking
                 $"[LocationSync] placed p{playerId} proxy in '{placeName}' at {pos}");
         }
 
+        public bool IsAnyRemoteInOutsideLocation(string locationName)
+        {
+            if (string.IsNullOrEmpty(locationName)) return false;
+            foreach (var kvp in _remoteOutsideLocation)
+            {
+                if (CoopWorldPresencePolicy.LocationNamesMatch(kvp.Value, locationName))
+                    return true;
+            }
+            return false;
+        }
+
+        private void TryLeaveUnoccupiedOutsideLocation(string locName)
+        {
+            if (_role != NetworkRole.Host || string.IsNullOrEmpty(locName))
+                return;
+            if (Sync.DreamSyncManager.IsDreamActive
+                || Sync.DreamSyncManager.IsDreamLocationName(locName))
+                return;
+            if (IsAnyRemoteInOutsideLocation(locName))
+                return;
+
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol == null) return;
+            if (ol.playerInOutsideLocation
+                && CoopWorldPresencePolicy.LocationNamesMatch(ol.currentLocationName ?? "", locName))
+                return;
+
+            Location loc = ResolveOutsideLocation(ol, locName);
+            if (loc != null && loc.entered)
+            {
+                loc.leave();
+                ModRuntime.LegacyInfo(
+                    "[LocationSync] last remote left '" + locName + "' — host left location");
+            }
+        }
+
         private void HandleLocationExit(LocationExitMessage msg)
         {
             int playerId = _role == NetworkRole.Host
@@ -3695,6 +3740,8 @@ namespace DWMPHorde.Networking
             if (playerId <= 0)
                 return;
 
+            string leftLoc = null;
+            _remoteOutsideLocation.TryGetValue(playerId, out leftLoc);
             _remoteOutsideLocation.Remove(playerId);
 
             // During join load proxies are torn down / not spawnable — teleport NRE'd
@@ -3707,10 +3754,27 @@ namespace DWMPHorde.Networking
             }
 
             // Never leaveAllLocations() — that deactivates locations the LOCAL player
-            // may still be inside (2p/3+ desync / blackout).
+            // may still be inside (2p/3+ desync / blackout). Last occupant: leave
+            // only that pad so exit events fire once nobody remains.
             Vector3 worldPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             TeleportRemoteProxyTo(worldPos, playerId: playerId);
+            if (_role == NetworkRole.Host)
+                TryLeaveUnoccupiedOutsideLocation(leftLoc);
             ModRuntime.LegacyInfo($"[LocationSync] player {playerId} exited → proxy at {worldPos}");
+        }
+
+        private static void TryEnterLocationGridNearRemotes(string locName)
+        {
+            if (string.IsNullOrEmpty(locName)) return;
+            var wg = Singleton<WorldGrid>.Instance;
+            if (wg == null) return;
+            string gridName = Core.getTrueLocationName(locName);
+            WorldGrid.Grid grid = wg.getGrid(gridName);
+            if (grid == null && !string.Equals(gridName, locName, StringComparison.Ordinal))
+                grid = wg.getGrid(locName);
+            if (grid == null) return;
+            HostWorldGridProxyCullPatch.EnterNodesNearRemotes(
+                grid, GameplayConstants.EntityActivationRange);
         }
 
         /// <summary>
@@ -7968,7 +8032,20 @@ namespace DWMPHorde.Networking
             return proxy;
         }
 
-        public int RemotePlayerCount => _remoteProxies.Count;
+        public int RemotePlayerCount
+        {
+            get
+            {
+                int proxies = _remoteProxies.Count;
+                int ready = 0;
+                foreach (int id in _handshakedPeers)
+                {
+                    if (id > 0 && id != _localPlayerId)
+                        ready++;
+                }
+                return NightDeathPolicy.SessionRemoteCount(proxies, ready);
+            }
+        }
 
         public IEnumerable<RemotePlayerProxy> GetAllProxies()
         {

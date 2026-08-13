@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
@@ -133,6 +134,60 @@ namespace DWMPHorde.Patches
             {
                 ModRuntime.Log?.LogWarning("[LocationSync] transportToHome grid: " + ex.Message);
             }
+        }
+    }
+
+    /// <summary>
+    /// Host <c>leaveAllLocations</c> / return-to-world force-leaves every pad.
+    /// Skip leave while a remote is still inside that Location so their
+    /// geometry, NPCs, and colliders stay simulated.
+    /// </summary>
+    [HarmonyPatch(typeof(Location), nameof(Location.leave))]
+    public static class HostLocationLeaveKeepRemotePatch
+    {
+        private static bool Prefix(Location __instance)
+        {
+            if (__instance == null) return true;
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+                return true;
+            if (!PlayerPositionManager.HasRemotePlayer)
+                return true;
+            if (DreamSyncManager.IsDreamActive)
+                return true;
+
+            bool remoteInside = false;
+            var net = LanNetworkManager.Instance;
+            if (net != null)
+            {
+                string n = __instance.gameObject != null
+                    ? __instance.gameObject.name
+                    : __instance.name;
+                if (net.IsAnyRemoteInOutsideLocation(n))
+                    remoteInside = true;
+            }
+
+            if (!remoteInside && net != null)
+            {
+                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+                {
+                    if (proxy == null) continue;
+                    Location at = Location.getAtPos(proxy.transform.position);
+                    if (at == __instance)
+                    {
+                        remoteInside = true;
+                        break;
+                    }
+                }
+            }
+
+            if (CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, remoteInside))
+            {
+                ModRuntime.LegacyInfo(
+                    "[LocationSync] skip Location.leave — remote still inside "
+                    + (__instance.gameObject != null ? __instance.gameObject.name : __instance.name));
+                return false;
+            }
+            return true;
         }
     }
 }

@@ -2,11 +2,34 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.79** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.80** and continue from there.
 
 Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **24** (PeerHasItem).
 
 ---
+
+## 0.7.80 — Split-map host simulation (2026-08-13)
+
+Host in a bunker / doctor house / village while clients stay in the forest (or another pad) force-left the World grid and every other Location. Host AI, doors, and EntityState for those bubbles stopped; clients saw frozen or missing NPCs.
+
+### What changed
+- **WorldGrid nodes near remotes stay entered** even on vanilla `Grid.leave(force)` (location transport).
+- **Proxy cull walks every grid**, not only `currentGrid`, so forest nodes re-enter while the host is on a location grid (and the reverse).
+- **`getNode` / register** temporarily use the grid that actually contains the position, so night spawns and new objects near a far client are not bound to the host's bunker grid.
+- **`Location.leave` skipped** while a remote is still inside that pad (`leaveAllLocations` no longer blacks out the client's bunker). Last occupant leaving still leaves that pad on the host.
+- **Return-to-world** no longer snaps proxies that are still inside a pad (host leaves bunker, client stays).
+- **Night AllRemoteDead** uses max(proxy count, handshaked remotes) so a peer without a proxy yet cannot trigger skipDay.
+- **Steam dream-join reject** matches LAN (`DreamSession` + `IsDreamActive`).
+- Remote-only pad: host wakes that location's WorldGrid nodes around remotes after `LocationEnter`.
+
+### Parked
+- Snapshot cap 256 with three 1400u bubbles can still round-robin in dense nights.
+- Night spawn split is still ~50% host / random far proxy (not weighted per client).
+- `haveSkill` / health / darkness EventTrigger checks stay host-body (0.7.79); bag `haveItem` is any-peer.
+- Late-join GE one-shot / scenario bulk still skipped.
+- Client-client interaction was already forwarded (PlayerState, FF, items, doors); no player-to-player trade UI.
+
+Protocol **24** unchanged.
 
 ## 0.7.79 — Dialog world-auth closeout (2026-08-13)
 

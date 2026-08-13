@@ -351,9 +351,11 @@ namespace DWMPHorde.Networking
                 return false;
             }
 
-            if (Sync.DreamSyncManager.IsDreamActive
-                && Config.ModConfig.AllowJoinDuringDream != null
-                && !Config.ModConfig.AllowJoinDuringDream.Value)
+            bool allowDreamJoin = Config.ModConfig.AllowJoinDuringDream != null
+                && Config.ModConfig.AllowJoinDuringDream.Value;
+            if (!allowDreamJoin
+                && (Sync.DreamSession.ShouldRejectNewConnections
+                    || Sync.DreamSyncManager.IsDreamActive))
             {
                 ModLog.Warn(LogCat.Network, "Steam reject " + remote.m_SteamID + " — dream join blocked");
                 Steam.CloseSession(remote);
