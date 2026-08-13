@@ -1,7 +1,7 @@
 # DWMP Horde Remaster — Co-op Coverage Checklist
 
 Living audit of every sync domain against vanilla Darkwood.  
-Protocol baseline: **22** · Plugin: **0.7.46** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Msg IDs through **131** (optional **112–131**) · Mode: **N-player LAN (3+ supported), host-authoritative**
+Protocol baseline: **24** · Plugin: **0.7.79** (live **0.7.x** line — older **0.9.x** labels were too ambitious; see `CHANGELOG.md` Versioning) · Msg IDs through **133** (`PeerHasItem`) · Mode: **N-player LAN (3+ supported), host-authoritative**
 
 **Ship deltas:** always prefer root `CHANGELOG.md` (newest first). Domain rows below may lag a few ships; treat header + CHANGELOG as authority for protocol/version.
 
@@ -380,6 +380,7 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
   2. Pending journal bulk if `UI.journal` not ready (flag-style flush).
   3. After bulk: despawn world notes/keys/quest already in journal; retry when Player/Controller exists.
 - **Already solid:** ReliableOrdered; ContainsKey guards; NetworkApplyGuard blocks re-send; destroy on live `HandleJournalItem`.
+- **0.7.79:** dialogue `giveJournalItem` / `addJournalEntry` are shared world (host apply + live 14). `JournalItemKind.Remove` fans dict removals. Speaker still reads notes locally (idempotent ContainsKey).
 - **Deferred:** streamed-chunk ghosts until area load/re-interact; dual same-frame pickup popup spam.
 - **Playtest smoke:** host note → all journals + world gone; client key → host + 3rd; late join has keys + no ground ghosts; story entry fans out.
 
@@ -408,6 +409,7 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
   5. ClientStateBackup collect/restore night-trader rep per playerId.
   6. Protocol **11** / plugin **0.4.5**.
 - **Already solid:** MorningRepPatch skips +rep when `SkipMorningRepBonus` (local night death).
+- **0.7.79:** client-led shared NPC `modifyReputation` is host-only (no double +N). Morning traders still per-player; shop stock still shared (2.5).
 - **Deferred:** direct `Flags.npcStates.reputation` writes from GameEvent (bypass setter); host push of stored peer night-trader rep on rejoin without local restore; full 3.7 night-death orchestration polish.
 - **Playtest smoke:** host Doctor rep → all; client trade Doctor → host+3rd; NightTrader morning +rep only for survivors; bulk join does not clobber client NightTrader standing; save/restore night-trader via backup.
 
@@ -607,9 +609,9 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 
 | ID | Domain | Status | Notes |
 |----|--------|--------|-------|
-| 4.1 | Dialogs / choices | **OK** | Code closed 2026-07-09. Client→host `DialogOutcomeSync` with **TargetDialogueName**; host apply without open UI. Protocol **12** / **0.4.6**. |
+| 4.1 | Dialogs / choices | **OK** | **0.7.79:** client board commit + dest `displayDialogue`; host one-shot source/linear boards; dest drain for portrait chains. Msg **90** / lock **112** / tree **113**. Journal-from-dialog shared. Protocol **24**. |
 | 4.2 | GameEvents one-shots | **OK** | Code closed 2026-07-09. Host-auth fire; EventName lookup; multipleFire sync; pending; client one-shot block. **0.7.24:** pad-coord + bunker FX (`def_glow`, `podmiana`, `karuzela`, `SWITCH_`, `dimLight`) wait for dream `finishedLoading`; soft flush Apply; 90s dream pending age. Protocol **13** / **0.4.7** (+ later hardening). |
-| 4.3 | Event triggers / requirements | **OK** | Code closed 2026-07-09. Host proxy area enter/exit; client volume suppress; proxy sight LOS. No protocol bump (uses 4.2 GameEvents). |
+| 4.3 | Event triggers / requirements | **OK** | Proxy area/sight plus **0.7.79:** any-peer `locationState` + bag `haveItem` via PeerHasItem **133**. Shared journal covers `haveKey`. Skills/health still per-body. |
 | 4.4 | Dreams (all levels) | **OK** | **0.7.7**: GE flush under `NetworkApplyGuard` (dream door dialogue); spatial proxy footsteps; black hold before unpause. Protocol **19**. |
 | 4.5 | Final dreamscene / epilogue | **OK** | Code closed 2026-07-09. Epilogue mode on remote load; crawl death not spectated; credits SceneLoad. Protocol **14** / **0.4.8**. **2026-07-28:** SceneLoad host-only apply; clients cannot force credits. |
 | 4.6 | Cutscenes / movies | **OK** | Code closed 2026-07-09. Host-auth CutsceneManager + skip; proxy hide; CutsceneSync. Protocol **15** / **0.4.9**. |
@@ -621,18 +623,18 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
 
 ### Layer 4 audit log
 
-#### 4.1 Dialogs / choices — CLOSED (code) 2026-07-09
-- **B:** Client `DialogOutcomeSync` on `DialogueButton.onPress` (index + board + dialogue + **TargetDialogueName**); host applies via `displayDialogue(target)` or legacy button click; choice index tags on `addDecision`.
-- **C:** Host-authoritative story outcomes (flags/items/rep from dialogue nodes); host local choices rely on FlagSync; client local UI still advances for the talker.
-- **M:** Client→host ReliableOrdered; not Forwardable (host applies, FlagSync fans world flags).
-- **Fixes this closeout:**
-  1. **Critical:** Host no longer requires matching open dialogue UI — applies `TargetDialogueName` on found NPC.
-  2. Close host dialogue UI after silent apply if host was not already talking (avoid UI steal).
-  3. `IsApplyingRemoteState` guard on client send (no echo).
-  4. Protocol **12** / plugin **0.4.6** (message field added).
-- **Already solid:** decision index tagging; displayNextBoard index reset; no-pause dialogue (0.6).
-- **Deferred:** multi-client simultaneous talk to same NPC; host choice UI mirror to spectators; porter transport special decisions edge cases.
-- **Playtest smoke:** client talks alone → host flags/journal update; both in talk host can still play; second client sees flag-driven world after FlagSync.
+#### 4.1 Dialogs / choices — CLOSED (code) 2026-08-13 (0.7.79)
+- **B:** Client `DialogOutcomeSync` **90** on `DialogueButton.onPress` (dest) **and** on `displayNextBoard` (empty target = that board). Host `OneShotApplyBoard` for linear/source; dest `displayDialogue` + drain for portrait/keyhole. `DialogNpcLock` **112**. `DialogTreeState` **113** host-only mid-talk.
+- **C:** Host-authoritative world outcomes (flags, events, shared rep, map, journal identity, NPC dialogue state). Speaker bag give/remove personal (C2). Journal keys/notes/entries from dialogue shared.
+- **M:** Client→host ReliableOrdered; not Forwardable (host applies, FlagSync/JournalItem/Rep/tree fan out).
+- **0.7.79 closeout:**
+  1. Decision-board and linear-board world outcomes no longer dropped (board commit).
+  2. Shared `modifyReputation` no longer double-applies on client-led talks.
+  3. Dialogue journal is world identity (no host journal snapshot-restore).
+  4. Client tree send removed; host flush after apply.
+- **Already solid:** NPC lock; silent host close; presentation suppress; dream `onCloseDialogue` replay.
+- **Deferred:** spectator choice UI; porter transport special decisions; welcome/gossip RNG (board commits cover world outcomes on those boards).
+- **Playtest smoke:** client talks alone → host flags/journal/rep once; Piotrek +100 not +200; second client sees flag-driven world.
 
 #### 4.2 GameEvents one-shots — CLOSED (code) 2026-07-09
 - **B:** Host `GameEvents.fire` → `GameEventsFired` (pos + **EventName**); clients `fire()` local matching component; client one-shot block when connected.
@@ -654,12 +656,12 @@ Dual-client smoke per family (especially elites); separate legs-clip channel if 
   1. **Proxy area enter/exit** — host Postfix `OnTriggerEnter`/`Exit`: `RemotePlayerProxy` counts like `Player.Instance` (`entered`/`exited`, `Helpers.isComponentAtPos` multi-collider guard) → `fireEventTrigger(area)` / exit → 4.2 GameEvents sync.
   2. **Client suppress** — clients skip `OnTriggerEnter`/`Exit` while connected (host owns; avoids double multipleFire).
   3. **Proxy sight** — host `isCurrentlyInSightOfPlayer` OR any proxy with `Core.canSee` / radius `Player.canSee` (approx FOV when radius=0).
-  4. **Requirements** — evaluated on host at fire time; `worldFlag` / `gameEventsFired` / time / GO active covered by FlagSync + 4.2; host-centric `playerState` / `locationState` / host journal keys remain host Player.Instance.
+  4. **Requirements** — evaluated on host at fire time; `worldFlag` / `gameEventsFired` / time / GO active covered by FlagSync + 4.2; **0.7.79:** `locationState` any proxy `WhereAmI`; bag `playerState.haveItem` via PeerHasItem; `haveKey` / journal branches use shared journal. `haveSkill` / health / darkness remain host `Player.Instance`.
 - **C:** Client walks into story volume → host proxy collider hits trigger → host fires GameEvents → all clients. Host enter still vanilla. Exit when all players out (`exited >= entered`).
 - **M:** Any number of proxies; counters shared so multi-player in same volume does not premature exit.
-- **No protocol / version bump** — no new messages (4.2 path).
-- **Deferred:** host-only `playerState`/`haveItem`/`locationState` requirements when only a remote has the item or is in the location; exact proxy FOV (approx 55° half-angle); client-only non-volume triggers without host world; late-join bulk of already-fired one-shots (4.2).
-- **Playtest smoke:** client alone enters area one-shot → all peers fire; two players in volume, one leaves → no exit yet; host sight OR client proxy LOS fires onInSight; offline SP enter unchanged.
+- **Protocol 24** — PeerHasItem **133**.
+- **Deferred:** exact proxy FOV (approx 55° half-angle); client-only non-volume triggers without host world; late-join bulk of already-fired one-shots (4.2).
+- **Playtest smoke:** client alone enters area one-shot → all peers fire; two players in volume, one leaves → no exit yet; host sight OR client proxy LOS fires onInSight; client-only bag item satisfies haveItem; offline SP enter unchanged.
 
 #### 4.4 Dreams (all levels) — CLOSED (code) 2026-07-09
 - **A:** Vanilla `Dreams` (prepare/start/end/initiateEnd), dream levels via presets (`hadDreamAtLvl*`), dream doors/items/audio, death→end.
@@ -1027,6 +1029,7 @@ These are not “2p only works” — they are places **M checks** must pass bef
 | 2026-07-09 | **3.8 closed (code):** proxy death pose; bag loot anti-echo. **Layer 3 complete.** Next: **4.1** |
 | 2026-07-09 | **GitHub backup:** `0e11f30` Layer 3 complete (3.1–3.8) → origin/master |
 | 2026-07-09 | **4.1 closed (code):** DialogOutcome TargetDialogueName host apply; **Protocol 12 / 0.4.6**. Next: **4.2** |
+| 2026-08-13 | **4.1 re-close (0.7.79):** board commits + dest drain; shared dialog journal; host-only shared rep; PeerHasItem **133**; **Protocol 24**. |
 | 2026-07-09 | **4.2 closed (code):** GameEvents EventName + multipleFire + client one-shot block; **Protocol 13 / 0.4.7**. Next: **4.3** |
 | 2026-07-09 | **4.3 closed (code):** proxy area enter/exit + client volume suppress + proxy sight; no proto bump. Next: **4.4** |
 | 2026-07-09 | **4.4 closed (code):** dream door/audio/item Broadcast + death spectate retarget; no proto bump. Next: **4.5** |

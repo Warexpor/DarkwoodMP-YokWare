@@ -2164,6 +2164,9 @@ namespace DWMPHorde.Networking
                             HandleLocationTransport(
                                 LocationTransportMessage.Deserialize(new NetReader(payload)));
                             break;
+                        case NetMessageType.PeerHasItem:
+                            HandlePeerHasItem(PeerHasItemMessage.Deserialize(new NetReader(payload)));
+                            break;
                         case NetMessageType.ConstructibleConstruction:
                             HandleConstructible(ConstructibleMessage.Deserialize(new NetReader(payload)));
                             break;

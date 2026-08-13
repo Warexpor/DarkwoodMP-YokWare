@@ -34,6 +34,99 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Host-side "the player" identity: vanilla Character keys off Player.Instance;
+    /// co-op treats host + living proxies as equal bodies.
+    /// </summary>
+    internal static class HostPlayerIdentity
+    {
+        internal static bool HostWithRemotes()
+        {
+            return ModRuntime.Network != null
+                && ModRuntime.Network.Role == NetworkRole.Host
+                && PlayerPositionManager.HasRemotePlayer;
+        }
+
+        internal static Transform NearestLiving(Vector3 from)
+        {
+            return HostAttackPlayerNearestPatch.FindNearestPlayerTransform(from);
+        }
+
+        internal static GameObject NearestLivingGo(Vector3 from)
+        {
+            Transform t = NearestLiving(from);
+            if (t != null)
+                return t.gameObject;
+            return Player.Instance != null ? Player.Instance.gameObject : null;
+        }
+
+        /// <summary>
+        /// Vanilla Player.isInSight, plus proxy facing + Core.canSee (same 800u / FOV rule).
+        /// </summary>
+        internal static bool AnyInSight(Transform dest, bool canBeFarAway)
+        {
+            if (dest == null)
+                return false;
+            if (Player.Instance != null && Player.Instance.isInSight(dest, canBeFarAway))
+                return true;
+
+            var net = LanNetworkManager.Instance;
+            if (net == null)
+                return false;
+
+            float halfFov = 55f;
+            if (Player.Instance != null && Player.Instance.FOVLogic != null)
+                halfFov = Player.Instance.FOVLogic.LightConeAngle / 2f;
+            float lightR = 0f;
+            if (Player.Instance != null && Player.Instance.FOVDot != null)
+                lightR = Player.Instance.FOVDot.LightRadius;
+
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null)
+                    continue;
+                Transform t = proxy.transform;
+                Vector3 destPos = dest.position;
+                float num = Core.trueDistance(t.position, destPos);
+                if (num >= 800f && !canBeFarAway)
+                    continue;
+                Vector3 vec = destPos - t.position;
+                if (Vector3.Angle(vec, t.up) >= halfFov && num >= lightR)
+                    continue;
+                if (Core.canSee(t, dest))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Forest-spirit indoor cull: despawn only when every living player is inside.
+        /// Proxy CharBase.isInside is refreshed via checkGround (proxy has no CharacterSounds tick).
+        /// </summary>
+        internal static bool AllPlayersInside()
+        {
+            if (Player.Instance != null && !Player.Instance.isInside)
+                return false;
+
+            var net = LanNetworkManager.Instance;
+            if (net == null)
+                return Player.Instance != null && Player.Instance.isInside;
+
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null)
+                    continue;
+                CharBase cb = proxy.GetComponent<CharBase>();
+                if (cb == null)
+                    continue;
+                cb.checkGround();
+                if (!cb.isInside)
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Augments Character.canSeeEnemy on the host so NPCs react to both
     /// the host player and the remote proxy for detection, targeting,
     /// and fear/ward effects.
@@ -433,23 +526,34 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Prevents despawning NPCs when the host is far away if the remote
-    /// player is still close, keeping the entity alive for multiplayer.
-    /// Re-checks distances in Postfix to clean up if both players leave range.
+    /// Vanilla checkStuff culls on host distance / host isInside. Skipping the whole
+    /// method (old Prefix return false) froze lure/activities/retarget while the client
+    /// was still next to the NPC. Stash only the host-only cull flags so the rest runs.
     /// </summary>
     [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Character), "checkStuff")]
     public static class HostCheckStuffPatch
     {
-        private static readonly HashSet<Character> _suppressed = new HashSet<Character>();
+        private struct Stash
+        {
+            public bool TempSpawned;
+            public bool WantDespawn;
+            public bool ForestSpirit;
+            public bool StashedTemp;
+            public bool StashedDespawn;
+            public bool StashedSpirit;
+        }
 
-        public static void Reset() => _suppressed.Clear();
+        private static readonly Dictionary<Character, Stash> _stash = new Dictionary<Character, Stash>();
+        private const float TempKeepRange = 1400f;
+
+        public static void Reset() => _stash.Clear();
 
         private static bool Prefix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            if (!HostPlayerIdentity.HostWithRemotes())
                 return true;
-            if (!PlayerPositionManager.HasRemotePlayer)
+            if (__instance == null)
                 return true;
 
             float distSq = PlayerPositionManager.SqrDistanceToNearestPlayer(__instance.transform.position);
@@ -458,57 +562,56 @@ namespace DWMPHorde.Patches
                 ? Core.trueDistance(hostPlayer._transform.position, __instance.transform.position)
                 : float.MaxValue;
 
-            bool vanillaWouldRemove = false;
-            if (__instance.temporarySpawned && distToHost > GameplayConstants.EntityActivationRange)
-                vanillaWouldRemove = true;
-            if (__instance.wantToDespawn && distToHost > 1500f)
-                vanillaWouldRemove = true;
-
-            if (!vanillaWouldRemove)
-                return true;
-
-            // Vanilla would remove because host is far;
-            // keep alive only if nearest player is in a near band (not full 3500 stream radius)
-            // so temporary/fleeAndDespawn wildlife does not live forever across the map.
-            const float TempKeepRange = 1400f;
-            bool keepAlive = false;
-            if (__instance.temporarySpawned && distSq <= TempKeepRange * TempKeepRange)
-                keepAlive = true;
-            if (__instance.wantToDespawn && distSq <= 1500f * 1500f)
-                keepAlive = true;
-
-            if (keepAlive)
+            Stash s = new Stash
             {
-                _suppressed.Add(__instance);
-                return false;
+                TempSpawned = __instance.temporarySpawned,
+                WantDespawn = __instance.wantToDespawn,
+                ForestSpirit = __instance.forestSpirit
+            };
+
+            if (__instance.temporarySpawned
+                && distToHost > GameplayConstants.EntityActivationRange
+                && distSq <= TempKeepRange * TempKeepRange)
+            {
+                __instance.temporarySpawned = false;
+                s.StashedTemp = true;
             }
+            if (__instance.wantToDespawn
+                && distToHost > 1500f
+                && distSq <= 1500f * 1500f)
+            {
+                __instance.wantToDespawn = false;
+                s.StashedDespawn = true;
+            }
+            if (__instance.forestSpirit
+                && hostPlayer != null
+                && hostPlayer.isInside
+                && !HostPlayerIdentity.AllPlayersInside())
+            {
+                __instance.forestSpirit = false;
+                s.StashedSpirit = true;
+            }
+
+            if (s.StashedTemp || s.StashedDespawn || s.StashedSpirit)
+                _stash[__instance] = s;
 
             return true;
         }
 
         private static void Postfix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            if (__instance == null)
                 return;
-            if (!PlayerPositionManager.HasRemotePlayer)
+            if (!_stash.TryGetValue(__instance, out Stash s))
                 return;
+            _stash.Remove(__instance);
 
-            if (!_suppressed.Remove(__instance))
-                return;
-
-            float distSq = PlayerPositionManager.SqrDistanceToNearestPlayer(__instance.transform.position);
-
-            const float TempKeepRange = 1400f;
-            bool removed = false;
-            if (__instance.temporarySpawned && distSq > TempKeepRange * TempKeepRange)
-            {
-                __instance.removeMe();
-                removed = true;
-            }
-            if (!removed && __instance.wantToDespawn && distSq > 1500f * 1500f)
-            {
-                __instance.removeMe();
-            }
+            if (s.StashedTemp)
+                __instance.temporarySpawned = s.TempSpawned;
+            if (s.StashedDespawn)
+                __instance.wantToDespawn = s.WantDespawn;
+            if (s.StashedSpirit)
+                __instance.forestSpirit = s.ForestSpirit;
         }
     }
 
@@ -974,6 +1077,150 @@ namespace DWMPHorde.Patches
                 }
             }
             return best;
+        }
+    }
+
+    /// <summary>
+    /// Forest spirit waitToTeleport only checked host FOV + host distance. Client looking
+    /// (or standing next to it) still allowed the blink.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "waitToTeleport")]
+    public static class HostWaitToTeleportPatch
+    {
+        private static bool Prefix(Character __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null || __instance.target == null)
+                return true;
+
+            if (HostPlayerIdentity.AnyInSight(__instance.transform, canBeFarAway: false))
+                return false;
+            float d = Mathf.Sqrt(PlayerPositionManager.SqrDistanceToNearestPlayer(__instance.transform.position));
+            if (d <= 200f)
+                return false;
+
+            __instance.teleportWithEffect(
+                __instance.target.position + __instance.target.up * 500f
+                    + new Vector3(UnityEngine.Random.Range(-100, 100), 0f, UnityEngine.Random.Range(-100, 100)),
+                "ForestSpirit_fastSpawnEff",
+                4f);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Hit-and-run flee after attacking used host position even when the victim was the proxy.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "set_attacking", new[] { typeof(bool) })]
+    public static class HostAttackingFleePatch
+    {
+        private static void Prefix(Character __instance, object[] __args)
+        {
+            bool value = (bool)__args[0];
+            if (value)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            if (__instance == null || __instance.currentAttack == null)
+                return;
+            if (!__instance.currentAttack.runAwayAfterAttacking)
+                return;
+            if (UnityEngine.Random.Range(0f, 1f) <= __instance.currentAttack.runAwayChance)
+                return;
+
+            Vector3 from = __instance.target != null
+                ? __instance.target.position
+                : PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
+            __instance.runAway(from);
+            __instance.currentAttack.runAwayAfterAttacking = false;
+        }
+    }
+
+    /// <summary>
+    /// Scripted Activity.playerIsTarget always bound to the host body.
+    /// </summary>
+    [HarmonyPatch(typeof(Character.Activity), "assignTarget")]
+    public static class HostActivityAssignTargetPatch
+    {
+        private static void Postfix(Character.Activity __instance)
+        {
+            if (__instance == null || !__instance.playerIsTarget)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            Vector3 from = __instance.thisCharacter != null
+                ? __instance.thisCharacter.transform.position
+                : Vector3.zero;
+            GameObject go = HostPlayerIdentity.NearestLivingGo(from);
+            if (go != null)
+                __instance.target = go;
+        }
+    }
+
+    [HarmonyPatch(typeof(Character.Activity), "run")]
+    public static class HostActivityRunAwayPatch
+    {
+        private static void Prefix(Character.Activity __instance, Character _character)
+        {
+            if (__instance == null || _character == null)
+                return;
+            if (__instance.type != Character.Activity.Type.runAway)
+                return;
+            if (__instance.target != null)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            GameObject go = HostPlayerIdentity.NearestLivingGo(_character.transform.position);
+            if (go != null)
+                __instance.target = go;
+        }
+    }
+
+    [HarmonyPatch(typeof(Character), "onBansheeSeePlayer")]
+    public static class HostBansheeSeePlayerPatch
+    {
+        private static void Postfix(Character __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null || !__instance.alive)
+                return;
+            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            if (n == null)
+                return;
+            __instance.target = n;
+            if (__instance.behaviour != Character.Behaviour.defensive)
+                __instance.goToPos(n);
+        }
+    }
+
+    [HarmonyPatch(typeof(Character), "onBansheeOutOfSightOfPlayer")]
+    public static class HostBansheeOutOfSightPatch
+    {
+        private static void Postfix(Character __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
+                return;
+            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            if (n != null)
+                __instance.goToPos(n);
+        }
+    }
+
+    [HarmonyPatch(typeof(Character), "checkIfInSightOfPlayer")]
+    public static class HostBansheeCheckSightPatch
+    {
+        private static bool Prefix(Character __instance)
+        {
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null || !__instance.banshee)
+                return true;
+            if (HostPlayerIdentity.AnyInSight(__instance.transform, canBeFarAway: false))
+            {
+                __instance.Invoke("onBansheeSeePlayer", 0f);
+                return false;
+            }
+            return true;
         }
     }
 

@@ -4,12 +4,12 @@ using Xunit;
 namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
-/// Wire ID contract for protocol 23 — compiled enum, not source greps.
+/// Wire ID contract for protocol 24 — compiled enum, not source greps.
 /// </summary>
 public class NetMessageContractTests
 {
     [Fact]
-    public void Protocol23_StableMessageIds()
+    public void Protocol24_StableMessageIds()
     {
         Assert.Equal(111, (byte)NetMessageType.ChatMessage);
         Assert.Equal(112, (byte)NetMessageType.DialogNpcLock);
@@ -33,7 +33,8 @@ public class NetMessageContractTests
         Assert.Equal(130, (byte)NetMessageType.ActivateCursorAction);
         Assert.Equal(131, (byte)NetMessageType.LocationTransport);
         Assert.Equal(132, (byte)NetMessageType.EntityDespawn);
-        Assert.Equal(132, (byte)NetMessageType._Highest);
+        Assert.Equal(133, (byte)NetMessageType.PeerHasItem);
+        Assert.Equal(133, (byte)NetMessageType._Highest);
     }
 
     [Fact]

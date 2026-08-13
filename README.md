@@ -4,9 +4,9 @@
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.7.76** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
+| **Product** | YokWare Branch **0.7.79** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
 | **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
-| **Live wire** | Horde protocol **23** (LiteNetLib `NetMessageType`; optional Steam SNS lobby path) |
+| **Live wire** | Horde protocol **24** (LiteNetLib `NetMessageType`; optional Steam SNS lobby path) |
 | **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
 | **License** | **GPLv3** — see [LICENSE](LICENSE) |
 | **Co-authors** | Warexpor & Yokyy |
@@ -18,7 +18,7 @@
 
 ## Wire
 
-### Horde protocol 23
+### Horde protocol 24
 
 What peers speak in co-op:
 
@@ -26,7 +26,7 @@ What peers speak in co-op:
 - `NetMessageType : byte` message IDs (through current set; voice **129**, etc.)
 - Host-authoritative simulation; clients mute local AI/time where patched
 - Same Horde framing on LAN and Steam; backend is exclusive per session
-- **Same mod build on every peer** (same protocol **23**)
+- **Same mod build on every peer** (same protocol **24**)
 
 ---
 
@@ -40,7 +40,7 @@ Pick **one** loader per game process. Both variants are the same Path B mod; bui
 2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
    (or take `DarkwoodMP.Mod/bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
 3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **23**, version **0.7.76**.
+4. Launch — banner: **YokWare Branch**, Path B, protocol **24**, version **0.7.79**.
 
 ### MelonLoader
 
@@ -94,6 +94,7 @@ dotnet test DarkwoodMP.PathB.Tests -c Release
 |-------|--------|
 | Live campaign polish / full 2-box soak | Ongoing playtest |
 | Dream dialogue UI / leave-door audio edge cases | Hardening in **0.7.75–0.7.76**; keep soak |
+| NPC dialog / quest-shaped flags / morning-trader vs shared shop | **0.7.79** world-auth closeout; dual-box playtest |
 | Location/landmark *placement* without successful share | Mitigated (client new-gen blocked); full seed lock is L |
 | Ironbark live client ↔ Horde LAN bridge | Removed (was research-only) |
 | Continuous co-op through **credits** | Network stops at credits (by design); mid-campaign chapter **does** resume |
@@ -129,4 +130,4 @@ GPLv3 — see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), [CONTRIBUTORS](CONTRIB
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) (current ship **0.7.76**).
+See [CHANGELOG.md](CHANGELOG.md) (current ship **0.7.79**).

@@ -76,10 +76,13 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.displayDialogue))]
     public static class DialogHostSuppressDialogueTextPatch
     {
-        private static void Prefix(DialogueWindow __instance)
+        private static bool Prefix(DialogueWindow __instance)
         {
-            if (!DialogHostPresentation.ShouldSuppress) return;
+            if (DialogHostApplyGuard.OneShotBoardActive && !DialogHostApplyGuard.DestDrainActive)
+                return false;
+            if (!DialogHostPresentation.ShouldSuppress) return true;
             DialogHostPresentation.HideSpeakerVisuals(__instance);
+            return true;
         }
 
         private static void Postfix(DialogueWindow __instance)

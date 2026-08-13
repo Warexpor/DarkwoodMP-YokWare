@@ -21,8 +21,8 @@ public class CoopPolicyTests
     [Theory]
     [InlineData("giveItem", true)]
     [InlineData("removeItem", true)]
-    [InlineData("giveJournalItem", true)]
-    [InlineData("addJournalEntry", true)]
+    [InlineData("giveJournalItem", false)]
+    [InlineData("addJournalEntry", false)]
     [InlineData("worldFlag", false)]
     [InlineData("fireWorldEvent", false)]
     [InlineData("modifyReputation", false)]
@@ -35,20 +35,48 @@ public class CoopPolicyTests
     }
 
     [Theory]
+    [InlineData("giveJournalItem", true)]
+    [InlineData("addJournalEntry", true)]
+    [InlineData("giveItem", false)]
+    [InlineData("modifyReputation", false)]
+    public void DialogPolicy_WorldJournalClassification(string type, bool journal)
+    {
+        Assert.Equal(journal, DialogApplyPolicy.IsWorldJournalOutcomeType(type));
+    }
+
+    [Theory]
     [InlineData("worldFlag", true)]
     [InlineData("fireWorldEvent", true)]
     [InlineData("startDream", true)]
     [InlineData("endDream", true)]
     [InlineData("transportToOutsideLoc", true)]
     [InlineData("returnToWorld", true)]
+    [InlineData("modifyReputation", true)]
+    [InlineData("markOnMap", true)]
+    [InlineData("enableDialogue", true)]
+    [InlineData("setDontWantToTalk", true)]
     [InlineData("giveItem", false)]
-    [InlineData("modifyReputation", false)]
+    [InlineData("giveJournalItem", false)]
+    [InlineData("cook", false)]
     public void DialogApplyPolicy_WorldAuthOutcomeTypes(string type, bool world)
     {
         Assert.Equal(world, DialogApplyPolicy.IsWorldAuthOutcomeType(type));
         Assert.True(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false));
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, true)); // applying remote
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, false, false)); // host
+    }
+
+    [Fact]
+    public void DialogPolicy_NightTraderReputation_IsPerPlayer()
+    {
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader"));
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("TheThree"));
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader(Clone)"));
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
+        Assert.True(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: false));
+        Assert.False(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: true));
+        Assert.True(DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(true));
+        Assert.False(DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(false));
     }
 
     [Fact]

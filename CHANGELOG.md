@@ -2,11 +2,50 @@
 
 ## Versioning
 
-**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.76** and continue from there.
+**Current product line: `0.7.x`.** Plugin / DisplayVersion ship as **0.7.79** and continue from there.
 
-Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **23** (EntityDespawn).
+Labels **`0.9.x` / `0.9.2+` in older sections below were too ambitious** — they implied near-1.0 maturity the campaign still does not have (dream sync and other domains still need soak). Those headings are **historical mislabels**; do not treat them as the live semver. New ship notes use **`## 0.7.x — …`**. Protocol is **24** (PeerHasItem).
 
 ---
+
+## 0.7.79 — Dialog world-auth closeout (2026-08-13)
+
+Dialogue / quest-shaped flags / reputation were federated: dest-only host replay skipped decision-board world outcomes, client `modifyReputation` double-applied shared NPCs, dialogue journal stayed speaker-only while EventTriggers still checked the host body.
+
+### What changed
+- **One world committer:** client defers flags, world events, transport, shared reputation, and `markOnMap` during `displayNextBoard`. Host applies.
+- **Board commits (msg 90, empty target):** linear and source boards replay on the host (`OneShotApplyBoard`). Dest `displayDialogue` + drain kept for keyhole/portrait chains. Dest boards are not double-committed.
+- **Journal from dialogue is shared:** `giveJournalItem` / `addJournalEntry` apply on host; journal dict removes fan out (`JournalItemKind.Remove`). Physical bag give/remove stay speaker-personal (C2). Host no longer snapshot-restores journal after remote apply.
+- **Reputation:** shared NPC `+=` only on host (client setter skipped during defer). Night Trader / The Three still per-player (model C). Host remote-apply reputation popup suppressed.
+- **Dialog tree:** clients no longer mid-talk `DialogTreeState` send; host flush after apply remains authority.
+- **4.3 triggers:** `locationState` matches any proxy `WhereAmI`; bag `haveItem` uses compact **PeerHasItem (133)**. Protocol **24**.
+- Cook / leveling UI still speaker-only (`wantToCook` cleared on silent host close).
+
+### Parked (unchanged)
+- Spectator dialogue UI, welcome/gossip RNG, late-join GE one-shot bulk, proxy FOV polish, GameEvent writes that bypass `NPC.set_reputation`.
+
+### Playtest
+Client Wolfman/Musician key; Piotrek +100 once; `wantsToTalk` lockout; client journal key vs host trigger; client in doctor-house location; night-trader rep personal; dream leave-door GE; oven cook on speaker only.
+
+## 0.7.78 — Entity host-player identity gaps (2026-08-12)
+
+Vanilla `Character` still keys many AI/cull/sight paths off `Player.Instance` (host only). Gap pass vs decompile; all hits below are patched (nothing parked). Protocol **23** unchanged.
+
+### Host AI / cull
+- `checkStuff` no longer skips the whole method to keep temp/flee wildlife alive near the client (that froze lure, activities, and chase retarget). Host-only distance cull flags are stashed for one vanilla call instead.
+- Forest spirit indoor `removeMe` waits until **all** players are inside (proxy `checkGround`), not just the host in the hideout.
+- `waitToTeleport` (forest spirit blink) requires no player in sight and nearest player > 200u — not host FOV/distance alone.
+- Hit-and-run `attacking` setter flees from the current target / nearest player, not always the host.
+- Scripted `Activity.playerIsTarget` / null-target `runAway` bind to the nearest living player body.
+
+### Sight / specials
+- `InSightOfPlayer.checkSight` (banshee agitation, sight events) treats proxy FOV + LOS like the host.
+- Banshee see/lose-sight retargets `goToPos` / `target` to the nearest player.
+- `Shooter` player-target + `shoot()` damage the nearest visible body (proxy `getHit` → existing DamagePlayer path).
+- The Three `checkBrotherWeakAttack` uses min HP among host and proxy CharBase (melee-updated), not host HP only.
+
+### Not a wire hole
+Snapshot still carries pos/clip/sleep/eat. Client AI stays off. No protocol bump.
 
 ## 0.7.77 — Repo cleanup: delete legacy trees + scratch (2026-08-09)
 

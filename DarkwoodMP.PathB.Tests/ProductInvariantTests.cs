@@ -27,12 +27,12 @@ public class ProductInvariantTests
     private static string ModDir => Path.Combine(RepoRoot, "DarkwoodMP.Mod");
 
     [Fact]
-    public void PluginInfo_IsYokWarePathB_Protocol23()
+    public void PluginInfo_IsYokWarePathB_Protocol24()
     {
         var text = File.ReadAllText(Path.Combine(ModDir, "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
-        Assert.Contains("ProtocolVersion = 23", text);
+        Assert.Contains("ProtocolVersion = 24", text);
         Assert.Contains("Horde", text);
 
         var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.7\.[^""]+)""");

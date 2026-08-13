@@ -5,8 +5,7 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Audit C2: when host replays a client dialog node via displayDialogue,
-    /// do not give/remove host bag items or host journal personal rewards.
-    /// Journal dict removals are also undone via DialogHostApplyGuard snapshot/restore.
+    /// do not give/remove host bag items. Journal identity is shared world.
     /// </summary>
     [HarmonyPatch(typeof(Inventory), "addItemTypeToPlayer")]
     public static class DialogSuppressGiveItemPatch
@@ -17,19 +16,6 @@ namespace DWMPHorde.Patches
                 return true;
             if (!DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true))
                 return true;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(Inventory), "addJournalItem")]
-    public static class DialogSuppressJournalItemPatch
-    {
-        private static bool Prefix(ref Inventory.JournalItemReturn __result)
-        {
-            if (!DialogHostApplyGuard.SuppressPersonalRewards)
-                return true;
-            // Empty return; caller checks showNote — avoid nullref on .showNote.
-            __result = new Inventory.JournalItemReturn();
             return false;
         }
     }
@@ -65,7 +51,7 @@ namespace DWMPHorde.Patches
                 return false;
             // Personal give feedback — never on host for remote outcomes.
             if (_type == "InvItem" || _type == "QuestItem" || _type == "Note"
-                || _type == "Key" || _type == "JournalEntry")
+                || _type == "Key" || _type == "JournalEntry" || _type == "Reputation")
                 return false;
             return true;
         }

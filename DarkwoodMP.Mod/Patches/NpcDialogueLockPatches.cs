@@ -38,6 +38,9 @@ namespace DWMPHorde.Patches
                     catch { /* ignore */ }
                     return false;
                 }
+                DialogHostApplyGuard.ClearChainedDisplayBlock();
+                try { PeerItemPresence.SendFullLocalInventory(); }
+                catch { /* ignore */ }
                 return true;
             }
 
@@ -66,6 +69,8 @@ namespace DWMPHorde.Patches
 
             // Local optimistic acquire so UI opens; host deny will close if racing.
             NpcDialogueLock.TryAcquire(npcName, localId);
+            try { PeerItemPresence.SendFullLocalInventory(); }
+            catch { /* ignore */ }
             return true;
         }
     }

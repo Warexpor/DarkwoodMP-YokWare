@@ -47,8 +47,8 @@ namespace DWMPHorde.Sync
             }
             else if (net.Role == NetworkRole.Client)
             {
-                net.Send(NetMessageType.DialogTreeState, w => msg.Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
+                // Host is sole tree authority after board/dest apply.
+                return;
             }
 
             ModLog.Event(LogCat.Session,

@@ -308,7 +308,12 @@ namespace DWMPHorde.Networking
         /// Protocol 23 — both boxes need this DLL.
         /// </summary>
         [Forwardable] EntityDespawn = 132,
+        /// <summary>
+        /// Client→host: compact bag item presence (type + amount) for EventTrigger haveItem.
+        /// Protocol 24 — both boxes need this DLL.
+        /// </summary>
+        PeerHasItem = 133,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 132
+        _Highest = 133
     }
 }

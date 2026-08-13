@@ -5171,6 +5171,14 @@ namespace DWMPHorde.Networking
                 case JournalItemKind.JournalEntry:
                     journal.addJournalEntry(msg.Type, noPopup: false);
                     break;
+                case JournalItemKind.Remove:
+                    if (journal.keysDict != null && journal.keysDict.ContainsKey(msg.Type))
+                        journal.keysDict.Remove(msg.Type);
+                    if (journal.notesDict != null && journal.notesDict.ContainsKey(msg.Type))
+                        journal.notesDict.Remove(msg.Type);
+                    if (journal.itemsDict != null && journal.itemsDict.ContainsKey(msg.Type))
+                        journal.itemsDict.Remove(msg.Type);
+                    break;
                 default:
                     ModRuntime.Log?.LogWarning($"[Journal] Unhandled JournalItemKind: {msg.Kind}");
                     break;
@@ -6678,12 +6686,28 @@ namespace DWMPHorde.Networking
         /// Prefer TargetDialogueName (works when host is not in the same UI);
         /// personal give/remove item paths are suppressed (DialogHostApplyGuard / audit C2).
         /// </summary>
+        private void HandlePeerHasItem(PeerHasItemMessage msg)
+        {
+            if (_role != NetworkRole.Host) return;
+            int id = msg.PlayerId;
+            if (id <= 0 && _currentReceivePlayerId > 0)
+                id = _currentReceivePlayerId;
+            DWMPHorde.Sync.PeerItemPresence.Apply(id, msg.ItemType, msg.Amount);
+        }
+
         private void HandleDialogOutcomeSync(DialogOutcomeSyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.NpcName) || _role != NetworkRole.Host) return;
 
             var dw = Singleton<UI>.Instance?.dialogueWindow;
             if (dw == null) return;
+
+            // Linear / source board commit (no dest). Decision-board world outcomes live here.
+            if (string.IsNullOrEmpty(msg.TargetDialogueName))
+            {
+                HostOneShotApplyBoard(msg);
+                return;
+            }
 
             // Path A: dest dialogue node (reliable for solo-client conversations).
             if (!string.IsNullOrEmpty(msg.TargetDialogueName))
@@ -6747,6 +6771,8 @@ namespace DWMPHorde.Networking
                 }
 
                 DialogHostApplyGuard.BeginWorldOnly();
+                DialogHostApplyGuard.ClearChainedDisplayBlock();
+                DialogHostApplyGuard.DestDrainActive = true;
                 if (!hostWasInThisTalk)
                     DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
                 try
@@ -6833,6 +6859,74 @@ namespace DWMPHorde.Networking
 
         private Coroutine _dialogWorldDrainCo;
         private string _pendingCloseDialogueNpc;
+
+        private void HostOneShotApplyBoard(DialogOutcomeSyncMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.DialogueName) || msg.BoardIndex < 0)
+                return;
+
+            NPC npc = FindNpcByName(msg.NpcName);
+            if (npc == null || npc.characterDialogue == null)
+            {
+                ModRuntime.Log?.LogWarning($"[DialogOutcome] NPC '{msg.NpcName}' not found for board apply");
+                return;
+            }
+
+            var dw = Singleton<UI>.Instance?.dialogueWindow;
+            if (dw == null) return;
+
+            CharacterDialogue.Dialogue dialogue = null;
+            try { dialogue = npc.characterDialogue.getDialogue(msg.DialogueName); }
+            catch { dialogue = null; }
+            if (dialogue == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    $"[DialogOutcome] dialogue '{msg.DialogueName}' not found on {msg.NpcName}");
+                return;
+            }
+
+            dw.npc = npc;
+            if (Player.Instance != null)
+                Player.Instance.talkedToNPC = npc;
+
+            bool hostWasInThisTalk = Player.Instance != null
+                && Player.Instance.inDialogue
+                && dw.opened
+                && dw.npc != null
+                && dw.npc.name == msg.NpcName;
+
+            DialogHostApplyGuard.BeginWorldOnly();
+            DialogHostApplyGuard.BeginOneShotBoard();
+            if (!hostWasInThisTalk)
+                DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
+            try
+            {
+                if (dw.gameObject != null && !dw.gameObject.activeSelf)
+                    dw.gameObject.SetActive(true);
+
+                dw.currentDialogue = dialogue;
+                Traverse.Create(dw).Field("currentBoard").SetValue(msg.BoardIndex - 1);
+                Traverse.Create(dw).Method("displayNextBoard").GetValue();
+
+                if (!hostWasInThisTalk)
+                    DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DialogOutcome] one-shot board apply failed: " + ex.Message);
+            }
+            finally
+            {
+                DialogHostApplyGuard.EndOneShotBoard();
+                DialogHostApplyGuard.EndWorldOnly();
+                if (!hostWasInThisTalk)
+                    DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
+            }
+
+            HostFinishDialogWorldApply(npc);
+            ModRuntime.LegacyInfo(
+                $"[DialogOutcome] one-shot board NPC={msg.NpcName} dialogue={msg.DialogueName} board={msg.BoardIndex}");
+        }
 
         private void HostFinishDialogWorldApply(NPC npc)
         {
