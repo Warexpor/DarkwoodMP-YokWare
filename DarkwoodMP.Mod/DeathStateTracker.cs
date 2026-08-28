@@ -140,7 +140,7 @@ namespace DWMPHorde
             }
         }
 
-        /// <summary>True once after a day death — SaveSyncPatch arms suppress after the first fan-out.</summary>
+        /// <summary>True once after a day death; SaveSyncPatch arms suppression after the first fan-out.</summary>
         public static bool ConsumeDeathSaveSuppressArm()
         {
             if (!_armDeathSaveSuppress) return false;
@@ -180,7 +180,7 @@ namespace DWMPHorde
 
         /// <summary>
         /// Host-only: if everyone relevant is dead at night, advance morning once.
-        /// Used by death handlers and disconnect cleanup (polish P1.6).
+        /// Used by death handlers and disconnect cleanup.
         /// </summary>
         public static bool TryResolveNightMorning(string reason)
         {

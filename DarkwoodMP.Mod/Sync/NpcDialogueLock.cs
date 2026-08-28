@@ -7,7 +7,7 @@ using UnityEngine;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Host-authoritative one-speaker-per-NPC lock (audit H5).
+    /// Host-authoritative one-speaker-per-NPC lock.
     /// Multiple NPCs may be spoken to in parallel (Dictionary); same NPC is serialized.
     /// </summary>
     public static class NpcDialogueLock
@@ -20,7 +20,7 @@ namespace DWMPHorde.Sync
 
         private static readonly Dictionary<string, Hold> _locks = new Dictionary<string, Hold>();
 
-        /// <summary>Count of active (non-expired) locks — for tests / diagnostics.</summary>
+        /// <summary>Count of active (non-expired) locks for tests and diagnostics.</summary>
         public static int ActiveCount
         {
             get
@@ -115,7 +115,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Host: extend lease when sender was the recorded holder (including expired).
-        /// Does not grant a new holder — used at trade accept so long sessions stay valid.
+        /// Does not grant a new holder. Used at trade accept so long sessions stay valid.
         /// </summary>
         public static void HostRenewLeaseForSender(string npcName, int ownerPlayerId)
         {

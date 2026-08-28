@@ -62,7 +62,8 @@ namespace DWMPHorde.Networking
     }
 
     /// <summary>
-    /// Host→client (H6): take/remove lost the race — slot empty or type mismatch.
+    /// Host→client: take/remove lost the race because the slot is empty or
+    /// the item type does not match.
     /// Client should remove the optimistic loot from player inventory.
     /// </summary>
     public struct ContainerTakeDeniedMessage

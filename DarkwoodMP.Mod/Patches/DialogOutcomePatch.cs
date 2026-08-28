@@ -74,7 +74,7 @@ namespace DWMPHorde.Patches
             if (dw == null || dw.npc == null) return;
 
             string target = __instance.destDialogueName ?? "";
-            // Vanilla onPress is a no-op until boardFinished — do not ghost-sync those clicks
+            // Vanilla onPress is a no-op until boardFinished; do not ghost-sync those clicks.
             // (host would advance while client UI stays on the prior node → lookAt* loops).
             string nowName = dw.currentDialogue != null ? (dw.currentDialogue.fullName ?? "") : "";
             if (string.IsNullOrEmpty(target) || !string.Equals(nowName, target, System.StringComparison.Ordinal))

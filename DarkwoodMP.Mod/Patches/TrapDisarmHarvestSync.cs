@@ -9,7 +9,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Successful Item.disarm / harvest: peers get silent triggered state (vanilla
     /// switchToTriggered keeps the GO + sprite) OR WorldObjectRemoved (Destroy path).
-    /// Stomp still sends full boom TrapState.
+    /// A stomp still sends the full triggered TrapState.
     /// </summary>
     public static class TrapDisarmHarvestTracker
     {
@@ -165,7 +165,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// progressBarCompleted nulls trapBeingDisarmed in resetProgressBar — capture in Prefix.
+    /// progressBarCompleted nulls trapBeingDisarmed in resetProgressBar; capture it in Prefix.
     /// Covers success + failDisarm (fail never sets SilentDisarmDepth; client boom path is host-only).
     /// </summary>
     [HarmonyPatch(typeof(Player), "progressBarCompleted")]
@@ -197,7 +197,7 @@ namespace DWMPHorde.Patches
             if (trap == null && string.IsNullOrEmpty(name)) return;
 
             // Destroy path: ObjectDestroyTrapPatch owns the wire send. Only belt-send
-            // if Destroy somehow never ran (rare) — SendWorldObjectRemoved is debounced.
+            // If Destroy somehow never ran, SendWorldObjectRemoved is debounced.
             if (trap == null || trap.gameObject == null || trap.disabled)
             {
                 // ObjectDestroy usually already claimed; this is a no-op then.

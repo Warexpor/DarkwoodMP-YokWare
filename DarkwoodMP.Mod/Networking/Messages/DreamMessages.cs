@@ -6,7 +6,7 @@ namespace DWMPHorde.Networking
     {
         public string PresetName;
         public float LocPosX, LocPosY, LocPosZ;
-        /// <summary>Optional trailer (protocol 19+ dream harden).</summary>
+        /// <summary>Optional trailer containing session and completion state.</summary>
         public int SessionId;
         public byte LvlFlags;
         public string[] CompletedPresets;
@@ -169,7 +169,7 @@ namespace DWMPHorde.Networking
             msg.CompletedPresets = new string[n];
             for (int i = 0; i < n; i++)
                 msg.CompletedPresets[i] = r.GetString();
-            // 0.9.4+: trailing SessionId (same DLL both boxes; tolerate missing).
+            // Older payloads may omit the trailing session ID.
             if (r.AvailableBytes >= 4)
                 msg.SessionId = r.GetInt();
             return msg;

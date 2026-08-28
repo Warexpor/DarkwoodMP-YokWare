@@ -23,7 +23,7 @@ namespace DWMPHorde.Sync
 
         /// <param name="force">
         /// Host DialogOutcome finish runs under ProcessInboundMessage's NetworkApplyGuard
-        /// after DialogHostApplyGuard has ended — still must flush tree to the speaker.
+        /// after DialogHostApplyGuard has ended; still must flush tree to the speaker.
         /// </param>
         public static void TryBroadcast(CharacterDialogue cd, NPC npc = null, bool force = false)
         {

@@ -49,7 +49,7 @@ namespace DWMPHorde.Audio
             new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Soft ownership after contact ends — host PhysicsState echo must not
+        /// Soft ownership after contact ends. Host PhysicsState echo must not
         /// yank the free-body for a short window between touch frames.
         /// </summary>
         private static readonly Dictionary<string, float> _localPushAuthorityUntil =
@@ -87,7 +87,7 @@ namespace DWMPHorde.Audio
             _suppressUntil[objectName] = Time.unscaledTime + PostStopSuppressSec;
         }
 
-        /// <summary>Mark object as remote-owned scrape — native ItemSounds must not arm.</summary>
+        /// <summary>Mark object as remote-owned scrape; native ItemSounds must not arm.</summary>
         public static void MarkRemoteScrape(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return;
@@ -110,7 +110,7 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// True if local player is body-pushing or E-dragging this object by name.
-        /// Ignores MOS remote-ownership — host PhysicsState echo must not arm MOS
+        /// Ignores MOS remote ownership. Host PhysicsState echo must not arm MOS
         /// (or ForceStop native) while we are the local scrape owner.
         /// </summary>
         public static bool IsLocalPushOrDragOwner(string objectName)
@@ -260,7 +260,7 @@ namespace DWMPHorde.Audio
                     string name = item.gameObject.name;
                     if (string.IsNullOrEmpty(name) || IsRemoteScrape(name)) continue;
                     if (IsScrapeSuppressed(name)) continue;
-                    // E-drag owns scrape via DragSync/MOS — never treat as body-push stop.
+                    // E-drag owns scrape via DragSync/MOS; never treat it as a body-push stop.
                     if (item.beingDragged) continue;
                     if (p.dragging && p.itemBeingDragged == item) continue;
                     if (net is Networking.LanNetworkManager lnm
@@ -392,7 +392,7 @@ namespace DWMPHorde.Audio
             if (rb != null)
             {
                 // Kill residual motion so ItemSounds.Update does not re-arm scrape.
-                // Do NOT Sleep() — that left free-bodies frozen after drag/push end
+                // Do not call Sleep(); it left free bodies frozen after drag/push end.
                 // until something re-woke them (felt like objects "sticking" in co-op).
                 rb.velocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
@@ -411,7 +411,7 @@ namespace DWMPHorde.Audio
                 }
                 catch
                 {
-                    // Traverse failure — fall through to StopAllVariants
+                // Traverse failure; fall through to StopAllVariants.
                 }
             }
 
@@ -441,8 +441,8 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Quiet/network stop: fade MOS only. Never touch native ItemSounds /
-        /// AudioController globals — StopAllVariants(GetPlayingAudioObjects) was
-        /// killing the local pusher's scrape and letting it re-arm → 2–3× feel.
+        /// AudioController globals. StopAllVariants(GetPlayingAudioObjects) was
+        /// killing the local pusher's scrape and letting it re-arm repeatedly.
         /// </summary>
         public static void SoftStopNetwork(string objectName, float fadeSec = IntentionalStopFade)
         {

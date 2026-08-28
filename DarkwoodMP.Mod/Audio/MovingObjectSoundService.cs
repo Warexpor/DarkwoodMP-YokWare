@@ -61,7 +61,7 @@ namespace DWMPHorde.Audio
             return null;
         }
 
-        /// <summary>Object is moving — start/keep loop; cancel any fade.
+        /// <summary>Object is moving; start or keep the loop and cancel any fade.
         /// MOS path always means remote ownership: suppress native ItemSounds.</summary>
         public static void NoteMoving(GameObject go, string objectName, ItemSounds sounds)
         {
@@ -70,7 +70,7 @@ namespace DWMPHorde.Audio
             // After intentional stop, ignore late network/physics residual restarts (5.2).
             if (ItemMovingSoundHelper.IsScrapeSuppressed(objectName))
                 return;
-            // Local pusher/dragger owns native ItemSounds only — never arm MOS on top.
+            // Local pusher/dragger owns native ItemSounds; never arm MOS on top.
             // Do NOT use proximity/"live RB" heuristics here: that silenced host→client
             // observer scrape when the client stood near a free-body host was pushing.
             if (ItemMovingSoundHelper.IsLocalPushOrDragOwner(objectName)
@@ -92,9 +92,9 @@ namespace DWMPHorde.Audio
             EnsurePlaying(go, objectName, soundId, volume);
         }
 
-        // IsLocalSimOwner removed — proximity/live-RB heuristic silenced host→client scrape.
+        // IsLocalSimOwner was removed because the proximity/live-RB heuristic silenced host-to-client scrape.
 
-        /// <summary>Object barely moved this tick — build hysteresis then fade.</summary>
+        /// <summary>Object barely moved this tick; build hysteresis, then fade.</summary>
         public static void NoteStationary(string objectName)
         {
             if (string.IsNullOrEmpty(objectName))
@@ -124,7 +124,7 @@ namespace DWMPHorde.Audio
                 return;
             }
 
-            // MOS is the remote-owner path — keep native ItemSounds suppressed.
+            // MOS is the remote-owner path; keep native ItemSounds suppressed.
             ItemMovingSoundHelper.MarkRemoteScrape(objectName);
 
             if (_byName.TryGetValue(objectName, out Entry existing) && existing != null)
@@ -147,7 +147,7 @@ namespace DWMPHorde.Audio
                     return;
                 }
 
-                // Host/source stale — rebuild
+                // Host/source stale; rebuild.
                 if (existing.Source != null)
                     UnityEngine.Object.Destroy(existing.Source);
                 _byName.Remove(objectName);
@@ -238,7 +238,7 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Stop MOS source. Optional <paramref name="alsoKillAudioController"/> kills every
-        /// AudioController object with the same clip id — ONLY for intentional local ForceStop
+        /// AudioController object with the same clip ID, only for intentional local ForceStop
         /// (drag release). Soft/network stops must pass false or the local pusher's native
         /// scrape is murdered and re-arms as a double/triple.
         /// </summary>
@@ -271,14 +271,14 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Network/remote intentional stop: decide *now*, vanilla 0.5s fade from that frame.
-        /// MOS only — do not global-kill AudioController clips (native ItemSounds shares ids).
+        /// MOS only. Do not globally kill AudioController clips because native ItemSounds shares IDs.
         /// </summary>
         public static void StopNetwork(string objectName, string soundId = null)
         {
             StopNetworkMosOnly(objectName, VanillaMovingStopFade);
         }
 
-        /// <summary>Fade/stop MOS entry only — never AudioController.GetPlayingAudioObjects.</summary>
+        /// <summary>Fade or stop only the MOS entry; never AudioController.GetPlayingAudioObjects.</summary>
         public static void StopNetworkMosOnly(string objectName, float fadeSec)
         {
             if (string.IsNullOrEmpty(objectName)) return;

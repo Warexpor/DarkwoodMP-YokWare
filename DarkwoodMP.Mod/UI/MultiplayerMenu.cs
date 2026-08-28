@@ -36,7 +36,7 @@ namespace DWMPHorde
                 _instance.PullFieldsFromConfig();
         }
 
-        /// <summary>Toggle IMGUI settings (IP/port/password) — main-menu SETTINGS open/close.</summary>
+        /// <summary>Toggle IMGUI settings (IP/port/password) for main-menu SETTINGS open/close.</summary>
         public static void ShowSettings()
         {
             if (_instance == null) return;
@@ -309,7 +309,7 @@ namespace DWMPHorde
 
         private ClientStateBackupData PeekLocalSelfBackup()
         {
-            // OnGUI can fire many times/frame — don't re-read + log-spam every paint.
+            // OnGUI can fire many times per frame; do not re-read or log on every paint.
             if (Time.realtimeSinceStartup - _peekBackupAt < 1.0f)
                 return _peekBackup;
             _peekBackupAt = Time.realtimeSinceStartup;

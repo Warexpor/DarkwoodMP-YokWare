@@ -32,7 +32,7 @@ namespace DWMPHorde.Networking
         private int _migrationRetryCount;
         private const int MigrationMaxRetries = 15;
         private const float MigrationRetrySec = 1.0f;
-        /// <summary>Set while local StopNetwork / intentional tear — do not treat as host crash.</summary>
+        /// <summary>Set during local StopNetwork or an intentional tear; do not treat it as a host crash.</summary>
         private bool _suppressHostMigration;
         private int _forcedElectId;
         private bool _handoffInProgress;
@@ -63,7 +63,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Tear LiteNetLib / Steam transport only — keep chapter/player state for host grant promote.
+        /// Tear down LiteNetLib or Steam transport only; keep chapter and player state for host promotion.
         /// </summary>
         /// <param name="leaveSteamLobby">
         /// Steam: false keeps lobby membership during host-grant (elect promote / survivor reconnect).
@@ -165,7 +165,7 @@ namespace DWMPHorde.Networking
             ApplyPeerRosterLocal(msg);
 
             Broadcast(NetMessageType.PeerRoster, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-            // Trace only — was flooding Support/Dev Event every 4s (not a hitch, but noise).
+            // Trace only; frequent Support/Dev events are noise.
             ModLog.Trace(LogCat.Network, () => "[HostMigration] roster peers=" + list.Count
                 + " hostId=" + _localPlayerId
                 + (IsSteamSession ? " steam" : (" port=" + _sessionPort)));
@@ -177,7 +177,7 @@ namespace DWMPHorde.Networking
                 return BuildSteamRosterEntries();
 
             var list = new List<PeerRosterEntry>(8);
-            // Cached — GetAllNetworkInterfaces every 4s roster tick was the ~upd=65ms hitch.
+            // Cached because GetAllNetworkInterfaces is expensive on the roster tick.
             string hostIp = GetCachedPrimaryLanIPv4() ?? "127.0.0.1";
             list.Add(new PeerRosterEntry
             {
@@ -358,7 +358,7 @@ namespace DWMPHorde.Networking
                 yield return null;
             }
             _handoffInProgress = false;
-            // Suppress already set — StopNetwork will not re-enter migration.
+            // Suppression is already set; StopNetwork will not re-enter migration.
             StopNetwork();
         }
 
@@ -377,7 +377,7 @@ namespace DWMPHorde.Networking
             if (_migrationInProgress)
                 return;
 
-            // Refuse mid-dream authority flip — tear down dream state then disconnect.
+                // Refuse a mid-dream authority flip; tear down dream state, then disconnect.
             if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
             {
                 ModLog.Warn(LogCat.Network,
@@ -431,7 +431,7 @@ namespace DWMPHorde.Networking
             // Forced elect must still be a known survivor (or self).
             if (elect != _localPlayerId && !candidates.Contains(elect))
             {
-                // Handoff elect not in roster — fall back to pure elect.
+                // Handoff elect is not in the roster; fall back to pure election.
                 elect = HostMigrationPolicy.ElectNewHost(candidates);
             }
 
@@ -543,7 +543,7 @@ namespace DWMPHorde.Networking
             int port = _sessionPort > 0 ? _sessionPort : PluginInfo.DefaultPort;
             if (!_net.Start(port))
             {
-                // Port may still be in TIME_WAIT after crash — try a few nearby ports.
+                // Port may still be in TIME_WAIT after a crash; try nearby ports.
                 bool bound = false;
                 for (int d = 1; d <= 5 && !bound; d++)
                 {
@@ -576,12 +576,12 @@ namespace DWMPHorde.Networking
                 + " | reason=" + reason);
 
             // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
-            // survivor was a co-op client (half-synced AI/world) — writing sav.dat corrupted
+            // survivor was a co-op client with a partially synced world; writing sav.dat corrupted
             // their slot. New host persists via manual F3 when the sim is trustworthy.
-            // TryHostMigrationSaveCheckpoint(); // disabled — host-leave client Save
+            // TryHostMigrationSaveCheckpoint(); // disabled; host-leave client Save
 
             BroadcastPeerRoster();
-            // Time authority is us now — push clock to reconnecting peers as they join.
+            // Time authority is us now; push the clock to reconnecting peers as they join.
             try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
         }
 
@@ -793,7 +793,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// LAN IPv4 for roster gossip. NetworkInterface.GetAllNetworkInterfaces is expensive
-        /// on Windows (~40–80ms) — must not run on the 4s roster timer.
+        /// on Windows and must not run on the roster timer.
         /// </summary>
         private static string GetCachedPrimaryLanIPv4()
         {

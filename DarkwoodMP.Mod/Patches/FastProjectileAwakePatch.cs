@@ -10,7 +10,7 @@ namespace DWMPHorde.Patches
     /// Co-op FastProjectile hygiene:
     /// 1) Sweep distance tracks actual velocity (covers one physics tick of travel for proxy hits).
     /// 2) Never leave a permanent long ray on a stalled pellet (old Awake MinDistance=15 made
-    ///    frozen-in-air pellets into 15u kill beams — walk into them = ghost damage).
+    ///    frozen-in-air pellets into long kill beams, causing ghost damage).
     /// 3) Despawn stalled / over-age bullets. Player spawnBullet uses AddPrefab (not pool),
     ///    so vanilla Bullet.OnSpawned WaitForDeath often never runs.
     /// </summary>
@@ -60,7 +60,7 @@ namespace DWMPHorde.Patches
             if (!_spawnedAt.ContainsKey(id))
             {
                 _spawnedAt[id] = now;
-                // Fresh projectile — never inherit stale stall state from a recycled
+                // Fresh projectile; never inherit stale stall state from a recycled
                 // instance id (a previous projectile destroyed outside onCollide/sweep).
                 _stallSince.Remove(id);
             }
@@ -77,7 +77,7 @@ namespace DWMPHorde.Patches
             }
             else
             {
-                // Stalled: collider-scale only — no floating 15u death ray.
+                // Stalled: collider-scale only; no floating death ray.
                 float extents = 0.5f;
                 try
                 {
@@ -149,7 +149,7 @@ namespace DWMPHorde.Patches
             }
             catch
             {
-                // Non-pooled AddPrefab path — RemovePooledPrefab may Destroy already.
+                // Non-pooled AddPrefab path; RemovePooledPrefab may already have destroyed it.
             }
 
             if (fp != null && fp.gameObject != null)

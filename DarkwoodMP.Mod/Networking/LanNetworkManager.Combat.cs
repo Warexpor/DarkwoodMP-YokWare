@@ -17,11 +17,11 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
-        /// <summary>BagId → DeathDrop (local + remote mirrors). Protocol 6+.</summary>
+        /// <summary>Maps BagId to the local and remote DeathDrop mirrors.</summary>
         private readonly Dictionary<string, DeathDrop> _spawnedDeathBags =
             new Dictionary<string, DeathDrop>(System.StringComparer.Ordinal);
 
-        /// <summary>BagIds already fully looted — block late spawn retransmit / join races.</summary>
+        /// <summary>BagIds already fully looted; block late spawn retransmits and join races.</summary>
         private readonly HashSet<string> _lootedDeathBagIds =
             new HashSet<string>(System.StringComparer.Ordinal);
 
@@ -111,8 +111,38 @@ namespace DWMPHorde.Networking
             }
 
             int playerId = _currentReceivePlayerId;
-            Vector3 attackPos = new Vector3(msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ);
+            if (!CombatAuthorityPolicy.IsFinitePosition(
+                    msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ)
+                || !CombatAuthorityPolicy.IsFinitePosition(
+                    msg.TargetPosX, msg.TargetPosY, msg.TargetPosZ)
+                || string.IsNullOrEmpty(msg.TargetName))
+            {
+                ModRuntime.Log?.LogWarning("[HandlePlayerAttack] rejected malformed position/target");
+                return;
+            }
+
+            RemotePlayerProxy attackingProxy = GetProxy(playerId);
+            if (attackingProxy == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[HandlePlayerAttack] rejected: no authoritative proxy for player " + playerId);
+                return;
+            }
+
+            // The host proxy is authoritative; do not use a client-supplied
+            // origin for target range checks or damage attribution.
+            Vector3 attackPos = attackingProxy.transform.position;
             Vector3 targetPos = new Vector3(msg.TargetPosX, msg.TargetPosY, msg.TargetPosZ);
+            if (!CombatAuthorityPolicy.IsWithinRange(
+                    msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ,
+                    attackPos.x, attackPos.y, attackPos.z,
+                    GameplayConstants.MaxPlayerAttackRange))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[HandlePlayerAttack] rejected attacker position outside authoritative range for p"
+                    + playerId);
+                return;
+            }
 
             Character target = ResolvePlayerAttackTarget(msg, attackPos, targetPos);
             if (target == null)
@@ -139,10 +169,7 @@ namespace DWMPHorde.Networking
 
             int damage = SanitizePeerDamage(msg.Damage, "HandlePlayerAttack");
             if (damage <= 0) return;
-            RemotePlayerProxy attackingProxy = GetProxy(playerId);
-            Transform attackerT = attackingProxy != null
-                ? attackingProxy.transform
-                : (Player.Instance != null ? Player.Instance.transform : null);
+            Transform attackerT = attackingProxy.transform;
 
             target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
 
@@ -160,7 +187,7 @@ namespace DWMPHorde.Networking
             if (msg.TargetNameHash != 0)
             {
                 target = CharacterTracker.FindByStableId(msg.TargetNameHash);
-                // Return even if dead — HandlePlayerAttack silently drops !alive (no spam log).
+                // Return even if dead; HandlePlayerAttack silently drops !alive without a spam log.
                 if (target != null)
                     return target;
             }
@@ -240,7 +267,7 @@ namespace DWMPHorde.Networking
                 foreach (Collider col in diedProxy.GetComponentsInChildren<Collider>(true))
                     col.enabled = false;
 
-                // Instant death pose — don't wait for next PlayerState anim tick.
+                // Apply the death pose immediately; do not wait for the next PlayerState tick.
                 var anim = diedProxy.GetComponent<Players.SecondPlayerAnimController>();
                 if (anim != null)
                     anim.PlayDeathClip("Death1");
@@ -481,8 +508,8 @@ namespace DWMPHorde.Networking
             Sync.FinalDreamsceneManager.OnRemoteDeathInDream(playerId);
         }
 
-        // Same-frame double delivery (ProxyDamage + rare collide) — not multi-pellet window.
-        // 0.08s was dropping shotgun FF pellets after the first.
+        // Same-frame double delivery from ProxyDamage and collision is not a multi-pellet window.
+        // Keep this debounce short enough to preserve rapid shotgun pellets.
         private readonly Dictionary<string, float> _ffDebounce = new Dictionary<string, float>();
         private const float FriendlyFireDebounceSec = 0.02f;
 
@@ -491,12 +518,57 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host) return;
             if (!Config.ModConfig.FriendlyFireEnabled.Value) return;
 
-            int victimPlayerId = msg.VictimPlayerId > 0 ? msg.VictimPlayerId : 0;
-            Vector3 atkPos = new Vector3(msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ);
-            int atkPlayerId = msg.AttackerPlayerId > 0 ? msg.AttackerPlayerId : _currentReceivePlayerId;
+            int atkPlayerId = _currentReceivePlayerId;
+            if (!CombatAuthorityPolicy.IsValidPlayerId(atkPlayerId)
+                || (msg.AttackerPlayerId > 0 && msg.AttackerPlayerId != atkPlayerId))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[FriendlyFire] rejected spoofed attacker id claimed="
+                    + msg.AttackerPlayerId + " received=" + atkPlayerId);
+                return;
+            }
+
+            int victimPlayerId = msg.VictimPlayerId;
+            if (!CombatAuthorityPolicy.IsValidPlayerId(victimPlayerId)
+                || !CombatAuthorityPolicy.IsFinitePosition(
+                    msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ))
+            {
+                ModRuntime.Log?.LogWarning("[FriendlyFire] rejected malformed victim/position");
+                return;
+            }
+
+            RemotePlayerProxy attackingProxy = GetProxy(atkPlayerId);
+            if (attackingProxy == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[FriendlyFire] rejected: no authoritative attacker proxy for p" + atkPlayerId);
+                return;
+            }
+
+            // Use the host proxy for the actual attacker position. The reported
+            // origin is only accepted as a bounded sanity check.
+            Vector3 atkPos = attackingProxy.transform.position;
+            if (!CombatAuthorityPolicy.IsWithinRange(
+                    msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ,
+                    atkPos.x, atkPos.y, atkPos.z,
+                    GameplayConstants.MaxPlayerAttackRange))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[FriendlyFire] rejected attacker position outside authoritative range for p"
+                    + atkPlayerId);
+                return;
+            }
+
+            bool victimIsHost = victimPlayerId == _localPlayerId;
+            if (!victimIsHost && GetProxy(victimPlayerId) == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[FriendlyFire] rejected unknown victim player " + victimPlayerId);
+                return;
+            }
 
             // Never apply FF to self (attacker == victim) from a bad packet.
-            if (victimPlayerId > 0 && atkPlayerId > 0 && victimPlayerId == atkPlayerId)
+            if (victimPlayerId == atkPlayerId)
                 return;
 
             // Night-dead victim: ignore further FF.
@@ -519,10 +591,9 @@ namespace DWMPHorde.Networking
             }
             _ffDebounce[debounceKey] = now;
 
-            RemotePlayerProxy attackingProxy = GetProxy(atkPlayerId);
-            Transform atkTransform = attackingProxy != null ? attackingProxy.transform : (Player.Instance?.transform);
+            Transform atkTransform = attackingProxy.transform;
 
-            if (victimPlayerId == _localPlayerId || victimPlayerId == 0)
+            if (victimIsHost)
             {
                 Player host = Player.Instance;
                 if (host == null) return;

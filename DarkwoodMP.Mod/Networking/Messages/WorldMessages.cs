@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -77,7 +78,7 @@ namespace DWMPHorde.Networking
         public byte HealthPct;
         public string EntityName;
         public string PrefabPath;
-        /// <summary>bit0=sleeping, bit1=eating (protocol 20+).</summary>
+        /// <summary>bit0=sleeping, bit1=eating.</summary>
         public byte Flags;
 
         public const byte FlagSleeping = 1;
@@ -119,10 +120,13 @@ namespace DWMPHorde.Networking
 
     public struct EntityStateMessage
     {
+        /// <summary>Monotonic per-sender sequence for the unreliable batch.</summary>
+        public uint Sequence;
         public EntitySnapshotNet[] Entities;
 
         public void Serialize(NetWriter w)
         {
+            w.Put(Sequence);
             int count = Entities != null ? Entities.Length : 0;
             w.Put(count);
             for (int i = 0; i < count; i++)
@@ -131,12 +135,14 @@ namespace DWMPHorde.Networking
 
         public static EntityStateMessage Deserialize(NetReader r)
         {
+            uint sequence = r.GetUInt();
             int count = r.GetInt();
-            if (count < 0 || count > 4096) count = 0;
+            if (count < 0 || count > 4096)
+                throw new InvalidDataException("Entity snapshot count is out of range: " + count);
             var arr = new EntitySnapshotNet[count];
             for (int i = 0; i < count; i++)
                 arr[i] = EntitySnapshotNet.Deserialize(r);
-            return new EntityStateMessage { Entities = arr };
+            return new EntityStateMessage { Sequence = sequence, Entities = arr };
         }
     }
 
@@ -149,9 +155,9 @@ namespace DWMPHorde.Networking
         public string ItemType;
         public int ClaimedByPlayerId;
         /// <summary>
-        /// Local player-intent scrape gate (matches body-push: player walking).
-        /// When false while still dragging, peers must stop scrape immediately —
-        /// do not wait for quiet position deltas on Unreliable packets.
+        /// Local player-intent scrape gate, matching body-push player movement.
+        /// A false value stops peer scrape without waiting for a quiet
+        /// position delta on an unreliable packet.
         /// </summary>
         public bool ScrapeActive;
 
@@ -614,7 +620,7 @@ namespace DWMPHorde.Networking
         public int[] ItemAmounts;
         public float[] ItemDurabilities;
         public int[] ItemAmmos;
-        /// <summary>Stable id (protocol 6+). Empty only if sender is broken.</summary>
+        /// <summary>Stable ID. Empty only if the sender is broken.</summary>
         public string BagId;
 
         public void Serialize(NetWriter w)
@@ -666,7 +672,7 @@ namespace DWMPHorde.Networking
     public struct DeathBagLootedMessage
     {
         public float PosX, PosY, PosZ;
-        /// <summary>Stable id (protocol 6+). Prefer over position for destroy matching.</summary>
+        /// <summary>Stable ID. Prefer it over position for destroy matching.</summary>
         public string BagId;
 
         public void Serialize(NetWriter w)

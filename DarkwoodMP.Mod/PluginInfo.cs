@@ -1,7 +1,7 @@
 namespace DWMPHorde
 {
     /// <summary>
-    /// YokWare Branch product identity — Path B ships Horde remaster sync as the load path.
+    /// YokWare Branch product identity. Path B ships the Horde remaster sync.
     /// Internal namespace remains DWMPHorde; BepInEx GUID is the public product id.
     /// </summary>
     public static class PluginInfo
@@ -9,14 +9,13 @@ namespace DWMPHorde
         public const string Guid = "com.yokware.branch";
         public const string Name = "YokWare Branch";
         /// <summary>
-        /// BepInEx plugin version (semver). 0.7.x = active Path B line.
-        /// Earlier "0.9.x" labels were too ambitious — see CHANGELOG Versioning.
+        /// BepInEx plugin version. The supported product line is 0.7.x.
         /// </summary>
-        public const string Version = "0.7.80";
+        public const string Version = "0.7.81";
         /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.7.80 Path B (split-map presence)";
-        /// <summary>Horde LAN wire protocol. 24 = PeerHasItem (dialog/trigger haveItem).</summary>
-        public const int ProtocolVersion = 24;
+        public const string DisplayVersion = "0.7.81 Path B (ordered snapshots)";
+        /// <summary>Horde wire protocol. 25 includes ordered state snapshots.</summary>
+        public const int ProtocolVersion = 25;
         public const int DefaultPort = 7788;
         public const string Authors = "Warexpor & Yokyy";
         public const string Description = "Darkwood co-op — Horde host-authoritative sync (Path B)";

@@ -145,7 +145,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
-            // --- CASE 3: no/wrong target — acquire closest player (host OR any proxy) ---
+            // --- CASE 3: no or wrong target; acquire the closest player (host or proxy) ---
             // onlyAttackPlayer entities never set target on proxies via vanilla canSeeEnemy.
             // Treat host + all proxies as equal player identities: pick closest valid CharBase.
             if (__instance.aggressiveness != Aggressiveness.neutral &&
@@ -167,7 +167,7 @@ namespace DWMPHorde.Patches
                     }
                 }
 
-                // Proxies may not be in charactersInSight yet — use geometric detection.
+                // Proxies may not be in charactersInSight yet; use geometric detection.
                 if (!ProxyDistanceHelper.ProxyIsFar(__instance) && net != null)
                 {
                     float acqRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
@@ -273,7 +273,7 @@ namespace DWMPHorde.Patches
                         }
                     }
                 }
-                // Path B: smell detection — bypass FOV and raycast
+                // Path B: smell detection bypasses FOV and raycast.
                 else
                 {
                     Sniffer sniffer = __instance.GetComponent<Sniffer>();
@@ -285,7 +285,7 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            // Sticky: already chasing the host player — do NOT steal aggro to a
+            // Sticky: already chasing the host player; do not steal aggro to a
             // closer proxy mid-chase (dream forest spirit / any AI). Vanilla has one
             // body; CASE 2 used to retarget to whoever was nearer and pull threats
             // off the player who actually entered the woods.
@@ -385,7 +385,7 @@ namespace DWMPHorde.Patches
             __instance.canSeeEnemyFar = true;
             __instance.stopRoutine("lostEnemy", true);
 
-            // Closest-player identity (was: "only target proxy if host not visible" —
+            // Closest-player identity replaces the old "only target proxy if host not visible"
             // that made the client second-class whenever host was still in sight list).
             CharBase hostCharBase = Player.Instance?.GetComponent<CharBase>();
             bool hostVisible = hostCharBase != null && !hostCharBase.invisible && !hostCharBase.ignoreMe
@@ -405,7 +405,7 @@ namespace DWMPHorde.Patches
             }
 
             // Flee fauna (rabbits, ravens): still flee from proxy like vanilla flees
-            // from Player — but never attackCharacter. Skipping flee entirely made
+            // from Player, but never attackCharacter. Skipping flee entirely made
             // client approach a no-op (crows stood on corpses). Do not spam:
             // only (re)issue runAway when not already escaping/running from preferT.
             if (__instance.aggressiveness == Aggressiveness.flee ||
@@ -451,7 +451,7 @@ namespace DWMPHorde.Patches
             if (preferDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
                 __instance.canSeeEnemyNear = true;
 
-            // Skills on the detected proxy (ward / EotF) — same as host ward checks on Player.
+            // Skills on the detected proxy (ward / EotF), matching host ward checks on Player.
             if (!bestProxy.RemoteHasEnemyOfTheForest)
             {
                 if (__instance.afraidOfHideout && bestProxy.RemoteHasShadowWard)
@@ -746,7 +746,7 @@ namespace DWMPHorde.Patches
 
                 case Aggressiveness.flee:
                 case Aggressiveness.fleeAndDespawn:
-                    // Vanilla onCollideWith(Player) → runAway. Proxy has no Player —
+                    // Vanilla onCollideWith(Player) calls runAway. Proxy has no Player,
                     // restore flee-on-bump so client can scare rabbits/crows.
                     __instance.runAway(proxy.transform.position);
                     if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
@@ -870,7 +870,7 @@ namespace DWMPHorde.Patches
     /// Enters WorldGrid nodes near every remote so host AI/physics keep running
     /// in that bubble. Must cover <b>all</b> grids: vanilla
     /// <c>transportToLocation</c> switches <c>currentGrid</c> to the bunker and
-    /// force-leaves World — currentGrid-only enter left forest clients on a
+    /// force-leaves World. currentGrid-only enter left forest clients on a
     /// hidden host World.
     /// </summary>
     [HarmonyPatch(typeof(WorldGrid), "refreshPosition")]
@@ -1090,7 +1090,7 @@ namespace DWMPHorde.Patches
                 && __instance.target != hostPlayer._transform)
                 return;
 
-            // Dream bunker spirit stays on sticky owner — do not steal to nearer proxy.
+            // Dream bunker spirit stays on its sticky owner; do not steal it to a nearer proxy.
             if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
             {
                 Transform sticky = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
@@ -1356,7 +1356,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host removeMe (flee-despawn crows/rabbits, temp wildlife) never reached the client —
+    /// Host removeMe (flee-despawn crows/rabbits and temporary wildlife) never reached the client;
     /// EntityState just stopped, and _everHostSyncedIds blocked unmatched cleanup → permanent
     /// ghost birds the host no longer has.
     /// </summary>

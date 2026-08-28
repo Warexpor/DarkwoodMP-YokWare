@@ -8,7 +8,7 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Native tk2d title MULTIPLAYER button — Host/Join doors, then LAN|Steam.
+    /// Native tk2d title MULTIPLAYER button. Host/Join doors lead to LAN or Steam.
     /// Presentation: clone quitBtn → strip LocalizedText/sprites → tk2dTextMesh from CurrentVersion.
     /// </summary>
     public static class MainMenuMultiplayerInject
@@ -30,7 +30,7 @@ namespace DWMPHorde
         private const float RowSpacing = 60f;
         /// <summary>Nudge title MULTIPLAYER up toward EXIT (PositionMe offset units).</summary>
         private const float MpButtonNudgeUp = 16f;
-        /// <summary>HOST/JOIN panel rows — tighter than title RowSpacing.</summary>
+        /// <summary>HOST/JOIN panel rows use tighter spacing than the title.</summary>
         private const float PanelRowSpacing = 46f;
         /// <summary>Panel tk2d labels vs Video/Profiles native size.</summary>
         private const float PanelLabelScale = 0.70f;
@@ -512,7 +512,7 @@ namespace DWMPHorde
 
         /// <summary>
         /// Resize the root BoxCollider to the visible art/label. quitBtn's hitbox is too
-        /// narrow for MULTIPLAYER and too large for Options-sized panel rows — Button
+        /// narrow for MULTIPLAYER and too large for Options-sized panel rows. Button
         /// raycasts that collider for hover/click.
         /// </summary>
         internal static void FitButtonHitbox(GameObject buttonGo)
@@ -533,7 +533,7 @@ namespace DWMPHorde
             if (visual == null)
                 return;
 
-            // Art quad includes transparent padding — shrink to opaque glyph UVs so the
+            // Art quad includes transparent padding; shrink to opaque glyph UVs so the
             // hitbox matches the smaller idle letters (not the full padded canvas).
             Bounds wb;
             if (art != null && TryOpaqueQuadWorldBounds(art, visual, out wb))
@@ -548,7 +548,7 @@ namespace DWMPHorde
             if (wb.size.sqrMagnitude < 0.01f)
                 return;
 
-            // Flat CamUI quads have ~0 thickness on one world axis — raycasts need depth.
+            // Flat CamUI quads have almost no thickness on one world axis; raycasts need depth.
             const float minThick = 12f;
             Vector3 size = wb.size;
             if (size.x <= size.y && size.x <= size.z)
@@ -609,7 +609,7 @@ namespace DWMPHorde
             if (visual.sharedMaterial != null)
                 tex = visual.sharedMaterial.mainTexture as Texture2D;
 
-            // Prefer idle resource (stable letter core — ignores hover bloom padding).
+            // Prefer the idle resource; its letter core ignores hover bloom padding.
             if (!MenuButtonArt.TryGetIdleOpaqueUv(out float u0, out float v0, out float u1, out float v1))
             {
                 if (tex == null || !TryOpaqueUv(tex, 28, out u0, out v0, out u1, out v1))
@@ -893,7 +893,7 @@ namespace DWMPHorde
             {
                 if (settingsStyle)
                 {
-                    // Keep Video/Profiles native size — only shrink if wider than hitbox.
+                    // Keep Video/Profiles at native size; shrink only if wider than the hitbox.
                     // Scaling up to the title quit collider made HOST/JOIN huge vs Options.
                     if (TryHitboxFace(parent.gameObject, out float faceW, out _))
                     {

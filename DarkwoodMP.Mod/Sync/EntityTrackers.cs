@@ -73,8 +73,8 @@ namespace DWMPHorde.Sync
     }
 
     /// <summary>
-    /// Chunk / pool re-enable can skip a second Awake — register on OnEnable too
-    /// so the door tracker never needs a scene-wide FOOT rescan.
+    /// Chunk or pool re-enable can skip a second Awake; register on OnEnable too.
+    /// so the door tracker never needs a scene-wide rescan.
     /// </summary>
     [HarmonyPatch(typeof(Door), "OnEnable")]
     public static class DoorOnEnablePatch

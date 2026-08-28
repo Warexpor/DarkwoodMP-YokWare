@@ -26,7 +26,7 @@ namespace DWMPHorde.Patches
 
             string libName = __instance.torsoAnimator.Library.name;
             if (string.IsNullOrEmpty(libName)) return;
-            // switchAniLibrary can fire dozens of times per weapon swap / sleep wake —
+            // switchAniLibrary can fire dozens of times per weapon swap or sleep wake;
             // logs showed PlayerAnimLibrary:111 in a 2s window. Only send on change.
             if (string.Equals(libName, _lastSentLibrary, System.StringComparison.Ordinal))
                 return;

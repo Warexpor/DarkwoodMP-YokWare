@@ -2,34 +2,24 @@ using HarmonyLib;
 
 namespace DWMPHorde.Patches
 {
-    // =====================================================================
-    // WORKBENCH EXCLUSIVE-OPEN LOCK — PARKED / DISABLED (0.7.40)
-    //
-    // Feature: "Someone is already using the workbench…" — one crafter at a
-    // time via WorkbenchOpenLock + WorkbenchLock net messages.
-    //
-    // Disabled per playtest ask: both players may open/use the same bench.
-    // Keep types + handlers as no-ops so protocol 19 stays compatible; do not
-    // delete message IDs. Re-enable by restoring the Prefix bodies below and
-    // the HostTryGrant / deny path in LanNetworkManager.Handlers.
-    // =====================================================================
+    // The exclusive workbench lock is currently disabled so both players may
+    // use the bench. The types and handlers remain as no-ops because the
+    // message ID is part of the wire contract.
 
-    /// <summary>
-    /// PARKED: was exclusive workbench open (host-auth). Now always allows open.
-    /// </summary>
+    /// <summary>Disabled exclusive workbench lock; opening always succeeds.</summary>
     [HarmonyPatch(typeof(Workbench), "open")]
     public static class WorkbenchLockOpenPatch
     {
         private static bool Prefix(Workbench __instance, ref bool __state)
         {
-            // Feature disabled — never block open, never claim.
+            // Feature disabled; never block open or claim.
             __state = false;
             return true;
         }
 
         private static void Postfix(Workbench __instance, bool __state)
         {
-            // Feature disabled — no claim / release on open.
+            // Feature disabled; no claim or release on open.
         }
     }
 
@@ -82,7 +72,7 @@ namespace DWMPHorde.Patches
     {
         internal static void ReleaseLocal(Workbench wb)
         {
-            // Feature disabled — no-op.
+            // Feature disabled; no-op.
         }
     }
 }

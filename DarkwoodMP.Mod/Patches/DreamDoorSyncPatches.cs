@@ -23,7 +23,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Door __instance, bool __state)
         {
-            // Already open before this call — skip rebroadcast (client spam / already-open host).
+            // Already open before this call; skip rebroadcast to avoid client spam.
             if (__state) return;
             BroadcastDoorOpened(__instance);
         }
@@ -34,12 +34,12 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            // Leave-door GE already syncs via GameEventsFired — DoorOpen is a second openSound.
+            // Leave-door GE already syncs via GameEventsFired; DoorOpen would play openSound twice.
             if (DialogueDoorAftermath.SuppressDialogueDoorOpenBroadcast)
                 return;
             // ProcessInboundMessage holds IsApplyingRemoteState for all inbound applies.
             // DialogOutcome world-only Door.open is host-authoritative and MUST fan out
-            // (was silently dropped after NetworkApplyGuard became a real class in 0.7.8).
+            // (was silently dropped when NetworkApplyGuard became a real class).
             if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
                 return;
 
@@ -50,7 +50,7 @@ namespace DWMPHorde.Patches
             string name = door.name ?? "";
 
             // During dreams only fan-out doors that belong to the dream pad.
-            // Entry transition: IsDreamActive but dreamLocation not ready — suppress all
+            // Entry transition: IsDreamActive but dreamLocation not ready. Suppress all
             // door fan-out so overworld twins do not leak mid-video.
             if (DreamSyncManager.IsDreamActive)
             {
@@ -230,7 +230,7 @@ namespace DWMPHorde.Patches
             if (!IsDialogueDoorEvent(eventName)) return;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
-            // Defer WorldGrid work off the GE apply frame — synchronous enterAllNodes
+            // Defer WorldGrid work off the GE apply frame. Synchronous enterAllNodes
             // during leave-door was hitching both peers for hundreds of ms.
             ctrl.StartCoroutine(ClientAfterDialogueDoorRoutine(eventPos));
         }
@@ -253,7 +253,8 @@ namespace DWMPHorde.Patches
         {
             yield return new WaitForSecondsRealtime(1.2f);
             if (_clientDoorOpened) yield break;
-            // If a dream-pad door near the event is already open, GE succeeded — no ForceOpen.
+            // If a dream-pad door near the event is already open, the GE succeeded;
+            // do not call ForceOpen.
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             Door[] all = GetDoorsCached();
             for (int i = 0; i < all.Length; i++)
@@ -321,7 +322,7 @@ namespace DWMPHorde.Patches
 
         private static IEnumerator HostPollOpenedDoors()
         {
-            // GameEvent.fire uses WaitForSeconds(delay) — cover 0–2s of delayed open/unlock.
+            // GameEvent.fire uses WaitForSeconds(delay); cover delayed open or unlock.
             // Stop once we have broadcast an open dream door (avoid repeated FindObjects).
             float[] waits = { 0.05f, 0.25f, 0.5f, 1f, 2f };
             for (int w = 0; w < waits.Length; w++)
@@ -345,7 +346,7 @@ namespace DWMPHorde.Patches
             {
                 Door d = all[i];
                 if (d == null || !d.opened) continue;
-                // Only dream-pad doors — overworld opened doors were flooding DoorOpen and
+                // Only dream-pad doors. Overworld opened doors were flooding DoorOpen and
                 // clients name-matched the wrong "Wooden door" inside the bunker.
                 if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
                     && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
@@ -451,13 +452,13 @@ namespace DWMPHorde.Patches
                 {
                     float force = best.type == Door.Type.metal ? 30000f : 0f;
                     best.open(best.transform.position + Vector3.forward * 2f, null, force);
-                    // DoorOpenSyncPatch.Postfix already broadcast — do not dual-send.
+                    // DoorOpenSyncPatch.Postfix already broadcast; do not send twice.
                     ModRuntime.LegacyInfo(
                         $"[DoorSync] host force-opened dialogue door '{best.name}' (anchor={anchor})");
                 }
                 else
                 {
-                    // GE modifyDoor may already be opening — skip second openSound.
+                    // GE modifyDoor may already be opening; skip the second openSound.
                     if (best.opened || ShouldMuteRemoteDoorOpenSound)
                     {
                         _clientDoorOpened = true;
@@ -490,7 +491,7 @@ namespace DWMPHorde.Patches
             }
             else if (broadcast)
             {
-                // Already open locally — still fan out for peers that missed it.
+                // Already open locally; still fan out for peers that missed it.
                 DoorOpenSyncPatch.BroadcastDoorOpened(best);
             }
             else

@@ -44,7 +44,7 @@ namespace DWMPHorde.Patches
             if (ProxyDistanceHelper.ProxyIsFar(charComponent))
                 return true;
 
-            // Entity is busy — skip sniff logic
+            // Entity is busy; skip sniff logic.
             if (charComponent.behaviour == Character.Behaviour.chasingTarget ||
                 charComponent.behaviour == Character.Behaviour.defensive ||
                 charComponent.behaviour == Character.Behaviour.escaping)
@@ -102,7 +102,7 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
-            // Cooldown — same as original (cooldownTime from sniff start)
+            // Use the original cooldownTime from sniff start.
             if (Time.time - timeStarted > __instance.cooldownTime)
                 __instance.canSniff = true;
             return false;
@@ -207,7 +207,7 @@ namespace DWMPHorde.Patches
             if (__instance.target.GetComponent<RemotePlayerProxy>() == null)
                 return true;
 
-            // Proxy target — skip vanilla growl (only works for Player.Instance)
+            // Proxy target; skip vanilla growl, which only works for Player.Instance.
             // and play the growl + area-alert ourselves to avoid double-fire.
             if (__instance.sounds != null && !__instance.sleeping)
                 __instance.sounds.playGrowl();

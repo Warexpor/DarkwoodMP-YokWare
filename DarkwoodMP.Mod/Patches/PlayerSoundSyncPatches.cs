@@ -23,7 +23,7 @@ namespace DWMPHorde.Patches
             // Never network menu / BGM tracks (5.3).
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             // Forest / SoundArea / RandomWorldSounds loops parent to Player for listener
-            // follow only — not player SFX. Forwarding them makes peers hear ambients
+            // follow only, not player SFX. Forwarding them makes peers hear ambients
             // from the remote proxy (host walks outside → client hears forest from host).
             if (LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
 
@@ -139,7 +139,7 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void Prefix(string audioID, Vector3 worldPosition, Transform parentObj)
         {
-            // Parentless world/ambient plays must NOT flood the network — each peer
+            // Parentless world/ambient plays must not flood the network; each peer
             // already runs local ambience / other sync messages cover combat FX.
             if (parentObj == null)
                 return;
@@ -171,7 +171,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Personal bag open SFX only. World containers already play open_drawer in
-    /// Item.openInventory — playing here too doubled loot sound on client
+    /// Item.openInventory. Playing here too doubled loot sound on the client.
     /// (initiateOpenCloseInventory → Player.openInventory → this patch + Item.Play).
     /// </summary>
     [HarmonyPatch(typeof(Player), "openInventory")]
@@ -190,7 +190,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Play(string audioID) — only allowlisted player one-shots (e.g. molotov).
+    /// Play(string audioID). Only allowlisted player one-shots, such as molotov, are forwarded.
     /// Blanket forwarding previously spammed ambient/music helpers over the LAN.
     /// </summary>
     [HarmonyPatch(typeof(AudioController), "Play", typeof(string))]

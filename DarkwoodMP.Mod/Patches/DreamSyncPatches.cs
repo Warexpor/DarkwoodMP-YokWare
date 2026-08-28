@@ -55,8 +55,8 @@ namespace DWMPHorde.Patches
                     return true;
                 }
 
-                // H6: No host pick yet — do not return null into a live prepareDream("").
-                // Leave name empty and let Prefix on prepare abort; never hand vanilla a null preset.
+                // Do not return null into a live prepareDream(""). Leave the
+                // name empty so the prepare prefix can wait for the host.
                 ModRuntime.LegacyInfo(
                     "[DreamSync] Client getPreset — no PendingHostPreset; skip roll (wait DreamStarted)");
                 return false;
@@ -130,7 +130,7 @@ namespace DWMPHorde.Patches
                     {
                         if (!DreamSession.TryBegin(resolved))
                         {
-                            // Party-once / session race — do not continue into a completed roll.
+                            // Party-once / session race; do not continue into a completed roll.
                             ModRuntime.LegacyInfo(
                                 "[DreamSync] Host random roll rejected TryBegin: " + resolved);
                             try
@@ -174,7 +174,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Host: TryBegin session as soon as prepareDream starts (closes double-prepare race).
-    /// Empty name is handled after getPreset (DreamGetPresetPatch) — prefix only for named.
+    /// Empty name is handled after getPreset (DreamGetPresetPatch); this prefix handles named presets.
     /// </summary>
     [HarmonyPatch(typeof(Dreams), "prepareDream")]
     public static class DreamPreparePatch
@@ -186,7 +186,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            // H6: Client must not run prepareDream("") without a host pick (null getPreset → NRE).
+            // A client must not run prepareDream("") without a host-selected preset.
             if (ModRuntime.Network.Role == NetworkRole.Client)
             {
                 if (string.IsNullOrEmpty(presetName)
@@ -211,7 +211,7 @@ namespace DWMPHorde.Patches
             string name = presetName;
             if (!DreamSession.TryBegin(name))
             {
-                // Duplicate prepare while already Starting same preset — harmless, continue vanilla.
+                // Duplicate prepare while already Starting the same preset is harmless; continue vanilla.
                 if (DreamSession.IsStarting
                     && string.Equals(DreamSession.PresetName, name, System.StringComparison.OrdinalIgnoreCase))
                 {
@@ -219,7 +219,7 @@ namespace DWMPHorde.Patches
                     return true;
                 }
 
-                // Party-once / session busy — clear sticky prepare flags.
+                // Party-once / session busy; clear sticky prepare flags.
                 try
                 {
                     __instance.wantToDream = false;
@@ -241,7 +241,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Prefix on Dreams.startDreaming: blocks completed dreams, routes client starts to host,
     /// and registers a shared DreamSession so all peers enter together.
-    /// Harmony still runs Postfix when Prefix returns false — __state skips false local start.
+    /// Harmony still runs Postfix when Prefix returns false; __state skips the local start.
     /// </summary>
     [HarmonyPatch(typeof(Dreams), "startDreaming")]
     public static class DreamStartPatch
@@ -279,7 +279,7 @@ namespace DWMPHorde.Patches
                 if (net != null && net.Role == NetworkRole.Client)
                 {
                     // Fix 2: If onFinishedVideo prefix already sent the request (entry transition
-                    // path), skip re-sending here — the dialogue-direct path still sends normally.
+                    // path), skip re-sending here. The dialogue-direct path still sends normally.
                     if (DreamSyncManager.EntryTransitionPlayedLocally)
                     {
                         ModRuntime.LegacyInfo(
@@ -365,8 +365,8 @@ namespace DWMPHorde.Patches
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
             DowngradeSuccessRewardsIfDeadInDream(__instance);
 
-            // H1/H2: Chain broadcast lives only in DreamPrepareChainPatch (prepareDream).
-            // transferToDream / wantToSwitchDream both hit prepareDream — do not dual-fire here.
+            // DreamPrepareChainPatch owns chain broadcasts. Both
+            // transferToDream and wantToSwitchDream reach prepareDream.
             if (__instance.switchingDream || OutcomeHasTransferToDream(__instance))
             {
                 string next = FindTransferDestPreset(__instance);
@@ -547,8 +547,8 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// H1: wantToSwitchDream skips endDreaming — ensure host session tracks next pocket
-    /// before prepareDream (DreamPrepareChainPatch still owns the DreamChainStart wire).
+    /// Track the next dream before prepareDream when wantToSwitchDream skips
+    /// endDreaming. DreamPrepareChainPatch owns the wire message.
     /// </summary>
     [HarmonyPatch(typeof(Dreams), "wantToSwitchDream")]
     public static class DreamWantToSwitchPatch
@@ -618,7 +618,7 @@ namespace DWMPHorde.Patches
 
             string outcome = __instance.outcome ?? "";
 
-            // H3: host all-dead teardown — one-shot allow vanilla initiateEndDreaming.
+            // Allow one vanilla initiateEndDreaming call for all-dead teardown.
             if (FinalDreamsceneManager.AllowDeathEndPass)
             {
                 FinalDreamsceneManager.AllowDeathEndPass = false;
@@ -626,7 +626,7 @@ namespace DWMPHorde.Patches
                 return true;
             }
 
-            // Death: never end the shared session alone — spectate until all dead / story end.
+            // Death: never end the shared session alone; spectate until all are dead or the story ends.
             if (outcome == "playerDeath")
             {
                 if (Player.Instance != null && Player.Instance.inEpilogue)
@@ -638,7 +638,7 @@ namespace DWMPHorde.Patches
                 if (!FinalDreamsceneManager.IsActive)
                     FinalDreamsceneManager.OnDreamStarted();
 
-                // C2: solo / no remotes → allow vanilla (never block then no-op).
+                // A solo dream uses vanilla death handling.
                 if (!FinalDreamsceneManager.HasRemoteParticipants())
                 {
                     ModRuntime.LegacyInfo(

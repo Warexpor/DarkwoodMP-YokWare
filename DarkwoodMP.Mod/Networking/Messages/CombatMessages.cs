@@ -73,7 +73,7 @@ namespace DWMPHorde.Networking
         /// Peers use this so checkIfWantToLand / flyTime match the thrower's arc.
         /// </summary>
         public float LandX, LandY, LandZ;
-        /// <summary>True when Land* was written (protocol 19+ land trailer).</summary>
+        /// <summary>True when the Land* fields are present.</summary>
         public bool HasLandTarget;
 
         public void Serialize(NetWriter w)
@@ -107,7 +107,7 @@ namespace DWMPHorde.Networking
                 msg.ThrowId = r.GetInt();
                 msg.LongevitySec = r.GetFloat();
             }
-            // landTarget trailer (12 bytes) — older peers omit this
+            // landTarget trailer (12 bytes); older peers omit this.
             if (r.AvailableBytes >= 12)
             {
                 msg.LandX = r.GetFloat();

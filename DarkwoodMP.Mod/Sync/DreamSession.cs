@@ -56,7 +56,7 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = presetName;
         }
 
-        /// <summary>Peek without clear — getPreset may run more than once for the same pick.</summary>
+        /// <summary>Peek without clearing; getPreset may run more than once for the same pick.</summary>
         public static bool TryGetPendingHostPreset(out string presetName)
         {
             presetName = _pendingHostPreset;
@@ -70,7 +70,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Mirror vanilla one-shot random pool: empty getPreset removes the pick from presetList.
-        /// Named / Resources.Load paths do not — remotes and host named prepare must remove by name.
+        /// Named and Resources.Load paths do not. Remotes and host named prepare must remove by name.
         /// </summary>
         public static void MirrorPoolRemove(string presetName)
         {
@@ -157,7 +157,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Client begins from host DreamStarted — uses host SessionId, never mints locally.
+        /// Client begins from host DreamStarted, using the host SessionId rather than minting locally.
         /// (TryBegin+Adopt was minting SessionId=N+1 then adopting N, desyncing logs/guards.)
         /// </summary>
         public static bool BeginFromHost(string presetName, int hostSessionId)
@@ -220,7 +220,7 @@ namespace DWMPHorde.Sync
                 _nextSessionId = sessionId + 1;
         }
 
-        /// <summary>C4: OutcomeName sentinel for host→client story-end reject.</summary>
+        /// <summary>OutcomeName sentinel used when the host rejects story end.</summary>
         public static bool IsRejectedOutcome(string outcomeName)
         {
             if (string.IsNullOrEmpty(outcomeName)) return false;

@@ -190,7 +190,7 @@ namespace DWMPHorde.Networking
         MapStateSync = 101,
         /// <summary>
         /// Reserved (protocol hole). Skills/XP are per-player and backed up via
-        /// ClientStateBackup on save — this message is not sent; handler is a no-op.
+        /// ClientStateBackup on save. This message is not sent; the handler is a no-op.
         /// </summary>
         PlayerSkillsSync = 102,
         /// <summary>Host→Client: begin one-shot new-world save file transfer.</summary>
@@ -201,116 +201,111 @@ namespace DWMPHorde.Networking
         WorldSaveEnd = 105,
         /// <summary>Host→Client / host-authoritative: absolute trader shop stock (join bulk, restock, post-trade).</summary>
         [Forwardable] TradeInventorySync = 106,
-        /// <summary>Host→all / peer request: load a Unity scene (credits / epilogue end). Protocol 14.</summary>
+        /// <summary>Host→all / peer request: load a Unity scene, such as credits.</summary>
         [Forwardable] SceneLoad = 107,
-        /// <summary>Host→all: cutscene start / end / skip (4.6). Protocol 15.</summary>
+        /// <summary>Host→all: cutscene start, end, or skip.</summary>
         [Forwardable] CutsceneSync = 108,
-        /// <summary>Host→all: chapter scene transition (ch1/ch2). Protocol 16.</summary>
+        /// <summary>Host→all: chapter scene transition.</summary>
         [Forwardable] ChapterTransition = 109,
-        /// <summary>Client→host request / host→all state: Examinable.examine (4.11). Protocol 17.</summary>
+        /// <summary>Client→host request / host→all state for Examinable.examine.</summary>
         [Forwardable] ExamineObject = 110,
         /// <summary>Either peer: chat / system line (Yokyy product port). Host rebroadcasts via Forwardable.</summary>
         [Forwardable] ChatMessage = 111,
         /// <summary>
-        /// Client→host request / host→all grant|deny|release: one-speaker-per-NPC dialogue lock (0.9.2).
-        /// Optional for older peers (ignored if unhandled); protocol version stays 19.
+        /// Client→host request / host→all grant, deny, or release for an
+        /// one-speaker-per-NPC dialogue lock.
         /// </summary>
         DialogNpcLock = 112,
         /// <summary>
-        /// Either peer → host/all: CharacterDialogue consumed-node snapshot (Yokyy DialogueSync port).
-        /// Host fans out after apply (not auto-Forwardable — avoid double apply).
-        /// Optional for older peers; protocol version stays 19.
+        /// Either peer → host/all: CharacterDialogue consumed-node snapshot.
+        /// The host fans out after applying it, rather than using automatic
+        /// forwarding, to avoid applying it twice.
         /// </summary>
         DialogTreeState = 113,
         /// <summary>
-        /// Client→host: pull world save share (Yokyy RequestWorld equivalent).
-        /// Optional for older peers; protocol version stays 19.
+        /// Client→host: request a world save share.
         /// </summary>
         WorldRequest = 114,
         /// <summary>
-        /// Host→client: simultaneous loot rejected (slot empty / type mismatch). Client refunds.
-        /// Optional for older peers; protocol version stays 19.
+        /// Host→client: simultaneous loot rejected because the slot is empty
+        /// or the item type does not match. The client refunds the local take.
         /// </summary>
         ContainerTakeDenied = 115,
         /// <summary>
-        /// Either peer: feeder used (absolute inactive state). Optional; protocol stays 19.
+        /// Either peer: feeder used, with its absolute inactive state.
         /// </summary>
         [Forwardable] FeederState = 116,
         /// <summary>
-        /// Either peer: lure bait absolute health. Optional; protocol stays 19.
+        /// Either peer: lure bait absolute health.
         /// </summary>
         [Forwardable] LureState = 117,
         /// <summary>
-        /// Client→host: post-sleep clock snapshot for host-authority adopt. Optional; protocol stays 19.
+        /// Client→host: post-sleep clock state for host-authority adoption.
         /// </summary>
         SleepEndRequest = 118,
         /// <summary>
-        /// Client→host request / host→all grant|deny|release: exclusive workbench open. Optional; protocol stays 19.
+        /// Client→host request / host→all grant, deny, or release for an
+        /// exclusive workbench open. The feature is currently disabled.
         /// </summary>
         WorkbenchLock = 119,
         /// <summary>
-        /// Host→peer: dream session snapshot (completed presets + hadDreamAtLvl*). Late-join bulk. Optional; protocol 19.
+        /// Host→peer: dream session snapshot for late-join state.
         /// </summary>
         DreamSessionBulk = 120,
         /// <summary>
-        /// Host→all: transferToDream next preset (chain). Optional; protocol 19.
+        /// Host→all: next preset in a dream chain.
         /// </summary>
         [Forwardable] DreamChainStart = 121,
         /// <summary>
-        /// Client→host: left hideout / wants morning freeze cleared (host runs endAfterNight once).
-        /// Optional; protocol stays 19.
+        /// Client→host: left the hideout and wants the morning freeze cleared.
         /// </summary>
         AfterNightEndRequest = 122,
         /// <summary>
-        /// Host→all: peer LAN roster (playerId + address + session port) for host-crash migration.
-        /// Optional; protocol stays 19.
+        /// Host→all: peer roster for host-crash migration.
         /// </summary>
         PeerRoster = 123,
         /// <summary>
-        /// Host→all: graceful leave — elect player id becomes host. Optional; protocol stays 19.
+        /// Host→all: graceful leave; the elected player becomes host.
         /// </summary>
         HostHandoff = 124,
         /// <summary>
-        /// Host→all: thrown projectile/light expired (flare burnout). Optional; protocol 19.
+        /// Host→all: thrown projectile or light expired.
         /// </summary>
         [Forwardable] ThrowableDespawn = 125,
         /// <summary>
-        /// Host→peer: trap table bulk (id + triggered + occupant). Late-join. Optional; protocol 19.
+        /// Host→peer: trap table bulk for late join.
         /// </summary>
         TrapBulk = 126,
         /// <summary>
-        /// Client→host: NightShadows perk darkness wave — host spawns owner-scoped shadows for this peer.
-        /// Optional; protocol stays 19.
+        /// Client→host: NightShadows perk darkness wave. The host spawns
+        /// shadows owned by the requesting peer.
         /// </summary>
         NightShadowSpawnRequest = 127,
         /// <summary>
-        /// Host→client: dream Item collider isTrigger flags (lamp walk-through / bell solid).
-        /// Optional; protocol stays 19.
+        /// Host→client: dream item collider `isTrigger` flags.
         /// </summary>
         DreamPropCollider = 128,
         /// <summary>
-        /// Either peer: Steam Voice compressed samples. Host fans out Unreliable (not Forwardable).
-        /// Optional; protocol stays 19.
+        /// Either peer: compressed Steam Voice samples. The host fans out
+        /// unreliable voice data without forwarding it again.
         /// </summary>
         VoiceData = 129,
         /// <summary>
-        /// Client→host: CustomCursorAction onActivate (dream bed "Lie down", etc.).
-        /// Optional; protocol stays 19 — both boxes need the same DLL.
+        /// Client→host: `CustomCursorAction.onActivate`, such as the dream-bed
+        /// "Lie down" action.
         /// </summary>
         ActivateCursorAction = 130,
         /// <summary>
-        /// Host→requesting client: transport into an OutsideLocation (bunker enter).
-        /// Protocol 22 — both boxes need this DLL.
+        /// Host→requesting client: transport into an OutsideLocation.
         /// </summary>
         LocationTransport = 131,
         /// <summary>
-        /// Host→clients: Character.removeMe / despawn (fled crows, temp wildlife).
-        /// Protocol 23 — both boxes need this DLL.
+        /// Host→clients: `Character.removeMe` / despawn for fleeing or
+        /// temporary wildlife.
         /// </summary>
         [Forwardable] EntityDespawn = 132,
         /// <summary>
-        /// Client→host: compact bag item presence (type + amount) for EventTrigger haveItem.
-        /// Protocol 24 — both boxes need this DLL.
+        /// Client→host: compact bag item presence for EventTrigger `haveItem`.
         /// </summary>
         PeerHasItem = 133,
         /// <summary>Highest used message type ID.</summary>

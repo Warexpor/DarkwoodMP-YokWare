@@ -4,13 +4,13 @@ using HarmonyLib;
 using UnityEngine;
 
 /// <summary>
-/// Disables AI on client (host-authoritative) and freezes world-entity AI on host during dreams.
-/// Prefixes on 20+ Character/component Update/FixedUpdate methods all route through
-/// ClientAIConditionalHelper.ShouldSkipAI() — single branching point for client-vs-host logic.
+/// Disables client-side AI and freezes world-entity AI on the host during dreams.
+/// Character and component patches share ClientAIConditionalHelper so the
+/// client and host rules stay in one place.
 /// </summary>
 namespace DWMPHorde.Patches
 {
-    /// <summary>Determines if AI should be skipped for a character. On client: all AI skipped (host-authoritative). On host: skips AI for frozen world characters during dreams.</summary>
+    /// <summary>Determines whether a character or component should skip its AI update.</summary>
     internal static class ClientAIConditionalHelper
     {
         internal static bool ShouldSkipAI(Character c)
@@ -18,7 +18,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null)
                 return false;
 
-            // Host dream freeze: block AI on all pre-dream host characters
+            // Freeze host world entities while the dream session is active.
             if (ModRuntime.Network.Role == NetworkRole.Host && DreamSyncManager.IsWorldFrozenForComponent(c))
                 return true;
 
@@ -27,24 +27,18 @@ namespace DWMPHorde.Patches
             if (c == null || c.name.Contains("RemotePlayer"))
                 return false;
 
-            // Host is authoritative for ALL AI.  The client must never run AI
-            // independently — every entity near either player is broadcast by the
-            // host at 3500f range, so the client only needs to render the
-            // received state.
+            // The host broadcasts entity state for the client to present.
             return true;
         }
 
-        // Aggressive overload: blocks ANY non-player component on the client,
-        // regardless of whether a Character component exists on the GameObject.
-        // This catches components on entities that lack a Character (e.g.,
-        // RVOController, RichAI on pathfinding objects) and eliminates the
-        // null-Character gap where GetComponent<Character>() might return null.
+        // Component overload: also covers pathfinding and helper objects that
+        // do not carry a Character component.
         internal static bool ShouldSkipAI(Component comp)
         {
             if (ModRuntime.Network == null)
                 return false;
 
-            // Host dream freeze: block AI on all pre-dream host characters
+            // Apply the same dream freeze to component-owned AI.
             if (ModRuntime.Network.Role == NetworkRole.Host && DreamSyncManager.IsWorldFrozenForComponent(comp))
                 return true;
 
@@ -52,17 +46,16 @@ namespace DWMPHorde.Patches
                 return false;
             if (comp == null)
                 return false;
-            if (comp.name.Contains("RemotePlayer"))
-                return false;
-            if (Player.Instance != null && comp.gameObject == Player.Instance.gameObject)
-                return false;
-            return true;
+            bool isRemotePlayer = comp.name.Contains("RemotePlayer");
+            bool isLocalPlayer = Player.Instance != null
+                && comp.gameObject == Player.Instance.gameObject;
+            return AiSuppressionPolicy.ShouldSuppressClientComponent(
+                isClient: true, isRemotePlayer: isRemotePlayer, isLocalPlayer: isLocalPlayer);
         }
     }
 
     // -----------------------------------------------------------------------
-    // Character methods — all skip via the Character overload. One class with
-    // multiple [HarmonyPatch] targets and a single shared prefix.
+    // Character methods share the Character overload and prefix.
     // -----------------------------------------------------------------------
 
     [HarmonyPatch(typeof(Character), "Update")]
@@ -84,8 +77,7 @@ namespace DWMPHorde.Patches
     }
 
     // -----------------------------------------------------------------------
-    // Component methods — aggressive Component overload (block even without a
-    // Character component). One class, multiple targets, single shared prefix.
+    // Component methods use the Component overload so Character is optional.
     // -----------------------------------------------------------------------
 
     [HarmonyPatch(typeof(AILerp), "Update")]
@@ -104,7 +96,7 @@ namespace DWMPHorde.Patches
     }
 
     // -----------------------------------------------------------------------
-    // ShadowCreature — fully client-blocked. Driven entirely by host state.
+    // ShadowCreature is driven by host state on clients.
     // -----------------------------------------------------------------------
 
     [HarmonyPatch(typeof(ShadowCreature), "Start")]
@@ -116,21 +108,20 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(ShadowCreature __instance)
         {
-            // Let host shadows run; block on client (non-player)
+            // Host shadows run normally; clients only present host state.
             return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
         }
     }
 
-    // Sniffer / AIPath resolve the Character component first, so they keep the
-    // Character overload (null-Character stays unblocked — not the aggressive path).
+    // Sniffer / AIPath can live on helper objects without a Character component.
+    // Use the component overload so the null-Character gap cannot run AI on clients.
 
     [HarmonyPatch(typeof(Sniffer), "Update")]
     public static class ClientSnifferDisablePatch
     {
         private static bool Prefix(Sniffer __instance)
         {
-            Character c = __instance.GetComponent<Character>();
-            return !ClientAIConditionalHelper.ShouldSkipAI(c);
+            return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
         }
     }
 
@@ -139,8 +130,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(AIPath __instance)
         {
-            Character c = __instance.GetComponent<Character>();
-            return !ClientAIConditionalHelper.ShouldSkipAI(c);
+            return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
         }
     }
 }

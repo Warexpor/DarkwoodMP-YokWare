@@ -2,8 +2,8 @@ namespace DWMPHorde.Sync
 {
     /// <summary>
     /// While host applies a remote peer's dialog outcome, suppress personal
-    /// bag mutations on host Player.Instance (audit C2). Journal is shared world
-    /// identity — apply and fan out, do not snapshot-restore.
+    /// bag mutations on host Player.Instance. Journal is shared world
+    /// identity. Apply and fan out; do not snapshot-restore.
     /// </summary>
     public static class DialogHostApplyGuard
     {

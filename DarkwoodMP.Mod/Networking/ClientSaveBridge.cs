@@ -29,7 +29,7 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static int GetWorldSeed()
         {
-            // Not a true procedural seed — composite identity for join mismatch checks:
+            // Not a true procedural seed; this is a composite identity for join mismatch checks:
             // chapter * 100000 + day (when available). Same-save is still required.
             int chapter = 0;
             int day = 0;

@@ -6,9 +6,10 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// C1: Client applying host GameEventsFired must not locally run startDream/endDream —
-    /// host DreamStarted / DreamEnded own that authority. Other GE types still fire.
-    /// GameEvent.fire is an IEnumerator — Prefix return false without __result yields
+    /// A client applying host GameEventsFired must not locally run
+    /// startDream or endDream. DreamStarted and DreamEnded own those
+    /// transitions; other GameEvent types still fire.
+    /// GameEvent.fire is an IEnumerator. A Prefix return false without __result yields
     /// StartCoroutine(null) → "routine is null" and breaks the client mid-exit.
     /// </summary>
     [HarmonyPatch(typeof(GameEvent), nameof(GameEvent.fire))]

@@ -168,7 +168,7 @@ namespace DWMPHorde.Patches
             {
                 var dreams = Singleton<Dreams>.Instance;
                 if (dreams == null) return;
-                // D10: start overlay, current, or outcome transition may be playing.
+                // A start overlay, current cutscene, or outcome transition may be playing.
                 if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
                     dreams.currentTransition.skip();
                 if (dreams.startTransition != null && dreams.startTransition.isPlaying
@@ -397,7 +397,7 @@ namespace DWMPHorde.Networking
                     // Apply on everyone (incl. host when a client skipped). Do NOT gate on
                     // IsApplyingRemoteState — ProcessInboundMessage's NetworkApplyGuard keeps
                     // that flag true for the whole receive, so a check here would drop the
-                    // apply (0.7.8 class-guard regression). Prefixes still suppress rebroadcast.
+                    // apply. Prefixes still suppress rebroadcast.
                     DWMPHorde.Patches.CutsceneSyncHelpers.ApplySkipTransition();
                     break;
 

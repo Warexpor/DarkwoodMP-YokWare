@@ -162,7 +162,7 @@ namespace DWMPHorde.Networking
                         // playable body. Muting PlayerState prevented host proxy on client
                         // (log: Light RX drop p1 proxy=null, no Created proxy for player 1).
                         // Entity/physics still gate on first ready via IsPeerReadyForGameplay
-                        // only after explicit loading mark — leave them open for phase 3.
+                        // only after explicit loading mark; leave them open for phase 3.
                         _peersCoopReconnect.Add(playerId);
                         _awaitingLateJoinBulk[playerId] = 0f;
                         // Immediate bulk settle path (shorter for reconnect).
@@ -202,7 +202,7 @@ namespace DWMPHorde.Networking
             if (!HostHasShareableWorld())
             {
                 ModLog.Warn(LogCat.Save, "Delayed world share aborted — host left world before share for p" + playerId);
-                // Still try bulk — client may load a matching save manually.
+                // Still try bulk; the client may load a matching save manually.
                 SendLateJoinGameplayBulk(playerId);
                 yield break;
             }
@@ -336,7 +336,8 @@ namespace DWMPHorde.Networking
             SyncExistingLocationsTo(playerId);
             SendShadowsTo(playerId);
             SyncExistingDroppedItems(playerId);
-            // Scenario bulk skipped — re-fires night "unique events" on joiner.
+            // Scenario bulk is deferred because replaying night events can
+            // duplicate one-shot spawns on the joiner.
             // Proxy from live PlayerState once CanSpawnRemoteProxies.
 
             // Heavy sticky world: weather/trade/construct/locks/barricades/gas/deathbags.
@@ -351,7 +352,7 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || _pendingHeavyLateJoinBulk.Count == 0)
                 return;
 
-            // Snapshot keys — dictionary mutates as peers finish.
+            // Copy keys because the dictionary changes as peers finish.
             var peers = new List<int>(_pendingHeavyLateJoinBulk.Keys);
             for (int p = 0; p < peers.Count; p++)
             {
@@ -377,7 +378,7 @@ namespace DWMPHorde.Networking
                         case 2:
                             SendConstructedSitesTo(playerId);
                             break;
-                        // Locks/interactives: one FindObjectsOfType per frame (was 172ms stacked).
+                        // Locks/interactives: one FindObjectsOfType call per frame.
                         case 3:
                             SyncExistingPadlocksTo(playerId);
                             break;
@@ -387,7 +388,7 @@ namespace DWMPHorde.Networking
                         case 5:
                             SyncExistingInteractivesTo(playerId);
                             break;
-                        // Barricades: Door / Window / Item FOOT split (was 120ms stacked).
+                        // Barricades: split Door, Window, and Item scans.
                         case 6:
                             SendBarricadeDoorsTo(playerId);
                             break;
@@ -428,7 +429,7 @@ namespace DWMPHorde.Networking
                     _pendingHeavyLateJoinBulk[playerId] = phase;
                 }
 
-                // One peer × one phase per frame — avoids stacked FOOT in flushPending.
+                // Process one peer and phase per frame to avoid stacked scene scans.
                 return;
             }
         }
@@ -451,7 +452,7 @@ namespace DWMPHorde.Networking
             if (firstSeen <= 0f)
             {
                 _awaitingLateJoinBulk[playerId] = now;
-                // Joiner is past LoadScene — re-enable high-rate gameplay packets to them.
+                // The joiner is past LoadScene, so high-rate gameplay packets can resume.
                 MarkPeerGameplayReady(playerId);
                 ModLog.Event(LogCat.Session,
                     "Player " + playerId + " in-world — bulk in "
@@ -474,7 +475,7 @@ namespace DWMPHorde.Networking
             {
                 // Live loaded player wins over a sticky Core.mainMenu flag.
                 // Dual-box saw: mainMenu=true + player=true + loaded=true while host still
-                // had full world bulk (lights/generators) — old gate blocked all world share,
+                // had full world bulk (lights/generators); the old gate blocked all world share,
                 // so clients never left CONNECTED and never saw ENTER WORLD.
                 if (Player.Instance != null && (Core.loadedGame || Core.coreStarted || Core.loadingGame))
                     return true;
@@ -515,7 +516,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Rising edge only — avoid re-pushing every frame while in-world.
+                // Share only on the transition to the ready state.
             if (_hostWasShareableForWaitingClients)
                 return;
             _hostWasShareableForWaitingClients = true;
@@ -571,6 +572,15 @@ namespace DWMPHorde.Networking
         {
             int playerId = _currentReceivePlayerId; // For host: which client sent state
             if (playerId <= 0) return;
+
+            // The host validates the receiving peer; clients key forwarded state
+            // by the original player id carried in the trusted host relay.
+            int sequenceSender = _role == NetworkRole.Host
+                ? playerId
+                : (state.PlayerId > 0 ? state.PlayerId : playerId);
+            if (!AcceptSnapshotSequence(
+                _lastPlayerStateSequence, sequenceSender, state.Sequence, "PlayerState"))
+                return;
 
             if (_role == NetworkRole.Host)
             {
@@ -665,7 +675,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Client receives host (or forwarded peer) state — ignore during LoadScene
+            // Ignore host or forwarded state while the client is loading a scene.
             // or title (EnsureRemoteProxy was spamming 500+ "Player is inactive" / frame).
             if (!CanSpawnRemoteProxies())
                 return;
@@ -742,7 +752,8 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Continuous held lights from PlayerState (~30 Hz): flare B+ + flashlight stream.
         /// Flare is parented to the proxy with a hand local offset (not world body center).
-        /// Sole owner for held flare — destroys any event-path ItemLight to prevent double light.
+        /// Sole owner for held flare. Removes event-path ItemLight components to
+        /// prevent duplicate lights.
         /// </summary>
         private void HandleRemoteContinuousLights(PlayerStateMessage state, int playerId = -1)
         {
@@ -782,7 +793,8 @@ namespace DWMPHorde.Networking
 
             if (heldOn)
             {
-                // Mutex: continuous flare/match owns light — never keep event-path item light.
+                // Continuous flare or match state owns the light. Remove the
+                // event-path item light.
                 DestroyRemoteItemLight(playerId);
 
                 RemotePlayerProxy proxy = GetProxy(playerId);
@@ -825,7 +837,7 @@ namespace DWMPHorde.Networking
                     if (remoteState.FlareFx != null && remoteState.FlareFx != remoteState.FlareLight)
                         remoteState.FlareFx.transform.localPosition = localOff;
 
-                    // Match: position only on stream ticks — re-applying intensity every packet
+                    // Match: position only on stream ticks. Re-applying intensity every packet
                     // recreated SP flicker on the peer. Flare still needs live radius/intensity.
                     if (state.MatchActive)
                     {
@@ -1241,7 +1253,7 @@ namespace DWMPHorde.Networking
             state.ItemLight = null;
         }
 
-        /// <summary>Any remote currently reports InBearTrap (legacy helper; prefer <see cref="IsTrapOccupied"/>).</summary>
+        /// <summary>Any remote currently reports InBearTrap; prefer <see cref="IsTrapOccupied"/>.</summary>
         public bool HasAnyTrappedPlayer => _remotePlayers.Values.Any(s => s.InBearTrap);
 
         /// <summary>True when the remote peer has shadow protection (torch, lantern, LightArea, etc.).</summary>
@@ -1321,7 +1333,7 @@ namespace DWMPHorde.Networking
                 ClientEntityInterpolationService.LastSkippedCount,
                 sw.Elapsed.TotalMilliseconds);
 
-            // Do NOT scan corpses here — was inside PollEvents path every 2s and inflated poll/maxMs.
+            // Corpse scans run from Update rather than the packet receive path.
             // See TickClientCorpseSetup from Update.
         }
 
@@ -1402,7 +1414,7 @@ namespace DWMPHorde.Networking
                 string.Equals(Player.Instance.itemBeingDragged.gameObject.name, msg.ObjectName,
                     System.StringComparison.Ordinal);
 
-            // Own DragSync echo (host rebroadcast): native ItemSounds already owns scrape —
+            // For the local DragSync echo, native ItemSounds already owns scrape,
             // applying MOS here doubles the sound for the dragging client.
             if (msg.IsDragging
                 && (msg.ClaimedByPlayerId == LocalPlayerId || locallyDraggingThis))
@@ -1429,7 +1441,7 @@ namespace DWMPHorde.Networking
 
                 if (ownStop)
                 {
-                    // Local owner already ForceStopped on release — only kill residual MOS.
+                    // The local owner already stopped native audio; clear residual MOS only.
                     // ForceStopByName here zeroed RB + re-armed suppress while native still
                     // owned scrape on the next residual PhysicsState (felt like 2× scrape).
                     DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
@@ -1468,7 +1480,7 @@ namespace DWMPHorde.Networking
             Item item = FindDraggedItemLocally(msg.ObjectName, targetPos);
             if (item == null)
             {
-                // Item doesn't exist on this side — spawn it on-demand so we
+                // Item does not exist on this side. Spawn it on demand so we
                 // can reflect the remote player's manipulation.
                 item = SpawnDraggedItem(msg);
                 if (item == null)
@@ -1482,7 +1494,7 @@ namespace DWMPHorde.Networking
             else if (item.beingDragged || (Player.Instance != null && Player.Instance.dragging && Player.Instance.itemBeingDragged == item))
             {
                 // Skip remote drag-updates for an object the local player is also
-                // dragging — prevents tug-of-war jitter between both sides.
+                // dragging. This prevents tug-of-war jitter between both sides.
                 Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
                 // Release kinematic so local HingeJoint can drive position.
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
@@ -1491,7 +1503,7 @@ namespace DWMPHorde.Networking
                     if (kinematicRb != null)
                         kinematicRb.isKinematic = false;
                 }
-                // Tag so TryBuildWorldSnapshot skips this item — prevents
+                // Tag so TryBuildWorldSnapshot skips this item. This prevents
                 // PhysicsState (0.3 Hz) from fighting DragSync (30 Hz) even
                 // when BOTH peers are dragging the same item (double grab).
                 _remoteDragItemIds.Add(item.GetInstanceID());
@@ -1499,11 +1511,11 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Remove from interpolation — DragSyncMessage is more authoritative
+            // Remove from interpolation. DragSyncMessage is more authoritative
             // and instant, while UpdateObjectInterpolation would smooth over
             // the jump and fight subsequent DragSync updates.
             Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
-            // Tag so TryBuildWorldSnapshot skips this item — prevents
+            // Tag so TryBuildWorldSnapshot skips this item. This prevents
             // PhysicsState (0.3 Hz) from fighting DragSync (30 Hz).
             _remoteDragItemIds.Add(item.GetInstanceID());
             _remoteDragItemNames.Add(item.gameObject.name);
@@ -1515,13 +1527,13 @@ namespace DWMPHorde.Networking
                 targetRb.rotation = Quaternion.Euler(targetRot);
                 targetRb.velocity = Vector3.zero;
                 targetRb.angularVelocity = Vector3.zero;
-                // Lock to host position between DragSync frames — prevents proxy
+                // Lock to host position between DragSync frames. This prevents proxy
                 // collisions on the client from pushing the item away.
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                     targetRb.isKinematic = true;
 
                 // Scrape: sender sets ScrapeActive from *player walk intent* (body-push style).
-                // When false (reliable), stop fade *now* — do not wait for posDelta quiet or
+                // When false (reliable), stop fade now. Do not wait for posDelta quiet or
                 // Unreliable packet loss. First grab packet may still have ScrapeActive false.
                 ItemSounds dragSounds = item.GetComponent<ItemSounds>();
                 bool hasPrev = _lastDragSyncPos.TryGetValue(msg.ObjectName, out Vector3 prevPos);
@@ -1533,7 +1545,7 @@ namespace DWMPHorde.Networking
 
                 if (!msg.ScrapeActive)
                 {
-                    // Intentional quiet while still grabbed — start vanilla fade immediately.
+                    // Intentional quiet while still grabbed. Start vanilla fade immediately.
                     // No ForceStop/Sleep (still remote-kinematic); no suppress so walk-resume re-arms.
                     DWMPHorde.Audio.MovingObjectSoundService.StopNetwork(msg.ObjectName);
                 }
@@ -1544,14 +1556,14 @@ namespace DWMPHorde.Networking
                 }
                 else if (hasPrev)
                 {
-                    // ScrapeActive but object barely moved (turning in place) — soft fade.
+                    // ScrapeActive but the object barely moved (turning in place). Soft fade.
                     DWMPHorde.Audio.MovingObjectSoundService.NoteStationary(msg.ObjectName);
                 }
                 _lastDragSyncPos[msg.ObjectName] = targetPos;
             }
             else
             {
-                // Fallback: no Rigidbody — set transform directly
+                // Fallback: no Rigidbody; set the transform directly.
                 item.transform.position = targetPos;
                 item.transform.rotation = Quaternion.Euler(targetRot);
                 ModRuntime.Log?.LogWarning("[DragSync] " + msg.ObjectName + " has no Rigidbody — used transform fallback");
@@ -1563,7 +1575,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>Bridge called from WorldPhysicsSyncService when host applies a
         /// client's PhysicsState update for a body-pushed object (not E-drag).
-        /// Plays scrape via MOS locally only. Start is NOT broadcast as PlayerAudio —
+        /// Plays scrape through MOS locally. Start is not broadcast as PlayerAudio;
         /// PhysicsState fan-out already drives NoteMoving on observers (T2: single owner).
         /// Reliable stop still uses <see cref="NotifyBodyPushStopped"/>.</summary>
         public static void NotifyBodyPushStarted(GameObject go)
@@ -1580,14 +1592,14 @@ namespace DWMPHorde.Networking
             ItemSounds sounds = item.GetComponent<ItemSounds>();
             if (sounds != null)
                 DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(item.gameObject, item.gameObject.name, sounds);
-            // ponytail: no BroadcastBodyPushSound — PhysicsState NoteMoving covers observers;
+            // Do not broadcast body-push audio; PhysicsState NoteMoving covers observers.
             // dual start was the observer double-scrape.
         }
 
         /// <summary>Bridge called from WorldPhysicsSyncService when a body-pushed
         /// object goes quiet. Soft-stops MOS on this peer only.
-        /// Do NOT Broadcast PlayerAudio stop — that flooded the pushing client and
-        /// SoftStop used to kill their native ItemSounds (2–3× scrape). Observers
+        /// Do not broadcast a PlayerAudio stop. It can interrupt the pushing
+        /// client's native ItemSounds; observers use the physics path.
         /// already fade via PhysicsState quiet / DragSync STOP.</summary>
         public static void NotifyBodyPushStopped(string objectName)
         {
@@ -1785,7 +1797,7 @@ namespace DWMPHorde.Networking
                 return best;
             }
 
-            // Strategy 2: global scan by name — catches objects on unloaded
+            // Strategy 2: global scan by name; catches objects on unloaded
             // world-grid chunks or far from the reported position.
             // We do NOT skip locally-dragged items here; HandleDragSync
             // handles that check after finding the item.
@@ -1850,7 +1862,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Already built locally — do not re-fire gameEvent / double-construct.
+            // Already built locally; do not re-fire the game event or construct twice.
             if (best.constructed)
             {
                 ModRuntime.LegacyInfo("[ConstructibleSync] already constructed " + best.name + " at " + pos);
@@ -1858,7 +1870,7 @@ namespace DWMPHorde.Networking
             }
 
             ModRuntime.LegacyInfo("[ConstructibleSync] constructing " + best.name + " at " + pos);
-            // Always pass manual=false on the receiving side — the
+            // Always pass manual=false on the receiving side; the
             // constructing player already consumed ingredients locally.
             // Using manual=true would crash (ConstructionMenu.Instance.
             // selectedIcon is null when the menu isn't open).
@@ -2116,7 +2128,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host join bulk: unlocked padlocks for late joiners (one FOOT).
+        /// Host join bulk: unlocked padlocks for late joiners.
         /// </summary>
         private void SyncExistingPadlocksTo(int targetPlayerId)
         {
@@ -2142,7 +2154,7 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo("[BulkSync] Padlocks → p" + targetPlayerId + ": " + padlocks);
         }
 
-        /// <summary>Host join bulk: unlocked Locked components (one FOOT).</summary>
+        /// <summary>Host join bulk: unlocked Locked components.</summary>
         private void SyncExistingLockedsTo(int targetPlayerId)
         {
             if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
@@ -2167,7 +2179,7 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo("[BulkSync] Lockeds → p" + targetPlayerId + ": " + locked);
         }
 
-        /// <summary>Host join bulk: InteractiveItem isOn (one FOOT).</summary>
+        /// <summary>Host join bulk: InteractiveItem isOn.</summary>
         private void SyncExistingInteractivesTo(int targetPlayerId)
         {
             if (_role != NetworkRole.Host || targetPlayerId <= 0) return;
@@ -2196,7 +2208,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host join bulk: unlocked padlocks/doors and interactive isOn (all FOOTs).
+        /// Host join bulk: unlocked padlocks, doors, and interactive isOn.
         /// Prefer staggered TickHeavyLateJoinBulk phases; kept for any direct callers.
         /// </summary>
         private void SyncExistingLocksAndInteractives(int targetPlayerId)
@@ -2252,7 +2264,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Host → peer: generator isOn/fuel so restorePower/cutPower matches before lamp bulk applies.
-        /// Vanilla gen cycles power only — they must not stomp per-lamp isOn via LightState.
+        /// Vanilla generators cycle power only; they must not overwrite per-lamp isOn via LightState.
         /// </summary>
         private void SyncExistingGeneratorsTo(int targetPlayerId)
         {
@@ -2285,7 +2297,8 @@ namespace DWMPHorde.Networking
                     LowPower = gen.lowPower,
                     ItemType = itemType
                 };
-                var msg = new Sync.PhysicsStateMessage { Generators = new[] { gs } };
+                var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
+                    new Sync.PhysicsStateMessage { Generators = new[] { gs } });
                 SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
                     w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
                 sent++;
@@ -2330,12 +2343,10 @@ namespace DWMPHorde.Networking
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             GameEvents best = null;
 
-            // Host fires dream-pad GEs at (-75000,…) before the client pad exists.
-            // Soft fallback used to pick the overworld bunker homonym at (-6342,…) —
-            // that wires door_underground with the normal bunk dialogue. Queue until pad.
-            // onEnterLocation_* also needs finishedLoading + dreaming — early apply leaves
-            // welcome_opening (normal bunk) instead of welcome_opening_dream.
-            // Also gate unnamed pad FX (def_glow / def_shadow / carousel) by pad coords.
+            // Resolve dream events only under the active pad. A name-only
+            // fallback can select the overworld bunker copy, so queue events
+            // until the pad is loaded and finishedLoading is true.
+            // Unnamed pad effects are also identified by their pad coordinates.
             bool dreamNamed = !string.IsNullOrEmpty(msg.EventName)
                 && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
             bool padCoords = ClientStateBackup.IsDreamPadCoordinate(pos);
@@ -2371,8 +2382,8 @@ namespace DWMPHorde.Networking
                 return false;
             }
 
-            // Dream footstep/soundarea GEs parent audio to local Player — client hears them as
-            // their own steps and they cut hard at range. Proxy OnFootstep owns peer footsteps.
+            // Dream footstep and sound-area events parent audio to the local
+            // Player. Proxy OnFootstep owns peer footsteps.
             if (DreamSyncManager.IsDreamActive
                 && !string.IsNullOrEmpty(msg.EventName)
                 && (msg.EventName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
@@ -2393,8 +2404,8 @@ namespace DWMPHorde.Networking
             if (best == null)
                 best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
 
-            // Soft name contains match (Clone / suffix drift) — HARD distance cap.
-            // Unbounded scan was the root cause of overworld bunk GE at (-6342).
+            // Soft name matching handles Clone and suffix drift, with a strict
+            // distance cap to avoid selecting an overworld copy.
             if (best == null && !string.IsNullOrEmpty(msg.EventName))
             {
                 GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
@@ -2427,8 +2438,8 @@ namespace DWMPHorde.Networking
             if (best == null)
             {
                 // Host-spawned spirit FX (def_glow / def_shadow) often have no durable
-                // GameEvents on the client. Queuing them → FindObjectsOfType every 0.5s
-                // for 90s → periodic stutters and dream-end failure.
+                // GameEvents on the client. Queuing them would call FindObjectsOfType every 0.5s
+                        // for 90 seconds, causing periodic stutters and dream-end failure.
                 if (IsEphemeralDreamFxEvent(msg.EventName)
                     && DreamSyncManager.IsDreamActive
                     && !padNotReady)
@@ -2546,7 +2557,7 @@ namespace DWMPHorde.Networking
         private readonly System.Collections.Generic.Dictionary<int, float> _pendingGameEventQueuedAt
             = new System.Collections.Generic.Dictionary<int, float>(16);
 
-        /// <summary>After remote dream pad spawn — apply queued onEnterLocation_* etc.</summary>
+        /// <summary>After remote dream pad spawn, apply queued entry events.</summary>
         internal void TryFlushPendingGameEventsAfterDreamLoad()
         {
             _nextPendingGameEventsFlushTime = 0f;
@@ -2557,7 +2568,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Client || _pendingGameEvents.Count == 0)
                 return;
-            // Unloaded hideout events were scanned every frame → client fps~3 during night stages.
+            // Throttle scans for events whose scene objects are not loaded yet.
             float now = Time.unscaledTime;
             if (now < _nextPendingGameEventsFlushTime) return;
             _nextPendingGameEventsFlushTime = now + PendingGameEventsFlushInterval;
@@ -2595,7 +2606,7 @@ namespace DWMPHorde.Networking
                         continue;
                 }
 
-                // Always go through Apply (soft name search) — pre-find skipped def_glow.
+                // Always go through Apply (soft name search); pre-find skipped def_glow.
                 if (ApplyGameEventsFired(msg, queueIfMissing: false))
                 {
                     _pendingGameEvents.RemoveAt(i);
@@ -2627,7 +2638,7 @@ namespace DWMPHorde.Networking
             if (inv == null)
             {
                 ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: no inventory at {pos} for {msg.Action} slot={msg.SlotIndex} type={msg.ItemType}");
-                // Host: peer took from missing inv — refund optimistic loot.
+                        // Host: peer took from a missing inventory; refund the optimistic loot.
                 if (_role == NetworkRole.Host
                     && (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
                     && _currentReceivePlayerId > 0)
@@ -2641,7 +2652,7 @@ namespace DWMPHorde.Networking
 
             if (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
             {
-                // H6 host authority: only apply remove if slot still has matching item.
+            // Apply the removal only if the slot still contains the matching item.
                 // Simultaneous dual-loot: second peer loses the race → deny + refund.
                 if (_role == NetworkRole.Host && !IsApplyingRemoteState)
                 {
@@ -2683,7 +2694,7 @@ namespace DWMPHorde.Networking
                         }
 
                         // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
-                        // DestroyEmptyItemInvAt only destroys Item.isDroppedItem — not wardrobes/chests.
+                        // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
@@ -2699,7 +2710,7 @@ namespace DWMPHorde.Networking
                         ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot {msg.SlotIndex} already empty (type={msg.ItemType})");
                         if (_role == NetworkRole.Host && _currentReceivePlayerId > 0 && !IsApplyingRemoteState)
                             DenyContainerTake(_currentReceivePlayerId, msg, "slot empty");
-                        // Already empty itemInv — still try to clear ghost mesh.
+                        // Already empty itemInv; still try to clear the ghost mesh.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
@@ -2746,7 +2757,7 @@ namespace DWMPHorde.Networking
                     }
                     else if (_role == NetworkRole.Host && !IsApplyingRemoteState)
                     {
-                        // Place race: slot occupied by different type — do not overwrite.
+                        // Place race: the slot contains a different type; do not overwrite it.
                         ModLog.Warn(LogCat.Container,
                             "[Container] PlaceItem denied — slot occupied by " + slot.invItem.type);
                         _suppressForwardThisMessage = true;
@@ -2894,7 +2905,7 @@ namespace DWMPHorde.Networking
                 }
                 else
                 {
-                    // No pre-count recorded (e.g. legacy or cross-session) —
+                    // No pre-count recorded, for example after a reconnect;
                     // fall back to the old type-scan behavior.
                     toRemove = msg.Amount;
                 }
@@ -2975,7 +2986,7 @@ namespace DWMPHorde.Networking
                 inv = FindInventoryByPos(pos);
                 if (inv == null)
                 {
-                    // Final fallback: scan dead Characters near the position — a dead
+                    // Final fallback: scan dead Characters near the position. A dead
                     // body may have a disabled collider or the stable ID may not match.
                     Character[] allChars = UnityEngine.Object.FindObjectsOfType<Character>();
                     Character closestDead = null;
@@ -3048,7 +3059,7 @@ namespace DWMPHorde.Networking
                     };
                 }
             }
-            // Full snapshot only to the requester — Broadcast would wipe other
+            // Full snapshot only to the requester. Broadcast would wipe other
             // clients' mid-loot views (3+ and dual-open races).
             int requester = _currentReceivePlayerId;
             if (requester > 0)
@@ -3177,16 +3188,16 @@ namespace DWMPHorde.Networking
             if (pendingSlots != null)
                 _pendingContainerRemoves.Remove(containerKey);
 
-            // Clear any pending take pre-counts for this container —
-            // the state sync is now the authoritative view.
+            // Clear pending take pre-counts because the state sync is now
+            // authoritative.
             _pendingTakePreCounts.Clear();
 
-            // ponytail: no open_drawer here — local Item.openInventory already played it
-            // (and PlayerOpenInventorySoundPatch used to double it). State sync is silent.
+            // Do not play open_drawer here. Local Item.openInventory already
+            // played it, and state sync is silent.
         }
 
         /// <summary>
-        /// Apply shared NPC reputation (model C). Host and clients both apply;
+        /// Apply shared NPC reputation. Host and clients both apply;
         /// night-trader names are ignored (per-player). Writes Flags.npcStates
         /// directly so it works if the NPC GameObject is not loaded yet.
         /// </summary>
@@ -3257,7 +3268,7 @@ namespace DWMPHorde.Networking
                         && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
                     float dist = Vector3.Distance(d.transform.position, pos);
-                    // Name-only match must be near the message pos — never pick a distant same-name door.
+                    // A name-only match must be near the message position.
                     if (dist > 20f) continue;
                     if (dist < bestD)
                     {
@@ -3266,7 +3277,8 @@ namespace DWMPHorde.Networking
                     }
                 }
             }
-            // Dream: event pos is often location origin, door body is offset — widen search
+            // Dream event positions can be the location origin, while the door
+            // body is offset, so widen the local search.
             // but stay under the dream pad.
             if (door == null && DreamSyncManager.IsDreamActive)
                 door = FindDoorByPosLoose(pos, 40f);
@@ -3311,7 +3323,7 @@ namespace DWMPHorde.Networking
                 }
 
                 float force = door.type == Door.Type.metal ? 30000f : 0f;
-                // Leave-door GE already played openSound — mute Door.open audio on apply.
+                // Leave-door GE already played openSound; mute Door.open audio on apply.
                 string prevSound = null;
                 bool mute = DWMPHorde.Patches.DialogueDoorAftermath.ShouldMuteRemoteDoorOpenSound;
                 if (mute)
@@ -3376,7 +3388,7 @@ namespace DWMPHorde.Networking
                 loc.enter(force: true);
 
                 // Place proxy: prefer last PlayerState (accurate), else playerSpawn on first enter.
-                // Dream: first enter only — NOT every ~1 Hz LocationEnter (was re-snapping host
+                // Dream: first enter only, not every periodic LocationEnter. Repeated snaps
                 // to playerSpawn Y and locking them under the pad). Non-dream: also re-place
                 // when local just settled in the same location (post-load resync).
                 string localCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
@@ -3395,7 +3407,7 @@ namespace DWMPHorde.Networking
                 if (_role == NetworkRole.Host)
                     TryEnterLocationGridNearRemotes(locName);
 
-                // Peer just got location geometry — re-push sticky lamp/gen state that
+                // Peer just got location geometry; re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
                 if (_role == NetworkRole.Host && firstEnterThisLoc && playerId != _localPlayerId)
                     ResyncWorldLightsForPeer(playerId);
@@ -3403,7 +3415,7 @@ namespace DWMPHorde.Networking
             else
             {
                 // Dreams: LoadDreamSceneCoroutine owns the pad. createLocation here races
-                // a second bunker (2x ambients/lights, wrong slot Y) — only wait.
+                // a second bunker (duplicated ambience and lights, wrong slot Y); only wait.
                 bool dreamName = locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
                     || Sync.DreamSyncManager.IsDreamLocationName(locName);
                 if (dreamName
@@ -3444,6 +3456,11 @@ namespace DWMPHorde.Networking
                     if (string.Equals(dreamCanon, locName, StringComparison.OrdinalIgnoreCase))
                         return dreamLoc;
                 }
+
+                // Do not fall through to spawnedLocations or global name
+                // lookup while a dream is active; those keys have overworld
+                // twins and first-match selection is not lifecycle-safe.
+                return null;
             }
 
             if (ol.spawnedLocations != null && ol.spawnedLocations.ContainsKey(locName))
@@ -3454,7 +3471,7 @@ namespace DWMPHorde.Networking
                     && loc.gameObject != null
                     && loc.gameObject.name.EndsWith("_done", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Live key maps to renamed done instance — try non-done GO by name.
+                    // Live key maps to a renamed done instance; try a non-done object by name.
                     var live = GameObject.Find(locName);
                     if (live != null)
                     {
@@ -3485,7 +3502,7 @@ namespace DWMPHorde.Networking
 
             try
             {
-                // Live dream pad — never force peers onto vanilla *_done rename.
+                // Live dream pad; never force peers onto the vanilla *_done rename.
                 if (Sync.DreamSyncManager.IsDreamActive)
                     locationName = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
 
@@ -3546,7 +3563,7 @@ namespace DWMPHorde.Networking
                 _previousInOutsideLocation = false;
                 _previousLocationName = "";
                 // Hard-snap world-side proxies so they are not left at bunker coords
-                // while we stand on the map. Skip peers still inside a pad — yanking
+                // while we stand on the map. Skip peers still inside a pad; yanking
                 // them to last-known world pos is the 3p "host left, client still in
                 // cellar" ghost.
                 foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_remoteProxies))
@@ -3652,10 +3669,10 @@ namespace DWMPHorde.Networking
                     loc = dreamLoc;
                 else
                 {
-                    string canon = Sync.DreamSyncManager.CanonicalDreamLocationName(loc.gameObject.name);
-                    var live = GameObject.Find(canon);
-                    var liveLoc = live != null ? live.GetComponent<Location>() : null;
-                    if (liveLoc != null) loc = liveLoc;
+                    // No scoped dream Location means the async pad is not ready.
+                    // Never use a global name lookup, which can select the
+                    // overworld duplicate.
+                    return;
                 }
             }
 
@@ -3664,7 +3681,7 @@ namespace DWMPHorde.Networking
             if (preferLastKnown && PlayerPositionManager.TryGetRemote(playerId, out pos, out rotY))
             {
                 // Last known must look like it is in this location (not stale world map).
-                // Compare XZ only — 3D distance rejected valid host pos when client
+                // Compare XZ only. 3D distance rejected valid host positions when the client
                 // playerSpawn Y disagreed (bunker: place at Y=-12k → invisible).
                 if (loc.playerSpawn != null)
                 {
@@ -3744,7 +3761,7 @@ namespace DWMPHorde.Networking
             _remoteOutsideLocation.TryGetValue(playerId, out leftLoc);
             _remoteOutsideLocation.Remove(playerId);
 
-            // During join load proxies are torn down / not spawnable — teleport NRE'd
+            // During join load proxies are torn down or not spawnable; teleporting caused an NRE.
             // on destroyed dict entries. First live PlayerState will place them.
             if (!CanSpawnRemoteProxies())
             {
@@ -3753,7 +3770,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Never leaveAllLocations() — that deactivates locations the LOCAL player
+            // Do not call leaveAllLocations(); it deactivates locations the local player
             // may still be inside (2p/3+ desync / blackout). Last occupant: leave
             // only that pad so exit events fire once nobody remains.
             Vector3 worldPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
@@ -3853,7 +3870,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        // P1.4: debounce duplicate trap triggers from multi-collider / double-send
+        // Debounce duplicate trap triggers from multi-collider contacts or retries.
         private readonly Dictionary<string, float> _trapTriggerDebounce = new Dictionary<string, float>();
         private const float TrapTriggerDebounceSec = 0.4f;
 
@@ -3898,7 +3915,7 @@ namespace DWMPHorde.Networking
                 : Sync.TrapNetworkId.GetOrMintHost(go);
             Sync.TrapNetworkId.Ensure(go, trapId);
 
-            // Already disarmed/sprung — never re-boom (late TrapTriggered after silent disarm).
+            // Already disarmed or sprung; never re-trigger a late TrapTriggered after silent disarm.
             if (WorldPhysicsSyncService.ReadTrapTriggered(go))
             {
                 ModRuntime.LegacyInfo(
@@ -3908,7 +3925,8 @@ namespace DWMPHorde.Networking
 
             try
             {
-                // Client TrapTriggered is stomp/walk path — full boom. Silent disarm uses TrapState direct.
+                // Client TrapTriggered is the stomp or walk path. Silent disarm
+                // uses TrapState directly.
                 WorldPhysicsSyncService.ApplyTrapState(go, triggered: true, silentDisarm: false);
             }
             catch (System.Exception ex)
@@ -4168,7 +4186,7 @@ namespace DWMPHorde.Networking
                 : $"[BulkSync] Sent {sent} barricade/door/item states to all clients (items={itemSent})");
         }
 
-        /// <summary>Host join bulk: Door barricade/HP FOOT only.</summary>
+        /// <summary>Host join bulk: Door barricade and health state.</summary>
         private int SendBarricadeDoorsTo(int targetPlayerId, int maxSend = 512)
         {
             if (_role != NetworkRole.Host) return 0;
@@ -4236,7 +4254,7 @@ namespace DWMPHorde.Networking
             return sent;
         }
 
-        /// <summary>Host join bulk: Window barricade FOOT only.</summary>
+        /// <summary>Host join bulk: Window barricade state.</summary>
         private int SendBarricadeWindowsTo(int targetPlayerId, int maxSend = 512)
         {
             if (_role != NetworkRole.Host) return 0;
@@ -4271,7 +4289,7 @@ namespace DWMPHorde.Networking
             return sent;
         }
 
-        /// <summary>Host join bulk: destructible Item FOOT only.</summary>
+        /// <summary>Host join bulk: destructible Item state.</summary>
         private int SendBarricadeItemsTo(int targetPlayerId, int maxSend = 512, int maxItems = 256)
         {
             if (_role != NetworkRole.Host) return 0;
@@ -4318,7 +4336,7 @@ namespace DWMPHorde.Networking
 
         private void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
         {
-            // Prefer XZ match — client wardrobe Y often drifts after body-push / layer offset.
+            // Prefer XZ matching; client wardrobe Y often drifts after body-push or layer offset.
             Item item = FindDestructibleItemXz(pos, 25f);
 
             if (item == null)
@@ -4363,7 +4381,7 @@ namespace DWMPHorde.Networking
             if (Player.Instance == null) return;
 
             // Set the CharacterSpawner flags so the game knows shadows are active.
-            // Do NOT call Player.tryToSpawnShadow() — that spawns shadows at wrong local
+            // Do not call Player.tryToSpawnShadow(); it spawns shadows at the wrong local
             // positions.  The host sends individual ShadowSpawnMessages with exact positions.
             var cs = Singleton<CharacterSpawner>.Instance;
             if (cs != null)
@@ -4560,7 +4578,7 @@ namespace DWMPHorde.Networking
             }
             else
             {
-                // Shadow not yet created — treat as spawn if we missed ShadowSpawnMessage
+                // Shadow not yet created; treat this as a spawn if ShadowSpawnMessage was missed.
                 var spawnMsg = new ShadowSpawnMessage
                 {
                     ShadowId = msg.ShadowId,
@@ -4908,13 +4926,14 @@ namespace DWMPHorde.Networking
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
 
-            // Far map lures (host AI eating across the forest) must not FOOT-scan every 1s.
-            // Client logs: poll~110 findOfType=2 maxMs~50–60 while host stayed clean.
+            // Far map lures (host AI eating across the forest) must not scan every second.
+            // Client logs showed repeated scene scans while the host stayed clean.
             if (_role == NetworkRole.Client
                 && !ClientEntityInterpolationService.IsInClientInterest(pos))
                 return;
 
-            // Lure often has no collider — OverlapSphere misses; cached scan is OK when in interest.
+            // Lure often has no collider, so OverlapSphere misses; a cached scan is
+            // acceptable while it is in interest.
             Lure lure = WorldQueryHelper.FindNearest<Lure>(pos, 2f);
             if (lure == null)
             {
@@ -4944,7 +4963,7 @@ namespace DWMPHorde.Networking
             {
                 try
                 {
-                    // Absolute set for intermediate ticks — removeHealth only on death so
+                    // Absolute set for intermediate ticks; removeHealth only on death so
                     // we do not re-run eater/gore path every 1s (log spam + apply cost).
                     if (msg.Health <= 0)
                     {
@@ -4970,7 +4989,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.Log?.LogWarning("[LureSync] apply: " + ex.Message);
                 }
             }
-            // Trace only — LegacyInfo every 1s was dual-box log I/O noise next to real hitches.
+            // Trace only; frequent LegacyInfo output obscures real hitches.
             ModLog.Trace(LogCat.World, $"[LureSync] applied at {pos} health→{msg.Health}");
         }
 
@@ -5029,8 +5048,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client slept: host may forward-adopt their post-sleep clock, then TimeSync all.
-        /// Never calls full refreshTime (C1 day-chain).
+        /// Client slept: the host may adopt the post-sleep clock, then send
+        /// TimeSync to all peers. This does not run the full day chain.
         /// </summary>
         private void HandleSleepEndRequest(SleepEndRequestMessage msg)
         {
@@ -5057,7 +5076,8 @@ namespace DWMPHorde.Networking
             ctrl.day = msg.Day;
             ctrl.CurrentTime = msg.CurrentTime;
 
-            // Mirror after-night flag only — no startAfterNight / endAfterNight world chains.
+            // Mirror the after-night flag only; do not run startAfterNight or
+            // endAfterNight world chains.
             if (msg.IsAfterNight && !ctrl.isAfterNight)
             {
                 ctrl.isAfterNight = true;
@@ -5096,7 +5116,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client left hideout during morning freeze — host runs endAfterNight once
+        /// Client left the hideout during the morning freeze; the host runs
+        /// endAfterNight once
         /// (trader despawn, time++, clear freeze) then TimeSync fans out.
         /// </summary>
         private void HandleAfterNightEndRequest(AfterNightEndRequestMessage msg)
@@ -5108,7 +5129,7 @@ namespace DWMPHorde.Networking
 
             if (!ctrl.isAfterNight)
             {
-                // Already clear — still push clock so requester unfreezes if stale.
+                // Already clear; still push the clock so a stale requester unfreezes.
                 SendTimeSyncTo(-1);
                 return;
             }
@@ -5117,7 +5138,8 @@ namespace DWMPHorde.Networking
                 $"[DayNight] host endAfterNight from peer p{_currentReceivePlayerId}");
             try
             {
-                // Under NetworkApplyGuard: endAfterNight Postfix skips TimeSync — flush here.
+                // Under NetworkApplyGuard, the endAfterNight postfix skips TimeSync;
+                // flush it here.
                 ctrl.endAfterNight();
             }
             catch (System.Exception ex)
@@ -5129,9 +5151,9 @@ namespace DWMPHorde.Networking
 
         private void HandleWorkbenchLock(WorkbenchLockMessage msg)
         {
-            // PARKED 0.7.40: exclusive workbench open disabled — ignore wire traffic.
-            // Keep handler so protocol 19 WorkbenchLock packets do not warn/unknown.
-            // Old grant/deny/release body lived here; restore from git history 0.7.39 if needed.
+            // The exclusive workbench feature is disabled; ignore its wire traffic.
+            // Keep the handler so older WorkbenchLock packets are ignored cleanly.
+            // No grant, deny, or release action is performed.
             _ = msg;
         }
 
@@ -5324,7 +5346,7 @@ namespace DWMPHorde.Networking
                     return inv;
             }
 
-            // Fallback: scan all item/death-drop inventories by position — handles containers
+            // Fallback: scan all item and death-drop inventories by position; handles containers
             // that are loaded but outside the 1m OverlapSphere radius (e.g. on the
             // host's scene when the client player looted a distant container).
             Inventory best = null;
@@ -5432,7 +5454,8 @@ namespace DWMPHorde.Networking
 
         private float _timeSyncTimer;
         /// <summary>
-        /// Host clock fan-out. Was 2s — client freezes CurrentTime between snaps (DoUpdateTime off)
+        /// Host clock fan-out. A short interval keeps CurrentTime moving while
+        /// DoUpdateTime is disabled on clients.
         /// so day/night lighting lagged visibly. 0.5s keeps peers tight without flooding.
         /// </summary>
         private const float TimeSyncInterval = 0.5f;
@@ -5480,7 +5503,8 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             // DialogHostApplyGuard: host replaying client dialogue close must fan out DoorState.
             if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
-            var msg = new PhysicsStateMessage { Doors = new[] { door } };
+            var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
+                new PhysicsStateMessage { Doors = new[] { door } });
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -5492,7 +5516,8 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
-            var msg = new PhysicsStateMessage { Traps = new[] { ts } };
+            var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
+                new PhysicsStateMessage { Traps = new[] { ts } });
             ModLog.Event(LogCat.World, "[TrapSync] sending trap triggered id=" + ts.TrapNetId
                 + " silent=" + (ts.OccupantPlayerId == TrapState.OccupantSilentDisarm)
                 + " at " + ts.PosX + "," + ts.PosY + "," + ts.PosZ
@@ -5837,7 +5862,8 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             // ProcessInboundMessage holds IsApplyingRemoteState for DialogNpcLock Release.
             // HostFireNpcCloseDialogue runs under DialogHostApplyGuard and MUST fan out
-            // leave-door GEs — early return here logged "fired" but never sent (client door stuck).
+            // Leave-door GEs must not return early after logging "fired"; the client door
+            // otherwise remains stuck.
             if (IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
             Broadcast(NetMessageType.GameEventsFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
@@ -5853,7 +5879,8 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
-            var msg = new PhysicsStateMessage { Generators = new[] { gs } };
+            var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
+                new PhysicsStateMessage { Generators = new[] { gs } });
             Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -5861,7 +5888,7 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
-            // Sticky world light state — lost Unreliable packets permanently desync lamps.
+            // World light state is sticky; lost Unreliable packets permanently desync lamps.
             Broadcast(NetMessageType.LightState, w => ls.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -5870,7 +5897,7 @@ namespace DWMPHorde.Networking
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
             // Disarm destroy path used to fire TrapDestroy + disarm-postfix + progressBar
-            // (3× WorldObjectRemoved → peer FOOT thrash + NRE). One wire send per key.
+            // (3x WorldObjectRemoved would cause peer scan thrash and NRE). One wire send per key.
             if (!Sync.WorldPhysicsSyncService.TryClaimOutboundObjectRemove(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
                 return;
             Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
@@ -5891,7 +5918,8 @@ namespace DWMPHorde.Networking
             var msg = LightStateHelper.BuildLightState(local);
 
             // Save-loaded lantern: lightDot may still be default if modifyLightDot never
-            // re-ran — scan activeItems but only *activated* ambient lights (not all lightRadius).
+            // re-ran. It scanned activeItems but only activated ambient lights,
+            // not every lightRadius.
             if (!msg.HasAmbientLight)
             {
                 try
@@ -5942,7 +5970,7 @@ namespace DWMPHorde.Networking
         {
             if (!IsConnected) return;
             if (IsApplyingRemoteState) return;
-            // Must be reliable — lost barrel/molotov triggers desync combat and FX.
+            // Must be reliable; lost barrel or molotov triggers desync combat and effects.
             Broadcast(NetMessageType.ExplosionTrigger, w => msg.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
         }
@@ -6094,7 +6122,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Deliver damage to a specific remote player. Prefer this over broadcast —
+        /// Deliver damage to a specific remote player. Prefer this over broadcast;
         /// multi-client broadcast would apply the same hit to every peer.
         /// </summary>
         public void SendDamagePlayer(int victimPlayerId, DamagePlayerMessage msg)
@@ -6105,7 +6133,7 @@ namespace DWMPHorde.Networking
             SendToPlayer(victimPlayerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        /// <summary>Legacy broadcast — only safe for single-client sessions. Prefer the player-id overload.</summary>
+        /// <summary>Broadcast is only safe for single-client sessions. Prefer the player-ID overload.</summary>
         public void SendDamagePlayer(DamagePlayerMessage msg)
         {
             if (!IsConnected) return;
@@ -6131,7 +6159,7 @@ namespace DWMPHorde.Networking
         private bool _saveSyncBroadcastPending;
         private bool _saveSyncHostNeedsApply;
         private const float SaveSyncHostCooldownSec = 3f;
-        /// <summary>After any peer day/night death Save cascade — drop redundant SaveSync.</summary>
+        /// <summary>After a peer day/night death save cascade, drop redundant SaveSync.</summary>
         private float _deathSaveSyncSuppressUntil = -999f;
         private const float DeathSaveSyncSuppressSec = 6f;
 
@@ -6246,7 +6274,7 @@ namespace DWMPHorde.Networking
         private void PersistClientBackupSnapshot(bool sendToHost)
         {
             var data = ClientStateBackup.CollectBackupData();
-            // Mid-dream omit left 0,0,0 — keep prior exit pose from existing self file.
+            // Mid-dream omission leaves 0,0,0; keep the prior exit pose from the existing self file.
             if (data != null && data.PosX == 0f && data.PosY == 0f && data.PosZ == 0f)
             {
                 try
@@ -6597,7 +6625,7 @@ namespace DWMPHorde.Networking
             if (Patches.FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag(msg.Name))
                 return;
 
-            // Host receives client→host story flag deltas (audit H1), applies, rebroadcasts.
+            // The host applies client story-flag deltas and rebroadcasts them.
             if (_role == NetworkRole.Host)
             {
                 if (Singleton<Flags>.Instance == null)
@@ -6676,7 +6704,7 @@ namespace DWMPHorde.Networking
         {
             if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
             {
-                // Client absolute stock is not world authority — never Forwardable-echo the payload.
+            // Client stock is not world authority; do not forward the payload.
                 _suppressForwardThisMessage = true;
 
                 int senderId = _currentReceivePlayerId;
@@ -6748,7 +6776,8 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Client dialogue choice → host applies world story outcomes authoritatively.
         /// Prefer TargetDialogueName (works when host is not in the same UI);
-        /// personal give/remove item paths are suppressed (DialogHostApplyGuard / audit C2).
+        /// Personal give/remove item paths are suppressed while the host applies
+        /// the world outcome.
         /// </summary>
         private void HandlePeerHasItem(PeerHasItemMessage msg)
         {
@@ -6818,7 +6847,7 @@ namespace DWMPHorde.Networking
 
                 // Guard must stay active through displayDialogue + teardown: vanilla close
                 // (and startDream close inside displayNextBoard) black-fades + Save → SaveSync.
-                // lookKeyhole_dream changePortrait chains displayNextBoard after 1.5s — do NOT
+                // lookKeyhole_dream changePortrait chains displayNextBoard after 1.5s. Do not
                 // silent-close immediately or later boards / flags never run (door stays shut).
                 if (_dialogWorldDrainCo != null)
                 {
@@ -6842,7 +6871,8 @@ namespace DWMPHorde.Networking
                 try
                 {
                     // World-only apply needs an active DialogueWindow (lookKeyhole boards
-                    // StartCoroutine setPortrait — inactive GO → stuck Core.forbidInputs).
+                    // StartCoroutine setPortrait on an inactive object can leave
+                    // Core.forbidInputs set.
                     if (dw.gameObject != null && !dw.gameObject.activeSelf)
                         dw.gameObject.SetActive(true);
 
@@ -7009,7 +7039,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
             }
 
-            // Client often exits while lookKeyhole drain is still running — replay close after.
+            // Client often exits while lookKeyhole drain is still running; replay close afterward.
             if (!string.IsNullOrEmpty(_pendingCloseDialogueNpc))
             {
                 string pending = _pendingCloseDialogueNpc;
@@ -7043,7 +7073,7 @@ namespace DWMPHorde.Networking
                     {
                         stallTicks++;
                         // changePortrait waits ~1.5s + setPortrait; WritingText can stall forever
-                        // with no host UI clicks — force advance after ~2.5s on same board.
+                        // with no host UI clicks. Force advance after a short stall on the same board.
                         if (stallTicks >= 25)
                         {
                             try
@@ -7051,7 +7081,7 @@ namespace DWMPHorde.Networking
                                 Core.forbidInputs = false;
                                 if (dw.currentDialogue == null || dw.npc == null)
                                     break;
-                                // displayNextBoard is private — Traverse, but only when dialogue live
+                                // displayNextBoard is private, so use Traverse only while dialogue is live
                                 // (bypassing guard on null caused listen_dream NRE + stuck inputs).
                                 Traverse.Create(dw).Method("displayNextBoard").GetValue();
                             }
@@ -7104,11 +7134,11 @@ namespace DWMPHorde.Networking
         /// Replay vanilla DialogueWindow.close's onCloseDialogue on the host so one-shot
         /// GameEvents (onLeaveDoorDialogue_dream_*) run and Door.open can fan out.
         /// Prefer dream-pad NPC; also force-fire leave-door GEs and open the metal door
-        /// when EventTrigger requirements blocked the vanilla path (0.7.11 soak).
+        /// when EventTrigger requirements block the vanilla path.
         /// </summary>
         private void HostFireNpcCloseDialogue(string npcName)
         {
-            // Still draining lookKeyhole boards — close early would miss flags/GE wiring.
+            // Still draining lookKeyhole boards; closing early would miss flags or GameEvent wiring.
             if (_dialogWorldDrainCo != null)
             {
                 _pendingCloseDialogueNpc = npcName;
@@ -7153,7 +7183,7 @@ namespace DWMPHorde.Networking
                 Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onCloseDialogue);
 
                 // Vanilla sendTriggerInfo only checks the root GO. Dream props sometimes
-                // hang EventTriggers on children — fire those too.
+                // EventTriggers can be attached to children; fire those too.
                 EventTriggers[] ets = npc.GetComponentsInChildren<EventTriggers>(true);
                 for (int i = 0; i < ets.Length; i++)
                 {
@@ -7163,12 +7193,12 @@ namespace DWMPHorde.Networking
                     catch { /* ignore */ }
                 }
 
-                // Belt-and-suspenders: fire onLeaveDoor* / DoorDialogue GameEvents under the
-                // dream pad even when EventTrigger requirements blocked the close path.
+                // Replay leave-door events under the dream pad when the normal
+                // close trigger did not run.
                 int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
 
-                // If leave-door GE already opened the door (modifyDoor), skip force-open —
-                // otherwise client hears openSound twice (GE + DoorOpen).
+                // If the leave-door event opened the door, skip force-open so
+                // the client hears one open sound.
                 if (leaveFired == 0)
                     DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
                 else
@@ -7269,7 +7299,7 @@ namespace DWMPHorde.Networking
                     int prevOwner = NpcDialogueLock.GetOwner(msg.NpcName);
                     NpcDialogueLock.HostRelease(this, msg.NpcName, msg.OwnerPlayerId);
 
-                    // Abort lookKeyhole world-only drain — waiting for portrait boards caused a
+                    // Abort lookKeyhole world-only drain. Waiting for portrait boards caused a
                     // multi-second pause before leave-door GE (door finally opens late).
                     if (_dialogWorldDrainCo != null)
                     {
@@ -7312,12 +7342,12 @@ namespace DWMPHorde.Networking
 
             if (msg.Granted)
             {
-                // Peer (or self) holds the lock — track so we block dual talk.
+                // A peer or the local player holds the lock; track it to block dual talk.
                 NpcDialogueLock.TryAcquire(msg.NpcName, msg.OwnerPlayerId);
                 return;
             }
 
-            // Denied for the requestor only — other clients ignore.
+            // Denied for the requestor only; other clients ignore it.
             if (msg.OwnerPlayerId != LocalPlayerId)
                 return;
 
@@ -7342,7 +7372,7 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
 
-            // Unity 2021.3: includeInactive — dialogue door NPCs often deactivate after talk.
+            // Unity 2021.3 supports includeInactive. Dialogue door NPCs often deactivate after talk.
             NPC[] all = UnityEngine.Object.FindObjectsOfType<NPC>(true);
             Transform dreamRoot = DreamSyncManager.IsDreamActive
                 ? DreamSyncManager.GetDreamLocationTransform()
@@ -7376,7 +7406,7 @@ namespace DWMPHorde.Networking
                     bestActive = n;
             }
 
-            // Dream pad wins — overworld bunker also has door_underground (wrong EventTriggers).
+            // Prefer the dream pad because the overworld bunker also has door_underground.
             NPC found = bestDream ?? bestActive ?? bestAny;
             if (found == null)
             {
@@ -7472,7 +7502,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Client) return;
 
-            // Always queue while still on title / loading — journal exists as a stub and
+            // Always queue while still on title or loading. The journal exists as a stub and
             // addJournalEntry NREs (user log: Journal.DMD addJournalEntry on title join).
             if (!ClientCanApplyWorldBulk())
             {
@@ -7560,7 +7590,7 @@ namespace DWMPHorde.Networking
                     if (journal.journalEntriesDict.ContainsKey(type)) continue;
                     try
                     {
-                        // Needs full in-game UI/Controller — never call on title.
+                        // Needs the full in-game UI and Controller; never call it on the title screen.
                         journal.addJournalEntry(type, noPopup: true);
                     }
                     catch (Exception ex)
@@ -7648,7 +7678,7 @@ namespace DWMPHorde.Networking
             // One pass after Player/Controller exists is enough for currently loaded
             // locations; live JournalItem messages cover further pickups. Objects in
             // not-yet-streamed chunks are cleaned when the peer re-interacts or when
-            // a later live message arrives — rare for same-session late join.
+            // a later live message arrives. This is rare for same-session late join.
             _needsJournalWorldCleanup = false;
         }
 
@@ -7694,7 +7724,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Peer started/finished vaulting (jumpThroughWindow). Only that player's
-        /// proxy ignores Jumpable collisions — not every remote body (3+ safe).
+        /// The proxy ignores Jumpable collisions, unlike every remote body.
         /// PlayerState JumpWindow clip also disables that proxy's colliders.
         /// </summary>
         private void HandleVaultState(VaultStateMessage msg)
@@ -7778,7 +7808,7 @@ namespace DWMPHorde.Networking
             bool wasRaining = rain.Raining;
             bool wasFogActive = rain.fogIsActive;
 
-            // Timers / flags first — do NOT pre-set private raining/fogIsActive.
+            // Apply timers and flags first. Do not pre-set private raining or fogIsActive.
             // startRain() early-outs when raining is already true, which skipped visuals
             // when we wrote the field before calling the Raining setter.
             rain.rainToday = msg.RainToday;
@@ -7813,7 +7843,7 @@ namespace DWMPHorde.Networking
                     rain.Raining = false;
             }
 
-            // startRain may randomize lightningTime / timeToStart — re-assert host values
+            // startRain may randomize lightningTime or timeToStart; re-assert host values
             rain.timeToStart = msg.TimeToStart;
             rain.lightningTime = msg.LightningTime;
             rain.duration = msg.Duration;
@@ -7848,11 +7878,19 @@ namespace DWMPHorde.Networking
         private void HandlePhysicsState(PhysicsStateMessage state)
         {
             string fromPeer = (_role == NetworkRole.Host) ? "client" : "host";
+            if (!AcceptSnapshotSequence(
+                state.Reliable
+                    ? _lastReliablePhysicsStateSequence
+                    : _lastPhysicsStateSequence,
+                _currentReceivePlayerId,
+                state.Sequence,
+                state.Reliable ? "ReliablePhysicsState" : "PhysicsState"))
+                return;
 
             // Client event snapshots (SendDoorState / SendTrapState / SendGeneratorState)
             // only carry those arrays and must be applied + fan-out so co-op peers stay
             // in sync. Bulk free-body snapshots from a client may still include stale
-            // door/trap/gen copies — strip those so they cannot fight host ownership.
+            // door, trap, and generator copies; strip them so they cannot fight host ownership.
             bool isClientOrigin = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
             int ocPre = state.Objects?.Length ?? 0;
             bool isEventStyle = isClientOrigin && ocPre == 0
@@ -7967,7 +8005,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Local Player must be active in a loaded chapter. Title + LoadScene have an
-        /// inactive/null Player — cloning then spams logs and freezes both dual-box installs.
+        /// An inactive or null Player would cause cloning to spam logs and freeze both installs.
         /// </summary>
         private static bool CanSpawnRemoteProxies()
         {
@@ -7997,7 +8035,7 @@ namespace DWMPHorde.Networking
                     return;
                 _remoteProxies.Remove(playerId);
             }
-            // Silent skip — do not log every network tick during join load.
+            // Silent skip; do not log every network tick during join load.
             if (!CanSpawnRemoteProxies())
                 return;
 
@@ -8008,7 +8046,7 @@ namespace DWMPHorde.Networking
                 _remoteProxies[playerId] = proxy;
                 proxy.OnFootstep += (pId, running) => HandleProxyFootstep(pId, running);
                 RemoveClonedEmitters(proxy.transform);
-                // Do NOT snap to local Player — that stacks bodies on join until the first
+                // Do not snap to the local Player; that stacks bodies on join until the first
                 // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
 
@@ -8166,7 +8204,7 @@ namespace DWMPHorde.Networking
             {
                 cb.invisible = msg.Invisible;
                 cb.ignoreMe = msg.IgnoreMe;
-                // Visual flags only — DoT stays local on owning player.
+                // Visual flags only; DoT stays local on the owning player.
                 cb.poisoned = msg.Poisoned;
                 cb.bleeding = msg.Bleeding;
             }
@@ -8174,11 +8212,11 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Plays a 3D-positioned footstep sound at the proxy's transform.
-        /// Player footstep AudioItems are authored 2D for local steps — force spatialBlend
-        /// + linear rolloff so peers don't sound like the listener's own feet, and distance
+        /// Player footstep AudioItems are authored 2D for local steps. Force spatialBlend
+        /// and linear rolloff so peers do not sound like the listener's own feet, while distance
         /// fades via AudioSource.maxDistance instead of a hard IsNearListener cull.
-        /// Out of hear range: do not Play at all (0.7.14 proxy cull-exempt let every far
-        /// step allocate AudioObjects → periodic duck/hitch while host walks off-map).
+        /// Out of hear range, do not play at all. This avoids allocating AudioObjects
+        /// for distant footsteps.
         /// Gate matches maxDistance / AudioSuppression (DefaultMaxSpatialDistance).
         /// </summary>
         private static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running)
@@ -8341,7 +8379,7 @@ namespace DWMPHorde.Networking
             bool wasAfterNight = ctrl.isAfterNight;
 
             // Apply full isAfterNight from host (true and false).
-            // Do NOT call startAfterNight / endAfterNight — those spawn traders,
+                // Do not call startAfterNight or endAfterNight; those spawn traders,
             // grant rep, and destroy NPCs; host owns that. Client only mirrors
             // freeze flag + timeFreeze VFX so PlayerState.AfterNightActive matches.
             if (msg.IsAfterNight && !ctrl.isAfterNight)
@@ -8370,7 +8408,7 @@ namespace DWMPHorde.Networking
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.Log?.LogWarning("[TimeSync] removeAfterNightEffect: " + ex.Message);
                 }
-                // Host endAfterNight destroyed the trader — mirror despawn without time++.
+                // Host endAfterNight destroyed the trader; mirror the despawn without advancing time.
                 if (wasAfterNight)
                     CleanupClientMorningTrader();
             }
@@ -8388,13 +8426,13 @@ namespace DWMPHorde.Networking
                 && !msg.IsAfterNight && Core.isDay())
             {
                 // Leave invuln if something else set it; only clear after morning settle.
-                // ponytail: only clear when host day advanced (we just healed).
+                // Clear it only after the host reports a new day.
                 if (msg.Day > prevDay)
                     Player.Instance.invulnerable = false;
             }
 
-            // Audit C1: never call refreshTime() here — it fires startDay / startAfterNight /
-            // night scenario setMe on the client. Clock UI + ambient only.
+            // Do not call refreshTime() here. It would run day, trader, and
+            // night-scenario logic on the client. Update clock UI and ambient only.
             if (CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync)
             {
                 try { ctrl.refreshTimeNoLogic(); }
@@ -8464,7 +8502,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Personal half of host startDay — heal + skill recharge. No world despawn / save.
+        /// Personal half of host startDay: heal and skill recharge, with no world despawn or save.
         /// </summary>
         private static void ApplyClientPersonalNewDay(int prevDay, int newDay)
         {
@@ -8592,11 +8630,11 @@ namespace DWMPHorde.Networking
                             c.sounds.play(c.sounds.attack2);
                         break;
                     case EntitySoundType.Death:
-                        // Same path as Alive->dead snap — one death SFX max.
+                        // Same path as Alive->dead snap; play at most one death SFX.
                         ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
                         break;
                     case EntitySoundType.GetHit:
-                        // Attacker already played local hit presentation — skip echo.
+                        // Attacker already played the local hit presentation; skip the echo.
                         if (ClientEntityInterpolationService.ShouldIgnoreGetHitEcho(msg.HostId))
                             break;
                         c.sounds.playGetHitByAxe1();
@@ -8624,7 +8662,7 @@ namespace DWMPHorde.Networking
                 SendToAllExcept(_currentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
         }
 
-        /// <summary>Empty or "lantern" — ambient-only fingerprint variants that mean the same thing.</summary>
+        /// <summary>Empty or "lantern" are equivalent ambient-only fingerprint variants.</summary>
         private static bool IsAmbientLanternType(string type)
         {
             if (string.IsNullOrEmpty(type)) return true;
@@ -8708,7 +8746,7 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            // ---- Held item light (candles etc.) — flares are continuous-only (B+), never here ----
+            // ---- Held item light (candles, etc.). Flares are continuous-only and stay out of this path. ----
             bool itemTypeIsFlare = !string.IsNullOrEmpty(msg.ItemType)
                 && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
             if (msg.HasItemLight && !itemTypeIsFlare)
@@ -8748,7 +8786,7 @@ namespace DWMPHorde.Networking
             }
             else if (!msg.IsFlashlight && !msg.HasLightEmitter)
             {
-                // Switching to a non-light item — destroy any lingering item light
+                // Switching to a non-light item; destroy any lingering item light.
                 DestroyRemoteItemLight(playerId);
             }
 
@@ -8763,7 +8801,7 @@ namespace DWMPHorde.Networking
             ApplyRemoteLanternAmbient(proxy, playerId, wantAmbient, msg);
 
             // Clean up torch/lantern emitters when switching to non-emitter item
-            // (flashlight, empty hand, etc.) — the HasLightEmitter branch below only
+            // (flashlight, empty hand, etc.). The HasLightEmitter branch below only
             // cleans before spawning, and !LightOn only cleans if emitterRoot is found.
             if (!msg.HasLightEmitter)
             {
@@ -8779,7 +8817,7 @@ namespace DWMPHorde.Networking
             Transform emitterRoot = proxy.transform.Find("ItemLightEmitter");
             if (msg.HasLightEmitter && msg.LightOn)
             {
-                // Keep existing emitters if same item type still live — re-spawn kills
+                // Keep existing emitters if the same item type is still live; respawning kills
                 // particles + snaps flame (torch VFX thrash on activate/switch double-fire).
                 string wantType = msg.ItemType ?? "";
                 Transform particleRoot = proxy.transform.Find("ItemParticleEmitter");
@@ -8943,7 +8981,7 @@ namespace DWMPHorde.Networking
         {
             if (proxy == null) return;
 
-            // Stock clone lightDots must stay dead — they are not the net lantern.
+            // Stock clone lightDots must stay inactive; they are not the network lantern.
             NeutralizeClonedPlayerLightDots(proxy.transform);
             // Destroy any legacy Instantiated PlayerLightDot copies named RemoteLanternAmbient
             // that still look like personal vision lights (double blob).
@@ -9001,13 +9039,13 @@ namespace DWMPHorde.Networking
                     if (ctrl != null)
                         ctrl.logicLights.Remove(light);
                 }
-                // Destroy instead of hide — avoids leftover dual mesh next ON.
+                // Destroy instead of hide to avoid a leftover duplicate mesh next time.
                 UnityEngine.Object.Destroy(ambientT.gameObject);
                 ModLog.Event(LogCat.World, $"[Light] remote lantern OFF p{playerId}");
             }
         }
 
-        /// <summary>Factory radial only — never Instantiate(PlayerLightDot).</summary>
+        /// <summary>Factory radial only; never Instantiate(PlayerLightDot).</summary>
         private static Light2D CreateRemoteLanternLight(Transform proxyRoot)
         {
             if (proxyRoot == null) return null;
@@ -9059,7 +9097,7 @@ namespace DWMPHorde.Networking
                     continue;
                 if (c.name == "PlayerLightDot")
                 {
-                    // Stock clone — neutralize only (handled elsewhere).
+                    // Stock clone; neutralize it only because another path handles it.
                     continue;
                 }
                 // RemoteLanternAmbient that still has nested "LightFlare" child = Instantiated template.
@@ -9094,7 +9132,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Proxy is a player clone — stock PlayerLightDot must stay out of logicLights so it
+        /// Proxy is a player clone. Stock PlayerLightDot must stay out of logicLights so it
         /// cannot look like a second local lantern. Net lantern uses RemoteLanternAmbient only.
         /// </summary>
         private static void NeutralizeClonedPlayerLightDots(Transform proxyRoot)
@@ -9251,7 +9289,7 @@ namespace DWMPHorde.Networking
         {
             if (msg.IsStopSignal)
             {
-                // Local pusher/dragger still owns native ItemSounds — host quiet/stop echo
+                // Local pusher/dragger still owns native ItemSounds; host quiet or stop echo
                 // must not kill our scrape mid-push (same double-scrape family).
                 if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName)
                     || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
@@ -9259,7 +9297,7 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Audio.MovingObjectSoundService.StopImmediate(msg.ObjectName);
                     return;
                 }
-                // Remote quiet stop — SoftStop (no suppress) so motion can re-arm instantly.
+                // Remote quiet stop uses SoftStop without suppression so motion can re-arm instantly.
                 DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
                 Sync.WorldPhysicsSyncService.TryStopBodyPushSound(msg.ObjectName);
                 return;
@@ -9276,7 +9314,7 @@ namespace DWMPHorde.Networking
             {
                 if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
                     return;
-                // Local free-body pusher hears native ItemSounds only — never arm MOS/PlayerAudio.
+                // Local free-body pusher hears native ItemSounds only; never arm MOS or PlayerAudio.
                 if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName)
                     || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName)
                     || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentPushAuthority(msg.ObjectName))
@@ -9304,7 +9342,7 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Audio.MovingObjectSoundService.EnsurePlaying(go, msg.ObjectName, msg.SoundId, vol);
                     return;
                 }
-                // Object not found locally — fall through to positional one-shot (legacy).
+                // Object not found locally; fall through to a positional one-shot.
             }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
@@ -9319,7 +9357,7 @@ namespace DWMPHorde.Networking
             bool spatialTool = LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
 
             // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
-            // Never call getHit / red-screen / BloodOverlay here — audio only.
+            // Never call getHit, red-screen, or BloodOverlay here; this path is audio only.
             if (isHitFeedback && proxy != null)
                 pos = proxy.transform.position;
             else if (!hasPos || spatialTool)
@@ -9391,7 +9429,7 @@ namespace DWMPHorde.Networking
                         {
                             // Flashlight/torch: Log + full peer range. Tiny minDistance buried
                             // the soft click tail under attenuation while the attack still
-                            // read — keep near-field at DefaultMinSpatialDistance.
+                            // read; keep near-field at DefaultMinSpatialDistance.
                             audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
                             audioObj.primaryAudioSource.minDistance =
                                 LocalAudioService.DefaultMinSpatialDistance;
@@ -9419,14 +9457,40 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host) return;
 
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             int playerId = _currentReceivePlayerId;
+            if (!CombatAuthorityPolicy.IsValidPlayerId(playerId)
+                || !CombatAuthorityPolicy.IsValidMeleeTargetType(msg.TargetType)
+                || !CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
+            {
+                ModRuntime.Log?.LogWarning("[MeleeWorldHit] rejected malformed action");
+                return;
+            }
+
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             RemotePlayerProxy attackingProxy = GetProxy(playerId);
-            Transform attackerT = attackingProxy != null
-                ? attackingProxy.transform
-                : (Player.Instance != null ? Player.Instance.transform : null);
+            if (attackingProxy == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[MeleeWorldHit] rejected: no authoritative attacker proxy for p" + playerId);
+                return;
+            }
+
+            Transform attackerT = attackingProxy.transform;
+            if (!CombatAuthorityPolicy.IsWithinRange(
+                    attackingProxy.transform.position.x,
+                    attackingProxy.transform.position.y,
+                    attackingProxy.transform.position.z,
+                    pos.x, pos.y, pos.z,
+                    GameplayConstants.MaxPlayerAttackRange))
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[MeleeWorldHit] rejected target outside authoritative range for p" + playerId);
+                return;
+            }
 
             int damage = SanitizePeerDamage(msg.Damage, "MeleeWorldHit");
+            if (damage <= 0)
+                return;
 
             // Debounce check for doors/windows: suppress FX for rapid successive
             // hits (shotgun pellets) but still apply damage (normalHit=false).
@@ -9444,7 +9508,7 @@ namespace DWMPHorde.Networking
             if (msg.TargetType == 0)
             {
                 Door door = FindDoorByPos(pos);
-                // Client hit pos can drift vs host door pivot — widen once before drop.
+                // Client hit position can drift from the host door pivot; widen once before drop.
                 if (door == null)
                     door = FindDoorByPosLoose(pos, 3f);
                 if (door == null)
@@ -9472,7 +9536,7 @@ namespace DWMPHorde.Networking
 
             if (msg.TargetType == 2)
             {
-                // Client hit Y often differs from host (body-push / location layer) —
+                // Client hit Y often differs from the host because of body-push or location layers;
                 // match on XZ with a wider radius before giving up.
                 if (TryHitDestructibleItemAt(pos, 25f, damage, attackerT))
                     return;
@@ -9513,7 +9577,7 @@ namespace DWMPHorde.Networking
 
             if (best != null) return best;
 
-            // Collider disabled / moved after death — scan destructibles by XZ.
+            // Collider may be disabled or moved after death; scan destructibles by XZ.
             Item[] all = UnityEngine.Object.FindObjectsOfType<Item>();
             for (int i = 0; i < all.Length; i++)
             {
@@ -9663,7 +9727,7 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.PrefabName)) return;
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            // Local Explodes already ran spawnObjects (stomp or SpawnExplosionVisual) —
+            // Local Explodes already ran spawnObjects (stomp or SpawnExplosionVisual);
             // skip host-echoed secondaries so the stomper/remote doesn't double debris.
             if (ExplosionSpawnFlagTracker.ShouldSkipExplosionSpawnObject(pos))
             {
@@ -9672,7 +9736,7 @@ namespace DWMPHorde.Networking
             }
             // SpawnObject often arrives before ExplosionTrigger (same-frame host onActivate).
             // If a local Explodes with secondaries still exists, let SpawnExplosionVisual
-            // own spawnObjects() — applying both piles white debris twice on remotes.
+            // own spawnObjects(); applying both piles would duplicate white debris on remotes.
             Explodes localExpl = null;
             Collider[] nearFx = Physics.OverlapSphere(pos, 1.5f);
             for (int i = 0; i < nearFx.Length; i++)
@@ -9775,7 +9839,7 @@ namespace DWMPHorde.Networking
 
             tk2dSpriteAnimator anim = proxy.GetComponent<tk2dSpriteAnimator>();
             if (anim == null) return;
-            // Skip no-op applies — Resources.Load per duplicate packet was free hitch fuel.
+            // Skip no-op applies; Resources.Load for every duplicate packet caused hitches.
             if (anim.Library != null
                 && string.Equals(anim.Library.name, msg.LibraryName, System.StringComparison.Ordinal))
                 return;
@@ -9869,7 +9933,7 @@ namespace DWMPHorde.Networking
             {
                 if (string.IsNullOrEmpty(msg.PoolName))
                 {
-                    // worldSpace: true — blood must sit at absolute world pos (parent null).
+                    // worldSpace: true; blood must sit at the absolute world position (parent null).
                     Core.AddPrefab(msg.PrefabName, pos, rot, null, worldSpace: true);
                 }
                 else
@@ -9970,7 +10034,7 @@ namespace DWMPHorde.Networking
             // Only the host's drops are authoritative. Client drops are local-only.
             // Receiving a client drop on the host would spawn a second copy,
             // causing item multiplication (both sides can pick up their copy).
-            // Allow client drops — GUID-based system (DroppedItemIdentifier +
+            // Allow client drops through the GUID-based system (DroppedItemIdentifier +
             // _consumedDropGuids) prevents multiplication: when one player picks
             // up, the other player's copy is destroyed via DroppedItemPickupMessage.
             if (Singleton<ItemsDatabase>.Instance == null || !Singleton<ItemsDatabase>.Instance.hasItem(msg.ItemType))
@@ -10142,7 +10206,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Client)
                 return;
-            // Same gate as journal — Flags may exist on title but world not ready.
+            // Same gate as the journal; Flags may exist on the title screen while the world is not ready.
             if (!ClientCanApplyWorldBulk())
                 return;
             if (Singleton<Flags>.Instance == null)
@@ -10221,11 +10285,11 @@ namespace DWMPHorde.Networking
                     flags.npcStates.Add(state);
                 }
 
-                // Dead is world/story state — apply for all NPCs.
+                // Dead is world and story state; apply it for all NPCs.
                 if (msg.Dead != null && i < msg.Dead.Length)
                     state.dead = msg.Dead[i];
 
-                // Model C: never overwrite morning-trader standing with host bulk.
+                // Never overwrite morning-trader standing with host bulk.
                 if (Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(name))
                     continue;
 
@@ -10251,7 +10315,7 @@ namespace DWMPHorde.Networking
         private void HandleScenarioStateSync(ScenarioSyncMessage msg)
         {
             // Join bulk used ScenarioStateSync but never applied the scenario name
-            // (only logged). Same payload as live ScenarioSync — apply it.
+            // (only logged). The payload matches live ScenarioSync, so apply it.
             ApplyScenarioSync(msg);
             ModLog.Event(LogCat.Session, $"[BulkSync] Scenario applied: {msg.ScenarioName}");
         }
@@ -10411,7 +10475,7 @@ namespace DWMPHorde.Networking
         {
             if (_role == NetworkRole.Host)
             {
-                // P3.7: reject joins mid-dream unless config allows (default: reject).
+                // Reject joins during a dream unless configuration allows them.
                 // Match Steam gate: IsDreamActive covers entry transition before DreamSession.Active.
                 bool allowDreamJoin = Config.ModConfig.AllowJoinDuringDream != null
                     && Config.ModConfig.AllowJoinDuringDream.Value;

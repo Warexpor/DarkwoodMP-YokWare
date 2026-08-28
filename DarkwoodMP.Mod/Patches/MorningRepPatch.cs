@@ -3,7 +3,7 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Model C: morning trader survival bonus is per-player.
+    /// Morning trader survival bonus is per-player.
     /// If this peer died at night, set <see cref="Controller.gaveAfterNightRewards"/>
     /// before <c>startAfterNight</c> so the trader <c>reputation +=</c> block is skipped
     /// while spawn/FX still run. Live ReputationSync also ignores isNightTrader, so

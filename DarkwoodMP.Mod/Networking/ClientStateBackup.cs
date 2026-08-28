@@ -14,7 +14,7 @@ namespace DWMPHorde.Networking
         public int PlayerId;
         /// <summary>
         /// Stable co-op campaign id from <see cref="CoopWorldCopyMeta.CampaignId"/>.
-        /// Backups are save/campaign-scoped — restore refused on mismatch.
+        /// Backups are save and campaign scoped; restore is refused on mismatch.
         /// </summary>
         public string CampaignId;
         /// <summary>
@@ -41,7 +41,7 @@ namespace DWMPHorde.Networking
         public List<ItemEntry> InventoryItems;
         public List<ItemEntry> HotbarItems;
         /// <summary>
-        /// Per-player morning trader standing (NightTrader / The Three). Model C —
+        /// Per-player morning trader standing (NightTrader / The Three).
         /// not overwritten by host ReputationBulkSync.
         /// </summary>
         public List<NpcRepEntry> NightTraderReputations;
@@ -90,7 +90,7 @@ namespace DWMPHorde.Networking
             data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
             data.ContentFingerprint = CoopWorldCopyMeta.TryGetCurrentContentFingerprint();
 
-            // Never persist dream-pad coords as the rejoin spawn — that throws the
+            // Never persist dream-pad coordinates as the rejoin spawn; that throws the
             // client into empty -50k/-75k space after the pad is torn down.
             Vector3 pos = ResolveOverworldBackupPosition(player);
             data.PosX = pos.x; data.PosY = pos.y; data.PosZ = pos.z;
@@ -181,7 +181,7 @@ namespace DWMPHorde.Networking
                 data.GameTimeMinutes = controller.CurrentTime;
             }
 
-            // Model C: persist morning-trader rep per player (not host-shared bulk).
+        // Persist morning-trader reputation per player rather than in host-shared bulk.
             data.NightTraderReputations = CollectNightTraderReputations();
 
             return data;
@@ -350,7 +350,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>True when backup JSON belongs to the active campaign (or both unscoped legacy).
-        /// Fingerprint matching was removed — host/client package hashes diverge after share.
+        /// Fingerprint matching was removed because host and client package hashes diverge after share.
         /// </summary>
         public static bool MatchesCurrentCampaign(ClientStateBackupData data)
         {
@@ -398,7 +398,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Pre-0.7.20 backups omit CampaignId. Stamp current campaign and re-save
+        /// Older backups omit CampaignId. Stamp the current campaign and re-save
         /// so host stop rejecting with "file=(none)".
         /// </summary>
         private static ClientStateBackupData MigrateLegacyCampaignIfNeeded(
@@ -459,7 +459,7 @@ namespace DWMPHorde.Networking
 
                 string path = GetBackupFilePathForPlayer(playerId);
                 // If JSON has its own CampaignId, write under that key (host world may differ
-                // only if misconfigured — prefer embedded id for file name).
+                // only if misconfigured; prefer the embedded ID for the file name).
                 try
                 {
                     var parsed = DeserializeFromJson(json);
@@ -714,7 +714,7 @@ namespace DWMPHorde.Networking
             if (player == null || data == null) return;
 
             Vector3 pos = new Vector3(data.PosX, data.PosY, data.PosZ);
-            // Uninitialized / missing trailer — never teleport to world origin by accident.
+            // Uninitialized or missing trailer; never teleport to world origin by accident.
             if (pos.sqrMagnitude < 0.01f)
                 return;
 
@@ -760,7 +760,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// While dreaming, vanilla keeps the pre-dream overworld pose in
-        /// <see cref="Dreams.positionCopy"/> — use that for backups.
+        /// <see cref="Dreams.positionCopy"/>; use that for backups.
         /// Also refuse live pad coords after dream flags clear (endDreaming window /
         /// corrupted positionCopy) so quit snapshots never reintroduce the abyss.
         /// </summary>

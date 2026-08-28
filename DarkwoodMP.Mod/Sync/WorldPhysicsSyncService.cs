@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using DWMPHorde.Audio;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
@@ -29,15 +30,15 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<string, Vector3> _lastPos = new Dictionary<string, Vector3>();
         private static readonly Dictionary<string, float> _lastMoveTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, float> _lastClientUpdateTime = new Dictionary<string, float>();
+        private static uint _nextSnapshotSequence;
         private static int _clientUpdateCleanupCounter;
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
         // updates. Key = InstanceID, value = Rigidbody + time to release.
         private static readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> _clientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
-        // One-tick cushion only (~half a 10Hz PhysicsState interval). Longer hold was
-        // the audible "scrape keeps going after I stop" lag; SoftStop re-arms mid-push
-        // without PostStop suppress, so we do not need a multi-tenths residual hold.
+        // Keep only a one-tick cushion after movement stops. SoftStop and the
+        // post-stop gate handle late packets.
         private const float BodyPushSoundHold = 0.05f;
-        /// <summary>Hard desync only — normal push steps must lerp (1.5 was snappy).</summary>
+        /// <summary>Use this path only for large corrections; normal pushes interpolate.</summary>
         private const float ClientPushSnapDistance = 8f;
         private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>();
@@ -51,9 +52,7 @@ namespace DWMPHorde.Sync
         // so UpdateObjectInterpolation can ramp volume to 0 before destroying.
         // Without this, Stop() is instant and the user hears a click.
         private static readonly Dictionary<int, (float startVol, float endTime)> _pushSoundFade = new Dictionary<int, (float, float)>();
-        // Consecutive stationary ticks counter for hysteresis. Prevents PD
-        // oscillation around the 0.001f threshold from repeatedly canceling
-        // and restarting the fade — only triggers after N consecutive ticks.
+        // Count stationary ticks so tiny position changes do not restart the fade.
         private static readonly Dictionary<int, int> _pushStationaryCount = new Dictionary<int, int>();
         private const int StationaryFadeThreshold = 2; // ~0.2s guard at 10Hz
         // Maps object name → InstanceID so the NotifyBodyPushStopped signal can
@@ -111,8 +110,7 @@ namespace DWMPHorde.Sync
             return posKey;
         }
 
-        // Cooldown tracker for host body-push sound in ApplySnapshot else branch.
-        // Prevents AudioController.Play spam at 10Hz — only plays every ~0.3s.
+        // Cooldown tracker for host body-push sound in ApplySnapshot.
         private static readonly Dictionary<Vector3, bool> _lastDoorOpen = new Dictionary<Vector3, bool>();
         private static readonly Dictionary<Vector3, bool> _lastTrapTriggered = new Dictionary<Vector3, bool>();
 
@@ -120,15 +118,13 @@ namespace DWMPHorde.Sync
         private static float _objInterpLastLogTime;
         private static float _scanRadius = 40f;
         private static float _fullResyncTimer;
-        // Drift correct every 5s (was 3s) — full resync forces every free-body in range into the packet.
+        // Periodic full resync for free bodies in range.
         private static readonly float FullResyncInterval = 5f;
         private static float _lastFullRbScanTime = -999f;
         private const float FullRbScanMinInterval = 0.5f;
         /// <summary>
-        /// After real motion stops, include the object for this long so peers get a final quiet
-        /// sample. Must NOT refresh <see cref="_lastMoveTime"/> on those quiet samples — old 2.5s
-        /// window + refresh made any nudged free-body stream forever at 10 Hz (client FPS crater
-        /// while connected; recovered when host left and PhysicsState stopped).
+        /// After motion stops, include the object briefly so peers receive a
+        /// final quiet sample. Quiet samples do not refresh the motion timer.
         /// </summary>
         private const float QuietConfirmWindow = 0.15f;
         private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>();
@@ -169,7 +165,8 @@ namespace DWMPHorde.Sync
         private static readonly List<ThrownLightFade> _thrownLightFades = new List<ThrownLightFade>(8);
 
         /// <summary>
-        /// Network owns die clock — keep Flare for flicker/rotation, skip waitToDie via Harmony.
+        /// The network owns the lifetime; keep Flare for flicker and rotation
+        /// while Harmony skips waitToDie.
         /// </summary>
         public static void ClaimFlareLifetime(GameObject go)
         {
@@ -178,7 +175,7 @@ namespace DWMPHorde.Sync
             if (auth == null)
                 auth = go.AddComponent<NetworkFlareLifetime>();
             auth.NetworkOwnsDie = true;
-            // Also mark any child Flare roots so parent lookup always hits.
+            // Mark child Flare roots too so parent lookup finds the lifetime.
             foreach (var fl in go.GetComponentsInChildren<Flare>(true))
             {
                 if (fl == null || fl.gameObject == go) continue;
@@ -198,7 +195,7 @@ namespace DWMPHorde.Sync
         // Client free-body packets are ~10 Hz (0.1s). Buffer slightly longer so host
         // retargets mid-lerp instead of finishing each segment into a snap.
         private const float InterpFixedDuration = 0.2f;
-        /// <summary>Host applying client push — same buffer (explicit for clarity).</summary>
+        /// <summary>Host applies the client push using the same buffer.</summary>
         private const float ClientPushInterpDuration = 0.2f;
 
         // Client-side per-frame object interpolation (smooth movement for physics objects)
@@ -262,7 +259,8 @@ namespace DWMPHorde.Sync
                 // Cheap name reject for common non-freebodies (avoids Character GetComponent).
                 if (rootName.IndexOf("RemotePlayer", StringComparison.Ordinal) >= 0) continue;
 
-                // Motion gate BEFORE component spam — idle free-bodies dominate hideout OverlapSphere.
+                // Check for motion before touching components; idle free bodies
+                // are common in hideouts.
                 string trackingKey = rootName + "_" + rootId;
                 Vector3 pos = rootGo.transform.position;
 
@@ -300,8 +298,8 @@ namespace DWMPHorde.Sync
                 if (IsSceneFixedLightItem(rootGo)) continue;
 
                 Item itemComp = rootGo.GetComponent<Item>();
-                // E-drag is DragSync-only. Never stream claimed / beingDragged free-bodies
-                // as PhysicsState — that armed host body-push MOS beside DragSync scrape
+                // E-drag uses DragSync. Do not also stream claimed free bodies
+                // through PhysicsState, or both paths can start scrape audio.
                 // (start/stop thrash) and could echo MOS onto the dragging client.
                 if (net != null && !string.IsNullOrEmpty(rootName)
                     && (net._dragClaims.ContainsKey(rootName)
@@ -320,19 +318,19 @@ namespace DWMPHorde.Sync
                 if (rootGo.GetComponentInChildren<ConfigurableJoint>() != null)
                     continue;
 
-                // D12: while dreaming, only free bodies in the dream pocket.
+                // While dreaming, only free bodies in the dream pocket.
                 if (!DreamSyncManager.ShouldSyncPhysicsObject(rootGo.transform))
                     continue;
 
                 Vector3 rot = rootGo.transform.eulerAngles;
                 _lastPos[trackingKey] = pos;
-                // Only real motion extends quiet window — quiet confirms must not refresh it.
+                // Only real motion extends the quiet window.
                 if (reallyMoved)
                     _lastMoveTime[trackingKey] = now;
 
                 // Host: keep client-owned free-bodies in interp (posDelta for scrape +
                 // smooth apply). Clearing them made every client packet look stationary
-                // (posDelta=0) → host never armed body-push MOS.
+                // A zero position delta must not arm body-push audio.
                 if (net == null || net.Role == NetworkRole.Host)
                 {
                     if (!_clientKinematic.ContainsKey(rootId))
@@ -381,7 +379,7 @@ namespace DWMPHorde.Sync
 
             var net = ModRuntime.Network as LanNetworkManager;
 
-            // Scan centers: local player always; on host also every remote proxy so
+            // Scan around the local player and, on the host, every remote proxy so
             // free bodies / traps near a far client enter the snapshot (3+ / split map).
             _scanCenters.Clear();
             _scanCenters.Add(local.transform.position);
@@ -398,7 +396,7 @@ namespace DWMPHorde.Sync
             for (int cIdx = 0; cIdx < _scanCenters.Count; cIdx++)
                 ScanPhysicsAround(_scanCenters[cIdx], net);
 
-            // P1.3 ownership: doors / traps / generators are host-authoritative only.
+            // Doors, traps, and generators are host-authoritative.
             // Clients still send free physics objects (pushables) and drag uses DragSync.
             bool isHost = net == null || net.Role == NetworkRole.Host;
             if (isHost)
@@ -414,7 +412,7 @@ namespace DWMPHorde.Sync
                 _fullResyncTimer = Time.time;
 
             // Early scrape-stop once motion updates go quiet (timer not extended).
-            // Stop once per active session — never thrash start/stop every tick.
+            // Start and stop once per active session instead of every tick.
             float nowS = Time.time;
             List<int> staleSound = null;
             foreach (var kv in _bodyPushSoundTimer)
@@ -549,7 +547,7 @@ namespace DWMPHorde.Sync
 
                 // Purge Vector3-keyed state dicts (doors, traps, generators).
                 // These track "last known state" within scan range; clearing them
-                // periodically is safe — the next scan will re-detect all objects
+                // Periodic cleanup is safe because the next scan redetects objects.
                 // and re-populate. Prevents unbounded growth when objects are
                 // destroyed or go out of range permanently.
                 _lastDoorOpen.Clear();
@@ -563,6 +561,8 @@ namespace DWMPHorde.Sync
 
             msg = new PhysicsStateMessage
             {
+                Sequence = ++_nextSnapshotSequence,
+                Reliable = false,
                 Objects = _objects.ToArray(),
                 Doors = _doors.ToArray(),
                 Traps = _traps.ToArray(),
@@ -934,7 +934,8 @@ namespace DWMPHorde.Sync
                     }
 
                     // Client: skip far free-bodies (FindOrSpawn / full RB scan was dual-box thrash).
-                    // Dream pads sit at -50k/-75k — always apply while dreaming (door-room props
+                    // Dream pads sit far from the overworld and remain in interest
+                    // while dreaming (door-room props
                     // are often > ClientInterestDistance from spawn).
                     if (clientRecv)
                     {
@@ -956,7 +957,8 @@ namespace DWMPHorde.Sync
                         continue;
                     }
 
-                    // Never kinematic-lock / interp an in-flight match/flare/molotov.
+                    // Do not kinematic-lock or interpolate an in-flight
+                    // match, flare, or molotov.
                     // Peer ThrowableSpawn already set landTarget + setFallSpeed + velocity.
                     if (IsInFlightThrownItem(go))
                     {
@@ -985,7 +987,8 @@ namespace DWMPHorde.Sync
                         Vector3 rotVec = new Vector3(obj.RotX, obj.RotY, obj.RotZ);
 
                         // E-drag owns this object via DragSync (30 Hz). PhysicsState must not
-                        // also drive kinematic/interp or start body-push scrape — that fought
+                        // also drive kinematic/interp or start body-push scrape,
+                        // which fought
                         // DragSync and spammed NotifyBodyPushStarted (logs: 53 starts, thrash).
                         var netMgr = ModRuntime.Network as LanNetworkManager;
                         if (netMgr != null && !string.IsNullOrEmpty(obj.Name)
@@ -1006,15 +1009,18 @@ namespace DWMPHorde.Sync
                             rb.isKinematic = true;
 
                             // Baseline: last interp target, else current host pose.
-                            // (Missing baseline forced posDelta=0 → never body-push scrape.)
+                            // A missing baseline produces no position delta and
+                            // must not start body-push scrape.
                             Vector3 baseline = go.transform.position;
                             if (_objectInterp.TryGetValue(goId, out var existingInterp))
                                 baseline = existingInterp.TargetPos;
                             float posDelta = Vector3.Distance(baseline, objPos);
                             // After DragSync, first PhysicsState can report multi-meter jumps
-                            // (interp target vs live pose) → MOS start/stop thrash. Snap without sound.
+                            // (interp target versus live pose), causing MOS start/stop
+                            // thrash. Snap without sound.
                             const float BodyPushMaxArmDelta = 1.25f;
-                            // 0.02 was too sensitive (micro jitter → start/stop/MOS re-arm thrash).
+                            // Use a meaningful movement threshold so micro-jitter does not
+                            // repeatedly start and stop MOS.
                             bool posChanged = posDelta >= 0.1f;
                             bool armScrape = posChanged && posDelta <= BodyPushMaxArmDelta;
 
@@ -1048,7 +1054,7 @@ namespace DWMPHorde.Sync
                             }
                             else if (posChanged && posDelta > BodyPushMaxArmDelta)
                             {
-                                // Hard jump after drag — retarget quietly, no scrape.
+                                // Retarget after a hard drag jump without starting scrape.
                                 if (_bodyPushSoundActive.Remove(obj.Name))
                                 {
                                     ModRuntime.LegacyInfo("[SND] body-push skip jump d=" + posDelta.ToString("F3") + " " + obj.Name);
@@ -1058,7 +1064,7 @@ namespace DWMPHorde.Sync
                             }
                             else if (!gated && _bodyPushSoundActive.Contains(obj.Name))
                             {
-                                // Two quiet ticks before stop — micro flaps were MOS re-arm thrash.
+                                // Require two quiet ticks before stopping to avoid rapid rearming.
                                 if (!_pushStationaryCount.TryGetValue(goId, out int quietN))
                                     quietN = 0;
                                 quietN++;
@@ -1074,8 +1080,8 @@ namespace DWMPHorde.Sync
                                 }
                             }
 
-                            // Hard desync only: snap start of interp. Routine push must lerp
-                            // (old 1.5u snap every few packets = snappy host motion).
+                            // Snap only on a hard desync. Routine pushes must use
+                            // interpolation to avoid visibly snappy host motion.
                             if (posDelta >= ClientPushSnapDistance)
                             {
                                 rb.position = objPos;
@@ -1096,7 +1102,7 @@ namespace DWMPHorde.Sync
                     else
                     {
                         // Local pusher/dragger owns this free-body. Host snapshot echo must not:
-                        // - SetObjectTarget (kinematic lock + fight local physics — ObjInterp thrash)
+                        // - SetObjectTarget, which can fight local physics while the object is held.
                         // - NoteMoving / ForceStop (double scrape / kill native mid-push)
                         var echoNet = ModRuntime.Network as LanNetworkManager;
                         bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
@@ -1111,7 +1117,8 @@ namespace DWMPHorde.Sync
                                     StringComparison.Ordinal);
                         }
                         catch { /* dismantled */ }
-                        // Client free-body we are pushing/sending — never MOS from host echo.
+                        // The local pusher owns native scrape audio, so do not
+                        // start MOS from the host echo.
                         // Do NOT gate on "RB non-kinematic" alone: host-pushed lamps stay
                         // non-kinematic on the client and that silenced observer scrape.
                         bool clientLocalFreeBody = echoNet != null
@@ -1182,7 +1189,8 @@ namespace DWMPHorde.Sync
                                 }
                             }
                         }
-                        // Fixed world lamps: never kinematic-lock (blocks player walk on client).
+                        // Fixed world lamps must not be kinematic-locked because
+                        // that blocks client movement.
                         if (IsSceneFixedLightItem(go))
                         {
                             RepairSceneFixedLightPhysics(go);
@@ -1373,8 +1381,8 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(objectName) && objectName.ToLowerInvariant().Contains("audioobject"))
                 return;
 
-            // Debounce BEFORE OverlapSphere / FindObjectsOfType — triple WorldObjectRemoved
-            // from disarm was paying FOOT cost 3× and then NRE'ing on DestroyImmediate+name.
+            // Debounce before scene queries to avoid duplicate removal work.
+            // from disarm was repeatedly scanning and then throwing on DestroyImmediate+name.
             int posKey = MakePosNameKey(pos.x, pos.y, pos.z, objectName);
             float now = Time.time;
             if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy)
@@ -1427,8 +1435,8 @@ namespace DWMPHorde.Sync
             }
 
             // 2) Scene scan by display name / invItem.type near pos (no collider items).
-            // Skip FOOT for obvious trap names when OverlapSphere already had a chance —
-            // beartrap always has a Trigger collider; miss without FOOT is fine (already gone).
+            // Skip the scene-wide search for known trap names after the overlap
+            // query. A missing trap has already been removed.
             bool trapNeedle = needle != null
                 && (needle.Contains("trap") || needle.Contains("bear") || needle.Contains("snap"));
             if (best == null && needle != null && !trapNeedle)
@@ -1477,7 +1485,7 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            // 3) Last resort: GameObject.Find (first match only — used when unique).
+            // Last resort: GameObject.Find, used only when the name is unique.
             if (best == null && !string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
@@ -1490,7 +1498,7 @@ namespace DWMPHorde.Sync
 
             if (best == null)
             {
-                // Still claim debounce so follow-up removes of a already-gone trap skip FOOT.
+                // Still claim debounce so follow-up removes of an already-gone trap skip the scan.
                 _destroyDebounce[posKey] = now;
                 ModRuntime.LegacyInfo("[ObjectDestroy] miss name=\"" + (objectName ?? "") + "\" at " + pos);
                 return;
@@ -1606,7 +1614,7 @@ namespace DWMPHorde.Sync
         /// <summary>
         /// After a remote peer emptied an itemInv <b>world pickup</b> (shiny stone etc.),
         /// destroy the visual GO if slots are empty.
-        /// Furniture containers (wardrobes, chests) also use <c>itemInv</c> — never destroy those.
+        /// Furniture containers also use <c>itemInv</c>; destroy only dropped pickups.
         /// Vanilla only auto-destroys emptied <see cref="Item.isDroppedItem"/> pickups.
         /// </summary>
         public static void DestroyEmptyItemInvAt(Vector3 pos)
@@ -1686,7 +1694,7 @@ namespace DWMPHorde.Sync
             if (IsSceneFixedLightItem(go))
                 return;
 
-            // Lock to host position during active sync — prevents proxy collisions
+            // Lock to the host position during active sync to prevent proxy collisions.
             // on the client from pushing the object away from the host's position.
             Rigidbody rb = go.GetComponent<Rigidbody>();
             if (rb != null)
@@ -1699,7 +1707,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Wall / fixed lamps — LightState owns on/off; PhysicsState must not
+        /// Wall and fixed lamps use LightState for on/off; PhysicsState must not
         /// kinematic-lock (client walk-blocker).
         /// Floor / pushable lamps (<c>draggable</c> or ItemSounds moving scrape) are
         /// free bodies: stream pose so observers hear body-push MOS (DragSync already
@@ -1755,7 +1763,7 @@ namespace DWMPHorde.Sync
             Vector3 targetPos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
 
             // Strategy 1: overlap sphere near the reported position (avoids teleporting
-            // objects with non-unique names — GameObject.Find would match any instance)
+            // objects with non-unique names because GameObject.Find can match any instance)
             Collider[] nearby = Physics.OverlapSphere(targetPos, 1.5f);
             for (int i = 0; i < nearby.Length; i++)
             {
@@ -1770,7 +1778,7 @@ namespace DWMPHorde.Sync
             }
 
             // Strategy 1b: wider sphere before full-scene scan (client stutter when host
-            // pushes objects 2–15u away — OverlapSphere 1.5 miss then FindObjectsOfType).
+            // pushes objects away and can miss a small OverlapSphere query.
             {
                 Collider[] wide = Physics.OverlapSphere(targetPos, 15f);
                 GameObject bestWide = null;
@@ -1794,7 +1802,7 @@ namespace DWMPHorde.Sync
                     return bestWide;
             }
 
-            // Strategy 2: full Rigidbody scan — rate-limited (scene-wide FindObjectsOfType
+            // Strategy 2: rate-limited full Rigidbody scan (scene-wide FindObjectsOfType
             // every PhysicsState packet was a dual-box hitch source).
             float nowScan = Time.time;
             if (nowScan - _lastFullRbScanTime >= FullRbScanMinInterval)
@@ -1831,7 +1839,7 @@ namespace DWMPHorde.Sync
             }
 
             // Strategy 3: spawn from ItemsDatabase (cross-world-chunk support)
-            // Never spawn into an active dream pad — duplicates get wrong colliders
+            // Do not spawn a duplicate inside the active dream pad.
             // (client solid lamp / ghost bell) while the real prop already exists.
             if (DreamSyncManager.IsDreamActive
                 || (Dreams.Instance != null && Dreams.Instance.dreaming))
@@ -1888,8 +1896,8 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Finds a trap by position via OverlapSphere only — no FindObjectsOfType / GameObject.Find
-        /// (those caused periodic maxMs=50–60 stutters with 1 pending trap).
+        /// Finds a trap by position using the local overlap query. This avoids
+        /// scene-wide searches on the packet path.
         /// </summary>
         internal static GameObject FindTrapByPos(Vector3 pos, string objectName = null)
         {
@@ -1900,7 +1908,7 @@ namespace DWMPHorde.Sync
             hit = FindTrapInSphere(pos, 20f);
             if (hit != null) return hit;
 
-            // Optional name — only if an instance is already active (no full-scene FoT).
+            // Optional name, used only when an instance is already active.
             if (!string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
@@ -1937,7 +1945,8 @@ namespace DWMPHorde.Sync
         /// <param name="triggered">Whether the trap should be set to triggered.</param>
         /// <param name="silentDisarm">
         /// True = successful harvest/disarm: mirror vanilla <c>switchToTriggered</c> only
-        /// (sprite/name, keep GO). No explosion prefab/sound (stomp still uses silent=false).
+        /// (sprite/name, keep the GameObject). No explosion prefab or sound;
+        /// the normal triggered path remains separate.
         /// </param>
         internal static void ApplyTrapState(GameObject go, bool triggered, bool silentDisarm = false)
         {
@@ -2000,7 +2009,7 @@ namespace DWMPHorde.Sync
                 Explodes expl = go.GetComponent<Explodes>();
 
                 // Diagnostic: confirm what actually owns this mushroom's boom. World
-                // mushrooms (expObj_mushroom_interior_01) have a Trigger but NO Explodes —
+                // Some mushrooms have a Trigger but no Explodes component,
                 // their blast is the Trigger's prefabToSpawn, which the old isHarvestable
                 // skip was hiding.
                 if (isHarvestable && ModRuntime.VerboseLogging)
@@ -2013,7 +2022,7 @@ namespace DWMPHorde.Sync
                 {
                     // Generic trap VFX: activateSound + prefabToSpawn. Runs for every
                     // non-mushroom trap (unchanged) AND for mushrooms without an Explodes
-                    // component — world mushrooms like expObj_mushroom_interior_01, whose
+                    // component. World mushrooms such as expObj_mushroom_interior_01
                     // boom is the Trigger's prefabToSpawn. The old `!isHarvestable`-only
                     // gate skipped the latter on the false assumption they used Explodes,
                     // which caused the silent snap.
@@ -2137,14 +2146,14 @@ namespace DWMPHorde.Sync
             return false;
         }
 
-        /// <summary>Finds a Door by position — first checks the tracker, then falls back to a scene-wide search.</summary>
+        /// <summary>Finds a Door by position using the tracker and a scene-wide fallback.</summary>
         private static Door FindDoorByPos(Vector3 pos)
         {
             Door door = ListTracker<Door>.FindByPosition(pos);
             if (door != null)
                 return door;
 
-            // Fallback: search all Door instances — catches doors that were
+            // Fallback: search all Door instances to catch doors that were
             // spawned dynamically after the tracker's Awake patch ran, or
             // doors from world-grid chunks the host has loaded.
             Door[] all = UnityEngine.Object.FindObjectsOfType<Door>();
@@ -2205,7 +2214,7 @@ namespace DWMPHorde.Sync
             if (gen != null)
                 return gen;
 
-            // Fallback: search all loaded Generator instances — catches generators
+            // Fallback: search all loaded Generator instances to catch generators
             // that were spawned dynamically after the tracker's Start patch ran.
             Generator[] all = UnityEngine.Object.FindObjectsOfType<Generator>();
             for (int i = 0; i < all.Length && i < 32; i++)
@@ -2232,7 +2241,7 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null)
                 return;
 
-            // Periodic door tracker cleanup on both host and client — rescans
+            // Periodic door tracker cleanup on both host and client rescans
             // for any doors whose Awake was missed by the Harmony patch.
             ListTracker<Door>.Cleanup();
 
@@ -2266,7 +2275,7 @@ namespace DWMPHorde.Sync
                     _objectInterp[key] = s;
                 }
 
-                // Skip objects being dragged by the local player — local physics
+                // Skip objects being dragged by the local player; local physics
                 // (HingeJoint) already drives the correct position. Interpolation
                 // would fight the joint and cause jitter.
                 Item item = s.CachedItem;
@@ -2290,7 +2299,7 @@ namespace DWMPHorde.Sync
                     continue;
                 }
 
-                // Fixed-duration interpolation — move from PrevPos to TargetPos
+                // Fixed-duration interpolation moves from PrevPos to TargetPos.
                 // smoothly over InterpFixedDuration seconds.
                 float duration = s.TargetTime - s.PrevTime; // always InterpFixedDuration
                 float elapsed = now - s.PrevTime;
@@ -2388,10 +2397,8 @@ namespace DWMPHorde.Sync
                     _pushSoundFade.Remove(__k);
                 }
 
-            // Release path for client-kinematic objects (primary is in
-            // TryBuildWorldSnapshot).  This runs every frame in LateUpdate
-            // unconditionally, so the sound is guaranteed to stop even when
-            // TryBuildWorldSnapshot doesn't fire (e.g. during dreams).
+            // Release path for client-kinematic objects. This runs every frame
+            // in LateUpdate, including when TryBuildWorldSnapshot is paused.
             float nowK = Time.time;
             List<int> staleKin = null;
             foreach (var kv in _clientKinematic)
@@ -2428,7 +2435,7 @@ namespace DWMPHorde.Sync
         /// <summary>
         /// Applies a generator's on/off state and fuel level to the local world.
         /// Uses Item.turnOn/turnOff when present so ItemSounds (start + loop / stop)
-        /// match the local player path — Generator.turnOn alone never starts audio.
+        /// match the local player path. Generator.turnOn alone does not start audio.
         /// </summary>
         private static void ApplyGeneratorState(Generator gen, bool isOn, float fuel, bool lowPower = false)
         {
@@ -2442,7 +2449,7 @@ namespace DWMPHorde.Sync
                 if (isOn)
                 {
                     // Prefer Item.turnOn (playStart + particles + Generator.turnOn).
-                    // Generator.turnOn alone never starts ItemSounds — peers heard silence.
+                    // Generator.turnOn alone does not start ItemSounds.
                     if (item != null)
                         item.turnOn();
                     else
@@ -2637,7 +2644,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Retry queued LightState after location/grid load.
-        /// OverlapSphere only — no FindObjectsOfType (logs: findOfType=2 / 2s → maxMs=50–60 stutters).
+        /// Use OverlapSphere rather than a scene-wide search on this path.
         /// </summary>
         public static void TryFlushPendingLights()
         {
@@ -2670,7 +2677,7 @@ namespace DWMPHorde.Sync
             {
                 LightStateMessage ls = _pendingLights[i];
                 Vector3 p = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
-                // Far map lights stay unloaded — drop until player walks near (re-bulk not needed).
+                // Far map lights may be unloaded; retry when the player returns.
                 // Keep all while dreaming (bunker pad is far from forest listen pos).
                 if (!dreamPad && !Networking.ClientEntityInterpolationService.IsInClientInterest(p))
                 {
@@ -2690,19 +2697,18 @@ namespace DWMPHorde.Sync
             Vector3 pos = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
 
             // Late-join bulk sends every on-lamp on the map. Far ones are not in the client
-            // grid — do not queue (was 30+ pending → periodic FoT stutters every few seconds).
-            // Dream pads sit at -50k/-75k world coords — always in interest while dreaming.
+            // grid, so do not queue it. Dream pads remain in interest while dreaming.
             bool clientSide = ModRuntime.Network != null
                 && ModRuntime.Network.Role == Networking.NetworkRole.Client;
             bool dreamPad = Dreams.Instance != null && Dreams.Instance.dreaming;
             if (clientSide && !dreamPad
                 && !Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
-                return true; // treat as done — host will re-send if player enters area via live LightState
+                return true; // Host will resend when the player enters the area.
 
             Item item = FindLightByPos(pos, ls.ItemName, ls.ItemType);
             if (item == null)
             {
-                // Scene lamps only — do not spawn random prefabs from ItemType (duplicates).
+                // Apply to scene lamps only; do not spawn a prefab from ItemType.
                 if (queueIfMissing && clientSide
                     && Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
                 {
@@ -2724,7 +2730,8 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo("[LightApply] " + item.name + " isOn=" + ls.IsOn + " from " + fromPeer);
 
             // Vanilla player path is Item.switchMe(): playSwitch() then turnOn/turnOff.
-            // Remote only had turnOn/turnOff — many lamps put the click in switchSound only
+            // Remote state only had turnOn/turnOff. Many lamps put the click
+            // in switchSound only.
             // (startSound/endSound empty), so peers saw the light change with no SFX.
             TraverseHack.ApplyingFromNetwork = true;
             try
@@ -2738,7 +2745,7 @@ namespace DWMPHorde.Sync
                 else
                     item.turnOff();
 
-                // turnOff only calls playStop when hasPower — unpowered lamps still need
+                // turnOff only calls playStop when hasPower. Unpowered lamps still need
                 // the end one-shot if switchSound was empty and endSound is set.
                 if (!ls.IsOn && sounds != null && !item.hasPower
                     && !string.IsNullOrEmpty(sounds.endSound)
@@ -2756,7 +2763,7 @@ namespace DWMPHorde.Sync
 
         private static void QueuePendingLight(LightStateMessage ls)
         {
-            // Dedupe by name+rounded pos — keep latest isOn.
+            // Dedupe by name and rounded position, keeping the latest isOn value.
             string key = (ls.ItemName ?? "") + "@"
                 + Mathf.Round(ls.PosX) + "," + Mathf.Round(ls.PosY) + "," + Mathf.Round(ls.PosZ);
             for (int i = 0; i < _pendingLights.Count; i++)
@@ -2858,7 +2865,8 @@ namespace DWMPHorde.Sync
                     || iname.IndexOf(itemType, StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
             }
-            // Name miss but type empty — allow nearest switchable in sphere callers
+            // If the name is missing but the type is empty, allow the nearest
+            // switchable object found by sphere callers.
             // only when both filters empty (handled above). With name set and no match: fail.
             return string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType);
         }
@@ -2921,6 +2929,7 @@ namespace DWMPHorde.Sync
             _clientKinematicGate.Clear();
             _lastGeneratorFuel.Clear();
             _lastClientUpdateTime.Clear();
+            _nextSnapshotSequence = 0;
             _destroyDebounce.Clear();
             _pendingLights.Clear();
             MovingObjectSoundService.Reset();
@@ -2930,8 +2939,20 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// Stamps one-off reliable physics/event snapshots that do not pass through
+        /// <see cref="TryBuildWorldSnapshot"/>.
+        /// </summary>
+        public static PhysicsStateMessage StampSnapshot(PhysicsStateMessage state)
+        {
+            state.Reliable = true;
+            if (state.Sequence == 0)
+                state.Sequence = ++_nextSnapshotSequence;
+            return state;
+        }
+
+        /// <summary>
         /// True while ThrownItem is mid-arc (not landed). Physics free-body stream must
-        /// not own these — kinematic interp cancels velocity and lands short.
+        /// not own these. Kinematic interpolation cancels velocity and lands short.
         /// </summary>
         public static bool IsInFlightThrownItem(GameObject go)
         {
@@ -2945,7 +2966,7 @@ namespace DWMPHorde.Sync
         /// fly and play the main explosion VFX while the host alone applies damage, gas-trail
         /// scatter, and fire. Used for client remote copies and the client's own throw.
         ///
-        /// Critical for gasBomb/molotov: vanilla <c>spawnObjects()</c> uses random offsets —
+        /// Critical for gasBomb/molotov: vanilla <c>spawnObjects()</c> uses random offsets,
         /// if both peers scatter, flame cover is not 1:1 and the client looks "wild".
         /// Nulling <c>spawnObject</c> lets host <c>ExplosionSpawnObject</c> / GasTrail apply
         /// the authoritative puddle positions (see ExplosionSpawnRecv skip when local still
@@ -3246,13 +3267,13 @@ namespace DWMPHorde.Sync
                 else
                     vel = dir * pktSpeed; // keep magnitude, lock direction to land
 
-                // Must not be kinematic — PhysicsState used to force kinematic mid-flight
+                // Must not be kinematic. PhysicsState used to force it mid-flight
                 // (now excluded). Explicit unlock so a stale lock cannot kill the arc.
                 if (rb != null)
                 {
                     rb.isKinematic = false;
                     rb.drag = 2f; // vanilla throwItem
-                    // Leave prefab angularDrag — do not invent 0.05 (changes spin feel).
+                    // Leave prefab angularDrag unchanged so the spin feel is preserved.
                     rb.velocity = vel;
 
                     float rotForce = ti != null ? ti.initialRotationForce : 225f;
@@ -3278,7 +3299,7 @@ namespace DWMPHorde.Sync
                 if (rb != null)
                     _clientKinematic.Remove(go.GetInstanceID());
 
-                // ThrownItem.Awake schedules init() next frame — can zero/overwrite velocity.
+                // ThrownItem.Awake schedules init() next frame and can zero or overwrite velocity.
                 // Re-assert vanilla flight state after init so peer force matches thrower.
                 Vector3 velHold = vel;
                 Vector3 landHold = landTarget;
@@ -3636,7 +3657,7 @@ namespace DWMPHorde.Sync
             return false;
         }
 
-        /// <summary>Legacy name — fades then extinguishes.</summary>
+        /// <summary>Compatibility name for the fade-then-extinguish path.</summary>
         private static void ExtinguishThrownLight(GameObject go)
         {
             BeginThrownLightFade(go, FlareBurnoutFadeSec);
@@ -3728,7 +3749,7 @@ namespace DWMPHorde.Sync
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                // Positional 3D play (parent null) — same API vanilla explode() uses.
+                // Positional 3D play with no parent, matching vanilla explode().
                 AudioObject ao = AudioController.Play(id, pos, null, 1f);
                 if (ao == null && id == "mushroom_explode_01")
                 {
@@ -3787,7 +3808,7 @@ namespace DWMPHorde.Sync
                 }
                 finally { _suppressBroadcast = false; }
                 // explode() plays explodeSound when effect is set. If effect is null,
-                // vanilla skips sound — force message/fallback audio.
+                // Vanilla skips sound, so play the message or fallback audio.
                 if (target.effect == null)
                     PlayExplosionSound(pos, soundId, objectName, target);
                 // Proxy damage handled by ExplosionFriendlyFirePatch.Postfix on Explodes.explode()
@@ -3795,7 +3816,7 @@ namespace DWMPHorde.Sync
             else
             {
                 ModRuntime.Log?.LogWarning("[ExplosionTrigger] no Explodes found at " + pos + " name=" + objectName);
-                // Object already destroyed / out of range — still boom for the host.
+                // Object may already be destroyed or out of range; still play the host's boom.
                 PlayExplosionSound(pos, soundId, objectName, null);
             }
         }
@@ -3829,7 +3850,7 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            // Sound is independent of visual success — play first so already-activated /
+            // Sound is independent of visual success. Play first so already-activated or
             // destroyed mushrooms still boom on peers.
             PlayExplosionSound(pos, soundId, objectName, target);
 
@@ -3972,7 +3993,7 @@ namespace DWMPHorde.Sync
                     return;
                 }
 
-                // Trail not found yet (packet reordering) — spawn then ignite under apply flag.
+                // If packet reordering hid the trail, spawn it before igniting under the apply flag.
                 SpawnGasTrail(pos);
                 liquid = FindFlammableLiquidNear(pos, 2.25f);
                 if (liquid != null && !liquid.burning)
@@ -4127,7 +4148,7 @@ namespace DWMPHorde.Sync
         public short OccupantPlayerId;
 
         /// <summary>
-        /// OccupantPlayerId sentinel: successful harvest/disarm — apply triggered visual only,
+        /// OccupantPlayerId sentinel: successful harvest or disarm applies the triggered visual only,
         /// no explosion prefab/sound (vanilla staysAfterDisarming switchToTriggered).
         /// </summary>
         public const short OccupantSilentDisarm = -2;
@@ -4198,6 +4219,10 @@ namespace DWMPHorde.Sync
     /// <summary>Top-level network message containing arrays of object, door, trap, and generator states.</summary>
     public struct PhysicsStateMessage
     {
+        /// <summary>Monotonic sequence within the selected physics stream.</summary>
+        public uint Sequence;
+        /// <summary>Reliable event stream marker; kept separate from unreliable ordering.</summary>
+        public bool Reliable;
         /// <summary>All physics object transforms in this snapshot.</summary>
         public WorldObjectState[] Objects;
         /// <summary>All door state changes in this snapshot.</summary>
@@ -4211,6 +4236,8 @@ namespace DWMPHorde.Sync
         /// <param name="w">The network writer.</param>
         public void Serialize(NetWriter w)
         {
+            w.Put(Reliable);
+            w.Put(Sequence);
             int oc = Objects != null ? Objects.Length : 0;
             w.Put(oc);
             for (int i = 0; i < oc; i++) Objects[i].Serialize(w);
@@ -4232,28 +4259,36 @@ namespace DWMPHorde.Sync
         /// <param name="r">The network reader.</param>
         public static PhysicsStateMessage Deserialize(NetReader r)
         {
+            bool reliable = r.GetBool();
+            uint sequence = r.GetUInt();
             int oc = r.GetInt();
-            if (oc < 0 || oc > 4096) oc = 0;
+            if (oc < 0 || oc > 4096)
+                throw new InvalidDataException("Physics object count is out of range: " + oc);
             var objs = new WorldObjectState[oc];
             for (int i = 0; i < oc; i++) objs[i] = WorldObjectState.Deserialize(r);
 
             int dc = r.GetInt();
-            if (dc < 0 || dc > 4096) dc = 0;
+            if (dc < 0 || dc > 4096)
+                throw new InvalidDataException("Physics door count is out of range: " + dc);
             var doors = new DoorState[dc];
             for (int i = 0; i < dc; i++) doors[i] = DoorState.Deserialize(r);
 
             int tc = r.GetInt();
-            if (tc < 0 || tc > 4096) tc = 0;
+            if (tc < 0 || tc > 4096)
+                throw new InvalidDataException("Physics trap count is out of range: " + tc);
             var traps = new TrapState[tc];
             for (int i = 0; i < tc; i++) traps[i] = TrapState.Deserialize(r);
 
             int gc = r.GetInt();
-            if (gc < 0 || gc > 4096) gc = 0;
+            if (gc < 0 || gc > 4096)
+                throw new InvalidDataException("Physics generator count is out of range: " + gc);
             var generators = new GeneratorState[gc];
             for (int i = 0; i < gc; i++) generators[i] = GeneratorState.Deserialize(r);
 
             return new PhysicsStateMessage
             {
+                Sequence = sequence,
+                Reliable = reliable,
                 Objects = objs,
                 Doors = doors,
                 Traps = traps,

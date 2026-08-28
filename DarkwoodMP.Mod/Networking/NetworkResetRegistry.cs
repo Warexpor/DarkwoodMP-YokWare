@@ -20,7 +20,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Run every registered reset. Each action is isolated — one throw
+        /// Run every registered reset. Each action is isolated; one throw
         /// must not skip the rest (session leak on partial cleanup).
         /// </summary>
         public static void ResetAll()

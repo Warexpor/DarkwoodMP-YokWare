@@ -51,7 +51,7 @@ namespace DWMPHorde.Players
 
         /// <summary>
         /// Enables/disables the FOV cone and ambient dot lights on the proxy.
-        /// NOTE: the ground shadow ("Shadow" child) is intentionally excluded —
+        /// The ground shadow ("Shadow" child) is intentionally excluded;
         /// it is toggled separately so that exiting spectator mode doesn't
         /// permanently hide the shadow.
         /// </summary>
@@ -71,7 +71,7 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Spectator when local FOV is dead/off: restore both pieces of player vision —
+        /// Spectator when local FOV is dead/off: restore both pieces of player vision;
         /// FOV cone (Logic/Light) AND ambient vision circle (FOVLightDot).
         /// Direction follows the proxy transform (PlayerState torso/legs already rotate it).
         /// </summary>
@@ -83,7 +83,7 @@ namespace DWMPHorde.Players
             const float circleRadius = 9f;
             ApplyConeShape(_fovLogic, coneAngle, coneRadius);
             ApplyConeShape(_fovLight, coneAngle, coneRadius * 0.9f);
-            // FOVLightDot is the ambient *circle* around the player — never force a cone angle.
+            // FOVLightDot is the ambient circle around the player; never force a cone angle.
             ApplyCircleShape(_fovDot, circleRadius);
             if (_lightDot != null)
             {
@@ -105,7 +105,7 @@ namespace DWMPHorde.Players
                 light.LightRadius = radius;
         }
 
-        /// <summary>Ambient vision circle (PlayerFOVLightDot) — full 360, not a wedge.</summary>
+        /// <summary>Ambient vision circle (PlayerFOVLightDot), full 360 degrees rather than a wedge.</summary>
         private static void ApplyCircleShape(Light2D light, float radius)
         {
             if (light == null) return;
@@ -146,12 +146,12 @@ namespace DWMPHorde.Players
             CopyLightCone(_fovLogic, main.FOVLogic);
             CopyLightCone(_fovLight, FindLight(main.transform, "PlayerFOVLight"));
             CopyLightCone(_fovDot, main.FOVDot);
-            // Lantern ambient is network-owned on remotes — never copy local lightDot here.
+            // Lantern ambient is network-owned on remotes; never copy local lightDot here.
         }
 
         /// <summary>
         /// Copies current FOV values from the main player WITHOUT calling RefreshMainFov.
-        /// Use this for per-frame syncs — the Player's own Update already runs getFOVAngle().
+        /// Use this for per-frame syncs; the Player's own Update already runs getFOVAngle().
         /// </summary>
         public void CopyFovValuesFrom(Player main)
         {
@@ -161,7 +161,7 @@ namespace DWMPHorde.Players
             CopyLightCone(_fovLogic, main.FOVLogic);
             CopyLightCone(_fovLight, FindLight(main.transform, "PlayerFOVLight"));
             CopyLightCone(_fovDot, main.FOVDot);
-            // Lantern ambient is network-owned on remotes — never copy local lightDot here.
+            // Lantern ambient is network-owned on remotes; never copy local lightDot here.
         }
 
         /// <summary>

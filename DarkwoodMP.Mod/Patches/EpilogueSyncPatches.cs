@@ -8,9 +8,8 @@ using UnityEngine.SceneManagement;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// 4.5 Epilogue / credits:
-    /// EpilogueOutcomes.goToCredits LoadScene("credits") must pull all peers.
-    /// Multiplayer: coordinated SceneLoad (protocol 14) instead of solo LoadScene.
+    /// EpilogueOutcomes.goToCredits must pull all peers into the credits scene.
+    /// Multiplayer uses a coordinated SceneLoad instead of a solo LoadScene.
     /// </summary>
     [HarmonyPatch(typeof(EpilogueOutcomes), "goToCredits")]
     public static class EpilogueGoToCreditsPatch
@@ -48,11 +47,11 @@ namespace DWMPHorde.Patches
                 DeliveryMethod.ReliableOrdered);
 
             // Host applies immediately (broadcast already out). Client applies after host
-            // rebroadcasts via Forwardable — but also apply locally so originator is not stuck
+            // rebroadcasts via Forwardable, but also apply locally so the originator is not stuck
             // if host is slow. ApplySceneLoad is idempotent via _sceneLoadPending.
             LanNetworkManager.ApplySceneLoad("credits", delaySeconds: 8f);
 
-            // Credits ends co-op permanently (ChapterSessionPolicy) — no CaptureForResume.
+            // Credits ends co-op permanently under ChapterSessionPolicy; do not CaptureForResume.
             // Documented residual: post-credits is single-player epilogue, not a co-op chapter.
             ModRuntime.LegacyInfo($"[Epilogue] goToCredits multiplayer path role={net.Role} (network stops — no resume)");
             return false; // skip vanilla (would LoadScene alone at 10s)
@@ -97,7 +96,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Coordinated scene load (credits). Fades peers out, stops network, loads scene.
-        /// Idempotent — first call wins.
+        /// Idempotent; the first call wins.
         /// </summary>
         internal static void ApplySceneLoad(string sceneName, float delaySeconds = 0.5f)
         {

@@ -15,7 +15,7 @@ namespace DWMPHorde.Patches
         internal static int SuppressPause;
         internal static int SuppressUnpause;
 
-        /// <summary>True when co-op is live — not offline with a dormant network component.</summary>
+        /// <summary>True when co-op is live, not offline with a dormant network component.</summary>
         internal static bool MultiplayerActive =>
             ModRuntime.Network != null && ModRuntime.Network.IsConnected;
 

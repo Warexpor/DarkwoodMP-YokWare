@@ -4,7 +4,7 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Audit C1: host is sole day/night clock authority.
+    /// The host is the sole day/night clock authority.
     /// Client must not advance CurrentTime / fire refreshTime edges, but must still
     /// run FixedUpdate inventory refresh (hotbar durability timers, etc.).
     /// </summary>

@@ -6,9 +6,9 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Reputation model C (hybrid):
+    /// Reputation handling:
     /// - Story / village NPCs: shared, live <see cref="ReputationSync"/> + join bulk.
-    /// - Morning traders (<see cref="Character.isNightTrader"/>): per-player — no live/bulk overwrite.
+    /// - Morning traders (<see cref="Character.isNightTrader"/>): per-player; no live or bulk overwrite.
     /// </summary>
     [HarmonyPatch(typeof(NPC), "set_reputation", new[] { typeof(int) })]
     public static class ReputationSyncPatch

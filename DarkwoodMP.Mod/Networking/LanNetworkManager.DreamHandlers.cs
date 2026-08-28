@@ -44,7 +44,8 @@ namespace DWMPHorde.Networking
 
             if (!DreamSession.IsActive)
             {
-                // BeginFromHost — never TryBegin (that mints a local SessionId then Adopt fights it).
+                // Use BeginFromHost, never TryBegin. TryBegin mints a local SessionId
+                // that would conflict with Adopt.
                 DreamSession.BeginFromHost(msg.PresetName, msg.SessionId);
             }
             else if (!string.IsNullOrEmpty(msg.PresetName)
@@ -78,7 +79,7 @@ namespace DWMPHorde.Networking
             if (_remotePlayers.TryGetValue(playerId, out var peerState))
                 wasDeadInDream = peerState.IsDeadInDream;
 
-            // C4: host→client rejected nack for story-end defer.
+            // Host-to-client rejection for a deferred story-end request.
             if (_role == NetworkRole.Client && DreamSession.IsRejectedOutcome(msg.OutcomeName))
             {
                 ModRuntime.LegacyInfo(
@@ -144,7 +145,7 @@ namespace DWMPHorde.Networking
             DreamSyncManager.ClearStoryEndDefer();
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
-            // playerDeath / spectate / remote cleanup — clear dream-death tracking.
+            // playerDeath, spectate, and remote cleanup clear dream-death tracking.
             if (_remotePlayers.TryGetValue(playerId, out peerState))
                 peerState.IsDeadInDream = false;
 
@@ -170,7 +171,7 @@ namespace DWMPHorde.Networking
 
             int requesterId = _currentReceivePlayerId;
 
-            // Client may have leveled (hadDreamAtLvl*) — union before prepare.
+            // Client may have leveled (hadDreamAtLvl*); union before prepare.
             if (msg.LvlFlags != 0)
                 DreamSession.ApplyLvlFlags(msg.LvlFlags);
 
@@ -252,7 +253,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Named prepare on host does not hit random pool — mirror client's roll consume.
+            // Named prepare on host does not hit the random pool; mirror the client's roll consume.
             DreamSession.MirrorPoolRemove(msg.PresetName);
 
             ModRuntime.LegacyInfo($"[DreamSync] Host handling dream start request: {msg.PresetName}");
@@ -294,7 +295,7 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
                 return; // host already preparing
 
-            // H2: reject chain packets from a different session.
+            // Reject chain packets from a different session.
             if (DreamSession.IsActive && DreamSession.SessionId != 0 && msg.SessionId != 0
                 && msg.SessionId != DreamSession.SessionId)
             {
@@ -349,7 +350,7 @@ namespace DWMPHorde.Networking
                 proxy.FreezePosition = false;
                 ModRuntime.LegacyInfo($"[DreamSync] Player {playerId} entered dream — proxy unfrozen");
             }
-            // Peer pad ready — push collider parity (lamp trigger / bell solid).
+            // Peer pad ready; push collider parity (lamp trigger and bell solid).
             if (_role == NetworkRole.Host)
                 WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
         }

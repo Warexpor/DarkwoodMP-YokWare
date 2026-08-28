@@ -82,7 +82,7 @@ namespace DWMPHorde.Patches
             if (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem)
                 net.RecordPendingContainerRemove(pos, slotIdx);
 
-            // Track pre-take player inventory count for precise H6 refund.
+            // Track the pre-take player inventory count for a precise denial refund.
             if (preTakePlayerCount >= 0 && (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem))
                 net.RecordPendingTakePreCount(pos, slotIdx, preTakePlayerCount);
 
@@ -114,7 +114,8 @@ namespace DWMPHorde.Patches
         public Vector3 Pos;
         public int Idx;
         /// <summary>Player inventory count of <see cref="Type"/> before the take.
-        /// Used by H6 refund to remove only what the take added, not pre-existing items.</summary>
+        /// Used by the denial refund to remove only what the take added, not
+        /// pre-existing items.</summary>
         public int PreTakePlayerCount;
     }
 

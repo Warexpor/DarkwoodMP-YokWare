@@ -12,7 +12,7 @@ namespace DWMPHorde.Networking
     ///
     /// MUST be a class, not a struct: <c>using (new NetworkApplyGuard())</c> on a struct
     /// with only an optional-arg ctor compiles to <c>initobj</c> (zero-init) under our
-    /// net471/C#10 toolchain — ctor never runs, guard is a no-op, client one-shot
+    /// net471/C#10 toolchain. The constructor never runs, so the guard is a no-op and the client one-shot
     /// GameEvents.fire stays blocked by GameEventsFiredPatch (dream clothes/masks/START).
     /// </summary>
     internal sealed class NetworkApplyGuard : IDisposable

@@ -91,8 +91,8 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            // Use stored pose — never FindNearest here (was a host FOOT hitch every 1s).
-            // Skip lures far from every player — clients FOOT-scan them for nothing.
+            // Use the stored pose; never FindNearest here.
+            // Skip lures far from every player so clients do not scan them unnecessarily.
             const float interestSq = 1400f * 1400f;
             foreach (var kvp in _lureOutbox)
             {

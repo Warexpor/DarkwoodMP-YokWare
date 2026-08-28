@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
             if (name.Contains("audioobject"))
                 return;
 
-            // Skip ProxyItem (placement preview) destruction — not a real world trap
+            // Skip ProxyItem (placement preview) destruction; it is not a real world trap.
             if (go.GetComponent<ProxyItem>() != null)
                 return;
 

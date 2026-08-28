@@ -1,133 +1,152 @@
 # YokWare Branch
 
-**Darkwood co-op multiplayer** — Path B: **Horde remaster host-authoritative sync** as the shippable load path, product shell and credit under Warexpor & Yokyy.
+Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| **Product** | YokWare Branch **0.7.79** (Path B; pre-1.0 — see [CHANGELOG](CHANGELOG.md). Older **0.9.x** labels were too ambitious.) |
-| **Sync base** | DWMP Horde Remaster (host-authoritative LAN) |
-| **Live wire** | Horde protocol **24** (LiteNetLib `NetMessageType`; optional Steam SNS lobby path) |
-| **Loaders** | **BepInEx** 5.x · **MelonLoader** 0.7 — two first-class build variants of the same mod |
-| **License** | **GPLv3** — see [LICENSE](LICENSE) |
-| **Co-authors** | Warexpor & Yokyy |
+| Product | YokWare Branch **0.7.81** |
+| Wire | Horde protocol **25** |
+| Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
+| Loaders | BepInEx 5.x and MelonLoader |
+| License | GPLv3, see [LICENSE](LICENSE) |
+| Authors | Warexpor and Yokyy |
 
-> Path A (Yokyy structure + partial Horde ports) failed brief testing.  
-> **Path B is the load path.** Legacy Path A / Ironbark trees were removed from the repo (see **CHANGELOG**).
+Path B is the supported load path. Earlier Path A and Ironbark material is not
+part of the shipped mod. See [CHANGELOG.md](CHANGELOG.md) for history and
+known gaps.
 
 ---
 
 ## Wire
 
-### Horde protocol 24
+All peers in a session must use the same mod version and protocol.
 
-What peers speak in co-op:
+- LiteNetLib UDP provides LAN sessions.
+- SteamNetworkingSockets provides the optional Steam lobby transport.
+- Both transports use the same Horde message framing.
+- The host owns world simulation, combat authority, entity AI, and the
+  day/night clock where the mod has a multiplayer path.
+- Clients present host state and suppress the local systems that would create
+  duplicate world simulation.
 
-- LiteNetLib UDP + optional SteamNetworkingSockets (friends lobby); connection key (`HostPassword` / open LAN)
-- `NetMessageType : byte` message IDs (through current set; voice **129**, etc.)
-- Host-authoritative simulation; clients mute local AI/time where patched
-- Same Horde framing on LAN and Steam; backend is exclusive per session
-- **Same mod build on every peer** (same protocol **24**)
+The highest assigned message ID is 133 (`PeerHasItem`). Voice data uses message
+129 when Steam voice is enabled.
 
 ---
 
 ## Install
 
-Pick **one** loader per game process. Both variants are the same Path B mod; build with `-p:Loader=…`.
+Use one loader per game process. Do not place both loader variants in the same
+game installation.
 
 ### BepInEx
 
-1. Install [BepInEx](https://docs.bepinex.dev/) 5.x for Darkwood (match game arch).
-2. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`  
-   (or take `DarkwoodMP.Mod/bin/Release/BepInEx/DarkwoodMP.Mod.dll` + `LiteNetLib.dll`).
-3. Copy into `Darkwood/BepInEx/plugins/`.
-4. Launch — banner: **YokWare Branch**, Path B, protocol **24**, version **0.7.79**.
+1. Install BepInEx 5.x for the installed Darkwood architecture.
+2. Build the BepInEx variant:
+
+   `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`
+
+3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
+   `DarkwoodMP.Mod/bin/Release/BepInEx/` to
+   `Darkwood/BepInEx/plugins/`.
+4. Launch Darkwood. The menu should show YokWare Branch 0.7.81 and protocol
+   25.
+
+The project can also copy these files to the configured local Steam and
+SecondDarkwood plugin directories after a BepInEx build. Treat that as a local
+development convenience, not as a release packaging step.
 
 ### MelonLoader
 
 1. Install MelonLoader 0.7.x for Darkwood.
-2. Point `MelonLoaderDir` / local refs at your MelonLoader `net35` folder (see `DarkwoodMP.Mod` csproj; refs are not vendored in git).
-3. Build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader`.
-4. Copy `DarkwoodMP.Mod/bin/Release/MelonLoader/DarkwoodMP.Mod.dll` + `LiteNetLib.dll` into `Darkwood/Mods/`.
-5. Config lands under Melon UserData (`YokWare/com.yokware.branch.cfg`).
+2. Set `MelonLoaderDir` to the directory containing the MelonLoader reference
+   assemblies. The references are not vendored.
+3. Build:
 
-**In-game (both loaders):** title **MULTIPLAYER** · **F2** settings · **F3** manual save · **F4** spectator · **Ctrl+C** chat (off by default).
+   `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader`
 
-All peers need the **same** mod build and the **same loader family** (do not mix BepInEx plugin + Melon Mods DLL on one process). Host enters chapter first; clients JOIN → world share → offline load → co-op reconnect.
+4. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
+   `DarkwoodMP.Mod/bin/Release/MelonLoader/` to `Darkwood/Mods/`.
 
-**Dual-box (Steam + SecondDarkwood):** SecondDarkwood is GOG — use **LAN** for Steam↔GOG. Steam HOST/JOIN needs two Steam clients. SecondDarkwood auto-isolates saves to `LocalLow/.../Darkwood_Second`.
+Configuration is stored by the loader. For BepInEx, the usual file is
+`Darkwood/BepInEx/config/com.yokware.branch.cfg`.
+
+### Dual-box testing
+
+SecondDarkwood is the GOG installation at
+`C:\MyProjects\SecondDarkwood\Darkwood`. Use LAN for Steam to GOG testing.
+Steam lobby sessions require two Steam clients. The second installation uses
+an isolated `Darkwood_Second` save root when the normal local setup is used.
 
 ---
 
-## Build
+## Controls
 
-```text
-<!-- DarkwoodMP.Mod/GamePath.local.props (local only, never commit) -->
-<Project><PropertyGroup>
-  <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
-</PropertyGroup></Project>
+- **F2**: multiplayer settings
+- **F3**: manual save
+- **F4**: spectator mode
+- **Ctrl+C**: chat, when enabled
+
+The title menu provides HOST, JOIN, SETTINGS, and recovery actions. The host
+must enter a chapter before a client can join its world.
+
+---
+
+## Build and test
+
+Create `DarkwoodMP.Mod/GamePath.local.props` locally when the default game
+path is not correct:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
+  </PropertyGroup>
+</Project>
 ```
 
-```bash
-# Whole Visual Studio / dotnet solution (mod + tests + optional F5 spawner)
-dotnet build DarkwoodMP.sln -c Release
+Build the solution:
 
-# Loader variants (same product; different entry + output folder)
-dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx      # → bin/Release/BepInEx/ ; dual-deploys if game dirs present
-dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader  # → bin/Release/MelonLoader/
+`dotnet build DarkwoodMP.sln -c Release`
 
-dotnet test DarkwoodMP.PathB.Tests -c Release
-```
+Run the product and wire tests:
 
-**`DarkwoodMP.sln`** is the Visual Studio / `dotnet` **solution file**: a thin project list that groups `DarkwoodMP.Mod`, `DarkwoodMP.PathB.Tests`, and `DarkwoodMP.EntitySpawner` so one `dotnet build DarkwoodMP.sln` builds them together. It is not a second codebase.
+`dotnet test DarkwoodMP.PathB.Tests -c Release`
 
-**LiteNetLib 1.3.5** comes from NuGet (`PackageReference`); ship `LiteNetLib.dll` from the build output alongside the mod DLL.
+`LiteNetLib` version 1.3.5 comes from NuGet. Game and loader assemblies are
+resolved from the local installation.
 
 ---
 
-## What Path B is / is not (0.7.x)
+## Coverage and limitations
 
-**Is:** Horde combat/entity/AI mute, containers (host take-deny), **dreams** (bunker dialogue door / forest-spirit sticky aggro still soak), spectator, **world save share**, join pipeline **share → ENTER WORLD → offline load → co-op reconnect**, late-join sticky bulk (FOOT-split), host-only time, dialogue tree sync (host world-only suppress for peer overlays), traps/lights/scrape audio, **host grant (LAN + Steam)**, dual-box save root isolation, BepInEx + MelonLoader. **Not** near-1.0 — product line is **0.7.x**. Detail: **CHANGELOG**.
+The mod covers the main Path B multiplayer paths for player state, entities,
+physics, locations, inventory, combat, story events, dreams, audio, spectator
+mode, and world save sharing. Coverage is not a claim of complete runtime
+parity.
 
-**Is not (yet / residual):**
+Known deferred or runtime-dependent areas include:
 
-| Topic | Status |
-|-------|--------|
-| Live campaign polish / full 2-box soak | Ongoing playtest |
-| Dream dialogue UI / leave-door audio edge cases | Hardening in **0.7.75–0.7.76**; keep soak |
-| NPC dialog / quest-shaped flags / morning-trader vs shared shop | **0.7.79** world-auth closeout; dual-box playtest |
-| Location/landmark *placement* without successful share | Mitigated (client new-gen blocked); full seed lock is L |
-| Ironbark live client ↔ Horde LAN bridge | Removed (was research-only) |
-| Continuous co-op through **credits** | Network stops at credits (by design); mid-campaign chapter **does** resume |
-| SyncCheck digest heal, full InteractionLock matrix, ItemState upgrades | Deferred |
+- full dual-box and three-player campaign soak
+- late-join GameEvent and night-scenario bulk
+- wrong-save warning UI
+- complete interaction-lock coverage
+- some dream, spectator, and proxy field-of-view presentation edges
+- host migration during a dream
 
----
-
-## Layout (public tree)
-
-| Path | Role |
-|------|------|
-| `DarkwoodMP.Mod/` | **Ship** — Horde Path B (BepInEx + MelonLoader variants) |
-| `DarkwoodMP.PathB.Tests/` | Product / wire / NetWriter Path B gates |
-| `DarkwoodMP.EntitySpawner/` | F5 spawner plugin (BepInEx) |
-| `DarkwoodMP.sln` | Solution wrapper for the three projects above |
-| `CHANGELOG.md` | Ship log |
-
-Local checkouts may also have gitignored folders (`docs/`, `scripts/`, `libs/`, `AGENTS.md`) for playtest notes and agent memory — not required to build or play.
+The detailed code coverage checklist is
+[DarkwoodMP.Mod/docs/COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
+For support logs, use [DarkwoodMP.Mod/docs/LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
 
 ---
 
-## Credits & license
+## Credits and license
 
-**Warexpor** and **Yokyy** co-author YokWare Branch. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+Warexpor and Yokyy co-author the YokWare Branch. See
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-- **Warexpor** — Path B Horde remaster load path; public repo; co-op hardening  
-- **Yokyy** — original co-op house; structure, reliability hop, chat/HUD lineage  
-- Third-party: BepInEx, MelonLoader, Harmony, LiteNetLib, Darkwood (Acid Wizard)  
+GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-GPLv3 — see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), [CONTRIBUTORS](CONTRIBUTORS.md).
-
----
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) (current ship **0.7.79**).
+Current ship: **0.7.81**, protocol **25**. See
+[CHANGELOG.md](CHANGELOG.md).

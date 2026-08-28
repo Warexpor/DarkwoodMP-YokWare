@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Machine-specific game location (not committed). -->
+  <!-- Local game location, when it differs from the default (not committed). -->
   <Import Project="GamePath.local.props" Condition="Exists('GamePath.local.props')" />
 
-  <!-- Loader: BepInEx (default ship) | MelonLoader
+  <!-- Loader: BepInEx (default) or MelonLoader
        dotnet build -c Release
        dotnet build -c Release -p:Loader=MelonLoader -->
   <PropertyGroup>
@@ -23,8 +23,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.7.52</Version>
-    <InformationalVersion>0.7.52-path-b</InformationalVersion>
+    <Version>0.7.81</Version>
+    <InformationalVersion>0.7.81-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
@@ -111,7 +111,7 @@
       <HintPath>$(GameDir)\Darkwood_Data\Managed\Newtonsoft.Json.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- Game ships Steamworks.NET — P2P + lobbies for Steam co-op backend (not copied). -->
+    <!-- Game-provided Steamworks.NET reference for the Steam co-op backend. -->
     <Reference Include="com.rlabrecque.steamworks.net">
       <HintPath>$(GameDir)\Darkwood_Data\Managed\com.rlabrecque.steamworks.net.dll</HintPath>
       <Private>false</Private>

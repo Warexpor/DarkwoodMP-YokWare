@@ -32,15 +32,15 @@ namespace DWMPHorde.Sync
         private static bool _remoteEntryTransitionPlaying;
         private static string _remoteEntryAudioId;
 
-        /// <summary>C4: client story-end defer awaiting host accept / rejected nack.</summary>
+        /// <summary>Client story-end defer awaiting host acceptance or rejection.</summary>
         private static bool _storyEndDeferPending;
         private static float _storyEndDeferDeadline;
         private const float StoryEndDeferTimeoutSec = 15f;
         private static Coroutine _storyEndWatchdog;
 
         /// <summary>
-        /// Host already broadcast DreamEnded at initiateEndDreaming — endDreaming must not
-        /// send a second copy. Client host-ordered exit plays the same transition video.
+        /// Host already broadcast DreamEnded at initiateEndDreaming. endDreaming must not
+        /// send a second copy. A host-ordered client exit plays the same transition video.
         /// </summary>
         private static bool _dreamEndBroadcastSent;
         private static bool _hostOrderedDreamEnd;
@@ -53,7 +53,7 @@ namespace DWMPHorde.Sync
         /// <summary>Client may run vanilla initiateEndDreaming for a host-ordered story exit.</summary>
         public static bool IsHostOrderedDreamEnd => _hostOrderedDreamEnd;
 
-        /// <summary>C4: after client sends DreamEnded, wait for host accept or rejected nack.</summary>
+        /// <summary>After sending DreamEnded, wait for host acceptance or rejection.</summary>
         public static void BeginStoryEndDefer()
         {
             _storyEndDeferPending = true;
@@ -86,13 +86,13 @@ namespace DWMPHorde.Sync
             if (!_storyEndDeferPending)
                 yield break;
             ModRuntime.Log?.LogWarning(
-                "[DreamSync] Story-end defer timed out — forcing local dream cleanup");
+                "[DreamSync] Story-end defer timed out; forcing local dream cleanup");
             _storyEndDeferPending = false;
             _storyEndWatchdog = null;
             ForceLocalDreamCleanup("storyEndTimeout");
         }
 
-        /// <summary>Forced cleanup after rejected nack or story-end timeout (C4).</summary>
+        /// <summary>Forced cleanup after rejection or story-end timeout.</summary>
         public static void ForceLocalDreamCleanup(string reason)
         {
             ClearStoryEndDefer();
@@ -182,7 +182,7 @@ namespace DWMPHorde.Sync
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
-            // Party-once is enforced in TryBegin / startDreaming — this is the live start path.
+            // Party-once is enforced in TryBegin and startDreaming; this is the live start path.
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
@@ -227,7 +227,7 @@ namespace DWMPHorde.Sync
             }
 
             // Fix 1: If an early entry transition was played (peer's video overlay),
-            // clean it up now that local entry is complete — prevents permanent
+                // clean it up now that local entry is complete. This prevents permanent
             // black screen + paralysis from EnteringDream never being reset.
             if (_earlyEntryTransitionPlayed)
             {
@@ -341,7 +341,7 @@ namespace DWMPHorde.Sync
                 }
                 _dreamEndBroadcastSent = false;
 
-                // Unfreeze all proxies — dream has ended regardless of confirmation state
+                // Unfreeze all proxies; the dream has ended regardless of confirmation state.
                 foreach (var proxy in net.GetAllProxies())
                     proxy.FreezePosition = false;
             }
@@ -389,7 +389,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Client: host ordered a story exit — play vanilla outcome transition then endDreaming.
+        /// Client: the host ordered a story exit. Play the vanilla outcome transition, then endDreaming.
         /// </summary>
         public static bool TryBeginHostOrderedStoryEnd(string outcomeName)
         {
@@ -448,13 +448,13 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Peer started Dreams.startTransition — play the same video now (not after DreamStarted).
+        /// Peer started Dreams.startTransition. Play the same video now, not after DreamStarted.
         /// </summary>
         public static void OnPeerDreamEntryTransition()
         {
             if (_localDreamActive) return;
             if (_earlyEntryTransitionPlayed) return;
-            // DreamStarted path already started the video — do not stack a second Play.
+            // DreamStarted already started the video; do not stack a second Play.
             if (_remoteEntryTransitionPlaying) return;
 
             _earlyEntryTransitionPlayed = true;
@@ -488,7 +488,7 @@ namespace DWMPHorde.Sync
         {
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
-            // Snapshot parity with host prepareDream (D4).
+            // Keep the snapshot aligned with host prepareDream.
             if (Dreams.Instance != null && !Dreams.Instance.dreaming && !Dreams.Instance.switchingDream)
             {
                 try { Dreams.Instance.saveCurrentPlayerState(); }
@@ -499,7 +499,7 @@ namespace DWMPHorde.Sync
             }
 
             // Host prepareDream shows Saving; SaveSync is suppressed for the whole dream
-            // window (avoids hitch mid-video). Peer path never ran prepareDream — mirror a
+            // window (avoids hitch mid-video). Peer path never ran prepareDream; mirror a
             // local Save+indicator so clients see the same cue. Fan-out stays suppressed.
             try
             {
@@ -594,7 +594,7 @@ namespace DWMPHorde.Sync
                 finally { LanNetworkManager.IsApplyingRemoteState = false; }
             }
 
-            // C3: preserve inventory/time copies across pocket (vanilla switchingDream).
+                // Preserve inventory and time copies across a dream-chain pocket.
             if (Dreams.Instance != null)
                 Dreams.Instance.switchingDream = true;
 
@@ -613,7 +613,7 @@ namespace DWMPHorde.Sync
                 yield return new WaitForSecondsRealtime(delay);
             FadeOutDreamTransition();
             // Peer path sets base UI.blackScreen opaque; vanilla startDreaming only clears
-            // blackScreenTop — without this the host stays black forever.
+            // blackScreenTop; without this the host stays black forever.
             FadeInDreamBlackScreen();
             _earlyEntryTransitionPlayed = false;
             _earlyEntryTransitionDoneAt = 0f;
@@ -665,7 +665,7 @@ namespace DWMPHorde.Sync
             float deadline = Time.realtimeSinceStartup + 25f;
             while (Time.realtimeSinceStartup < deadline)
             {
-                // Do NOT use IsDreamActive — it includes _earlyEntryTransitionPlayed, which
+                // Do not use IsDreamActive; it includes _earlyEntryTransitionPlayed, which
                 // made this watchdog exit immediately after peer CutsceneSync and never clear
                 // the void when DreamStarted never arrived.
                 if (_localDreamActive
@@ -701,7 +701,7 @@ namespace DWMPHorde.Sync
 
         private static void FadeOutDreamTransition()
         {
-            // Keep EnteringDream until LoadDreamSceneCoroutine fades in — clearing it here
+            // Keep EnteringDream until LoadDreamSceneCoroutine fades in. Clearing it here
             // left a frame of overworld between video teardown and scene load.
             _remoteEntryTransitionPlaying = false;
             // Stop the entry stinger so it cannot overlap dream-scene music after a long wait.
@@ -744,7 +744,7 @@ namespace DWMPHorde.Sync
                         VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
                         if (vp != null && vp.isPlaying)
                             vp.Stop();
-                        // Snap off — DOFade(0.5s) exposed overworld when black was not yet solid.
+                        // Snap off. DOFade(0.5s) exposed overworld when black was not yet solid.
                         if (renderer.material != null)
                             renderer.material.color = new Color(1f, 1f, 1f, 0f);
                         renderer.enabled = false;
@@ -795,7 +795,7 @@ namespace DWMPHorde.Sync
 
             if (Dreams.Instance != null && Dreams.Instance.dreaming && Dreams.Instance.preset != null)
             {
-                // ApplyRemoteDreamCleanup unfreezes after restore (D8).
+                // ApplyRemoteDreamCleanup unfreezes after restore.
                 ApplyRemoteDreamCleanup(outcomeName);
             }
             else
@@ -881,7 +881,7 @@ namespace DWMPHorde.Sync
             DreamSession.Reset();
         }
 
-        /// <summary>Pad spawn failed after FreezeWorld — clear session + unfreeze peers.</summary>
+        /// <summary>Pad spawn failed after FreezeWorld; clear the session and unfreeze peers.</summary>
         private static void AbortFailedRemoteDreamLoad(int playerId, string reason)
         {
             if (_remoteDreamActive.ContainsKey(playerId))
@@ -995,7 +995,7 @@ namespace DWMPHorde.Sync
             var player = Player.Instance;
             if (player == null || dreams == null) return;
 
-            // D8 order: restore player → destroy dream → unfreeze → world/journal effects.
+            // Order: restore player, destroy dream, unfreeze, then apply world and journal effects.
             string pendingOutcome = outcomeName ?? "";
 
             LanNetworkManager.IsApplyingRemoteState = true;
@@ -1017,7 +1017,8 @@ namespace DWMPHorde.Sync
                     player.Hotbar.show();
                 }
 
-                // Personal rewards first (items/journal) — defer fireGameEvent/world until unfreeze.
+                // Personal rewards first (items and journal); defer fireGameEvent and world
+                // changes until unfreeze.
                 if (!string.IsNullOrEmpty(pendingOutcome))
                     ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
@@ -1178,7 +1179,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <param name="worldEvents">
-        /// false = personal rewards only; true = fireGameEvent / fireWorldEvent only (D8).
+        /// false means personal rewards only; true means fireGameEvent or fireWorldEvent only.
         /// </param>
         private static void ApplyOutcomeEffects(Dreams dreams, Player player, string outcomeName, bool worldEvents = true)
         {
@@ -1294,7 +1295,7 @@ namespace DWMPHorde.Sync
                 Singleton<Controller>.Instance.CurrentTime = outcomePreset.endTime;
         }
 
-        /// <summary>True when a physics object should sync during an active dream (D12).</summary>
+        /// <summary>True when a physics object should sync during an active dream.</summary>
         public static bool ShouldSyncPhysicsObject(Transform t)
         {
             if (t == null) return true;
@@ -1386,7 +1387,7 @@ namespace DWMPHorde.Sync
             if (player == null) yield break;
 
             // Preserve overworld restore pose BEFORE any pad teleport. Vanilla
-            // startDreaming() calls saveCurrentPlayerState() first — if we already
+            // startDreaming() calls saveCurrentPlayerState() first. If we already
             // teleported to the pad, that overwrites positionCopy with abyss coords
             // and endDreaming leaves the client stuck at −75k.
             Vector3 overworldPosCopy = Vector3.zero;
@@ -1422,7 +1423,7 @@ namespace DWMPHorde.Sync
                 if (Singleton<WorldGrid>.Instance.currentGrid != null)
                     Singleton<WorldGrid>.Instance.currentGrid.leave();
                 Singleton<WorldGrid>.Instance.setGrid(locationName);
-                // Dream pads are small pockets — enter every node so props behind the
+                // Dream pads are small pockets; enter every node so props behind the
                 // dialogue door are not left Cullable-hidden if any registered late.
                 try { Singleton<WorldGrid>.Instance.enterAllNodes(); }
                 catch { /* ignore */ }
@@ -1443,12 +1444,12 @@ namespace DWMPHorde.Sync
                         if (presetGO != null)
                             Dreams.Instance.preset = presetGO.GetComponent<DreamPreset>();
                     }
-                    // Resources path skips getPreset random remove — keep one-shot pool aligned.
+                    // Resources path skips getPreset random removal; keep the one-shot pool aligned.
                     DreamSession.MirrorPoolRemove(locationName);
                     Dreams.Instance.dreamLocation = component;
                     ApplyEpilogueModeIfNeeded(component, locationName);
                     Dreams.Instance.startDreaming();
-                    // Vanilla startDreaming() re-saves timeCopy from CurrentTime — but by now
+                    // Vanilla startDreaming() re-saves timeCopy from CurrentTime. By now
                     // TimeSync/dream may have already bumped the clock to dream time. Restore
                     // the freeze-time snapshot so exit doesn't leave the client stuck at 900.
                     if (_worldFrozen && _savedGameTime > 0)
@@ -1487,7 +1488,7 @@ namespace DWMPHorde.Sync
             catch { /* non-fatal */ }
 
             // Snap host/peer proxies from PlayerPositionManager (true network pos), not
-            // local player feet — old code stacked everyone on the client spawn and then
+            // local player feet. The old code stacked everyone on the client spawn and then
             // LocationEnter overwrote with a bad playerSpawn Y.
             var network = ModRuntime.Network as LanNetworkManager;
             if (network != null && network.IsConnected)
@@ -1565,7 +1566,7 @@ namespace DWMPHorde.Sync
                         ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f);
                 }
 
-                // Remote entry may also leave base blackScreen full — clear at same pace.
+                // Remote entry may also leave base blackScreen full; clear it at the same pace.
                 try
                 {
                     var baseSprite = ui.blackScreen != null
@@ -1589,7 +1590,7 @@ namespace DWMPHorde.Sync
         {
             yield return null;
 
-            // H5: epilog_part1a_dream — destroy road before pocket load (vanilla GE path).
+                // In epilog_part1a_dream, destroy the road before pocket load.
             if (string.Equals(locationName, "epilog_part1a_dream", StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -1626,7 +1627,7 @@ namespace DWMPHorde.Sync
 
             // Mirror OutsideLocations.prepareLocation / prepareDream:
             // - loading=true → CullableObject.Awake skips registerMe (otherwise objects
-            //   register onto World grid at -75k and WorldGrid.refresh hides far nodes —
+            //   register onto World grid at -75k, where WorldGrid.refresh hides far nodes;
             //   client missing props "behind the door" while host looks complete).
             // - dreamPrepared=true → Location.activateOverTime uses loadFrames=1.
             var outsideLoc = Singleton<OutsideLocations>.Instance;
@@ -1644,7 +1645,7 @@ namespace DWMPHorde.Sync
             Location component = null;
             try
             {
-                // Must unload textures before spawning new location — vanilla
+                // Must unload textures before spawning the new location; vanilla
                 // OutsideLocations.spawnLocation does this first thing.
                 if (Singleton<Controller>.Instance != null)
                     Singleton<Controller>.Instance.unloadTextures();
@@ -1693,16 +1694,16 @@ namespace DWMPHorde.Sync
                 Dreams.Instance.dreamLocation = component;
                 RemapDreamUniqueObjects(component.transform);
 
-                // Activate all child objects — vanilla transportToLocation calls
+                // Activate all child objects; vanilla transportToLocation calls
                 // spawnedLocations[locationName].enter() which does activateChildren(true).
                 // Without this, terrain renderers stay inactive → all-black scene.
-                // Do NOT flush onEnterLocation here — enter() only starts activateOverTime;
+                // Do not flush onEnterLocation here; enter() only starts activateOverTime.
                 // GE children need player teleported + startDreaming + finishedLoading first
                 // (otherwise door_underground keeps welcome_opening, not welcome_opening_dream).
                 component.enter();
 
                 // Vanilla Dreams.onLocationSpawned sets inEpilogue for epilogue locations.
-                // Remote load path never hits that — clients would miss crawl/death/UI mode.
+                // Remote load path never hits that, so clients would miss crawl, death, and UI mode.
                 ApplyEpilogueModeIfNeeded(component, locationName);
 
                 if (holder != markerObj)
@@ -1714,7 +1715,7 @@ namespace DWMPHorde.Sync
             finally
             {
                 // Spawn finished (or failed). CullableObject.Awake already skipped while
-                // loading was true — clear so WorldGrid.refreshPlayerPos can run again.
+                // loading was true; clear it so WorldGrid.refreshPlayerPos can run again.
                 // Do this here so abort paths after a successful spawn cannot leave loading stuck.
                 if (outsideLoc != null)
                     outsideLoc.loading = false;
@@ -1819,35 +1820,41 @@ namespace DWMPHorde.Sync
 
             try
             {
-                if (Singleton<WorldGrid>.Instance != null)
+                Location dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+                Transform dreamRoot = dreamLoc != null ? dreamLoc.transform : null;
+
+                // Never remove a grid selected by name: overworld and dream
+                // locations intentionally share keys in several save layouts.
+                if (dreamRoot != null && Singleton<WorldGrid>.Instance != null)
                 {
-                    var grid = Singleton<WorldGrid>.Instance.getGrid(locationName);
+                    var grid = Patches.HostGridOccupancy.FindGridContaining(
+                        Singleton<WorldGrid>.Instance, dreamRoot.position);
                     if (grid != null)
                         Singleton<WorldGrid>.Instance.grids.Remove(grid);
                 }
 
                 if (Singleton<OutsideLocations>.Instance != null &&
-                    Singleton<OutsideLocations>.Instance.spawnedLocations.ContainsKey(locationName))
+                    dreamLoc != null
+                    && Singleton<OutsideLocations>.Instance.spawnedLocations.TryGetValue(
+                        locationName, out Location mappedLoc)
+                    && mappedLoc == dreamLoc)
                 {
                     Singleton<OutsideLocations>.Instance.spawnedLocations.Remove(locationName);
                 }
 
-                GameObject targetObj = null;
-                if (Dreams.Instance != null && Dreams.Instance.dreamLocation != null && Dreams.Instance.dreamLocation.gameObject != null)
+                // The Dreams component is the only authoritative owner of the
+                // active pad. If it is already gone, leave teardown to vanilla
+                // rather than risking destruction of an overworld twin.
+                if (dreamLoc != null && dreamLoc.gameObject != null)
                 {
-                    string objName = Dreams.Instance.dreamLocation.gameObject.name.Replace("_done", "");
-                    if (string.Equals(objName, locationName, StringComparison.OrdinalIgnoreCase))
-                        targetObj = Dreams.Instance.dreamLocation.gameObject;
-                }
-
-                if (targetObj == null)
-                    targetObj = GameObject.Find(locationName + "_done");
-
-                if (targetObj != null)
-                {
-                    UnityEngine.Object.Destroy(targetObj, 2f);
+                    UnityEngine.Object.Destroy(dreamLoc.gameObject, 2f);
                     if (Dreams.Instance != null)
                         Dreams.Instance.dreamLocation = null;
+                }
+                else
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DreamSync] cleanup skipped unscoped dream object '" + locationName + "'");
                 }
 
                 ModRuntime.LegacyInfo($"[DreamSync] Dream scene cleaned up: {locationName}");
@@ -1934,7 +1941,7 @@ namespace DWMPHorde.Sync
 
                     if (obj.type == DreamTransition.TransitionObject.Type.Audio)
                     {
-                        // Play only the first entry stinger — multiple Audio objects stacked
+                        // Play only the first entry stinger; multiple Audio objects stacked
                         // with the video soundtrack as a doubled/prolonged enter sound.
                         if (string.IsNullOrEmpty(_remoteEntryAudioId)
                             && !string.IsNullOrEmpty(obj.audioItemName))
@@ -1960,7 +1967,7 @@ namespace DWMPHorde.Sync
                         renderer.enabled = false;
                         VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
                         vp.clip = clip;
-                        // Mute video audio when we already play the dedicated Audio stinger —
+                        // Mute video audio when we already play the dedicated Audio stinger;
                         // otherwise client hears stinger + video track (doubled enter sound).
                         if (!string.IsNullOrEmpty(_remoteEntryAudioId))
                             vp.SetDirectAudioMute(0, true);

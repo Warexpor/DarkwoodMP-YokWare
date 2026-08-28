@@ -62,7 +62,7 @@ namespace DWMPHorde.Networking.Steam
         private static readonly TimeSpan HostLobbyGrace = TimeSpan.FromSeconds(4);
 
         // Connections the host has not yet accepted because the peer was not (yet)
-        // visible in the lobby member list — member-list replication can lag after
+        // visible in the lobby member list; member-list replication can lag after
         // JoinLobby. Re-checked in Poll(); rejected if still absent after the grace window.
         private struct PendingHostConnect { public HSteamNetConnection Conn; public DateTime Since; }
         private readonly Dictionary<ulong, PendingHostConnect> _pendingHostConnects = new Dictionary<ulong, PendingHostConnect>();
@@ -670,7 +670,7 @@ namespace DWMPHorde.Networking.Steam
         /// </summary>
         public void AcceptSession(CSteamID remote)
         {
-            // no-op — connection accepted on Connecting → AcceptConnection
+            // No-op; connection accepted on Connecting -> AcceptConnection.
         }
 
         public void CloseSession(CSteamID remote)
@@ -735,7 +735,7 @@ namespace DWMPHorde.Networking.Steam
                     else
                     {
                         // Member-list can lag after JoinLobby; park the connection and
-                        // re-check in Poll() before rejecting — blocks random Steam
+                        // re-check in Poll() before rejecting. This blocks random Steam
                         // users who are not (and never will be) lobby members.
                         _pendingHostConnects[steamId.m_SteamID] = new PendingHostConnect
                         {
@@ -782,7 +782,7 @@ namespace DWMPHorde.Networking.Steam
             {
                 string detail = cb.m_info.m_szEndDebug ?? state.ToString();
                 ModLog.Warn(LogCat.Network, "Steam SNS connection lost: " + detail);
-                // Pre-handshake: no peer map yet — tear via lobby-failed (StopNetwork).
+                // Pre-handshake: no peer map yet; tear down via lobby-failed (StopNetwork).
                 if (!_clientTransportReady)
                     _owner.OnSteamLobbyFailed("SNS connection lost: " + detail);
                 else
@@ -806,7 +806,7 @@ namespace DWMPHorde.Networking.Steam
                     return true;
             }
             // Host-only lobby (no members listed yet): the connecting peer is the first
-            // joiner whose member-list entry has not replicated — allow through the grace
+            // joiner whose member-list entry has not replicated; allow through the grace
             // window instead of refusing them out of hand.
             return n == 0;
         }

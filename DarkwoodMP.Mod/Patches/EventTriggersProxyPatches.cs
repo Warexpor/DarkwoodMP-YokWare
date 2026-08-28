@@ -42,7 +42,7 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        /// <summary>Footstep / SoundArea volumes — local body only (proxy path owns peer steps).</summary>
+        /// <summary>Footstep / SoundArea volumes are local-body only; proxy path owns peer steps.</summary>
         internal static bool IsLocalBodyOnlyVolume(string etName)
         {
             if (string.IsNullOrEmpty(etName)) return false;

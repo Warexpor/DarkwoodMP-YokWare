@@ -17,7 +17,7 @@ namespace DWMPHorde.Patches
         public static int ActivationDepth;
 
         // After local Explodes already ran spawnObjects (local stomp or SpawnExplosionVisual),
-        // host may still send ExplosionSpawnObject for the same secondaries — debounce those.
+        // host may still send ExplosionSpawnObject for the same secondaries; debounce those.
         private static float _localExplodeFxUntil;
         private static Vector3 _localExplodeFxPos;
 
@@ -114,7 +114,7 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void Postfix()
         {
-            // Always clear — even if Prefix skipped, false is the safe idle state.
+            // Always clear. Even if Prefix skipped, false is the safe idle state.
             TraverseHack.IsInsideLocalExplosion = false;
         }
     }

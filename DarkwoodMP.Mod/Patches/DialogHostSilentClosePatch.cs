@@ -41,7 +41,7 @@ namespace DWMPHorde.Patches
             if (dw == null) return;
 
             // startDream outcome sets wantToDream + dreamToStart then calls close().
-            // Vanilla schedules prepareDream from close — keep that without fade/save.
+            // Vanilla schedules prepareDream from close; keep that without fade or save.
             try
             {
                 var dreams = Dreams.Instance;
@@ -104,7 +104,7 @@ namespace DWMPHorde.Patches
                     dw.gameObject.SetActive(false);
             }
 
-            // Scrub portrait/video/blackScreen after teardown — delayed setPortrait otherwise
+            // Scrub portrait, video, and blackScreen after teardown; delayed setPortrait otherwise
             // re-enables speaker sprites on the non-talking peer (oven lookAt / lookKeyhole).
             DialogHostPresentation.ScrubAndDisarm(dw);
 

@@ -21,7 +21,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Music and ambience are global — never distance-cull.
+    /// Music and ambience are global; never distance-cull them.
     /// (Previously shared SuppressFarAudio and killed menu/BGM tracks.)
     /// </summary>
     internal static class AudioSuppressionLogic
@@ -31,7 +31,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static bool AllowSound(string audioID, Vector3 worldPosition, Transform parentObj, ref AudioObject __result)
         {
-            // Global / menu / BGM — never distance-cull (main menu uses Play→_PlayAsSound).
+            // Global / menu / BGM; never distance-cull (main menu uses Play -> _PlayAsSound).
             if (IsNeverCullSound(audioID))
                 return true;
 
@@ -55,11 +55,11 @@ namespace DWMPHorde.Patches
             if (pos == Vector3.zero && parentObj != null)
                 pos = parentObj.position;
 
-            // 2D / unknown origin — let through
+            // 2D or unknown origin; let through.
             if (pos == Vector3.zero)
                 return true;
 
-            // No local avatar and not actively spectating — cannot judge distance.
+            // No local avatar and not actively spectating; cannot judge distance.
             // IMPORTANT: SpectatorModeController.Instance always exists (EnsureExists at boot).
             // Only use it when actually spectating.
             bool hasPlayer = Player.Instance != null;
@@ -95,7 +95,7 @@ namespace DWMPHorde.Patches
             }
 
             // Host CharacterSounds (dog growl/aggro near client): entity interest is 1400 XZ,
-            // not the 650 peer band — otherwise host hears silence while clients get EntitySound.
+            // not the 650 peer band; otherwise host hears silence while clients get EntitySound.
             if (TraverseHack.InsideCharacterSounds)
             {
                 return LocalAudioService.IsNearAnyListener(
@@ -116,7 +116,7 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(audioID))
                 return false;
 
-            // Main menu theme(s) — DW1 is vanilla menu; DW* covers sequels/variants.
+            // Main menu themes. DW1 is the vanilla menu; DW* covers sequels and variants.
             if (audioID.StartsWith("DW", System.StringComparison.OrdinalIgnoreCase)
                 && audioID.Length <= 4)
                 return true;

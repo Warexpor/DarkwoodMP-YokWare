@@ -6,8 +6,9 @@ namespace DWMPHorde.Sync
 {
     /// <summary>
     /// Scene spatial lookups for net apply handlers.
-    /// OverlapSphere first; scene FOOT only via a short TTL cache (never FindObjectsOfTypeAll).
-    /// Client stutters: Lure has no own collider → every uncached FOOT was ~50ms main-thread.
+    /// OverlapSphere first; use a short-TTL scene cache only when needed
+    /// (never FindObjectsOfTypeAll). Lures may have no collider, so uncached
+    /// scene scans are avoided on the client.
     /// </summary>
     internal static class WorldQueryHelper
     {
@@ -33,7 +34,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// OverlapSphere only — never FOOT. Use when a miss is cheap to ignore
+        /// OverlapSphere only; never use a scene scan. Use when a miss is cheap to ignore
         /// (far stations outside client interest).
         /// </summary>
         public static T FindNearestNearbyOnly<T>(Vector3 pos, float maxDist) where T : Component

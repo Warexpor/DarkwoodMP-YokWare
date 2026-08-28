@@ -23,7 +23,7 @@ namespace DWMPHorde.Config
         /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
         /// </summary>
         public static ConfigEntry<string> SaveRootOverride { get; private set; }
-        /// <summary>Last profile slot used for a permanent co-op world copy (1–5). 0 = none yet.</summary>
+        /// <summary>Last profile slot used for a permanent co-op world copy (1-5). 0 means none.</summary>
         public static ConfigEntry<int> PreferredCoopCopySlot { get; private set; }
         /// <summary>Display name in chat (Yokyy product port).</summary>
         public static ConfigEntry<string> PlayerName { get; private set; }
@@ -88,7 +88,7 @@ namespace DWMPHorde.Config
                 case "0":
                 case "none":
                     return LootShareMode.Off;
-                // "double" removed — old configs fall through to ScaleWithPlayers
+                // "double" was removed; old configs fall through to ScaleWithPlayers.
                 default:
                     return LootShareMode.ScaleWithPlayers;
             }

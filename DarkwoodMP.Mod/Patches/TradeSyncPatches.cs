@@ -8,7 +8,7 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Shared trader assortment (design model C): shop stock is shared across peers.
+    /// Shared trader assortment: shop stock is shared across peers.
     /// Reputation stays per-player (2.6) — not touched here.
     ///
     /// Live path: after a successful acceptTrade, broadcast absolute NPC inventory.

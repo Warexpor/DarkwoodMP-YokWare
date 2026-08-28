@@ -25,7 +25,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// One-shot: allow initiateEndDreaming(playerDeath) through the death Prefix
-        /// when host is ending the shared dream for all-dead (H3).
+        /// when the host is ending the shared dream because all participants are dead.
         /// </summary>
         internal static bool AllowDeathEndPass;
 
@@ -69,7 +69,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Rebuild remote participant set from live proxies + handshaked peers (D7).
+        /// Rebuild the remote participant set from live proxies and handshaked peers.
         /// Proxies may spawn after session start; peers table is more complete.
         /// </summary>
         public static void RefreshConnectedPlayers()
@@ -94,19 +94,19 @@ namespace DWMPHorde.Sync
         {
             if (!_isActive || _localDeadInDream || _ending) return;
 
-            // Epilogue uses crawl / camera pan — never convert to dream spectate.
+            // Epilogue uses crawl / camera pan; never convert it to dream spectate.
             if (Player.Instance != null && Player.Instance.inEpilogue)
             {
                 ModRuntime.LegacyInfo("[FinalDreamscene] Local death in epilogue — leaving vanilla crawl/cam path");
                 return;
             }
 
-            // Proxies may not have been ready at OnDreamStarted — refresh once.
+            // Proxies may not have been ready at OnDreamStarted; refresh once.
             if (_connectedPlayerIds.Count == 0)
                 RefreshConnectedPlayers();
 
-            // Solo / empty peer set: Prefix should have allowed vanilla (C2). If we still
-            // land here, tear down — never block+no-op.
+            // Solo or empty peer set: the prefix should have allowed vanilla. If we still
+            // land here, tear down; never block and do nothing.
             if (_connectedPlayerIds.Count == 0)
             {
                 ModRuntime.LegacyInfo(
@@ -162,7 +162,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Only the host tears down the shared dream on all-dead. Clients stay in spectate
-        /// until DreamEnded — avoids double endDreaming races when both peers call EndDreamForBoth.
+        /// until DreamEnded. This avoids double endDreaming races when both peers call EndDreamForBoth.
         /// </summary>
         private static void TryHostEndAllDead(string reason)
         {
@@ -186,7 +186,7 @@ namespace DWMPHorde.Sync
             _connectedPlayerIds.Clear();
         }
 
-        /// <summary>Called when a remote player disconnects mid-dream — removes from tracking sets.</summary>
+        /// <summary>Called when a remote player disconnects mid-dream; removes it from tracking sets.</summary>
         public static void OnRemoteDisconnected(int playerId)
         {
             _connectedPlayerIds.Remove(playerId);
@@ -194,7 +194,8 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
-            // Peer left while session active but spectate manager not armed — still tear down.
+            // Peer left while the session was active but the spectate manager was not armed;
+            // still tear down.
             if ((!_isActive || _ending) && _connectedPlayerIds.Count == 0 && DreamSession.IsActive)
             {
                 var netEarly = ModRuntime.Network as LanNetworkManager;
@@ -264,7 +265,8 @@ namespace DWMPHorde.Sync
             var dreams = Singleton<Dreams>.Instance;
             if (dreams != null && dreams.dreaming)
             {
-                // H3: vanilla initiateEndDreaming → transition → endDreaming (not hard-cut).
+            // Use vanilla initiateEndDreaming, transition, and endDreaming rather
+            // than a hard cut.
                 dreams.outcome = "playerDeath";
                 AllowDeathEndPass = true;
                 ModRuntime.LegacyInfo(

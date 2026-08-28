@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -30,6 +31,10 @@ namespace DWMPHorde.Networking
         private WorldSyncService _worldSync;
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
+        private uint _nextPlayerStateSequence;
+        private readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
+        private readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
+        private readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
         private float _proxyAggroTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
@@ -49,6 +54,34 @@ namespace DWMPHorde.Networking
         /// </summary>
         private bool _handshakeComplete;
 
+        private bool AcceptSnapshotSequence(
+            Dictionary<int, uint> lastBySender,
+            int senderId,
+            uint sequence,
+            string snapshotKind)
+        {
+            if (senderId <= 0 || sequence == 0)
+            {
+                ModLog.Warn(LogCat.Network,
+                    snapshotKind + " snapshot rejected: invalid sender/sequence sender="
+                    + senderId + " seq=" + sequence);
+                return false;
+            }
+
+            if (lastBySender.TryGetValue(senderId, out uint last)
+                && !SnapshotSequencePolicy.IsNewer(sequence, last, true))
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo(
+                        "[" + snapshotKind + "] stale snapshot rejected sender="
+                        + senderId + " seq=" + sequence + " last=" + last);
+                return false;
+            }
+
+            lastBySender[senderId] = sequence;
+            return true;
+        }
+
         /// <summary>
         /// Per-peer handshake tracking on the host. Prevents a newly joining peer from
         /// freezing gameplay traffic for peers that are already ready.
@@ -67,7 +100,7 @@ namespace DWMPHorde.Networking
         private readonly Dictionary<int, PlayerLightStateMessage> _pendingPlayerLights =
             new Dictionary<int, PlayerLightStateMessage>();
 
-        // Protocol 19 continuous light dirty cache (local send path)
+        // Continuous light dirty cache for the local send path.
         private bool _prevSentFlareActive;
         private bool _prevSentFlashActive;
         private bool _prevSentMatchActive;
@@ -107,24 +140,23 @@ namespace DWMPHorde.Networking
         /// One phase per peer per frame so host join frame does not freeze.
         /// </summary>
         private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
-        private const int HeavyLateJoinPhaseCount = 11; // weather…deathbags; FOOTs one type/frame
+        private const int HeavyLateJoinPhaseCount = 11; // weather through death bags
 
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
         private const float ClientBulkSettleSeconds = 8f;
-        /// <summary>Phase-3 reconnect: client already finished offline load — short settle only.</summary>
+        /// <summary>Phase-3 reconnect: client finished offline load, so use a short settle.</summary>
         private const float CoopReconnectBulkSettleSeconds = 1.5f;
 
         /// <summary>
-        /// Host: peers mid world-download / LoadScene. Gameplay flood (PlayerState, physics,
-        /// entity snapshots) to these peers stalls dual-box host when the client stops
-        /// PollEvents during SaveManager.Load — kill-client-to-unfreeze symptom.
+        /// Host: peers mid world-download or LoadScene. Gameplay traffic is held
+        /// while the client loads a save and may stop polling network events.
         /// Cleared on first in-world PlayerState or disconnect.
         /// </summary>
         private readonly HashSet<int> _peersLoadingWorld = new HashSet<int>();
 
         /// <summary>
-        /// Host: peers that reconnected with AlreadyInWorld (join pipeline phase 3).
-        /// Shorter late-join bulk settle; disconnect during load mute is not a "mid-night" leave.
+        /// Host: peers that reconnected with AlreadyInWorld during phase 3.
+        /// These peers use a shorter late-join bulk settle.
         /// </summary>
         private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
 
@@ -191,7 +223,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Handshaked peer ids (host: clients; client: usually {1}). For dream all-dead set (D7).</summary>
+        /// <summary>Handshaked peer IDs used for session and night-death accounting.</summary>
         public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
 
         /// <summary>
@@ -242,8 +274,9 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Records the player inventory count of an item type before a container take
-        /// was sent. Used by HandleContainerTakeDenied for precise refund (H6).
-        /// Key = container position + slot index, Value = player's pre-take count of that item type.
+        /// was sent. Used by HandleContainerTakeDenied for a precise refund.
+        /// Key is the container position plus slot index. The value is the
+        /// player's pre-take count for that item type.
         /// </summary>
         internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount)
         {
@@ -316,21 +349,21 @@ namespace DWMPHorde.Networking
         /// player already took (infinite loot dupe fix).</summary>
         internal readonly Dictionary<string, HashSet<int>> _pendingContainerRemoves = new Dictionary<string, HashSet<int>>();
 
-        /// <summary>Tracks player inventory item count before each pending container take.
-        /// Key = "$pos_{slotIdx}", Value = pre-take count. Used for precise H6 refund
-        /// so ContainerTakeDenied doesn't over-remove when player already had items of that type.</summary>
+        /// <summary>Tracks player inventory count before each pending container take.
+        /// Key is "$pos_{slotIdx}". The value is the pre-take count, used so
+        /// ContainerTakeDenied does not over-remove an existing item stack.</summary>
         internal readonly Dictionary<string, int> _pendingTakePreCounts = new Dictionary<string, int>();
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
         internal static bool _isRemoteSaveInProgress;
 
         /// <summary>
-        /// Host: set in HandleContainerItem when take/place loses a race — skip Forwardable fan-out.
+        /// Host: set when a take or place loses a race, so the payload is not
+        /// forwarded.
         /// </summary>
         internal bool _suppressForwardThisMessage;
 
-        /// <summary>Debounce rapid melee hits to the same door/window (e.g. shotgun
-        /// pellets) to avoid 15Ã— particle/sound spam on the host.</summary>
+        /// <summary>Debounce rapid melee hits to one door or window.</summary>
         private const float MELEE_HIT_DEBOUNCE_SEC = 0.2f;
         private readonly Dictionary<string, float> _meleeHitDebounce = new Dictionary<string, float>();
 
@@ -432,7 +465,7 @@ namespace DWMPHorde.Networking
 
         public void StopNetwork()
         {
-            // Intentional tear — never treat ensuing peer-down as host-crash migration.
+            // This is an intentional teardown, not a host-crash migration.
             _suppressHostMigration = true;
 
             // Before tearing the wire: snapshot client exit pos/inv so next rejoin is current
@@ -476,6 +509,10 @@ namespace DWMPHorde.Networking
             ShutdownSteamBackend();
             ClearAllPeerSlots();
             _sendTimer = 0f;
+            _nextPlayerStateSequence = 0;
+            _lastPlayerStateSequence.Clear();
+            _lastPhysicsStateSequence.Clear();
+            _lastReliablePhysicsStateSequence.Clear();
             _physicsSendTimer = 0f;
             _timeSyncTimer = 0f;
             _shadowBroadcastTimer = 0f;
@@ -524,8 +561,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Protocol 19: pack continuous flare/match/flashlight into LightFlags + conditional payload.
-        /// Active: offset every tick; params dirty / rising / ~6 Hz force; remain + flash aim trailer.
+        /// Pack continuous flare, match, and flashlight state into the
+        /// conditional LightFlags payload.
         /// </summary>
         private void PackContinuousLights(ref PlayerStateMessage msg, Player local)
         {
@@ -536,13 +573,14 @@ namespace DWMPHorde.Networking
 
             byte flags = 0;
             string curType = local.currentItem != null ? local.currentItem.type : null;
-            // F1/F2: flare continuous only while aiming/holding the lit projectile (heldItem),
-            // not mere hotbar selection of type "flare".
+            // A flare is continuous only while the lit projectile is held,
+            // not when the item is merely selected in the hotbar.
             Light2D heldFlareLight = null;
             Flare heldFlareComp = null;
             Light2D heldMatchLight = null;
             bool flareActive = TryGetLocalHeldFlareLight(local, out heldFlareLight, out heldFlareComp);
-            // Match: same rule as flare — lit projectile must be parented as heldItem (aim).
+            // Match uses the same rule as flare: a lit projectile must remain
+            // parented to heldItem while it is aimed.
             // Do NOT require currentItem.activated (throwables often stay deactivated while aimed).
             bool matchActive = !flareActive && TryGetLocalHeldMatchLight(local, out heldMatchLight);
             bool heldBurnLight = flareActive || matchActive;
@@ -593,7 +631,8 @@ namespace DWMPHorde.Networking
                 }
 
                 // Local-space attach point (NOT world delta). World delta as localPos breaks
-                // under body rotation — peer saw light/FX floating off the hand both ways.
+                // Apply the local offset under body rotation so the light and
+                // effect stay with the hand.
                 // Prefer heldItem root so prefab-internal Light2D/lightFlare offsets stay correct.
                 if (local.heldItem != null)
                 {
@@ -755,7 +794,7 @@ namespace DWMPHorde.Networking
             flare = null;
             if (local == null || local.heldItem == null)
                 return false;
-            // Must still be held (parented to player) — after throw parent is null.
+            // It must still be held by the player; after throwing, its parent is null.
             Transform ht = local.heldItem.transform;
             if (ht.parent == null)
                 return false;
@@ -786,7 +825,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Held match continuous light only while the lit projectile is parented as heldItem
-        /// (aim / pre-throw). Mirrors <see cref="TryGetLocalHeldFlareLight"/> — does not require
+        /// (aim / pre-throw). Mirrors <see cref="TryGetLocalHeldFlareLight"/> and does not require
         /// <c>currentItem.activated</c> (throwables often stay deactivated while aimed; that was
         /// why peers saw no held match glow).
         /// </summary>
@@ -830,7 +869,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Match / short-lived held light (event-path guard + continuous). Prefer
-        /// <see cref="TryGetLocalHeldMatchLight"/> for TX — that one is heldItem-authoritative.
+        /// <see cref="TryGetLocalHeldMatchLight"/> for transmission, which is heldItem-authoritative.
         /// </summary>
         internal static bool IsMatchLightItem(Player local)
         {
@@ -945,7 +984,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Flush flag updates that were deferred by cooldown (host + client→host H1)
+            // Flush flag updates deferred by the cooldown.
             if (_role == NetworkRole.Host || _role == NetworkRole.Client)
             {
                 if (perf) ClientPerfProbe.BeginUpdateSegment("flagSync");
@@ -956,7 +995,7 @@ namespace DWMPHorde.Networking
 
             _sendTimer += Time.deltaTime;
 
-            // Packing/sending world share — pause entity/physics spam so host can breathe.
+            // Pause entity and physics traffic while packing and sending the world share.
             bool shareBusy = _worldSaveShare != null && _worldSaveShare.IsBusy;
 
             // Host: broadcast entity states to clients
@@ -999,7 +1038,7 @@ namespace DWMPHorde.Networking
             // in the shared world and would cause phantom spawns on the other side.
             if (perf) ClientPerfProbe.BeginUpdateSegment("physTimer");
             _physicsSendTimer += Time.deltaTime;
-            // Physics: always while awake; dream free-bodies allowed (D12 — not full forest).
+            // Physics runs while awake; dream free bodies are also allowed.
             bool physTick = _physicsSendTimer >= PhysicsSendInterval && !shareBusy;
             if (physTick)
                 _physicsSendTimer = 0f;
@@ -1045,7 +1084,8 @@ namespace DWMPHorde.Networking
                 return;
 
             // Client join: do not emit PlayerState during title / LoadScene / before core
-            // is ready — host treated first packet as "in world" and dumped heavy bulk.
+            // is ready. The host waits for the first in-world packet before
+            // sending heavy bulk.
             if (_role == NetworkRole.Client
                 && (Core.mainMenu || Core.loadingGame || !Core.coreStarted))
                 return;
@@ -1067,7 +1107,8 @@ namespace DWMPHorde.Networking
             _lastSentPosition = pos;
 
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
-            // Host was missing this — clients never saw host shadowWard / forestSpiritWard (4.10).
+            // Include host effect flags so clients can present shadow and forest
+            // spirit wards.
             _effectSyncTimer += Time.deltaTime;
             if (_effectSyncTimer >= 2f)
             {
@@ -1089,13 +1130,14 @@ namespace DWMPHorde.Networking
             var msg = new PlayerStateMessage
             {
                 PlayerId = _localPlayerId,
+                Sequence = ++_nextPlayerStateSequence,
                 PosX = pos.x,
                 PosY = pos.y,
                 PosZ = pos.z,
                 VelX = vel.x,
                 VelZ = vel.z,
                 LocomotionState = (byte)PlayerAnimationSnapshot.ReadLocomotion(local),
-                FlipX = false, // ponytail: game uses rotation, not sprite mirror
+                FlipX = false, // The game uses rotation for this pose.
                 Running = local.running && !DeathStateTracker.LocalNightDeath,
                 LegFacingY = PlayerAnimationSnapshot.ReadLegFacingY(local),
                 ReverseLegs = PlayerAnimationSnapshot.ReadReverseLegs(local),
@@ -1114,8 +1156,8 @@ namespace DWMPHorde.Networking
 
             PackContinuousLights(ref msg, local);
 
-            // Never skip PlayerState for "loading" peers — that is how proxies appear.
-            // Dual-box: client had [Light] RX drop p1 proxy=null and never Created proxy for host
+            // Continue sending PlayerState to loading peers so their proxies
+            // can be created before the rest of the join traffic.
             // while host muted PlayerState under skipLoadingPeers during world share / phase-3 mute.
             Broadcast(NetMessageType.PlayerState, w => msg.Serialize(w),
                 skipLoadingPeers: false);
@@ -1128,7 +1170,7 @@ namespace DWMPHorde.Networking
 
                 // While inside, send LocationEnter every 30 frames (~1 Hz) so the
                 // receiver can retry after an async location spawn completes.
-                // Dreams: one-shot on enter/rename only — ~1 Hz flooded peers (~180/dream).
+                // Dreams: send once on enter or rename instead of every tick.
                 _locationSyncCounter++;
                 bool dreamLocActive = Sync.DreamSyncManager.IsDreamActive;
                 bool locChanged = !_previousInOutsideLocation || locName != _previousLocationName;
@@ -1138,7 +1180,8 @@ namespace DWMPHorde.Networking
                     _locationSyncCounter = 0;
                     if (!string.IsNullOrEmpty(locName))
                     {
-                        // Live dream pad — never advertise vanilla *_done rename mid-session.
+                        // Use the live dream pad name during the session, not the
+                        // vanilla completed-location name.
                         string txName = dreamLocActive
                             ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
                             : locName;
@@ -1202,7 +1245,8 @@ namespace DWMPHorde.Networking
                 // Keep scrape authority so host PhysicsState / DragSync echo cannot arm MOS.
                 DWMPHorde.Audio.ItemMovingSoundHelper.NoteLocalPushAuthority(_lastDraggedItemName);
 
-                // Scrape intent = player walking (same gate as body-push). Not object pos delta —
+                // Scrape intent follows player movement, using the same gate as
+                // body push rather than object position delta.
                 // hinge jitter kept scrape armed for observers after the host stopped walking.
                 float hSpeed = 0f;
                 if (local.Rigidbody != null)
@@ -1238,7 +1282,7 @@ namespace DWMPHorde.Networking
                     ClaimedByPlayerId = _localPlayerId,
                     ScrapeActive = _dragScrapeActive
                 };
-                // Quiet scrape stop must be reliable — Unreliable quiet ticks were lost and
+                // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
                 // observers kept the last NoteMoving loop until full release.
                 var dragDelivery = _dragScrapeActive
                     ? DeliveryMethod.Unreliable
@@ -1254,7 +1298,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Intentional E-drag release — same frame as vanilla <c>Item.stopDragging</c>.
+        /// Intentional E-drag release, in the same frame as vanilla
+        /// <c>Item.stopDragging</c>.
         /// Push stop is frame-perfect via <see cref="ItemMovingSoundHelper.TickLocalPushScrapeStop"/>;
         /// drag used to wait for the next 30 Hz PlayerState tick, so observers heard scrape longer.
         /// Reliable DragSync stop + local ForceStop; host also emits body-push stop signal so
@@ -1297,7 +1342,8 @@ namespace DWMPHorde.Networking
             if (!string.IsNullOrEmpty(endedName))
             {
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(endedName);
-                // Local free-body hold (host) after our own drag — free the RB for peers.
+                // Release the host rigidbody hold after our own drag so peers
+                // can interact with it.
                 Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(endedName);
                 // Host: dual-path intentional stop (PlayerAudio IsStopSignal) so residual
                 // PhysicsState after claim release cannot keep scrape armed on peers.
@@ -1487,7 +1533,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Build a complete packet with a stack-local writer so nested Send/Broadcast
-        /// from writeBody callbacks cannot corrupt a shared buffer (P0.5).
+        /// from writeBody callbacks cannot corrupt a shared buffer.
         /// </summary>
         private static byte[] BuildPacket(NetMessageType type, Action<NetWriter> writeBody)
         {
@@ -1588,7 +1634,7 @@ namespace DWMPHorde.Networking
                 Send(type, writeBody, method);
         }
 
-        /// <summary>Host: joiner is downloading / applying / LoadScene — do not flood them.</summary>
+        /// <summary>Host: joiner is downloading, applying, or loading a scene.</summary>
         public void MarkPeerLoadingWorld(int playerId)
         {
             if (_role != NetworkRole.Host || playerId <= 1)
@@ -1620,7 +1666,7 @@ namespace DWMPHorde.Networking
             return playerId > 1 && _peersCoopReconnect.Contains(playerId);
         }
 
-        /// <summary>Host: joiner sent first in-world PlayerState — safe for gameplay traffic.</summary>
+        /// <summary>Host: joiner sent its first in-world PlayerState.</summary>
         public void MarkPeerGameplayReady(int playerId)
         {
             if (_role != NetworkRole.Host || playerId <= 1)
@@ -1719,7 +1765,7 @@ namespace DWMPHorde.Networking
             {
                 playerId = _nextPlayerId++;
                 _peers[playerId] = peer;
-                // Do NOT clear _handshakeComplete when additional peers join — that
+                // Keep _handshakeComplete set when additional peers join; that
                 // froze PlayerState/drag traffic for every already-ready client.
                 // Only block gameplay until the first peer completes handshake.
                 if (_handshakedPeers.Count == 0)
@@ -2247,7 +2293,8 @@ namespace DWMPHorde.Networking
                                 var fwd = RemotePlayerForwardMessage.Deserialize(new NetReader(payload));
                                 // Host trust: only the original player may ask the host to re-broadcast
                                 // their own message. A claimed OriginalPlayerId that differs from the
-                                // actual sender is impersonation — drop it.
+                                // The actual sender does not match the claimed identity.
+                                // Drop the forward.
                                 if (_role == NetworkRole.Host && fwd.OriginalPlayerId != _currentReceivePlayerId)
                                 {
                                     ModLog.Warn(LogCat.Network,
@@ -2357,9 +2404,14 @@ namespace DWMPHorde.Networking
                             break;
                     }
                 }
-                catch (Exception ex)
+                catch (InvalidDataException ex)
                 {
-                    ModLog.Error(LogCat.Network, $"Error handling {type}", ex);
+                    ModLog.Warn(
+                        LogCat.Network,
+                        "Rejected malformed " + type + " packet from p"
+                        + _currentReceivePlayerId + " (" + (payload != null ? payload.Length : 0)
+                        + " bytes): " + ex.Message);
+                    return;
                 }
                 finally
                 {
@@ -2381,7 +2433,8 @@ namespace DWMPHorde.Networking
                     if (fwdKind == ForwardableKind.Direct)
                     {
                         // Direct rebroadcast must be reliable (default SendToAllExcept is Unreliable).
-                        // PutRaw: payload is already the message body — length-prefix would break deserializers (3+ peers).
+                        // PutRaw is already the message body; adding a length
+                        // prefix would break deserializers.
                         SendToAllExcept(_currentReceivePlayerId, type, w => w.PutRaw(payload),
                             DeliveryMethod.ReliableOrdered);
                     }

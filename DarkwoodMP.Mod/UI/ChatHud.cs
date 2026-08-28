@@ -10,12 +10,12 @@ namespace DWMPHorde
 {
     /// <summary>
     /// Yokyy-style in-game chat. Ctrl+C opens; Enter/KeypadEnter sends; Esc closes.
-    /// Send/close must work from both Update (raw input) and OnGUI (IMGUI events) —
+    /// Send and close must work from both Update (raw input) and OnGUI (IMGUI events);
     /// IMGUI alone often swallows KeyDown so Enter appeared dead.
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
     {
-        /// <summary>ponytail: chat off for now — set true to re-enable co-op chat.</summary>
+        /// <summary>Chat is disabled by default; enable it for co-op chat.</summary>
         public static bool Enabled = false;
 
         private const string InputControlName = "YokWareChat";
@@ -61,7 +61,7 @@ namespace DWMPHorde
         {
             if (!Enabled) return;
 
-            // Open/close toggle — either Ctrl works (Yokyy was Left only).
+            // Open/close toggle; either Ctrl key works.
             if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                 && Input.GetKeyDown(KeyCode.C))
             {
@@ -97,7 +97,7 @@ namespace DWMPHorde
         {
             if (!Enabled) return;
 
-            // Session status strip (HOST/CLIENT/peers) removed — was always-on top-left clutter.
+            // Session status strip (HOST/CLIENT/peers) was removed because it cluttered the corner.
             // Role/peers still live in F2 settings menu. Chat lines only while history exists.
 
             if (_lines.Count > 0)
@@ -113,7 +113,7 @@ namespace DWMPHorde
             if (!_inputOpen)
                 return;
 
-            // IMGUI path (same keys as Update) — consume events so game doesn't eat them.
+            // IMGUI path uses the same keys as Update; consume events so the game does not eat them.
             HandleGuiKeys();
 
             float w = Mathf.Min(520f, Screen.width - 40f);

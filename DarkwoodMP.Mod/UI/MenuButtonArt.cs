@@ -8,7 +8,7 @@ namespace DWMPHorde
 {
     /// <summary>
     /// Embedded title-button art (beveled MULTIPLAYER idle/hover).
-    /// CamUI looks down (Euler 90) — UI lives in screen-pixel XZ; size from row spacing,
+    /// CamUI looks down (Euler 90). UI lives in screen-pixel XZ; size comes from row spacing,
     /// not BoxCollider AABB.y (near-zero / undersized vs PLAY sprites).
     /// </summary>
     internal static class MenuButtonArt
@@ -117,7 +117,8 @@ namespace DWMPHorde
         }
 
         /// <summary>
-        /// UV rect (0–1) of idle texture opaque pixels — hitbox uses this, not full canvas padding.
+        /// UV rect (0–1) of idle texture opaque pixels. The hitbox uses this,
+        /// not the full canvas padding.
         /// </summary>
         public static bool TryGetIdleOpaqueUv(out float u0, out float v0, out float u1, out float v1)
         {

@@ -25,7 +25,7 @@ namespace DWMPHorde.Spectator
         public bool IsSpectating => _spectateTargetIndex >= 0;
         /// <summary>Position of the spectated target, used by Harmony culling patch.</summary>
         public Vector3? FollowTargetPosition => _followTarget != null ? (Vector3?)_followTarget.position : null;
-        /// <summary>Original player position before spectating — used by network sync to avoid pushing the remote player.</summary>
+        /// <summary>Original player position before spectating, used by network sync to avoid pushing the remote player.</summary>
         public Vector3? NetworkPositionOverride => _spectateTargetIndex >= 0 ? (Vector3?)_savedPlayerPosition : null;
 
         public static void EnsureExists()
@@ -187,7 +187,7 @@ namespace DWMPHorde.Spectator
             if (net == null || !net.IsConnected)
                 return;
 
-            // Prefer alive proxies, ordered by playerId for stable F4 cycle (P2.2)
+            // Prefer alive proxies, ordered by player ID for a stable F4 cycle.
             var targets = net.GetAllProxies()
                 .Where(p => p != null)
                 .OrderBy(p => p.PlayerId)
@@ -211,7 +211,7 @@ namespace DWMPHorde.Spectator
                 _spectateTargetIndex++;
                 if (_spectateTargetIndex >= targets.Count)
                 {
-                    // Night/dream death spectators should not auto-respawn via F4 wrap —
+                    // Night/dream death spectators should not auto-respawn via F4 wrap;
                     // only exit if local is actually allowed to leave spectator.
                     if (DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead)
                     {
@@ -232,7 +232,7 @@ namespace DWMPHorde.Spectator
                 return;
 
             var player = Player.Instance;
-            // Dead local player has FOV lights off (switchVisibilty) — copying them kills the cone.
+            // Dead local player has FOV lights off (switchVisibilty); copying them kills the cone.
             // Use spectator defaults for cone shape; flashlight stays network-driven on the proxy.
             bool localFovLive = player != null && player.alive
                 && !DeathStateTracker.LocalNightDeath
@@ -399,7 +399,7 @@ namespace DWMPHorde.Spectator
             _proxyVision = PlayerVisionController.From(proxyGo);
             if (_proxyVision != null)
             {
-                // Dead/night-death local FOV is inactive — SyncFovConeFrom would leave circle-only.
+                // Dead/night-death local FOV is inactive; SyncFovConeFrom would leave circle-only.
                 if (player.alive && !DeathStateTracker.LocalNightDeath
                     && player.FOVLogic != null && player.FOVLogic.gameObject.activeInHierarchy)
                 {
@@ -449,7 +449,7 @@ namespace DWMPHorde.Spectator
         }
 
         /// <summary>
-        /// Local body is teleported under the spectated peer — corpse get-up / CharacterSounds
+        /// Local body is teleported under the spectated peer; corpse get-up / CharacterSounds
         /// would play at the camera. Disable while spectating.
         /// </summary>
         private static void MuteLocalPlayerAudio(Player player, bool mute)

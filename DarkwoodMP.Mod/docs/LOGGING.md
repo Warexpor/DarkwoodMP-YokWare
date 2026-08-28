@@ -1,4 +1,4 @@
-# DWMP HORDE — Logging for public testers
+# DWMP Horde logging guide
 
 ## Defaults
 
@@ -9,7 +9,7 @@
 | `LogRedactIPs` | false (local dual-box) | Mask IPv4 in log lines when sharing packs |
 | `LogRedactPaths` | false (local dual-box) | Absolute paths → filename only |
 | `LogIncludeStacks` | true | Full stacks on Error |
-| `VerboseLogging` | false | **Deprecated** — forces Trace if preset is Public |
+| `VerboseLogging` | false | Deprecated compatibility switch; forces Trace when the preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
 
 Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) section **`[Logging]`**.  
@@ -22,9 +22,10 @@ Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) se
 | **Public** | Quiet play | Core, Network, Session, Dream, Death, Save Events |
 | **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container + **`[Perf]`** |
 | **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps (large logs) |
-| **Trace** | High-freq | All cats + Trace; **`VerboseLogging` gates** — *not* LegacyInfo |
+| **Trace** | High-freq | All categories plus Trace; **`VerboseLogging` gates** it, not `LegacyInfo` |
 
-**Important:** `ModRuntime.LegacyInfo` runs **only when LogPreset=Dev**. Trace does **not** enable LegacyInfo.
+**Important:** `ModRuntime.LegacyInfo` runs only when `LogPreset=Dev`.
+Trace does not enable it.
 
 ## Stutter / hitch triage (dual-box)
 
@@ -87,4 +88,4 @@ Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) se
 - Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)`.  
 - `LegacyInfo` = Dev only.  
 - Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so Support packs still work.  
-- Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias — Host + Client when connected.
+- Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias on both roles when connected.

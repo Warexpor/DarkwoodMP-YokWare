@@ -14,14 +14,14 @@ namespace DWMPHorde
             => isConnected && isClient;
 
         /// <summary>
-        /// When applying host TimeSync, only update clock UI / ambient — do not
+        /// When applying host TimeSync, only update clock UI and ambient. Do not
         /// call refreshTime() which fires startDay / startAfterNight / night setMe.
         /// </summary>
         public static bool ShouldUseRefreshTimeNoLogicOnClientSync => true;
     }
 
     /// <summary>
-    /// Dialog outcome buckets. Physical bag stays speaker-personal (C2).
+    /// Dialog outcome buckets. Physical bag rewards stay speaker-personal.
     /// Journal identity and session mutations are host-authoritative.
     /// </summary>
     public static class DialogApplyPolicy
@@ -52,7 +52,7 @@ namespace DWMPHorde
         public const string TypeDontTweenBlack = "dontTweenBlackScreenWhenExiting";
         public const string TypeSwitchToDialogue = "switchToDialogue";
 
-        /// <summary>Physical bag give/remove — speaker only; host suppresses on remote apply.</summary>
+        /// <summary>Physical bag give/remove is speaker-only; the host suppresses remote apply.</summary>
         public static bool IsPersonalRewardType(string outcomeType)
         {
             if (string.IsNullOrEmpty(outcomeType)) return false;
@@ -66,7 +66,7 @@ namespace DWMPHorde
             }
         }
 
-        /// <summary>Shared journal identity — host apply + JournalItem fan-out.</summary>
+        /// <summary>Shared journal identity is applied by the host and fanned out through JournalItem.</summary>
         public static bool IsWorldJournalOutcomeType(string outcomeType)
         {
             if (string.IsNullOrEmpty(outcomeType)) return false;
@@ -106,7 +106,7 @@ namespace DWMPHorde
             }
         }
 
-        /// <summary>Speaker UI / cook / close — do not open cook menu on host remote apply.</summary>
+        /// <summary>Speaker UI, cooking, and closing. Do not open the cook menu during host remote apply.</summary>
         public static bool IsSpeakerPresentationOutcomeType(string outcomeType)
         {
             if (string.IsNullOrEmpty(outcomeType)) return false;
@@ -127,7 +127,7 @@ namespace DWMPHorde
             }
         }
 
-        /// <summary>Model C: morning traders keep per-player standing.</summary>
+        /// <summary>Morning traders keep per-player standing.</summary>
         public static bool IsPerPlayerReputationNpcName(string npcName)
         {
             if (string.IsNullOrEmpty(npcName)) return false;
@@ -224,8 +224,8 @@ namespace DWMPHorde
         }
 
         /// <summary>
-        /// Multi-NPC map simulation: after P1 holds wolfman and P2 holds doctor,
-        /// P2 must still be denied wolfman (does not overwrite).
+        /// Multi-NPC map simulation: holding one NPC must not overwrite another
+        /// NPC's lock.
         /// </summary>
         public static bool SimulateMultiNpcAcquire(
             System.Collections.Generic.Dictionary<string, int> owners,
@@ -298,7 +298,7 @@ namespace DWMPHorde
     /// <summary>
     /// Co-op loot share: the disarm double must only fire for the exact item being
     /// disarmed. A global "arm in progress" bool wrongly doubles any pickup that
-    /// arrives while a disarm is in flight — so the decision is type-scoped.
+        /// arrives while a disarm is in flight, so the decision is type-scoped.
     /// </summary>
     public static class LootPolicy
     {
@@ -348,7 +348,8 @@ namespace DWMPHorde
 
     /// <summary>
     /// Host crash → elect new host among survivors (lowest player id).
-    /// Pure policy — no Unity. n+ peers: deterministic so each survivor elects the same id offline.
+        /// Pure policy with no Unity dependencies. The result is deterministic
+        /// so every survivor elects the same ID.
     /// </summary>
     public static class HostMigrationPolicy
     {
@@ -371,7 +372,8 @@ namespace DWMPHorde
             => localPlayerId > 0 && electedId > 0 && localPlayerId == electedId;
 
         /// <summary>
-        /// Join offline-load / title: do not steal host grant — session is not mid-coop play.
+        /// Join offline-load or title: do not steal the host grant because the
+        /// session is not in active co-op play.
         /// </summary>
         public static bool ShouldAttemptMigration(
             bool featureEnabled,
@@ -434,5 +436,69 @@ namespace DWMPHorde
                 return name.Substring(0, name.Length - 5);
             return name;
         }
+    }
+
+    /// <summary>
+    /// Ordering rules for unreliable state snapshots. Sequence numbers are scoped
+    /// to one sender and one session; unsigned serial arithmetic keeps wraparound
+    /// deterministic without requiring synchronized clocks.
+    /// </summary>
+    public static class SnapshotSequencePolicy
+    {
+        public static bool IsNewer(uint candidate, uint last, bool hasLast)
+        {
+            if (!hasLast) return true;
+            if (candidate == last) return false;
+            return unchecked(candidate - last) < 0x80000000u;
+        }
+    }
+
+    /// <summary>Pure validation shared by host combat handlers and tests.</summary>
+    public static class CombatAuthorityPolicy
+    {
+        public static bool IsValidPlayerId(int playerId) => playerId > 0;
+
+        public static bool IsFinite(float value)
+            => !float.IsNaN(value) && !float.IsInfinity(value);
+
+        public static bool IsFinitePosition(float x, float y, float z)
+            => IsFinite(x) && IsFinite(y) && IsFinite(z);
+
+        public static bool IsValidMeleeTargetType(byte targetType)
+            => targetType <= 2;
+
+        public static bool IsWithinRange(
+            float fromX, float fromY, float fromZ,
+            float toX, float toY, float toZ,
+            float maxRange)
+        {
+            if (!IsFinitePosition(fromX, fromY, fromZ)
+                || !IsFinitePosition(toX, toY, toZ)
+                || !IsFinite(maxRange) || maxRange < 0f)
+                return false;
+
+            float dx = toX - fromX;
+            float dy = toY - fromY;
+            float dz = toZ - fromZ;
+            return dx * dx + dy * dy + dz * dz <= maxRange * maxRange;
+        }
+    }
+
+    /// <summary>
+    /// Dream objects must be resolved under the active dream Location. A global
+    /// name fallback is unsafe because overworld and dream copies share names.
+    /// </summary>
+    public static class DreamResolutionPolicy
+    {
+        public static bool CanUseGlobalNameFallback(bool dreamActive)
+            => !dreamActive;
+    }
+
+    /// <summary>Component-level AI suppression must not depend on Character lookup.</summary>
+    public static class AiSuppressionPolicy
+    {
+        public static bool ShouldSuppressClientComponent(
+            bool isClient, bool isRemotePlayer, bool isLocalPlayer)
+            => isClient && !isRemotePlayer && !isLocalPlayer;
     }
 }

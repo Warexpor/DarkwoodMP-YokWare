@@ -255,7 +255,7 @@ namespace DWMPHorde.Sync
             {
                 if (_byId.TryGetValue(id, out Character c) && c != null)
                     return c;
-                // Stale reverse entry or pre-map list — fall back once and repair.
+                // Stale reverse entry or pre-map list; fall back once and repair.
                 for (int i = 0; i < _characters.Count; i++)
                 {
                     Character ch = _characters[i];
@@ -383,7 +383,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Network-stop safe reset: drop ID maps and null refs, keep live characters in the list,
-        /// then rescan the scene so host can remint IDs without a combat gap (polish P0.2).
+        /// then rescan the scene so the host can remint IDs without a combat gap.
         /// </summary>
         public static void ResetForNetworkStop()
         {

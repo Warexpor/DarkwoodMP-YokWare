@@ -23,7 +23,7 @@ namespace DWMPHorde.Networking
     public sealed class WorldSaveShareService
     {
         public const int ChunkSize = 16 * 1024;
-        /// <summary>Keep low — dual-box + ReliableOrdered flood stalls host framerate hard.</summary>
+        /// <summary>Keep low. Dual-box ReliableOrdered traffic can stall the host.</summary>
         private const int MaxChunksPerFrame = 2;
         private const float HostWaitForSaveSeconds = 2.5f;
         private const int MinProfileId = 1;
@@ -74,7 +74,7 @@ namespace DWMPHorde.Networking
         public bool IsAwaitingSlotPick => _awaitingSlotPick;
         /// <summary>World package written; client must click ENTER WORLD to offline-load.</summary>
         public bool IsAwaitingEnterWorld => _awaitingEnterWorld;
-        /// <summary>Terminal share failure — do not allow ENTER WORLD.</summary>
+        /// <summary>Terminal share failure; do not allow ENTER WORLD.</summary>
         public bool HasTerminalShareFailure =>
             WorldSharePolicy.IsShareFailureTerminal
             && WorldSharePolicy.IsShareFailureMessage(ProgressText);
@@ -116,7 +116,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host only: manual F2 resend — force-save then push (user initiated, hitch is OK).
+        /// Host only: manual F2 resend. Force-save, then push; a user-initiated hitch is acceptable.
         /// </summary>
         public void ScheduleHostResend()
         {
@@ -218,7 +218,7 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            // Resolve profile dir first — prefer sharing already-on-disk saves without a
+            // Resolve the profile directory first. Prefer sharing already-on-disk saves without a
             // full force Save (Save freezes the host for seconds on dual-box + large worlds).
             int profileId = GetHostProfileId();
             if (profileId < MinProfileId || profileId > MaxProfileId)
@@ -277,7 +277,7 @@ namespace DWMPHorde.Networking
             // Force Save() freezes the host for seconds ("Save static"). Prefer on-disk when
             // sav.dat + savs.dat are a consistent pair. Skewed pairs (e.g. only dynamic written)
             // make client SaveManager.Load NRE with "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"
-            // and leave loadingGame stuck — phase-3 reconnect never fires.
+            // and leave loadingGame stuck, preventing phase-3 reconnect.
             // waitForGameSave / manual resend always force; late-join forces only when needed.
             bool forceForConsistency = !waitForGameSave && hasAnyFiles
                 && OnDiskSavPairNeedsForceSave(savPath, savsPath);
@@ -359,7 +359,7 @@ namespace DWMPHorde.Networking
 
             LogSavPairTimestamps(savPath, savsPath);
 
-            // Pack one file per frame — ReadAllBytes+Deflate of ~9MB savs.dat on one frame
+            // Pack one file per frame. ReadAllBytes plus Deflate of the save file on one frame
             // freezes the host mid-game (the hitch users call an "event"). Horde Resend
             // only ran when the host wasn't mid-combat dual-box load.
             var files = new List<PackedFile>();
@@ -376,7 +376,7 @@ namespace DWMPHorde.Networking
                 _net.StatusText = ProgressText;
                 yield return null;
 
-                // Read+Deflate off the main thread — 9MB savs.dat Deflate was a ~400ms+ hitch.
+                // Read and Deflate off the main thread to avoid a long main-thread hitch.
                 byte[] raw = null;
                 Exception ioEx = null;
                 bool ioDone = false;
@@ -586,14 +586,14 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
 
-            // Already in chapter — ignore resend (would LoadScene and wipe the session).
+            // Already in chapter; ignore resend because it would LoadScene and wipe the session.
             if (!Core.mainMenu && Player.Instance != null)
             {
                 ModLog.Event(LogCat.Save, "Ignoring world share begin — already in game");
                 return;
             }
 
-            // Already have package / permanent copy ready — ignore duplicate host resends
+            // Already have the package or permanent copy ready; ignore duplicate host resends
             // (title-wait WorldRequest used to force a second download + overwrite).
             if (_awaitingSlotPick || _awaitingEnterWorld)
             {
@@ -608,7 +608,7 @@ namespace DWMPHorde.Networking
             _awaitingSlotPick = false;
             _awaitingEnterWorld = false;
             _pendingBegin = msg;
-            // Host profile id is metadata only — client picks a permanent local slot after download.
+            // Host profile ID is metadata only; the client picks a permanent local slot after download.
             _hostSourceProfileId = msg.ProfileId;
             if (_hostSourceProfileId < MinProfileId || _hostSourceProfileId > MaxProfileId)
                 _hostSourceProfileId = 0;
@@ -683,7 +683,7 @@ namespace DWMPHorde.Networking
             _net.StatusText = ProgressText;
             yield return null;
 
-            // Verify chunks — hold in RAM until user picks a permanent local profile slot.
+            // Verify chunks, then hold them in RAM until the user picks a permanent local profile slot.
             for (int i = 0; i < _pendingBegin.FileCount; i++)
             {
                 if (!_chunkBuffers.TryGetValue(i, out byte[][] chunks))
@@ -701,7 +701,7 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            // Fingerprint uncompressed package vs local permanent copies — skip overwrite
+            // Compare the uncompressed package with local permanent copies; skip overwrite
             // when the client already has the exact same world save on disk.
             ProgressText = "Checking for matching local world…";
             if (_net != null)
@@ -873,7 +873,7 @@ namespace DWMPHorde.Networking
             return 0;
         }
 
-        /// <summary>Snapshot of PLAY slots 1–5 for the join mid-menu.</summary>
+        /// <summary>Snapshot of PLAY slots 1–5 for the join menu.</summary>
         public ProfileSlotInfo[] GetProfileSlotInfos()
         {
             var result = new ProfileSlotInfo[MaxProfileId - MinProfileId + 1];
@@ -1204,7 +1204,7 @@ namespace DWMPHorde.Networking
 
         private void FailClientApply(string reason)
         {
-            // Audit C4: fail-loud — never silently continue into a divergent forest.
+            // Stop rather than silently continuing into a different world.
             string loud = WorldSharePolicy.FormatShareFailure(reason);
             ModLog.Error(LogCat.Save, "Failed to apply host world: " + reason);
             ProgressText = loud;
@@ -1282,7 +1282,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Merge <paramref name="slot"/> into the real on-disk profile list, then save.
-        /// Never call bare saveGameProfiles() with a partial Core.profiles — that wipes PLAY slots.
+        /// Never call bare saveGameProfiles() with a partial Core.profiles; that wipes PLAY slots.
         /// </summary>
         private static void MergeProfileIntoDiskIndexAndSave(GameProfile slot)
         {
@@ -1389,7 +1389,7 @@ namespace DWMPHorde.Networking
 
             try
             {
-                // Prefer private GetProfiles() — same as Yokyy; returns MainMenu.SaveState with .profiles
+                // Prefer private GetProfiles(), which matches Yokyy and returns MainMenu.SaveState with .profiles
                 var getProfiles = typeof(SaveManager).GetMethod("GetProfiles",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (getProfiles != null)

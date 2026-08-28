@@ -81,7 +81,7 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Peer world SFX gate with XZ + hysteresis. Enter at <paramref name="maxDistance"/>,
-        /// exit at max+<see cref="PeerHearHysteresis"/> — stops footstep Play flicker at the edge.
+        /// exit at max+<see cref="PeerHearHysteresis"/>; stops footstep Play flicker at the edge.
         /// </summary>
         public static bool IsPeerAudioInRange(int peerId, Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
         {
@@ -351,7 +351,7 @@ namespace DWMPHorde.Audio
         }
 
         /// <param name="suppressFootsteps">
-        /// When true (player-origin sounds), block footstep IDs — remotes use
+        /// When true (player-origin sounds), block footstep IDs; remotes use
         /// HandleProxyFootstep. When false (enemy/world), footsteps are network-audible.
         /// </param>
         public static bool IsPersonalOrUiSound(string audioID, bool suppressFootsteps = true)
@@ -375,7 +375,7 @@ namespace DWMPHorde.Audio
         /// <summary>
         /// World ambients/loops that vanilla parents to <see cref="Player"/> only so the
         /// listener carries them (SoundArea onlyOneInstance, RandomWorldSounds global,
-        /// forest outside beds). Must stay local — networking them makes the remote
+        /// forest outside beds). Must stay local; networking them makes the remote
         /// player hear forest ambients from the host proxy position.
         /// </summary>
         public static bool IsWorldAmbientLocalOnly(string audioID)
@@ -419,7 +419,7 @@ namespace DWMPHorde.Audio
             }
             catch
             {
-                // Audio system not ready — do not block (fail open for real player SFX).
+            // Audio system not ready; do not block (fail open for real player SFX).
             }
 
             return false;

@@ -28,7 +28,7 @@ namespace DWMPHorde
 
         /// <summary>
         /// Legacy high-frequency dumps (entity/physics/container).
-        /// <b>Dev only</b> — Trace still gets ModLog.Event join/session lines without
+        /// <b>Dev only</b>. Trace still gets ModLog.Event join/session lines without
         /// multi-MB LogOutput.log spam (Physics/HostEntitySync were ~10MB in minutes).
         /// </summary>
         public static void LegacyInfo(string message)
@@ -100,7 +100,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
                 NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
                 NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
-                // Session maps that previously leaked across reconnects (0.5 audit)
+                // Clear session maps so they cannot leak across reconnects.
                 NetworkResetRegistry.Register(ListTracker<Door>.Clear);
                 NetworkResetRegistry.Register(ListTracker<Generator>.Clear);
                 NetworkResetRegistry.Register(HostCheckStuffPatch.Reset);
@@ -119,7 +119,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(PeerItemPresence.Reset);
                 NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);
                 NetworkResetRegistry.Register(StationSyncHelpers.Reset);
-                // Chapter resume pending must survive StopNetwork during chapter tear —
+                // Chapter resume pending must survive StopNetwork during chapter tear;
                 // do NOT register ChapterSessionResume.Reset on network stop.
 
                 ChapterSessionResume.EnsureSceneHook();

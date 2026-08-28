@@ -5,7 +5,7 @@ namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
 /// Unit tests drive shipped pure policy helpers (no Unity).
-/// Structural tests in AuditStructureTests pin the Harmony/handler wiring.
+/// Other tests pin message contracts and handler wiring.
 /// </summary>
 public class CoopPolicyTests
 {
@@ -123,12 +123,12 @@ public class CoopPolicyTests
         Assert.Equal(1, owners["wolfman"]);
         Assert.Equal(2, owners["doctor"]);
 
-        // P2 tries wolfman while P1 still holds it — deny; map unchanged.
+        // P2 tries wolfman while P1 still holds it; deny and leave the map unchanged.
         Assert.False(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "wolfman", 2, now));
         Assert.Equal(1, owners["wolfman"]);
         Assert.Equal(2, owners["doctor"]);
 
-        // P1 renews wolfman — ok
+        // P1 renews wolfman successfully.
         Assert.True(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "wolfman", 1, now));
         Assert.Equal(1, owners["wolfman"]);
     }
@@ -247,5 +247,59 @@ public class CoopPolicyTests
         Assert.Equal(2, NightDeathPolicy.SessionRemoteCount(proxyCount: 1, handshakedRemoteCount: 2));
         Assert.Equal(2, NightDeathPolicy.SessionRemoteCount(proxyCount: 2, handshakedRemoteCount: 1));
         Assert.Equal(0, NightDeathPolicy.SessionRemoteCount(proxyCount: 0, handshakedRemoteCount: 0));
+    }
+
+    [Fact]
+    public void SnapshotSequence_RejectsDuplicatesAndOlderPackets()
+    {
+        Assert.True(SnapshotSequencePolicy.IsNewer(10, 0, hasLast: false));
+        Assert.True(SnapshotSequencePolicy.IsNewer(11, 10, hasLast: true));
+        Assert.False(SnapshotSequencePolicy.IsNewer(10, 10, hasLast: true));
+        Assert.False(SnapshotSequencePolicy.IsNewer(9, 10, hasLast: true));
+    }
+
+    [Fact]
+    public void SnapshotSequence_HandlesUnsignedWraparound()
+    {
+        Assert.True(SnapshotSequencePolicy.IsNewer(1, uint.MaxValue, hasLast: true));
+        Assert.False(SnapshotSequencePolicy.IsNewer(uint.MaxValue, 1, hasLast: true));
+    }
+
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    public void CombatAuthority_ValidatesPlayerIdentity(int playerId, bool valid)
+    {
+        Assert.Equal(valid, CombatAuthorityPolicy.IsValidPlayerId(playerId));
+    }
+
+    [Fact]
+    public void CombatAuthority_RejectsMalformedPositionsAndUnknownActions()
+    {
+        Assert.False(CombatAuthorityPolicy.IsFinitePosition(float.NaN, 0f, 0f));
+        Assert.False(CombatAuthorityPolicy.IsFinitePosition(0f, float.PositiveInfinity, 0f));
+        Assert.True(CombatAuthorityPolicy.IsValidMeleeTargetType(2));
+        Assert.False(CombatAuthorityPolicy.IsValidMeleeTargetType(3));
+        Assert.True(CombatAuthorityPolicy.IsWithinRange(0f, 0f, 0f, 3f, 0f, 4f, 5f));
+        Assert.False(CombatAuthorityPolicy.IsWithinRange(0f, 0f, 0f, 6f, 0f, 0f, 5f));
+    }
+
+    [Fact]
+    public void ComponentGuards_DoNotRequireCharacterLookup()
+    {
+        Assert.True(AiSuppressionPolicy.ShouldSuppressClientComponent(
+            isClient: true, isRemotePlayer: false, isLocalPlayer: false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(
+            isClient: true, isRemotePlayer: true, isLocalPlayer: false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(
+            isClient: false, isRemotePlayer: false, isLocalPlayer: false));
+    }
+
+    [Fact]
+    public void DreamResolution_DisablesGlobalNamesDuringDream()
+    {
+        Assert.False(DreamResolutionPolicy.CanUseGlobalNameFallback(dreamActive: true));
+        Assert.True(DreamResolutionPolicy.CanUseGlobalNameFallback(dreamActive: false));
     }
 }

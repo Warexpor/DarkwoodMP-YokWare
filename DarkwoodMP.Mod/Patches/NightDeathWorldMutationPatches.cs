@@ -4,7 +4,7 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Audit H3: partial night death must not run SP world mutations
+    /// Partial night death must not run single-player world mutations.
     /// (home transport, enemy respawn) that soft-desync the living peer's night.
     /// skipDay/Save already suppressed; these close the remaining onDeath side effects.
     /// </summary>

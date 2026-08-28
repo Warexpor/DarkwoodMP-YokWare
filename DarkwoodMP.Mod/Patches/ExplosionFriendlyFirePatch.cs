@@ -20,7 +20,7 @@ namespace DWMPHorde.Patches
     public static class ExplosionFriendlyFirePatch
     {
         // Host player health snapshot so an FF-off remote teammate blast can be rolled back
-        // (vanilla explode() damages Player.Instance directly — the proxy loop below can't spare it).
+        // Vanilla explode() damages Player.Instance directly; the proxy loop below cannot spare it.
         private static float _hostHealthBefore;
         private static bool _hostAliveBefore;
 

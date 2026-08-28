@@ -37,7 +37,7 @@ namespace DWMPHorde.Players
         private bool _networkReverseLegs;
         private bool _hasNetworkLegFacing;
 
-        // True after FeetNeutral has fired during idle — guards against rotating
+        // True after FeetNeutral has fired during idle; guards against rotating
         // the legs while the walk animation is still cycling to its neutral frame.
         private bool _feetNeutralReached;
 
@@ -191,7 +191,7 @@ namespace DWMPHorde.Players
 
             if (!ep.typesDict.TryGetValue(clipName, out var entry))
             {
-                // One log per missing clip name — torch flame stuck wrong = usually this.
+                // One log per missing clip name; a wrong torch flame usually indicates this.
                 if (!string.Equals(_lastEmitterClipMiss, clipName, System.StringComparison.Ordinal))
                 {
                     _lastEmitterClipMiss = clipName;
@@ -272,7 +272,7 @@ namespace DWMPHorde.Players
             else if (state == LocomotionState.Idle)
             {
                 // Don't interrupt transient non-looping clips (e.g. Hit1/Hit2
-                // from PlayerAnimationMessage) — let them play to completion.
+                // from PlayerAnimationMessage); let them play to completion.
                 bool transientPlaying = _torsoAnimator != null && _torsoAnimator.Playing
                     && _torsoAnimator.CurrentClip != null
                     && _torsoAnimator.CurrentClip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Once;
@@ -431,11 +431,11 @@ namespace DWMPHorde.Players
 
             // Only skip if the animator is already actively playing this clip.
             // Allows replay when a non-looping clip finishes and restarts
-            // (e.g. double barrel reload loop — same clip plays twice).
+            // (for example, double-barrel reload loop; the same clip plays twice).
             if (_torsoAnimator.Playing && _torsoAnimator.CurrentClip?.name == clipName)
                 return;
 
-            // Prevent replay of death clips once played to completion —
+            // Prevent replay of death clips once played to completion;
             // the host sends "Death1"/"Death2" every 30ms in PlayerStateMessage,
             // but the non-looping clip finishes and restarts endlessly.
             if ((clipName == "Death1" || clipName == "Death2") && _deathClipPlayed)
@@ -524,7 +524,7 @@ namespace DWMPHorde.Players
 
         /// <summary>
         /// Mirrors Player.setLegsFPS rates (10 drag / 17 walk) on the *proxy
-        /// animator only*. Do not mutate shared library clip.fps — the local
+        /// animator only*. Do not mutate shared library clip.fps; the local
         /// Player uses the same tk2dSpriteAnimation assets, and mutating them
         /// made one peer's drag rate bleed into the other.
         /// </summary>

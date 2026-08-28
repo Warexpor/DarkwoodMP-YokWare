@@ -30,13 +30,13 @@ namespace DWMPHorde.Networking
 
         private const float SnapshotInterval = 0.1f;
         private const float MaxInterpDelay = 0.3f;
-        /// <summary>Was 0.9s — give XZ claim/inactive match more time before phantom on save POIs.</summary>
+        /// <summary>Allow save-point entities time to match before creating a phantom.</summary>
         private const float PendingMatchTimeout = 1.5f;
         private const float MatchRadius = 25f;
-        /// <summary>Claim existing same-name NPC before AddPrefab phantom (save pos drift). Was 250 — claimed dogs at 214u.</summary>
+        /// <summary>Claim an existing same-name NPC before creating a phantom.</summary>
         private const float ClaimClosestRadius = 60f;
         private const float PhantomCleanupDelay = 5f;
-        /// <summary>Grace before destroying local-only NPCs inside interest (was 1s — too eager).</summary>
+        /// <summary>Grace before destroying local-only NPCs inside interest.</summary>
         private const float UnmatchedCleanupDelay = 3f;
         /// <summary>Unmatched ghost scan is not a per-frame job (was GetAll+ToArray every LateUpdate).</summary>
         private const float UnmatchedCleanupInterval = 2f;
@@ -74,6 +74,8 @@ namespace DWMPHorde.Networking
         private const float LocalHitEchoIgnoreSec = 0.35f;
         private static readonly HashSet<short> _localDeathSoundPlayed = new HashSet<short>();
         private static bool _receivedFirstSnapshot;
+        private static uint _lastSnapshotSequence;
+        private static bool _hasSnapshotSequence;
 
         /// <summary>Whether at least one entity snapshot has been received from the host.</summary>
         public static bool HasReceivedFirstSnapshot => _receivedFirstSnapshot;
@@ -107,8 +109,8 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// True if worldPos is near the local listen camera/player (client interest).
-        /// XZ only — Darkwood player Y is often ~-1984 while NPC/object Y differs by thousands;
-        /// 3D distance was skipping every entity snap (logs: applied=0 skip=N while co-op live).
+        /// XZ only. Darkwood objects can use different Y planes, so a 3D
+        /// distance check would reject valid snapshots.
         /// </summary>
         public static bool IsInClientInterest(Vector3 worldPos)
         {
@@ -120,6 +122,16 @@ namespace DWMPHorde.Networking
 
         public static void ApplySnapshot(EntityStateMessage msg)
         {
+            if (msg.Sequence == 0
+                || !_AcceptSnapshotSequence(msg.Sequence))
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo(
+                        "[Entity] stale or invalid snapshot rejected seq=" + msg.Sequence
+                        + " last=" + _lastSnapshotSequence);
+                return;
+            }
+
             if (msg.Entities == null || msg.Entities.Length == 0)
             {
                 if (_lastApplyCount > 0)
@@ -149,9 +161,8 @@ namespace DWMPHorde.Networking
                 if (!IsInClientInterest(targetPos))
                 {
                     StopDriving(e.Index);
-                    // Hide only when the *local* GO is also outside interest. Host target can
-                    // leave while the client still shows the last near pose (rabbit "vanishes
-                    // when I walk up"). Never hide corpses / dead.
+                    // Hide only when the local object is also outside interest.
+                    // Keep corpses and dead entities visible.
                     Character far = CharacterTracker.FindByStableId(e.Index);
                     if (far != null && far.gameObject != null && far.gameObject.activeSelf
                         && (_everHostSyncedIds.Contains(e.Index) || _spawnedPhantomIds.Contains(e.Index))
@@ -173,7 +184,7 @@ namespace DWMPHorde.Networking
                 Character c = CharacterTracker.FindByStableId(e.Index);
                 if (c != null)
                 {
-                    // Verify the matched entity's name matches — FindByStableId can return
+                    // Verify the matched entity's name. FindByStableId can return
                     // the wrong entity when local stable IDs collide with host IDs.
                     string cname = c.name;
                     if (cname.EndsWith("(Clone)"))
@@ -207,13 +218,13 @@ namespace DWMPHorde.Networking
                         continue;
                     }
 
-                    // Name mismatch — the stable ID hit a wrong local entity.
+                    // The stable ID matched a different local entity.
                     if (ModRuntime.VerboseLogging || (_snapshotCount % 100 == 0))
                         ModRuntime.LegacyInfo($"[Entity] stable ID collision: id={e.Index} found {c.name} but expected {e.EntityName}");
                     CharacterTracker.ClearId(c);
                 }
 
-                // Not found by ID — try position + name matching
+                // If the ID did not match, try position and name.
                 c = CharacterTracker.FindByPositionAndName(targetPos, e.EntityName, MatchRadius, _hostSyncedIds);
                 if (c != null)
                 {
@@ -227,7 +238,7 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                // Couldn't find locally — one pending entry per host id (no 10 Hz duplicates).
+                // Keep one pending entry per host ID until the local object exists.
                 if (!TryUpdatePending(e, targetPos))
                 {
                     _pendingMatches.Add(new PendingEntry
@@ -286,6 +297,15 @@ namespace DWMPHorde.Networking
                 if (skippedSb != null && skippedSb.Length > 0)
                     ModRuntime.LegacyInfo(skippedSb.ToString());
             }
+        }
+
+        private static bool _AcceptSnapshotSequence(uint sequence)
+        {
+            if (!SnapshotSequencePolicy.IsNewer(sequence, _lastSnapshotSequence, _hasSnapshotSequence))
+                return false;
+            _lastSnapshotSequence = sequence;
+            _hasSnapshotSequence = true;
+            return true;
         }
 
         /// <summary>Update existing pending row for host id; false if not yet pending.</summary>
@@ -427,7 +447,7 @@ namespace DWMPHorde.Networking
         {
             EnsureEntityAwake(c);
 
-            // Disable CharacterSounds on first snapshot — client AI is frozen, so
+            // Disable CharacterSounds on first snapshot. Client AI is frozen, so
             // local loops would never stop. Host broadcasts AI SFX via EntitySound
             // (growl/idle/attack/gethit/death) and enemy footsteps via PlayerAudio.
             // HandleEntitySound still calls CharacterSounds methods directly while
@@ -467,7 +487,7 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo($"[Entity] DETECTED DEATH: {c.name}(id={e.Index})");
                 c.die();
-                // Client Character.Update (processAnims) is AI-suppressed — die() never
+                // Client Character.Update (processAnims) is AI-suppressed, so die() does not
                 // starts the death clip. Host often later sends empty Clip after
                 // destroyComponents2 nukes the animator. Play death anim locally now.
                 EnsureDeathAnimation(c, e.Index, e.Clip, e.ClipFrame);
@@ -499,7 +519,8 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Drive client-side entity anim from host snapshot (1.2b).
         /// - On clip change: Play + snap to host frame (attack/hitreact/death start aligned).
-        /// - Alive + same clip: let tk2d advance at natural FPS (no 10 Hz SetFrame scrub —
+        /// - Alive + same clip: let tk2d advance at natural FPS instead of
+        ///   scrubbing the frame on every snapshot.
         ///   that killed attack windups and made hitreacts stutter).
         /// - Dead: play death clip once from frame 0; do not re-lock to empty host clip.
         /// Applies to root animator and Character.legsAnimator when present.
@@ -519,7 +540,7 @@ namespace DWMPHorde.Networking
 
             ApplyClipToAnimator(body, entityId, clip, clipFrame, alive: true, trackDeath: false);
 
-            // Dogs/NPCs wire animator.legs = legsAnimator — body Play drives linked legs.
+            // Dogs and NPCs link animator.legs to legsAnimator; body Play drives both.
             // Dual-Play(bodyClip) on legs freezes walk cycles (floaty roam until aggro).
             tk2dSpriteAnimator legs = null;
             try { legs = c.legsAnimator; } catch { /* dismantled */ }
@@ -656,7 +677,8 @@ namespace DWMPHorde.Networking
                             anim.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
                     }
                 }
-                // Alive + same clip + already Playing: natural playback — do not SetFrame every tick.
+                // Alive, same clip, and already playing: leave natural playback
+                // running.
             }
             else if (!anim.Playing)
             {
@@ -733,7 +755,7 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                // Timeout — first try to find and activate a real (inactive) entity,
+                // On timeout, first try to find and activate a real inactive entity,
                 // then claim closest same-name, then fall back to phantom.
                 if (now - p.TimeAdded > PendingMatchTimeout)
                 {
@@ -790,9 +812,8 @@ namespace DWMPHorde.Networking
                         continue;
                     }
 
-                    // Prefer claiming a nearby same-name local NPC (save / WorldGrid)
-                    // over AddPrefab — MatchRadius 15 missed drifted dogs → phantom +
-                    // stale local twin (client saw 4 dogs where host had 3).
+                    // Prefer claiming a nearby same-name local NPC from the
+                    // save or WorldGrid before creating a phantom.
                     Character closest = CharacterTracker.FindClosestByName(
                         p.EntityName, p.Position, _hostSyncedIds);
                     if (closest != null)
@@ -806,7 +827,8 @@ namespace DWMPHorde.Networking
                             _hostSyncedIds.Add(p.HostId);
                             _everHostSyncedIds.Add(p.HostId);
                             EnsureEntityAwake(closest);
-                            // Do NOT teleport on claim — host pose arrives via interp (save desync).
+                            // Do not teleport on claim; interpolation applies the
+                            // host pose.
                             if (ModRuntime.VerboseLogging || claimDist > MatchRadius)
                                 ModRuntime.LegacyInfo(
                                     $"[Entity] claimed closest local {p.EntityName}(id={p.HostId}) d={claimDist:F0}");
@@ -901,8 +923,7 @@ namespace DWMPHorde.Networking
                         && (!staleChar.alive || staleChar.GetComponent<Item>() != null
                             || _deathAnimationPlayed.Contains(id));
 
-                    // Never destroy lootable corpses (phantom cleanup was vanishing dog bodies
-                    // ~5s after client kill when host stopped streaming the dead Character).
+                    // Keep lootable corpses when host streaming stops.
                     if (isCorpse)
                     {
                         _staleKeys.Add(id);
@@ -930,9 +951,8 @@ namespace DWMPHorde.Networking
                     }
                     else if (!isPhantom && state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
                     {
-                        // Host stopped streaming (removeMe / left world). Previously we only
-                        // dropped interp state — _everHostSyncedIds kept the GO forever →
-                        // frozen crow/dog ghosts the host no longer has.
+                        // Host stopped streaming after removeMe or leaving the
+                        // world. Remove the stale local entity.
                         if (staleChar != null && staleChar.alive && staleChar.GetComponent<Item>() == null)
                         {
                             if (ModRuntime.VerboseLogging)
@@ -1010,14 +1030,14 @@ namespace DWMPHorde.Networking
             }
 
             // 3. Clean up unmatched client-only entities (rate-limited).
-            // Only cull inside client interest — far save NPCs must stay so claim can
+            // Only cull inside client interest. Far save NPCs must stay so claim can
             // map them when the player walks up (host streams at EntityActivationRange).
             if (!_receivedFirstSnapshot) return;
             if (now - _firstSnapshotTime < UnmatchedCleanupDelay) return;
             if (now < _nextUnmatchedCleanupTime) return;
             _nextUnmatchedCleanupTime = now + UnmatchedCleanupInterval;
 
-            // While pending claim/phantom pipeline is busy, do not destroy unmapped save locals —
+            // While pending claim/phantom processing is busy, do not destroy unmapped save locals;
             // they are the claim targets. Destroying them mid-storm caused mass desync at POIs.
             bool pendingBusy = _pendingMatches.Count > 0;
 
@@ -1050,7 +1070,7 @@ namespace DWMPHorde.Networking
                 // Client save NPCs with no host id: AI is frozen and they never
                 // receive EntityState → permanent stale dogs/crows. Destroy after grace
                 // once host has been streaming (same window as id'd unmatched).
-                // Skip while pending matches exist — those GOs are claim targets.
+                // Keep pending matches because those objects may still be claim targets.
                 if (!CharacterTracker.TryGetStableId(c, out short sid))
                 {
                     if (pendingBusy)
@@ -1139,7 +1159,7 @@ namespace DWMPHorde.Networking
                 return true;
 
             // Host-dead before we noted die() (late join / missed patch): allow after delay
-            // from first observation — TickClientCorpseSetup arms Note if needed.
+            // from first observation. TickClientCorpseSetup arms Note if needed.
             return false;
         }
 
@@ -1152,7 +1172,7 @@ namespace DWMPHorde.Networking
         private static float _firstSnapshotTime;
 
         /// <summary>
-        /// Host Character.removeMe — destroy the matching client GO immediately.
+        /// Host Character.removeMe; destroy the matching client GameObject immediately.
         /// </summary>
         public static void ApplyHostDespawn(short entityId)
         {
@@ -1188,8 +1208,8 @@ namespace DWMPHorde.Networking
 
             GameObject go = c.gameObject;
             bool isCorpse = !c.alive || c.GetComponent<Item>() != null;
-            // Fast path: already fully live — skip GetComponent thrash (called every 10 Hz snap).
-            // Corpses keep isActive=false after TickClientCorpseSetup — do not force-revive.
+            // Fast path: already fully live; skip repeated GetComponent calls.
+            // Corpses keep isActive=false after TickClientCorpseSetup; do not force-revive.
             if (go.activeSelf && c.enabled && (isCorpse || c.isActive))
             {
                 tk2dBaseSprite sp = c.sprite;
@@ -1201,7 +1221,7 @@ namespace DWMPHorde.Networking
                     sp.color = new Color(col.r, col.g, col.b, 1f);
                     return;
                 }
-                // No sprite ref yet — fall through once to wire anim/renderer.
+                // No sprite reference yet; fall through once to wire animation and renderer.
             }
 
             if (!go.activeSelf)
@@ -1308,7 +1328,7 @@ namespace DWMPHorde.Networking
             if (DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive)
             {
                 var dreamTf = DreamSyncManager.GetDreamLocationTransform();
-                // Pre-pad window: session active but dreamLocation not wired yet — reject phantoms.
+            // During entry, wait for dreamLocation before creating phantoms.
                 if (DreamSession.IsActive && dreamTf == null)
                     return null;
                 if (dreamTf != null)
@@ -1401,6 +1421,8 @@ namespace DWMPHorde.Networking
             _totalApplied = 0;
             _totalSkipped = 0;
             _receivedFirstSnapshot = false;
+            _lastSnapshotSequence = 0;
+            _hasSnapshotSequence = false;
             _firstSnapshotTime = 0f;
             _snapshotCount = 0;
         }

@@ -13,6 +13,7 @@ public class NetWriterTests
         w.Put((byte)7);
         w.Put((short)300);
         w.Put(42);
+        w.Put((uint)4000000000);
         w.Put(1.5f);
         w.Put(true);
         w.Put("hello");
@@ -22,6 +23,7 @@ public class NetWriterTests
         Assert.Equal(7, r.GetByte());
         Assert.Equal(300, r.GetShort());
         Assert.Equal(42, r.GetInt());
+        Assert.Equal((uint)4000000000, r.GetUInt());
         Assert.Equal(1.5f, r.GetFloat());
         Assert.True(r.GetBool());
         Assert.Equal("hello", r.GetString());
@@ -54,5 +56,33 @@ public class NetWriterTests
         w.PutRaw(null!);
         w.PutRaw(Array.Empty<byte>());
         Assert.Empty(w.CopyData());
+    }
+
+    [Fact]
+    public void Reader_RejectsTruncatedAndOversizedByteArrays()
+    {
+        var truncated = new NetWriter();
+        truncated.Put(10);
+        truncated.Put((byte)1);
+        Assert.Throws<System.IO.InvalidDataException>(
+            () => new NetReader(truncated.CopyData()).GetBytes());
+
+        var oversized = new NetWriter();
+        oversized.Put(int.MaxValue);
+        Assert.Throws<System.IO.InvalidDataException>(
+            () => new NetReader(oversized.CopyData()).GetBytes());
+
+        var negative = new NetWriter();
+        negative.Put(-1);
+        Assert.Throws<System.IO.InvalidDataException>(
+            () => new NetReader(negative.CopyData()).GetBytes());
+    }
+
+    [Fact]
+    public void Reader_RejectsTruncatedSnapshotSequence()
+    {
+        var reader = new NetReader(new byte[] { 1, 2, 3 });
+
+        Assert.Throws<System.IO.InvalidDataException>(() => reader.GetUInt());
     }
 }

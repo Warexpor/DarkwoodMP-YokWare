@@ -179,7 +179,7 @@ namespace DWMPHorde.Sync
 
         private static void Prefix(Player __instance)
         {
-            // ONLY while placing — was true for disarm/craft too, which blocked
+            // Only while placing. The previous condition also matched disarm and craft,
             // ObjectDestroyTrapPatch when beartraps Destroy() on successful disarm.
             InsideTrapPlacement = __instance != null && __instance.placingItem;
             _pendingType = null;
@@ -311,7 +311,8 @@ namespace DWMPHorde.Sync
 
             // Do NOT fan-out LightState IsOn=false for powerItems.
             // Vanilla powerDown/cutPower keeps lamp isOn and only drops hasPower / visuals;
-            // LightState turnOff stomped isOn and broke gen re-start (restorePower needs isOn).
+            // LightState turnOff overwrote isOn and broke generator restart;
+            // restorePower requires the original state.
             // Peers apply GeneratorState → gen.turnOff/powerDown → cutPower/powerDown locally.
         }
     }

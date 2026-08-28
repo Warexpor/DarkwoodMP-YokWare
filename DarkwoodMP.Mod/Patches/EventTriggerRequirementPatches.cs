@@ -27,7 +27,7 @@ namespace DWMPHorde.Patches
 
             if (__instance.type == EventTriggerRequirement.Type.haveKey)
             {
-                // Shared journal — host dict is enough. Nothing extra.
+                // Shared journal; the host dictionary is enough.
                 return;
             }
 

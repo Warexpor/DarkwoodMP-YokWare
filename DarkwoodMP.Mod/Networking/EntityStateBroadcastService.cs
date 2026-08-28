@@ -12,9 +12,10 @@ namespace DWMPHorde.Networking
     public static class EntityStateBroadcastService
     {
         private static float _sendTimer;
+        private static uint _nextSnapshotSequence;
         private const float SendInterval = 0.1f;
 
-        /// <summary>Was 192 — dense night + wildlife starved end-of-list entities.</summary>
+        /// <summary>Keep the batch large enough that dense night scenes do not starve later entities.</summary>
         private const int MaxEntitiesPerPacket = 256;
         /// <summary>Near-player band filled first so far wildlife cannot starve combat NPCs.</summary>
         private const float PriorityDistance = 1400f;
@@ -84,7 +85,7 @@ namespace DWMPHorde.Networking
                     Character c = all[i];
                     if (c == null) continue;
 
-                    // During dreams: stream dream NPCs only — skip frozen overworld AI (D12).
+                    // During dreams, stream dream NPCs only; skip frozen overworld AI.
                     if (Sync.DreamSyncManager.IsDreamActive
                         && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
                         continue;
@@ -126,12 +127,13 @@ namespace DWMPHorde.Networking
             writer.Put((byte)NetMessageType.EntityState);
 
             int entityCount = count;
+            writer.Put(++_nextSnapshotSequence);
             writer.Put(entityCount);
             for (int i = 0; i < entityCount; i++)
                 _buffer[i].Serialize(writer);
 
             byte[] data = writer.CopyData();
-            // Direct peer walk — ConnectedPlayerIds allocated a List every 10 Hz tick.
+            // Walk the connected peers directly; ConnectedPlayerIds allocated a List every tick.
             net.SendRawToReadyPeers(data, DeliveryMethod.Unreliable);
             DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
@@ -160,7 +162,7 @@ namespace DWMPHorde.Networking
             snap = default;
 
             // Near a remote: WorldGrid edge cases can leave isActive/animator off while the
-            // GO is still tracked — client then gets empty clips + sliding sprites. Wake
+            // GO is still tracked; otherwise the client gets empty clips and sliding sprites. Wake
             // presentation components so processAnims can own Walk/Idle again.
             if (c.alive
                 && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, PriorityDistance * PriorityDistance)
@@ -246,6 +248,7 @@ namespace DWMPHorde.Networking
         public static void Stop()
         {
             _sendTimer = 0f;
+            _nextSnapshotSequence = 0;
             _lastSent.Clear();
             _fullResyncCounter = 0;
             _paused = false;

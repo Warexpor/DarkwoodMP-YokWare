@@ -6,13 +6,13 @@ using LiteNetLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Audit H5: serialize concurrent talks on the same NPC.
+    /// Serialize concurrent talks on the same NPC.
     /// initiateDialogue is the single entry for player/NPC conversation open.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "initiateDialogue")]
     public static class NpcDialogueLockAcquirePatch
     {
-        // Vanilla signature: initiateDialogue(NPC _npc) — Harmony binds by param name.
+        // Vanilla signature: initiateDialogue(NPC _npc). Harmony binds by parameter name.
         private static bool Prefix(NPC _npc)
         {
             if (_npc == null || string.IsNullOrEmpty(_npc.name))

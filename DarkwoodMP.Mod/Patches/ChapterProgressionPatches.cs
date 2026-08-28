@@ -13,7 +13,8 @@ namespace DWMPHorde.Patches
     /// Vanilla <see cref="Controller.generateChapter"/> LoadScene alone leaves clients
     /// stranded. Host-authoritative: chapter flags + optional world share, then all peers
     /// load <c>chapterN</c> together. Network stops for the scene tear, then
-    /// <see cref="ChapterSessionResume"/> auto rehosts / reconnects (audit C3).
+    /// <see cref="ChapterSessionResume"/> rehosts and reconnects after the
+    /// scene transition.
     /// </summary>
     [HarmonyPatch(typeof(Controller), "generateChapter")]
     public static class GenerateChapterPatch
@@ -28,7 +29,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return true;
 
-            // Clients never start chapter loads — host story GameEvents own this.
+            // Clients never start chapter loads; host story GameEvents own this.
             if (net.Role == NetworkRole.Client)
             {
                 ModLog.Event(LogCat.Session,
@@ -87,7 +88,7 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
-            // No empty save — pure scene swap (all peers load same chapter scene).
+            // No empty save; this is a pure scene swap where all peers load the same scene.
             net.Broadcast(NetMessageType.ChapterTransition,
                 w => new ChapterTransitionMessage
                 {
@@ -221,7 +222,7 @@ namespace DWMPHorde.Patches
                     {
                         if (_chapterLoadPending) return;
                         if (Core.loadingGame || Core.loadedGame) return;
-                        // Still on old scene — share never completed.
+                        // Still on the old scene; the share never completed.
                         ModLog.Warn(LogCat.Session,
                             $"[Chapter] World share timeout — fallback LoadScene chapter{ch}");
                         ApplyChapterLoad(ch, loadSave, resumeAfter: true);

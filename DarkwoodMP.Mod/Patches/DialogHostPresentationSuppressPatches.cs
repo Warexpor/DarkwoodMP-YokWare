@@ -8,9 +8,9 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Host world-only DialogOutcome replay must not present speaker-only UI:
     /// lookKeyhole_dream changePortrait fades blackScreenTop opaque then schedules
-    /// a fade-out after silent close — host stays black forever (0.7.9 soak).
+    /// a fade-out after silent close; otherwise the host stays black.
     /// Oven lookAt* / keyhole also re-enable the portrait renderer via delayed
-    /// setPortrait after guard ends on dialog Release — sticky suppress covers that.
+    /// setPortrait after the guard ends on dialog Release; sticky suppression covers that.
     /// </summary>
     [HarmonyPatch(typeof(UI), nameof(UI.tweenBlackScreen))]
     public static class DialogHostSuppressBlackScreenPatch
@@ -70,7 +70,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// World-only displayDialogue turns on the dialogue text root — hide it so peer
+    /// World-only displayDialogue turns on the dialogue text root; hide it so the peer
     /// boards never appear on the non-speaker host (flags/GE still run).
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.displayDialogue))]
@@ -94,7 +94,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// changePortrait's delayed setPortrait re-enables the portrait renderer after
-    /// SilentClose / EndWorldOnly — keep it scrubbed while sticky suppress is armed.
+    /// SilentClose / EndWorldOnly; keep it scrubbed while sticky suppression is armed.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "setPortrait")]
     public static class DialogHostSuppressSetPortraitPatch
@@ -109,7 +109,7 @@ namespace DWMPHorde.Patches
     internal static class DialogHostPresentation
     {
         /// <summary>
-        /// Survives EndWorldOnly until ScrubAndDisarm — pending changePortrait Invokes
+        /// Survives EndWorldOnly until ScrubAndDisarm. Pending changePortrait Invokes
         /// otherwise flash portrait/video on the non-speaker after dialog Release abort.
         /// </summary>
         private static bool _stickySuppress;
@@ -139,7 +139,7 @@ namespace DWMPHorde.Patches
             if (dw == null) return;
             try
             {
-                // Oven lookAt* / keyhole: background is the full-screen dialogue backdrop —
+                // Oven lookAt* / keyhole: background is the full-screen dialogue backdrop;
                 // HideSpeakerVisuals previously left it enabled → host saw peer overlays.
                 if (dw.background != null)
                 {

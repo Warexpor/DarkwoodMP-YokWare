@@ -14,7 +14,7 @@ namespace DWMPHorde.Networking
         public int[] UncompressedSizes;
         public int[] CompressedSizes;
         public int[] ChunkCounts;
-        /// <summary>Stable campaign id (optional trailer; protocol 19). Keys client backups.</summary>
+        /// <summary>Stable campaign ID in the optional trailer; keys client backups.</summary>
         public string CampaignId;
 
         public void Serialize(NetWriter w)

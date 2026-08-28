@@ -115,7 +115,7 @@ namespace DWMPHorde
             if (_scheduledBackupRestore && Player.Instance != null)
             {
                 _scheduledBackupRestore = false;
-                // Host character lives in sav.dat — never overlay ClientBackup on host.
+                // Host character lives in sav.dat; never overlay ClientBackup on host.
                 // Role==Host alone: IsConnected is PeerCount>0, so solo host before any
                 // client join used to restore and overwrite the host body with an old self.
                 var net = ModRuntime.Network as Networking.LanNetworkManager;
@@ -253,7 +253,7 @@ namespace DWMPHorde
                     return;
                 }
 
-                // P2.3: block manual save during partial night death or active dream session
+                // Block manual save during partial night death or an active dream.
                 if (DeathStateTracker.LocalNightDeath && !DeathStateTracker.AllDeadAtNight)
                 {
                     SetStatus("Blocked: cannot save during partial night death");
@@ -325,7 +325,7 @@ namespace DWMPHorde
                 CopyIfExists(slotDir + "/savs.dat", profDir + "/savs.dat");
                 CopyIfExists(slotDir + "/savch.dat", profDir + "/savch.dat");
 
-                // Loading a ManualSave slot is a different save instance — remint so
+                // Loading a ManualSave slot is a different save instance; remint so
                 // ClientBackup from another slot/campaign cannot apply.
                 Networking.CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
 

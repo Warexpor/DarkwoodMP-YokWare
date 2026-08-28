@@ -9,7 +9,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// Steam SNS backend — separate from LiteNetLib LAN. Same Horde messages over SteamNetworkingSockets.
+    /// Steam SNS backend, separate from LiteNetLib LAN. Both transports use the same Horde messages.
     /// Host migration uses SteamID roster + ConnectP2P (same elect/promote as LAN).
     /// </summary>
     public sealed partial class LanNetworkManager
@@ -323,7 +323,7 @@ namespace DWMPHorde.Networking
 
             if (!_steamIdToPlayer.TryGetValue(remote.m_SteamID, out int playerId))
             {
-                // Client: first packet from host before map (race) — bind host.
+                // Client: first packet from the host may arrive before the map; bind the host.
                 if (_role == NetworkRole.Client && Steam.HostSteamId.IsValid() && remote == Steam.HostSteamId)
                 {
                     _steamPeers[1] = remote;
@@ -523,7 +523,7 @@ namespace DWMPHorde.Networking
             {
                 if (_suppressHostMigration)
                     return;
-                // Client lost host SNS — same grant path as LAN peer drop.
+                // Client lost host SNS; use the same grant path as a LAN peer drop.
                 TryBeginHostMigration("steam host SNS lost");
             }
         }
@@ -539,7 +539,7 @@ namespace DWMPHorde.Networking
         {
             if (_steam != null && _steam.IsActive)
                 _steam.Shutdown(leaveLobby);
-            // Do not clear peer maps here when called from ClearAllPeerSlots path —
+            // Do not clear peer maps here when called from ClearAllPeerSlots;
             // always wipe steam routing so a later LAN session cannot leak Steam ids.
             // Host-grant reconnect rebuilds maps after ConnectP2PDirect / promote.
             _steamPeers.Clear();

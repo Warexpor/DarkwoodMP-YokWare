@@ -55,7 +55,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Day-death vanilla order: transportToHome then onPlayerDeath (setGrid World +
-    /// leaveAllLocations) but NEVER currentGrid.leave() / refreshPosition — unlike
+    /// leaveAllLocations) but never currentGrid.leave() or refreshPosition, unlike
     /// returnToWorld. Client respawned at hideout on a stale outside-location grid →
     /// blackness. Mirror returningOnTeleportedPlayer grid hygiene + LocationExit.
     /// </summary>
@@ -116,7 +116,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Belt: after transportToHome teleport, force World refresh when MP connected
     /// (covers stale grid even when playerInOutsideLocation was already false).
-    /// Night-death suppress path skips transportToHome — this Postfix simply won't run.
+    /// Night-death suppress path skips transportToHome, so this Postfix does not run.
     /// </summary>
     [HarmonyPatch(typeof(Player), "transportToHome")]
     public static class DayDeathTransportHomeGridPatch

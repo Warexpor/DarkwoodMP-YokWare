@@ -60,7 +60,8 @@ namespace DWMPHorde.Patches
         }
     }
 
-    // ponytail: removed Player.Update vault frame logger — was ~400 lines/vault under LogPreset=Dev.
+    // Player.Update vault frame logging is intentionally omitted to keep Dev
+    // logs usable.
 
     [HarmonyPatch(typeof(Player), "endJumpThroughWindow")]
     internal static class VaultEndPatch

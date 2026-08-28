@@ -32,9 +32,8 @@ namespace DWMPHorde.Networking
                 ProtocolVersion = reader.GetInt(),
                 PlayerId = reader.GetShort(),
             };
-            // Forward-compat: older peers omitted trailers (both boxes should be same DLL).
-            // Need bool (1) + optional short (2). If only 1 byte left, still read AlreadyInWorld
-            // — mis-sizing here forced phase-1 share on soft reconnect (host never saw flag).
+            // Older payloads may omit the trailing fields. Read each field only
+            // when enough bytes remain so a short payload stays parseable.
             if (reader.AvailableBytes >= 1)
                 msg.AlreadyInWorld = reader.GetBool();
             if (reader.AvailableBytes >= 2)
@@ -76,6 +75,8 @@ namespace DWMPHorde.Networking
     public struct PlayerStateMessage
     {
         public int PlayerId;
+        /// <summary>Monotonic per-sender sequence for unreliable state ordering.</summary>
+        public uint Sequence;
         public float PosX, PosY, PosZ;
         public float VelX, VelZ;
         public byte LocomotionState;
@@ -88,12 +89,12 @@ namespace DWMPHorde.Networking
         public string LegsClip;
         public bool InBearTrap;
         public bool HasLightProtection;
-        /// <summary>Trailer: nightShadows perk (per-player curse). Optional proto-19 extend.</summary>
+        /// <summary>Optional trailer for the per-player NightShadows effect.</summary>
         public bool HasNightShadows;
         public bool AfterNightActive;
         public short CurrentFrame;
 
-        // Protocol 19 continuous lights — conditional payload via LightFlags.
+        // Continuous light state uses a conditional LightFlags payload.
         // bit0 Flare/Match held | bit1 Flashlight | bit2 FlareParams | bit3 FlashParams | bit4 ItemType
         // bit5 MatchKind (held is match not flare) | bit6 Remain01 present | bit7 FlashAim present
         public const byte LightFlagFlare = 1;
@@ -133,6 +134,7 @@ namespace DWMPHorde.Networking
         public void Serialize(NetWriter writer)
         {
             writer.Put(PlayerId);
+            writer.Put(Sequence);
             writer.Put(PosX); writer.Put(PosY); writer.Put(PosZ);
             writer.Put(VelX); writer.Put(VelZ);
             writer.Put(LocomotionState);
@@ -169,7 +171,7 @@ namespace DWMPHorde.Networking
                 }
             }
             writer.Put(AfterNightActive);
-            // Optional trailer (proto 19 extend): TrapNetId + remain + flash aim + NightShadows
+            // Optional trailing fields: trap, light lifetime, flash aim, and NightShadows.
             writer.Put(TrapNetId);
             writer.Put(HeldLightRemain01);
             writer.Put(FlashAimY);
@@ -181,6 +183,7 @@ namespace DWMPHorde.Networking
             var msg = new PlayerStateMessage
             {
                 PlayerId = reader.GetInt(),
+                Sequence = reader.GetUInt(),
                 PosX = reader.GetFloat(),
                 PosY = reader.GetFloat(),
                 PosZ = reader.GetFloat(),
@@ -313,7 +316,7 @@ namespace DWMPHorde.Networking
                 AttackerPosZ = r.GetFloat(),
                 CanCutInHalf = r.GetBool(),
                 ShowRedScreen = r.GetBool(),
-                // Pre-0.7.22 peers omit trailers — melee/FF defaults.
+                // Older peers omit these trailers, so retain the default values.
                 NormalHit = true,
                 CanInterrupt = true
             };

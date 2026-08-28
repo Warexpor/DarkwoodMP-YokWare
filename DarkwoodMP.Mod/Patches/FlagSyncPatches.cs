@@ -77,7 +77,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(object[] __args)
         {
-            // Client dialog board: setFlag Prefix skipped original — do not FlagSync ghosts.
+            // Client dialog board: setFlag Prefix skipped the original; do not FlagSync ghosts.
             if (DWMPHorde.Sync.DialogClientWorldDefer.Active)
                 return;
 
@@ -88,14 +88,14 @@ namespace DWMPHorde.Patches
                 return;
 
             // DialogOutcome world-only apply runs under ProcessInboundMessage's
-            // NetworkApplyGuard — same door-GE exception: still fan out story flags
+            // NetworkApplyGuard. As with the door GameEvent exception, still fan out story flags
             // so the speaking client unlocks the next dialogue options.
             if (LanNetworkManager.IsApplyingRemoteState
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;
-            // Host broadcasts; client sends to host (audit H1 bidirectional story flags).
+            // Host broadcasts; clients send changes to the host.
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
@@ -194,7 +194,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            // See FlagSyncBoolPatch — DialogOutcome world-only must still FlagSync.
+            // See FlagSyncBoolPatch. DialogOutcome world-only must still FlagSync.
             if (LanNetworkManager.IsApplyingRemoteState
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;

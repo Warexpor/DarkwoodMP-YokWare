@@ -80,7 +80,7 @@ namespace DWMPHorde.Networking
         public int DecisionIndex;
         public string DialogueName;
         public int BoardIndex;
-        /// <summary>DialogueButton.destDialogueName — host applies this node without matching UI.</summary>
+        /// <summary>DialogueButton.destDialogueName. The host applies this node without matching UI.</summary>
         public string TargetDialogueName;
 
         public void Serialize(NetWriter w)
@@ -101,7 +101,7 @@ namespace DWMPHorde.Networking
         };
     }
 
-    /// <summary>Compact per-peer bag presence for EventTrigger haveItem (protocol 24).</summary>
+    /// <summary>Compact per-peer bag presence for EventTrigger haveItem (protocol 25).</summary>
     public struct PeerHasItemMessage
     {
         public int PlayerId;
@@ -124,8 +124,8 @@ namespace DWMPHorde.Networking
     }
 
     /// <summary>
-    /// NPC dialogue lock (0.9.2): client request or host grant/deny/release fan-out.
-    /// IsRequest=true only on client→host acquire attempts.
+    /// NPC dialogue lock: client request or host grant, deny, or release
+    /// fan-out. IsRequest is true only on client→host acquire attempts.
     /// </summary>
     public struct DialogNpcLockMessage
     {
@@ -182,9 +182,9 @@ namespace DWMPHorde.Networking
     {
         Growl = 0, Attack1 = 1, Attack2 = 2, Death = 3, Curious = 4,
         Aggressive = 5, Defensive = 6, Escaping = 7, Idle = 8, GetHit = 9,
-        /// <summary>Protocol 21: vanilla runAway stinger (playSingleInstance).</summary>
+        /// <summary>Vanilla runAway stinger (playSingleInstance).</summary>
         EscapingStart = 10,
-        /// <summary>Protocol 21: vanilla runAway crow overlay (play).</summary>
+        /// <summary>Vanilla runAway crow overlay (play).</summary>
         EscapingStart2 = 11,
     }
 

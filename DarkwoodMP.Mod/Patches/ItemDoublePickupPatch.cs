@@ -101,7 +101,7 @@ namespace DWMPHorde.Patches
         private static void OnAddItemTypeToPlayer_DoDouble(string type, ref int amount)
         {
             if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
-            // Only double the exact item being disarmed — never a different pickup
+            // Only double the exact item being disarmed; never a different pickup
             // that happens to arrive while a disarm is in flight (global-bool bug).
             if (!LootPolicy.ShouldDoubleDisarm(_disarmType, type))
                 return;
@@ -136,13 +136,13 @@ namespace DWMPHorde.Patches
         {
             // addItemTypeToPlayer (synchronous inside disarm) already consumed the
             // armed type when it doubled. If it is still set here, disarm took a path
-            // that never doubled (e.g. item went into an open inventory) — drop the
+            // that never doubled (for example, an item went into an open inventory); drop the
             // stale type so the next unrelated pickup of the same type is not falsely doubled.
             _disarmType = null;
         }
 
         /// <summary>
-        /// Pending personal-only loot share. Never mutate container stack amount —
+        /// Pending personal-only loot share. Never mutate the container stack amount;
         /// that desynced RemoveItem (world removes real count) and re-doubled on
         /// re-take after place (logs: nails 11→22→44).
         /// </summary>
@@ -237,7 +237,7 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void OnTransferAllToPlayerPrefix(InvSlot __instance)
         {
-            // Never multiply the container stack — only arm personal bonus.
+            // Never multiply the container stack; only arm the personal bonus.
             ArmShareForSlot(__instance, "OnTransferAllToPlayer");
         }
 
@@ -246,7 +246,7 @@ namespace DWMPHorde.Patches
         private static void OnTransferAllToPlayerPostfix(InvSlot __instance, bool __result)
         {
             // Only grant the personal bonus when the transfer actually succeeded
-            // (full-stack take returns false on no room — item stays in container).
+            // (full-stack take returns false when there is no room; item stays in container).
             if (!__result) return;
             ApplyPendingShareForSlot(__instance, "OnTransferAllToPlayerPostfix");
         }
@@ -255,7 +255,7 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void OnGrabItemPrefix(InvSlot __instance)
         {
-            // grabItem moves full stack to cursor — same personal-only share rule.
+            // grabItem moves the full stack to the cursor; use the same personal-only share rule.
             ArmShareForSlot(__instance, "OnGrabItem");
         }
 
@@ -298,7 +298,7 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void OnTransferToPlayerPostfix(InvSlot __instance)
         {
-            // Capture type before clearing pending — slot may be empty after last unit.
+            // Capture the type before clearing pending; the slot may be empty after the last unit.
             ApplyPendingShareForSlot(__instance, "OnTransferToPlayerPostfix");
         }
 
