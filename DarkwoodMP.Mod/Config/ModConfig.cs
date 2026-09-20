@@ -37,6 +37,10 @@ namespace DWMPHorde.Config
         public static ConfigEntry<bool> VerboseLogging { get; private set; }
         /// <summary>Transition-only light sync logs (flare/flash on/off, join bulk). Not 30 Hz spam.</summary>
         public static ConfigEntry<bool> VerboseLightSync { get; private set; }
+        /// <summary>
+        /// Force free OS pointer (no Confined/ClipCursor). Required for dual-box Wayland + Wine.
+        /// </summary>
+        public static ConfigEntry<bool> FreeCursorForDualBox { get; private set; }
         public static ConfigEntry<int> MaxPlayers { get; private set; }
         public static ConfigEntry<bool> AllowJoinDuringDream { get; private set; }
         public static ConfigEntry<int> MaxPeerDamage { get; private set; }
@@ -186,6 +190,11 @@ namespace DWMPHorde.Config
                 "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
                 "Transition light sync logs. Leave false unless debugging lights.");
+            FreeCursorForDualBox = config.Bind("Debug", "FreeCursorForDualBox", true,
+                "Force Cursor.lockState=None (skip vanilla Confined). Needed for dual-box on "
+                + "Hyprland/Wayland and especially Wine/Proton SecondDarkwood — Confined ClipCursor "
+                + "traps the mouse and blur-release can freeze the Wine window. Set false only for "
+                + "single-window vanilla confine behavior.");
         }
 
         /// <summary>True when VerboseLightSync is enabled (safe if unbound).</summary>

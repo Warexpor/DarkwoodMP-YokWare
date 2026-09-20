@@ -1,13 +1,16 @@
+using DWMPHorde.Config;
 using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Vanilla Darkwood sets <see cref="CursorLockMode.Confined"/>. On Wayland
-    /// (Hyprland) that becomes a pointer confine that keeps trapping the mouse
-    /// inside the game window even after keyboard focus moves elsewhere — so
-    /// dual-box layout / Super+drag cannot work. Release on blur; restore on focus.
+    /// Vanilla Darkwood sets <see cref="CursorLockMode.Confined"/>. Native Linux
+    /// Wayland turns that into a pointer confine; Wine/Proton turns it into
+    /// Win32 ClipCursor. Focus-based release is unreliable under XWayland (the
+    /// game often keeps <see cref="Application.isFocused"/> true), and toggling
+    /// ClipCursor on blur can hard-freeze the Wine window. Dual-box needs a free
+    /// pointer always — rewrite Confined/Locked to None and never re-engage.
     /// </summary>
     /// <remarks>
     /// Must use <c>UnityEngine.Cursor</c> — Assembly-CSharp also defines a
@@ -15,48 +18,52 @@ namespace DWMPHorde.Patches
     /// </remarks>
     public sealed class CursorConfineFocusGuard : MonoBehaviour
     {
-        private bool _lastFocused = true;
+        private int _tick;
 
-        private void OnApplicationFocus(bool hasFocus)
+        private void Start()
         {
-            Apply(hasFocus);
+            ForceFreeIfEnabled();
+        }
+
+        private void OnApplicationFocus(bool _)
+        {
+            ForceFreeIfEnabled();
         }
 
         private void Update()
         {
-            bool focused = Application.isFocused;
-            if (focused == _lastFocused)
-            {
-                // Re-assert release if Core/Controller re-confines while blurred.
-                if (!focused && UnityEngine.Cursor.lockState != CursorLockMode.None)
-                    UnityEngine.Cursor.lockState = CursorLockMode.None;
+            if (!IsFreeCursorEnabled())
                 return;
-            }
-
-            _lastFocused = focused;
-            Apply(focused);
+            // Rare re-assert only — per-frame ClipCursor thrash freezes Wine.
+            if ((++_tick & 31) != 0)
+                return;
+            ForceFreeIfEnabled();
         }
 
-        internal static void Apply(bool hasFocus)
+        private static bool IsFreeCursorEnabled()
         {
-            if (hasFocus)
-            {
-                if (UnityEngine.Cursor.lockState == CursorLockMode.None)
-                    UnityEngine.Cursor.lockState = CursorLockMode.Confined;
-                return;
-            }
+            // Unbound → free (safe before ModConfig.Bind finishes).
+            return ModConfig.FreeCursorForDualBox == null || ModConfig.FreeCursorForDualBox.Value;
+        }
 
-            UnityEngine.Cursor.lockState = CursorLockMode.None;
+        internal static void ForceFreeIfEnabled()
+        {
+            if (!IsFreeCursorEnabled())
+                return;
+            if (UnityEngine.Cursor.lockState != CursorLockMode.None)
+                UnityEngine.Cursor.lockState = CursorLockMode.None;
         }
     }
 
-    /// <summary>Block Confined/Locked writes while the game window is unfocused.</summary>
+    /// <summary>Rewrite Confined/Locked to None so Wine never ClipCursor-confines.</summary>
     [HarmonyPatch(typeof(UnityEngine.Cursor), "set_lockState")]
     public static class CursorLockStatePatch
     {
         private static void Prefix(ref CursorLockMode value)
         {
-            if (!Application.isFocused && value != CursorLockMode.None)
+            if (ModConfig.FreeCursorForDualBox != null && !ModConfig.FreeCursorForDualBox.Value)
+                return;
+            if (value != CursorLockMode.None)
                 value = CursorLockMode.None;
         }
     }

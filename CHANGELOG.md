@@ -3,12 +3,23 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.2**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.3**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.3 — Wine dual-box cursor (always free)
+
+- **SecondDarkwood freeze/trap:** Wine/Proton often keeps `Application.isFocused`
+  true under XWayland, so 0.8.2’s blur-only release never fired; when it did,
+  ClipCursor unlock could hard-freeze the client. Now
+  `FreeCursorForDualBox` (default **true**) always rewrites Confined/Locked to
+  `None` — no confine, no blur toggle thrash. Protocol **25** unchanged.
+- Product bump **0.8.2 → 0.8.3**.
 
 ---
 
