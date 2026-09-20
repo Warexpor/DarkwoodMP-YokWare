@@ -62,7 +62,7 @@ Trace does not enable it.
 
 **Host clean / client hitch:** compare `role=Host` vs `role=Client` Perf lines.
 
-Full dual-box soak steps: [`docs/PLAYTEST.md`](../../docs/PLAYTEST.md).
+Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 
 ## How to file a bug
 

@@ -20,8 +20,8 @@ dual-box gate. Protocol **25** unchanged.
 - **`scripts/check-dualbox-perf.sh`:** greps host + client `LogOutput.log` for
   `[Perf]` (must exist) and fails on any `[PerfCliff]`. Defaults to this
   machine’s Steam + SecondDarkwood BepInEx paths.
-- **`docs/PLAYTEST.md`:** dual-box soak + triage checklist (Support preset,
-  probe ON, cliff tags, reverse-check sync spot-checks).
+- **`DarkwoodMP.Mod/docs/PLAYTEST.md`:** dual-box soak + triage checklist
+  (Support preset, probe ON, cliff tags, reverse-check sync spot-checks).
 - **LOGGING.md:** documents `[PerfCliff]` / `[PerfSeg]` thresholds and points
   at the script; probe ON line now prints cliff thresholds.
 - Product bump **0.8.0 → 0.8.1** (`PluginInfo`, assembly, csproj, README,
