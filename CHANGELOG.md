@@ -3,12 +3,32 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.0**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.1**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.1 — Dual-box diagnosis ship
+
+Ships the playtest diagnosis path that code-only polish still needs: logs +
+dual-box gate. Protocol **25** unchanged.
+
+- **`scripts/check-dualbox-perf.sh`:** greps host + client `LogOutput.log` for
+  `[Perf]` (must exist) and fails on any `[PerfCliff]`. Defaults to this
+  machine’s Steam + SecondDarkwood BepInEx paths.
+- **`docs/PLAYTEST.md`:** dual-box soak + triage checklist (Support preset,
+  probe ON, cliff tags, reverse-check sync spot-checks).
+- **LOGGING.md:** documents `[PerfCliff]` / `[PerfSeg]` thresholds and points
+  at the script; probe ON line now prints cliff thresholds.
+- Product bump **0.8.0 → 0.8.1** (`PluginInfo`, assembly, csproj, README,
+  COOP_COVERAGE, CONTRIBUTORS).
+
+Runtime FPS proof remains a dual-box soak (script is the gate, not a substitute
+for playing).
 
 ---
 

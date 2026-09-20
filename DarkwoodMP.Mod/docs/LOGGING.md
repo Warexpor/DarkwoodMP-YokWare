@@ -32,7 +32,21 @@ Trace does not enable it.
 1. Prefer **Support** or **Dev** on **both** installs, same mod build.  
 2. Reproduce; quit cleanly.  
 3. Attach **both** `BepInEx/LogOutput.log` files.  
-4. Look for `[Perf] role=Host|Client` every ~2s while co-op connected:
+4. Or run the gate script (defaults to this machine’s Steam + SecondDarkwood paths):
+
+```bash
+./scripts/check-dualbox-perf.sh
+```
+
+5. Look for `[Perf] role=Host|Client` every ~2s while co-op connected.
+   Immediate single-frame hitches also emit `[PerfCliff]` (rate-limited ~0.5s).
+   Hot Update segments emit `[PerfSeg]` when ≥25ms.
+
+| Tag | When |
+|-----|------|
+| `[Perf]` | Healthy 2s report |
+| `[PerfCliff]` | Window fps~ &lt;15 **or** maxMs / single-frame ≥100ms |
+| `[PerfSeg]` | Named Update segment spike (≥25ms) |
 
 | Field | Meaning |
 |-------|---------|
@@ -44,8 +58,11 @@ Trace does not enable it.
 | `footN` / `footMs` / `footType` | FindObjectsOfType cost |
 | `pend lure=… lock=…` | Pending apply queues |
 | `hostEntSend` | Host only: entity broadcast volume |
+| `segMax` | Hottest Update segment in the window |
 
 **Host clean / client hitch:** compare `role=Host` vs `role=Client` Perf lines.
+
+Full dual-box soak steps: [`docs/PLAYTEST.md`](../../docs/PLAYTEST.md).
 
 ## How to file a bug
 

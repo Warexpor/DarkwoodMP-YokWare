@@ -23,8 +23,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.8.0</Version>
-    <InformationalVersion>0.8.0-path-b</InformationalVersion>
+    <Version>0.8.1</Version>
+    <InformationalVersion>0.8.1-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>

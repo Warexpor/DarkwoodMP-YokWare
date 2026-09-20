@@ -84,7 +84,9 @@ namespace DWMPHorde.Logging
                 ModLog.Event(LogCat.Core,
                     "[Perf] probe ON role=" + _roleTag
                     + " every " + ReportInterval
-                    + "s (poll/upd/top/foot/pend)");
+                    + "s; [PerfCliff] if frame≥" + FrameCliffMs.ToString("F0")
+                    + "ms or fps~<" + ReportCliffFps.ToString("F0")
+                    + " (poll/upd/top/foot/pend)");
             }
             else
             {
