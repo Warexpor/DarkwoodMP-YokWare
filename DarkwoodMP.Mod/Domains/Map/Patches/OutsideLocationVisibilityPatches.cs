@@ -20,7 +20,7 @@ namespace DWMPHorde.Patches
             {
                 if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
                     return;
-                net.OnLocalOutsideLocationSettled(locationName);
+                net.LocationHandlers.OnLocalOutsideLocationSettled(locationName);
                 WorldPhysicsSyncService.TryFlushPendingLights();
             }
             catch (System.Exception ex)
@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
             {
                 if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
                     return;
-                net.OnLocalReturnedToWorld();
+                net.LocationHandlers.OnLocalReturnedToWorld();
                 WorldPhysicsSyncService.TryFlushPendingLights();
             }
             catch (System.Exception ex)
@@ -74,7 +74,7 @@ namespace DWMPHorde.Patches
                 if (Player.Instance != null && Player.Instance.whereAmI != null)
                     Player.Instance.whereAmI.checkWhereAmI();
 
-                net.OnLocalReturnedToWorldAfterDeath();
+                net.LocationHandlers.OnLocalReturnedToWorldAfterDeath();
                 WorldPhysicsSyncService.TryFlushPendingLights();
                 ModRuntime.LegacyInfo(
                     "[LocationSync] death grid hygiene — World grid + refresh + LocationExit");
@@ -162,7 +162,7 @@ namespace DWMPHorde.Patches
                 string n = __instance.gameObject != null
                     ? __instance.gameObject.name
                     : __instance.name;
-                if (net.IsAnyRemoteInOutsideLocation(n))
+                if (net.LocationHandlers.IsAnyRemoteInOutsideLocation(n))
                     remoteInside = true;
             }
 

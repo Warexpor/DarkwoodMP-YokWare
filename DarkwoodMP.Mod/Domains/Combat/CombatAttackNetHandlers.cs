@@ -307,7 +307,7 @@ namespace DWMPHorde.Networking
                 RemotePlayerProxy victimProxy = _net.GetProxy(victimPlayerId);
                 if (victimProxy != null)
                 {
-                    CharBase vicCb = victimProxy.GetComponent<CharBase>();
+                    CharBase vicCb = victimProxy.CachedCharBase;
                     bool inWater = vicCb != null && vicCb.inWater;
                     BroadcastFriendlyFireBlood(victimProxy.transform.position, inWater, victimProxy.transform.eulerAngles.y);
                 }

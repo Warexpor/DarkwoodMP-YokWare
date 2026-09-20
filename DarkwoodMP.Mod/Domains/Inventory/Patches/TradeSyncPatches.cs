@@ -220,7 +220,7 @@ namespace DWMPHorde.Patches
             if (npc == null)
             {
                 // NPC may not be streamed yet — queue for flush.
-                LanNetworkManager.Instance?.QueuePendingTradeInventory(msg);
+                LanNetworkManager.Instance?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }
 
@@ -267,7 +267,7 @@ namespace DWMPHorde.Patches
 
         public static NPC FindNpcByName(string name)
         {
-            NPC[] all = Object.FindObjectsOfType<NPC>();
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
             for (int i = 0; i < all.Length; i++)
             {
                 if (all[i] != null && all[i].name == name)

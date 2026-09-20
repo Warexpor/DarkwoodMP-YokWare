@@ -39,7 +39,7 @@ namespace DWMPHorde.Networking
             if (door == null && !string.IsNullOrEmpty(doorName))
             {
                 string want = DialogOutcomeNetHandlers.StripCloneSuffix(doorName);
-                Door[] all = UnityEngine.Object.FindObjectsOfType<Door>(true);
+                Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();
                 float bestD = float.MaxValue;
                 for (int i = 0; i < all.Length; i++)
                 {

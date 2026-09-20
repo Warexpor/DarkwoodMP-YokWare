@@ -100,7 +100,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            Liquid[] all = UnityEngine.Object.FindObjectsOfType<Liquid>();
+            Liquid[] all = WorldQueryHelper.GetCachedSceneComponents<Liquid>();
             int trails = 0, burning = 0;
             for (int i = 0; i < all.Length; i++)
             {
@@ -131,10 +131,10 @@ namespace DWMPHorde.Networking
         internal void HandleLiquidStopBurning(LiquidStopBurningMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            var hits = Physics.OverlapSphere(pos, 1.5f);
-            for (int i = 0; i < hits.Length; i++)
+            int hitN = Physics.OverlapSphereNonAlloc(pos, 1.5f, WorldQueryHelper.SharedOverlapBuf);
+            for (int i = 0; i < hitN; i++)
             {
-                var liq = hits[i].GetComponent<Liquid>();
+                var liq = WorldQueryHelper.SharedOverlapBuf[i].GetComponent<Liquid>();
                 if (liq != null)
                 {
                     TraverseHack.ApplyingFromNetwork = true;

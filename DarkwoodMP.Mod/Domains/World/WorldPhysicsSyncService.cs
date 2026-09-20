@@ -27,9 +27,13 @@ namespace DWMPHorde.Sync
         private static readonly List<DoorState> _doors = new List<DoorState>();
         private static readonly List<TrapState> _traps = new List<TrapState>();
         private static readonly Collider[] _overlap3D = new Collider[2048];
-        private static readonly Dictionary<string, Vector3> _lastPos = new Dictionary<string, Vector3>();
-        private static readonly Dictionary<string, float> _lastMoveTime = new Dictionary<string, float>();
-        private static readonly Dictionary<string, float> _lastClientUpdateTime = new Dictionary<string, float>();
+
+        /// <summary>NonAlloc overlap into shared <see cref="_overlap3D"/>.</summary>
+        private static int OverlapNear(Vector3 pos, float radius)
+            => Physics.OverlapSphereNonAlloc(pos, radius, _overlap3D);
+        private static readonly Dictionary<int, Vector3> _lastPos = new Dictionary<int, Vector3>();
+        private static readonly Dictionary<int, float> _lastMoveTime = new Dictionary<int, float>();
+        private static readonly Dictionary<int, float> _lastClientUpdateTime = new Dictionary<int, float>();
         private static uint _nextSnapshotSequence;
         private static int _clientUpdateCleanupCounter;
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
@@ -72,6 +76,7 @@ namespace DWMPHorde.Sync
         // Position-based debounce for DestroyObjectByPos / outbound WorldObjectRemoved.
         private static readonly Dictionary<int, float> _destroyDebounce = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _outboundRemoveDebounce = new Dictionary<int, float>();
+        private static readonly List<int> _outboundRemoveStaleKeys = new List<int>(8);
         private const float DestroyDebounceTime = 0.5f;
         private const float OutboundRemoveDebounceTime = 0.75f;
 
@@ -90,14 +95,14 @@ namespace DWMPHorde.Sync
             // Opportunistic prune so the dict cannot grow without bound across a long session.
             if (_outboundRemoveDebounce.Count > 64)
             {
-                var stale = new List<int>(8);
+                _outboundRemoveStaleKeys.Clear();
                 foreach (var kv in _outboundRemoveDebounce)
                 {
                     if (now - kv.Value >= OutboundRemoveDebounceTime)
-                        stale.Add(kv.Key);
+                        _outboundRemoveStaleKeys.Add(kv.Key);
                 }
-                for (int i = 0; i < stale.Count; i++)
-                    _outboundRemoveDebounce.Remove(stale[i]);
+                for (int i = 0; i < _outboundRemoveStaleKeys.Count; i++)
+                    _outboundRemoveDebounce.Remove(_outboundRemoveStaleKeys[i]);
             }
             return true;
         }
@@ -121,7 +126,13 @@ namespace DWMPHorde.Sync
         // Periodic full resync for free bodies in range.
         private static readonly float FullResyncInterval = 5f;
         private static float _lastFullRbScanTime = -999f;
-        private const float FullRbScanMinInterval = 0.5f;
+        /// <summary>Full RB walk is last-resort; keep rare (overlap + name cache handle the common path).</summary>
+        private const float FullRbScanMinInterval = 2f;
+        /// <summary>Last successful FindOrSpawn hit by object name (distance-gated; non-unique names OK).</summary>
+        private static readonly Dictionary<string, GameObject> _lastResolvedByName =
+            new Dictionary<string, GameObject>(128);
+        private const int MaxResolvedByName = 256;
+        private const float ResolvedNameMaxDist = 25f;
         /// <summary>
         /// After motion stops, include the object briefly so peers receive a
         /// final quiet sample. Quiet samples do not refresh the motion timer.
@@ -191,6 +202,8 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<Vector3, float> _lastGeneratorFuel = new Dictionary<Vector3, float>();
         private static readonly List<Vector3> _scanCenters = new List<Vector3>(8);
         private static readonly HashSet<int> _scannedObjectIds = new HashSet<int>();
+        private static readonly List<int> _stalePushSrcKeys = new List<int>(8);
+        private static readonly List<int> _staleKinematicKeys = new List<int>(8);
 
         // Client free-body packets are ~10 Hz (0.1s). Buffer slightly longer so host
         // retargets mid-lerp instead of finishing each segment into a snap.

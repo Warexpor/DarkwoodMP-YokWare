@@ -113,4 +113,72 @@ public class ProductInvariantTests
         Assert.Contains("PutRaw(payload)", lan);
         Assert.DoesNotContain("w => w.Put(payload)", lan);
     }
+
+    [Fact]
+    public void HotPath_NoAllocatingOverlapSphere()
+    {
+        var hits = new List<string>();
+        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(f);
+            // Allocating overload: Physics.OverlapSphere( — NonAlloc is OK.
+            if (text.Contains("Physics.OverlapSphere(") && !text.Contains("OverlapSphereNonAlloc"))
+            {
+                // Allow comments / docs that mention the banned API.
+                foreach (var line in text.Split('\n'))
+                {
+                    var t = line.TrimStart();
+                    if (t.StartsWith("//") || t.StartsWith("*") || t.StartsWith("///"))
+                        continue;
+                    if (t.Contains("Physics.OverlapSphere(") && !t.Contains("OverlapSphereNonAlloc"))
+                        hits.Add(Path.GetRelativePath(ModDir, f) + ": " + t.Trim());
+                }
+            }
+        }
+        Assert.True(hits.Count == 0,
+            "Allocating Physics.OverlapSphere still present:\n" + string.Join("\n", hits));
+    }
+
+    [Fact]
+    public void CharacterTracker_HasNoAllocatingGetAll()
+    {
+        var tracker = File.ReadAllText(Path.Combine(ModDir, "Domains", "Players", "CharacterTracker.cs"));
+        Assert.DoesNotContain("public static Character[] GetAll()", tracker);
+        var hits = new List<string>();
+        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(f);
+            if (text.Contains("CharacterTracker.GetAll("))
+                hits.Add(Path.GetRelativePath(ModDir, f));
+        }
+        Assert.True(hits.Count == 0, "CharacterTracker.GetAll call sites remain: " + string.Join(", ", hits));
+    }
+
+    [Fact]
+    public void NonMessageHubs_StayUnder500Lines()
+    {
+        var oversized = new List<string>();
+        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
+        {
+            if (f.Contains($"{Path.DirectorySeparatorChar}Networking{Path.DirectorySeparatorChar}Messages{Path.DirectorySeparatorChar}"))
+                continue;
+            int lines = File.ReadAllLines(f).Length;
+            if (lines >= 500)
+                oversized.Add(Path.GetRelativePath(ModDir, f) + " (" + lines + ")");
+        }
+        Assert.True(oversized.Count == 0,
+            "Non-message hubs ≥500 lines:\n" + string.Join("\n", oversized));
+    }
+
+    [Fact]
+    public void Domains_NoRetiredLanNetworkManagerFacades()
+    {
+        var domains = Path.Combine(ModDir, "Domains");
+        var hits = Directory.GetFiles(domains, "LanNetworkManager.*.cs", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(ModDir, f))
+            .Where(rel => !rel.EndsWith("WorldTickFields.cs", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(hits.Count == 0,
+            "Retired Domains LanNetworkManager façades still present: " + string.Join(", ", hits));
+    }
 }

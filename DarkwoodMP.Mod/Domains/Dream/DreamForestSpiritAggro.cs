@@ -55,7 +55,7 @@ namespace DWMPHorde.Sync
 
             RemotePlayerProxy proxy = net.GetProxy(_ownerPlayerId);
             if (proxy == null) return null;
-            CharBase pcb = proxy.GetComponent<CharBase>();
+            CharBase pcb = proxy.CachedCharBase;
             if (pcb != null && (!pcb.alive || pcb.invisible || pcb.ignoreMe))
                 return null;
             return proxy.transform;

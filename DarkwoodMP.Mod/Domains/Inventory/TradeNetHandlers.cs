@@ -13,6 +13,10 @@ namespace DWMPHorde.Networking
 
         private readonly Dictionary<string, TradeInventorySyncMessage> _pendingTradeInventories =
             new Dictionary<string, TradeInventorySyncMessage>();
+        private readonly List<string> _tradeFlushApplied = new List<string>(8);
+        private float _nextTradeFlushTime;
+        private const float TradeFlushInterval = 0.5f;
+        private const int MaxPendingTradeInventories = 64;
 
         internal TradeNetHandlers(LanNetworkManager net)
         {
@@ -60,6 +64,19 @@ namespace DWMPHorde.Networking
         internal void QueuePendingTradeInventory(TradeInventorySyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.NpcName)) return;
+            if (!_pendingTradeInventories.ContainsKey(msg.NpcName)
+                && _pendingTradeInventories.Count >= MaxPendingTradeInventories)
+            {
+                // Drop an arbitrary oldest-ish key so join storms cannot grow forever.
+                string drop = null;
+                foreach (var k in _pendingTradeInventories.Keys)
+                {
+                    drop = k;
+                    break;
+                }
+                if (drop != null)
+                    _pendingTradeInventories.Remove(drop);
+            }
             _pendingTradeInventories[msg.NpcName] = msg;
             ModRuntime.LegacyInfo($"[TradeSync] queued inventory for '{msg.NpcName}' (NPC not loaded)");
         }
@@ -69,16 +86,21 @@ namespace DWMPHorde.Networking
             var pending = _pendingTradeInventories;
             if (pending.Count == 0) return;
 
-            var applied = new List<string>();
+            float now = Time.unscaledTime;
+            if (now < _nextTradeFlushTime) return;
+            _nextTradeFlushTime = now + TradeFlushInterval;
+
+            // One NPC scene array per flush (FindNpcByName shares the TTL cache).
+            _tradeFlushApplied.Clear();
             foreach (var kvp in pending)
             {
                 NPC npc = TradeInventorySync.FindNpcByName(kvp.Key);
                 if (npc == null) continue;
                 TradeInventorySync.ApplyToNpc(npc, kvp.Value);
-                applied.Add(kvp.Key);
+                _tradeFlushApplied.Add(kvp.Key);
             }
-            for (int i = 0; i < applied.Count; i++)
-                pending.Remove(applied[i]);
+            for (int i = 0; i < _tradeFlushApplied.Count; i++)
+                pending.Remove(_tradeFlushApplied[i]);
         }
 
         /// <summary>Host: push absolute shop stock for every loaded trader NPC.</summary>
@@ -86,7 +108,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            NPC[] all = Object.FindObjectsOfType<NPC>();
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {

@@ -9,7 +9,7 @@ namespace DWMPHorde.Audio
     /// Shared multiplayer audio helpers: listen position, distance culling,
     /// clip resolution, and send-side rate limiting.
     /// </summary>
-    public static class LocalAudioService
+    public static partial class LocalAudioService
     {
         // Peer SFX cull + Unity spatial falloff (player footsteps/guns/equip, entity, MOS).
         // 500 was tight for hideout↔yard; +30% so peers stay audible a bit farther.
@@ -22,9 +22,6 @@ namespace DWMPHorde.Audio
 
         private static readonly Dictionary<string, float> _lastForwardTime =
             new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-
-        private static readonly Dictionary<string, AudioClip> _clipCache =
-            new Dictionary<string, AudioClip>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Per-peer sticky hear gate (enter at max, exit at max+hysteresis).</summary>
         private static readonly Dictionary<int, bool> _peerHearOpen = new Dictionary<int, bool>(8);
@@ -423,77 +420,6 @@ namespace DWMPHorde.Audio
             }
 
             return false;
-        }
-
-        /// <summary>Resolve an AudioToolkit id (or clip name) to a single AudioClip.</summary>
-        public static AudioClip ResolveClip(string audioID, int depth = 0)
-        {
-            if (depth > 5 || string.IsNullOrEmpty(audioID))
-                return null;
-
-            if (_clipCache.TryGetValue(audioID, out AudioClip cached) && cached != null)
-                return cached;
-
-            AudioClip found = null;
-            AudioItem item = AudioController.GetAudioItem(audioID);
-            if (item != null && item.subItems != null && item.subItems.Length > 0)
-            {
-                // Prefer first real clip; recurse into Item-type subitems.
-                for (int i = 0; i < item.subItems.Length; i++)
-                {
-                    var sub = item.subItems[i];
-                    if (sub == null) continue;
-
-                    if (sub.SubItemType == AudioSubItemType.Clip && sub.Clip != null)
-                    {
-                        found = sub.Clip;
-                        break;
-                    }
-
-                    if (sub.SubItemType == AudioSubItemType.Item && !string.IsNullOrEmpty(sub.ItemModeAudioID))
-                    {
-                        found = ResolveClip(sub.ItemModeAudioID, depth + 1);
-                        if (found != null)
-                            break;
-                    }
-                }
-            }
-
-            if (found == null)
-            {
-                AudioClip[] allClips = Resources.FindObjectsOfTypeAll<AudioClip>();
-                for (int i = 0; i < allClips.Length; i++)
-                {
-                    if (allClips[i] != null && allClips[i].name == audioID)
-                    {
-                        found = allClips[i];
-                        break;
-                    }
-                }
-            }
-
-            if (found != null)
-                _clipCache[audioID] = found;
-
-            return found;
-        }
-
-        /// <summary>Volume scale from AudioItem + first subitem (matches typical Play path).</summary>
-        public static float GetItemVolumeScale(string audioID)
-        {
-            AudioItem item = AudioController.GetAudioItem(audioID);
-            if (item == null)
-                return 1f;
-
-            float vol = item.Volume;
-            if (item.subItems != null && item.subItems.Length > 0 && item.subItems[0] != null)
-                vol *= item.subItems[0].Volume;
-            return vol;
-        }
-
-        public static void ClearClipCache()
-        {
-            _clipCache.Clear();
         }
     }
 }

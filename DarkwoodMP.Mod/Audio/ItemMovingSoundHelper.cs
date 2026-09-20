@@ -37,6 +37,10 @@ namespace DWMPHorde.Audio
         private static readonly Dictionary<string, float> _suppressUntil =
             new Dictionary<string, float>(StringComparer.Ordinal);
 
+        private static readonly HashSet<string> _stillContactScratch =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static readonly List<string> _pushStopScratch = new List<string>(16);
+
         /// <summary>Object names whose scrape is owned by MOS (remote network motion).</summary>
         private static readonly HashSet<string> _remoteScrape =
             new HashSet<string>(StringComparer.Ordinal);
@@ -244,8 +248,7 @@ namespace DWMPHorde.Audio
             bool playerMoving = hSpeed >= LocalPushStopSpeed;
 
             // Build current contact set of Item names (skip remote-owned).
-            // Reuse _localPushActive as "still contacting this frame" via a temp swap.
-            // To avoid alloc: walk contacts, mark still-active, collect stops.
+            _stillContactScratch.Clear();
             HashSet<string> stillContact = null;
 
             if (p.touchingColliders != null)
@@ -267,8 +270,7 @@ namespace DWMPHorde.Audio
                         && (lnm._dragClaims.ContainsKey(name) || lnm._remoteDragItemNames.Contains(name)))
                         continue;
 
-                    if (stillContact == null)
-                        stillContact = new HashSet<string>(StringComparer.Ordinal);
+                    stillContact = _stillContactScratch;
                     stillContact.Add(name);
 
                     // Soft authority while touching (even standing) so host echo
@@ -294,17 +296,11 @@ namespace DWMPHorde.Audio
 
                 if (Time.unscaledTime - _playerSlowSince >= LocalPushStopGrace)
                 {
-                    List<string> toStop = null;
+                    _pushStopScratch.Clear();
                     foreach (string name in _localPushActive)
-                    {
-                        if (toStop == null) toStop = new List<string>();
-                        toStop.Add(name);
-                    }
-                    if (toStop != null)
-                    {
-                        for (int i = 0; i < toStop.Count; i++)
-                            ForceStopLocalPush(toStop[i]);
-                    }
+                        _pushStopScratch.Add(name);
+                    for (int i = 0; i < _pushStopScratch.Count; i++)
+                        ForceStopLocalPush(_pushStopScratch[i]);
                     _localPushActive.Clear();
                     _playerSlowSince = -1f;
                 }
@@ -316,37 +312,25 @@ namespace DWMPHorde.Audio
             // Contact lost while still moving: stop scrape for that object.
             if (stillContact == null)
             {
-                List<string> lostAll = null;
+                _pushStopScratch.Clear();
                 foreach (string name in _localPushActive)
-                {
-                    if (lostAll == null) lostAll = new List<string>();
-                    lostAll.Add(name);
-                }
-                if (lostAll != null)
-                {
-                    for (int i = 0; i < lostAll.Count; i++)
-                        ForceStopLocalPush(lostAll[i]);
-                }
+                    _pushStopScratch.Add(name);
+                for (int i = 0; i < _pushStopScratch.Count; i++)
+                    ForceStopLocalPush(_pushStopScratch[i]);
                 _localPushActive.Clear();
                 return;
             }
 
-            List<string> lost = null;
+            _pushStopScratch.Clear();
             foreach (string name in _localPushActive)
             {
                 if (!stillContact.Contains(name))
-                {
-                    if (lost == null) lost = new List<string>();
-                    lost.Add(name);
-                }
+                    _pushStopScratch.Add(name);
             }
-            if (lost != null)
+            for (int i = 0; i < _pushStopScratch.Count; i++)
             {
-                for (int i = 0; i < lost.Count; i++)
-                {
-                    ForceStopLocalPush(lost[i]);
-                    _localPushActive.Remove(lost[i]);
-                }
+                ForceStopLocalPush(_pushStopScratch[i]);
+                _localPushActive.Remove(_pushStopScratch[i]);
             }
         }
 

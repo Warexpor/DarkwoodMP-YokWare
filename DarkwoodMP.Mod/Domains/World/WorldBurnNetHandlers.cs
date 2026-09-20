@@ -126,7 +126,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            Burn[] all = UnityEngine.Object.FindObjectsOfType<Burn>(true);
+            Burn[] all = WorldQueryHelper.GetCachedSceneComponents<Burn>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {

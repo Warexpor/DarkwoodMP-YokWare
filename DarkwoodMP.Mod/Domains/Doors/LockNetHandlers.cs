@@ -115,7 +115,7 @@ namespace DWMPHorde.Networking
             }
 
             // Also any Constructible still in scene with constructed==true (save-loaded)
-            Constructible[] all = UnityEngine.Object.FindObjectsOfType<Constructible>();
+            Constructible[] all = WorldQueryHelper.GetCachedSceneComponents<Constructible>();
             for (int i = 0; i < all.Length; i++)
             {
                 Constructible c = all[i];
@@ -338,7 +338,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
             int padlocks = 0;
-            Padlock[] pads = UnityEngine.Object.FindObjectsOfType<Padlock>(true);
+            Padlock[] pads = WorldQueryHelper.GetCachedSceneComponents<Padlock>();
             for (int i = 0; i < pads.Length; i++)
             {
                 Padlock p = pads[i];
@@ -363,7 +363,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
             int locked = 0;
-            Locked[] locks = UnityEngine.Object.FindObjectsOfType<Locked>(true);
+            Locked[] locks = WorldQueryHelper.GetCachedSceneComponents<Locked>();
             for (int i = 0; i < locks.Length; i++)
             {
                 Locked l = locks[i];
@@ -388,7 +388,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
             int interactive = 0;
-            InteractiveItem[] items = UnityEngine.Object.FindObjectsOfType<InteractiveItem>(true);
+            InteractiveItem[] items = WorldQueryHelper.GetCachedSceneComponents<InteractiveItem>();
             for (int i = 0; i < items.Length; i++)
             {
                 InteractiveItem ii = items[i];

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using DWMPHorde;
 using DWMPHorde.Logging;
+using DWMPHorde.Sync;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -181,7 +182,7 @@ namespace DWMPHorde.Networking
         internal void SendHideoutStateSyncTo(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host) return;
-            var ovens = Object.FindObjectsOfType<ExperienceMachine>(true);
+            var ovens = WorldQueryHelper.GetCachedSceneComponents<ExperienceMachine>();
             int count = Mathf.Min(ovens.Length, 128);
             var msg = new HideoutStateSyncMessage
             {
@@ -206,7 +207,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client) return;
             if (msg.OvenCount <= 0 || msg.PosX == null) return;
 
-            var machines = Object.FindObjectsOfType<ExperienceMachine>(true);
+            var machines = WorldQueryHelper.GetCachedSceneComponents<ExperienceMachine>();
             for (int i = 0; i < msg.OvenCount; i++)
             {
                 Vector3 pos = new Vector3(msg.PosX[i], msg.PosY[i], msg.PosZ[i]);
@@ -274,7 +275,7 @@ namespace DWMPHorde.Networking
 
             // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69.
             var discoveries = new List<string>(256);
-            MapElement[] elements = Object.FindObjectsOfType<MapElement>(true);
+            MapElement[] elements = WorldQueryHelper.GetCachedSceneComponents<MapElement>();
             if (elements != null)
             {
                 for (int i = 0; i < elements.Length && discoveries.Count < 4096; i++)

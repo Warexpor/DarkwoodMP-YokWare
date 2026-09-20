@@ -213,6 +213,23 @@ namespace DWMPHorde.Sync
         public TrapState[] Traps;
         /// <summary>All generator state changes in this snapshot.</summary>
         public GeneratorState[] Generators;
+        /// <summary>
+        /// Valid prefix length when arrays are recycled/oversized. 0 = use
+        /// <c>Array.Length</c> (ad-hoc single-entry messages).
+        /// </summary>
+        public int ObjectCount;
+        public int DoorCount;
+        public int TrapCount;
+        public int GeneratorCount;
+
+        public int EffectiveObjectCount =>
+            ObjectCount > 0 ? ObjectCount : (Objects != null ? Objects.Length : 0);
+        public int EffectiveDoorCount =>
+            DoorCount > 0 ? DoorCount : (Doors != null ? Doors.Length : 0);
+        public int EffectiveTrapCount =>
+            TrapCount > 0 ? TrapCount : (Traps != null ? Traps.Length : 0);
+        public int EffectiveGeneratorCount =>
+            GeneratorCount > 0 ? GeneratorCount : (Generators != null ? Generators.Length : 0);
 
         /// <summary>Serializes the full message into a network writer.</summary>
         /// <param name="w">The network writer.</param>
@@ -220,21 +237,33 @@ namespace DWMPHorde.Sync
         {
             w.Put(Reliable);
             w.Put(Sequence);
-            int oc = Objects != null ? Objects.Length : 0;
+            int oc = EffectiveObjectCount;
             w.Put(oc);
             for (int i = 0; i < oc; i++) Objects[i].Serialize(w);
 
-            int dc = Doors != null ? Doors.Length : 0;
+            int dc = EffectiveDoorCount;
             w.Put(dc);
             for (int i = 0; i < dc; i++) Doors[i].Serialize(w);
 
-            int tc = Traps != null ? Traps.Length : 0;
+            int tc = EffectiveTrapCount;
             w.Put(tc);
             for (int i = 0; i < tc; i++) Traps[i].Serialize(w);
 
-            int gc = Generators != null ? Generators.Length : 0;
+            int gc = EffectiveGeneratorCount;
             w.Put(gc);
             for (int i = 0; i < gc; i++) Generators[i].Serialize(w);
+        }
+
+        private static WorldObjectState[] _deserObjects = Array.Empty<WorldObjectState>();
+        private static DoorState[] _deserDoors = Array.Empty<DoorState>();
+        private static TrapState[] _deserTraps = Array.Empty<TrapState>();
+        private static GeneratorState[] _deserGenerators = Array.Empty<GeneratorState>();
+
+        private static void EnsureDeserCapacity<T>(ref T[] buf, int n)
+        {
+            if (n <= 0) return;
+            if (buf.Length < n)
+                buf = new T[Math.Max(n, buf.Length == 0 ? n : buf.Length * 2)];
         }
 
         /// <summary>Deserializes a full message from a network reader.</summary>
@@ -246,236 +275,40 @@ namespace DWMPHorde.Sync
             int oc = r.GetInt();
             if (oc < 0 || oc > 4096)
                 throw new InvalidDataException("Physics object count is out of range: " + oc);
-            var objs = new WorldObjectState[oc];
-            for (int i = 0; i < oc; i++) objs[i] = WorldObjectState.Deserialize(r);
+            EnsureDeserCapacity(ref _deserObjects, oc);
+            for (int i = 0; i < oc; i++) _deserObjects[i] = WorldObjectState.Deserialize(r);
 
             int dc = r.GetInt();
             if (dc < 0 || dc > 4096)
                 throw new InvalidDataException("Physics door count is out of range: " + dc);
-            var doors = new DoorState[dc];
-            for (int i = 0; i < dc; i++) doors[i] = DoorState.Deserialize(r);
+            EnsureDeserCapacity(ref _deserDoors, dc);
+            for (int i = 0; i < dc; i++) _deserDoors[i] = DoorState.Deserialize(r);
 
             int tc = r.GetInt();
             if (tc < 0 || tc > 4096)
                 throw new InvalidDataException("Physics trap count is out of range: " + tc);
-            var traps = new TrapState[tc];
-            for (int i = 0; i < tc; i++) traps[i] = TrapState.Deserialize(r);
+            EnsureDeserCapacity(ref _deserTraps, tc);
+            for (int i = 0; i < tc; i++) _deserTraps[i] = TrapState.Deserialize(r);
 
             int gc = r.GetInt();
             if (gc < 0 || gc > 4096)
                 throw new InvalidDataException("Physics generator count is out of range: " + gc);
-            var generators = new GeneratorState[gc];
-            for (int i = 0; i < gc; i++) generators[i] = GeneratorState.Deserialize(r);
+            EnsureDeserCapacity(ref _deserGenerators, gc);
+            for (int i = 0; i < gc; i++) _deserGenerators[i] = GeneratorState.Deserialize(r);
 
             return new PhysicsStateMessage
             {
                 Sequence = sequence,
                 Reliable = reliable,
-                Objects = objs,
-                Doors = doors,
-                Traps = traps,
-                Generators = generators
+                Objects = oc > 0 ? _deserObjects : null,
+                Doors = dc > 0 ? _deserDoors : null,
+                Traps = tc > 0 ? _deserTraps : null,
+                Generators = gc > 0 ? _deserGenerators : null,
+                ObjectCount = oc,
+                DoorCount = dc,
+                TrapCount = tc,
+                GeneratorCount = gc
             };
-        }
-    }
-
-    /// <summary>
-    /// Provides reflection-based helpers for reading and writing private fields
-    /// on Door, Trigger, and other game types via Harmony Traverse.
-    /// </summary>
-    internal static class TraverseHack
-    {
-        private static bool _explicitApplyingFromNetwork;
-
-        /// <summary>
-        /// True while applying remote state. While <see cref="NetworkApplyGuard.IsActive"/>,
-        /// always true even if nested code assigns false (prevents split-brain rebroadcast).
-        /// </summary>
-        public static bool ApplyingFromNetwork
-        {
-            get => _explicitApplyingFromNetwork || Networking.NetworkApplyGuard.IsActive;
-            set => _explicitApplyingFromNetwork = value;
-        }
-
-        internal static bool GetExplicitFlag() => _explicitApplyingFromNetwork;
-        internal static void SetExplicitFlag(bool value) => _explicitApplyingFromNetwork = value;
-
-        /// <summary>
-        /// Set true while inside a CharacterSounds method that EntitySoundSyncPatches
-        /// already handles (playGrowl, playSingleInstance, playEscapingLoop, playIdleLoop).
-        /// PlayerSoundSyncPatches checks this flag to avoid double-forwarding the
-        /// AudioController.Play call that happens inside these methods.
-        /// </summary>
-        public static bool InsideCharacterSounds = false;
-
-        /// <summary>
-        /// Set true on client during a local Explodes.explode() call so
-        /// ClientDamageRedirectPatch can redirect AOE splash damage to the host
-        /// (the host re-enacts the explosion and applies damage authoritatively).
-        /// </summary>
-        public static bool IsInsideLocalExplosion = false;
-
-        /// <summary>
-        /// Set true on client while inside Bullet.onCollide for a player-fired
-        /// projectile (objectThatSpawnedMe == null). ClientDamageRedirectPatch
-        /// checks this to detect projectile weapon damage where the vanilla
-        /// code never sets objectThatSpawnedMe on player bullets.
-        /// </summary>
-        public static bool IsInsidePlayerBulletCollision = false;
-
-        /// <summary>
-        /// True while <see cref="FastProjectile.FixedUpdate"/> is running its sweep
-        /// raycast. HitscanImpactSyncPatch must not treat those as player hitscan FF
-        /// (frozen/stalled pellets used to ghost-damage via that path).
-        /// </summary>
-        public static bool IsInsideFastProjectileRaycast = false;
-
-        /// <summary>Clear all transient apply flags on network stop (stuck flags leak rebroadcast blocks).</summary>
-        public static void ResetTransientFlags()
-        {
-            _explicitApplyingFromNetwork = false;
-            InsideCharacterSounds = false;
-            IsInsideLocalExplosion = false;
-            IsInsidePlayerBulletCollision = false;
-            IsInsideFastProjectileRaycast = false;
-        }
-
-        /// <summary>Reads the private "opened" field from a Door instance.</summary>
-        /// <param name="door">The door instance.</param>
-        public static bool ReadDoorOpened(Door door)
-        {
-            var t = Traverse.Create(door);
-            return t.Field("opened").GetValue<bool>();
-        }
-
-        /// <summary>
-        /// Opens or closes a door: invokes the original open/close method via reflection,
-        /// ensures the "opened" field matches, and syncs the door body's rotation + angular velocity
-        /// so the receiver's door swing matches the sender's physical swing.
-        /// </summary>
-        /// <param name="door">The door instance.</param>
-        /// <param name="opened">True to open, false to close.</param>
-        /// <param name="openerPos">Position of the player interacting with the door (used as open origin).</param>
-        /// <param name="openForce">Force magnitude from the original open call.</param>
-        /// <param name="bodyRotY">Target Y euler angle for the door body to match the sender's swing.</param>
-        /// <param name="angVelX">X component of sender's door body angular velocity.</param>
-        /// <param name="angVelY">Y component of sender's door body angular velocity.</param>
-        /// <param name="angVelZ">Z component of sender's door body angular velocity.</param>
-        public static void SetDoorOpened(Door door, bool opened, Vector3 openerPos = default, float openForce = 0f, float bodyRotY = 0f, float angVelX = 0f, float angVelY = 0f, float angVelZ = 0f)
-        {
-            InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce);
-
-            var t = Traverse.Create(door);
-            if (t.Field("opened").GetValue<bool>() != opened)
-                t.Field("opened").SetValue(opened);
-
-            if (door.body != null)
-            {
-                Rigidbody doorBodyRB = door.body.GetComponent<Rigidbody>();
-                if (doorBodyRB != null)
-                {
-                    Vector3 currentEuler = door.body.eulerAngles;
-                    bool closeSnap = !opened && Mathf.Abs(Mathf.DeltaAngle(currentEuler.y, bodyRotY)) > 5f;
-                    if (closeSnap || (opened && bodyRotY != 0f))
-                    {
-                        Quaternion targetRot = Quaternion.Euler(currentEuler.x, bodyRotY, currentEuler.z);
-                        door.body.rotation = targetRot;
-                        if (opened)
-                        {
-                            doorBodyRB.velocity = Vector3.zero;
-                            doorBodyRB.angularVelocity = Vector3.zero;
-                        }
-                        else
-                        {
-                            doorBodyRB.constraints = RigidbodyConstraints.FreezeAll;
-                            doorBodyRB.isKinematic = true;
-                        }
-                    }
-
-                    // Apply sender's angular velocity so the door continues its natural swing
-                    Vector3 senderAngVel = new Vector3(angVelX, angVelY, angVelZ);
-                    if (senderAngVel.sqrMagnitude > 0f && opened)
-                    {
-                        doorBodyRB.angularVelocity = senderAngVel;
-                    }
-
-                    // Note: the kick sound ("door_hit_run" at thumpForce=45000)
-                    // is played by Door.open() inside InvokeDoorMethod above,
-                    // which receives the original OpenForce value from the sender.
-                }
-            }
-        }
-
-        /// <summary>
-        /// Invokes the public or non-public "open" or "close" method on the Door type via reflection,
-        /// matching the method's parameter signature. Falls back to toggling colliders and playing
-        /// animation clips if reflection fails.
-        /// </summary>
-        private static void InvokeDoorMethod(Door door, string methodName, Vector3 openerPos = default, float openForce = 0f)
-        {
-            try
-            {
-                bool opening = (methodName == "open");
-                bool invoked = false;
-
-                // Try calling the original method via reflection (handles colliders, animation, internal state)
-                try
-                {
-                    var methods = typeof(Door).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    foreach (var m in methods)
-                    {
-                        if (m.Name != methodName) continue;
-                        var pars = m.GetParameters();
-                        object[] args = new object[pars.Length];
-                        for (int i = 0; i < pars.Length; i++)
-                        {
-                            Type pt = pars[i].ParameterType;
-                            if (pt == typeof(Vector3)) args[i] = opening ? openerPos : Vector3.zero;
-                            else if (pt == typeof(Transform))
-                            {
-                                // Don't pass a transform so open() doesn't overwrite openerPos with the door's position
-                                if (opening && openerPos != default)
-                                    args[i] = null;
-                                else
-                                    args[i] = door.transform;
-                            }
-                            else if (pt == typeof(float)) args[i] = opening ? openForce : 0f;
-                            else if (pt == typeof(bool)) args[i] = opening;
-                            else if (pt == typeof(int)) args[i] = 0;
-                            else args[i] = pt.IsValueType ? Activator.CreateInstance(pt) : null;
-                        }
-                        m.Invoke(door, args);
-                        invoked = true;
-                        break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ModRuntime.Log?.LogWarning("[DoorReflect] failed for " + methodName + ": " + ex);
-                }
-
-                if (invoked)
-                    return;
-
-                // Fallback: toggle colliders and play animation
-                foreach (Collider c in door.GetComponentsInChildren<Collider>(true))
-                {
-                    if (c != null && !c.isTrigger)
-                        c.enabled = !opening;
-                }
-
-                tk2dSpriteAnimator anim = door.GetComponentInChildren<tk2dSpriteAnimator>();
-                if (anim != null)
-                {
-                    string clip = methodName;
-                    if (anim.GetClipByName(clip) != null) anim.Play(clip);
-                    else if (anim.GetClipByName(opening ? "Open" : "Close") != null) anim.Play(opening ? "Open" : "Close");
-                }
-            }
-            catch (Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[DoorAnim] " + ex);
-            }
         }
     }
 }

@@ -149,34 +149,31 @@ namespace DWMPHorde.Sync
             // Safety net if PhysicsState packets stop entirely: soft-stop after ~1 missed
             // 10Hz tick + margin. Decision lag is the bug; SoftStop fade is vanilla 0.5s.
             float __srcCleanupNow = Time.time;
-            List<int> __staleSrcKeys = null;
+            _stalePushSrcKeys.Clear();
             foreach (var __kv in _lastPushSoundTime)
             {
                 if ((__srcCleanupNow - __kv.Value) > 0.15f)
-                {
-                    if (__staleSrcKeys == null) __staleSrcKeys = new List<int>();
-                    __staleSrcKeys.Add(__kv.Key);
-                }
+                    _stalePushSrcKeys.Add(__kv.Key);
             }
-            if (__staleSrcKeys != null)
-                foreach (int __k in __staleSrcKeys)
+            for (int __si = 0; __si < _stalePushSrcKeys.Count; __si++)
+            {
+                int __k = _stalePushSrcKeys[__si];
+                if (_pushGidToName.TryGetValue(__k, out var __akn))
                 {
-                    if (_pushGidToName.TryGetValue(__k, out var __akn))
-                    {
-                        ItemMovingSoundHelper.SoftStopNetwork(__akn);
-                        _pushNameToGid.Remove(__akn);
-                    }
-                    _lastPushSoundTime.Remove(__k);
-                    _pushStationaryCount.Remove(__k);
-                    _pushGidToName.Remove(__k);
-                    _pushSoundSource.Remove(__k);
-                    _pushSoundFade.Remove(__k);
+                    ItemMovingSoundHelper.SoftStopNetwork(__akn);
+                    _pushNameToGid.Remove(__akn);
                 }
+                _lastPushSoundTime.Remove(__k);
+                _pushStationaryCount.Remove(__k);
+                _pushGidToName.Remove(__k);
+                _pushSoundSource.Remove(__k);
+                _pushSoundFade.Remove(__k);
+            }
 
             // Release path for client-kinematic objects. This runs every frame
             // in LateUpdate, including when TryBuildWorldSnapshot is paused.
             float nowK = Time.time;
-            List<int> staleKin = null;
+            _staleKinematicKeys.Clear();
             foreach (var kv in _clientKinematic)
             {
                 if (nowK >= kv.Value.releaseTime)
@@ -186,26 +183,25 @@ namespace DWMPHorde.Sync
                         rBody.isKinematic = false;
                     if (!string.IsNullOrEmpty(oName) && _bodyPushSoundActive.Remove(oName))
                         LanNetworkManager.NotifyBodyPushStopped(oName);
-                    if (staleKin == null) staleKin = new List<int>();
-                    staleKin.Add(kv.Key);
+                    _staleKinematicKeys.Add(kv.Key);
                 }
             }
-            if (staleKin != null)
-                foreach (int id in staleKin)
+            for (int ski = 0; ski < _staleKinematicKeys.Count; ski++)
+            {
+                int id = _staleKinematicKeys[ski];
+                _clientKinematic.Remove(id);
+                _bodyPushSoundTimer.Remove(id);
+                _pushSoundAO.Remove(id);
+                _pushSoundSource.Remove(id);
+                _lastPushSoundTime.Remove(id);
+                _pushStationaryCount.Remove(id);
+                if (_pushGidToName.TryGetValue(id, out var __skn))
                 {
-                    _clientKinematic.Remove(id);
-                    _bodyPushSoundTimer.Remove(id);
-                    _pushSoundAO.Remove(id);
-                    _pushSoundSource.Remove(id);
-                    _lastPushSoundTime.Remove(id);
-                    _pushStationaryCount.Remove(id);
-                    if (_pushGidToName.TryGetValue(id, out var __skn))
-                    {
-                        _bodyPushSoundActive.Remove(__skn);
-                        _pushNameToGid.Remove(__skn);
-                    }
-                    _pushGidToName.Remove(id);
+                    _bodyPushSoundActive.Remove(__skn);
+                    _pushNameToGid.Remove(__skn);
                 }
+                _pushGidToName.Remove(id);
+            }
         }
 
         /// <summary>
@@ -264,6 +260,33 @@ namespace DWMPHorde.Sync
 
         private static float _nextDreamPropColliderBroadcast;
         private const float DreamPropColliderMinInterval = 0.35f;
+        private static Item[] _dreamPropItemsCache;
+        private static int _dreamPropItemsRootId;
+        private static readonly System.Collections.Generic.List<DreamPropColliderMessage.Entry> _dreamPropEntries =
+            new System.Collections.Generic.List<DreamPropColliderMessage.Entry>(64);
+        private static DreamPropColliderMessage.Entry[] _dreamPropEntryBuf =
+            System.Array.Empty<DreamPropColliderMessage.Entry>();
+
+        /// <summary>Drop pad Item cache on dream enter/exit so collider fan-out rescans.</summary>
+        public static void InvalidateDreamPropColliderCache()
+        {
+            _dreamPropItemsCache = null;
+            _dreamPropItemsRootId = 0;
+        }
+
+        private static Item[] GetDreamPropItems(Transform dreamRoot, bool forceRefresh)
+        {
+            int rootId = dreamRoot.GetInstanceID();
+            if (forceRefresh
+                || _dreamPropItemsCache == null
+                || _dreamPropItemsRootId != rootId)
+            {
+                _dreamPropItemsCache = dreamRoot.GetComponentsInChildren<Item>(true)
+                    ?? System.Array.Empty<Item>();
+                _dreamPropItemsRootId = rootId;
+            }
+            return _dreamPropItemsCache;
+        }
 
         /// <summary>
         /// Host: snapshot Item collider isTrigger under the dream pad and fan-out so
@@ -284,11 +307,11 @@ namespace DWMPHorde.Sync
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             if (dreamRoot == null) return;
 
-            Item[] items = dreamRoot.GetComponentsInChildren<Item>(true);
+            Item[] items = GetDreamPropItems(dreamRoot, force);
             if (items == null || items.Length == 0) return;
 
-            var list = new System.Collections.Generic.List<DreamPropColliderMessage.Entry>(32);
-            for (int i = 0; i < items.Length && list.Count < 64; i++)
+            _dreamPropEntries.Clear();
+            for (int i = 0; i < items.Length && _dreamPropEntries.Count < 64; i++)
             {
                 Item item = items[i];
                 if (item == null) continue;
@@ -297,17 +320,17 @@ namespace DWMPHorde.Sync
                 // Skip huge static environment; keep lights, bells, push props.
                 string n = item.name ?? "";
                 bool interesting = item.isLight
-                    || item.GetComponent<ItemLight>() != null
+                    || item.draggable
                     || n.IndexOf("Lamp", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || n.IndexOf("Bell", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || n.IndexOf("bell", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || n.IndexOf("karuzela", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || n.IndexOf("SWITCH", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    || item.draggable;
+                    || item.GetComponent<ItemLight>() != null;
                 if (!interesting) continue;
 
                 Vector3 p = item.transform.position;
-                list.Add(new DreamPropColliderMessage.Entry
+                _dreamPropEntries.Add(new DreamPropColliderMessage.Entry
                 {
                     Name = n,
                     PosX = p.x,
@@ -317,14 +340,20 @@ namespace DWMPHorde.Sync
                 });
             }
 
-            if (list.Count == 0) return;
+            if (_dreamPropEntries.Count == 0) return;
 
-            var msg = new DreamPropColliderMessage { Entries = list.ToArray() };
+            int nEntries = _dreamPropEntries.Count;
+            if (_dreamPropEntryBuf.Length != nEntries)
+                _dreamPropEntryBuf = new DreamPropColliderMessage.Entry[nEntries];
+            for (int i = 0; i < nEntries; i++)
+                _dreamPropEntryBuf[i] = _dreamPropEntries[i];
+
+            var msg = new DreamPropColliderMessage { Entries = _dreamPropEntryBuf };
             net.Broadcast(NetMessageType.DreamPropCollider,
                 w => msg.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
-                "[DreamPropCollider] host broadcast " + list.Count + " collider(s)");
+                "[DreamPropCollider] host broadcast " + nEntries + " collider(s)");
         }
 
         /// <summary>Client: apply host dream collider isTrigger flags.</summary>
@@ -355,15 +384,15 @@ namespace DWMPHorde.Sync
         private static GameObject FindDreamPropForCollider(string name, Vector3 pos)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            Collider[] near = Physics.OverlapSphere(pos, 8f);
+            int nearN = OverlapNear(pos, 8f);
             GameObject best = null;
             float bestD = float.MaxValue;
-            for (int i = 0; i < near.Length; i++)
+            for (int i = 0; i < nearN; i++)
             {
-                if (near[i] == null) continue;
-                Transform t = near[i].transform;
-                GameObject root = near[i].attachedRigidbody != null
-                    ? near[i].attachedRigidbody.gameObject
+                if (_overlap3D[i] == null) continue;
+                Transform t = _overlap3D[i].transform;
+                GameObject root = _overlap3D[i].attachedRigidbody != null
+                    ? _overlap3D[i].attachedRigidbody.gameObject
                     : t.gameObject;
                 if (root == null) continue;
                 string n = root.name ?? "";
@@ -381,14 +410,16 @@ namespace DWMPHorde.Sync
 
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             if (dreamRoot == null) return null;
-            Transform[] all = dreamRoot.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < all.Length; i++)
+            // Prefer cached pad Items (same set host broadcasts) over Transform FoT.
+            Item[] items = GetDreamPropItems(dreamRoot, forceRefresh: false);
+            for (int i = 0; i < items.Length; i++)
             {
-                if (all[i] == null) continue;
-                string n = all[i].name ?? "";
+                Item item = items[i];
+                if (item == null) continue;
+                string n = item.name ?? "";
                 if (n.Equals(name, System.StringComparison.OrdinalIgnoreCase)
                     || n.IndexOf(name, System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    return all[i].gameObject;
+                    return item.gameObject;
             }
             return null;
         }

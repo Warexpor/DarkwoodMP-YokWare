@@ -1,0 +1,191 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using DWMPHorde.Logging;
+using DWMPHorde.Networking.Steam;
+using LiteNetLib;
+using Steamworks;
+using UnityEngine;
+
+namespace DWMPHorde.Networking
+{
+    /// <summary>Peer roster gossip build/apply and LAN IPv4 helpers.</summary>
+    public sealed partial class LanNetworkManager
+    {
+        internal void BroadcastPeerRoster()
+        {
+            if (_role != NetworkRole.Host)
+                return;
+            if (!IsSteamSession && _net == null)
+                return;
+            if (IsSteamSession && (_steam == null || !_steam.IsActive))
+                return;
+
+            var list = BuildRosterEntries();
+            var msg = new PeerRosterMessage
+            {
+                HostPlayerId = _localPlayerId,
+                SessionPort = IsSteamSession
+                    ? SteamCoopTransport.MigrationVirtualPort
+                    : _sessionPort,
+                Entries = list.ToArray()
+            };
+            ApplyPeerRosterLocal(msg);
+
+            Broadcast(NetMessageType.PeerRoster, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // Trace only; frequent Support/Dev events are noise.
+            ModLog.Trace(LogCat.Network, () => "[HostMigration] roster peers=" + list.Count
+                + " hostId=" + _localPlayerId
+                + (IsSteamSession ? " steam" : (" port=" + _sessionPort)));
+        }
+
+        private List<PeerRosterEntry> BuildRosterEntries()
+        {
+            if (IsSteamSession)
+                return BuildSteamRosterEntries();
+
+            var list = new List<PeerRosterEntry>(8);
+            // Cached because GetAllNetworkInterfaces is expensive on the roster tick.
+            string hostIp = GetCachedPrimaryLanIPv4() ?? "127.0.0.1";
+            list.Add(new PeerRosterEntry
+            {
+                PlayerId = _localPlayerId,
+                Address = hostIp,
+                Port = _sessionPort
+            });
+
+            foreach (var kvp in _peers)
+            {
+                NetPeer peer = kvp.Value;
+                if (peer == null) continue;
+                IPAddress ip = peer.Address;
+                if (ip == null) continue;
+                if (ip.IsIPv4MappedToIPv6)
+                    ip = ip.MapToIPv4();
+                string addr = ip.ToString();
+                if (string.IsNullOrEmpty(addr) || addr == "0.0.0.0")
+                    continue;
+                list.Add(new PeerRosterEntry
+                {
+                    PlayerId = kvp.Key,
+                    Address = addr,
+                    Port = _sessionPort
+                });
+            }
+            return list;
+        }
+
+        private List<PeerRosterEntry> BuildSteamRosterEntries()
+        {
+            var list = new List<PeerRosterEntry>(8);
+            int port = SteamCoopTransport.MigrationVirtualPort;
+            CSteamID self = SteamCoopTransport.LocalSteamId();
+            if (self.IsValid())
+            {
+                list.Add(new PeerRosterEntry
+                {
+                    PlayerId = _localPlayerId,
+                    Address = self.m_SteamID.ToString(),
+                    Port = port
+                });
+            }
+
+            foreach (var kvp in _steamPeers)
+            {
+                if (!kvp.Value.IsValid()) continue;
+                list.Add(new PeerRosterEntry
+                {
+                    PlayerId = kvp.Key,
+                    Address = kvp.Value.m_SteamID.ToString(),
+                    Port = port
+                });
+            }
+            return list;
+        }
+
+        /// <summary>Roster Address is a SteamID64 decimal string (not IPv4).</summary>
+        private static bool IsSteamRosterAddress(string address)
+        {
+            if (string.IsNullOrEmpty(address))
+                return false;
+            // SteamID64 is 17 digits starting with 7656…; IPv4 has dots.
+            if (address.IndexOf('.') >= 0)
+                return false;
+            return ulong.TryParse(address, out ulong id) && id > 0x0110000100000000UL;
+        }
+
+        private void HandlePeerRoster(PeerRosterMessage msg)
+        {
+            if (_role != NetworkRole.Client)
+                return;
+            ApplyPeerRosterLocal(msg);
+        }
+
+        private void ApplyPeerRosterLocal(PeerRosterMessage msg)
+        {
+            if (msg.HostPlayerId > 0)
+                _hostPlayerId = msg.HostPlayerId;
+            if (msg.SessionPort > 0)
+                _sessionPort = msg.SessionPort;
+
+            _peerRoster.Clear();
+            if (msg.Entries == null) return;
+            for (int i = 0; i < msg.Entries.Length; i++)
+            {
+                PeerRosterEntry e = msg.Entries[i];
+                if (e.PlayerId <= 0 || string.IsNullOrEmpty(e.Address))
+                    continue;
+                _peerRoster.Add(e);
+            }
+        }
+
+        private static string GetCachedPrimaryLanIPv4()
+        {
+            float now = Time.unscaledTime;
+            if (!string.IsNullOrEmpty(_cachedLanIPv4) && now - _cachedLanIPv4At < LanIPv4CacheSec)
+                return _cachedLanIPv4;
+            _cachedLanIPv4 = GetPrimaryLanIPv4();
+            _cachedLanIPv4At = now;
+            return _cachedLanIPv4;
+        }
+
+        /// <summary>Force refresh on host start / bind so roster is not stuck on a stale NIC.</summary>
+        internal static void InvalidateLanIPv4Cache()
+        {
+            _cachedLanIPv4 = null;
+            _cachedLanIPv4At = -999f;
+        }
+
+        private static string GetPrimaryLanIPv4()
+        {
+            try
+            {
+                foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up)
+                        continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                        continue;
+                    foreach (UnicastIPAddressInformation ip in ni.GetIPProperties().UnicastAddresses)
+                    {
+                        if (ip.Address.AddressFamily != AddressFamily.InterNetwork)
+                            continue;
+                        string s = ip.Address.ToString();
+                        if (s.StartsWith("127.")) continue;
+                        // Skip APIPA
+                        if (s.StartsWith("169.254.")) continue;
+                        return s;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "GetPrimaryLanIPv4: " + ex.Message);
+            }
+            return "127.0.0.1";
+        }
+    }
+}

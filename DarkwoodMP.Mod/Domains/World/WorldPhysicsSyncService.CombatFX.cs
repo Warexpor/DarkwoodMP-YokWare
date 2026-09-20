@@ -52,12 +52,12 @@ namespace DWMPHorde.Sync
 
         public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false, string soundId = null)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, 1.5f);
+            int nearbyN = OverlapNear(pos, 1.5f);
             Explodes target = null;
-            for (int i = 0; i < nearby.Length; i++)
+            for (int i = 0; i < nearbyN; i++)
             {
-                if (nearby[i] == null) continue;
-                Explodes expl = nearby[i].GetComponentInParent<Explodes>();
+                if (_overlap3D[i] == null) continue;
+                Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
                 if (expl != null)
                 {
                     target = expl;
@@ -118,11 +118,11 @@ namespace DWMPHorde.Sync
             // Fallback: search by position
             if (target == null)
             {
-                Collider[] nearby = Physics.OverlapSphere(pos, 1.5f);
-                for (int i = 0; i < nearby.Length; i++)
+                int nearbyN = OverlapNear(pos, 1.5f);
+                for (int i = 0; i < nearbyN; i++)
                 {
-                    if (nearby[i] == null) continue;
-                    Explodes expl = nearby[i].GetComponentInParent<Explodes>();
+                    if (_overlap3D[i] == null) continue;
+                    Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
                     if (expl != null) { target = expl; break; }
                 }
             }
@@ -286,14 +286,14 @@ namespace DWMPHorde.Sync
 
         private static Liquid FindFlammableLiquidNear(Vector3 pos, float radius)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, radius);
+            int nearbyN = OverlapNear(pos, radius);
             Liquid best = null;
             float bestD = radius + 1f;
-            for (int i = 0; i < nearby.Length; i++)
+            for (int i = 0; i < nearbyN; i++)
             {
-                if (nearby[i] == null) continue;
-                Liquid liquid = nearby[i].GetComponent<Liquid>();
-                if (liquid == null) liquid = nearby[i].GetComponentInParent<Liquid>();
+                if (_overlap3D[i] == null) continue;
+                Liquid liquid = _overlap3D[i].GetComponent<Liquid>();
+                if (liquid == null) liquid = _overlap3D[i].GetComponentInParent<Liquid>();
                 if (liquid == null || !liquid.flammable) continue;
                 float d = Vector3.Distance(liquid.transform.position, pos);
                 if (d < bestD)

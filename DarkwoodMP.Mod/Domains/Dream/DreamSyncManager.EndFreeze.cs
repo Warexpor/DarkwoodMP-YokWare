@@ -63,7 +63,7 @@ namespace DWMPHorde.Sync
             }
 
             FinalDreamsceneManager.OnDreamEnded();
-            (ModRuntime.Network as LanNetworkManager)?.ClearPendingDreamGameEvents();
+            (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
             var unfreezeNet = ModRuntime.Network as LanNetworkManager;
             if (unfreezeNet != null)
@@ -207,10 +207,11 @@ namespace DWMPHorde.Sync
 
             // Record all currently-existing characters as "frozen" (dream characters
             // spawned later are exempt so dream AI continues to work).
-            Character[] all = CharacterTracker.GetAll();
+            int nAll = CharacterTracker.CopyAll(out Character[] all);
             _frozenWorldCharacters.Clear();
-            foreach (var c in all)
+            for (int i = 0; i < nAll; i++)
             {
+                Character c = all[i];
                 if (c == null) continue;
                 if (Player.Instance != null && c.gameObject == Player.Instance.gameObject) continue;
                 _frozenWorldCharacters.Add(c);

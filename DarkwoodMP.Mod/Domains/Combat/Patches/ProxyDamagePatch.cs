@@ -40,7 +40,7 @@ namespace DWMPHorde.Patches
             // Night-dead peer: no further damage (proxy may still exist for corpse pose).
             if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
                 return false;
-            CharBase proxyCb = proxy.GetComponent<CharBase>();
+            CharBase proxyCb = proxy.CachedCharBase;
             if (proxyCb != null && !proxyCb.alive)
                 return false;
 

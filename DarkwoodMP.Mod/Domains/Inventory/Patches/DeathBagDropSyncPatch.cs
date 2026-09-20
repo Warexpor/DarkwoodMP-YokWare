@@ -109,7 +109,7 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            DeathDrop[] all = GameObject.FindObjectsOfType<DeathDrop>(true);
+            DeathDrop[] all = WorldQueryHelper.GetCachedSceneComponents<DeathDrop>();
             DeathDrop best = null;
             float bestDist = 15f;
             for (int i = 0; i < all.Length; i++)

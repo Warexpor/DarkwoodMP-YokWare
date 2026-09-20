@@ -70,9 +70,11 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(DeathStateTracker.Reset);
                 NetworkResetRegistry.Register(ClientEntityInterpolationService.Reset);
                 NetworkResetRegistry.Register(WorldPhysicsSyncService.Reset);
+                NetworkResetRegistry.Register(WorldQueryHelper.InvalidateCommonSceneScanCaches);
                 NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
                 NetworkResetRegistry.Register(PlayerPositionManager.Clear);
-                NetworkResetRegistry.Register(LanNetworkManager.ResetConsumedDropGuids);
+                NetworkResetRegistry.Register(() =>
+                    LanNetworkManager.Instance?.PlayerFXHandlers?.ResetConsumedDropGuids());
                 NetworkResetRegistry.Register(EntityStateBroadcastService.Stop);
                 NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
                 NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
@@ -87,7 +89,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(MultiplayerMapManager.Reset);
                 NetworkResetRegistry.Register(CharacterTracker.ResetForNetworkStop);
                 NetworkResetRegistry.Register(DreamSession.ResetIncludingCompletions);
-                NetworkResetRegistry.Register(LanNetworkManager.ResetSceneLoadState);
+                NetworkResetRegistry.Register(EpilogueNetHandlers.ResetSceneLoadState);
                 NetworkResetRegistry.Register(CutsceneSyncHelpers.Reset);
                 NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
                 NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);

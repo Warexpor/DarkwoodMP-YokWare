@@ -19,6 +19,7 @@ namespace DWMPHorde.Networking
 
         internal const float MeleeHitDebounceSec = 0.2f;
         private readonly Dictionary<string, float> _meleeHitDebounce = new Dictionary<string, float>();
+        private readonly List<string> _meleeDebounceStaleKeys = new List<string>(8);
 
         internal CombatFxImpactNetHandlers(LanNetworkManager net)
         {
@@ -35,14 +36,14 @@ namespace DWMPHorde.Networking
         {
             if (_meleeHitDebounce.Count == 0) return;
             float now = Time.time;
-            var stale = new List<string>();
+            _meleeDebounceStaleKeys.Clear();
             foreach (var kvp in _meleeHitDebounce)
             {
                 if (now - kvp.Value > 5f)
-                    stale.Add(kvp.Key);
+                    _meleeDebounceStaleKeys.Add(kvp.Key);
             }
-            foreach (string key in stale)
-                _meleeHitDebounce.Remove(key);
+            for (int i = 0; i < _meleeDebounceStaleKeys.Count; i++)
+                _meleeHitDebounce.Remove(_meleeDebounceStaleKeys[i]);
         }
 
         internal void HandleThrowableSpawn(ThrowableSpawnMessage msg)
@@ -203,11 +204,11 @@ namespace DWMPHorde.Networking
             // If a local Explodes with secondaries still exists, let SpawnExplosionVisual
             // own spawnObjects(); applying both piles would duplicate white debris on remotes.
             Explodes localExpl = null;
-            Collider[] nearFx = Physics.OverlapSphere(pos, 1.5f);
-            for (int i = 0; i < nearFx.Length; i++)
+            int nearFxN = Physics.OverlapSphereNonAlloc(pos, 1.5f, WorldQueryHelper.SharedOverlapBuf);
+            for (int i = 0; i < nearFxN; i++)
             {
-                if (nearFx[i] == null) continue;
-                Explodes e = nearFx[i].GetComponentInParent<Explodes>();
+                if (WorldQueryHelper.SharedOverlapBuf[i] == null) continue;
+                Explodes e = WorldQueryHelper.SharedOverlapBuf[i].GetComponentInParent<Explodes>();
                 if (e != null) { localExpl = e; break; }
             }
             if (localExpl != null && localExpl.spawnObject != null)

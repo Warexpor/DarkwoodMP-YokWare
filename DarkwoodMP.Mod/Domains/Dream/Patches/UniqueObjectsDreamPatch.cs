@@ -29,7 +29,7 @@ namespace DWMPHorde.Patches
                     || Vector3.Distance(__result.transform.position, dreamRoot.position) <= 250f))
                 return;
 
-            UniqueObject[] all = Object.FindObjectsOfType<UniqueObject>(true);
+            UniqueObject[] all = WorldQueryHelper.GetCachedSceneComponents<UniqueObject>();
             UniqueObject best = null;
             float bestD = float.MaxValue;
             for (int i = 0; i < all.Length; i++)

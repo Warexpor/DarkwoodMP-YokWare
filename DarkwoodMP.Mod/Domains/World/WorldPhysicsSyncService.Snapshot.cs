@@ -49,8 +49,8 @@ namespace DWMPHorde.Sync
                 if (rootName.IndexOf("RemotePlayer", StringComparison.Ordinal) >= 0) continue;
 
                 // Check for motion before touching components; idle free bodies
-                // are common in hideouts.
-                string trackingKey = rootName + "_" + rootId;
+                // are common in hideouts. Key by InstanceID (no name+id string alloc).
+                int trackingKey = rootId;
                 Vector3 pos = rootGo.transform.position;
 
                 if (!_lastPos.TryGetValue(trackingKey, out Vector3 last))
@@ -203,52 +203,49 @@ namespace DWMPHorde.Sync
             // Early scrape-stop once motion updates go quiet (timer not extended).
             // Start and stop once per active session instead of every tick.
             float nowS = Time.time;
-            List<int> staleSound = null;
+            _snapStaleIntKeys.Clear();
             foreach (var kv in _bodyPushSoundTimer)
             {
                 if (nowS < kv.Value) continue;
-                if (staleSound == null) staleSound = new List<int>();
-                staleSound.Add(kv.Key);
+                _snapStaleIntKeys.Add(kv.Key);
             }
-            if (staleSound != null)
+            for (int si = 0; si < _snapStaleIntKeys.Count; si++)
             {
-                foreach (int id in staleSound)
+                int id = _snapStaleIntKeys[si];
+                string oName = null;
+                if (_clientKinematic.TryGetValue(id, out var kinData))
                 {
-                    string oName = null;
-                    if (_clientKinematic.TryGetValue(id, out var kinData))
+                    if (kinData.rb != null)
                     {
-                        if (kinData.rb != null)
-                        {
-                            kinData.rb.velocity = Vector3.zero;
-                            kinData.rb.angularVelocity = Vector3.zero;
-                        }
-                        oName = kinData.objName;
+                        kinData.rb.velocity = Vector3.zero;
+                        kinData.rb.angularVelocity = Vector3.zero;
                     }
-                    if (string.IsNullOrEmpty(oName) && _pushGidToName.TryGetValue(id, out var mapped))
-                        oName = mapped;
-
-                    if (!string.IsNullOrEmpty(oName) && _bodyPushSoundActive.Remove(oName))
-                    {
-                        // NotifyBodyPushStopped force-stops native+MOS on all roles + broadcast.
-                        LanNetworkManager.NotifyBodyPushStopped(oName);
-                        ModRuntime.LegacyInfo("[SND] body-push stop " + oName);
-                    }
-
-                    _bodyPushSoundTimer.Remove(id);
-                    _pushSoundAO.Remove(id);
-                    _pushSoundSource.Remove(id);
-                    _lastPushSoundTime.Remove(id);
-                    _pushStationaryCount.Remove(id);
-                    if (_pushGidToName.TryGetValue(id, out var __sn)) _pushNameToGid.Remove(__sn);
-                    _pushGidToName.Remove(id);
+                    oName = kinData.objName;
                 }
+                if (string.IsNullOrEmpty(oName) && _pushGidToName.TryGetValue(id, out var mapped))
+                    oName = mapped;
+
+                if (!string.IsNullOrEmpty(oName) && _bodyPushSoundActive.Remove(oName))
+                {
+                    // NotifyBodyPushStopped force-stops native+MOS on all roles + broadcast.
+                    LanNetworkManager.NotifyBodyPushStopped(oName);
+                    ModRuntime.LegacyInfo("[SND] body-push stop " + oName);
+                }
+
+                _bodyPushSoundTimer.Remove(id);
+                _pushSoundAO.Remove(id);
+                _pushSoundSource.Remove(id);
+                _lastPushSoundTime.Remove(id);
+                _pushStationaryCount.Remove(id);
+                if (_pushGidToName.TryGetValue(id, out var __sn)) _pushNameToGid.Remove(__sn);
+                _pushGidToName.Remove(id);
             }
 
             // Release client-kinematic objects whose timeout has expired (no recent
             // client PhysicsState update for that object).  This lets host physics
             // resume control when the client stops pushing the object.
             float now_ = Time.time;
-            List<int> expiredKinematic = null;
+            _snapStaleIntKeys.Clear();
             foreach (var kv in _clientKinematic)
             {
                 if (now_ >= kv.Value.releaseTime)
@@ -260,78 +257,64 @@ namespace DWMPHorde.Sync
                     if (!string.IsNullOrEmpty(objName) && _bodyPushSoundActive.Remove(objName))
                         LanNetworkManager.NotifyBodyPushStopped(objName);
                     _clientKinematicGate[kv.Key] = Time.time;
-                    if (expiredKinematic == null) expiredKinematic = new List<int>();
-                    expiredKinematic.Add(kv.Key);
+                    _snapStaleIntKeys.Add(kv.Key);
                 }
             }
-            if (expiredKinematic != null)
-                foreach (int id in expiredKinematic)
+            for (int ei = 0; ei < _snapStaleIntKeys.Count; ei++)
+            {
+                int id = _snapStaleIntKeys[ei];
+                _clientKinematic.Remove(id);
+                _bodyPushSoundTimer.Remove(id);
+                _pushSoundAO.Remove(id);
+                _pushSoundSource.Remove(id);
+                _lastPushSoundTime.Remove(id);
+                _pushStationaryCount.Remove(id);
+                if (_pushGidToName.TryGetValue(id, out var __ekn))
                 {
-                    _clientKinematic.Remove(id);
-                    _bodyPushSoundTimer.Remove(id);
-                    _pushSoundAO.Remove(id);
-                    _pushSoundSource.Remove(id);
-                    _lastPushSoundTime.Remove(id);
-                    _pushStationaryCount.Remove(id);
-                    if (_pushGidToName.TryGetValue(id, out var __ekn))
-                    {
-                        _bodyPushSoundActive.Remove(__ekn);
-                        _pushNameToGid.Remove(__ekn);
-                    }
-                    _pushGidToName.Remove(id);
+                    _bodyPushSoundActive.Remove(__ekn);
+                    _pushNameToGid.Remove(__ekn);
                 }
+                _pushGidToName.Remove(id);
+            }
 
             // Periodically purge stale client-update timestamps (every ~10s)
             // to prevent unbounded growth of _lastClientUpdateTime.
             if (++_clientUpdateCleanupCounter % 100 == 0)
             {
                 float now2 = Time.time;
-                List<string> stale = null;
+                _snapStaleIntKeys.Clear();
                 foreach (var kv in _lastClientUpdateTime)
                 {
                     if (now2 - kv.Value > 2f)
-                    {
-                        if (stale == null) stale = new List<string>();
-                        stale.Add(kv.Key);
-                    }
+                        _snapStaleIntKeys.Add(kv.Key);
                 }
-                if (stale != null)
-                    foreach (var k in stale)
-                        _lastClientUpdateTime.Remove(k);
+                for (int i = 0; i < _snapStaleIntKeys.Count; i++)
+                    _lastClientUpdateTime.Remove(_snapStaleIntKeys[i]);
 
                 // Purge stale _clientKinematicGate entries (entries > 3s old)
                 // This cleans up the re-entry guard after the client's 2.5s
                 // PhysicsState grace period has elapsed.
-                List<int> staleGate = null;
+                _snapStaleIntKeys.Clear();
                 foreach (var kv in _clientKinematicGate)
                 {
                     if (now2 - kv.Value > 3f)
-                    {
-                        if (staleGate == null) staleGate = new List<int>();
-                        staleGate.Add(kv.Key);
-                    }
+                        _snapStaleIntKeys.Add(kv.Key);
                 }
-                if (staleGate != null)
-                    foreach (int gid in staleGate)
-                        _clientKinematicGate.Remove(gid);
+                for (int i = 0; i < _snapStaleIntKeys.Count; i++)
+                    _clientKinematicGate.Remove(_snapStaleIntKeys[i]);
 
                 // Also purge stale entries from _lastPos / _lastMoveTime (entries > 5s idle)
-                List<string> stalePos = null;
+                _snapStaleIntKeys.Clear();
                 foreach (var kv in _lastMoveTime)
                 {
                     if (now2 - kv.Value > 5f)
-                    {
-                        if (stalePos == null) stalePos = new List<string>();
-                        stalePos.Add(kv.Key);
-                    }
+                        _snapStaleIntKeys.Add(kv.Key);
                 }
-                if (stalePos != null)
+                for (int i = 0; i < _snapStaleIntKeys.Count; i++)
                 {
-                    foreach (var k in stalePos)
-                    {
-                        _lastMoveTime.Remove(k);
-                        _lastPos.Remove(k);
-                    }
+                    int k = _snapStaleIntKeys[i];
+                    _lastMoveTime.Remove(k);
+                    _lastPos.Remove(k);
                 }
 
                 // Purge Vector3-keyed state dicts (doors, traps, generators).
@@ -348,361 +331,58 @@ namespace DWMPHorde.Sync
             if (_objects.Count == 0 && _doors.Count == 0 && _traps.Count == 0 && _generators.Count == 0)
                 return false;
 
+            CopyGrow(_objects, ref _snapObjects, out int oc);
+            CopyGrow(_doors, ref _snapDoors, out int dc);
+            CopyGrow(_traps, ref _snapTraps, out int tc);
+            CopyGrow(_generators, ref _snapGenerators, out int gc);
             msg = new PhysicsStateMessage
             {
                 Sequence = ++_nextSnapshotSequence,
                 Reliable = false,
-                Objects = _objects.ToArray(),
-                Doors = _doors.ToArray(),
-                Traps = _traps.ToArray(),
-                Generators = _generators.ToArray()
+                Objects = oc > 0 ? _snapObjects : null,
+                Doors = dc > 0 ? _snapDoors : null,
+                Traps = tc > 0 ? _snapTraps : null,
+                Generators = gc > 0 ? _snapGenerators : null,
+                ObjectCount = oc,
+                DoorCount = dc,
+                TrapCount = tc,
+                GeneratorCount = gc
             };
             return true;
         }
 
-        private static List<Vector3> GetAllProxyPositions()
+        private static WorldObjectState[] _snapObjects = Array.Empty<WorldObjectState>();
+        private static DoorState[] _snapDoors = Array.Empty<DoorState>();
+        private static TrapState[] _snapTraps = Array.Empty<TrapState>();
+        private static GeneratorState[] _snapGenerators = Array.Empty<GeneratorState>();
+        private static readonly List<Vector3> _proxyScanPositions = new List<Vector3>(8);
+        private static readonly List<int> _snapStaleIntKeys = new List<int>(16);
+
+        private static void CopyGrow<T>(List<T> src, ref T[] buf, out int count)
         {
-            var positions = new List<Vector3>();
+            count = src.Count;
+            if (count == 0)
+                return;
+            if (buf.Length < count)
+                buf = new T[Math.Max(count, buf.Length == 0 ? count : buf.Length * 2)];
+            for (int i = 0; i < count; i++)
+                buf[i] = src[i];
+        }
+
+        /// <summary>Fill reusable proxy positions for door/trap/generator interest scans.</summary>
+        private static List<Vector3> FillProxyScanPositions()
+        {
+            _proxyScanPositions.Clear();
             var net = ModRuntime.Network as LanNetworkManager;
             if (net != null)
             {
                 foreach (var proxy in net.GetAllProxies())
                 {
                     if (proxy != null)
-                        positions.Add(proxy.transform.position);
+                        _proxyScanPositions.Add(proxy.transform.position);
                 }
             }
-            return positions;
+            return _proxyScanPositions;
         }
-        /// <summary>
-        /// Scans tracked doors near the host player (or near any remote proxy)
-        private static void SyncDoors()
-        {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-
-            ListTracker<Door>.Cleanup();
-
-            Player local = Player.Instance;
-            if (local == null) return;
-            Vector3 center = local.transform.position;
-
-            // Also scan near ALL remote proxies so doors near any client player
-            // are detected even if the host player is far away.
-            List<Vector3> allProxyPositions = GetAllProxyPositions();
-
-            IList<Door> allDoors = ListTracker<Door>.GetAll();
-            for (int i = 0; i < allDoors.Count; i++)
-            {
-                Door door = allDoors[i];
-                if (door == null) continue;
-
-                float distToHost = Vector3.Distance(door.transform.position, center);
-                bool nearAnyProxy = false;
-                foreach (Vector3 pp in allProxyPositions)
-                {
-                    if (Vector3.Distance(door.transform.position, pp) <= _scanRadius)
-                    {
-                        nearAnyProxy = true;
-                        break;
-                    }
-                }
-                if (distToHost > _scanRadius && !nearAnyProxy) continue;
-
-                Vector3 dp = door.transform.position;
-                Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
-
-                bool opened = TraverseHack.ReadDoorOpened(door);
-
-                float bodyRotY = 0f;
-                Vector3 angVel = Vector3.zero;
-                if (door.body != null)
-                {
-                    bodyRotY = door.body.eulerAngles.y;
-                    Rigidbody rb = door.body.GetComponent<Rigidbody>();
-                    if (rb != null) angVel = rb.angularVelocity;
-                }
-
-                bool stateChanged = !_lastDoorOpen.TryGetValue(key, out bool wasOpened) || wasOpened != opened;
-                bool isMoving = opened && angVel.sqrMagnitude > 0.01f;
-
-                if (stateChanged || isMoving)
-                {
-                    _lastDoorOpen[key] = opened;
-
-                    if (_doors.Count < 64)
-                    {
-                        _doors.Add(new DoorState
-                        {
-                            PosX = key.x,
-                            PosY = key.y,
-                            PosZ = key.z,
-                            Opened = opened,
-                            BodyRotY = bodyRotY,
-                            AngVelX = angVel.x,
-                            AngVelY = angVel.y,
-                            AngVelZ = angVel.z
-                        });
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Scans previously detected traps and records any triggered state changes.
-        /// </summary>
-        private static void SyncTraps()
-        {
-            // Remove dead entries
-            List<int> dead = null;
-            foreach (var kv in _knownTraps)
-            {
-                if (kv.Value == null)
-                {
-                    if (dead == null) dead = new List<int>();
-                    dead.Add(kv.Key);
-                }
-            }
-            if (dead != null)
-                foreach (int id in dead)
-                    _knownTraps.Remove(id);
-
-            foreach (GameObject go in _knownTraps.Values)
-            {
-                if (go == null) continue;
-                Vector3 pos = go.transform.position;
-                Vector3 key = new Vector3((float)Math.Round(pos.x, 1), (float)Math.Round(pos.y, 1), (float)Math.Round(pos.z, 1));
-                bool triggered = ReadTrapTriggered(go);
-                bool changed = !_lastTrapTriggered.TryGetValue(key, out bool was) || was != triggered;
-                if (changed)
-                {
-                    _lastTrapTriggered[key] = triggered;
-                    if (_traps.Count < 32)
-                    {
-                        int trapId = TrapNetworkId.GetOrMintHost(go);
-                        short occupant = ResolveTrapOccupant(trapId, key);
-                        _traps.Add(new TrapState
-                        {
-                            PosX = key.x, PosY = key.y, PosZ = key.z,
-                            Triggered = triggered,
-                            TrapNetId = trapId,
-                            OccupantPlayerId = occupant
-                        });
-                    }
-                }
-            }
-        }
-
-        /// <summary>Who is currently locked to this trap (local + remotes).</summary>
-        internal static short ResolveTrapOccupant(int trapNetId, Vector3 trapPos)
-        {
-            if (trapNetId <= 0) return 0;
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null) return 0;
-
-            Player local = Player.Instance;
-            if (local != null && local.inBearTrap)
-            {
-                int localTrap = TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
-                    hostMint: net.Role == NetworkRole.Host);
-                if (localTrap == trapNetId)
-                    return (short)net.LocalPlayerId;
-            }
-
-            foreach (var kv in net.EnumerateRemoteTrapOccupancy())
-            {
-                if (kv.Value == trapNetId)
-                    return (short)kv.Key;
-            }
-
-            return 0;
-        }
-
-        /// <summary>
-        /// Scans tracked generators near the host player and records any on/off or fuel changes.
-        /// </summary>
-        private static void SyncGenerators()
-        {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-
-            Player local = Player.Instance;
-            if (local == null) return;
-            Vector3 center = local.transform.position;
-
-            // Also scan for generators near ALL remote proxies so they are
-            // synced even when the host player is far from any of them.
-            List<Vector3> allProxyPositions = GetAllProxyPositions();
-
-            IList<Generator> allGens = ListTracker<Generator>.GetAll();
-            for (int i = 0; i < allGens.Count; i++)
-            {
-                Generator gen = allGens[i];
-                if (gen == null) continue;
-
-                float distToHost = Vector3.Distance(gen.transform.position, center);
-                bool nearAnyProxy = false;
-                foreach (Vector3 pp in allProxyPositions)
-                {
-                    if (Vector3.Distance(gen.transform.position, pp) <= _scanRadius)
-                    {
-                        nearAnyProxy = true;
-                        break;
-                    }
-                }
-                if (distToHost > _scanRadius && !nearAnyProxy) continue;
-
-                Vector3 dp = gen.transform.position;
-                Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
-                bool isOn = gen.isOn;
-                float fuel = gen.fuel;
-
-                bool onChanged = !_lastGeneratorOn.TryGetValue(key, out bool was) || was != isOn;
-                bool fuelChanged = false;
-                if (!onChanged)
-                {
-                    if (!_lastGeneratorFuel.TryGetValue(key, out float lastFuel))
-                        fuelChanged = true;
-                    else if (Mathf.Abs(fuel - lastFuel) > 10f)
-                        fuelChanged = true;
-                }
-
-                if (onChanged || fuelChanged)
-                {
-                    _lastGeneratorOn[key] = isOn;
-                    _lastGeneratorFuel[key] = fuel;
-
-                    if (_generators.Count < 8)
-                    {
-                        string itemType = "";
-                        Item itemComp = gen.GetComponent<Item>();
-                        if (itemComp != null && itemComp.invItem != null)
-                            itemType = itemComp.invItem.type;
-
-                        _generators.Add(new GeneratorState
-                        {
-                            PosX = key.x,
-                            PosY = key.y,
-                            PosZ = key.z,
-                            IsOn = isOn,
-                            Fuel = fuel,
-                            LowPower = gen.lowPower,
-                            ItemType = itemType
-                        });
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Examines a trigger collider to determine if it belongs to a trap
-        /// and caches the result so the scan-loop can skip it on subsequent frames.
-        /// </summary>
-        private static void DetectTrap(Collider col)
-        {
-            if (col == null) return;
-            GameObject root = col.gameObject;
-            Rigidbody rb = col.attachedRigidbody;
-            if (rb != null) root = rb.gameObject;
-            if (root == null) return;
-
-            int id = root.GetInstanceID();
-            if (_knownTraps.ContainsKey(id)) return;
-
-            // Already classified
-            if (_trapResultCache.TryGetValue(id, out bool knownIsTrap))
-            {
-                if (knownIsTrap && !_knownTraps.ContainsKey(id))
-                    _knownTraps[id] = root;
-                return;
-            }
-
-            // Quick name check
-            string name = root.name.ToLowerInvariant();
-            if (!name.Contains("trap") && !name.Contains("bear") && !name.Contains("snap") && !name.Contains("animal") && !name.Contains("mushroom") && !name.Contains("chain") && !name.Contains("glass"))
-            {
-                _trapResultCache[id] = false;
-                return;
-            }
-
-            // Verify by checking for a "triggered"/"snapped"/"sprung" bool field
-            if (HasTrapField(root))
-            {
-                _trapResultCache[id] = true;
-                _knownTraps[id] = root;
-                var net = ModRuntime.Network as LanNetworkManager;
-                if (net != null && net.Role == NetworkRole.Host)
-                    TrapNetworkId.GetOrMintHost(root);
-                else
-                    TrapNetworkId.RegisterKnown(root);
-            }
-            else
-            {
-                _trapResultCache[id] = false;
-            }
-        }
-
-        /// <summary>Returns true if the GameObject has a component with a trap-related boolean field.</summary>
-        private static bool HasTrapField(GameObject go)
-        {
-            Component[] comps = go.GetComponents<Component>();
-            foreach (Component comp in comps)
-            {
-                if (comp == null) continue;
-                Traverse t = Traverse.Create(comp);
-                bool val;
-                if (TryReadBool(t, "triggered", out val)) return true;
-                if (TryReadBool(t, "snapped", out val)) return true;
-                if (TryReadBool(t, "sprung", out val)) return true;
-                if (TryReadBool(t, "isTriggered", out val)) return true;
-            }
-            return false;
-        }
-
-        /// <summary>Reads the triggered/snapped/sprung/isTriggered field from a trap GameObject.</summary>
-        internal static bool ReadTrapTriggered(GameObject go)
-        {
-            Component[] allComponents = go.GetComponents<Component>();
-            foreach (Component comp in allComponents)
-            {
-                if (comp == null) continue;
-                Traverse t = Traverse.Create(comp);
-                bool val;
-                if (TryReadBool(t, "triggered", out val)) return val;
-                if (TryReadBool(t, "snapped", out val)) return val;
-                if (TryReadBool(t, "sprung", out val)) return val;
-                if (TryReadBool(t, "isTriggered", out val)) return val;
-            }
-            return false;
-        }
-
-        /// <summary>Tries to read a boolean field via Harmony Traverse without throwing.</summary>
-        private static bool TryReadBool(Traverse t, string field, out bool val)
-        {
-            val = false;
-            try
-            {
-                var f = t.Field(field);
-                if (f.FieldExists())
-                {
-                    val = f.GetValue<bool>();
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning($"[TraverseFieldRead] failed to read {field}: {ex.Message}");
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Applies a received <see cref="PhysicsStateMessage"/> to the local world:
-        /// positions objects (with interpolation targets), opens/closes doors,
-        /// triggers traps, and syncs generators. Skips the local player and remote proxies.
-        /// </summary>
-        /// <param name="state">The snapshot to apply.</param>
-        /// <param name="fromPeer">Identifier of the sender, used for logging.</param>
     }
 }

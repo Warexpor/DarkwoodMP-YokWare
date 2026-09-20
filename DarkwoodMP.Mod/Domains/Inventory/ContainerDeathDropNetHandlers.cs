@@ -67,7 +67,7 @@ namespace DWMPHorde.Networking
                 {
                     // Final fallback: scan dead Characters near the position. A dead
                     // body may have a disabled collider or the stable ID may not match.
-                    Character[] allChars = UnityEngine.Object.FindObjectsOfType<Character>();
+                    Character[] allChars = WorldQueryHelper.GetCachedSceneComponents<Character>();
                     Character closestDead = null;
                     float closestDeadDist = 10f;
                     foreach (Character c in allChars)

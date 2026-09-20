@@ -88,8 +88,8 @@ namespace DWMPHorde.Networking
 
             if (inv != null)
             {
-                LanNetworkManager.SyncItemAmount(inv, "woodLog", msg.WoodLogAmount);
-                LanNetworkManager.SyncItemAmount(inv, "wood", msg.WoodAmount);
+                InventorySyncUtil.SyncItemAmount(inv, "woodLog", msg.WoodLogAmount);
+                InventorySyncUtil.SyncItemAmount(inv, "wood", msg.WoodAmount);
             }
 
             SafeSawRefresh(saw);
@@ -135,7 +135,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            Saw[] all = UnityEngine.Object.FindObjectsOfType<Saw>();
+            Saw[] all = WorldQueryHelper.GetCachedSceneComponents<Saw>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {
@@ -231,7 +231,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            Feeder[] all = UnityEngine.Object.FindObjectsOfType<Feeder>();
+            Feeder[] all = WorldQueryHelper.GetCachedSceneComponents<Feeder>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {
@@ -358,7 +358,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            Lure[] all = UnityEngine.Object.FindObjectsOfType<Lure>();
+            Lure[] all = WorldQueryHelper.GetCachedSceneComponents<Lure>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {

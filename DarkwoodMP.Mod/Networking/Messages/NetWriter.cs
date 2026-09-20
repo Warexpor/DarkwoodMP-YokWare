@@ -26,6 +26,18 @@ namespace DWMPHorde.Networking
             _inner.Put(value);
         }
 
+        /// <summary>Length-prefixed slice — hot voice path writes from a recycled capture buffer.</summary>
+        public void Put(byte[] value, int offset, int length)
+        {
+            if (value == null || length <= 0) { _inner.Put(0); return; }
+            if (offset < 0) offset = 0;
+            if (offset + length > value.Length)
+                length = value.Length - offset;
+            if (length <= 0) { _inner.Put(0); return; }
+            _inner.Put(length);
+            _inner.Put(value, offset, length);
+        }
+
         /// <summary>
         /// Raw bytes with no length prefix. Used when rebroadcasting an
         /// already-framed payload on the host forward path.
@@ -38,6 +50,23 @@ namespace DWMPHorde.Networking
 
         public void Reset() => _inner.Reset();
         public byte[] CopyData() => _inner.CopyData();
+
+        /// <summary>
+        /// Copy payload into a recycled buffer (grows only when needed). Prefer this on
+        /// hot 10 Hz broadcast paths instead of <see cref="CopyData"/> every tick.
+        /// </summary>
+        public void CopyDataInto(ref byte[] buffer, out int length)
+        {
+            length = _inner.Length;
+            if (length <= 0)
+            {
+                length = 0;
+                return;
+            }
+            if (buffer == null || buffer.Length < length)
+                buffer = new byte[Math.Max(length, buffer != null && buffer.Length > 0 ? buffer.Length * 2 : 256)];
+            Buffer.BlockCopy(_inner.Data, 0, buffer, 0, length);
+        }
     }
 
     /// <summary>

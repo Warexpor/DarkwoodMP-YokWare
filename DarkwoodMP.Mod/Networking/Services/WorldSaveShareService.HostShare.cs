@@ -1,0 +1,407 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
+using DWMPHorde;
+using DWMPHorde.Config;
+using DWMPHorde.Logging;
+using DWMPHorde.Sync;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace DWMPHorde.Networking
+{
+    /// <summary>
+    /// Host share coroutine, send helper, and finish (split for ownership).
+    /// </summary>
+    public sealed partial class WorldSaveShareService
+    {
+        private IEnumerator HostShareCoroutine(bool waitForGameSave)
+        {
+            _hostShareRunning = true;
+            int target = _shareTargetPlayerId;
+            ProgressText = waitForGameSave ? "Preparing world share…"
+                : (target > 0 ? ("Sending world to player " + target + "…") : "Resending world…");
+            ModLog.Event(LogCat.Save,
+                waitForGameSave
+                    ? "New world finished — preparing save share for clients"
+                    : (target > 0
+                        ? ("Auto world share to joining player " + target)
+                        : "Manual world resend requested"));
+
+            if (waitForGameSave)
+            {
+                float waited = 0f;
+                while (waited < HostWaitForSaveSeconds)
+                {
+                    waited += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+
+            // Resolve the profile directory first. Prefer sharing already-on-disk saves without a
+            // full force Save (Save freezes the host for seconds on dual-box + large worlds).
+            int profileId = GetHostProfileId();
+            if (profileId < MinProfileId || profileId > MaxProfileId)
+            {
+                float waitedProf = 0f;
+                while (waitedProf < 2f && (profileId < MinProfileId || profileId > MaxProfileId))
+                {
+                    waitedProf += Time.unscaledDeltaTime;
+                    yield return null;
+                    profileId = GetHostProfileId();
+                }
+            }
+            if (profileId < MinProfileId || profileId > MaxProfileId)
+            {
+                ModLog.Error(LogCat.Save, "Host profile id invalid: " + profileId
+                    + " (currentProfile null?). Cannot share world.");
+                ProgressText = WorldSharePolicy.FormatShareFailure("bad host profile id " + profileId);
+                _net.StatusText = ProgressText;
+                // Notify clients so they do not wait forever on a silent empty transfer.
+                try
+                {
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
+                }
+                catch { /* ignore */ }
+                FinishHostShare(runAfter: true);
+                yield break;
+            }
+
+            string profDir = GetProfileDir(profileId);
+            if (string.IsNullOrEmpty(profDir) || !Directory.Exists(profDir))
+            {
+                ModLog.Error(LogCat.Save, "Host profile directory missing: " + profDir
+                    + " persistentDataPath=" + Application.persistentDataPath);
+                ProgressText = WorldSharePolicy.FormatShareFailure("no profile dir " + (profDir ?? "(null)"));
+                _net.StatusText = ProgressText;
+                try
+                {
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
+                }
+                catch { /* ignore */ }
+                FinishHostShare(runAfter: true);
+                yield break;
+            }
+
+            string savPath = Path.Combine(profDir, "sav.dat");
+            string savsPath = Path.Combine(profDir, "savs.dat");
+            bool hasAnyFiles = File.Exists(savPath) || File.Exists(savsPath);
+
+            // CRITICAL (dual-box + mid-session join):
+            // Force Save() freezes the host for seconds ("Save static"). Prefer on-disk when
+            // sav.dat + savs.dat are a consistent pair. Skewed pairs (e.g. only dynamic written)
+            // make client SaveManager.Load NRE with "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"
+            // and leave loadingGame stuck, preventing phase-3 reconnect.
+            // waitForGameSave / manual resend always force; late-join forces only when needed.
+            bool forceForConsistency = !waitForGameSave && hasAnyFiles
+                && OnDiskSavPairNeedsForceSave(savPath, savsPath);
+            if ((waitForGameSave || forceForConsistency) && Singleton<SaveManager>.Instance != null)
+            {
+                ModLog.Event(LogCat.Save, waitForGameSave
+                    ? "Post-worldgen/resend share: force-saving once"
+                    : "Late-join share: sav/savs inconsistent on disk — force-saving once");
+                try
+                {
+                    LanNetworkManager._isRemoteSaveInProgress = true;
+                    try
+                    {
+                        Singleton<SaveManager>.Instance.Save(
+                            doJson: true,
+                            doSaveProfile: true,
+                            force: true,
+                            forceSaveStatic: true,
+                            showSavingIndicator: false);
+                    }
+                    finally
+                    {
+                        LanNetworkManager._isRemoteSaveInProgress = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ModLog.Error(LogCat.Save, "Host save before world share failed", ex);
+                    ProgressText = WorldSharePolicy.FormatShareFailure("host save error: " + ex.Message);
+                    _net.StatusText = ProgressText;
+                    try
+                    {
+                        SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                        {
+                            new WorldSaveEndMessage { Success = false }.Serialize(w);
+                        });
+                    }
+                    catch { /* ignore */ }
+                    FinishHostShare(runAfter: true);
+                    yield break;
+                }
+
+                for (int i = 0; i < 3; i++)
+                    yield return null;
+
+                float waitedFiles = 0f;
+                while (waitedFiles < 5f)
+                {
+                    if (File.Exists(savPath) || File.Exists(savsPath))
+                        break;
+                    waitedFiles += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+            else if (hasAnyFiles)
+            {
+                ModLog.Event(LogCat.Save,
+                    "Late-join share: using on-disk sav files (consistent pair — no force Save)");
+            }
+            else
+            {
+                ModLog.Error(LogCat.Save,
+                    "No sav.dat/savs.dat on disk for prof" + profileId
+                    + " — host should quicksave once, then client rejoin / F2 Resend");
+                ProgressText = WorldSharePolicy.FormatShareFailure(
+                    "no save files for prof" + profileId + " — host: save once then Resend");
+                _net.StatusText = ProgressText;
+                try
+                {
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
+                }
+                catch { /* ignore */ }
+                FinishHostShare(runAfter: true);
+                yield break;
+            }
+
+            LogSavPairTimestamps(savPath, savsPath);
+
+            // Pack one file per frame. ReadAllBytes plus Deflate of the save file on one frame
+            // freezes the host mid-game (the hitch users call an "event"). Horde Resend
+            // only ran when the host wasn't mid-combat dual-box load.
+            var files = new List<PackedFile>();
+            foreach (string name in FileNames)
+            {
+                string path = Path.Combine(profDir, name);
+                if (!File.Exists(path))
+                {
+                    ModLog.Event(LogCat.Save, "Share skip missing file: " + path);
+                    continue;
+                }
+
+                ProgressText = "Reading " + name + "…";
+                _net.StatusText = ProgressText;
+                yield return null;
+
+                // Read and Deflate off the main thread to avoid a long main-thread hitch.
+                byte[] raw = null;
+                Exception ioEx = null;
+                bool ioDone = false;
+                string pathCapture = path;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try { raw = File.ReadAllBytes(pathCapture); }
+                    catch (Exception ex) { ioEx = ex; }
+                    finally { ioDone = true; }
+                });
+                while (!ioDone)
+                    yield return null;
+
+                if (ioEx != null)
+                {
+                    ModLog.Error(LogCat.Save, "Failed reading " + name, ioEx);
+                    continue;
+                }
+
+                if (raw == null || raw.Length == 0)
+                    continue;
+
+                ProgressText = "Compressing " + name + " (" + (raw.Length / 1024) + " KB)…";
+                _net.StatusText = ProgressText;
+                yield return null;
+
+                byte[] compressed = null;
+                Exception packEx = null;
+                bool packDone = false;
+                byte[] rawCapture = raw;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try { compressed = Deflate(rawCapture); }
+                    catch (Exception ex) { packEx = ex; }
+                    finally { packDone = true; }
+                });
+                while (!packDone)
+                    yield return null;
+
+                if (packEx != null)
+                {
+                    ModLog.Error(LogCat.Save, "Failed compressing " + name, packEx);
+                    continue;
+                }
+                if (compressed == null || compressed.Length == 0)
+                    continue;
+
+                yield return null;
+
+                int chunkCount = (compressed.Length + ChunkSize - 1) / ChunkSize;
+                if (chunkCount < 1) chunkCount = 1;
+
+                var chunks = new byte[chunkCount][];
+                for (int c = 0; c < chunkCount; c++)
+                {
+                    int offset = c * ChunkSize;
+                    int len = Math.Min(ChunkSize, compressed.Length - offset);
+                    var slice = new byte[len];
+                    Buffer.BlockCopy(compressed, offset, slice, 0, len);
+                    chunks[c] = slice;
+                    // Slice large compressed buffers across frames too
+                    if ((c & 31) == 31)
+                        yield return null;
+                }
+
+                files.Add(new PackedFile
+                {
+                    Name = name,
+                    UncompressedSize = raw.Length,
+                    CompressedSize = compressed.Length,
+                    Chunks = chunks
+                });
+                ModLog.Event(LogCat.Save,
+                    "Packed " + name + " raw=" + raw.Length + " compressed=" + compressed.Length
+                    + " chunks=" + chunkCount);
+                yield return null;
+            }
+
+            if (files.Count == 0)
+            {
+                ModLog.Error(LogCat.Save, "No save files found to share for prof" + profileId);
+                ProgressText = WorldSharePolicy.FormatShareFailure("no save files for prof" + profileId);
+                _net.StatusText = ProgressText;
+                try
+                {
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
+                }
+                catch { /* ignore */ }
+                FinishHostShare(runAfter: true);
+                yield break;
+            }
+
+            int chapter = 1;
+            int day = 1;
+            if (Singleton<WorldGenerator>.Instance != null)
+                chapter = Singleton<WorldGenerator>.Instance.chapterID;
+            else if (Core.currentProfile != null)
+                chapter = Core.currentProfile.chapter;
+            if (Core.currentProfile != null)
+                day = Core.currentProfile.day;
+            if (Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.day > 0)
+                day = Singleton<Controller>.Instance.day;
+
+            var begin = new WorldSaveBeginMessage
+            {
+                ProfileId = profileId,
+                ChapterId = chapter,
+                DayIndex = day,
+                FileCount = files.Count,
+                FileNames = new string[files.Count],
+                UncompressedSizes = new int[files.Count],
+                CompressedSizes = new int[files.Count],
+                ChunkCounts = new int[files.Count],
+                CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId)
+            };
+            int totalChunks = 0;
+            for (int i = 0; i < files.Count; i++)
+            {
+                begin.FileNames[i] = files[i].Name;
+                begin.UncompressedSizes[i] = files[i].UncompressedSize;
+                begin.CompressedSizes[i] = files[i].CompressedSize;
+                begin.ChunkCounts[i] = files[i].Chunks.Length;
+                totalChunks += files[i].Chunks.Length;
+            }
+
+            ModLog.Event(LogCat.Save,
+                "Sharing world → " + (target > 0 ? ("player " + target) : "all clients")
+                + " profile slot " + profileId
+                + ": " + files.Count + " files, " + totalChunks + " chunks, ch" + chapter + " day" + day);
+
+            SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
+
+            int sent = 0;
+            int frameBudget = 0;
+            for (int fi = 0; fi < files.Count; fi++)
+            {
+                var pf = files[fi];
+                for (int ci = 0; ci < pf.Chunks.Length; ci++)
+                {
+                    byte fileIndex = (byte)fi;
+                    int chunkIndex = ci;
+                    byte[] data = pf.Chunks[ci];
+                    SendShare(target, NetMessageType.WorldSaveChunk, w =>
+                    {
+                        new WorldSaveChunkMessage
+                        {
+                            FileIndex = fileIndex,
+                            ChunkIndex = chunkIndex,
+                            Data = data
+                        }.Serialize(w);
+                    });
+
+                    sent++;
+                    frameBudget++;
+                    ProgressText = "Sending world (slot " + profileId + ") "
+                        + (int)(100f * sent / totalChunks) + "%";
+                    _net.StatusText = ProgressText;
+
+                    if (frameBudget >= MaxChunksPerFrame)
+                    {
+                        frameBudget = 0;
+                        yield return null;
+                    }
+                }
+            }
+
+            SendShare(target, NetMessageType.WorldSaveEnd, w =>
+            {
+                new WorldSaveEndMessage { Success = true }.Serialize(w);
+            });
+
+            ProgressText = "World shared → client profile " + profileId;
+            _net.StatusText = ProgressText;
+            ModLog.Event(LogCat.Save, "World save share complete (" + sent + " chunks → slot " + profileId + ")");
+            FinishHostShare(runAfter: true);
+        }
+
+        private void SendShare(int targetPlayerId, NetMessageType type, System.Action<NetWriter> write)
+        {
+            if (targetPlayerId > 0)
+            {
+                _net.SendToPlayer(targetPlayerId, type, write, LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            else
+            {
+                _net.SendToAll(type, write, LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+        }
+
+        private void FinishHostShare(bool runAfter)
+        {
+            _hostShareRunning = false;
+            _shareTargetPlayerId = -1;
+            if (!runAfter) return;
+            Action after = _afterHostShare;
+            _afterHostShare = null;
+            if (after == null) return;
+            try { after(); }
+            catch (Exception ex) { ModLog.Error(LogCat.Save, "afterHostShare failed", ex); }
+        }
+    }
+}

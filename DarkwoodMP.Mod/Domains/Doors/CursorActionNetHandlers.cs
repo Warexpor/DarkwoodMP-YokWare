@@ -143,7 +143,7 @@ namespace DWMPHorde.Networking
 
             if (dreamRoot == null) return null;
 
-            CustomCursorAction[] all = Object.FindObjectsOfType<CustomCursorAction>(true);
+            CustomCursorAction[] all = WorldQueryHelper.GetCachedSceneComponents<CustomCursorAction>();
             CustomCursorAction padBest = null;
             float bestDist = 3f;
             for (int i = 0; i < all.Length; i++)

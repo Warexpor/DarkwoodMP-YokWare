@@ -72,7 +72,7 @@ namespace DWMPHorde.Networking
                     // Re-enter apply with a temporary receive id so GetProxy path works.
                     int prevRecv = _net.CurrentReceivePlayerId;
                     _net.AssignCurrentReceivePlayerId(playerId);
-                    try { _net.HandlePlayerLightState(pendingLight); }
+                    try { _net.PlayerLightFxHandlers.HandlePlayerLightState(pendingLight); }
                     finally { _net.AssignCurrentReceivePlayerId(prevRecv); }
                     ModLog.Event(LogCat.World,
                         $"[Light] applied pending state for p{playerId} after proxy create");
@@ -190,7 +190,7 @@ namespace DWMPHorde.Networking
                 {
                     if (kvp.Key == _net.LocalPlayerId) continue;
                     _net.RemoteOutsideLocation[kvp.Key] = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
-                    _net.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
+                    _net.LocationHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
                 }
             }
             catch (System.Exception ex)
@@ -210,8 +210,9 @@ namespace DWMPHorde.Networking
             if (_net.RemoteProxies.Count == 0)
                 return;
 
-            Character[] all = CharacterTracker.GetAll();
-            if (all.Length == 0)
+            Character[] all;
+            int nAll = CharacterTracker.CopyAll(out all);
+            if (nAll == 0)
                 return;
 
             foreach (var kvp in _net.RemoteProxies)
@@ -220,29 +221,25 @@ namespace DWMPHorde.Networking
                 if (proxy == null) continue;
                 Transform proxyT = proxy.transform;
 
+                // Night-dead peer: not a combat target — skip whole proxy (not per-character).
+                CharBase proxyCb = proxy.CachedCharBase;
+                if (proxyCb != null && !proxyCb.alive)
+                    continue;
+                if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
+                    continue;
+
                 int aggroed = 0;
                 int skippedFar = 0;
                 int skippedAlreadyTargeting = 0;
                 int skippedFleeFauna = 0;
                 bool proxyHasEotF = proxy.RemoteHasEnemyOfTheForest;
+                Vector3 proxyPos = proxyT.position;
 
-                foreach (Character c in all)
+                for (int ci = 0; ci < nAll; ci++)
                 {
+                    Character c = all[ci];
                     if (c == null || !c.alive || c.dummy)
                         continue;
-
-                    // Night-dead peer proxy: colliders off + not a combat target.
-                    CharBase proxyCb = proxy.GetComponent<CharBase>();
-                    if (proxyCb != null && !proxyCb.alive)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-                    if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
-                    {
-                        skippedFar++;
-                        continue;
-                    }
 
                     if (c.target == proxyT)
                     {
@@ -280,23 +277,26 @@ namespace DWMPHorde.Networking
                         continue;
                     }
 
-                    float distToProxy = Vector3.Distance(c.transform.position, proxyT.position);
+                    Vector3 cPos = c.transform.position;
+                    float dx = cPos.x - proxyPos.x;
+                    float dz = cPos.z - proxyPos.z;
+                    float distSq = dx * dx + dz * dz;
 
                     // Sniffer: within smell radius → aggro (was inverted: skipped when close).
                     Sniffer entitySniffer = c.GetComponent<Sniffer>();
                     float sniffRadius = entitySniffer != null ? entitySniffer.radius : 0f;
-                    bool inSniff = entitySniffer != null && distToProxy < sniffRadius;
+                    bool inSniff = entitySniffer != null && distSq < sniffRadius * sniffRadius;
 
                     float nearRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
                     // Commit only at nearView (vanilla). Smell alone must not instant-attack from afar.
-                    if (nearRange <= 0f || distToProxy > nearRange)
+                    if (nearRange <= 0f || distSq > nearRange * nearRange)
                     {
                         skippedFar++;
                         continue;
                     }
 
                     // Match HostCanSeeEnemyPatch: FOV + raycast (or smell without LOS at near).
-                    Vector3 toProxy = proxyT.position - c.transform.position;
+                    Vector3 toProxy = proxyPos - cPos;
                     bool inFOV = Vector3.Angle(toProxy, c.transform.up) <= (float)c.fieldOfViewRange;
                     if (!inFOV && !inSniff)
                     {
@@ -311,8 +311,9 @@ namespace DWMPHorde.Networking
                     }
                     else
                     {
+                        float distToProxy = Mathf.Sqrt(distSq);
                         Collider myCollider = c.GetComponent<Collider>();
-                        if (Physics.Raycast(c.transform.position, toProxy, out var hit, distToProxy,
+                        if (Physics.Raycast(cPos, toProxy, out var hit, distToProxy,
                                 GameplayConstants.HitscanLayerMask))
                         {
                             if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
@@ -345,7 +346,7 @@ namespace DWMPHorde.Networking
                     {
                         _lastAggroLogTime = now;
                         ModRuntime.LegacyInfo(
-                            $"[Proxy] player {kvp.Key}: checked {all.Length} chars, aggroed={aggroed}, "
+                            $"[Proxy] player {kvp.Key}: checked {nAll} chars, aggroed={aggroed}, "
                             + $"far={skippedFar}, alreadyTargeting={skippedAlreadyTargeting}, "
                             + $"fleeSkip={skippedFleeFauna}");
                     }

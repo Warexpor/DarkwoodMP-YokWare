@@ -1,6 +1,7 @@
 using DWMPHorde.Networking;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Sync;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
@@ -76,7 +77,7 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(npcName)) return false;
 
             // Prefer live Character flag when the NPC is in the scene.
-            NPC[] all = Object.FindObjectsOfType<NPC>();
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
             for (int i = 0; i < all.Length; i++)
             {
                 if (all[i] == null || all[i].name != npcName) continue;

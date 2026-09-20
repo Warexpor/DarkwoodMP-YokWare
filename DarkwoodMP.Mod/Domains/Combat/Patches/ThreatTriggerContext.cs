@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
             if (net == null) return null;
             RemotePlayerProxy proxy = net.GetProxy(_lastProxyPlayerId);
             if (proxy == null) return null;
-            CharBase cb = proxy.GetComponent<CharBase>();
+            CharBase cb = proxy.CachedCharBase;
             if (cb != null && (!cb.alive || cb.invisible || cb.ignoreMe))
                 return null;
             return proxy.transform;

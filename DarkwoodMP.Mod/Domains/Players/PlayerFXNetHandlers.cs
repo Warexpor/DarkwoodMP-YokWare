@@ -38,7 +38,7 @@ namespace DWMPHorde.Networking
                 {
                     try
                     {
-                        HarmonyLib.Traverse.Create(animComp).Method("PlayTorso", new object[] { msg.TorsoClip }).GetValue();
+                        animComp.PlayTorso(msg.TorsoClip);
                     }
                     catch (System.Exception ex)
                     {
@@ -54,7 +54,7 @@ namespace DWMPHorde.Networking
                 {
                     try
                     {
-                        HarmonyLib.Traverse.Create(animComp).Method("PlayLegs", new object[] { msg.LegsClip }).GetValue();
+                        animComp.PlayLegs(msg.LegsClip);
                     }
                     catch (System.Exception ex)
                     {
@@ -117,10 +117,12 @@ namespace DWMPHorde.Networking
             switch (innerType)
             {
                 case NetMessageType.PlayerLightState:
-                    _net.HandlePlayerLightState(PlayerLightStateMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.PlayerLightFxHandlers.HandlePlayerLightState(
+                        PlayerLightStateMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerAudio:
-                    _net.HandlePlayerAudio(PlayerAudioMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.WorldFxHandlers.HandlePlayerAudio(
+                        PlayerAudioMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerFiredWeapon:
                     HandlePlayerFiredWeapon(PlayerFiredWeaponMessage.Deserialize(new NetReader(innerPayload)));
@@ -129,25 +131,30 @@ namespace DWMPHorde.Networking
                     HandlePlayerAnimation(PlayerAnimationMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerBurning:
-                    _net.HandlePlayerBurning(PlayerBurningMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.CombatFxHandlers.HandlePlayerBurning(
+                        PlayerBurningMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerDied:
-                    _net.HandlePlayerDied(PlayerDiedMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.CombatHandlers.HandlePlayerDied(
+                        PlayerDiedMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerEffectSync:
-                    _net.HandlePlayerEffectSync(PlayerEffectSyncMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.WorldProxyHandlers.HandlePlayerEffectSync(
+                        PlayerEffectSyncMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerAnimLibrary:
                     HandlePlayerAnimLibrary(PlayerAnimLibraryMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.ThrowableSpawn:
-                    _net.HandleThrowableSpawn(ThrowableSpawnMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.CombatFxHandlers.HandleThrowableSpawn(
+                        ThrowableSpawnMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.DreamEnded:
-                    _net.HandleDreamEnded(DreamEndedMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.DreamHandlers.HandleDreamEnded(DreamEndedMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.FinalDreamsceneDeath:
-                    _net.HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage.Deserialize(new NetReader(innerPayload)));
+                    _net.CombatHandlers.HandleFinalDreamsceneDeath(
+                        FinalDreamsceneDeathMessage.Deserialize(new NetReader(innerPayload)));
                     break;
             }
         }

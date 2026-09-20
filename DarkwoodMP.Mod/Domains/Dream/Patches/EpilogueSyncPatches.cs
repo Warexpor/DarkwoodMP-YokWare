@@ -49,7 +49,7 @@ namespace DWMPHorde.Patches
             // Host applies immediately (broadcast already out). Client applies after host
             // rebroadcasts via Forwardable, but also apply locally so the originator is not stuck
             // if host is slow. ApplySceneLoad is idempotent via _sceneLoadPending.
-            LanNetworkManager.ApplySceneLoad("credits", delaySeconds: 8f);
+            EpilogueNetHandlers.ApplySceneLoad("credits", delaySeconds: 8f);
 
             // Credits ends co-op permanently under ChapterSessionPolicy; do not CaptureForResume.
             // Documented residual: post-credits is single-player epilogue, not a co-op chapter.

@@ -1,6 +1,7 @@
 using DWMPHorde.Networking;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Sync;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
@@ -62,7 +63,7 @@ namespace DWMPHorde.Patches
         {
             if (net == null || net.Role != NetworkRole.Host) return;
 
-            Infection[] all = Object.FindObjectsOfType<Infection>(true);
+            Infection[] all = WorldQueryHelper.GetCachedSceneComponents<Infection>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {

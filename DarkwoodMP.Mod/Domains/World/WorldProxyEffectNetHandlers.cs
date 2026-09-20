@@ -64,7 +64,7 @@ namespace DWMPHorde.Networking
             proxy.RemotePoisoned = msg.Poisoned;
             proxy.RemoteBleeding = msg.Bleeding;
 
-            CharBase cb = proxy.GetComponent<CharBase>();
+            CharBase cb = proxy.CachedCharBase;
             if (cb != null)
             {
                 cb.invisible = msg.Invisible;
@@ -98,7 +98,7 @@ namespace DWMPHorde.Networking
             CharacterSounds cs = local.GetComponent<CharacterSounds>();
             if (cs == null) return;
 
-            CharBase proxyCB = proxy.GetComponent<CharBase>();
+            CharBase proxyCB = proxy.CachedCharBase;
             if (proxyCB != null)
                 proxyCB.checkGround();
             GroundType gt = proxyCB != null ? proxyCB.groundType : GroundType.grass;
@@ -165,8 +165,8 @@ namespace DWMPHorde.Networking
 
             // Fallback: directly alert all tracked characters within range, even if their
             // colliders or chunks are briefly inactive when the message arrives.
-            Character[] all = CharacterTracker.GetAll();
-            for (int i = 0; i < all.Length; i++)
+            int nAll = CharacterTracker.CopyAll(out Character[] all);
+            for (int i = 0; i < nAll; i++)
             {
                 Character c = all[i];
                 if (c == null) continue;

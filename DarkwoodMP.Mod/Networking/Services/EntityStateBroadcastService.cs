@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using DWMPHorde.Sync;
 using LiteNetLib;
@@ -21,6 +22,9 @@ namespace DWMPHorde.Networking
         private const float PriorityDistance = 1400f;
         private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket];
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
+        /// <summary>Stable stripped name / prefab path — avoid Unity <c>name</c> + Substring + GetComponent every 10 Hz.</summary>
+        private static readonly Dictionary<short, string> _cachedEntityNames = new Dictionary<short, string>(128);
+        private static readonly Dictionary<short, string> _cachedPrefabPaths = new Dictionary<short, string>(128);
         /// <summary>Round-robin start index so a full tracker list is not starved by the per-packet cap.</summary>
         private static int _scanStart;
 
@@ -46,6 +50,9 @@ namespace DWMPHorde.Networking
         /// Collects snapshots of entities within range of host or any remote player,
         /// and sends to all connected peers (unreliable, ~10 Hz).
         /// </summary>
+        private static readonly NetWriter _snapWriter = new NetWriter();
+        private static byte[] _snapSendBuf = Array.Empty<byte>();
+
         private static void SendSnapshot(LanNetworkManager net)
         {
             // CopyAll: no ToArray alloc every 100ms (dual-box host hitch with 100+ tracked AI).
@@ -123,18 +130,18 @@ namespace DWMPHorde.Networking
             if (count == 0)
                 return;
 
-            var writer = new NetWriter();
-            writer.Put((byte)NetMessageType.EntityState);
+            _snapWriter.Reset();
+            _snapWriter.Put((byte)NetMessageType.EntityState);
 
             int entityCount = count;
-            writer.Put(++_nextSnapshotSequence);
-            writer.Put(entityCount);
+            _snapWriter.Put(++_nextSnapshotSequence);
+            _snapWriter.Put(entityCount);
             for (int i = 0; i < entityCount; i++)
-                _buffer[i].Serialize(writer);
+                _buffer[i].Serialize(_snapWriter);
 
-            byte[] data = writer.CopyData();
+            _snapWriter.CopyDataInto(ref _snapSendBuf, out int sendLen);
             // Walk the connected peers directly; ConnectedPlayerIds allocated a List every tick.
-            net.SendRawToReadyPeers(data, DeliveryMethod.Unreliable);
+            net.SendRawToReadyPeers(_snapSendBuf, sendLen, DeliveryMethod.Unreliable);
             DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
             _sendCount++;
@@ -160,6 +167,10 @@ namespace DWMPHorde.Networking
         private static bool TryBuildSnapshot(Character c, Vector3 cPos, out EntitySnapshotNet snap)
         {
             snap = default;
+
+            short id = CharacterTracker.GetStableId(c);
+            if (id == 0)
+                return false;
 
             // Near a remote: WorldGrid edge cases can leave isActive/animator off while the
             // GO is still tracked; otherwise the client gets empty clips and sliding sprites. Wake
@@ -197,24 +208,41 @@ namespace DWMPHorde.Networking
 
             short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
             Vector3 rot = c.transform.eulerAngles;
-
-            string entityName = c.name;
-            // Strip "(Clone)" suffix added by Unity when instantiating prefabs
-            if (entityName.EndsWith("(Clone)"))
-                entityName = entityName.Substring(0, entityName.Length - 7);
-
-            string prefabPath = "";
-            var ppc = c.GetComponent<PrefabPathComponent>();
-            if (ppc != null)
-                prefabPath = ppc.Path;
-
-            short id = CharacterTracker.GetStableId(c);
-            if (id == 0)
-                return false;
-
+            byte healthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100);
             byte flags = 0;
             if (c.sleeping) flags |= EntitySnapshotNet.FlagSleeping;
             if (c.eating) flags |= EntitySnapshotNet.FlagEating;
+            bool alive = c.alive;
+
+            // Cheap dirty gate before Unity name / PrefabPathComponent work.
+            if (_lastSent.TryGetValue(id, out EntitySnapshotNet last)
+                && last.PosX == cPos.x && last.PosY == cPos.y && last.PosZ == cPos.z
+                && last.RotY == rot.y
+                && last.ClipFrame == clipFrame
+                && last.Alive == alive
+                && last.HealthPct == healthPct
+                && last.Flags == flags
+                && string.Equals(last.Clip, clip, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!_cachedEntityNames.TryGetValue(id, out string entityName) || entityName == null)
+            {
+                entityName = c.name ?? "";
+                if (entityName.EndsWith("(Clone)", StringComparison.Ordinal))
+                    entityName = entityName.Substring(0, entityName.Length - 7);
+                _cachedEntityNames[id] = entityName;
+            }
+
+            if (!_cachedPrefabPaths.TryGetValue(id, out string prefabPath))
+            {
+                prefabPath = "";
+                var ppc = c.GetComponent<PrefabPathComponent>();
+                if (ppc != null && ppc.Path != null)
+                    prefabPath = ppc.Path;
+                _cachedPrefabPaths[id] = prefabPath;
+            }
 
             snap = new EntitySnapshotNet
             {
@@ -225,8 +253,8 @@ namespace DWMPHorde.Networking
                 RotY = rot.y,
                 Clip = clip,
                 ClipFrame = clipFrame,
-                Alive = c.alive,
-                HealthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100),
+                Alive = alive,
+                HealthPct = healthPct,
                 EntityName = entityName,
                 PrefabPath = prefabPath,
                 Flags = flags
@@ -250,6 +278,8 @@ namespace DWMPHorde.Networking
             _sendTimer = 0f;
             _nextSnapshotSequence = 0;
             _lastSent.Clear();
+            _cachedEntityNames.Clear();
+            _cachedPrefabPaths.Clear();
             _fullResyncCounter = 0;
             _paused = false;
             _scanStart = 0;

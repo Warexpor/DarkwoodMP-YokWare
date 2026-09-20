@@ -33,14 +33,21 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy diedProxy = _net.GetProxy(playerId);
             if (diedProxy != null)
             {
-                CharBase cb = diedProxy.GetComponent<CharBase>();
+                CharBase cb = diedProxy.CachedCharBase;
                 if (cb != null)
                 {
                     cb.alive = false;
                     cb.Health = 0f;
                 }
-                foreach (Collider col in diedProxy.GetComponentsInChildren<Collider>(true))
-                    col.enabled = false;
+                var deathCols = diedProxy.CachedColliders;
+                if (deathCols != null)
+                {
+                    for (int ci = 0; ci < deathCols.Length; ci++)
+                    {
+                        if (deathCols[ci] != null)
+                            deathCols[ci].enabled = false;
+                    }
+                }
 
                 // Apply the death pose immediately; do not wait for the next PlayerState tick.
                 var anim = diedProxy.GetComponent<Players.SecondPlayerAnimController>();
@@ -118,14 +125,21 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy diedProxy = _net.GetProxy(playerId);
             if (diedProxy != null)
             {
-                CharBase cb = diedProxy.GetComponent<CharBase>();
+                CharBase cb = diedProxy.CachedCharBase;
                 if (cb != null)
                 {
                     cb.alive = false;
                     cb.Health = 0f;
                 }
-                foreach (Collider col in diedProxy.GetComponentsInChildren<Collider>(true))
-                    col.enabled = false;
+                var deathCols = diedProxy.CachedColliders;
+                if (deathCols != null)
+                {
+                    for (int ci = 0; ci < deathCols.Length; ci++)
+                    {
+                        if (deathCols[ci] != null)
+                            deathCols[ci].enabled = false;
+                    }
+                }
                 _net.GetOrCreateState(playerId).IsDeadInDream = true;
             }
 

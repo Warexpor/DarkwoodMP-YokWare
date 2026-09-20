@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
-            Item[] items = UnityEngine.Object.FindObjectsOfType<Item>(true);
+            Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
             int sent = 0;
             const int maxSend = 256;
             for (int i = 0; i < items.Length && sent < maxSend; i++)

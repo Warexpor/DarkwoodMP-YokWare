@@ -91,6 +91,7 @@ namespace DWMPHorde.Sync
                 catch { /* ignore */ }
                 UnfreezeWorld(restoreTime: false);
                 FinalDreamsceneManager.OnDreamEnded();
+                WorldQueryHelper.InvalidateCommonSceneScanCaches();
             }
             _localDreamActive = false;
             _localDreamPreset = null;
@@ -145,6 +146,7 @@ namespace DWMPHorde.Sync
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
+            WorldQueryHelper.InvalidateCommonSceneScanCaches();
             FreezeWorld();
 
             // Session already started by DreamStartPatch on host; ensure death tracking if needed
@@ -270,7 +272,7 @@ namespace DWMPHorde.Sync
             UnfreezeWorld();
 
             FinalDreamsceneManager.OnDreamEnded();
-            (ModRuntime.Network as LanNetworkManager)?.ClearPendingDreamGameEvents();
+            (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
             _localDreamActive = false;
             bool hostOrdered = _hostOrderedDreamEnd;

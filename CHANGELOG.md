@@ -26,6 +26,251 @@ ship line (committed/pushed backup).
 - Keep protocol **25** wire formats stable unless a later 0.8.x needs a bump.
 - Strip over-engineering and wrong techniques when found; no sync crutches.
 
+### Changed (beauty pass)
+
+- **Entity pending LateUpdate budget:** CEI pending matches no longer walk
+  `O(pending × tracker)` every frame — one `CopyAll` + round-robin tight
+  retries (12/frame) and timeout resolves (3/frame); inactive Character scan
+  no longer Invalidates the scene TTL every 0.5s. Protocol **25** unchanged.
+- **Dream GE overlap + CachedColliders closeout:** `WorldQueryHelper` NonAlloc
+  buffers raised (1024/256) so dream `nameR=80` does not silently truncate;
+  client PlayerState / death / vault use `RemotePlayerProxy.CachedColliders`;
+  trade pending capped at 64; GE soft IndexOf skipped when exact-name bucket
+  exists; resolve-by-name cache capped at 256. Protocol **25** unchanged.
+- **PlayerState host-forward BroadcastHot:** 3+ peer forward of client
+  PlayerState uses recycled hot buffers + `excludePlayerId` (no per-packet
+  `BuildPacket`/`CopyData` alloc at ~30 Hz). Protocol **25** unchanged.
+- **PhysicsState count-prefix buffers:** send `CopyGrow` + recv recycled
+  deser arrays with `ObjectCount`/`DoorCount`/… (wire still count-then-items;
+  no per-tick `new T[n]` on oscillating object counts). Protocol **25**
+  unchanged.
+- **Physics snapshot scratch lists:** sound/kinematic/gate/pos expiry uses
+  static key lists (no per-tick `new List` on the host phys path). Protocol
+  **25** unchanged.
+- **Steam hot-send length + GetAll retire:** SNS send accepts explicit length
+  (no tight-buffer copy for recycled packets); remaining
+  `CharacterTracker.GetAll` call sites use `CopyAll`. Protocol **25**
+  unchanged.
+- **Entity broadcast string cache:** 10 Hz snapshot path caches stripped
+  name + prefab path by stable id and skips Unity name/GetComponent work when
+  numeric+clip fields match last send; trap dead-key purge reuses scratch
+  lists. Protocol **25** unchanged.
+- **Voice / physics-key / door / anim polish:** voice capture serializes
+  capture-buf slices (no per-packet `new byte[]`); free-body motion keys use
+  InstanceID ints; Door open/close MethodInfo cached; PlayerAnimation calls
+  `PlayTorso`/`PlayLegs` directly; `TraverseHack` split out of Types hub.
+  Protocol **25** unchanged.
+- **Dream + CEI ownership splits:** `DreamSyncPatches.Lifecycle` (start/end);
+  `ClientEntityInterpolationService.Pending` (budgeted LateUpdate match).
+  Protocol **25** unchanged.
+- **LateUpdate scratch + ship gates:** ItemMovingSound / FlagSync reuse static
+  key lists; CEI caches corpse-Item check; physics Apply prefers
+  `_objectInterp` CachedRb/Item; deleted `CharacterTracker.GetAll`; PathB
+  ProductInvariant locks OverlapSphere / hub&lt;500 / no Domains LNM façades.
+  Protocol **25** unchanged.
+- **Night spawn + hub headroom:** night redirects drop LINQ/`ToList` for a
+  scratch far-proxy buffer + sqrMagnitude; trap/phys debounce and Steam soft
+  reconnect reuse key lists; `LocalAudioService.Clips`, `ClientPerfProbe`, and
+  panel hitbox helpers peeled under the 500-line hub gate. Protocol **25**
+  unchanged.
+- **Trap Trigger fast-path + CachedCharBase:** phys trap snapshot reads
+  typed `Trigger.triggered` (NonAlloc fallback); remote proxies cache
+  CharBase for host AI/combat; melee/AI hit debounce reuse scratch lists;
+  CharacterTracker Harmony patches peeled for hub headroom. Protocol **25**
+  unchanged.
+- **Container + Save hub splits:** `ContainerSyncPatches.Opened` (to-opened /
+  controller / activate); `SaveNetHandlers.Apply` (save-sync apply, backup
+  restore wait). Protocol **25** unchanged.
+- **JournalNetHandlers split:** item/workbench/oxygen vs
+  `JournalNetHandlers.Bulk` (bulk sync, flush, vault). Protocol **25**
+  unchanged.
+- **Tick ownership + Location BroadcastHot:** `LanNetworkManager.Tick.Drag`
+  holds drag-end + LateUpdate; LocationEnter/Exit use recycled hot send.
+  Protocol **25** unchanged.
+- **DragSync BroadcastHot:** drag move/stop serialize uses recycled packet
+  buffers (same hot path as PlayerState / PhysicsState). Protocol **25**
+  unchanged.
+- **PlayerState BroadcastHot + LateUpdate list reuse:** ~30 Hz PlayerState
+  uses recycled packet buffers; push-scrape / kinematic release LateUpdate
+  uses static key lists (no per-frame `new List`). Protocol **25** unchanged.
+- **Physics hot send + PerfCliff:** `BroadcastHot` recycles writer/buffer for
+  PhysicsState ticks; `CoopPerfProbe` emits `[PerfCliff]` on ≥100ms frames and
+  on 2s windows under ~15 FPS so dual-box soak leaves searchable evidence.
+  Protocol **25** unchanged.
+- **Entity broadcast buffer reuse:** static `NetWriter` + `CopyDataInto`
+  recycled send buffer; `SendRawToReadyPeers(data, length)` avoids per-tick
+  `CopyData` alloc on the 10 Hz entity path. Protocol **25** unchanged.
+- **ObjectResolve + held-light:** name→last-hit cache before full RB walk;
+  full-scan interval 0.5s→2s; held flare/match strip uses one Component walk.
+  Protocol **25** unchanged.
+- **Dream prop + GE soft-match:** pad Item collider fan-out caches
+  `GetComponentsInChildren` (invalidate on dream enter/exit); client miss
+  resolves via Item cache not Transform FoT; GE soft-match uses a
+  normalized-name index rebuilt with the scene GE cache. Protocol **25**
+  unchanged.
+- **Medium hitch pass:** physics snapshot copies into recycled arrays (no
+  per-tick `ToArray`); door/gen proxy interest uses a reusable position list;
+  journal world-destroy uses scene TTL cache (not `Resources.FindObjectsOfTypeAll`);
+  night-dead/revive PlayerState uses `RemotePlayerProxy.CachedColliders`;
+  dream-end GE clear also drops `_pendingGameEventQueuedAt` keys. Protocol
+  **25** unchanged.
+- **Hitch/crash hardening (audit follow-up):** null `WorldObjectState.Name`
+  no longer NRE-aborts physics apply; entity `_pendingMatches` capped at 96;
+  trade inventory flush throttled to 0.5s (no per-frame NPC walks); trap
+  pending capped at 64; CEI inactive Character scan via `WorldQueryHelper`
+  (0.5s invalidate); phantom replace reuses a scratch HashSet. Protocol
+  **25** unchanged.
+- **ProxyAggro hot path:** `CharacterTracker.CopyAll` (no `GetAll` alloc);
+  hoist night-dead proxy checks out of the per-character loop; XZ sqr
+  distance before nearView/sniff gates. Protocol **25** unchanged.
+- **`CoopPolicy` split:** Time/Dialog, Npc/Night, Session, Combat/Dream
+  files; PathB.Tests links all four. No non-message hub remains ≥500.
+  Protocol **25** unchanged.
+- **Dream UniqueObject remap pad-scoped:** `RemapDreamUniqueObjects` uses
+  `GetComponentsInChildren` under the dream root instead of a world
+  `FindObjectsOfType` (load hitch + overworld twin risk). Protocol **25**
+  unchanged.
+- **Final hub shrink (excl. message DTOs):** Split
+  `SecondPlayerAnimController.Apply`, `DreamSyncManager.SceneLoad.Post`,
+  `SteamCoopTransport.Migration`, `LanNetworkManager.HostConnect`,
+  `HostMigration.Handoff.Promote`, `RemotePlayerProxy.Apply` (behavior
+  unchanged). Protocol **25** unchanged.
+- **Hot-path alloc audit:** zero remaining `Physics.OverlapSphere(`
+  (allocating) call sites in the mod; NonAlloc + scene-scan TTL stay in
+  place. Dual-box FPS/sync soak still required for runtime proof
+  (`CoopPerfProbe` / dual LogOutput). Protocol **25** unchanged.
+- **Held-light / GameEvents / drag ownership splits:**
+  `PlayerHeldLightApplyNetHandlers.Flashlight`, `GameEventNetHandlers.Apply`,
+  `PlayerInteractNetHandlers.DragSpawn` (behavior unchanged). Protocol **25**
+  unchanged.
+- **Dream SceneLoad flush path:** after façade retirement,
+  `TryFlushPendingGameEventsAfterDreamLoad` goes through
+  `GameEventHandlers` (not a removed LNM method). Protocol **25** unchanged.
+- **Session / Night / Location ownership splits:**
+  `LanNetworkManager.SessionHandlers.LateJoin`, `NightNetHandlers.Scenario`,
+  `LocationEnterExitNetHandlers.Exit` (behavior unchanged). Protocol **25**
+  unchanged.
+- **Dispatch ownership split:** 126-case `ProcessInboundMessage` switch →
+  `TryDispatch{Session,Combat,Players,World,DialogueDream}` partials; main
+  Dispatch keeps apply-guard + host forward only. Protocol **25** unchanged.
+- **Vault uses cached proxy colliders:** `HandleVaultState` reads
+  `RemotePlayerProxy.CachedColliders` instead of per-message
+  `GetComponentsInChildren`. Protocol **25** unchanged.
+- **OverlapSphere NonAlloc pass:** physics/combat/light/trap/drag apply paths
+  use shared NonAlloc buffers (`WorldPhysicsSyncService.OverlapNear` /
+  `WorldQueryHelper.SharedOverlapBuf`) instead of allocating
+  `Physics.OverlapSphere` arrays. Protocol **25** unchanged.
+- **Vault Jumpable query:** `HandleVaultState` no longer uses a 500m
+  `OverlapSphere` (alloc/FPS cliff). NonAlloc overlap within 16m of the proxy
+  — vault windows are local. Door/window spatial lookups in
+  `WorldQueryHelper` also use NonAlloc. Protocol **25** unchanged.
+- **Inventory LNM façade retired:** `SyncItemAmount` moved to
+  `InventorySyncUtil`; deleted `LanNetworkManager.InventoryHelpers.cs`.
+  Protocol **25** unchanged.
+- **`DreamDoorSyncPatches` split:** hinged Door open/unlock/unblock vs
+  `DialogueDoorAftermath` (`DreamDoorSyncPatches.Aftermath.cs`). Protocol
+  **25** unchanged.
+- **Hub shrink below 600 (excl. message DTOs):** remaining service/patch files
+  that were still 600–800 lines are now split:
+  `DoorSyncPatches.Interact`, `PlayerActionSyncPatches.Combat`,
+  `LanNetworkManager.SteamPeers`, `VoiceChatService.Speakers`,
+  `SpectatorModeController.EnterExit` (behavior unchanged). Protocol **25**
+  unchanged.
+- **`DreamSyncPatches` split:** ~711-line dream Harmony file →
+  `DreamSyncPatches.cs` (preset/prepare/start/end) + `DreamSyncPatches.Authority.cs`
+  (chain/switch/end-authority/skills; behavior unchanged). Protocol **25**
+  unchanged.
+- **`WorldSaveShareService.Profiles` split:** ~690-line profile hub →
+  `WorldSaveShareService.{Profiles,ProfilesEnter,ProfilesDisk}.cs` (behavior
+  unchanged). Protocol **25** unchanged.
+- **GameEvents scene-scan cache:** soft-match / bulk / dream leave-door paths
+  reuse `WorldQueryHelper.GetCachedSceneComponents<GameEvents>()` (3s TTL) instead
+  of raw `FindObjectsOfType` on every miss — cuts client hitch when pending GE
+  flushes. Same helper now used on hot door/barricade/lock/station/trade/pickup/
+  death-drop/interact apply paths. Caches invalidate on network stop and dream
+  enter/exit (`InvalidateCommonSceneScanCaches`). Protocol **25** unchanged.
+- **`WorldPhysicsSyncService.Snapshot` split:** ~708-line snapshot hub →
+  `WorldPhysicsSyncService.{Snapshot,SnapshotScan}.cs` (build vs doors/traps/
+  generators scan; behavior unchanged). Protocol **25** unchanged.
+- **`WorldPhysicsSyncService.Thrown` split:** ~797-line thrown/flare hub →
+  `WorldPhysicsSyncService.{Thrown,ThrownSpawn,ThrownLights}.cs` (behavior
+  unchanged). Protocol **25** unchanged.
+- **`MainMenuMultiplayerInject.Panel` split:** ~776-line title panel →
+  `MainMenuMultiplayerInject.{Panel,PanelWidgets}.cs` (orchestration vs button
+  widgets; behavior unchanged). Protocol **25** unchanged.
+- **`WorldPhysicsSyncService.Apply` further split:** ~996-line apply hub →
+  `WorldPhysicsSyncService.{Apply,Pickups,ObjectResolve}.cs` (plus existing
+  TrapsDoors; behavior unchanged). Protocol **25** unchanged.
+- **`ClientEntityInterpolationService` further split:** ~1002-line main (Tick
+  already separate) → `ClientEntityInterpolationService.{Snapshot,Presentation,Spawn}.cs`
+  (`partial` static; fields/public note API stay in main; behavior unchanged).
+  Protocol **25** unchanged.
+- **`SteamCoopTransport` split:** ~1105-line Steam lobby/SNS hub →
+  `SteamCoopTransport.{PollSend,ConnectionCallbacks,LobbyCallbacks}.cs`
+  (`sealed partial`; host/join/migration stay in main; poll/send, connection
+  status, lobby callbacks; behavior unchanged). Protocol **25** unchanged.
+- **`HostAIPatches.Perception` split:** ~753-line perception Harmony file →
+  `HostAIPatches.Perception.CanSee.cs` (`HostCanSeeEnemyPatch`) + remaining
+  awareness/melee patches in `Perception.cs` (behavior unchanged). Protocol
+  **25** unchanged.
+- **`ClientStateBackup` split:** ~892-line monolith →
+  `ClientStateBackup.{Collect,Paths,Campaign,Restore}.cs` (`partial` static class;
+  DTOs stay in main; collect/serialize, disk IO, campaign/progress heuristics,
+  restore; behavior unchanged). Protocol **25** unchanged.
+- **`HostMigration` split (restored):** a bad extract had dropped handoff/promote
+  (~700 lines). Restored from HEAD; now `HostMigration.{PeerRoster,Handoff}.cs`
+  plus main fields/ticks (mid-dream refuse stays inlined in Handoff). Protocol
+  **25** unchanged.
+- **`LanNetworkManager` core split:** ~1364-line main networking file →
+  `LanNetworkManager.{Tick,Transport,PeerEvents}.cs` (`partial` class; fields /
+  Awake / StartHost / ConnectToHost / StopNetwork stay in main; Update+LateUpdate
+  tick, Send*/Broadcast/MarkPeer*, and peer connect/receive events moved;
+  behavior unchanged). Protocol **25** unchanged.
+- **`MainMenuMultiplayerInject` split:** ~1497-line title MULTIPLAYER UI →
+  `MainMenuMultiplayerInject.{Panel,HostJoin}.cs` (`partial` class; fields /
+  OnUpdate / lifecycle in main; panel construction vs host-join / handshake
+  wait; behavior unchanged). Protocol **25** unchanged.
+- **BulkSync LNM façade retired:** private Handle*/Send* wrappers removed;
+  Dispatch/session/journal call `BulkSyncHandlers` directly. Real session
+  callbacks live in `LanNetworkManager.SessionCallbacks.cs`. Protocol **25**
+  unchanged.
+- **`WorldSaveShareService` split:** ~1600-line monolith →
+  `WorldSaveShareService.{HostShare,ClientApply,Profiles,Utils}.cs`
+  (`partial` class; ctor/schedule stay in main; behavior unchanged).
+  Protocol **25** unchanged.
+- **`HostAIPatches` split:** monolithic combat AI Harmony file →
+  `HostAIPatches.{Identity,Perception,Grid,Targeting}.cs` (ownership by
+  concern; behavior unchanged). Protocol **25** unchanged.
+- **`ClientEntityInterpolationService` Tick split:** `TickLateUpdate` moved to
+  `ClientEntityInterpolationService.Tick.cs` (~1435→1002 main + 447 tick;
+  `partial` class; behavior unchanged). Protocol **25** unchanged.
+- **`WorldPhysicsSyncService` TrapsDoors split:** trap locate/apply, door find,
+  and generator spawn/find helpers moved from `Apply.cs` (~1337→996 lines) into
+  `WorldPhysicsSyncService.TrapsDoors.cs` (behavior unchanged). Protocol **25**
+  unchanged.
+- **Retire thin `LanNetworkManager` façades:** Dispatch / session / tick call
+  `*NetHandlers` directly for Examine, Chapter, Cutscene, Door, CursorAction,
+  Map, Chain, ShadowArmor, WorldBurn, and Epilogue SceneLoad. Handler
+  properties live in `LanNetworkManager.HandlerRegistry.cs`. Deleted 10
+  private Handle* wrapper partials. Protocol **25** unchanged (wire behavior
+  identical).
+- **Batch 2 façades retired:** Dialog (outcome/NPC-lock), Flag, GameEvent,
+  Barricade, Trade, Container*, Station, Lock, Dream, Night. Dispatch/tick/
+  session/external call sites now use `*Handlers` directly; another 10 thin
+  LNM partials deleted. Protocol **25** unchanged.
+- **Batch 3 façades retired:** Journal (workbench/vault/oxygen/compressor),
+  Location (enter/exit/entity/trap), PlayerFX (anim/FX/dropped items +
+  `DispatchRemotePlayerForward`). `WorkbenchLevelSync` Dispatch now calls
+  `BulkSyncHandlers` directly. Handler props in `HandlerRegistry.cs`; 3 thin
+  LNM partials deleted. Protocol **25** unchanged.
+- **Batch 4 façades retired:** Combat, FX, Players, WorldSend, WorldState.
+  Dispatch / tick / session / Steam / HostMigration / PlayerFX forward path
+  call `*Handlers` directly. Remaining public/internal Send*/GetProxy/
+  Notify*/RegisterDeathBag forwards live in
+  `LanNetworkManager.PublicApi.cs`. Handler props in `HandlerRegistry.cs`;
+  5 Domains LNM façades deleted (Domains LNM left: InventoryHelpers +
+  WorldTickFields). Protocol **25** unchanged.
+
 ### Parked / deferred (investigation)
 
 - **`SpriteRandomizer`:** parked (DEFERRED-ok cosmetic) — visual RNG only
@@ -68,9 +313,11 @@ ship line (committed/pushed backup).
   count msg; protocol **25** unchanged. Evidence in `COOP_COVERAGE.md`.
 ### Changed (this milestone)
 
-- **Dual-box soak:** explicitly parked in `COOP_COVERAGE.md` as runtime
-  verification outside the decompile-loop finish bar (all domain rows remain
-  code-covered / runtime-pending until playtested). Protocol **25** unchanged.
+- **Dual-box soak (beauty gate):** parked — structure/hot-path code is green
+  (build + 66 PathB tests; DLL deployed Steam + SecondDarkwood). Runtime
+  proof: run host+client, then `scripts/check-dualbox-perf.sh` (requires
+  `[Perf]` on both logs, fails on `[PerfCliff]`). Also spot-check entity
+  sync + GE fan-out in play. Protocol **25** unchanged.
 - **`WaitAndDie` / `Broadcaster` / `UpgradeItemMenu`:** parked with decompile
   citations (FX/onTime→GE host-auth; serializer util; personal item upgrades).
   `WhereAmI` `player_in*` already local-only via FlagSync. Protocol **25**

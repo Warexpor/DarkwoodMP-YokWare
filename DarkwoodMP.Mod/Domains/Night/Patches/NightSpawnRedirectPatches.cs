@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -33,8 +32,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return true;
 
-            // Pick a random far proxy to receive the forest spirit
-            var farProxies = GetFarProxies(net);
+            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
             if (farProxies.Count == 0) return true;
 
             RemotePlayerProxy target = farProxies[Random.Range(0, farProxies.Count)];
@@ -62,15 +60,7 @@ namespace DWMPHorde.Patches
             if (!PlayerPositionManager.HasRemotePlayer) return false;
             if (Player.Instance == null) return false;
             if (LanNetworkManager.Instance == null) return false;
-            return GetFarProxies(LanNetworkManager.Instance).Count > 0;
-        }
-
-        private static List<RemotePlayerProxy> GetFarProxies(LanNetworkManager net)
-        {
-            Vector3 hostPos = Player.Instance.transform.position;
-            return net.GetAllProxies()
-                .Where(p => p != null && Vector3.Distance(p.transform.position, hostPos) >= NightSpawnConstants.FarProxyMinDist)
-                .ToList();
+            return NightSpawnFarProxies.Fill(LanNetworkManager.Instance, Player.Instance.transform.position).Count > 0;
         }
     }
 
@@ -93,10 +83,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
-            // Redirect to a random far proxy with 50% chance
-            var farProxies = net.GetAllProxies()
-                .Where(p => p != null && Vector3.Distance(p.transform.position, Player.Instance.transform.position) >= NightSpawnConstants.FarProxyMinDist)
-                .ToList();
+            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
             if (farProxies.Count == 0) return;
 
             if (Random.value < 0.5f)
@@ -141,9 +128,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
-            var farProxies = net.GetAllProxies()
-                .Where(p => p != null && Vector3.Distance(p.transform.position, Player.Instance.transform.position) >= NightSpawnConstants.FarProxyMinDist)
-                .ToList();
+            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
             if (farProxies.Count == 0) return;
             if (Random.value > 0.5f) return;
 

@@ -11,7 +11,7 @@ namespace DWMPHorde.Logging
     /// connected so dual-box FPS bugs show in LogOutput without Trace spam.
     /// Times are milliseconds accumulated between reports.
     /// </summary>
-    public static class CoopPerfProbe
+    public static partial class CoopPerfProbe
     {
         private static readonly Stopwatch Sw = new Stopwatch();
         private static readonly Stopwatch FootSw = new Stopwatch();
@@ -61,6 +61,12 @@ namespace DWMPHorde.Logging
         private const float ReportInterval = 2f;
         /// <summary>Log a one-shot Event when an Update sub-segment exceeds this (ms).</summary>
         private const double SegSpikeMs = 25.0;
+        /// <summary>Single-frame dt that feels like a 0-FPS hitch — emit [PerfCliff] immediately.</summary>
+        private const float FrameCliffMs = 100f;
+        /// <summary>Window average below this FPS → [PerfCliff] on the 2s report.</summary>
+        private const float ReportCliffFps = 15f;
+
+        private static float _lastCliffLogTime = -999f;
 
         public static bool IsActive => _active;
 
@@ -158,6 +164,19 @@ namespace DWMPHorde.Logging
             _frames++;
             _dtSum += dt;
             if (dt > _dtMax) _dtMax = dt;
+            if (dt >= FrameCliffMs)
+            {
+                float now = Time.unscaledTime;
+                // Rate-limit cliff spam during sustained hitches (still every ~0.5s).
+                if (now - _lastCliffLogTime >= 0.5f)
+                {
+                    _lastCliffLogTime = now;
+                    ModLog.Event(LogCat.Core,
+                        "[PerfCliff] role=" + _roleTag
+                        + " frameMs=" + dt.ToString("F0")
+                        + " (single-frame hitch ≥" + FrameCliffMs.ToString("F0") + "ms)");
+                }
+            }
             Sw.Restart();
         }
 
@@ -328,11 +347,18 @@ namespace DWMPHorde.Logging
             float fps = avg > 0.01f ? 1000f / avg : 0f;
 
             var sb = new StringBuilder(384);
-            sb.Append("[Perf] role=").Append(_roleTag);
+            bool cliff = fps < ReportCliffFps || _dtMax >= FrameCliffMs;
+            if (cliff)
+                sb.Append("[PerfCliff] ");
+            else
+                sb.Append("[Perf] ");
+            sb.Append("role=").Append(_roleTag);
             sb.Append(" frames=").Append(_frames);
             sb.Append(" fps~").Append(fps.ToString("F0"));
             sb.Append(" avgMs=").Append(avg.ToString("F1"));
             sb.Append(" maxMs=").Append(_dtMax.ToString("F1"));
+            if (cliff)
+                sb.Append(" CLIFF");
             sb.Append(" | poll=").Append(_pollMs.ToString("F1"));
             sb.Append(" upd=").Append(_updateRestMs.ToString("F1"));
             sb.Append(" physBuild=").Append(_physBuildMs.ToString("F1"));
@@ -432,35 +458,5 @@ namespace DWMPHorde.Logging
                 return typeByte.ToString();
             }
         }
-    }
-
-    /// <summary>Backward-compatible name for call sites / older docs.</summary>
-    public static class ClientPerfProbe
-    {
-        public static bool IsActive => CoopPerfProbe.IsActive;
-        public static void SetActive(bool active) => CoopPerfProbe.SetActive(active, NetworkRole.Client);
-        public static void SetActive(bool active, NetworkRole role) => CoopPerfProbe.SetActive(active, role);
-        public static void FrameBegin() => CoopPerfProbe.FrameBegin();
-        public static void MarkPoll() => CoopPerfProbe.MarkPoll();
-        public static void MarkUpdateRest() => CoopPerfProbe.MarkUpdateRest();
-        public static void MarkPhysBuild() => CoopPerfProbe.MarkPhysBuild();
-        public static void LateBegin() => CoopPerfProbe.LateBegin();
-        public static void MarkObjInterp() => CoopPerfProbe.MarkObjInterp();
-        public static void MarkEntityTick() => CoopPerfProbe.MarkEntityTick();
-        public static void LateEnd() => CoopPerfProbe.LateEnd();
-        public static void NoteEntityApply(int a, int s, double ms) => CoopPerfProbe.NoteEntityApply(a, s, ms);
-        public static void NotePhysApply(int o, double ms) => CoopPerfProbe.NotePhysApply(o, ms);
-        public static void NotePacketRx() => CoopPerfProbe.NotePacketRx();
-        public static void NotePacketRx(NetMessageType type) => CoopPerfProbe.NotePacketRx(type);
-        public static void NoteFullRbScan() => CoopPerfProbe.NoteFullRbScan();
-        public static void NoteFindObjectsOfType() => CoopPerfProbe.NoteFindObjectsOfType();
-        public static void NoteFindObjectsOfType(string typeName, double ms) =>
-            CoopPerfProbe.NoteFindObjectsOfType(typeName, ms);
-        public static void SetPendingCounts(int lure, int locks, int light, int trap, int feeder, int saw, int construct) =>
-            CoopPerfProbe.SetPendingCounts(lure, locks, light, trap, feeder, saw, construct);
-        public static void NoteEntityBroadcast(int entityCount) =>
-            CoopPerfProbe.NoteEntityBroadcast(entityCount);
-        public static void BeginUpdateSegment(string name) => CoopPerfProbe.BeginUpdateSegment(name);
-        public static void EndUpdateSegment() => CoopPerfProbe.EndUpdateSegment();
     }
 }

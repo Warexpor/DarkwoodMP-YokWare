@@ -136,7 +136,7 @@ namespace DWMPHorde.Patches
                 RemotePlayerProxy proxy = net.GetProxy(targetPlayerId);
                 if (proxy == null) return;
 
-                CharBase proxyCB = proxy.GetComponent<CharBase>();
+                CharBase proxyCB = proxy.CachedCharBase;
                 if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
                     return;
 
@@ -411,7 +411,7 @@ namespace DWMPHorde.Patches
                 {
                     if (proxy == null)
                         continue;
-                    CharBase cb = proxy.GetComponent<CharBase>();
+                    CharBase cb = proxy.CachedCharBase;
                     if (cb != null && cb.alive && cb.Health < minHp)
                         minHp = cb.Health;
                 }

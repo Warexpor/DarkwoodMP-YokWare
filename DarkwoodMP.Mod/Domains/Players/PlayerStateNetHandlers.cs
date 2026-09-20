@@ -61,13 +61,20 @@ namespace DWMPHorde.Networking
                     if (state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
                         && !DeathStateTracker.IsRemoteNightDead(playerId))
                     {
-                        CharBase reviveCB = proxy.GetComponent<CharBase>();
+                        CharBase reviveCB = proxy.CachedCharBase;
                         if (reviveCB != null && !reviveCB.alive)
                         {
                             reviveCB.alive = true;
                             reviveCB.Health = reviveCB.maxHealth;
-                            foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
-                                col.enabled = true;
+                            var reviveCols = proxy.CachedColliders;
+                            if (reviveCols != null)
+                            {
+                                for (int ci = 0; ci < reviveCols.Length; ci++)
+                                {
+                                    if (reviveCols[ci] != null)
+                                        reviveCols[ci].enabled = true;
+                                }
+                            }
                             var animComp = proxy.GetComponent<Players.SecondPlayerAnimController>();
                             if (animComp != null)
                                 animComp.ResetDeathState();
@@ -79,13 +86,20 @@ namespace DWMPHorde.Networking
                     }
                     else if (DeathStateTracker.IsRemoteNightDead(playerId))
                     {
-                        CharBase deadCB = proxy.GetComponent<CharBase>();
+                        CharBase deadCB = proxy.CachedCharBase;
                         if (deadCB != null && deadCB.alive)
                         {
                             deadCB.alive = false;
                             deadCB.Health = 0f;
-                            foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
-                                col.enabled = false;
+                            var deadCols = proxy.CachedColliders;
+                            if (deadCols != null)
+                            {
+                                for (int ci = 0; ci < deadCols.Length; ci++)
+                                {
+                                    if (deadCols[ci] != null)
+                                        deadCols[ci].enabled = false;
+                                }
+                            }
                         }
                     }
 
@@ -111,7 +125,8 @@ namespace DWMPHorde.Networking
                     if (playerId > 0)
                     {
                         state.PlayerId = playerId;
-                        _net.SendToAllExcept(playerId, NetMessageType.PlayerState, w => state.Serialize(w));
+                        _net.BroadcastHot(NetMessageType.PlayerState, w => state.Serialize(w),
+                            excludePlayerId: playerId);
                     }
 
                     // DISABLED on join path: removeAfterNightEffect() is a full-screen native
@@ -150,15 +165,22 @@ namespace DWMPHorde.Networking
                 if (proxy == null) return;
 
                 // Mirror host: do not revive while peer is still night-dead.
-                CharBase reviveCB = proxy.GetComponent<CharBase>();
+                CharBase reviveCB = proxy.CachedCharBase;
                 if (reviveCB != null && !reviveCB.alive
                     && state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
                     && !DeathStateTracker.IsRemoteNightDead(remotePlayerId))
                 {
                     reviveCB.alive = true;
                     reviveCB.Health = reviveCB.maxHealth;
-                    foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
-                        col.enabled = true;
+                    var reviveCols = proxy.CachedColliders;
+                    if (reviveCols != null)
+                    {
+                        for (int ci = 0; ci < reviveCols.Length; ci++)
+                        {
+                            if (reviveCols[ci] != null)
+                                reviveCols[ci].enabled = true;
+                        }
+                    }
                     var animComp = proxy.GetComponent<Players.SecondPlayerAnimController>();
                     if (animComp != null)
                         animComp.ResetDeathState();
@@ -171,8 +193,15 @@ namespace DWMPHorde.Networking
                 {
                     reviveCB.alive = false;
                     reviveCB.Health = 0f;
-                    foreach (Collider col in proxy.GetComponentsInChildren<Collider>(true))
-                        col.enabled = false;
+                    var deadCols = proxy.CachedColliders;
+                    if (deadCols != null)
+                    {
+                        for (int ci = 0; ci < deadCols.Length; ci++)
+                        {
+                            if (deadCols[ci] != null)
+                                deadCols[ci].enabled = false;
+                        }
+                    }
                 }
 
                 proxy.RemoteRunning = state.Running;

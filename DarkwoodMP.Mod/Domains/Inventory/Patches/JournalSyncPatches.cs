@@ -166,7 +166,7 @@ namespace DWMPHorde.Patches
             if (net.Role == NetworkRole.Host)
             {
                 ModRuntime.LegacyInfo($"[Workbench] level {_levelBeforeCraft} → {level} (host sync)");
-                net.SendWorkbenchLevelSync();
+                net.BulkSyncHandlers.SendWorkbenchLevelSync();
             }
             else
             {

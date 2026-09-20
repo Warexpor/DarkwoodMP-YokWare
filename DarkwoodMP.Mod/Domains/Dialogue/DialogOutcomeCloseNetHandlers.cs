@@ -112,7 +112,7 @@ namespace DWMPHorde.Networking
         private static int HostFireDreamLeaveDoorGameEvents(Vector3 nearPos)
         {
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
-            GameEvents[] all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
+            GameEvents[] all = WorldQueryHelper.GetCachedSceneComponents<GameEvents>();
             int fired = 0;
             for (int i = 0; i < all.Length; i++)
             {
@@ -161,7 +161,7 @@ namespace DWMPHorde.Networking
             string want = StripCloneSuffix(name);
 
             // Unity 2021.3 supports includeInactive. Dialogue door NPCs often deactivate after talk.
-            NPC[] all = UnityEngine.Object.FindObjectsOfType<NPC>(true);
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
             Transform dreamRoot = DreamSyncManager.IsDreamActive
                 ? DreamSyncManager.GetDreamLocationTransform()
                 : null;

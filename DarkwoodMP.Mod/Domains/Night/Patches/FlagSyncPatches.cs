@@ -18,6 +18,7 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, bool> _lastSentBoolFlags = new Dictionary<string, bool>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, bool> _pendingBoolFlags = new Dictionary<string, bool>();
+        private static readonly List<string> _flushKeys = new List<string>(16);
 
         /// <summary>
         /// Spatial / per-peer location flags stay local on each peer. Syncing them made
@@ -50,16 +51,17 @@ namespace DWMPHorde.Patches
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
-            var toSend = new List<string>();
+            _flushKeys.Clear();
             foreach (var kvp in _pendingBoolFlags)
             {
                 if (_lastSendTime.TryGetValue(kvp.Key, out float lastSent) && now - lastSent < CooldownSec)
                     continue;
-                toSend.Add(kvp.Key);
+                _flushKeys.Add(kvp.Key);
             }
 
-            foreach (string name in toSend)
+            for (int fi = 0; fi < _flushKeys.Count; fi++)
             {
+                string name = _flushKeys[fi];
                 if (!_pendingBoolFlags.TryGetValue(name, out bool value))
                     continue;
                 _pendingBoolFlags.Remove(name);
@@ -146,6 +148,7 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, int> _lastSentIntFlags = new Dictionary<string, int>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, int> _pendingIntFlags = new Dictionary<string, int>();
+        private static readonly List<string> _flushKeys = new List<string>(16);
 
         public static void Reset()
         {
@@ -162,16 +165,17 @@ namespace DWMPHorde.Patches
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
-            var toSend = new List<string>();
+            _flushKeys.Clear();
             foreach (var kvp in _pendingIntFlags)
             {
                 if (_lastSendTime.TryGetValue(kvp.Key, out float lastSent) && now - lastSent < CooldownSec)
                     continue;
-                toSend.Add(kvp.Key);
+                _flushKeys.Add(kvp.Key);
             }
 
-            foreach (string name in toSend)
+            for (int fi = 0; fi < _flushKeys.Count; fi++)
             {
+                string name = _flushKeys[fi];
                 if (!_pendingIntFlags.TryGetValue(name, out int value))
                     continue;
                 _pendingIntFlags.Remove(name);

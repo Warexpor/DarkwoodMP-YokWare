@@ -116,7 +116,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            ChainParent[] all = UnityEngine.Object.FindObjectsOfType<ChainParent>();
+            ChainParent[] all = WorldQueryHelper.GetCachedSceneComponents<ChainParent>();
             int sent = 0;
             for (int i = 0; i < all.Length; i++)
             {

@@ -55,7 +55,7 @@ namespace DWMPHorde.Patches
 
         internal static CutsceneManager FindManager(Vector3 pos, string name)
         {
-            CutsceneManager[] all = Object.FindObjectsOfType<CutsceneManager>();
+            CutsceneManager[] all = WorldQueryHelper.GetCachedSceneComponents<CutsceneManager>();
             CutsceneManager best = null;
             float bestDist = float.MaxValue;
 

@@ -50,6 +50,38 @@ public class NetWriterTests
     }
 
     [Fact]
+    public void CopyDataInto_ReusesBufferWhenCapacitySufficient()
+    {
+        var w = new NetWriter();
+        w.Put((byte)1);
+        w.Put(42);
+        byte[] buf = new byte[64];
+        byte[] same = buf;
+        w.CopyDataInto(ref buf, out int len);
+        Assert.Same(same, buf);
+        Assert.True(len > 0);
+        Assert.Equal(1, buf[0]);
+
+        w.Reset();
+        w.Put((byte)9);
+        w.CopyDataInto(ref buf, out int len2);
+        Assert.Same(same, buf);
+        Assert.Equal(1, len2);
+        Assert.Equal(9, buf[0]);
+    }
+
+    [Fact]
+    public void Put_ByteSlice_LengthPrefixedWithoutCopyingWholeBuffer()
+    {
+        byte[] capture = { 0, 0, 9, 8, 7, 0, 0 };
+        var w = new NetWriter();
+        w.Put(capture, 2, 3);
+        var r = new NetReader(w.CopyData());
+        Assert.Equal(new byte[] { 9, 8, 7 }, r.GetBytes());
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
     public void PutRaw_NullOrEmpty_WritesNothing()
     {
         var w = new NetWriter();

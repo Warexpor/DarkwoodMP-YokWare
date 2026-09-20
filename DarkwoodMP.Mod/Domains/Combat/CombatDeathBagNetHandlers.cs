@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
         internal void SyncExistingDeathBags(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host) return;
-            DeathDrop[] allBags = UnityEngine.Object.FindObjectsOfType<DeathDrop>(true);
+            DeathDrop[] allBags = WorldQueryHelper.GetCachedSceneComponents<DeathDrop>();
             int sent = 0;
             foreach (DeathDrop bag in allBags)
             {
@@ -145,7 +145,7 @@ namespace DWMPHorde.Networking
             if (!_spawnedDeathBags.TryGetValue(bagId, out DeathDrop drop))
             {
                 // Component scan (local bags registered late, or dict cleared mid-session).
-                foreach (DeathDrop dd in UnityEngine.Object.FindObjectsOfType<DeathDrop>(true))
+                foreach (DeathDrop dd in WorldQueryHelper.GetCachedSceneComponents<DeathDrop>())
                 {
                     if (dd == null) continue;
                     if (string.Equals(Sync.DeathBagNetworkId.GetBagId(dd.gameObject), bagId, System.StringComparison.Ordinal))
@@ -284,7 +284,7 @@ namespace DWMPHorde.Networking
                 Vector2 posXZ = new Vector2(pos.x, pos.z);
                 DeathDrop best = null;
                 float bestDist = 2f;
-                foreach (DeathDrop dd in UnityEngine.Object.FindObjectsOfType<DeathDrop>(true))
+                foreach (DeathDrop dd in WorldQueryHelper.GetCachedSceneComponents<DeathDrop>())
                 {
                     if (dd == null) continue;
                     Vector2 ddXZ = new Vector2(dd.transform.position.x, dd.transform.position.z);

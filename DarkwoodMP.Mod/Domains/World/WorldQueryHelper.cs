@@ -13,8 +13,18 @@ namespace DWMPHorde.Sync
     /// </summary>
     internal static class WorldQueryHelper
     {
-        private static readonly Collider[] OverlapBuf = new Collider[64];
+        // Dream GE name resolve uses up to ~80m radius; 64 silently truncates NonAlloc
+        // hits and forces soft-match / full scene walks (dual-box hitch).
+        private static readonly Collider[] OverlapBuf = new Collider[1024];
+        private static readonly Collider2D[] Overlap2DBuf = new Collider2D[256];
         private const float SceneScanTtl = 3f;
+
+        /// <summary>
+        /// Shared NonAlloc buffer for one-shot world lookups outside
+        /// <see cref="WorldPhysicsSyncService"/>. Callers must finish iterating
+        /// before another SharedOverlapBuf user runs.
+        /// </summary>
+        internal static Collider[] SharedOverlapBuf => OverlapBuf;
 
         /// <summary>Nearest live scene T within maxDist of pos.</summary>
         public static T FindNearest<T>(Vector3 pos, float maxDist) where T : Component
@@ -70,21 +80,72 @@ namespace DWMPHorde.Sync
         {
             T[] all = SceneScanCache<T>.Get();
             T best = null;
-            float bestDist = maxDist;
+            float bestDistSq = maxDist * maxDist;
             for (int i = 0; i < all.Length; i++)
             {
                 T c = all[i];
                 if (c == null || !c.gameObject.scene.IsValid()) continue;
                 if (name != null && !c.name.Equals(name, StringComparison.OrdinalIgnoreCase))
                     continue;
-                float d = Vector3.Distance(c.transform.position, pos);
-                if (d < bestDist)
+                float dSq = (c.transform.position - pos).sqrMagnitude;
+                if (dSq < bestDistSq)
                 {
-                    bestDist = d;
+                    bestDistSq = dSq;
                     best = c;
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// Shared short-TTL scene scan for soft-match / bulk paths that cannot use
+        /// OverlapSphere alone. Prefer <see cref="FindNearest{T}"/> when possible.
+        /// </summary>
+        public static T[] GetCachedSceneComponents<T>() where T : Component
+            => SceneScanCache<T>.Get();
+
+        /// <summary>Drop cached scene arrays (dream load / host migrate / reset).</summary>
+        public static void InvalidateSceneScanCache<T>() where T : Component
+            => SceneScanCache<T>.Invalidate();
+
+        /// <summary>
+        /// Clear TTL caches for types used by hot apply paths. Call on network stop
+        /// and dream enter/exit so pad vs overworld clones are not resolved stale.
+        /// </summary>
+        public static void InvalidateCommonSceneScanCaches()
+        {
+            InvalidateSceneScanCache<GameEvents>();
+            InvalidateSceneScanCache<Door>();
+            InvalidateSceneScanCache<Window>();
+            InvalidateSceneScanCache<Item>();
+            InvalidateSceneScanCache<Inventory>();
+            InvalidateSceneScanCache<Generator>();
+            InvalidateSceneScanCache<NPC>();
+            InvalidateSceneScanCache<Character>();
+            InvalidateSceneScanCache<DeathDrop>();
+            InvalidateSceneScanCache<Rigidbody>();
+            InvalidateSceneScanCache<Padlock>();
+            InvalidateSceneScanCache<Locked>();
+            InvalidateSceneScanCache<InteractiveItem>();
+            InvalidateSceneScanCache<Constructible>();
+            InvalidateSceneScanCache<Burn>();
+            InvalidateSceneScanCache<Liquid>();
+            InvalidateSceneScanCache<ChainParent>();
+            InvalidateSceneScanCache<ShadowArmor>();
+            InvalidateSceneScanCache<Saw>();
+            InvalidateSceneScanCache<Feeder>();
+            InvalidateSceneScanCache<Lure>();
+            InvalidateSceneScanCache<CustomCursorAction>();
+            InvalidateSceneScanCache<Infection>();
+            InvalidateSceneScanCache<ExperienceMachine>();
+            InvalidateSceneScanCache<MapElement>();
+            InvalidateSceneScanCache<CharacterDialogue>();
+            InvalidateSceneScanCache<UniqueObject>();
+            InvalidateSceneScanCache<CutsceneManager>();
+            InvalidateSceneScanCache<JournalNoteReference>();
+            InvalidateSceneScanCache<KeyReference>();
+            InvalidateSceneScanCache<QuestItemReference>();
+            WorldPhysicsSyncService.InvalidateDreamPropColliderCache();
         }
 
         /// <summary>Per-T scene array, refreshed at most every <see cref="SceneScanTtl"/> seconds.</summary>
@@ -153,7 +214,7 @@ namespace DWMPHorde.Sync
 
             // Final fallback: search DeathDrop objects by position (they may not have
             // a physics collider and the inventory type may be set after initialization)
-            DeathDrop[] bags = UnityEngine.Object.FindObjectsOfType<DeathDrop>(true);
+            DeathDrop[] bags = GetCachedSceneComponents<DeathDrop>();
             DeathDrop closestBag = null;
             float closestBagDist = 15f;
             foreach (DeathDrop bag in bags)
@@ -192,16 +253,16 @@ namespace DWMPHorde.Sync
             d = ListTracker<Door>.FindByPosition(pos, radius);
             if (d != null) return d;
 
-            Collider[] nearby = Physics.OverlapSphere(pos, radius);
-            for (int i = 0; i < nearby.Length; i++)
+            int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
+            for (int i = 0; i < n; i++)
             {
-                if (nearby[i] == null) continue;
-                Door door = nearby[i].GetComponentInParent<Door>();
+                if (OverlapBuf[i] == null) continue;
+                Door door = OverlapBuf[i].GetComponentInParent<Door>();
                 if (door != null) return door;
                 // MeleeSensor uses Door.getDoorScript(parent) for Door-tagged colliders
-                if (nearby[i].CompareTag("Door") && nearby[i].transform.parent != null)
+                if (OverlapBuf[i].CompareTag("Door") && OverlapBuf[i].transform.parent != null)
                 {
-                    door = Door.getDoorScript(nearby[i].transform.parent);
+                    door = Door.getDoorScript(OverlapBuf[i].transform.parent);
                     if (door != null) return door;
                 }
             }
@@ -212,18 +273,18 @@ namespace DWMPHorde.Sync
 
         public static Window FindWindowByPosLoose(Vector3 pos, float radius)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, radius);
-            for (int i = 0; i < nearby.Length; i++)
+            int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
+            for (int i = 0; i < n; i++)
             {
-                if (nearby[i] == null) continue;
-                Window w = nearby[i].GetComponentInParent<Window>();
+                if (OverlapBuf[i] == null) continue;
+                Window w = OverlapBuf[i].GetComponentInParent<Window>();
                 if (w != null) return w;
             }
-            Collider2D[] nearby2d = Physics2D.OverlapCircleAll(pos, radius);
-            for (int i = 0; i < nearby2d.Length; i++)
+            int n2 = Physics2D.OverlapCircleNonAlloc(pos, radius, Overlap2DBuf);
+            for (int i = 0; i < n2; i++)
             {
-                if (nearby2d[i] == null) continue;
-                Window w = nearby2d[i].GetComponentInParent<Window>();
+                if (Overlap2DBuf[i] == null) continue;
+                Window w = Overlap2DBuf[i].GetComponentInParent<Window>();
                 if (w != null) return w;
             }
             return null;
@@ -236,11 +297,11 @@ namespace DWMPHorde.Sync
             Item best = null;
             float bestSq = maxSq;
 
-            Collider[] nearby = Physics.OverlapSphere(pos, maxDist);
-            for (int i = 0; i < nearby.Length; i++)
+            int nearbyN = Physics.OverlapSphereNonAlloc(pos, maxDist, OverlapBuf);
+            for (int i = 0; i < nearbyN; i++)
             {
-                if (nearby[i] == null) continue;
-                Item item = nearby[i].GetComponentInParent<Item>();
+                if (OverlapBuf[i] == null) continue;
+                Item item = OverlapBuf[i].GetComponentInParent<Item>();
                 if (item == null || !item.destructible) continue;
                 float dx = item.transform.position.x - pos.x;
                 float dz = item.transform.position.z - pos.z;
@@ -255,7 +316,7 @@ namespace DWMPHorde.Sync
             if (best != null) return best;
 
             // Collider may be disabled or moved after death; scan destructibles by XZ.
-            Item[] all = UnityEngine.Object.FindObjectsOfType<Item>();
+            Item[] all = GetCachedSceneComponents<Item>();
             for (int i = 0; i < all.Length; i++)
             {
                 Item candidate = all[i];

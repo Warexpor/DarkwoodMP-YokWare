@@ -187,13 +187,13 @@ namespace DWMPHorde.Sync
 
         private static Item FindLightInSphere(Vector3 pos, string name, string itemType, float radius)
         {
-            Collider[] nearby = Physics.OverlapSphere(pos, radius);
+            int nearbyN = OverlapNear(pos, radius);
             Item best = null;
             float bestDistSq = radius * radius;
-            for (int i = 0; i < nearby.Length; i++)
+            for (int i = 0; i < nearbyN; i++)
             {
-                if (nearby[i] == null) continue;
-                Item item = nearby[i].GetComponentInParent<Item>();
+                if (_overlap3D[i] == null) continue;
+                Item item = _overlap3D[i].GetComponentInParent<Item>();
                 if (item == null) continue;
                 if (!LightNameOrTypeMatches(item, name, itemType))
                     continue;
@@ -213,7 +213,7 @@ namespace DWMPHorde.Sync
         private static Item FindLightInactiveScan(Vector3 pos, string name, string itemType, float maxDist)
         {
             float maxSq = maxDist * maxDist;
-            Item[] all = UnityEngine.Object.FindObjectsOfType<Item>(true);
+            Item[] all = WorldQueryHelper.GetCachedSceneComponents<Item>();
             Item best = null;
             float bestSq = maxSq;
             for (int i = 0; i < all.Length; i++)
@@ -298,6 +298,8 @@ namespace DWMPHorde.Sync
             _scanCenters.Clear();
             _scannedObjectIds.Clear();
             _objectInterp.Clear();
+            _lastResolvedByName.Clear();
+            _lastFullRbScanTime = -999f;
             // Release all client-kinematic rigidbodies on reset
             foreach (var kv in _clientKinematic)
             {

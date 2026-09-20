@@ -1,28 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde.Networking;
-using HarmonyLib;
 using UnityEngine;
-
-namespace DWMPHorde.Sync
-{
-    /// <summary>Records the original prefab path on dynamically spawned objects.</summary>
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
-    public static class AddPrefabRecordPathPatch
-    {
-        private static void Postfix(GameObject __result, object[] __args)
-        {
-            string prefab = (string)__args[0];
-
-            if (__result == null || string.IsNullOrEmpty(prefab))
-                return;
-            var comp = __result.GetComponent<PrefabPathComponent>();
-            if (comp == null)
-                comp = __result.AddComponent<PrefabPathComponent>();
-            comp.Path = prefab;
-        }
-    }
-}
 
 namespace DWMPHorde.Sync
 {
@@ -121,9 +100,8 @@ namespace DWMPHorde.Sync
             Character best = null;
             float bestDistSq = float.MaxValue;
 
-            // Normalise the search name: strip "(Clone)" suffix
             string searchName = name;
-            if (searchName.EndsWith("(Clone)"))
+            if (!string.IsNullOrEmpty(searchName) && searchName.EndsWith("(Clone)"))
                 searchName = searchName.Substring(0, searchName.Length - 7);
 
             lock (_lock)
@@ -133,11 +111,9 @@ namespace DWMPHorde.Sync
                     Character c = _characters[i];
                     if (c == null) continue;
 
-                    // Skip if excluded
                     if (excludeIds != null && _stableIdCache.TryGetValue(c, out short sid) && excludeIds.Contains(sid))
                         continue;
 
-                    // Name must match (allow both with and without "(Clone)")
                     string cName = c.name;
                     if (!string.Equals(cName, searchName, StringComparison.OrdinalIgnoreCase)
                         && !string.Equals(cName, searchName + "(Clone)", StringComparison.OrdinalIgnoreCase)
@@ -152,6 +128,48 @@ namespace DWMPHorde.Sync
                         bestDistSq = dSq;
                         best = c;
                     }
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Same as <see cref="FindByPositionAndName"/> against a pre-copied buffer (no lock).
+        /// CEI LateUpdate matches many pendings against one <see cref="CopyAll"/>.
+        /// </summary>
+        public static Character FindByPositionAndNameIn(
+            Character[] chars, int count, Vector3 pos, string name, float radius, HashSet<short> excludeIds = null)
+        {
+            if (chars == null || count <= 0) return null;
+            float radiusSq = radius * radius;
+            Character best = null;
+            float bestDistSq = float.MaxValue;
+
+            string searchName = name;
+            if (!string.IsNullOrEmpty(searchName) && searchName.EndsWith("(Clone)"))
+                searchName = searchName.Substring(0, searchName.Length - 7);
+
+            for (int i = 0; i < count; i++)
+            {
+                Character c = chars[i];
+                if (c == null) continue;
+
+                if (excludeIds != null && _stableIdCache.TryGetValue(c, out short sid) && excludeIds.Contains(sid))
+                    continue;
+
+                string cName = c.name;
+                if (!string.Equals(cName, searchName, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(cName, searchName + "(Clone)", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(cName + "(Clone)", searchName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                float dx = c.transform.position.x - pos.x;
+                float dz = c.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq < radiusSq && dSq < bestDistSq)
+                {
+                    bestDistSq = dSq;
+                    best = c;
                 }
             }
             return best;
@@ -274,7 +292,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Copy tracked characters into a reusable buffer. Returns count.
-        /// Buffer contents valid until the next CopyAll / GetAll call.
+        /// Buffer contents valid until the next CopyAll call.
         /// Hot path (entity broadcast 10 Hz) must not allocate ToArray every tick.
         /// </summary>
         public static int CopyAll(out Character[] buffer)
@@ -289,17 +307,6 @@ namespace DWMPHorde.Sync
                 buffer = _copyBuf;
                 return n;
             }
-        }
-
-        /// <summary>Returns a new snapshot array of all tracked characters (allocates).</summary>
-        public static Character[] GetAll()
-        {
-            int n = CopyAll(out Character[] buf);
-            if (n == 0)
-                return Array.Empty<Character>();
-            var arr = new Character[n];
-            Array.Copy(buf, arr, n);
-            return arr;
         }
 
         /// <summary>Gets the number of currently tracked characters.</summary>
@@ -402,7 +409,7 @@ namespace DWMPHorde.Sync
             }
 
             // Rescan scene characters (includes ones that never hit Start while offline)
-            Character[] scene = UnityEngine.Object.FindObjectsOfType<Character>(true);
+            Character[] scene = WorldQueryHelper.GetCachedSceneComponents<Character>();
             if (scene != null)
             {
                 for (int i = 0; i < scene.Length; i++)
@@ -410,26 +417,6 @@ namespace DWMPHorde.Sync
             }
 
             ModRuntime.LegacyInfo($"[CharacterTracker] ResetForNetworkStop: tracked={Count}");
-        }
-    }
-
-    /// <summary>Harmony patch: registers characters with the tracker on Start.</summary>
-    [HarmonyPatch(typeof(Character), "Start")]
-    public static class CharacterStartPatch
-    {
-        private static void Postfix(Character __instance)
-        {
-            CharacterTracker.Add(__instance);
-        }
-    }
-
-    /// <summary>Harmony patch: deregisters characters from the tracker on destroy.</summary>
-    [HarmonyPatch(typeof(Character), "OnDestroy")]
-    public static class CharacterDestroyPatch
-    {
-        private static void Prefix(Character __instance)
-        {
-            CharacterTracker.Remove(__instance);
         }
     }
 }

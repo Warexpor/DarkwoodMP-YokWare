@@ -257,7 +257,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return 0;
             int sent = 0;
-            Door[] doors = UnityEngine.Object.FindObjectsOfType<Door>();
+            Door[] doors = WorldQueryHelper.GetCachedSceneComponents<Door>();
             for (int i = 0; i < doors.Length && sent < maxSend; i++)
             {
                 Door door = doors[i];
@@ -325,7 +325,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return 0;
             int sent = 0;
-            Window[] windows = UnityEngine.Object.FindObjectsOfType<Window>();
+            Window[] windows = WorldQueryHelper.GetCachedSceneComponents<Window>();
             for (int i = 0; i < windows.Length && sent < maxSend; i++)
             {
                 Window window = windows[i];
@@ -361,7 +361,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host) return 0;
             int sent = 0;
             int itemSent = 0;
-            Item[] items = UnityEngine.Object.FindObjectsOfType<Item>();
+            Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
             for (int i = 0; i < items.Length && itemSent < maxItems && sent < maxSend; i++)
             {
                 Item item = items[i];

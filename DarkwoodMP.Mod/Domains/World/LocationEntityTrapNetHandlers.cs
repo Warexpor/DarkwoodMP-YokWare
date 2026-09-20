@@ -13,6 +13,7 @@ namespace DWMPHorde.Networking
 
         // Debounce duplicate trap triggers from multi-collider contacts or retries.
         private readonly Dictionary<string, float> _trapTriggerDebounce = new Dictionary<string, float>();
+        private readonly List<string> _trapDebounceStaleKeys = new List<string>(8);
         private const float TrapTriggerDebounceSec = 0.4f;
 
         internal LocationEntityTrapNetHandlers(LanNetworkManager net)
@@ -68,10 +69,11 @@ namespace DWMPHorde.Networking
             _trapTriggerDebounce[debounceKey] = now;
             if (_trapTriggerDebounce.Count > 64)
             {
-                var stale = new List<string>();
+                _trapDebounceStaleKeys.Clear();
                 foreach (var kvp in _trapTriggerDebounce)
-                    if (now - kvp.Value > 5f) stale.Add(kvp.Key);
-                foreach (var k in stale) _trapTriggerDebounce.Remove(k);
+                    if (now - kvp.Value > 5f) _trapDebounceStaleKeys.Add(kvp.Key);
+                for (int i = 0; i < _trapDebounceStaleKeys.Count; i++)
+                    _trapTriggerDebounce.Remove(_trapDebounceStaleKeys[i]);
             }
 
             GameObject go = msg.TrapNetId > 0

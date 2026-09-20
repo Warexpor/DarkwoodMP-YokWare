@@ -58,7 +58,7 @@ namespace DWMPHorde.Patches
                 if (!Config.ModConfig.FriendlyFireEnabled.Value)
                     return;
 
-                CharBase proxyCB = proxy.GetComponent<CharBase>();
+                CharBase proxyCB = proxy.CachedCharBase;
                 if (proxyCB != null && !proxyCB.alive)
                     return;
                 if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))

@@ -14,6 +14,8 @@ namespace DWMPHorde.Sync
         private static int _nextHostId = 1;
         private static readonly Dictionary<int, GameObject> ById = new Dictionary<int, GameObject>(64);
         private static readonly List<PendingTrapApply> Pending = new List<PendingTrapApply>(16);
+        private static readonly List<int> _deadKeys = new List<int>(8);
+        private const int MaxPending = 64;
 
         /// <summary>Pending trap applies waiting for scene objects (CoopPerfProbe).</summary>
         public static int PendingCount => Pending.Count;
@@ -94,13 +96,13 @@ namespace DWMPHorde.Sync
         {
             GameObject best = null;
             float bestSq = 2.5f * 2.5f;
-            Collider[] hits = Physics.OverlapSphere(playerPos, 2.5f);
-            for (int i = 0; i < hits.Length; i++)
+            int hitN = Physics.OverlapSphereNonAlloc(playerPos, 2.5f, WorldQueryHelper.SharedOverlapBuf);
+            for (int i = 0; i < hitN; i++)
             {
-                if (hits[i] == null) continue;
-                GameObject root = hits[i].attachedRigidbody != null
-                    ? hits[i].attachedRigidbody.gameObject
-                    : hits[i].gameObject;
+                if (WorldQueryHelper.SharedOverlapBuf[i] == null) continue;
+                GameObject root = WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody != null
+                    ? WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody.gameObject
+                    : WorldQueryHelper.SharedOverlapBuf[i].gameObject;
                 if (root == null) continue;
                 string n = root.name.ToLowerInvariant();
                 if (!n.Contains("trap") && !n.Contains("bear") && !n.Contains("snap") && !n.Contains("animal"))
@@ -136,6 +138,8 @@ namespace DWMPHorde.Sync
                     return;
                 }
             }
+            while (Pending.Count >= MaxPending)
+                Pending.RemoveAt(0);
             Pending.Add(new PendingTrapApply
             {
                 NetId = netId,
@@ -189,18 +193,14 @@ namespace DWMPHorde.Sync
         public static IEnumerable<KeyValuePair<int, GameObject>> EnumerateRegistered()
         {
             // prune dead
-            List<int> dead = null;
+            _deadKeys.Clear();
             foreach (var kv in ById)
             {
                 if (kv.Value == null)
-                {
-                    if (dead == null) dead = new List<int>();
-                    dead.Add(kv.Key);
-                }
+                    _deadKeys.Add(kv.Key);
             }
-            if (dead != null)
-                foreach (int id in dead)
-                    ById.Remove(id);
+            for (int i = 0; i < _deadKeys.Count; i++)
+                ById.Remove(_deadKeys[i]);
 
             return ById;
         }

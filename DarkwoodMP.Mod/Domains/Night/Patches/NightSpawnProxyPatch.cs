@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -40,10 +38,7 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return;
 
-            // Collect all far proxies
-            var farProxies = net.GetAllProxies()
-                .Where(p => p != null && Vector3.Distance(p.transform.position, Player.Instance.transform.position) >= 1000f)
-                .ToList();
+            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
             if (farProxies.Count == 0) return;
 
             // ~50% chance: spawn around a random far proxy
@@ -66,9 +61,8 @@ namespace DWMPHorde.Patches
             if (ModRuntime.VerboseLogging && Player.Instance != null && LanNetworkManager.Instance != null)
             {
                 var net = LanNetworkManager.Instance;
-                int proxyCount = net.GetAllProxies().Count();
-                var farCount = net.GetAllProxies()
-                    .Count(p => p != null && Vector3.Distance(p.transform.position, Player.Instance.transform.position) >= 1000f);
+                int proxyCount = NightSpawnFarProxies.CountAll(net);
+                int farCount = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position).Count;
                 ModRuntime.LegacyInfo($"[NightSpawn] spawnNightChar started; proxies={proxyCount} far(>1000f)={farCount}");
             }
         }

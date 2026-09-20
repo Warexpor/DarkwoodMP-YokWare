@@ -18,6 +18,9 @@
   <!-- Compile shipped pure helpers without Unity/game references. -->
   <ItemGroup>
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.cs" Link="Shipped\CoopPolicy.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.NpcNight.cs" Link="Shipped\CoopPolicy.NpcNight.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.Session.cs" Link="Shipped\CoopPolicy.Session.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.CombatDream.cs" Link="Shipped\CoopPolicy.CombatDream.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\Dialogue\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetWriter.cs" Link="Shipped\NetWriter.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />

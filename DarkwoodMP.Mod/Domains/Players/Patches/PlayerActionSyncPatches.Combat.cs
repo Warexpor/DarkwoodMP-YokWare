@@ -1,0 +1,368 @@
+using System.Collections.Generic;
+using DWMPHorde.Config;
+using DWMPHorde.Logging;
+using DWMPHorde.Networking;
+using DWMPHorde.Players;
+using DWMPHorde.Sync;
+using HarmonyLib;
+using LiteNetLib;
+using UnityEngine;
+
+namespace DWMPHorde.Patches
+{
+
+    /// <summary>
+    /// Captures throwable spawn data and relays it to peers.
+    /// Host-side projectile is combat-authoritative; client projectiles are FX-only
+    /// (see MuteThrownCombat + visualOnly SpawnThrownItem).
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "throwItem")]
+    public static class ThrowableSyncPatch
+    {
+        private sealed class ThrowCapture
+        {
+            internal string ItemType;
+            internal float AimY;
+            internal float Distance;
+            internal GameObject HeldItem;
+        }
+
+        private static readonly Dictionary<int, ThrowCapture> _captures = new Dictionary<int, ThrowCapture>(4);
+
+        public static void Reset() => _captures.Clear();
+
+        private static bool Prefix(Player __instance)
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
+            if (ModRuntime.Network.Role == NetworkRole.Offline) return true;
+            if (TraverseHack.ApplyingFromNetwork) return true;
+
+            var capture = new ThrowCapture();
+            try
+            {
+                if (!InvItemClass.isNull(__instance.currentItem))
+                    capture.ItemType = __instance.currentItem.type;
+                capture.AimY = __instance.transform.eulerAngles.y;
+                capture.Distance = Mathf.Clamp(__instance.distanceToCursor(), 10f, 370f);
+                capture.HeldItem = __instance.heldItem;
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogError("[ThrowableSync] capture failed: " + ex);
+                return true;
+            }
+
+            _captures[__instance.GetInstanceID()] = capture;
+            return true;
+        }
+
+        private static void Postfix(Player __instance)
+        {
+            int playerId = __instance.GetInstanceID();
+            if (!_captures.TryGetValue(playerId, out ThrowCapture capture))
+                return;
+            _captures.Remove(playerId);
+
+            if (string.IsNullOrEmpty(capture.ItemType)) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (ModRuntime.Network.Role == NetworkRole.Offline) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            Vector3 pos = __instance.transform.position;
+
+            // After vanilla throwItem: heldItem field is null, but the GO we captured
+            // still has landTarget + rigidbody velocity. Prefer those over Prefix estimates.
+            float vx = 0f, vy = 0f, vz = 0f;
+            float landX = 0f, landY = 0f, landZ = 0f;
+            bool hasLand = false;
+            float distance = capture.Distance;
+            if (capture.HeldItem != null)
+            {
+                Rigidbody rb = capture.HeldItem.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    vx = rb.velocity.x;
+                    vy = rb.velocity.y;
+                    vz = rb.velocity.z;
+                }
+                ThrownItem ti = capture.HeldItem.GetComponent<ThrownItem>();
+                if (ti != null && ti.thrown)
+                {
+                    landX = ti.landTarget.x;
+                    landY = ti.landTarget.y;
+                    landZ = ti.landTarget.z;
+                    hasLand = true;
+                    // Authoritative cursor range from vanilla landTarget (matches flyTime).
+                    float td = Vector3.Distance(
+                        new Vector3(pos.x, 0f, pos.z),
+                        new Vector3(landX, 0f, landZ));
+                    if (td > 1f)
+                        distance = Mathf.Clamp(td, 10f, 370f);
+                }
+            }
+
+            // Reconstruct velocity if capture missed it (kinematic hold / timing).
+            // Vanilla: vel = facing * distance * 2.5 when ThrownItem.initialVelocity == 0.
+            if (vx * vx + vy * vy + vz * vz < 0.01f)
+            {
+                Vector3 dir = __instance.transform.up;
+                if (dir.sqrMagnitude < 0.01f)
+                    dir = Quaternion.Euler(0f, capture.AimY, 0f) * Vector3.forward;
+                else
+                    dir.Normalize();
+                float initV = 0f;
+                if (capture.HeldItem != null)
+                {
+                    ThrownItem ti0 = capture.HeldItem.GetComponent<ThrownItem>();
+                    if (ti0 != null) initV = ti0.initialVelocity;
+                }
+                Vector3 rebuilt = initV > 0f ? dir * initV : dir * distance * 2.5f;
+                vx = rebuilt.x; vy = rebuilt.y; vz = rebuilt.z;
+            }
+            int throwId = 0;
+            float longevity = 0f;
+            bool isFlare = !string.IsNullOrEmpty(capture.ItemType)
+                && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (ModRuntime.Network is LanNetworkManager lan)
+                throwId = lan.MintThrowId();
+            if (isFlare)
+            {
+                // Remaining until fully dark from aim-start clock (F4), not a fresh longevity+2.
+                float lonFallback = 3f;
+                if (capture.HeldItem != null)
+                {
+                    Flare fl = capture.HeldItem.GetComponent<Flare>()
+                        ?? capture.HeldItem.GetComponentInChildren<Flare>(true);
+                    if (fl != null && fl.longevity > 0.05f)
+                        lonFallback = fl.longevity;
+                }
+                longevity = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
+                    capture.HeldItem, lonFallback);
+            }
+            ModRuntime.Network.SendThrowableSpawn(new ThrowableSpawnMessage
+            {
+                ItemType = capture.ItemType,
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                AimY = capture.AimY,
+                Distance = distance,
+                VelX = vx,
+                VelY = vy,
+                VelZ = vz,
+                ThrowId = throwId,
+                LongevitySec = longevity,
+                LandX = landX,
+                LandY = landY,
+                LandZ = landZ,
+                HasLandTarget = hasLand
+            });
+
+            // Host must track own throw — never receives own ThrowableSpawn (F3).
+            // ClaimFlareLifetime so vanilla waitToDie yields to host expire track (V4).
+            if (isFlare && throwId > 0 && capture.HeldItem != null
+                && ModRuntime.Network.Role == NetworkRole.Host)
+            {
+                Sync.WorldPhysicsSyncService.RegisterLocalThrownLight(
+                    throwId, capture.HeldItem, longevity, capture.ItemType);
+            }
+            else if (isFlare && capture.HeldItem != null
+                     && ModRuntime.Network.Role == NetworkRole.Client)
+            {
+                // Client thrower: keep aim-start waitToDie (correct clock). Host owns combat copy.
+                // Do not Claim here — local vanilla die matches aim burn.
+            }
+
+            // Client thrower: local projectile is FX-only. Host spawns the combat copy
+            // via ThrowableSpawn so damage is not applied twice (local explode + host sim).
+            if (ModRuntime.Network.Role == NetworkRole.Client && capture.HeldItem != null)
+            {
+                Sync.WorldPhysicsSyncService.MuteThrownCombat(capture.HeldItem);
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[ThrowableSync] muted client throw combat for " + capture.ItemType);
+            }
+
+            // Always log throws (esp. flares) — playtests had silent host TX.
+            ModLog.Event(LogCat.World, "[ThrowableSync] sent " + capture.ItemType
+                + " throwId=" + throwId
+                + " life=" + longevity.ToString("F2")
+                + " dist=" + distance.ToString("F0")
+                + " vel=" + Mathf.Sqrt(vx * vx + vy * vy + vz * vz).ToString("F0")
+                + " land=" + (hasLand ? "y" : "n")
+                + " role=" + ModRuntime.Network.Role
+                + " from=" + pos);
+
+            // Continuous held light drops next pose (heldItem null). Force full light rebuild.
+            LightStateHelper.SendLightState(__instance, "afterThrow");
+        }
+    }
+
+    /// <summary>
+    /// When an Explodes component activates on either peer, relays the explosion
+    /// position to the other side. The host runs the authoritative explosion;
+    /// the client spawns the visual effect (prefab + sound).
+    /// </summary>
+    [HarmonyPatch(typeof(Explodes), "onActivate", new System.Type[0])]
+    public static class ExplosionTriggerPatch
+    {
+        private static void Postfix(Explodes __instance)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role == NetworkRole.Offline) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+            if (Sync.WorldPhysicsSyncService._suppressBroadcast) return;
+
+            // Suppress explosion trigger for host-synced ThrownItems (SpawnThrownItem).
+            // The host's spawned ThrownItem explosion is a local side-effect; the
+            // authoritative explosion comes from the client's own ThrownItem via its
+            // ExplosionTriggerMessage. Without this suppression, the host's spawned
+            // ThrownItem sends a duplicate explosion trigger to the client, causing
+            // confusing double-FX at potentially different positions.
+            ThrownItem ti = __instance.GetComponent<ThrownItem>();
+            if (ti != null && ti.objectThatSpawnedMe != null)
+            {
+                bool isProxySpawned = false;
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy != null && ti.objectThatSpawnedMe == proxy.transform)
+                    {
+                        isProxySpawned = true;
+                        break;
+                    }
+                }
+                if (isProxySpawned)
+                {
+                    ModRuntime.LegacyInfo("[ExplosionSync] skip host-synced ThrownItem explosion at " + __instance.transform.position);
+                    return;
+                }
+            }
+
+            bool flaming = false;
+            try { flaming = (bool)HarmonyLib.Traverse.Create(__instance).Field("flaming").GetValue(); }
+            catch (System.Exception) { /* optional field */ }
+
+            string prefabName = "";
+            try
+            {
+                if (__instance.explosionPrefab != null)
+                    prefabName = __instance.explosionPrefab.name;
+            }
+            catch (System.Exception)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[Explosion] prefab name reflect failed");
+            }
+
+            // Public field — prefer direct read; resolve mushroom fallbacks if empty.
+            string soundId = __instance.explodeSound ?? "";
+            soundId = Sync.WorldPhysicsSyncService.ResolveExplosionSoundId(
+                soundId, __instance.name, __instance) ?? "";
+
+            Vector3 pos = __instance.transform.position;
+            // Local activation already ran spawnObjects — debounce host ExplosionSpawnObject
+            // so the stomper does not get a second set of secondary debris.
+            ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+
+            net.SendExplosionTrigger(new ExplosionTriggerMessage
+            {
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                ObjectName = __instance.name,
+                Flaming = flaming,
+                PrefabName = prefabName,
+                SoundId = soundId
+            });
+
+            ModRuntime.LegacyInfo("[ExplosionSync] sent explosion at " + pos
+                + " name=" + __instance.name + " sound=" + soundId + " prefab=" + prefabName
+                + " flaming=" + flaming);
+        }
+    }
+
+    /// <summary>
+    /// Flare.Start runs at aim (heldItem spawn). Record burn clock so throw packets carry
+    /// remaining life, not a fresh longevity+2 (vanilla waitToDie from Start).
+    /// Continuous held light is streamed via PlayerState only when heldItem is live.
+    /// </summary>
+    [HarmonyPatch(typeof(Flare), "Start")]
+    public static class FlareStartPatch
+    {
+        private static void Postfix(Flare __instance)
+        {
+            if (__instance == null) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            Player p = Player.Instance;
+            if (p == null || p.heldItem == null) return;
+            // Only local player's aimed/held flare — not remote SpawnThrownItem prefabs.
+            bool isHeld = __instance.gameObject == p.heldItem
+                || __instance.transform.IsChildOf(p.heldItem.transform);
+            if (!isHeld) return;
+
+            float lon = __instance.longevity > 0.05f ? __instance.longevity : 3f;
+            Sync.WorldPhysicsSyncService.NoteFlareBurnStart(__instance.gameObject, lon);
+            // Also key the root held GO so GetFlareRemainingUntilDark(heldItem) works.
+            if (__instance.gameObject != p.heldItem)
+                Sync.WorldPhysicsSyncService.NoteFlareBurnStart(p.heldItem, lon);
+
+            ModLog.Event(LogCat.World, "[LightSync] Flare.Start burn clock longevity=" + lon.ToString("F2")
+                + " go=" + __instance.gameObject.name);
+        }
+    }
+
+    /// <summary>Harmony patch: intercepts InvItemClass.drainDurability when a light item burns out
+    /// and syncs the off-state to the remote peer so the proxy light disappears.</summary>
+    [HarmonyPatch(typeof(InvItemClass), "drainDurability")]
+    public static class ItemDurabilityDrainPatch
+    {
+        private static void Postfix(InvItemClass __instance)
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            if (TraverseHack.ApplyingFromNetwork)
+                return;
+
+            // Only fire on burnout (durability <= 0 after drain) for light-emitting items
+            if (__instance.durability > 0f)
+                return;
+            if (__instance.baseClass == null)
+                return;
+
+            bool isLightItem = __instance.baseClass.isFlashlight
+                || __instance.baseClass.lightEmitter != null
+                || __instance.baseClass.lightRadius > 0f
+                || (!string.IsNullOrEmpty(__instance.type)
+                    && __instance.type.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            if (!isLightItem)
+                return;
+
+            // Full snapshot so ambient + emitters stay consistent (never ambient-only clobber).
+            ModRuntime.Network.SyncCurrentLightState();
+        }
+    }
+
+    /// <summary>
+    /// Syncs the ambient light dot when a hotbar item changes it (e.g. lantern placed in
+    /// or removed from the hotbar).  Vanilla calls Player.modifyLightDot(radius) when
+    /// InvItemClass.switchActive toggles a "needsToBeOnHotbar" item like the lantern.
+    /// Always rebuilds the full light state so ambient updates cannot strip torch/flashlight.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "modifyLightDot")]
+    public static class PlayerAmbientLightPatch
+    {
+        private static void Postfix(Player __instance, float _destRadius)
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            if (TraverseHack.ApplyingFromNetwork)
+                return;
+
+            if (ModRuntime.VerboseLogging)
+                ModRuntime.LegacyInfo($"[Light] modifyLightDot: radius={_destRadius} → full SyncCurrentLightState");
+
+            ModRuntime.Network.SyncCurrentLightState();
+        }
+    }
+}

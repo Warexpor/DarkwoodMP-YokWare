@@ -22,11 +22,12 @@ namespace DWMPHorde.Patches
             {
                 foreach (var proxy in allProxies)
                 {
-                    Collider[] proxyCols = proxy.GetComponentsInChildren<Collider>(true);
-                    foreach (var pc in proxyCols)
+                    Collider[] proxyCols = proxy.CachedColliders;
+                    if (proxyCols == null) continue;
+                    for (int ci = 0; ci < proxyCols.Length; ci++)
                     {
-                        if (pc == null) continue;
-                        pc.enabled = false;
+                        if (proxyCols[ci] == null) continue;
+                        proxyCols[ci].enabled = false;
                     }
                 }
             }
@@ -74,11 +75,12 @@ namespace DWMPHorde.Patches
             {
                 foreach (var proxy in allProxies)
                 {
-                    Collider[] proxyCols = proxy.GetComponentsInChildren<Collider>(true);
-                    foreach (var pc in proxyCols)
+                    Collider[] proxyCols = proxy.CachedColliders;
+                    if (proxyCols == null) continue;
+                    for (int ci = 0; ci < proxyCols.Length; ci++)
                     {
-                        if (pc == null) continue;
-                        pc.enabled = true;
+                        if (proxyCols[ci] == null) continue;
+                        proxyCols[ci].enabled = true;
                     }
                 }
             }

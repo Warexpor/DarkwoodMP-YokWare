@@ -1,0 +1,333 @@
+using DWMPHorde.Sync;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace DWMPHorde.Networking
+{
+    public static partial class ClientEntityInterpolationService
+    {
+        public static void ApplySnapshot(EntityStateMessage msg)
+        {
+            if (msg.Sequence == 0
+                || !_AcceptSnapshotSequence(msg.Sequence))
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo(
+                        "[Entity] stale or invalid snapshot rejected seq=" + msg.Sequence
+                        + " last=" + _lastSnapshotSequence);
+                return;
+            }
+
+            if (msg.Entities == null || msg.Entities.Length == 0)
+            {
+                if (_lastApplyCount > 0)
+                    ModRuntime.LegacyInfo($"[Entity] received empty snapshot (no entities)");
+                _lastApplyCount = 0;
+                return;
+            }
+
+            bool wasFirst = !_receivedFirstSnapshot;
+            _receivedFirstSnapshot = true;
+            if (wasFirst)
+                _firstSnapshotTime = Time.time;
+
+            int applied = 0;
+            int skipped = 0;
+            // High-freq dumps only on full Trace preset (Dev playtest must stay light).
+            bool dump = ModRuntime.VerboseLogging && ((_snapshotCount + 1) % 50 == 0);
+            System.Text.StringBuilder sb = dump ? new System.Text.StringBuilder() : null;
+            System.Text.StringBuilder skippedSb = dump ? new System.Text.StringBuilder() : null;
+
+            for (int i = 0; i < msg.Entities.Length; i++)
+            {
+                EntitySnapshotNet e = msg.Entities[i];
+                Vector3 targetPos = new Vector3(e.PosX, e.PosY, e.PosZ);
+
+                // Far host-range snaps: do not EnsureEntityAwake / spawn phantoms map-wide.
+                if (!IsInClientInterest(targetPos))
+                {
+                    StopDriving(e.Index);
+                    // Hide only when the local object is also outside interest.
+                    // Keep corpses and dead entities visible.
+                    Character far = CharacterTracker.FindByStableId(e.Index);
+                    if (far != null && far.gameObject != null && far.gameObject.activeSelf
+                        && (_everHostSyncedIds.Contains(e.Index) || _spawnedPhantomIds.Contains(e.Index))
+                        && far.alive && far.GetComponent<Item>() == null
+                        && !IsInClientInterest(far.transform.position))
+                        far.gameObject.SetActive(false);
+                    skipped++;
+                    continue;
+                }
+
+                if (sb != null)
+                {
+                    if (sb.Length == 0)
+                        sb.Append("[Entity] snapshot IDs: ");
+                    sb.Append(e.Index);
+                    sb.Append(' ');
+                }
+
+                Character c = CharacterTracker.FindByStableId(e.Index);
+                if (c != null)
+                {
+                    // Verify the matched entity's name. FindByStableId can return
+                    // the wrong entity when local stable IDs collide with host IDs.
+                    string cname = c.name;
+                    if (cname.EndsWith("(Clone)"))
+                        cname = cname.Substring(0, cname.Length - 7);
+                    bool nameMatches = string.Equals(cname, e.EntityName, System.StringComparison.OrdinalIgnoreCase);
+
+                    if (nameMatches)
+                    {
+                        // If the matched entity is a phantom, check if a real local entity
+                        // now exists nearby (e.g. world chunk just loaded). If so, replace
+                        // the phantom with the real entity to avoid duplicates.
+                        if (_spawnedPhantomIds.Contains(e.Index))
+                        {
+                            _phantomReplaceExclude.Clear();
+                            foreach (short sid in _hostSyncedIds)
+                                _phantomReplaceExclude.Add(sid);
+                            _phantomReplaceExclude.Add(e.Index);
+                            Character real = CharacterTracker.FindByPositionAndName(
+                                targetPos, e.EntityName, MatchRadius, _phantomReplaceExclude);
+                            if (real != null)
+                            {
+                                CharacterTracker.AssignId(real, e.Index);
+                                _hostSyncedIds.Add(e.Index);
+                                _everHostSyncedIds.Add(e.Index);
+                                _spawnedPhantomIds.Remove(e.Index);
+                                Object.Destroy(c.gameObject);
+                                c = real;
+                                if (ModRuntime.VerboseLogging)
+                                    ModRuntime.LegacyInfo($"[Entity] replaced phantom with real entity: {e.EntityName}(id={e.Index})");
+                            }
+                        }
+                        _hostSyncedIds.Add(e.Index);
+                        _everHostSyncedIds.Add(e.Index);
+                        UpdateInterpolation(c, e, targetPos, ref applied);
+                        continue;
+                    }
+
+                    // The stable ID matched a different local entity.
+                    if (ModRuntime.VerboseLogging || (_snapshotCount % 100 == 0))
+                        ModRuntime.LegacyInfo($"[Entity] stable ID collision: id={e.Index} found {c.name} but expected {e.EntityName}");
+                    CharacterTracker.ClearId(c);
+                }
+
+                // If the ID did not match, try position and name.
+                c = CharacterTracker.FindByPositionAndName(targetPos, e.EntityName, MatchRadius, _hostSyncedIds);
+                if (c != null)
+                {
+                    CharacterTracker.AssignId(c, e.Index);
+                    _hostSyncedIds.Add(e.Index);
+                    _everHostSyncedIds.Add(e.Index);
+                    EnsureEntityAwake(c);
+                    if (wasFirst || ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[Entity] matched by position: {e.EntityName}(id={e.Index}) at ({targetPos.x:F1},{targetPos.z:F1})");
+                    UpdateInterpolation(c, e, targetPos, ref applied);
+                    continue;
+                }
+
+                // Keep one pending entry per host ID until the local object exists.
+                if (!TryUpdatePending(e, targetPos))
+                {
+                    while (_pendingMatches.Count >= MaxPendingMatches)
+                        _pendingMatches.RemoveAt(0);
+                    _pendingMatches.Add(new PendingEntry
+                    {
+                        HostId = e.Index,
+                        EntityName = e.EntityName,
+                        PrefabPath = e.PrefabPath,
+                        Position = targetPos,
+                        RotY = e.RotY,
+                        Clip = e.Clip,
+                        ClipFrame = e.ClipFrame,
+                        Alive = e.Alive,
+                        TimeAdded = Time.time
+                    });
+                }
+                skipped++;
+                if (skippedSb != null)
+                {
+                    if (skippedSb.Length == 0)
+                        skippedSb.Append("[Entity] PENDING: ");
+                    skippedSb.Append("id=");
+                    skippedSb.Append(e.Index);
+                    skippedSb.Append('(');
+                    skippedSb.Append(e.EntityName);
+                    skippedSb.Append(") ");
+                }
+            }
+
+            // Do NOT mass-Destroy "unmatched" save NPCs on first snapshot.
+            // Host only streams nearby entities (~4 in logs); the rest of the save
+            // is still valid world state. Old purge killed ~58 Characters in one frame
+            // (client enter FPS crater) and left holes until host walked near and
+            // re-spawned phantoms. Local-only AI is already frozen on client.
+
+            _lastApplyCount = applied;
+            _lastSkippedCount = skipped;
+            _totalApplied += applied;
+            _totalSkipped += skipped;
+
+            _snapshotCount++;
+            if (dump && sb != null)
+            {
+                if (sb.Length > 0)
+                    ModRuntime.LegacyInfo(sb.ToString());
+
+                Character[] all = null;
+                int nDump = CharacterTracker.CopyAll(out all);
+                var tb = new System.Text.StringBuilder();
+                tb.Append($"[Entity] tracker has {nDump} chars: ");
+                for (int i = 0; i < nDump; i++)
+                {
+                    if (all[i] != null)
+                        tb.Append($"{CharacterTracker.GetStableId(all[i])}({all[i].name}) ");
+                }
+                ModRuntime.LegacyInfo(tb.ToString());
+                ModRuntime.LegacyInfo($"[Entity] applied={applied} pending={_pendingMatches.Count} hostSynced={_hostSyncedIds.Count}");
+                if (skippedSb != null && skippedSb.Length > 0)
+                    ModRuntime.LegacyInfo(skippedSb.ToString());
+            }
+        }
+
+        private static bool _AcceptSnapshotSequence(uint sequence)
+        {
+            if (!SnapshotSequencePolicy.IsNewer(sequence, _lastSnapshotSequence, _hasSnapshotSequence))
+                return false;
+            _lastSnapshotSequence = sequence;
+            _hasSnapshotSequence = true;
+            return true;
+        }
+
+        /// <summary>Update existing pending row for host id; false if not yet pending.</summary>
+        private static bool TryUpdatePending(EntitySnapshotNet e, Vector3 targetPos)
+        {
+            for (int i = 0; i < _pendingMatches.Count; i++)
+            {
+                PendingEntry p = _pendingMatches[i];
+                if (p.HostId != e.Index)
+                    continue;
+                p.Position = targetPos;
+                p.RotY = e.RotY;
+                p.Clip = e.Clip;
+                p.ClipFrame = e.ClipFrame;
+                p.Alive = e.Alive;
+                p.EntityName = e.EntityName;
+                p.PrefabPath = e.PrefabPath;
+                // Keep TimeAdded so timeout still fires from first sighting.
+                _pendingMatches[i] = p;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Stop interpolating a host id (left interest radius or promote).</summary>
+        private static void StopDriving(short hostId)
+        {
+            Character driven = CharacterTracker.FindByStableId(hostId);
+            if (_states.TryGetValue(hostId, out var state))
+            {
+                state.hasTarget = false;
+                if (state.CachedRb != null)
+                {
+                    try { state.CachedRb.isKinematic = false; }
+                    catch { /* destroyed */ }
+                }
+                _states.Remove(hostId);
+            }
+            _displayPositions.Remove(hostId);
+            _displayRotations.Remove(hostId);
+            // Keep _hostSyncedIds / ever so we don't thrash rematch when they re-enter range.
+            // Flee/fly left interest: hide only if local GO is also outside interest (and alive).
+            if (driven != null && driven.gameObject != null && driven.gameObject.activeSelf
+                && driven.alive && driven.GetComponent<Item>() == null
+                && !IsInClientInterest(driven.transform.position))
+            {
+                bool fleeing = driven.behaviour == Character.Behaviour.escaping
+                    || driven.behaviour == Character.Behaviour.running
+                    || (driven.flier != null && driven.flier.inFlight)
+                    || driven.wantToDespawn
+                    || driven.aggressiveness == Aggressiveness.flee
+                    || driven.aggressiveness == Aggressiveness.fleeAndDespawn;
+                if (fleeing || _spawnedPhantomIds.Contains(hostId))
+                    driven.gameObject.SetActive(false);
+            }
+        }
+
+        private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, ref int applied)
+        {
+            EnsureEntityAwake(c);
+
+            // Disable CharacterSounds on first snapshot. Client AI is frozen, so
+            // local loops would never stop. Host broadcasts AI SFX via EntitySound
+            // (growl/idle/attack/gethit/death) and enemy footsteps via PlayerAudio.
+            // HandleEntitySound still calls CharacterSounds methods directly while
+            // the component stays disabled (method calls do not require enabled).
+            if (_audioStoppedIds.Add(e.Index))
+            {
+                CharacterSounds cs = c.GetComponent<CharacterSounds>();
+                if (cs != null)
+                {
+                    cs.destroySounds();
+                    cs.enabled = false;
+                }
+            }
+
+            if (!_states.TryGetValue(e.Index, out var state))
+            {
+                state = new EntityInterpState { isFirst = true };
+                _states[e.Index] = state;
+            }
+            state.staleSince = 0f;
+
+            if (state.isFirst)
+            {
+                _displayPositions[e.Index] = c.transform.position;
+                _displayRotations[e.Index] = c.transform.eulerAngles.y;
+                state.isFirst = false;
+            }
+
+            state.previousPosition = _displayPositions[e.Index];
+            state.previousRotY = _displayRotations[e.Index];
+            state.targetPosition = targetPos;
+            state.targetRotY = e.RotY;
+            state.arrivalTime = Time.time;
+            state.hasTarget = true;
+
+            if (!e.Alive && c.alive)
+            {
+                ModRuntime.LegacyInfo($"[Entity] DETECTED DEATH: {c.name}(id={e.Index})");
+                c.die();
+                // Client Character.Update (processAnims) is AI-suppressed, so die() does not
+                // starts the death clip. Host often later sends empty Clip after
+                // destroyComponents2 nukes the animator. Play death anim locally now.
+                EnsureDeathAnimation(c, e.Index, e.Clip, e.ClipFrame);
+                // die2 is soundless on host-synced clients; play death SFX here so Y-cull
+                // or late EntitySound cannot leave a silent kill.
+                NoteLocalDeathPresentation(c, e.Index);
+            }
+
+            state.alive = e.Alive;
+            ApplySleepEatFlags(c, e);
+
+            // 1.2b presentation: clip + death pose (see ApplyEntityPresentation).
+            ApplyEntityPresentation(c, e.Index, e.Clip, e.ClipFrame, e.Alive);
+
+            applied++;
+        }
+
+        private static void ApplySleepEatFlags(Character c, EntitySnapshotNet e)
+        {
+            if (c == null || !e.Alive) return;
+            bool sleeping = e.Sleeping;
+            bool eating = e.Eating;
+            if (c.sleeping != sleeping)
+                c.sleeping = sleeping;
+            if (c.eating != eating)
+                c.eating = eating;
+        }
+
+    }
+}
