@@ -153,6 +153,7 @@ namespace DWMPHorde
 
             Network = root.AddComponent<LanNetworkManager>();
             // Entity spawner is a separate plugin: YokWare.EntitySpawner (F5).
+            root.AddComponent<CursorConfineFocusGuard>();
 
             MultiplayerMenu.EnsureExists();
             ChatHud.EnsureExists();

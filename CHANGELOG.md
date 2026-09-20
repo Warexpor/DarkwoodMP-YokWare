@@ -3,12 +3,23 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.1**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.2**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.2 — Dual-box cursor release
+
+- **Wayland cursor magnet:** vanilla `CursorLockMode.Confined` keeps a Hyprland
+  pointer confine alive after Alt+Tab, so the mouse stays trapped in the game
+  window even when another window has focus. Mod now releases to `None` on
+  blur and restores `Confined` on focus (`CursorConfineFocusGuard` +
+  `set_lockState` prefix). Protocol **25** unchanged.
+- Product bump **0.8.1 → 0.8.2**.
 
 ---
 
