@@ -45,7 +45,7 @@ state without changing existing players' state.
 | Flags and reset | `FlagSyncPatches`, `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths | Code covered; runtime pending |
 | Entity AI and snapshots | `EntityStateBroadcastService`, `ClientEntityInterpolationService`, `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
-| Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134: getHit/attach/Vine latch/detach), ShadowArmor (`ShadowArmorState` 135), world Burn Door/Window/Item (`WorldBurnState` 137), Infection live + late-join via `EntitySpawn` 86, RandomObjectSpawner + ObjectSpawner (host spawnObject), RandomSpawnArea (host spawnPrefab), CharacterSpawnPoint (host actuallySpawn) | Code covered; runtime pending |
+| Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134: getHit/attach/Vine latch/detach), ShadowArmor (`ShadowArmorState` 135), world Burn Door/Window/Item (`WorldBurnState` 137), Infection live + late-join via `EntitySpawn` 86, RandomObjectSpawner + ObjectSpawner + ObjectPoolSpawner (host spawnObject), RandomSpawnArea (host spawnPrefab), SpawnPrefab (host Start), CharacterSpawnPoint (host actuallySpawn) | Code covered; runtime pending |
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
 | Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear (host spawn + PlaceItem / open-state sync), InventoryRandom (host randomize/spawnItems + ContainerStateSync / open-state) | Code covered; runtime pending |
@@ -189,12 +189,29 @@ transports. Unit tests cover the shared reader and policy helpers.
   Observation via `EntityStateBroadcast` — no dedicated message. Runtime
   dual-box pending (host NPC present on client; reverse N/A — clients must
   not roll).
+- **SpawnPrefab:** host-only `Start` (clients Prefix-skip). Decompile:
+  `Core.AddPrefab(prefab GameObject, …)` then `Destroy(self)`. Both peers
+  would place duplicates. Observation via entity / WorldSaveShare —
+  GameObject-overload AddPrefab is not string-path PhysicsSpawnSync. No
+  dedicated message. Runtime dual-box pending (reverse N/A — clients must
+  not Start-spawn).
+- **ObjectPoolSpawner:** host-only `spawnObject` + `tryToSpawn` (clients
+  Prefix-skip). Awake still registers with `ObjectPoolSpawnerController` on
+  all peers so host worldgen can drive spawn. Observation via entity /
+  WorldSaveShare — no dedicated message. Runtime dual-box pending.
 
 ---
 
 ## Deferred or incomplete areas
 
 - Full dual-box and three-player campaign soak.
+- **`SpriteRandomizer` — parked (DEFERRED-ok cosmetic).** Decompile
+  `SpriteRandomizer.cs`: `init` rolls color / lightness / alpha / rotation /
+  mirror / height / anim clip / sprite from local RNG, then `Destroy(this)`.
+  Tooltip on `randomizeOnLoad` warns large problems when a non-circle
+  collider combines with mirror / rotation randomize. Peers may diverge
+  visually; do **not** sync unless a future playtest proves physics/collider
+  divergence that affects co-op. Protocol **25** unchanged.
 - **`QuestRandomizer` — parked (unused / rare debug Bring-me-X).** Decompile
   `QuestRandomizer.cs`: `onPlayerEnter` rolls `itemAmount` 2–3 and a type from
   `allowedInvItemRequirements`, then `Core.displayMessage("Bring me {0} of

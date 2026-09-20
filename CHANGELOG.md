@@ -28,6 +28,11 @@ ship line (committed/pushed backup).
 
 ### Parked / deferred (investigation)
 
+- **`SpriteRandomizer`:** parked (DEFERRED-ok cosmetic) — visual RNG only
+  (color / rotation / mirror / sprite / anim / height). Decompile tooltip warns
+  collider issues when `randomizeOnLoad` + non-circle collider with mirror /
+  rotation. No sync unless a future playtest proves physics diverge. Evidence
+  in `COOP_COVERAGE.md`. Protocol **25** unchanged.
 - **`QuestRandomizer`:** parked — rare/debug-style Bring-me-X (`Core.displayMessage`
   hardcoded English; random item count/type; shared `inventory` check +
   next-day rifle reward). No other C# callers in Assembly-CSharp; campaign
@@ -63,6 +68,16 @@ ship line (committed/pushed backup).
   count msg; protocol **25** unchanged. Evidence in `COOP_COVERAGE.md`.
 ### Changed (this milestone)
 
+- **SpawnPrefab host authority:** Harmony Prefix on `SpawnPrefab.Start` —
+  clients skip; Offline/Host keep vanilla. Vanilla Start AddPrefab(GameObject)
+  then Destroy(self) — both peers would duplicate. Observation via entity /
+  WorldSaveShare (GameObject AddPrefab is not string-path PhysicsSpawnSync).
+  No new message. Protocol **25** unchanged.
+- **ObjectPoolSpawner host authority:** Harmony Prefix on
+  `ObjectPoolSpawner.spawnObject` and `tryToSpawn` — clients skip; Offline/Host
+  keep vanilla. Awake controller registration stays on all peers (host worldgen
+  path). Biome prop place via `ObjectPoolSpawnerController`. Observation via
+  entity / WorldSaveShare — no new message. Protocol **25** unchanged.
 - **CharacterSpawnPoint host authority:** Harmony Prefix on
   `CharacterSpawnPoint.actuallySpawn` and `waitToSpawnCharacter` — clients
   skip; Offline/Host keep vanilla. Covers `Location.spawnCharacters` and
