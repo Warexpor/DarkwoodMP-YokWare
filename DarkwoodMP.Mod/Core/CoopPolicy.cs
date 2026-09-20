@@ -334,6 +334,7 @@ namespace DWMPHorde
     public static class WorldSharePolicy
     {
         public const string ShareFailurePrefix = "WORLD SHARE FAILED:";
+        public const string WrongSavePrefix = "WRONG SAVE:";
 
         public static bool IsShareFailureTerminal => true;
 
@@ -344,6 +345,13 @@ namespace DWMPHorde
         public static bool IsShareFailureMessage(string progressText)
             => !string.IsNullOrEmpty(progressText)
                && progressText.StartsWith(ShareFailurePrefix, System.StringComparison.Ordinal);
+
+        public static string FormatWrongSave(string reason)
+            => WrongSavePrefix + " " + (reason ?? "campaign mismatch");
+
+        public static bool IsWrongSaveMessage(string progressText)
+            => !string.IsNullOrEmpty(progressText)
+               && progressText.IndexOf(WrongSavePrefix, System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     /// <summary>

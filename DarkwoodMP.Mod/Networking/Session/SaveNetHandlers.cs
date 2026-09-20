@@ -424,6 +424,8 @@ namespace DWMPHorde.Networking
                         ModRuntime.LegacyInfo(
                             "[ClientBackup] ignore host push — no usable backup for this campaign"
                             + " — keeping loaded character");
+                        WrongSaveWarning.Notify(
+                            "character backup does not match this co-op campaign — kept loaded character");
                         return;
                     }
 
@@ -431,6 +433,8 @@ namespace DWMPHorde.Networking
                     {
                         ModRuntime.LegacyInfo(
                             "[ClientBackup] ignore host push — stale backup on fresh day-1 world");
+                        WrongSaveWarning.Notify(
+                            "stale character backup on a fresh day-1 world — kept loaded character");
                         return;
                     }
 

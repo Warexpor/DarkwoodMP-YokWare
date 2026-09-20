@@ -14,7 +14,16 @@ namespace DWMPHorde.Networking
         private readonly LanNetworkManager _net;
 
         internal const int MaxPendingGameEvents = 64;
+        /// <summary>
+        /// Host-only: one-shot GEs with <c>destroyOnFire</c> destroy their GO after
+        /// the event delay (decompile <c>GameEvents.fire</c>), so a late-join
+        /// <c>FindObjectsOfType</c> scan cannot see them. Record identity at fire
+        /// time and merge into <see cref="SendGameEventsBulkTo"/>.
+        /// </summary>
+        internal const int MaxDestroyedFiredGameEvents = 512;
         private readonly List<GameEventsFiredMessage> _pendingGameEvents = new List<GameEventsFiredMessage>();
+        private readonly List<GameEventsFiredMessage> _destroyedFiredGameEvents =
+            new List<GameEventsFiredMessage>(64);
 
         internal GameEventNetHandlers(LanNetworkManager net)
         {
@@ -25,6 +34,29 @@ namespace DWMPHorde.Networking
         {
             _pendingGameEvents.Clear();
             _pendingGameEventQueuedAt.Clear();
+            _destroyedFiredGameEvents.Clear();
+        }
+
+        /// <summary>
+        /// Host: remember a one-shot that will (or did) destroy its shell so late
+        /// joiners still receive it in GameEventsBulk (136).
+        /// </summary>
+        internal void RecordDestroyedOnFireGameEvent(GameEventsFiredMessage msg)
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            for (int i = 0; i < _destroyedFiredGameEvents.Count; i++)
+            {
+                var e = _destroyedFiredGameEvents[i];
+                if (Mathf.Abs(e.PosX - msg.PosX) < 0.05f
+                    && Mathf.Abs(e.PosY - msg.PosY) < 0.05f
+                    && Mathf.Abs(e.PosZ - msg.PosZ) < 0.05f
+                    && string.Equals(e.EventName, msg.EventName, StringComparison.Ordinal))
+                    return;
+            }
+            if (_destroyedFiredGameEvents.Count >= MaxDestroyedFiredGameEvents)
+                _destroyedFiredGameEvents.RemoveAt(0);
+            _destroyedFiredGameEvents.Add(msg);
         }
 
         internal void HandleGameEventsFired(GameEventsFiredMessage msg)
@@ -36,16 +68,17 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Host late-join: scan components that already have <c>fired &amp;&amp; !multipleFire</c>
-        /// (vanilla one-shot latch). Skips ephemeral FX, saved-delayed shells, and dream-named
-        /// GEs when no dream is active — avoids pad/overworld mis-resolve and night-scenario
-        /// replay (scenario bulk stays deferred separately).
+        /// (vanilla one-shot latch), then merge host-recorded <c>destroyOnFire</c> identities
+        /// whose shells are gone from the scan. Skips ephemeral FX, saved-delayed shells,
+        /// and dream-named GEs when no dream is active — avoids pad/overworld mis-resolve
+        /// and night-scenario replay (scenario bulk stays deferred separately).
         /// </summary>
         internal void SendGameEventsBulkTo(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host || !_net.IsConnected)
                 return;
 
-            GameEvents[] all;
+            GameEvents[] all = null;
             try
             {
                 all = UnityEngine.Object.FindObjectsOfType<GameEvents>(true);
@@ -53,43 +86,63 @@ namespace DWMPHorde.Networking
             catch (System.Exception ex)
             {
                 ModRuntime.Log?.LogWarning("[BulkSync] GameEvents scan failed: " + ex.Message);
-                return;
             }
-            if (all == null || all.Length == 0)
-                return;
 
             bool dreamActive = DreamSyncManager.IsDreamActive
                 || (Dreams.Instance != null && Dreams.Instance.dreaming);
 
-            var list = new List<GameEventsFiredMessage>(Mathf.Min(all.Length, GameEventsBulkMessage.MaxEvents));
-            for (int i = 0; i < all.Length; i++)
+            int scanCap = all != null ? all.Length : 0;
+            var list = new List<GameEventsFiredMessage>(
+                Mathf.Min(scanCap + _destroyedFiredGameEvents.Count, GameEventsBulkMessage.MaxEvents));
+            if (all != null)
+            {
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (list.Count >= GameEventsBulkMessage.MaxEvents)
+                        break;
+                    GameEvents ge = all[i];
+                    if (ge == null || ge.transform == null)
+                        continue;
+                    // Conservative: only one-shots that have already latched on the host.
+                    if (!ge.fired || ge.multipleFire)
+                        continue;
+                    if (ge.isSavedDelayedEvent)
+                        continue;
+
+                    string eventName = ge.name ?? "";
+                    if (IsEphemeralDreamFxEvent(eventName))
+                        continue;
+                    if (!dreamActive
+                        && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        continue;
+
+                    Vector3 p = ge.transform.position;
+                    list.Add(new GameEventsFiredMessage
+                    {
+                        PosX = Mathf.Round(p.x * 10f) / 10f,
+                        PosY = Mathf.Round(p.y * 10f) / 10f,
+                        PosZ = Mathf.Round(p.z * 10f) / 10f,
+                        EventName = eventName
+                    });
+                }
+            }
+
+            int fromDestroyed = 0;
+            for (int i = 0; i < _destroyedFiredGameEvents.Count; i++)
             {
                 if (list.Count >= GameEventsBulkMessage.MaxEvents)
                     break;
-                GameEvents ge = all[i];
-                if (ge == null || ge.transform == null)
-                    continue;
-                // Conservative: only one-shots that have already latched on the host.
-                if (!ge.fired || ge.multipleFire)
-                    continue;
-                if (ge.isSavedDelayedEvent)
-                    continue;
-
-                string eventName = ge.name ?? "";
+                var destroyed = _destroyedFiredGameEvents[i];
+                string eventName = destroyed.EventName ?? "";
                 if (IsEphemeralDreamFxEvent(eventName))
                     continue;
                 if (!dreamActive
                     && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
-
-                Vector3 p = ge.transform.position;
-                list.Add(new GameEventsFiredMessage
-                {
-                    PosX = Mathf.Round(p.x * 10f) / 10f,
-                    PosY = Mathf.Round(p.y * 10f) / 10f,
-                    PosZ = Mathf.Round(p.z * 10f) / 10f,
-                    EventName = eventName
-                });
+                if (BulkListContains(list, destroyed))
+                    continue;
+                list.Add(destroyed);
+                fromDestroyed++;
             }
 
             if (list.Count == 0)
@@ -119,7 +172,23 @@ namespace DWMPHorde.Networking
             _net.SendBulkOrAll(NetMessageType.GameEventsBulk, w => msg.Serialize(w), targetPlayerId);
             ModLog.Event(LogCat.Session, targetPlayerId > 0
                 ? "[BulkSync] Fired GameEvents → p" + targetPlayerId + ": " + list.Count
-                : "[BulkSync] Fired GameEvents → all: " + list.Count);
+                    + (fromDestroyed > 0 ? " (destroyOnFire+" + fromDestroyed + ")" : "")
+                : "[BulkSync] Fired GameEvents → all: " + list.Count
+                    + (fromDestroyed > 0 ? " (destroyOnFire+" + fromDestroyed + ")" : ""));
+        }
+
+        private static bool BulkListContains(List<GameEventsFiredMessage> list, GameEventsFiredMessage msg)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                var e = list[i];
+                if (Mathf.Abs(e.PosX - msg.PosX) < 0.05f
+                    && Mathf.Abs(e.PosY - msg.PosY) < 0.05f
+                    && Mathf.Abs(e.PosZ - msg.PosZ) < 0.05f
+                    && string.Equals(e.EventName, msg.EventName, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         internal void HandleGameEventsBulk(GameEventsBulkMessage msg)

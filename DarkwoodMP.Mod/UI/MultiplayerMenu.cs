@@ -352,7 +352,8 @@ namespace DWMPHorde
             if (!ClientStateBackup.MatchesCurrentCampaign(data)
                 || !ClientStateBackup.HasMeaningfulProgress(data))
             {
-                SetRestoreSelfStatus("Restore refused (campaign mismatch or empty backup). See log.");
+                SetRestoreSelfStatus(WrongSaveWarning.Format(
+                    "campaign mismatch or empty backup — restore refused"));
                 return;
             }
 

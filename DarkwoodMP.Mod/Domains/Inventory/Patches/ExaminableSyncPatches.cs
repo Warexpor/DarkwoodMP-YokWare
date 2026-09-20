@@ -7,13 +7,23 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// 4.11 Examinable / story onExamine:
-    /// Client examine shows local description but host must run EventTriggers → GameEvents
-    /// (4.2 blocks client one-shots). After host examine, peers get examined flags so
-    /// re-examine / description-pool one-shots stay consistent.
+    /// Examinable / story onExamine:
+    /// Client keeps local HUD (<c>displayMessage</c> + local <c>DescriptionPool</c> draw)
+    /// but must not fire <c>EventTrigger.onExamine</c> — one-shot GE is host-auth via
+    /// <see cref="GameEventsFiredPatch"/>. Client Prefix sends <c>ExamineObject</c> request;
+    /// host re-runs <c>examine()</c> for triggers + shared flags, with HUD suppressed so the
+    /// host does not see the client's flavor text.
     ///
-    /// HidingPlace is AI cabinet hideouts (not player stealth) — host Character AI (1.2).
+    /// <c>DescriptionPool</c> depletion stays per-peer presentation (no protocol bump for the
+    /// drawn key). Examined / displayedDescriptionPool flags fan out so re-examine / pool
+    /// one-shots latch consistently. HidingPlace is AI cabinet hideouts — host Character AI.
     /// </summary>
+    internal static class ExaminableExamineSync
+    {
+        /// <summary>Host: suppress Player.displayMessage while applying a remote examine request.</summary>
+        internal static int SuppressHostExamineHud;
+    }
+
     [HarmonyPatch(typeof(Examinable), "examine")]
     public static class ExaminableExaminePatch
     {
@@ -27,6 +37,8 @@ namespace DWMPHorde.Patches
             if (net == null) return;
 
             // Client: ask host to run authoritative examine (triggers + flags).
+            // Local examine still runs for personal HUD; onExamine triggers are blocked
+            // in Core.sendTriggerInfo (see ExaminableOnExamineTriggerPatch).
             if (net.Role == NetworkRole.Client)
             {
                 Vector3 p = __instance.transform.position;
@@ -75,7 +87,57 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// HidingPlace spawns AI on enable. In multiplayer clients already disable AI (1.2);
+    /// Block client-local onExamine EventTriggers. ExamineObject request already asked the
+    /// host to re-run examine for story GE; client one-shots would latch EventTrigger.fired
+    /// without applying GE (GameEventsFiredPatch) and desync late-join assumptions.
+    /// </summary>
+    [HarmonyPatch(typeof(Core), nameof(Core.sendTriggerInfo),
+        new[] { typeof(GameObject), typeof(EventTrigger.Type), typeof(bool) })]
+    public static class ExaminableOnExamineTriggerPatch
+    {
+        private static bool Prefix(EventTrigger.Type triggerType)
+        {
+            return ExaminableOnExamineTrigger.Allow(triggerType);
+        }
+    }
+
+    [HarmonyPatch(typeof(Core), nameof(Core.sendTriggerInfo),
+        new[] { typeof(GameObject), typeof(EventTrigger.Type), typeof(string), typeof(bool) })]
+    public static class ExaminableOnExamineTriggerValuePatch
+    {
+        private static bool Prefix(EventTrigger.Type triggerType)
+        {
+            return ExaminableOnExamineTrigger.Allow(triggerType);
+        }
+    }
+
+    internal static class ExaminableOnExamineTrigger
+    {
+        internal static bool Allow(EventTrigger.Type triggerType)
+        {
+            if (triggerType != EventTrigger.Type.onExamine) return true;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
+            if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
+                return true;
+            var net = LanNetworkManager.Instance;
+            if (net == null || net.Role != NetworkRole.Client) return true;
+            return false;
+        }
+    }
+
+    /// <summary>Host must not show the client's examine flavor text when re-running examine.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.displayMessage),
+        new[] { typeof(string), typeof(bool), typeof(bool) })]
+    public static class ExaminableHostHudSuppressPatch
+    {
+        private static bool Prefix()
+        {
+            return ExaminableExamineSync.SuppressHostExamineHud <= 0;
+        }
+    }
+
+    /// <summary>
+    /// HidingPlace spawns AI on enable. In multiplayer clients already disable AI;
     /// skip client spawn so only host owns the hider character (avoids double Characters).
     /// </summary>
     [HarmonyPatch(typeof(HidingPlace), "OnEnable")]
@@ -87,8 +149,6 @@ namespace DWMPHorde.Patches
                 return true;
             if (ModRuntime.Network.Role != NetworkRole.Client)
                 return true;
-            // Client: do not spawn a second AI into the cabinet.
-            // Host entity snapshots will drive any visible character if needed.
             ModRuntime.LegacyInfo($"[HidingPlace] client suppressed OnEnable spawn on {__instance?.name}");
             return false;
         }

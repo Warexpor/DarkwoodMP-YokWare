@@ -226,6 +226,20 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void WorldShare_WrongSaveText_IsDistinctFromShareFailure()
+    {
+        string msg = WorldSharePolicy.FormatWrongSave("campaign mismatch");
+        Assert.StartsWith("WRONG SAVE:", msg);
+        Assert.Contains("campaign mismatch", msg);
+        Assert.True(WorldSharePolicy.IsWrongSaveMessage(msg));
+        Assert.True(WorldSharePolicy.IsWrongSaveMessage("prefix WRONG SAVE: slot"));
+        Assert.False(WorldSharePolicy.IsWrongSaveMessage("Receiving host world 50%"));
+        Assert.False(WorldSharePolicy.IsShareFailureMessage(msg));
+        Assert.False(WorldSharePolicy.IsWrongSaveMessage(
+            WorldSharePolicy.FormatShareFailure("no files")));
+    }
+
+    [Fact]
     public void WorldPresence_KeepsRemoteBubbleEvenOnForceLeave()
     {
         Assert.True(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, true));

@@ -80,6 +80,17 @@ namespace DWMPHorde.Networking
             && WorldSharePolicy.IsShareFailureMessage(ProgressText);
         public string ProgressText { get; private set; } = string.Empty;
 
+        /// <summary>Join/menu: surface a wrong-save / campaign warning without terminal share failure.</summary>
+        internal void SetWrongSaveProgress(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return;
+            ProgressText = message;
+            if (_net != null)
+                _net.StatusText = ProgressText;
+        }
+
+
         public WorldSaveShareService(LanNetworkManager net)
         {
             _net = net;
@@ -927,6 +938,14 @@ namespace DWMPHorde.Networking
                         info.MatchesIncomingPackage = string.Equals(
                             coop.ContentFingerprint, _pendingPackageFingerprint,
                             StringComparison.OrdinalIgnoreCase);
+                    }
+                    if (_awaitingSlotPick && _pendingBegin.CampaignId != null
+                        && !string.IsNullOrEmpty(_pendingBegin.CampaignId)
+                        && !string.IsNullOrEmpty(coop.CampaignId)
+                        && !string.Equals(coop.CampaignId, _pendingBegin.CampaignId,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        info.CampaignMismatchWithHost = true;
                     }
                 }
                 result[id - MinProfileId] = info;

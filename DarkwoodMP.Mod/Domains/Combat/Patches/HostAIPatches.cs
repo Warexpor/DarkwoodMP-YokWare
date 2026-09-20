@@ -66,14 +66,15 @@ namespace DWMPHorde.Patches
         /// not a static helper. Reuse that method for the local player, then for each
         /// <see cref="RemotePlayerProxy"/> by briefly pointing <c>_transform</c> at the
         /// proxy (facing/LOS from proxy pose; FOV/dot radii stay the session Player's).
+        /// <paramref name="radius"/> maps to vanilla's third arg (0 = default FOV range).
         /// </summary>
-        internal static bool AnyInSight(Transform dest, bool canBeFarAway)
+        internal static bool AnyInSight(Transform dest, bool canBeFarAway, int radius = 0)
         {
             if (dest == null)
                 return false;
 
             Player player = Player.Instance;
-            if (player != null && player.isInSight(dest, canBeFarAway))
+            if (player != null && player.isInSight(dest, canBeFarAway, radius))
                 return true;
 
             var net = LanNetworkManager.Instance;
@@ -88,7 +89,7 @@ namespace DWMPHorde.Patches
                     if (proxy == null)
                         continue;
                     player._transform = proxy.transform;
-                    if (player.isInSight(dest, canBeFarAway))
+                    if (player.isInSight(dest, canBeFarAway, radius))
                         return true;
                 }
             }

@@ -406,6 +406,8 @@ namespace DWMPHorde.Networking
         public bool IsCoopCopy;
         public bool IsEmpty;
         public bool MatchesIncomingPackage;
+        /// <summary>Slot meta CampaignId differs from the host package CampaignId.</summary>
+        public bool CampaignMismatchWithHost;
         public int Day;
         public int Chapter;
         public string TimeSaved;

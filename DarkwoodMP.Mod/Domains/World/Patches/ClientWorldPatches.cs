@@ -75,4 +75,22 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Decompile <c>RandomEvent.randomizeStartTime</c> rolls <c>timeToStart</c>
+    /// from <c>Events.initialize</c> and each <c>onNewDay</c>. Clients already
+    /// skip <c>fire</c>; independent schedule rolls still diverge latch timing
+    /// vs host (and vs late-join <c>ScenarioStateBulk</c>). WorldSaveShare /
+    /// scenario bulk supply host times — do not re-roll on clients.
+    /// </summary>
+    [HarmonyPatch(typeof(RandomEvent), "randomizeStartTime")]
+    public static class ClientBlockRandomEventRandomizeStartTimePatch
+    {
+        private static bool Prefix()
+        {
+            if (!ClientWorldHelper.IsClient) return true;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
+            return false;
+        }
+    }
+
 }

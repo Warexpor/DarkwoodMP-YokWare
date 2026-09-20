@@ -127,14 +127,21 @@ parity.
 
 Known deferred or runtime-dependent areas include:
 
-- full dual-box and three-player campaign soak
-- late-join GameEvent and night-scenario bulk
-- wrong-save warning UI
-- complete interaction-lock coverage
-- some dream, spectator, and proxy field-of-view presentation edges
+- full dual-box and three-player campaign soak (msgs 134–138 + new host-auth
+  gates still code-covered only)
+- wrong-save warning UI: **code shipped** — slot picker `[DIFFERENT CAMPAIGN]`
+  + overwrite confirm; backup refuse → in-world / join `WRONG SAVE` via
+  `WrongSaveWarning`. Dual-box / multi-slot UX still soak-pending.
+- complete interaction-lock coverage (workbench exclusive lock parked since
+  0.7.40 playtest ask — both players may share a bench; msg **119** reserved)
+- some dream, spectator, and dialogue presentation edge cases (parked as
+  presentation-only in `COOP_COVERAGE.md` — not world-authority gaps)
 - host migration during a dream
 
-The detailed code coverage checklist is
+Late-join `GameEventsBulk` / `ScenarioStateBulk`, EventTriggers FOV parity,
+worldgen RNG host-auth, and Examinable `onExamine` host triggers are no longer
+deferred — see
+[CHANGELOG.md](CHANGELOG.md) and
 [DarkwoodMP.Mod/docs/COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
 For support logs, use [DarkwoodMP.Mod/docs/LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
 

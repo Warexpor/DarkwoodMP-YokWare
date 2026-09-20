@@ -68,6 +68,76 @@ ship line (committed/pushed backup).
   count msg; protocol **25** unchanged. Evidence in `COOP_COVERAGE.md`.
 ### Changed (this milestone)
 
+- **Dual-box soak:** explicitly parked in `COOP_COVERAGE.md` as runtime
+  verification outside the decompile-loop finish bar (all domain rows remain
+  code-covered / runtime-pending until playtested). Protocol **25** unchanged.
+- **`WaitAndDie` / `Broadcaster` / `UpgradeItemMenu`:** parked with decompile
+  citations (FX/onTime→GE host-auth; serializer util; personal item upgrades).
+  `WhereAmI` `player_in*` already local-only via FlagSync. Protocol **25**
+  unchanged.
+- **Examinable onExamine host authority:** clients still show personal examine
+  HUD / local `DescriptionPool` draw, but `Core.sendTriggerInfo(onExamine)` is
+  blocked on clients; host re-runs `examine()` with HUD suppressed so story GE
+  fires once and examined / `displayedDescriptionPool` flags fan out (msg
+  **110**). Shared pool string identity not wire-synced. Protocol **25**
+  unchanged.
+- **`AnimationPlay` / `MagicContainer` / respawn registry stubs:** parked with
+  decompile citations (cosmetic anim RNG / empty stub / local WorldGenerator
+  bookkeeping). Protocol **25** unchanged.
+- **Presentation edge cases:** deferred bullet expanded with citations
+  (spectator dialogue UI, gossip randomness, portrait overlays, lost
+  dream-chain fallback) — parked as presentation-only, not world-authority.
+  Protocol **25** unchanged.
+- **Wrong-save policy tests:** `WorldSharePolicy.FormatWrongSave` /
+  `IsWrongSaveMessage` live in pure `CoopPolicy` (unit-tested); UI wrapper
+  unchanged. Protocol **25** unchanged.
+- **Container simultaneous-open / dream host-migration:** parked with
+  citations in `COOP_COVERAGE.md` (loot already host-validated; mid-dream
+  migration refuses and disconnects by design).
+- **ObjectPoolSpawnerController.spawn host authority:** clients Prefix-skip the
+  early-gen controller pass (belt on top of existing ObjectPoolSpawner
+  spawnObject/tryToSpawn skips). Protocol **25** unchanged.
+- **Workbench exclusive lock:** confirmed parked (not re-enabled) — disabled
+  since 0.7.40 playtest ask (both players may share a bench). Msg **119**
+  reserved; stub + ignore handler remain. Evidence in `COOP_COVERAGE.md`.
+- **Wrong-save warning UI:** join slot picker flags `[DIFFERENT CAMPAIGN]` when
+  a profile's CampaignId differs from the host package and strengthens the
+  overwrite confirm; refuse paths for host-push / RestoreSelf now call
+  `WrongSaveWarning` (in-world `displayMessage` + join progress `WRONG SAVE`).
+  Share-failure terminal path unchanged. Protocol **25** unchanged.
+- **WorldGenerator early-gen spawn host authority:** clients Prefix-skip
+  `spawnMiscObjects`, `spawnFreeRoamingCharacters`, `spawnGlobalCharacters`,
+  `spawnNightObjects`, and `respawnAllEnemies` (same early-gen hole as
+  `spawnRandomObjects` before `onFinished` block). No new message; protocol
+  **25** unchanged.
+- **WorldChunk.spawnRandomObjects host authority:** clients Prefix-skip chunk /
+  `WorldGenerator.spawnRandomObjects` (early worldgen + hard-night startDay).
+  Upgrades the prior “parked — host clock” note: connected clients can still
+  run gen before `WorldGenSharePatch` blocks `onFinished`. No new message;
+  protocol **25** unchanged.
+- **RandomEvent.randomizeStartTime host authority:** clients Prefix-skip schedule
+  rolls (`Events.initialize` + `onNewDay`). Fire was already blocked; independent
+  `timeToStart` RNG still diverged from host / `ScenarioStateBulk` late-join.
+  No new message; protocol **25** unchanged.
+- **Worldgen RNG host authority:** Harmony Prefix on `RandomNumberGenerator.init`
+  and `ChapterPreset.initFlags` — clients skip; Offline/Host keep vanilla.
+  Decompile: RNG Awake/`init` rolls padlock digit tables; `generateWorld` may
+  call `ChapterPreset.initFlags` (`randomFlags` story outcomes) before
+  `WorldGenSharePatch` blocks `onFinished`. Independent client rolls would
+  diverge combinations / flags ahead of WorldSaveShare. No new message;
+  protocol **25** unchanged.
+- **EventTriggers sight FOV parity:** host `isCurrentlyInSightOfPlayer` now uses
+  `HostPlayerIdentity.AnyInSight` (same `Player.isInSight` + proxy `_transform`
+  swap as Porter / `InSightOfPlayer`), including `inSightOfPlayerRadius`.
+  Removes the prior simplified angle + `Core.canSee` proxy path that could
+  disagree with vanilla FOV/dot. No new message; protocol **25** unchanged.
+  Dual-box sight-trigger runtime still pending.
+- **GameEventsBulk destroyOnFire latch:** host records one-shot `GameEvents`
+  with `destroyOnFire` at live fire time (decompile schedules
+  `Destroy(gameObject)` after event delays). Late-join `GameEventsBulk` (136)
+  merges those identities with the live `fired && !multipleFire` scan so
+  joiners still apply shells that are already gone on the host. No new
+  message; protocol **25** unchanged. Dual-box late-join still runtime-pending.
 - **SpawnPrefab host authority:** Harmony Prefix on `SpawnPrefab.Start` —
   clients skip; Offline/Host keep vanilla. Vanilla Start AddPrefab(GameObject)
   then Destroy(self) — both peers would duplicate. Observation via entity /

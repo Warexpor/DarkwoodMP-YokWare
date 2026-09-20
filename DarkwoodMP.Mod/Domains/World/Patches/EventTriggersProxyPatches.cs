@@ -134,55 +134,26 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host: onInSight / onOutOfSight also consider remote proxies (LOS via Core.canSee).
-    /// Vanilla only checks Player.Instance FOV — client-only sight would never fire host events.
+    /// Host: onInSight / onOutOfSight use the same <c>Player.isInSight</c> path as
+    /// <see cref="HostPlayerIdentity.AnyInSight"/> (Porter / InSightOfPlayer), including
+    /// optional <c>inSightOfPlayerRadius</c>. Replaces the prior simplified
+    /// angle + <c>Core.canSee</c> proxy check that diverged from vanilla FOV/dot.
     /// </summary>
     [HarmonyPatch(typeof(EventTriggers), "isCurrentlyInSightOfPlayer")]
     public static class EventTriggersProxySightPatch
     {
-        private static void Postfix(EventTriggers __instance, ref bool __result)
+        private static bool Prefix(EventTriggers __instance, ref bool __result)
         {
-            if (__result) return;
-            if (!EventTriggersAuth.IsHost()) return;
-            if (__instance == null) return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return true;
+            if (__instance == null)
+                return true;
 
-            var net = LanNetworkManager.Instance;
-            if (net == null) return;
-
-            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
-            {
-                if (proxy == null) continue;
-                if (ProxyInSightOf(__instance, proxy.transform))
-                {
-                    __result = true;
-                    return;
-                }
-            }
-        }
-
-        private static bool ProxyInSightOf(EventTriggers et, Transform proxyT)
-        {
-            if (proxyT == null || et == null) return false;
-
-            Vector3 dest = et.transform.position;
-            float dist = Core.trueDistance(proxyT.position, dest);
-            if (dist >= 800f)
-                return false;
-
-            int radius = (int)et.inSightOfPlayerRadius;
-            if (radius > 0)
-            {
-                if (Player.Instance != null)
-                    return Player.Instance.canSee(proxyT, et.transform, radius);
-                return Core.canSee(proxyT, et.transform);
-            }
-
-            Vector3 toTarget = dest - proxyT.position;
-            float halfFov = 55f;
-            if (dist > 6f && Vector3.Angle(toTarget, proxyT.up) > halfFov)
-                return false;
-
-            return Core.canSee(proxyT, et.transform);
+            // Decompile: radius 0 → isInSight(transform); else isInSight(transform, false, radius).
+            int radius = (int)__instance.inSightOfPlayerRadius;
+            __result = HostPlayerIdentity.AnyInSight(
+                __instance.transform, canBeFarAway: false, radius);
+            return false;
         }
     }
 }

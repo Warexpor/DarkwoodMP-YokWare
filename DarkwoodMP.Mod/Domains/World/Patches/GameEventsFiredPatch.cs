@@ -88,14 +88,20 @@ namespace DWMPHorde.Patches
                 && (Dreams.Instance == null || !Dreams.Instance.dreaming))
                 return;
 
-            net.SendGameEventsFired(new GameEventsFiredMessage
+            var firedMsg = new GameEventsFiredMessage
             {
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
                 EventName = eventName
-            });
-            ModRuntime.LegacyInfo("[GameEventsSync] fired at " + key + " name=" + eventName);
+            };
+            net.SendGameEventsFired(firedMsg);
+            // destroyOnFire schedules Destroy(gameObject) after event delays — gone
+            // from late-join FindObjectsOfType scan; keep identity for GameEventsBulk.
+            if (__instance.destroyOnFire && net.GameEventHandlers != null)
+                net.GameEventHandlers.RecordDestroyedOnFireGameEvent(firedMsg);
+            ModRuntime.LegacyInfo("[GameEventsSync] fired at " + key + " name=" + eventName
+                + (__instance.destroyOnFire ? " (destroyOnFire)" : ""));
 
             // Dialogue door opens run inside delayed GameEvent coroutines — poll & fan-out.
             DialogueDoorAftermath.OnHostGameEventsFired(eventName);

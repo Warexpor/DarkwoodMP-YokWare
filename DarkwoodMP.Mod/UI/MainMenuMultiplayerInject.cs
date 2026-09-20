@@ -1374,6 +1374,10 @@ namespace DWMPHorde
                 if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
                     SetJoinProgress("SHARE FAIL");
+                else if (WrongSaveWarning.IsWrongSaveMessage(prog)
+                    || prog.IndexOf("WRONG SAVE", StringComparison.OrdinalIgnoreCase) >= 0
+                    || prog.IndexOf("DIFFERENT CAMPAIGN", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetJoinProgress("WRONG SAVE");
                 else if (prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("Permanent copy", StringComparison.OrdinalIgnoreCase) >= 0
                     || prog.IndexOf("World ready", StringComparison.OrdinalIgnoreCase) >= 0)

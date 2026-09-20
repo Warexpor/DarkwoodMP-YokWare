@@ -1,4 +1,5 @@
 using DWMPHorde;
+using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using UnityEngine;
 
@@ -29,9 +30,18 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                // Run full host examine (triggers → GameEvents → 4.2).
-                // Postfix will Broadcast ActionState.
-                best.examine();
+                // Run full host examine (triggers → GameEvents). Suppress HUD so the
+                // host does not see the client's personal flavor text; client already
+                // displayed locally. Postfix broadcasts ActionState flags.
+                ExaminableExamineSync.SuppressHostExamineHud++;
+                try
+                {
+                    best.examine();
+                }
+                finally
+                {
+                    ExaminableExamineSync.SuppressHostExamineHud--;
+                }
                 return;
             }
 

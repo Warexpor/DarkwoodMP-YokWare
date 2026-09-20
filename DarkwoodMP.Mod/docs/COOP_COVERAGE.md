@@ -41,16 +41,16 @@ state without changing existing players' state.
 |---|---|---|
 | Session and handshake | `LanNetworkManager`, `ConnectionBackend`, `HostMigration` | Code covered; runtime pending |
 | World share and saves | `WorldSaveShareService`, `ClientStateBackup`, `SaveSyncPatches` | Code covered; runtime pending |
-| Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync` | Code covered; runtime pending |
-| Flags and reset | `FlagSyncPatches`, `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
+| Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client) | Code covered; runtime pending |
+| Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths | Code covered; runtime pending |
 | Entity AI and snapshots | `EntityStateBroadcastService`, `ClientEntityInterpolationService`, `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
-| Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134: getHit/attach/Vine latch/detach), ShadowArmor (`ShadowArmorState` 135), world Burn Door/Window/Item (`WorldBurnState` 137), Infection live + late-join via `EntitySpawn` 86, RandomObjectSpawner + ObjectSpawner + ObjectPoolSpawner (host spawnObject), RandomSpawnArea (host spawnPrefab), SpawnPrefab (host Start), CharacterSpawnPoint (host actuallySpawn) | Code covered; runtime pending |
+| Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134), ShadowArmor (`ShadowArmorState` 135), world Burn (`WorldBurnState` 137), Infection via `EntitySpawn` 86, RandomObject/Object/ObjectPool/SpawnPrefab/RandomSpawnArea/CharacterSpawnPoint host-auth, `GameEventsBulk` destroyOnFire latch, early-gen `WorldGenerator`/`WorldChunk`/`ObjectPoolSpawnerController` host-auth, EventTriggers sight `AnyInSight` | Code covered; runtime pending |
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
 | Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
-| Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear (host spawn + PlaceItem / open-state sync), InventoryRandom (host randomize/spawnItems + ContainerStateSync / open-state) | Code covered; runtime pending |
+| Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
 | Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
-| Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136) | Code covered; runtime pending |
+| Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
 | Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths | Code covered; runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |
@@ -204,7 +204,31 @@ transports. Unit tests cover the shared reader and policy helpers.
 
 ## Deferred or incomplete areas
 
-- Full dual-box and three-player campaign soak.
+- **Full dual-box / three-player campaign soak — parked (runtime verification,
+  not a static coverage gap).** Every domain row above is **code covered** with
+  host↔client send/apply/authority paths (or an explicit parked bullet with
+  decompile citation). This soak is the Unity dual-box / three-player playtest
+  that flips those rows from "runtime pending" to "runtime verified." It is
+  intentionally outside the decompile-loop objective finish bar (implement or
+  park with citations). No game processes were available during the static
+  pass. Protocol **25** unchanged.
+- **`AnimationPlay` — parked (DEFERRED-ok cosmetic).** Decompile
+  `AnimationPlay.cs`: local RNG for `randomAnims`, `randomizeStartFrame`,
+  twitch frame, and play-delay loops; optional rigidbody Push on anim events.
+  No story flags / GE / shared inventory. Peers may desync decorative anim
+  phase only. Do **not** sync unless playtest shows physics Push affecting
+  co-op. Protocol **25** unchanged.
+- **`MagicContainer` — parked (empty stub).** Decompile `MagicContainer.cs`
+  has empty `Start`/`Update` only. No co-op surface. Protocol **25** unchanged.
+- **`DescriptionPool` / Examinable onExamine — host-auth triggers (code);
+  pool draw personal.** Decompile `Examinable.examine` draws
+  `DescriptionPool.getDescriptionFromPool` (removes a string) then
+  `Core.sendTriggerInfo(..., onExamine)`. Clients keep local HUD + local pool
+  draw; client `onExamine` triggers are Prefix-blocked; host re-runs examine
+  (HUD suppressed) for GE + broadcasts examined /
+  `displayedDescriptionPool` flags (msg **110**). Shared pool depletion is
+  not wire-synced (would need the drawn key on the wire). Dual-box still
+  runtime-pending. Protocol **25** unchanged.
 - **`SpriteRandomizer` — parked (DEFERRED-ok cosmetic).** Decompile
   `SpriteRandomizer.cs`: `init` rolls color / lightness / alpha / rotation /
   mirror / height / anim clip / sprite from local RNG, then `Destroy(this)`.
@@ -270,13 +294,44 @@ transports. Unit tests cover the shared reader and policy helpers.
   `fired && !multipleFire` (skips `multipleFire`, `isSavedDelayedEvent`,
   ephemeral `def_glow` / `def_shadow`, and `dream_*` when no dream is active).
   Joiner applies via the live `GameEventsFired` path under `NetworkApplyGuard`.
-  Destroyed `destroyOnFire` shells are still missing from the scan (gone on
-  host). Dual-box late-join still runtime-pending.
+  Host also records one-shot `destroyOnFire` identities at live fire time
+  (decompile `GameEvents.fire` destroys the GO after event delays) and merges
+  them into the bulk so joiners still apply shells missing from the host scan.
+  Dual-box late-join still runtime-pending.
   (MapElement discoveries are no longer deferred — `MapStateSync` populates
   from host `isOnMap` elements; dual-box late-join still runtime-pending.)
   (Infection ground splats are no longer deferred — heavy phase 9
   `SendInfectionStatesTo` reuses live `EntitySpawn` 86; dual-box still
   runtime-pending.)
+- **`Resonator` / `RoadConnector` — parked (no co-op mutation).** Decompile
+  `Resonator.onNightStart` is empty (dead `waitToSpawnWorm`); `RoadConnector`
+  is worldgen pathfinding only (host gen + WorldSaveShare). Protocol **25**.
+- **`RandomEvent.randomizeStartTime` — host-auth (code).** Decompile rolls
+  `timeToStart` from `Events.initialize` and each `onNewDay`. Clients already
+  Prefix-skip `RandomEvent.fire`; now also skip schedule rolls so early gen /
+  day edges cannot diverge from host. Late-join latch remains
+  `ScenarioStateBulk` (138). Dual-box still runtime-pending.
+- **`RandomNumberGenerator` / `ChapterPreset.initFlags` — host-auth (code).**
+  Decompile: `RandomNumberGenerator.Awake` → `init()` rolls digit tables used by
+  `Padlock.Start` (`randomCombination` + `numbersDict`); `WorldGenerator.generateWorld`
+  picks a `ChapterPreset` and may call `initFlags` (`randomFlags` story outcomes)
+  before finish. Connected clients Prefix-skip both so early gen cannot diverge
+  from host; WorldSaveShare / FlagSync supply truth. Dual-box still runtime-pending.
+- **WorldGenerator early-gen spawns — host-auth (code).** Clients Prefix-skip
+  `spawnMiscObjects`, `spawnFreeRoamingCharacters`, `spawnGlobalCharacters`,
+  `spawnNightObjects`, `respawnAllEnemies`, and `ObjectPoolSpawnerController.spawn`
+  in addition to `spawnRandomObjects`
+  (early `generateWorld` before `WorldGenSharePatch` blocks `onFinished`).
+  Dual-box still runtime-pending.
+- **`RandomWorldObjects` / `WorldChunk.spawnRandomObjects` — host-auth (code).**
+  Decompile: `Controller.startDay` (hard night) and `WorldGenerator.generateWorld`
+  → `spawnRandomObjects` → per-chunk `getUnspawnedObject` RNG + `AddPrefab` +
+  `addToSaveable`. Clients Prefix-skip `WorldChunk` /
+  `WorldGenerator.spawnRandomObjects` (early gen can run before
+  `WorldGenSharePatch` blocks `onFinished`; startDay world edges already
+  suppressed). Host share / host startDay own placements. `MoveOnSpawned` is
+  Awake jitter on host-placed prefabs — no separate sync. Dual-box still
+  runtime-pending.
 - **ObjectStages — parked (no dedicated msg).** Decompile
   `ObjectStages.cs`: each stage is only `duration` + `List<GameEvents>`;
   `setStage` updates private `currentStage` / `timeSpent` / `isActive` then
@@ -331,16 +386,70 @@ transports. Unit tests cover the shared reader and policy helpers.
   Do **not** add `EventTriggerBulk` unless a future find shows trigger-local
   state (not GE) that must be visible without re-entering the volume.
   (Msg **138** is `ScenarioStateBulk`, not EventTrigger.)
-- Wrong-save warning UI. World share failure is blocked, but the warning UI is
-  not a complete save-identity solution.
+- Wrong-save warning UI: **code shipped.** Join slot picker marks
+  `[DIFFERENT CAMPAIGN]` when slot meta CampaignId ≠ host package and warns
+  on overwrite confirm. Host-push / RestoreSelf refuse paths call
+  `WrongSaveWarning` (HUD `displayMessage` + join label `WRONG SAVE`).
+  Terminal share failure (`WORLD SHARE FAILED:`) unchanged. Dual-box soak
+  still pending.
 - Complete interaction-lock coverage, including simultaneous container and
-  crafting races.
-- Exact proxy field-of-view parity for general EventTrigger sight checks
-  (`EventTriggers.isCurrentlyInSightOfPlayer` still uses a simplified proxy
-  angle path). **PorterSpawner / `InSightOfPlayer.checkSight` improved** via
+  crafting races. **Workbench exclusive lock (msg 119) remains parked by
+  playtest product decision (0.7.40):** both players may open/use the same
+  bench; `WorkbenchOpenLock` is a stub; wire handler ignores traffic. Vanilla
+  `Workbench.open` has no exclusive latch — re-enable only if a future
+  playtest asks for one-crafter-at-a-time again (restore grant/deny + Harmony
+  Prefix bodies; see 0.7.x `WorkbenchLockPatches` park comment).
+  **Container simultaneous-open:** parked as incomplete exclusive UI — loot
+  mutations are already host-validated (`ContainerItem` Take/Place/Remove +
+  `ContainerStateRequest`/`Sync` on open). Dual open only means dual UI; host
+  denies bad takes. Do not invent a container lock unless playtest shows a
+  remaining race after host validation.
+- Host migration during an active dream: **parked.** `HostMigration` refuses
+  mid-dream authority flip and disconnects without GRANT (dream session is
+  not migratable). Dual-box mid-dream host-loss still soak-pending.
+- Exact proxy field-of-view parity for general EventTrigger sight checks:
+  **done in code** — host `EventTriggers.isCurrentlyInSightOfPlayer` uses
+  `HostPlayerIdentity.AnyInSight` (`Player.isInSight` + proxy `_transform`
+  swap, including `inSightOfPlayerRadius`), same as Porter /
+  `InSightOfPlayer.checkSight`. Dual-box sight-trigger runtime still pending.
+  **PorterSpawner / `InSightOfPlayer.checkSight` improved** via
   `HostPlayerIdentity.AnyInSight` + client spawn skip — see stabilization
   section above.
-- Some dream, spectator, and dialogue presentation edge cases.
-- Host migration during an active dream.
+- Some dream, spectator, and dialogue presentation edge cases — **parked as
+  presentation-only (not world-authority gaps):**
+  - Spectator dialogue UI / welcome and gossip randomness (historical 0.7.x
+    deferred notes; no shared world mutation).
+  - Portrait / dialogue overlay edge cases after world-only drains (0.7.75
+    line; live DialogOutcome + lookKeyhole drain already host-auth).
+  - Lost dream-chain packet fallback (0.7.x deferred; DreamSession /
+    DreamChainStart exist — soak missing packet recovery).
+  Do **not** invent sync for cosmetic HUD/overlay variance unless playtest
+  shows a story latch or world object diverging. Protocol **25** unchanged.
+- **`PlayerSpawn` / `PlayerSpawnPoint` / `PossibleRespawnLocation` — parked
+  (local registry / storage example).** Decompile: `PlayerSpawn` registers into
+  `WorldGenerator.playerRespawnPoints` when `isRandomRespawn`; `PossibleRespawnLocation`
+  Awake registers into `possibleRespawnLocations`; `PlayerSpawnPoint` is a
+  Storage example (`PlayerLocator`) unused by campaign co-op paths. Host owns
+  respawn picks; per-peer list registration is local scene bookkeeping. Protocol
+  **25** unchanged.
+- **`WaitAndDie` — parked (FX / timer; onTime → GE host-auth).** Decompile
+  `WaitAndDie.die2`: optional `fireTrigger` → `Core.sendTriggerInfo(..., onTime)`
+  else `RemovePooledPrefab`. CharacterMessage / epilogue UI paths are local.
+  Story side effects are EventTrigger → `GameEvents.fire` (client one-shots
+  blocked by `GameEventsFiredPatch`; host fan-out live 65 / bulk 136). Do **not**
+  invent WaitAndDie sync. Protocol **25** unchanged.
+- **`Broadcaster` — parked (serializer interest util).** Decompile static
+  reflection helper for LevelSerializer interests — not gameplay mutation.
+  Protocol **25** unchanged.
+- **`UpgradeItemMenu` / `UpgradeItemBtn` — parked (personal item upgrades).**
+  Decompile: `tryToCraft` → `Player.startUpgrading(invItem, itemUpgrade)` on the
+  local player's workbench item UI; consumes personal inventory materials /
+  writes personal `InvItemClass` upgrades. Shared bench world state remains
+  `workbenchLevel` (synced). No upgrade-craft msg. Protocol **25** unchanged.
+- **`WhereAmI` `player_in*Hideout` flags — already local-only (code).** Decompile
+  clears/sets `player_inFirstHideout` / Second / Third each 1.5s tick from local
+  `Player` position. `FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag` skips any
+  `player_in*` name (playtest thrash if synced). Story flags still FlagSync.
+  Protocol **25** unchanged.
 
 Do not mark these items as runtime-verified from static or unit tests alone.

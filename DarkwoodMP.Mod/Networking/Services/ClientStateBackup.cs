@@ -621,6 +621,8 @@ namespace DWMPHorde.Networking
                     + (data.CampaignId ?? "(none)")
                     + " current="
                     + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                WrongSaveWarning.Notify(
+                    "character backup belongs to a different co-op campaign — restore refused");
                 return;
             }
 

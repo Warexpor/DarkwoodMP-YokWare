@@ -16,6 +16,7 @@ namespace DWMPHorde
 
         private bool _confirmOverwrite;
         private int _pendingSlot;
+        private bool _pendingCampaignMismatch;
         private string _status = "";
         private float _statusTimer;
         private Vector2 _scroll;
@@ -93,18 +94,33 @@ namespace DWMPHorde
             {
                 GUILayout.Space(8f);
                 GUI.color = new Color(1f, 0.55f, 0.35f);
-                GUILayout.Label(
-                    "Profile " + _pendingSlot + " already has a save.\n"
-                    + "Overwrite with the host world? This cannot be undone.");
+                if (_pendingCampaignMismatch)
+                {
+                    GUILayout.Label(
+                        WrongSaveWarning.Format(
+                            "Profile " + _pendingSlot
+                            + " belongs to a different co-op campaign than this host.\n"
+                            + "Overwrite will replace that save with the host world."));
+                }
+                else
+                {
+                    GUILayout.Label(
+                        "Profile " + _pendingSlot + " already has a save.\n"
+                        + "Overwrite with the host world? This cannot be undone.");
+                }
                 GUI.color = Color.white;
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("Overwrite & keep permanently", GUILayout.Height(32f)))
                 {
                     Commit(_pendingSlot, overwriteConfirmed: true);
                     _confirmOverwrite = false;
+                    _pendingCampaignMismatch = false;
                 }
                 if (GUILayout.Button("Cancel", GUILayout.Height(32f), GUILayout.Width(100f)))
+                {
                     _confirmOverwrite = false;
+                    _pendingCampaignMismatch = false;
+                }
                 GUILayout.EndHorizontal();
                 GUI.DragWindow();
                 return;
@@ -137,12 +153,17 @@ namespace DWMPHorde
                 else if (s.IsCoopCopy)
                     detail = "Co-op copy  Day " + s.Day + " Ch." + s.Chapter
                         + (string.IsNullOrEmpty(s.TimeSaved) ? "" : "  " + s.TimeSaved)
-                        + (s.MatchesIncomingPackage ? "  [SAME AS HOST]" : "");
+                        + (s.MatchesIncomingPackage ? "  [SAME AS HOST]" : "")
+                        + (s.CampaignMismatchWithHost ? "  [DIFFERENT CAMPAIGN]" : "");
                 else
                     detail = "Campaign  Day " + s.Day + " Ch." + s.Chapter
-                        + (string.IsNullOrEmpty(s.TimeSaved) ? "" : "  " + s.TimeSaved);
+                        + (string.IsNullOrEmpty(s.TimeSaved) ? "" : "  " + s.TimeSaved)
+                        + (s.CampaignMismatchWithHost ? "  [DIFFERENT CAMPAIGN]" : "");
 
+                if (s.CampaignMismatchWithHost)
+                    GUI.color = new Color(1f, 0.55f, 0.35f);
                 GUILayout.Label(detail, GUILayout.ExpandWidth(true));
+                GUI.color = Color.white;
 
                 string btn = s.IsEmpty ? "Use empty" : (s.IsCoopCopy ? "Update copy" : "Overwrite");
                 if (GUILayout.Button(btn, GUILayout.Width(110f), GUILayout.Height(28f)))
@@ -172,6 +193,7 @@ namespace DWMPHorde
                 return;
             }
             _pendingSlot = s.Id;
+            _pendingCampaignMismatch = s.CampaignMismatchWithHost;
             _confirmOverwrite = true;
         }
 
