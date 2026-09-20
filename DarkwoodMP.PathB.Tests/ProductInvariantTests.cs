@@ -29,14 +29,14 @@ public class ProductInvariantTests
     [Fact]
     public void PluginInfo_IsYokWarePathB_Protocol25()
     {
-        var text = File.ReadAllText(Path.Combine(ModDir, "PluginInfo.cs"));
+        var text = File.ReadAllText(Path.Combine(ModDir, "Bootstrap", "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
         Assert.Contains("ProtocolVersion = 25", text);
         Assert.Contains("Horde", text);
 
-        var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.7\.[^""]+)""");
-        Assert.True(versionMatch.Success, "PluginInfo.Version must be 0.7.x");
+        var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.8\.[^""]+)""");
+        Assert.True(versionMatch.Success, "PluginInfo.Version must be 0.8.x");
     }
 
     [Fact]
@@ -44,14 +44,15 @@ public class ProductInvariantTests
     {
         var required = new[]
         {
-            "Patches/ClientHitscanDamageRedirectPatch.cs",
-            "Patches/ClientCombatPatches.cs",
-            "Patches/HostCombatPatches.cs",
-            "Patches/ClientAIDisablePatches.cs",
-            "Networking/EntityStateBroadcastService.cs",
-            "Networking/ClientEntityInterpolationService.cs",
+            "Domains/Combat/Patches/ClientHitscanDamageRedirectPatch.cs",
+            "Domains/Combat/Patches/ClientCombatPatches.cs",
+            "Domains/Combat/Patches/HostCombatPatches.cs",
+            "Domains/Combat/Patches/ClientAIDisablePatches.cs",
+            "Domains/World/Patches/BirdAreaSyncPatches.cs",
+            "Networking/Services/EntityStateBroadcastService.cs",
+            "Networking/Services/ClientEntityInterpolationService.cs",
             "Networking/NetworkRole.cs",
-            "Patches/AudioSuppressionPatch.cs",
+            "Domains/Combat/Patches/AudioSuppressionPatch.cs",
         };
         foreach (var rel in required)
         {
@@ -59,7 +60,7 @@ public class ProductInvariantTests
             Assert.True(File.Exists(path), "Missing Horde authority surface: " + rel);
         }
 
-        var redirect = File.ReadAllText(Path.Combine(ModDir, "Patches", "ClientHitscanDamageRedirectPatch.cs"));
+        var redirect = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "ClientHitscanDamageRedirectPatch.cs"));
         Assert.Contains("NetworkRole.Client", redirect);
         Assert.Contains("PlayerAttack", redirect);
         Assert.Contains("return false", redirect);
@@ -88,7 +89,7 @@ public class ProductInvariantTests
         Assert.False(Directory.Exists(archiveRoot),
             "Frozen Path A tree must stay out of the public ship path.");
 
-        var entry = Path.Combine(ModDir, "DWMPEntry.cs");
+        var entry = Path.Combine(ModDir, "Bootstrap", "DWMPEntry.cs");
         Assert.True(File.Exists(entry));
         Assert.Contains("BepInPlugin", File.ReadAllText(entry));
         Assert.False(File.Exists(Path.Combine(ModDir, "ModMain.cs")),
@@ -99,7 +100,7 @@ public class ProductInvariantTests
     public void NetworkApplyGuard_IsSealedClass_NotStruct()
     {
         // struct + `using (new NetworkApplyGuard())` compiled to initobj (ctor never ran).
-        var guard = File.ReadAllText(Path.Combine(ModDir, "Networking", "NetworkApplyGuard.cs"));
+        var guard = File.ReadAllText(Path.Combine(ModDir, "Networking", "Services", "NetworkApplyGuard.cs"));
         Assert.Contains("sealed class NetworkApplyGuard", guard);
         Assert.DoesNotContain("struct NetworkApplyGuard", guard);
     }
@@ -107,7 +108,8 @@ public class ProductInvariantTests
     [Fact]
     public void LanForward_UsesPutRaw_NotLengthPrefixedRewrap()
     {
-        var lan = File.ReadAllText(Path.Combine(ModDir, "Networking", "LanNetworkManager.cs"));
+        // Host forward path lives in inbound dispatch partial (not the LAN manager shell).
+        var lan = File.ReadAllText(Path.Combine(ModDir, "Networking", "Dispatch", "LanNetworkManager.Dispatch.cs"));
         Assert.Contains("PutRaw(payload)", lan);
         Assert.DoesNotContain("w => w.Put(payload)", lan);
     }

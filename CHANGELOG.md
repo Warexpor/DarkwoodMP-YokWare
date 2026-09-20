@@ -2,12 +2,385 @@
 
 ## Versioning
 
-The current product line is `0.7.x`. The plugin and display version are
-**0.7.81**. The current Horde wire protocol is **25**.
+The current product line is `0.8.x`. The plugin and display version are
+**0.8.0**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.0: Architecture rewrite (structure first)
+
+Intentional major structural pass on Path B. Gameplay math and known patch
+targets stay; the code shape does not. 0.7.81 remains the last pre-rewrite
+ship line (committed/pushed backup).
+
+### Goals
+
+- Break up god-files (`LanNetworkManager.Handlers`, `WorldPhysicsSyncService`,
+  flat `Patches/`) into domain modules with clear ownership.
+- Prefer composition (handler services) over endless `partial` dumps.
+- Keep protocol **25** wire formats stable unless a later 0.8.x needs a bump.
+- Strip over-engineering and wrong techniques when found; no sync crutches.
+
+### Parked / deferred (investigation)
+
+- **`QuestRandomizer`:** parked — rare/debug-style Bring-me-X (`Core.displayMessage`
+  hardcoded English; random item count/type; shared `inventory` check +
+  next-day rifle reward). No other C# callers in Assembly-CSharp; campaign
+  “bring me” lines are dialogue (Wolf/Musician), not this component. Personal
+  message + shared inventory would need a design if ever used — do not invent
+  sync. Evidence in `COOP_COVERAGE.md`. Protocol **25** unchanged.
+- **`Underwater`:** parked — host Character AI only; no dedicated msg.
+  Driven from `Character` paths already client-suppressed via
+  `ClientAIDisablePatches`; peers observe via `EntityStateBroadcast`.
+  Evidence in `COOP_COVERAGE.md`. Protocol **25** unchanged.
+- **`VineSpawner` host-only Start:** parked — clients must spawn + wire
+  `GameEvents.events[0].targetGameObjects` locally; `ApplyGameEventsFired`
+  calls `best.fire()` which uses those list refs (not vine name/pos lookup).
+  Peer divergence is cosmetic vine Y rotation only. Evidence in
+  `COOP_COVERAGE.md`. Protocol **25** unchanged.
+- **`ActionWhenTurnedOn`:** parked — `Item.turnOn`/`turnOff` set `turnedOn`;
+  `LightState` apply already calls turnOn/Off. No dedicated msg. Evidence in
+  `COOP_COVERAGE.md`. Protocol **25** unchanged.
+- **`EventTrigger.fired` / `firedExit` late-join bulk:** parked — no
+  dedicated trigger bulk (msg **138** is `ScenarioStateBulk`). Decompile
+  `EventTrigger.fire` latches
+  `fired` then only calls `gameEvents.fire()` (plus optional item remove);
+  `fireExit` only calls `gameEventsExit.fire()`. World correctness is the
+  linked `GameEvents` latch. Late-join already sends `GameEventsBulk` (136)
+  for `fired && !multipleFire`; client one-shots are also blocked by
+  `GameEventsFiredPatch` (area enter is intentionally not suppressed —
+  `EventTriggersProxyPatches`). Joiner may re-enter `EventTrigger.fire` with
+  local `fired=false`, but GE side effects do not re-run. Protocol **25**
+  unchanged. Evidence in `COOP_COVERAGE.md`.
+- **`timesCraftedLimit` / `Player.craftedItems`:** parked — per-player by
+  design (`Player.SaveState`, local `Player.Instance` gate, personal UI msg).
+  Shared craft world state remains `workbenchLevel` (already synced). No craft-
+  count msg; protocol **25** unchanged. Evidence in `COOP_COVERAGE.md`.
+### Changed (this milestone)
+
+- **CharacterSpawnPoint host authority:** Harmony Prefix on
+  `CharacterSpawnPoint.actuallySpawn` and `waitToSpawnCharacter` — clients
+  skip; Offline/Host keep vanilla. Covers `Location.spawnCharacters` and
+  WorldGenerator BigBiome direct `actuallySpawn`. Observation via
+  `EntityStateBroadcast` — no new message. Protocol **25** unchanged.
+- **InventoryRandom host authority:** Harmony Prefix on `InventoryRandom.randomize`
+  and `spawnItems` — clients skip (and set `spawnedItems`); Offline/Host keep
+  vanilla. Covers Awake/`init` rolls, Location difficulty `spawnItems` path, and
+  NPC trader new-day `randomize(force)`. Independent peer RNG was diverging chest
+  / corpse / trader contents (same family as UniqueItemSpawner). When peers are
+  already connected after host `spawnItems`, host Broadcasts existing
+  `ContainerStateSync` (76) snapshot (incl. empty NPC refresh); otherwise late
+  open uses `ContainerStateRequest` / `ContainerStateSync` via
+  `ContainerSearchedPatch`. No new message. Protocol **25** unchanged.
+- **RandomSpawnArea host authority:** Harmony Prefix on
+  `RandomSpawnArea.spawnPrefab` — clients skip; Offline/Host keep vanilla
+  interval AddPrefab near `Player.Instance`. Observation via entity /
+  WorldSaveShare — no new message. Protocol **25** unchanged.
+- **WormsSpawner / Location.spawnWorm host authority:** clients Prefix-skip
+  `Location.spawnWorm` and `WormsSpawner.spawn` (night mushroom AddPrefab).
+  No C# callers beyond `Location.spawnWorm` in the decompile (likely
+  animation/UnityEvent); still host-gated so any invoke cannot diverge.
+  No new message. Protocol **25**.
+- **Night scenario late-join (`ScenarioStateBulk` 138):** host light-phase
+  bulk now snapshots `NightScenario` name + per-index non-firing latches from
+  decompile `CustomEvent.started`, `RandomEvent.startedToday` /
+  `RandomEvent.disabled`, plus `currentEvent` index and `timeStarted`
+  (day/time). Client apply sets those fields only — never calls
+  `CustomEvent.fire` / `RandomEvent.fire` / `checkFrequencies` (spawns stay on
+  host entity snapshots; one-shot GEs stay on `GameEventsBulk` 136). Live
+  `ScenarioSync` (39) / `ScenarioEventFired` (40) unchanged. Protocol **25**.
+- **ObjectSpawner host authority:** Harmony Prefix on private
+  `ObjectSpawner.spawnObject` — clients skip; Offline/Host keep vanilla
+  interval / randomOffset / loop AddPrefab|AddPooledPrefab. Independent peer
+  RNG was diverging placements. No new message (entity / WorldSaveShare
+  observation, same family as RandomObjectSpawner). **VineSpawner** host-only
+  Start parked: clients must run Start so `GameEvents.targetGameObjects` are
+  wired for `GameEventsFired` / Bulk apply (`best.fire()` uses local list
+  refs). **ActionWhenTurnedOn** parked as covered by `Item.turnOn`/`turnOff`
+  via existing `LightState` apply. Protocol **25** unchanged.
+- **PorterSpawner / InSightOfPlayer FOV (partial):** clients Prefix-skip
+  `PorterSpawner.Start` and `waitToSpawn` so only the host places the Porter
+  NPC (entity snapshots; no new message). Host `InSightOfPlayer.checkSight`
+  already OR'd session avatars via `HostPlayerIdentity.AnyInSight`; that helper
+  now reuses vanilla `Player.isInSight` for the local player and for each
+  `RemotePlayerProxy` by briefly pointing `Player._transform` at the proxy
+  (same `currentFOV` / `FOVDot` / `Core.canSee` path — no magic 55° fallback).
+  General EventTrigger FOV parity stays deferred. Protocol **25** unchanged.
+- **World-object Burn sync (Door/Window/Item):** new Forwardable `WorldBurnState`
+  (msg **137**) for Flame/molotov ignition on barricades and destructible items.
+  Harmony on `Burn.Start` / `Burn.stop` (Prefix before Destroy); skips `CharBase` /
+  `Player` / `ProxyItem` so Character/Player paths stay on `EntityBurning` (41) /
+  `PlayerBurning` (44). Host broadcasts; client→host→peers. Apply finds Door /
+  Window / Item by pos, `AddComponent<Burn>` (optional remaining time) or
+  `Burn.stop()` under `NetworkApplyGuard`. Late-join `SendWorldBurnStatesTo` scans
+  live world Burns. Protocol **25** unchanged (new ID within same DLL).
+- **BirdArea co-op presence:** vanilla `OnTriggerEnter`/`Exit` require
+  `GetComponent<Player>()` — remote proxies strip `Player`, so the host never
+  saw clients walk into bird volumes. Clients Prefix-skip `BirdArea.Start`
+  (and local trigger side effects) so only the host spawns/simulates AreaBirds
+  (entity state broadcast; no new message). Host MP replaces enter/exit with
+  presence refcount for `Player` + `RemotePlayerProxy`; when the enterer is a
+  proxy, `sendBirdToAttackPlayer` uses `attackCharacter(proxy)` instead of
+  `attackPlayer()` → `Player.Instance`. Offline unchanged. Protocol **25**
+  unchanged.
+- **RandomObjectSpawner host authority:** Harmony Prefix on
+  `RandomObjectSpawner.spawnObject` — clients skip; Offline/Host keep vanilla
+  probability + prefab roll / `tryToSpawn`. Independent peer RNG was diverging
+  world loot and NPCs. No new message: Characters ride `EntityStateBroadcast` +
+  client pending match / local spawn; Items/saveables from Awake/worldgen ride
+  WorldSaveShare / campaign load (`Core.addToSaveable`). Pre-handshake Offline
+  may still spawn on both machines before Role is Client — share reconciles.
+  Protocol **25** unchanged.
+- **UniqueItemSpawner TeddyBear host authority:** Harmony Prefix on
+  `UniqueItemSpawner.spawn` — clients skip; only Offline/Host roll the random
+  container and `createItem("TeddyBear")`. Independent peer RNG was placing the
+  bear in different chests (0 mod hits). After host spawn, if peers are already
+  connected, host fans existing Forwardable `ContainerItem` PlaceItem (msg **11**)
+  for that slot — no new message. Spawn before handshake still runs on the
+  future host; late peers observe via `ContainerStateRequest` /
+  `ContainerStateSync` on open (`ContainerSearchedPatch`). Protocol **25**
+  unchanged.
+- **ChainParent attach + Vine latch:** `ChainState` (134) now also posts from
+  `ChainParent.attach` and Vine Update false→true latch (`chainParent.attached = true`
+  without calling attach). Apply mirrors detach: remote `attached=true` with local
+  `!attached` calls `attach()` under `NetworkApplyGuard`. Host and client both
+  Broadcast (Forwardable). Protocol **25** unchanged.
+- **Infection late-join bulk:** host heavy phase 9 (with gas) scans
+  `Infection` components and pushes living splats via existing `EntitySpawn` (86)
+  — same apply path as live host spread sync; no new message id. Cap 256; skips
+  `disappearing`. Protocol **25** unchanged.
+- **Late-join fired GameEvents bulk:** new host→peer `GameEventsBulk` (msg **136**)
+  for already-latched one-shots (`fired && !multipleFire` on host components).
+  Heavy late-join phase 11 scans `FindObjectsOfType<GameEvents>` (includeInactive),
+  skips `multipleFire`, `isSavedDelayedEvent`, ephemeral dream FX (`def_glow` /
+  `def_shadow`), and `dream_*` when no dream is active. Joiner applies each entry
+  via the live `GameEventsFired` resolve/fire path under `NetworkApplyGuard`
+  (pending queue when the GO is not loaded yet). Host does not re-fire. Night
+  **scenario** bulk remains deferred (unique spawn replay risk). Protocol **25**
+  unchanged (new ID within same DLL). Cap 2048.
+- **ShadowArmor mid-fight health sync:** new Forwardable `ShadowArmorState` (msg **135**)
+  for absolute `health` / `maxHealth` / `destroyed` keyed by rounded world pos. Harmony
+  postfix on `ShadowArmor.damageMe` and `die` (skip under `NetworkApplyGuard`); host
+  broadcasts, client→host→peers. Apply finds armor via destructible `Item` at pos or
+  nearest `ShadowArmor`, sets `health`/`destHealth`, or `die(instant)` when destroyed.
+  Character-owned armor still syncs by pos (HP bar only; entity combat authority
+  untouched). Late-join `SendShadowArmorStatesTo` pushes damaged armor only. Closes the
+  gap where `MeleeWorldHit` / light only showed peers the destroy event. Protocol **25**
+  unchanged (new ID within same DLL).
+- **ChainParent co-op sync:** new Forwardable `ChainState` (msg **134**) for absolute
+  `health` + `attached` keyed by rounded world pos (optional `maxHealth` trailer for
+  late-join). Harmony postfix on `getHit` / `attach` / Vine latch / `detach` (timer,
+  health-zero, onDie); host broadcasts, client→host→peers. Apply finds nearest
+  `ChainParent`, sets health, calls `detach` or `attach` under `NetworkApplyGuard`
+  when remote attached differs. Late-join `SendChainStatesTo` pushes only damaged or
+  detached chains. Protocol **25** unchanged (new ID within same DLL).
+- **Late-join map discoveries:** `SendMapStateSyncTo` now scans
+  `MapElement` (`FindObjectsOfType`, includeInactive) for `isOnMap` + non-empty
+  `elementName` (decompile: `MapElement.isOnMap`, `Map.showElement`), caps at
+  4096, and fills `MapStateSync` DiscoveryCount / DiscoveryElementNames.
+  `HandleMapStateSync` already applies via `OnRemoteElementDiscovered`. Live
+  discoveries remain msg 69; protocol 25 unchanged.
+- **FX / proxy third split (remaining ~500+ NetHandlers):** `PlayerLightFxNetHandlers`
+  (~614) → `PlayerLightFxApplyNetHandlers` (RX `PlayerLightState` + pending) +
+  `PlayerLightFxAmbientNetHandlers` (emitter / remote-lantern static helpers); thin
+  façade kept. `CombatFxNetHandlers` (~548) → `CombatFxImpactNetHandlers`
+  (throwable / explosion / melee) + `CombatFxGasBurnNetHandlers` (gas / burn /
+  late-join gas); thin façade kept (dropped dead duplicate `HandlePlayerAudio`
+  already owned by `WorldFxNetHandlers`). `WorldProxyNetHandlers` (~541) →
+  `WorldProxyLifecycleNetHandlers` (spawn / teleport / destroy / dream resync /
+  aggro) + `WorldProxyEffectNetHandlers` (footstep / effect-sync / sound / scare);
+  thin façade kept. **Skipped (no clean cluster):** `PlayerHeldLightApplyNetHandlers`
+  (~528 — one continuous flare/match apply path; flashlight alone too thin),
+  `PlayerInteractNetHandlers` (~513 — single drag domain; body-push is drag-adjacent),
+  `LocationEnterExitNetHandlers` (~508 — enter/exit/settle share proxy placement +
+  resolve helpers). Awake wires siblings; no Ensure*; protocol 25 unchanged.
+- **Combat / location / dialog second split:** `CombatNetHandlers` (~749) →
+  `CombatDeathBagNetHandlers` (bag maps + spawn/loot/late-join) +
+  `CombatAttackNetHandlers` (attack/damage/FF + sanitize) +
+  `CombatDeathStateNetHandlers` (PlayerDied / night morning / final dreamscene);
+  thin façade kept. `LocationNetHandlers` (~635) → `LocationEnterExitNetHandlers`
+  (enter/exit/settle/proxy) + `LocationEntityTrapNetHandlers` (entity spawn + trap);
+  thin façade kept. `DialogOutcomeNetHandlers` (~637) →
+  `DialogOutcomeApplyNetHandlers` (outcome apply/drain/tree) +
+  `DialogOutcomeCloseNetHandlers` (onCloseDialogue / leave-door GEs / NPC resolve);
+  thin façade kept (`StripCloneSuffix` forwards). Awake wires siblings; no Ensure*;
+  protocol 25 unchanged.
+- **Held-light + container second split:** `PlayerHeldLightNetHandlers` (~886) →
+  `PlayerHeldLightPackNetHandlers` (TX `PackContinuousLights` / local held helpers) +
+  `PlayerHeldLightApplyNetHandlers` (RX apply/spawn/destroy); thin façade kept.
+  `ContainerNetHandlers` (~690) → `ContainerLootNetHandlers` (take/put/deny/refund) +
+  `ContainerDeathDropNetHandlers` (corpse/open state request) +
+  `ContainerPendingNetHandlers` (pending remove/pre-count + state-sync apply); thin
+  façade kept. Awake wires siblings; no Ensure*; protocol 25 unchanged.
+- **Player held-light compose:** `PlayerStateNetHandlers` (~711) → pose/movement
+  (~199) + new `PlayerHeldLightNetHandlers` (remote flare/match/flashlight apply +
+  local `PackContinuousLights` / held-light helpers). Awake wires both; façade
+  forwards destroy/pack/`IsMatchLightItem`. No Ensure*; protocol 25 unchanged.
+- **LNM further slim (~1926 → ~1332):** `PackContinuousLights` + send cache →
+  `PlayerHeldLightNetHandlers`; `ProxyAggroCheck` → `WorldProxyNetHandlers`;
+  `SyncExistingDeathBags` → `CombatNetHandlers`. Transport Start/Stop/Update peer
+  poll stays on `LanNetworkManager`.
+- **Megabase handler split (relocation only):** `PlayerNetHandlers` (~1300) →
+  `PlayerStateNetHandlers` / `PlayerPresenceNetHandlers` / `PlayerInteractNetHandlers`;
+  `FxNetHandlers` (~1204) → `WorldFxNetHandlers` / `PlayerLightFxNetHandlers` /
+  `CombatFxNetHandlers`; `WorldStateNetHandlers` (~930) → `WorldPhysicsNetHandlers` /
+  `WorldWeatherTimeNetHandlers` / `WorldLateJoinNetHandlers` / `WorldProxyNetHandlers`;
+  `DialogNetHandlers` (~699) → `DialogOutcomeNetHandlers` / `DialogNpcLockNetHandlers`
+  (tree folded into outcome; no dialog bulk); `WorldSendNetHandlers` (~679) →
+  `WorldObjectSendNetHandlers` / `WorldSendNetHandlers` (despawns folded into object sends).
+  Awake wires each service; façades updated; wire/patches unchanged.
+- Product line bumped **0.7.81 → 0.8.0** (`PluginInfo`, assembly, csproj, docs,
+  PathB product invariant tests).
+- Scaffolded `Bootstrap/`, `Core/`, and `Domains/{Combat,Dream,Dialogue,World,Inventory,Doors,Players,Map,Night}/`.
+- Moved entry/policy leaf files into `Bootstrap/` and `Core/`; relocated Combat and
+  Dream `LanNetworkManager` partials under `Domains/` (still partials — behavior unchanged).
+- **Sync/ + Patches/ → Domains/** (folder moves only; C# namespaces and Harmony
+  attributes unchanged; protocol 25 unchanged):
+  - Dream sync → `Domains/Dream/` (`DreamSyncManager`, `DreamSession`,
+    `DreamAudioPlayer`, `DreamForestSpiritAggro`, `FinalDreamsceneManager`)
+  - Doors/stations → `Domains/Doors/` (`DoorSyncPatches`, `SawSyncPatches`,
+    `StationSyncPatches`); workbench lock → `Domains/Inventory/`
+  - Dialogue sync → `Domains/Dialogue/` (tree sync/codec, host/client guards,
+    `NpcDialogueLock`)
+  - Players/Map → `Domains/Players/` (`CharacterTracker`, `EntityTrackers`,
+    `FreezeTracker`, `PeerItemPresence`) and `Domains/Map/` (`MultiplayerMapManager`)
+  - `WorldPhysicsSyncService` → `Domains/World/`
+  - Flat `Patches/` grouped into `Domains/*/Patches/`; cross-cutting leftovers
+    remain under `Patches/` (save/path/pause/world-share)
+  - `ProductInvariantTests` Horde authority paths updated to
+    `Domains/Combat/Patches/…`
+- **`LanNetworkManager.Handlers.cs` (~10.5k) split** into domain/session
+  partials (behavior unchanged; protocol 25 unchanged):
+  - `Networking/Session/` — handshake/world-share, save/backup, bulk sync
+  - `Domains/Players/` — player state/lights/drag + anim/FX handlers
+  - `Domains/Doors/` — locks, DoorOpen, barricades
+  - `Domains/Inventory/` — containers, trade, journal/workbench
+  - `Domains/World/` — GameEvents, locations, physics/FX/sends
+  - `Domains/Night/` — shadows/scenario/sleep + flags
+  - `Domains/Dialogue/` — dialog outcome/tree/NPC lock
+  - `Domains/Map/` — markers/discoveries
+  - Original god-file removed (no empty stub).
+- Removed empty `Sync/` folder; leftover helpers live under `Domains/World/`.
+- Merged flat `Players/` into `Domains/Players/Runtime/` (namespaces unchanged).
+- **`WorldPhysicsSyncService` (~4.5k) split** into partials under `Domains/World/`:
+  Snapshot, Apply, Interpolation, Lights, Thrown, CombatFX, Types (+ thin core fields).
+- **Networking layout:** services → `Networking/Services/`; Steam partial →
+  `Networking/Steam/`; inbound switch → `Networking/Dispatch/LanNetworkManager.Dispatch.cs`.
+  `LanNetworkManager.cs` slimmed (~2.4k → ~1.8k LOC).
+- **`DreamSyncManager` (~2k) split** into partials: Session, RemoteEntry,
+  EndFreeze, Cleanup, SceneLoad, Transition (+ thin core fields).
+- Separated `LanNetworkManager` handler partials out of Harmony patch files
+  (Examinable, Chapter, Cutscene, CursorAction, Epilogue) so Patches/ no
+  longer embeds networking handlers.
+- **Stripped dual `Door.open` Harmony:** removed `Sync.DoorOpenPatch`; sole
+  fan-out is `DoorOpenSyncPatch` (DoorOpen + DoorState once, real OpenForce).
+- **Combat composed:** `CombatNetHandlers` owns death-bags + combat message
+  handlers; `LanNetworkManager.Combat.cs` is a thin façade (0.8 composition pattern).
+- **Dream composed:** `DreamNetHandlers` + thin DreamHandlers façade.
+- **Containers composed:** `ContainerNetHandlers` + thin ContainerHandlers façade.
+- **Dialog composed:** `DialogNetHandlers` + thin DialogHandlers façade.
+- **Map / Examinable / Trade composed:** `MapNetHandlers`, `ExaminableNetHandlers`,
+  `TradeNetHandlers` + thin façades (`SendBulkOrAll` now internal for trade bulk).
+- **Doors composed:** `DoorNetHandlers`, `LockNetHandlers`, `BarricadeNetHandlers`,
+  `CursorActionNetHandlers` + thin façades; `_remoteOutsideLocation` kept on manager.
+- **Night composed:** `NightNetHandlers`, `FlagNetHandlers` + thin façades
+  (shadows/scenario/sleep/time only).
+- **Players composed:** `PlayerStateNetHandlers`, `PlayerPresenceNetHandlers`,
+  `PlayerInteractNetHandlers`, `PlayerFXNetHandlers` + thin façades
+  (trap/drag public APIs preserved; former megabase `PlayerNetHandlers` split by theme).
+- **Journal composed:** `JournalNetHandlers` + thin façade.
+- **World composed:** `ChapterNetHandlers`, `CutsceneNetHandlers`, `GameEventNetHandlers`,
+  `LocationNetHandlers`, `WorldFxNetHandlers`, `PlayerLightFxNetHandlers`,
+  `CombatFxNetHandlers`, `WorldPhysicsNetHandlers`, `WorldWeatherTimeNetHandlers`,
+  `WorldLateJoinNetHandlers`, `WorldProxyNetHandlers`, `WorldSendNetHandlers`
+  + thin façades (public Send*/proxy APIs preserved; former megabase `FxNetHandlers`
+  / `WorldStateNetHandlers` split by theme); tick/shadow fields →
+  `LanNetworkManager.WorldTickFields`; door/trap sends on `WorldSendNetHandlers`.
+- **Strip pass (spatial / workbench / epilogue / domain hygiene):**
+  - Junk-drawer `JournalWorkbenchHandlers` removed; spatial finds → `WorldQueryHelper`
+    (DeathDrop fallback included); callers use helper directly;
+    `InventoryHelpers` keeps only `SyncItemAmount`.
+  - `FindDestructibleItemXz` moved into `WorldQueryHelper`; FX façade wrapper dropped.
+  - Disabled workbench exclusive-lock gutted: deleted no-op Harmony patches;
+    `WorkbenchOpenLock` stub keeps `Reset` + `HostReleaseAllForPlayer`; wire msg 119 +
+    ignore handler retained.
+  - Epilogue SceneLoad composed: `EpilogueNetHandlers` + thin EpilogueHandlers façade.
+  - Dual `Door.open` Harmony already stripped earlier this line (`DoorOpenSyncPatch` only).
+  - Late-join world light/generator sync moved Lock → `WorldLateJoinNetHandlers`
+    (was briefly on `WorldStateNetHandlers` before the WorldState theme split).
+    (`SyncExistingWorldLightsTo` / `SyncExistingGeneratorsTo` / `ResyncWorldLightsForPeer`).
+  - Façade `Ensure*Handlers` spam removed (~24 methods / ~225 call sites): Awake
+    already constructs every `*NetHandlers` service.
+  - Saw/feeder/lure station sync moved Night → `Domains/Doors/StationNetHandlers`
+    (+ thin `StationHandlers` façade) next to `SawSyncPatches` / `StationSyncPatches`.
+  - **Session Save / BulkSync composed:** `SaveNetHandlers` + `BulkSyncNetHandlers`
+    (thin Session façades); flag bulk consolidated onto `FlagNetHandlers`.
+    Handshake/`SessionHandlers` and `ResetSessionNetworkState` stay on the manager;
+    protocol 25 unchanged.
+- **Beauty / state ownership:** clear domain-owned pending queues and maps moved
+  off the `LanNetworkManager` state bag onto owning `*NetHandlers` services
+  (station saw/feeder/lure, flags, barricades, constructibles, trade inventories,
+  container remove/take pre-counts, journal bulk, night scenario, game-events,
+  drag claims/remote-drag maps, pending player lights, melee-hit debounce).
+  LNM keeps thin forwards only where call sites cannot change cheaply (drag maps,
+  container record helpers, pending lights). Peer maps / Steam / migration /
+  handshake / late-join bulk stay on LNM (session transport).
+  `ResetSessionNetworkState` clears via handler `Clear*` methods.
+- **Diff optics:** vs HEAD the rewrite is roughly LOC-neutral (~+21k / −18.5k
+  with all files staged). Cursor’s earlier ~+52k view was untracked new files
+  (NetHandlers + physics/dream partials) counted as pure adds without pairing
+  the deleted god-files (`Handlers.cs` ~10.5k, `WorldPhysicsSyncService` ~4.5k,
+  `DreamSyncManager` ~2k).
+- **`Networking/` folder layout** (folder moves + one dispatch extract; namespaces
+  unchanged; protocol 25 unchanged):
+  - Service-ish leaves → `Networking/Services/` (`EntityStateBroadcastService`,
+    `ClientEntityInterpolationService`, `WorldSaveShareService`, `WorldSyncService`,
+    `HostMigration`, `ClientStateBackup`, `NetworkApplyGuard`, `NetworkResetRegistry`)
+  - Steam stays under `Networking/Steam/` (`SteamCoopTransport`, `SteamRelay`);
+    `LanNetworkManager.Steam.cs` moved beside them
+  - `ConnectionBackend` → `Networking/Transport/`
+  - Inbound `ProcessInboundMessage` switch →
+    `Networking/Dispatch/LanNetworkManager.Dispatch.cs` (partial; behavior identical)
+  - `ProductInvariantTests` paths updated for Services + Dispatch PutRaw check
+
+### Parked / deferred
+
+- Full dual-box soak of every domain after the rewrite (required before calling
+  0.8 “playtest-green”). Dual-deploy of the Release DLL to Steam + SecondDarkwood
+  plugins is done; in-game soak is not.
+- **ObjectStages:** no `StageState` msg. Decompile shows stages only fire
+  `GameEvents` (`setStage` → `gameEvents[i].fire()`); covered by live
+  `GameEventsFired` (65) + late-join `GameEventsBulk` (136). See
+  `docs/COOP_COVERAGE.md`.
+- **Session** Save / Bulk / Session handlers stay as organized `LanNetworkManager`
+  partials under `Networking/Session/` — handshake, peer maps, Steam rebind, and
+  late-join orchestration are the transport seam; a full `*NetHandlers` extract
+  failed and is not retried. Optional later peel of Save/BulkSync only.
+- Further slim of `LanNetworkManager.cs` core (~1.8k) and optional Save/Bulk
+  composition for consistency.
+- Optional protocol bump only if a later 0.8.x forces wire changes.
+
+---
+
+## 0.7.81 (host notes): Linux dual-box playtest paths
+
+Machine move Windows → Linux. No protocol or gameplay wire change.
+
+### Changed (dev / deploy)
+
+- `DeployToGameDirs` honors optional `SecondPlugins` from `GamePath.local.props` (Windows path remains the default fallback).
+- `YokWare.EntitySpawner` now deploys to Steam + SecondDarkwood plugin dirs after build.
+- Added `.gitattributes` (`eol=lf`) and launch helpers: `scripts/run-darkwood-host.sh`, `scripts/run-seconddarkwood.sh` (Proton Experimental as Wine runtime when system `wine` is unavailable).
+
+### Verification
+
+- Steam native + BepInEx **5.4.23.5** linux-x64: YokWare 0.7.81 + EntitySpawner + ItemSpawner load.
+- SecondDarkwood under Proton: same mod DLL, Doorstop via `winhttp=n,b`, save root → `Darkwood_Second`.
 
 ---
 

@@ -547,6 +547,53 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>
+    /// Host→late-joiner: already-fired one-shot GameEvents (conservative subset:
+    /// <c>fired &amp;&amp; !multipleFire</c> on host components). Each entry reuses
+    /// the live GameEventsFired identity (rounded pos + name).
+    /// </summary>
+    public struct GameEventsBulkMessage
+    {
+        public int EventCount;
+        public float[] PosX;
+        public float[] PosY;
+        public float[] PosZ;
+        public string[] EventNames;
+
+        public const int MaxEvents = 2048;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(EventCount);
+            for (int i = 0; i < EventCount; i++)
+            {
+                w.Put(PosX != null && i < PosX.Length ? PosX[i] : 0f);
+                w.Put(PosY != null && i < PosY.Length ? PosY[i] : 0f);
+                w.Put(PosZ != null && i < PosZ.Length ? PosZ[i] : 0f);
+                w.Put(EventNames != null && i < EventNames.Length ? (EventNames[i] ?? "") : "");
+            }
+        }
+
+        public static GameEventsBulkMessage Deserialize(NetReader r)
+        {
+            var msg = new GameEventsBulkMessage { EventCount = r.GetInt() };
+            if (msg.EventCount < 0 || msg.EventCount > MaxEvents)
+                msg.EventCount = 0;
+            msg.PosX = new float[msg.EventCount];
+            msg.PosY = new float[msg.EventCount];
+            msg.PosZ = new float[msg.EventCount];
+            msg.EventNames = new string[msg.EventCount];
+            for (int i = 0; i < msg.EventCount; i++)
+            {
+                msg.PosX[i] = r.GetFloat();
+                msg.PosY[i] = r.GetFloat();
+                msg.PosZ[i] = r.GetFloat();
+                msg.EventNames[i] = r.GetString();
+            }
+            return msg;
+        }
+    }
+
     public struct HideoutUpgradeMessage
     {
         public float PosX, PosY, PosZ;
@@ -813,5 +860,123 @@ namespace DWMPHorde.Networking
                 LocationName = r.GetString(),
                 FromWorld = r.GetBool()
             };
+    }
+
+    /// <summary>
+    /// ChainParent absolute health/attached. Pos-keyed (rounded like traps).
+    /// Optional MaxHealth trailer for late-join.
+    /// </summary>
+    public struct ChainStateMessage
+    {
+        public float PosX, PosY, PosZ;
+        public float Health;
+        /// <summary>1 = attached, 0 = detached.</summary>
+        public byte Attached;
+        public bool HasMaxHealth;
+        public float MaxHealth;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Health);
+            w.Put(Attached);
+            if (HasMaxHealth)
+                w.Put(MaxHealth);
+        }
+
+        public static ChainStateMessage Deserialize(NetReader r)
+        {
+            var msg = new ChainStateMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                Health = r.GetFloat(),
+                Attached = r.GetByte()
+            };
+            if (r.AvailableBytes >= 4)
+            {
+                msg.HasMaxHealth = true;
+                msg.MaxHealth = r.GetFloat();
+            }
+            return msg;
+        }
+    }
+
+    /// <summary>
+    /// ShadowArmor absolute health / destroyed. Pos-keyed (rounded like chains).
+    /// </summary>
+    public struct ShadowArmorStateMessage
+    {
+        public float PosX, PosY, PosZ;
+        public float Health;
+        public float MaxHealth;
+        /// <summary>1 = destroyed (call die), 0 = alive with Health/MaxHealth.</summary>
+        public byte Destroyed;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Health);
+            w.Put(MaxHealth);
+            w.Put(Destroyed);
+        }
+
+        public static ShadowArmorStateMessage Deserialize(NetReader r) =>
+            new ShadowArmorStateMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                Health = r.GetFloat(),
+                MaxHealth = r.GetFloat(),
+                Destroyed = r.GetByte()
+            };
+    }
+
+    /// <summary>
+    /// World Door / Window / Item Burn state. Pos-keyed (rounded like chains).
+    /// Optional RemainingTime trailer when Burning != 0.
+    /// </summary>
+    public struct WorldBurnStateMessage
+    {
+        public const byte TargetDoor = 0;
+        public const byte TargetWindow = 1;
+        public const byte TargetItem = 2;
+
+        public float PosX, PosY, PosZ;
+        /// <summary>0 = Door, 1 = Window, 2 = Item.</summary>
+        public byte TargetType;
+        /// <summary>1 = burning (AddComponent Burn), 0 = stop / destroy Burn.</summary>
+        public byte Burning;
+        public bool HasRemainingTime;
+        public float RemainingTime;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(TargetType);
+            w.Put(Burning);
+            if (HasRemainingTime)
+                w.Put(RemainingTime);
+        }
+
+        public static WorldBurnStateMessage Deserialize(NetReader r)
+        {
+            var msg = new WorldBurnStateMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                TargetType = r.GetByte(),
+                Burning = r.GetByte()
+            };
+            if (r.AvailableBytes >= 4)
+            {
+                msg.HasRemainingTime = true;
+                msg.RemainingTime = r.GetFloat();
+            }
+            return msg;
+        }
     }
 }

@@ -423,6 +423,71 @@ namespace DWMPHorde.Networking
         public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt() };
     }
 
+    /// <summary>
+    /// Host→late-joiner: night scenario latch without replaying fire.
+    /// Per decompile <c>CustomEvent</c> / <c>RandomEvent</c>: set
+    /// <c>started</c>, <c>startedToday</c>, <c>disabled</c>, and
+    /// <c>NightScenario.currentEvent</c> only — never call
+    /// <c>CustomEvent.fire</c> / <c>RandomEvent.fire</c>.
+    /// </summary>
+    public struct ScenarioStateBulkMessage
+    {
+        public string ScenarioName;
+        /// <summary>Index into <c>customEventAndInts</c>, or -1 when none.</summary>
+        public int CurrentEventIndex;
+        public int CurrentEventTimeDay;
+        public int CurrentEventTimeTime;
+        public int FiredCount;
+        public int[] EventIndices;
+        public bool[] Started;
+        public bool[] StartedToday;
+        public bool[] Disabled;
+
+        public const int MaxEvents = 256;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ScenarioName ?? string.Empty);
+            w.Put(CurrentEventIndex);
+            w.Put(CurrentEventTimeDay);
+            w.Put(CurrentEventTimeTime);
+            w.Put(FiredCount);
+            for (int i = 0; i < FiredCount; i++)
+            {
+                w.Put(EventIndices != null && i < EventIndices.Length ? EventIndices[i] : -1);
+                w.Put(Started != null && i < Started.Length && Started[i]);
+                w.Put(StartedToday != null && i < StartedToday.Length && StartedToday[i]);
+                w.Put(Disabled != null && i < Disabled.Length && Disabled[i]);
+            }
+        }
+
+        public static ScenarioStateBulkMessage Deserialize(NetReader r)
+        {
+            var msg = new ScenarioStateBulkMessage
+            {
+                ScenarioName = r.GetString(),
+                CurrentEventIndex = r.GetInt(),
+                CurrentEventTimeDay = r.GetInt(),
+                CurrentEventTimeTime = r.GetInt(),
+                FiredCount = r.GetInt()
+            };
+            if (msg.FiredCount < 0 || msg.FiredCount > MaxEvents)
+                msg.FiredCount = 0;
+            msg.EventIndices = new int[msg.FiredCount];
+            msg.Started = new bool[msg.FiredCount];
+            msg.StartedToday = new bool[msg.FiredCount];
+            msg.Disabled = new bool[msg.FiredCount];
+            for (int i = 0; i < msg.FiredCount; i++)
+            {
+                msg.EventIndices[i] = r.GetInt();
+                msg.Started[i] = r.GetBool();
+                msg.StartedToday[i] = r.GetBool();
+                msg.Disabled[i] = r.GetBool();
+            }
+            return msg;
+        }
+    }
+
     public struct MapMarkerMessage
     {
         public float PosX, PosY, PosZ;

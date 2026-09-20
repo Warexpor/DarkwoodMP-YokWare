@@ -23,8 +23,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.7.81</Version>
-    <InformationalVersion>0.7.81-path-b</InformationalVersion>
+    <Version>0.8.0</Version>
+    <InformationalVersion>0.8.0-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
@@ -193,7 +193,8 @@
   <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx'">
     <PropertyGroup>
       <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
-      <SecondPlugins>C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
+      <!-- Override via GamePath.local.props (SecondPlugins). Windows default kept as fallback. -->
+      <SecondPlugins Condition="'$(SecondPlugins)' == ''">C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />

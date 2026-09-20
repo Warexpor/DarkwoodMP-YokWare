@@ -28,18 +28,44 @@ namespace DWMPHorde.Networking
         private readonly Dictionary<int, NetPeer> _peers = new Dictionary<int, NetPeer>();
         private NetworkRole _role = NetworkRole.Offline;
         private readonly Dictionary<int, RemotePlayerProxy> _remoteProxies = new Dictionary<int, RemotePlayerProxy>();
+
+        internal Dictionary<int, RemotePlayerProxy> RemoteProxies => _remoteProxies;
         private WorldSyncService _worldSync;
+
+        internal WorldSyncService WorldSync => _worldSync;
+
+        internal int PhysicsRecvLogCounter
+        {
+            get => _physicsRecvLogCounter;
+            set => _physicsRecvLogCounter = value;
+        }
+
+        internal Dictionary<short, ShadowCreature> ShadowTracked => _shadowTracked;
+        internal short NextShadowId
+        {
+            get => _nextShadowId;
+            set => _nextShadowId = value;
+        }
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
         private uint _nextPlayerStateSequence;
-        private readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
-        private readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
-        private readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
+        internal readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
+        internal Dictionary<int, uint> LastPhysicsStateSequence => _lastPhysicsStateSequence;
+        internal readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
+        internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _lastReliablePhysicsStateSequence;
+        internal readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
         private float _proxyAggroTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
-        private bool _wasDragging;
-        private string _lastDraggedItemName;
+        internal bool _wasDragging;
+        internal string _lastDraggedItemName;
+
+        internal bool WasDragging { get => _wasDragging; set => _wasDragging = value; }
+        internal string LastDraggedItemName { get => _lastDraggedItemName; set => _lastDraggedItemName = value; }
+        internal Dictionary<int, uint> LastPlayerStateSequence => _lastPlayerStateSequence;
+        internal Dictionary<string, Vector3> LastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
+        internal Dictionary<string, float> DragEndedAt => PlayerInteractHandlers.DragEndedAt;
+        internal static HashSet<string> ConsumedDropGuids => _consumedDropGuids;
         /// <summary>Local E-drag scrape intent (player walking). False → reliable quiet stop for peers.</summary>
         private bool _dragScrapeActive;
         private float _dragScrapeQuietSince = -1f;
@@ -54,7 +80,13 @@ namespace DWMPHorde.Networking
         /// </summary>
         private bool _handshakeComplete;
 
-        private bool AcceptSnapshotSequence(
+        internal bool HandshakeComplete
+        {
+            get => _handshakeComplete;
+            set => _handshakeComplete = value;
+        }
+
+        internal bool AcceptSnapshotSequence(
             Dictionary<int, uint> lastBySender,
             int senderId,
             uint sequence,
@@ -86,48 +118,40 @@ namespace DWMPHorde.Networking
         /// Per-peer handshake tracking on the host. Prevents a newly joining peer from
         /// freezing gameplay traffic for peers that are already ready.
         /// </summary>
-        private readonly HashSet<int> _handshakedPeers = new HashSet<int>();
+        internal HashSet<int> HandshakedPeers => _handshakedPeers;
+        internal readonly HashSet<int> _handshakedPeers = new HashSet<int>();
 
         private int _nextPlayerId = 2;
         private int _localPlayerId = 1; // Host is always player 1
 
         // Per-player state tracking (consolidated)
         private readonly Dictionary<int, RemotePlayerState> _remotePlayers = new Dictionary<int, RemotePlayerState>();
+
+        internal Dictionary<int, RemotePlayerState> RemotePlayers => _remotePlayers;
         private bool _previousInOutsideLocation;
         private string _previousLocationName = "";
         private int _locationSyncCounter;
+
+        internal bool PreviousInOutsideLocation
+        {
+            get => _previousInOutsideLocation;
+            set => _previousInOutsideLocation = value;
+        }
+        internal string PreviousLocationName
+        {
+            get => _previousLocationName;
+            set => _previousLocationName = value;
+        }
+        internal int LocationSyncCounter
+        {
+            get => _locationSyncCounter;
+            set => _locationSyncCounter = value;
+        }
         /// <summary>PlayerLightState arrived before proxy existed (phase-3 / early handshake).</summary>
-        private readonly Dictionary<int, PlayerLightStateMessage> _pendingPlayerLights =
-            new Dictionary<int, PlayerLightStateMessage>();
+        internal Dictionary<int, PlayerLightStateMessage> PendingPlayerLights =>
+            PlayerLightFxHandlers.PendingPlayerLights;
 
-        // Continuous light dirty cache for the local send path.
-        private bool _prevSentFlareActive;
-        private bool _prevSentFlashActive;
-        private bool _prevSentMatchActive;
-        private float _lastSentFlareRadius, _lastSentFlareIntensity;
-        private float _lastSentFlareColorR, _lastSentFlareColorG, _lastSentFlareColorB;
-        private float _lastSentFlashRadius, _lastSentFlashIntensity;
-        private float _lastSentFlashColorR, _lastSentFlashColorG, _lastSentFlashColorB;
-        private string _lastSentFlareItemType;
-        private float _lightParamsForceTimer;
-        private float _localHeldLightStartTime = -1f;
-        private float _localHeldLightLongevity = 3f;
         private int _nextThrowId = 1;
-        private const float LightParamsForceInterval = 0.15f; // ~6.6 Hz while active (was 1 Hz)
-        private const float LightRadiusDirtyEps = 5f;
-        private const float LightIntensityDirtyEps = 0.02f;
-        private const float LightColorDirtyEps = 0.02f;
-
-        // Flag sync arrived before Flags.Instance existed (main menu / loading)
-        private bool _hasPendingFlagBulk;
-        private FlagBulkSyncMessage _pendingFlagBulk;
-        private readonly List<FlagSyncMessage> _pendingFlagDeltas = new List<FlagSyncMessage>();
-        private const int MaxPendingFlagDeltas = 256;
-
-        // Journal bulk / world-object cleanup before UI.journal or scene pickups exist
-        private bool _hasPendingJournalBulk;
-        private JournalBulkSyncMessage _pendingJournalBulk;
-        private bool _needsJournalWorldCleanup;
 
         /// <summary>
         /// Peers awaiting late-join bulk. Value = realtime of first in-world PlayerState
@@ -140,7 +164,7 @@ namespace DWMPHorde.Networking
         /// One phase per peer per frame so host join frame does not freeze.
         /// </summary>
         private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
-        private const int HeavyLateJoinPhaseCount = 11; // weather through death bags
+        private const int HeavyLateJoinPhaseCount = 12; // weather through fired GameEvents bulk
 
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
         private const float ClientBulkSettleSeconds = 8f;
@@ -161,55 +185,23 @@ namespace DWMPHorde.Networking
         private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
 
         /// <summary>
-        /// Client: host pushed ClientStateBackup this session (skip local-self fallback).
-        /// </summary>
-        private bool _receivedHostClientBackup;
-        private Coroutine _clientBackupRestoreCo;
-        /// <summary>Wait for host late-join backup before falling back to local self file.</summary>
-        private const float ClientBackupHostWaitSec = 12f;
-
-        /// <summary>
         /// Host: last observed HostHasShareableWorld for rising-edge auto-share to title clients.
         /// </summary>
         private bool _hostWasShareableForWaitingClients;
 
-        // Trader absolute stock arrived before NPC GameObject existed
-        private readonly Dictionary<string, TradeInventorySyncMessage> _pendingTradeInventories =
-            new Dictionary<string, TradeInventorySyncMessage>();
 
-        // Constructible sites (rounded pos → option) for late-join bulk
-        private readonly Dictionary<string, ConstructibleMessage> _constructedSites =
-            new Dictionary<string, ConstructibleMessage>();
-        private readonly List<ConstructibleMessage> _pendingConstructibles = new List<ConstructibleMessage>();
-        private const int MaxPendingConstructibles = 64;
+        /// <summary>Remote peer OutsideLocation membership (location sync / late-join).</summary>
+        private readonly Dictionary<int, string> _remoteOutsideLocation = new Dictionary<int, string>();
 
-        // Saw state arrived before the Saw component existed in the scene
-        private readonly List<SawStateMessage> _pendingSawStates = new List<SawStateMessage>();
-        private const int MaxPendingSawStates = 16;
+        internal Dictionary<int, string> RemoteOutsideLocation => _remoteOutsideLocation;
 
-        // Feeder / Lure state before component exists in scene
-        private readonly List<FeederStateMessage> _pendingFeederStates = new List<FeederStateMessage>();
-        private readonly List<LureStateMessage> _pendingLureStates = new List<LureStateMessage>();
-        private const int MaxPendingStationStates = 16;
-
-        // Barricade/door/window events before target exists in the scene
-        private readonly List<BarricadeEventMessage> _pendingBarricadeEvents = new List<BarricadeEventMessage>();
-        private const int MaxPendingBarricadeEvents = 64;
-
-        // Night scenario join/live before NightScenarios.Instance exists
-        private bool _hasPendingScenarioSync;
-        private ScenarioSyncMessage _pendingScenarioSync;
-        private bool _hasPendingScenarioEvent;
-        private ScenarioEventFiredMessage _pendingScenarioEvent;
-
-        // GameEventsFired arrived before the matching GameEvents existed in the scene
-        private readonly List<GameEventsFiredMessage> _pendingGameEvents = new List<GameEventsFiredMessage>();
-        private const int MaxPendingGameEvents = 64;
 
         public NetworkRole Role => _role;
         public bool IsConnected => PeerCount > 0;
         public int ConnectedPlayerCount => PeerCount;
         public int LocalPlayerId => _localPlayerId;
+
+        internal void AssignCurrentReceivePlayerId(int playerId) => _currentReceivePlayerId = playerId;
         public string StatusText { get; internal set; } = "Offline";
         /// <summary>Snapshot of connected peer player-ids (LAN or Steam). Safe to mutate after call.</summary>
         public IReadOnlyCollection<int> ConnectedPlayerIds
@@ -257,57 +249,28 @@ namespace DWMPHorde.Networking
             return state;
         }
 
-        /// <summary>
-        /// Records a pending RemoveItem/TakeItem so HandleContainerStateSync
-        /// won't re-add the item to this slot (infinite loot dupe prevention).
-        /// </summary>
-        internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx)
-        {
-            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}";
-            if (!_pendingContainerRemoves.TryGetValue(key, out var set))
-            {
-                set = new HashSet<int>();
-                _pendingContainerRemoves[key] = set;
-            }
-            set.Add(slotIdx);
-        }
+        /// <summary>Lookup remote presentation state without creating.</summary>
+        internal bool TryGetRemoteState(int playerId, out RemotePlayerState state)
+            => _remotePlayers.TryGetValue(playerId, out state);
 
-        /// <summary>
-        /// Records the player inventory count of an item type before a container take
-        /// was sent. Used by HandleContainerTakeDenied for a precise refund.
-        /// Key is the container position plus slot index. The value is the
-        /// player's pre-take count for that item type.
-        /// </summary>
-        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount)
-        {
-            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
-            _pendingTakePreCounts[key] = preCount;
-        }
+        /// <summary>True if this player id completed handshake with us.</summary>
+        internal bool IsHandshakedPeer(int playerId)
+            => playerId > 0 && _handshakedPeers.Contains(playerId);
 
-        /// <summary>Removes a pending take pre-count entry after it's consumed or stale.</summary>
-        internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx)
-        {
-            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
-            _pendingTakePreCounts.Remove(key);
-        }
+        internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx) =>
+            ContainerHandlers.RecordPendingContainerRemove(pos, slotIdx);
 
-        /// <summary>
-        /// Tracks which player (by peer ID) currently claims each dragged object.
-        /// Key = ObjectName from the drag sync, Value = player ID (-1 = unclaimed).
-        /// Prevents two players from dragging the same object simultaneously.
-        /// </summary>
-        internal readonly Dictionary<string, int> _dragClaims = new Dictionary<string, int>();
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount) =>
+            ContainerHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount);
 
-        /// <summary>
-        /// Returns true if the given object is claimed by a remote player (not the local one).
-        /// </summary>
-        internal bool IsDragClaimedByOther(string objectName, int localPlayerId)
-        {
-            if (string.IsNullOrEmpty(objectName)) return false;
-            if (_dragClaims.TryGetValue(objectName, out int claimerId))
-                return claimerId >= 0 && claimerId != localPlayerId;
-            return false;
-        }
+        internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx) =>
+            ContainerHandlers.ClearPendingTakePreCount(pos, slotIdx);
+
+        /// <summary>Thin forward: drag claim maps live on <see cref="PlayerInteractNetHandlers"/>.</summary>
+        internal Dictionary<string, int> _dragClaims => PlayerInteractHandlers.DragClaims;
+
+        internal bool IsDragClaimedByOther(string objectName, int localPlayerId) =>
+            PlayerInteractHandlers.IsDragClaimedByOther(objectName, localPlayerId);
 
         /// <summary>True while processing an incoming BarricadeEventMessage.
         /// Suppresses Postfix re-broadcast to prevent loops (unlike the broader
@@ -316,43 +279,12 @@ namespace DWMPHorde.Networking
         internal static bool _processingBarricadeEvent;
 
         // body-push/drag sounds now use native ItemSounds via Rigidbody velocity
-        /// <summary>Instance IDs of items currently being dragged by a remote peer.
-        /// These items are skipped in TryBuildWorldSnapshot to prevent PhysicsState
-        /// (0.3 Hz) from fighting with DragSync (30 Hz).
-        /// Uses GetInstanceID() -- this is correct for local scene objects, but
-        /// DOES NOT work cross-peer for claim checking (see _remoteDragItemNames).</summary>
-        internal readonly HashSet<int> _remoteDragItemIds = new HashSet<int>();
-        /// <summary>Names of items currently being dragged by a remote peer.
-        /// Separate from _remoteDragItemIds (which uses InstanceID) -- this set
-        /// exists only for the DragClaimStartPatch cross-peer check, where
-        /// InstanceID would never match between processes.</summary>
-        internal readonly HashSet<string> _remoteDragItemNames = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        /// <summary>Last synced position per dragged item -- used to only play drag
-        /// sound when the item actually moves, not on every DragSync tick.</summary>
-        private readonly Dictionary<string, Vector3> _lastDragSyncPos = new Dictionary<string, Vector3>();
-
-        /// <summary>
-        /// After a reliable DragSync STOP, late Unreliable IsDragging=true packets
-        /// (in-flight during the grab) must not re-claim / re-block the object.
-        /// Value = unscaledTime when stop was applied.
-        /// </summary>
-        private readonly Dictionary<string, float> _dragEndedAt =
-            new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Ignore stale IsDragging packets for this long after a stop.</summary>
-        private const float DragStopStaleGrace = 1.0f;
-
-
-        /// <summary>Tracks which container slots the local player has sent a pending
-        /// RemoveItem/TakeItem for. Key = container position string, Value = set of
-        /// slot indices. Prevents HandleContainerStateSync from re-adding items the
-        /// player already took (infinite loot dupe fix).</summary>
-        internal readonly Dictionary<string, HashSet<int>> _pendingContainerRemoves = new Dictionary<string, HashSet<int>>();
-
-        /// <summary>Tracks player inventory count before each pending container take.
-        /// Key is "$pos_{slotIdx}". The value is the pre-take count, used so
-        /// ContainerTakeDenied does not over-remove an existing item stack.</summary>
-        internal readonly Dictionary<string, int> _pendingTakePreCounts = new Dictionary<string, int>();
+        /// <summary>Thin forward: remote drag ids live on <see cref="PlayerInteractNetHandlers"/>.</summary>
+        internal HashSet<int> _remoteDragItemIds => PlayerInteractHandlers.RemoteDragItemIds;
+        internal HashSet<string> _remoteDragItemNames => PlayerInteractHandlers.RemoteDragItemNames;
+        internal Dictionary<string, Vector3> _lastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
+        internal Dictionary<string, float> _dragEndedAt => PlayerInteractHandlers.DragEndedAt;
+        internal const float DragStopStaleGraceConst = PlayerInteractNetHandlers.DragStopStaleGraceConst;
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
         internal static bool _isRemoteSaveInProgress;
@@ -363,9 +295,6 @@ namespace DWMPHorde.Networking
         /// </summary>
         internal bool _suppressForwardThisMessage;
 
-        /// <summary>Debounce rapid melee hits to one door or window.</summary>
-        private const float MELEE_HIT_DEBOUNCE_SEC = 0.2f;
-        private readonly Dictionary<string, float> _meleeHitDebounce = new Dictionary<string, float>();
 
         public event Action Connected;
         public event Action Disconnected;
@@ -381,6 +310,72 @@ namespace DWMPHorde.Networking
             Instance = this;
             _worldSync = new WorldSyncService();
             _worldSaveShare = new WorldSaveShareService(this);
+            CombatDeathBagHandlers = new CombatDeathBagNetHandlers(this);
+            CombatAttackHandlers = new CombatAttackNetHandlers(this);
+            CombatDeathStateHandlers = new CombatDeathStateNetHandlers(this);
+            CombatHandlers = new CombatNetHandlers(
+                CombatDeathBagHandlers, CombatAttackHandlers, CombatDeathStateHandlers);
+            DreamHandlers = new DreamNetHandlers(this);
+            EpilogueHandlers = new EpilogueNetHandlers(this);
+            ContainerPendingHandlers = new ContainerPendingNetHandlers(this);
+            ContainerDeathDropHandlers = new ContainerDeathDropNetHandlers(this);
+            ContainerLootHandlers = new ContainerLootNetHandlers(this, ContainerPendingHandlers);
+            ContainerHandlers = new ContainerNetHandlers(
+                ContainerLootHandlers, ContainerDeathDropHandlers, ContainerPendingHandlers);
+            DialogOutcomeApplyHandlers = new DialogOutcomeApplyNetHandlers(this);
+            DialogOutcomeCloseHandlers = new DialogOutcomeCloseNetHandlers(DialogOutcomeApplyHandlers);
+            DialogOutcomeApplyHandlers.BindClose(DialogOutcomeCloseHandlers);
+            DialogOutcomeHandlers = new DialogOutcomeNetHandlers(
+                DialogOutcomeApplyHandlers, DialogOutcomeCloseHandlers);
+            DialogNpcLockHandlers = new DialogNpcLockNetHandlers(this);
+            MapHandlers = new MapNetHandlers(this);
+            ExaminableHandlers = new ExaminableNetHandlers(this);
+            TradeHandlers = new TradeNetHandlers(this);
+            DoorHandlers = new DoorNetHandlers(this);
+            LockHandlers = new LockNetHandlers(this);
+            BarricadeHandlers = new BarricadeNetHandlers(this);
+            CursorActionHandlers = new CursorActionNetHandlers(this);
+            StationHandlers = new StationNetHandlers(this);
+            ChainHandlers = new ChainNetHandlers(this);
+            ShadowArmorHandlers = new ShadowArmorNetHandlers(this);
+            WorldBurnHandlers = new WorldBurnNetHandlers(this);
+            NightHandlers = new NightNetHandlers(this);
+            FlagHandlers = new FlagNetHandlers(this);
+            PlayerStateHandlers = new PlayerStateNetHandlers(this);
+            PlayerHeldLightPackHandlers = new PlayerHeldLightPackNetHandlers(this);
+            PlayerHeldLightApplyHandlers = new PlayerHeldLightApplyNetHandlers(this);
+            PlayerHeldLightHandlers = new PlayerHeldLightNetHandlers(
+                PlayerHeldLightPackHandlers, PlayerHeldLightApplyHandlers);
+            PlayerPresenceHandlers = new PlayerPresenceNetHandlers(this);
+            PlayerInteractHandlers = new PlayerInteractNetHandlers(this);
+            PlayerFXHandlers = new PlayerFXNetHandlers(this);
+            JournalHandlers = new JournalNetHandlers(this);
+            ChapterHandlers = new ChapterNetHandlers(this);
+            CutsceneHandlers = new CutsceneNetHandlers(this);
+            GameEventHandlers = new GameEventNetHandlers(this);
+            LocationEnterExitHandlers = new LocationEnterExitNetHandlers(this);
+            LocationEntityTrapHandlers = new LocationEntityTrapNetHandlers(this);
+            LocationHandlers = new LocationNetHandlers(
+                LocationEnterExitHandlers, LocationEntityTrapHandlers);
+            WorldObjectSendHandlers = new WorldObjectSendNetHandlers(this);
+            WorldSendHandlers = new WorldSendNetHandlers(this);
+            WorldPhysicsHandlers = new WorldPhysicsNetHandlers(this);
+            WorldWeatherTimeHandlers = new WorldWeatherTimeNetHandlers(this);
+            WorldLateJoinHandlers = new WorldLateJoinNetHandlers(this);
+            WorldProxyLifecycleHandlers = new WorldProxyLifecycleNetHandlers(this);
+            WorldProxyEffectHandlers = new WorldProxyEffectNetHandlers(this);
+            WorldProxyHandlers = new WorldProxyNetHandlers(
+                WorldProxyLifecycleHandlers, WorldProxyEffectHandlers);
+            WorldFxHandlers = new WorldFxNetHandlers(this);
+            PlayerLightFxApplyHandlers = new PlayerLightFxApplyNetHandlers(this);
+            PlayerLightFxAmbientHandlers = new PlayerLightFxAmbientNetHandlers();
+            PlayerLightFxHandlers = new PlayerLightFxNetHandlers(PlayerLightFxApplyHandlers);
+            CombatFxImpactHandlers = new CombatFxImpactNetHandlers(this);
+            CombatFxGasBurnHandlers = new CombatFxGasBurnNetHandlers(this);
+            CombatFxHandlers = new CombatFxNetHandlers(
+                CombatFxImpactHandlers, CombatFxGasBurnHandlers);
+            SaveHandlers = new SaveNetHandlers(this);
+            BulkSyncHandlers = new BulkSyncNetHandlers(this);
             Sync.DreamAudioPlayer.Initialize();
         }
 
@@ -433,7 +428,7 @@ namespace DWMPHorde.Networking
                     DestroyRemoteProxy(id);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
-                _pendingPlayerLights.Clear();
+                PlayerLightFxHandlers?.ClearPendingPlayerLights();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
                 _awaitingLateJoinBulk.Clear();
@@ -483,18 +478,13 @@ namespace DWMPHorde.Networking
             foreach (int id in new List<int>(_remoteProxies.Keys))
                 DestroyRemoteProxy(id);
             _remoteProxies.Clear();
-            _pendingPlayerLights.Clear();
+            PlayerLightFxHandlers?.ClearPendingPlayerLights();
             _wasDragging = false;
             _lastDraggedItemName = null;
             _dragScrapeActive = false;
             _dragScrapeQuietSince = -1f;
-            _spawnedDragProxyItems.Clear();
-            _lastDragSyncPos.Clear();
-            _dragClaims.Clear();
-            _dragEndedAt.Clear();
+            PlayerInteractHandlers?.ClearDragSessionState();
             DWMPHorde.Audio.MovingObjectSoundService.Reset();
-            _remoteDragItemIds.Clear();
-            _remoteDragItemNames.Clear();
             _handshakeComplete = false;
             _handshakedPeers.Clear();
             // Clean up per-player light objects before clearing state
@@ -543,347 +533,6 @@ namespace DWMPHorde.Networking
             StatusText = "Offline";
         }
 
-        private void ResetLocalLightSendCache()
-        {
-            _prevSentFlareActive = false;
-            _prevSentFlashActive = false;
-            _prevSentMatchActive = false;
-            _localHeldLightStartTime = -1f;
-            _localHeldLightLongevity = 3f;
-            _lastSentFlareRadius = 0f;
-            _lastSentFlareIntensity = 0f;
-            _lastSentFlareColorR = _lastSentFlareColorG = _lastSentFlareColorB = 0f;
-            _lastSentFlashRadius = 0f;
-            _lastSentFlashIntensity = 0f;
-            _lastSentFlashColorR = _lastSentFlashColorG = _lastSentFlashColorB = 0f;
-            _lastSentFlareItemType = null;
-            _lightParamsForceTimer = 0f;
-        }
-
-        /// <summary>
-        /// Pack continuous flare, match, and flashlight state into the
-        /// conditional LightFlags payload.
-        /// </summary>
-        private void PackContinuousLights(ref PlayerStateMessage msg, Player local)
-        {
-            _lightParamsForceTimer += SendInterval;
-            bool forceParams = _lightParamsForceTimer >= LightParamsForceInterval;
-            if (forceParams)
-                _lightParamsForceTimer = 0f;
-
-            byte flags = 0;
-            string curType = local.currentItem != null ? local.currentItem.type : null;
-            // A flare is continuous only while the lit projectile is held,
-            // not when the item is merely selected in the hotbar.
-            Light2D heldFlareLight = null;
-            Flare heldFlareComp = null;
-            Light2D heldMatchLight = null;
-            bool flareActive = TryGetLocalHeldFlareLight(local, out heldFlareLight, out heldFlareComp);
-            // Match uses the same rule as flare: a lit projectile must remain
-            // parented to heldItem while it is aimed.
-            // Do NOT require currentItem.activated (throwables often stay deactivated while aimed).
-            bool matchActive = !flareActive && TryGetLocalHeldMatchLight(local, out heldMatchLight);
-            bool heldBurnLight = flareActive || matchActive;
-            bool flashActive = !heldBurnLight
-                && !InvItemClass.isNull(local.currentItem)
-                && local.currentItem.baseClass != null
-                && local.currentItem.baseClass.isFlashlight
-                && local.currentItem.activated;
-
-            if (heldBurnLight)
-            {
-                flags |= PlayerStateMessage.LightFlagFlare;
-                if (matchActive)
-                    flags |= PlayerStateMessage.LightFlagMatch;
-                msg.FlareActive = flareActive;
-                msg.MatchActive = matchActive;
-                msg.FlareItemType = curType ?? (matchActive ? "match" : "flare");
-                msg.FlareRadius = matchActive ? 180f : 650f;
-                msg.FlareIntensity = matchActive ? 0.85f : 1f;
-                msg.FlareColorR = 1f;
-                msg.FlareColorG = matchActive ? 0.65f : 0.5f;
-                msg.FlareColorB = matchActive ? 0.2f : 0.1f;
-
-                Light2D itemLight = heldFlareLight != null ? heldFlareLight : heldMatchLight;
-                Flare flareComp = heldFlareComp;
-                if (itemLight == null && local.heldItem != null)
-                    itemLight = local.heldItem.GetComponentInChildren<Light2D>(true);
-
-                if (itemLight != null)
-                {
-                    // Radius: live value once lit (stable enough).
-                    if (itemLight.LightRadius > 0f)
-                        msg.FlareRadius = itemLight.LightRadius;
-
-                    // Match stick Light2D intensity flickers every frame in SP. Streaming that
-                    // dirties FlareParams (~6 Hz force) and strobes the peer. Keep fixed cruise.
-                    if (!matchActive && itemLight.LightIntensity > 0f)
-                        msg.FlareIntensity = itemLight.LightIntensity;
-
-                    if (!matchActive
-                        && (itemLight.LightColor.a > 0f
-                            || itemLight.LightColor.r + itemLight.LightColor.g + itemLight.LightColor.b > 0.01f))
-                    {
-                        msg.FlareColorR = itemLight.LightColor.r;
-                        msg.FlareColorG = itemLight.LightColor.g;
-                        msg.FlareColorB = itemLight.LightColor.b;
-                    }
-                }
-
-                // Local-space attach point (NOT world delta). World delta as localPos breaks
-                // Apply the local offset under body rotation so the light and
-                // effect stay with the hand.
-                // Prefer heldItem root so prefab-internal Light2D/lightFlare offsets stay correct.
-                if (local.heldItem != null)
-                {
-                    Transform ht = local.heldItem.transform;
-                    Vector3 lp;
-                    if (ht.parent == local.transform)
-                        lp = ht.localPosition;
-                    else
-                        lp = local.transform.InverseTransformPoint(ht.position);
-                    msg.FlareLocalX = lp.x;
-                    msg.FlareLocalY = lp.y;
-                    msg.FlareLocalZ = lp.z;
-                }
-                else if (itemLight != null)
-                {
-                    Vector3 lp = local.transform.InverseTransformPoint(itemLight.transform.position);
-                    msg.FlareLocalX = lp.x;
-                    msg.FlareLocalY = lp.y;
-                    msg.FlareLocalZ = lp.z;
-                }
-
-                bool rising = flareActive ? !_prevSentFlareActive : !_prevSentMatchActive;
-                if (rising)
-                {
-                    _localHeldLightStartTime = Time.time;
-                    _localHeldLightLongevity = flareComp != null && flareComp.longevity > 0.05f
-                        ? flareComp.longevity + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec
-                        : (matchActive ? 8f : 5f);
-                }
-
-                // Remain from aim-start burn clock when known (else rising timer).
-                if (flareActive && local.heldItem != null)
-                {
-                    float untilDark = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
-                        local.heldItem,
-                        flareComp != null ? flareComp.longevity : 3f);
-                    float total = _localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : (3f + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec);
-                    float rem = Mathf.Clamp01(untilDark / total);
-                    msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
-                    flags |= PlayerStateMessage.LightFlagRemain;
-                }
-                else if (_localHeldLightStartTime > 0f && _localHeldLightLongevity > 0.01f)
-                {
-                    float rem = 1f - (Time.time - _localHeldLightStartTime) / _localHeldLightLongevity;
-                    msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
-                    flags |= PlayerStateMessage.LightFlagRemain;
-                }
-
-                bool typeChanged = !string.Equals(_lastSentFlareItemType, msg.FlareItemType, StringComparison.Ordinal);
-                bool dirty = rising || forceParams
-                    || Mathf.Abs(msg.FlareRadius - _lastSentFlareRadius) > LightRadiusDirtyEps
-                    || Mathf.Abs(msg.FlareIntensity - _lastSentFlareIntensity) > LightIntensityDirtyEps
-                    || Mathf.Abs(msg.FlareColorR - _lastSentFlareColorR) > LightColorDirtyEps
-                    || Mathf.Abs(msg.FlareColorG - _lastSentFlareColorG) > LightColorDirtyEps
-                    || Mathf.Abs(msg.FlareColorB - _lastSentFlareColorB) > LightColorDirtyEps;
-
-                if (dirty)
-                {
-                    flags |= PlayerStateMessage.LightFlagFlareParams;
-                    msg.FlareHasParams = true;
-                    _lastSentFlareRadius = msg.FlareRadius;
-                    _lastSentFlareIntensity = msg.FlareIntensity;
-                    _lastSentFlareColorR = msg.FlareColorR;
-                    _lastSentFlareColorG = msg.FlareColorG;
-                    _lastSentFlareColorB = msg.FlareColorB;
-                }
-
-                if (rising || typeChanged)
-                {
-                    flags |= PlayerStateMessage.LightFlagFlareItemType;
-                    msg.FlareHasItemType = true;
-                    _lastSentFlareItemType = msg.FlareItemType;
-                }
-
-                if (rising)
-                    ModLog.Event(LogCat.World, "[LightSync] local " + (matchActive ? "match" : "flare")
-                        + " ON type=" + msg.FlareItemType
-                        + " remain01=" + msg.HeldLightRemain01
-                        + " r=" + msg.FlareRadius.ToString("F0"));
-            }
-            else if (_prevSentFlareActive || _prevSentMatchActive)
-            {
-                ModLog.Event(LogCat.World, "[LightSync] local held burn light OFF");
-            }
-
-            if (flashActive)
-            {
-                flags |= PlayerStateMessage.LightFlagFlashlight;
-                msg.FlashlightActive = true;
-                Light2D flash = Traverse.Create(local).Field("Flashlight").GetValue<Light2D>();
-                if (flash != null)
-                {
-                    msg.FlashRadius = flash.LightRadius;
-                    msg.FlashIntensity = flash.LightIntensity > 0f ? flash.LightIntensity : 1f;
-                    msg.FlashColorR = flash.LightColor.r;
-                    msg.FlashColorG = flash.LightColor.g;
-                    msg.FlashColorB = flash.LightColor.b;
-                    // Cone aim follows Flashlight child rotation (SP aims with body/mouse).
-                    msg.FlashAimY = (short)Mathf.RoundToInt(flash.transform.eulerAngles.y);
-                    flags |= PlayerStateMessage.LightFlagFlashAim;
-                }
-                else
-                {
-                    msg.FlashRadius = 400f;
-                    msg.FlashIntensity = 1f;
-                    msg.FlashColorR = 0.3f;
-                    msg.FlashColorG = 0.3f;
-                    msg.FlashColorB = 0.3f;
-                    msg.FlashAimY = (short)Mathf.RoundToInt(local.transform.eulerAngles.y);
-                    flags |= PlayerStateMessage.LightFlagFlashAim;
-                }
-
-                bool rising = !_prevSentFlashActive;
-                bool dirty = rising || forceParams
-                    || Mathf.Abs(msg.FlashRadius - _lastSentFlashRadius) > LightRadiusDirtyEps
-                    || Mathf.Abs(msg.FlashIntensity - _lastSentFlashIntensity) > LightIntensityDirtyEps
-                    || Mathf.Abs(msg.FlashColorR - _lastSentFlashColorR) > LightColorDirtyEps
-                    || Mathf.Abs(msg.FlashColorG - _lastSentFlashColorG) > LightColorDirtyEps
-                    || Mathf.Abs(msg.FlashColorB - _lastSentFlashColorB) > LightColorDirtyEps;
-
-                if (dirty)
-                {
-                    flags |= PlayerStateMessage.LightFlagFlashParams;
-                    msg.FlashHasParams = true;
-                    _lastSentFlashRadius = msg.FlashRadius;
-                    _lastSentFlashIntensity = msg.FlashIntensity;
-                    _lastSentFlashColorR = msg.FlashColorR;
-                    _lastSentFlashColorG = msg.FlashColorG;
-                    _lastSentFlashColorB = msg.FlashColorB;
-                }
-
-                if (rising && Config.ModConfig.IsVerboseLightSync)
-                    ModRuntime.LegacyInfo("[LightSync] local flashlight ON");
-            }
-            else if (_prevSentFlashActive && Config.ModConfig.IsVerboseLightSync)
-            {
-                ModRuntime.LegacyInfo("[LightSync] local flashlight OFF");
-            }
-
-            if (!heldBurnLight)
-            {
-                _lastSentFlareItemType = null;
-                _localHeldLightStartTime = -1f;
-            }
-
-            msg.LightFlags = flags;
-            _prevSentFlareActive = flareActive;
-            _prevSentMatchActive = matchActive;
-            _prevSentFlashActive = flashActive;
-        }
-
-        /// <summary>
-        /// Held flare continuous light only while the lit projectile is still parented as heldItem
-        /// (aim / pre-throw). Hotbar selection alone must NOT light the proxy (F1/F2).
-        /// </summary>
-        internal static bool TryGetLocalHeldFlareLight(Player local, out Light2D light, out Flare flare)
-        {
-            light = null;
-            flare = null;
-            if (local == null || local.heldItem == null)
-                return false;
-            // It must still be held by the player; after throwing, its parent is null.
-            Transform ht = local.heldItem.transform;
-            if (ht.parent == null)
-                return false;
-
-            flare = local.heldItem.GetComponent<Flare>()
-                ?? local.heldItem.GetComponentInChildren<Flare>(true);
-            if (flare != null && flare.light2D != null)
-            {
-                light = flare.light2D;
-                return true;
-            }
-            // Flare-type throwable with Light2D but Flare not yet resolved
-            string t = local.currentItem != null ? local.currentItem.type : null;
-            if (!string.IsNullOrEmpty(t)
-                && t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                light = local.heldItem.GetComponentInChildren<Light2D>(true);
-                return light != null;
-            }
-            // Explicit Flare component without named type
-            if (flare != null)
-            {
-                light = local.heldItem.GetComponentInChildren<Light2D>(true);
-                return light != null;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Held match continuous light only while the lit projectile is parented as heldItem
-        /// (aim / pre-throw). Mirrors <see cref="TryGetLocalHeldFlareLight"/> and does not require
-        /// <c>currentItem.activated</c> (throwables often stay deactivated while aimed; that was
-        /// why peers saw no held match glow).
-        /// </summary>
-        internal static bool TryGetLocalHeldMatchLight(Player local, out Light2D light)
-        {
-            light = null;
-            if (local == null || local.heldItem == null)
-                return false;
-            Transform ht = local.heldItem.transform;
-            if (ht.parent == null)
-                return false;
-            // Flare path owns Flare components.
-            if (local.heldItem.GetComponent<Flare>() != null
-                || local.heldItem.GetComponentInChildren<Flare>(true) != null)
-                return false;
-
-            string t = local.currentItem != null ? local.currentItem.type : null;
-            bool typeMatch = !string.IsNullOrEmpty(t)
-                && t.IndexOf("match", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool typeFlare = !string.IsNullOrEmpty(t)
-                && t.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (typeFlare)
-                return false;
-
-            InvItem bc = local.currentItem != null ? local.currentItem.baseClass : null;
-            if (bc != null)
-            {
-                if (bc.isFlashlight) return false;
-                if (bc.lightEmitter != null) return false; // torch etc.
-            }
-
-            light = local.heldItem.GetComponentInChildren<Light2D>(true);
-            if (typeMatch)
-                return true; // match by name even if Light2D still waking up
-            // Fallback: throwable with small held Light2D (no flare / torch / flash).
-            if (bc != null && bc.isThrowable && light != null
-                && (bc.lightRadius <= 0f || bc.lightRadius < 350f))
-                return true;
-            return false;
-        }
-
-        /// <summary>
-        /// Match / short-lived held light (event-path guard + continuous). Prefer
-        /// <see cref="TryGetLocalHeldMatchLight"/> for transmission, which is heldItem-authoritative.
-        /// </summary>
-        internal static bool IsMatchLightItem(Player local)
-        {
-            if (TryGetLocalHeldMatchLight(local, out _))
-                return true;
-            // Hotbar/equip without held yet: type-only, no activation required.
-            if (local == null || InvItemClass.isNull(local.currentItem) || local.currentItem.baseClass == null)
-                return false;
-            string t = local.currentItem.type ?? "";
-            if (t.IndexOf("match", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            return false;
-        }
-
         /// <summary>Mint a stable throw id (host and thrower both may call; host authoritative expire).</summary>
         public int MintThrowId()
         {
@@ -917,6 +566,9 @@ namespace DWMPHorde.Networking
             TryFlushPendingSawStates();
             TryFlushPendingFeederStates();
             TryFlushPendingLureStates();
+            TryFlushPendingChainStates();
+            TryFlushPendingShadowArmorStates();
+            TryFlushPendingWorldBurnStates();
             Sync.StationSyncHelpers.FlushLureOutbox(force: false);
             TryFlushPendingBarricadeEvents();
             TryFlushPendingScenario();
@@ -930,13 +582,13 @@ namespace DWMPHorde.Networking
             if (perf)
             {
                 ClientPerfProbe.SetPendingCounts(
-                    _pendingLureStates.Count,
+                    StationHandlers.PendingLureCount,
                     PendingLockCount,
                     Sync.WorldPhysicsSyncService.PendingLightCount,
                     Sync.TrapNetworkId.PendingCount,
-                    _pendingFeederStates.Count,
-                    _pendingSawStates.Count,
-                    _pendingConstructibles.Count);
+                    StationHandlers.PendingFeederCount,
+                    StationHandlers.PendingSawCount,
+                    LockHandlers.PendingConstructibleCount);
             }
             TickHeavyLateJoinBulk();
             TickHostWorldShareWhenReady();
@@ -948,34 +600,12 @@ namespace DWMPHorde.Networking
             TickHostMigrationRetry();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
-            if (perf) ClientPerfProbe.BeginUpdateSegment("scenarioApply");
-            if (_hasPendingScenarioEvent && Singleton<NightScenarios>.Instance != null)
-            {
-                _hasPendingScenarioEvent = false;
-                var ev = _pendingScenarioEvent;
-                _pendingScenarioEvent = default;
-                ApplyScenarioEventFired(ev);
-            }
-            if (perf) ClientPerfProbe.EndUpdateSegment();
-
             if (perf) ClientPerfProbe.BeginUpdateSegment("gameEvents");
             TryFlushPendingGameEvents();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("meleeDebounce");
-            // Periodic cleanup of stale melee hit debounce entries
-            if (_meleeHitDebounce.Count > 0)
-            {
-                float now = Time.time;
-                var stale = new List<string>();
-                foreach (var kvp in _meleeHitDebounce)
-                {
-                    if (now - kvp.Value > 5f)
-                        stale.Add(kvp.Key);
-                }
-                foreach (string key in stale)
-                    _meleeHitDebounce.Remove(key);
-            }
+            CombatFxHandlers?.TickMeleeHitDebounceCleanup();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (!IsConnected || !_handshakeComplete)
@@ -1010,7 +640,7 @@ namespace DWMPHorde.Networking
                 {
                     _proxyAggroTimer = 0f;
                     if (perf) ClientPerfProbe.BeginUpdateSegment("proxyAggro");
-                    ProxyAggroCheck();
+                    WorldProxyHandlers.ProxyAggroCheck();
                     if (perf) ClientPerfProbe.EndUpdateSegment();
                 }
 
@@ -1352,163 +982,6 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private void ProxyAggroCheck()
-        {
-            if (_remoteProxies.Count == 0)
-                return;
-
-            Character[] all = CharacterTracker.GetAll();
-            if (all.Length == 0)
-                return;
-
-            foreach (var kvp in _remoteProxies)
-            {
-                RemotePlayerProxy proxy = kvp.Value;
-                if (proxy == null) continue;
-                Transform proxyT = proxy.transform;
-
-                int aggroed = 0;
-                int skippedFar = 0;
-                int skippedAlreadyTargeting = 0;
-                int skippedFleeFauna = 0;
-                bool proxyHasEotF = proxy.RemoteHasEnemyOfTheForest;
-
-                foreach (Character c in all)
-                {
-                    if (c == null || !c.alive || c.dummy)
-                        continue;
-
-                    // Night-dead peer proxy: colliders off + not a combat target.
-                    CharBase proxyCb = proxy.GetComponent<CharBase>();
-                    if (proxyCb != null && !proxyCb.alive)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-                    if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    if (c.target == proxyT)
-                    {
-                        skippedAlreadyTargeting++;
-                        continue;
-                    }
-
-                    // Flee-only fauna (rabbits, ravens, etc.): never ProxyAggro.
-                    // Forcing runAway(proxy) every 0.5s made them ping-pong / "chase" both players.
-                    // Vanilla AI already reacts to the local Player body.
-                    if (c.aggressiveness == Aggressiveness.flee
-                        || c.aggressiveness == Aggressiveness.fleeAndDespawn)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    bool attacksPlayer = c.attacksFaction(Faction.player);
-
-                    // Neutral wildlife: only EotF + animalAggressive combat edge (must also attack).
-                    if (c.aggressiveness == Aggressiveness.neutral)
-                    {
-                        if (!proxyHasEotF || c.faction != Faction.animalAggressive || !attacksPlayer)
-                        {
-                            skippedFar++;
-                            continue;
-                        }
-                    }
-
-                    // Strict: only true predators get attackCharacter(proxy).
-                    // runsAwayFromFaction-only animals used to fall through → runAway(proxy) chase feel.
-                    if (!attacksPlayer)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    float distToProxy = Vector3.Distance(c.transform.position, proxyT.position);
-
-                    // Sniffer: within smell radius → aggro (was inverted: skipped when close).
-                    Sniffer entitySniffer = c.GetComponent<Sniffer>();
-                    float sniffRadius = entitySniffer != null ? entitySniffer.radius : 0f;
-                    bool inSniff = entitySniffer != null && distToProxy < sniffRadius;
-
-                    float nearRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
-                    // Commit only at nearView (vanilla). Smell alone must not instant-attack from afar.
-                    if (nearRange <= 0f || distToProxy > nearRange)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    // Match HostCanSeeEnemyPatch: FOV + raycast (or smell without LOS at near).
-                    Vector3 toProxy = proxyT.position - c.transform.position;
-                    bool inFOV = Vector3.Angle(toProxy, c.transform.up) <= (float)c.fieldOfViewRange;
-                    if (!inFOV && !inSniff)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    bool detected = false;
-                    if (inSniff && !inFOV)
-                    {
-                        detected = true;
-                    }
-                    else
-                    {
-                        Collider myCollider = c.GetComponent<Collider>();
-                        if (Physics.Raycast(c.transform.position, toProxy, out var hit, distToProxy,
-                                GameplayConstants.HitscanLayerMask))
-                        {
-                            if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
-                            {
-                                RemotePlayerProxy hitProxy = hit.collider.GetComponentInParent<RemotePlayerProxy>();
-                                if (hitProxy != null && hitProxy == proxy)
-                                    detected = true;
-                            }
-                        }
-                    }
-
-                    if (!detected)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    if (c.sleeping)
-                        c.wakeup();
-
-                    c.attackCharacter(proxyT);
-                    aggroed++;
-                }
-
-                if ((aggroed > 0 || skippedFleeFauna > 0 || ++_aggroLogCounter % 10 == 0)
-                    && ModRuntime.VerboseLogging)
-                {
-                    float now = Time.time;
-                    if (now - _lastAggroLogTime >= 5f)
-                    {
-                        _lastAggroLogTime = now;
-                        ModRuntime.LegacyInfo(
-                            $"[Proxy] player {kvp.Key}: checked {all.Length} chars, aggroed={aggroed}, "
-                            + $"far={skippedFar}, alreadyTargeting={skippedAlreadyTargeting}, "
-                            + $"fleeSkip={skippedFleeFauna}");
-                    }
-                }
-
-                // Periodic cleanup of melee-hit dedup dictionary to prevent unbounded growth
-                if (++_aggroLogCounter % 5 == 0)
-                    Patches.MeleeSensorDeduplicatePatch.CleanupStaleEntries();
-            }
-        }
-
-
-
-        private static int _aggroLogCounter;
-        private static float _lastAggroLogTime;
-
         private void LateUpdate()
         {
             if (!IsConnected || !_handshakeComplete) return;
@@ -1723,7 +1196,7 @@ namespace DWMPHorde.Networking
         /// <summary>GUIDs of dropped items that have already been picked up (host-authoritative).
         /// Prevents item multiplication when both players pick up the same GUID
         /// network message is processed.</summary>
-        private static readonly HashSet<string> _consumedDropGuids = new HashSet<string>();
+        internal static readonly HashSet<string> _consumedDropGuids = new HashSet<string>();
 
         private enum ForwardableKind { None, Direct, Player }
 
@@ -1781,85 +1254,6 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Network, "Connected to host");
                 CompleteClientPeerJoin();
             }
-        }
-
-        /// <summary>
-        /// Sends all existing DeathDrop bags to a newly connected player so they
-        /// see bags that were dropped before they joined.
-        /// </summary>
-        private void SyncExistingDeathBags(int targetPlayerId)
-        {
-            if (_role != NetworkRole.Host) return;
-            DeathDrop[] allBags = UnityEngine.Object.FindObjectsOfType<DeathDrop>(true);
-            int sent = 0;
-            foreach (DeathDrop bag in allBags)
-            {
-                if (bag == null) continue;
-                Inventory inv = bag.GetComponent<Inventory>();
-                if (inv == null) continue;
-
-                Vector3 pos = bag.transform.position;
-                var types = new System.Collections.Generic.List<string>();
-                var amounts = new System.Collections.Generic.List<int>();
-                var durabilities = new System.Collections.Generic.List<float>();
-                var ammos = new System.Collections.Generic.List<int>();
-
-                if (inv.slots != null)
-                {
-                    foreach (InvSlot slot in inv.slots)
-                    {
-                        if (!InvItemClass.isNull(slot.invItem))
-                        {
-                            types.Add(slot.invItem.type);
-                            amounts.Add(slot.invItem.amount);
-                            durabilities.Add(slot.invItem.durability);
-                            ammos.Add(slot.invItem.ammo);
-                        }
-                    }
-                }
-
-                // Water prefab: component flag, else name heuristic (deathDrop_water).
-                var netId = bag.GetComponent<Sync.DeathBagNetworkId>();
-                bool inWater = netId != null && netId.InWater;
-                if (!inWater)
-                {
-                    string n = bag.gameObject.name ?? "";
-                    inWater = n.IndexOf("water", System.StringComparison.OrdinalIgnoreCase) >= 0;
-                }
-
-                string bagId = Sync.DeathBagNetworkId.GetOrAssignBagId(bag.gameObject, inWater);
-                if (IsDeathBagLooted(bagId))
-                    continue;
-                // Skip empty bags (already looted, awaiting destroy)
-                if (types.Count == 0)
-                    continue;
-
-                RegisterDeathBag(bagId, bag);
-
-                var msg = new DeathBagSpawnMessage
-                {
-                    PosX = pos.x,
-                    PosY = pos.y,
-                    PosZ = pos.z,
-                    InWater = inWater,
-                    ExpAmount = bag.expAmount,
-                    ItemCount = types.Count,
-                    ItemTypes = types.ToArray(),
-                    ItemAmounts = amounts.ToArray(),
-                    ItemDurabilities = durabilities.ToArray(),
-                    ItemAmmos = ammos.ToArray(),
-                    BagId = bagId
-                };
-
-                SendToPlayer(targetPlayerId, NetMessageType.DeathBagSpawn,
-                    w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
-                sent++;
-            }
-
-            if (sent > 0)
-                ModRuntime.LegacyInfo($"[Death] Synced {sent} existing death bag(s) to player {targetPlayerId}");
-            else
-                ModRuntime.LegacyInfo($"[Death] No existing death bags to sync");
         }
 
         public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
@@ -1966,492 +1360,5 @@ namespace DWMPHorde.Networking
                 ClientPerfProbe.NotePacketRx(type);
             ProcessInboundMessage(type, payload);
         }
-
-        /// <summary>Shared LAN/Steam inbound dispatch (type + body after framing byte).</summary>
-        private void ProcessInboundMessage(NetMessageType type, byte[] payload)
-        {
-            using (new NetworkApplyGuard())
-            {
-                try
-                {
-                    switch (type)
-                    {
-                        case NetMessageType.Handshake:
-                            HandleHandshake(HandshakeMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerState:
-                            HandlePlayerState(PlayerStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldSession:
-                            HandleWorldSession(WorldSessionMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PhysicsState:
-                            HandlePhysicsState(PhysicsStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ItemSpawn:
-                            HandleItemSpawn(ItemSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LightState:
-                            HandleLightState(LightStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.EntityState:
-                            HandleEntityState(EntityStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.EntityDespawn:
-                            HandleEntityDespawn(EntityDespawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerAttack:
-                            HandlePlayerAttack(PlayerAttackMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DamagePlayer:
-                            HandleDamagePlayer(DamagePlayerMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerDied:
-                            HandlePlayerDied(PlayerDiedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DeathBagSpawn:
-                            HandleDeathBagSpawn(DeathBagSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DeathBagLooted:
-                            HandleDeathBagLooted(DeathBagLootedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.NightDeathState:
-                            HandleNightDeathState(NightDeathStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ContainerItem:
-                            HandleContainerItem(ContainerItemMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.BarricadeEvent:
-                            HandleBarricadeEvent(BarricadeEventMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorkbenchLevel:
-                            HandleWorkbenchLevel(WorkbenchLevelMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.JournalItem:
-                            HandleJournalItem(JournalItemMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.FriendlyFire:
-                            HandleFriendlyFire(FriendlyFireMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerSound:
-                            HandlePlayerSound(PlayerSoundMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerScare:
-                            HandlePlayerScare(PlayerScareMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerEffectSync:
-                            HandlePlayerEffectSync(PlayerEffectSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DragSync:
-                            HandleDragSync(DragSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.SaveSync:
-                            HandleSaveSync();
-                            break;
-                        case NetMessageType.TimeSync:
-                            HandleTimeSync(TimeSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.EntitySound:
-                            HandleEntitySound(EntitySoundMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldObjectRemoved:
-                            HandleWorldObjectRemoved(WorldObjectRemovedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerLightState:
-                            HandlePlayerLightState(PlayerLightStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ThrowableSpawn:
-                            HandleThrowableSpawn(ThrowableSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ExplosionTrigger:
-                            HandleExplosionTrigger(ExplosionTriggerMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerAudio:
-                            HandlePlayerAudio(PlayerAudioMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.GasTrailSpawn:
-                            HandleGasTrailSpawn(GasTrailSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.GasIgnite:
-                            HandleGasIgnite(GasIgniteMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerAnimation:
-                            HandlePlayerAnimation(PlayerAnimationMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerAnimLibrary:
-                            HandlePlayerAnimLibrary(PlayerAnimLibraryMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.BulletImpact:
-                            HandleBulletImpact(BulletImpactMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerFiredWeapon:
-                            HandlePlayerFiredWeapon(PlayerFiredWeaponMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DroppedItemSpawn:
-                            HandleDroppedItemSpawn(DroppedItemSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DroppedItemPickup:
-                            HandleDroppedItemPickup(DroppedItemPickupMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.SawState:
-                            HandleSawState(SawStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.FeederState:
-                            HandleFeederState(FeederStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LureState:
-                            HandleLureState(LureStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.SleepEndRequest:
-                            HandleSleepEndRequest(SleepEndRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.AfterNightEndRequest:
-                            HandleAfterNightEndRequest(AfterNightEndRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PeerRoster:
-                            HandlePeerRoster(PeerRosterMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.HostHandoff:
-                            HandleHostHandoff(HostHandoffMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorkbenchLock:
-                            HandleWorkbenchLock(WorkbenchLockMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ShadowEvent:
-                            HandleShadowEvent(ShadowEventMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ShadowSpawn:
-                            HandleShadowSpawn(ShadowSpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.NightShadowSpawnRequest:
-                            HandleNightShadowSpawnRequest(
-                                NightShadowSpawnRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ScenarioSync:
-                            HandleScenarioSync(ScenarioSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ScenarioEventFired:
-                            HandleScenarioEventFired(ScenarioEventFiredMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.EntityBurning:
-                            HandleEntityBurning(EntityBurningMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LiquidStopBurning:
-                            HandleLiquidStopBurning(LiquidStopBurningMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ExplosionSpawnObject:
-                            HandleExplosionSpawnObject(ExplosionSpawnObjectMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerBurning:
-                            HandlePlayerBurning(PlayerBurningMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.FlagSync:
-                            HandleFlagSync(FlagSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.TradeSync:
-                            HandleTradeSync(TradeSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.TradeInventorySync:
-                            HandleTradeInventorySync(TradeInventorySyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DialogOutcomeSync:
-                            HandleDialogOutcomeSync(DialogOutcomeSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.MeleeWorldHit:
-                            HandleMeleeWorldHit(MeleeWorldHitMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamStarted:
-                            HandleDreamStarted(DreamStartedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamEnded:
-                            HandleDreamEnded(DreamEndedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamStartRequest:
-                            HandleDreamStartRequest(DreamStartRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamItemPickup:
-                            HandleDreamItemPickup(DreamItemPickupMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamAudio:
-                            HandleDreamAudio(DreamAudioMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamEntered:
-                            HandleDreamEntered(DreamEnteredMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamPropCollider:
-                            HandleDreamPropCollider(DreamPropColliderMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamSessionBulk:
-                            HandleDreamSessionBulk(DreamSessionBulkMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DreamChainStart:
-                            HandleDreamChainStart(DreamChainStartMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.FinalDreamsceneDeath:
-                            HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.SceneLoad:
-                            HandleSceneLoad(SceneLoadMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.CutsceneSync:
-                            HandleCutsceneSync(CutsceneSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ChapterTransition:
-                            HandleChapterTransition(ChapterTransitionMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ExamineObject:
-                            HandleExamineObject(ExamineObjectMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ActivateCursorAction:
-                            HandleActivateCursorAction(
-                                ActivateCursorActionMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LocationTransport:
-                            HandleLocationTransport(
-                                LocationTransportMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PeerHasItem:
-                            HandlePeerHasItem(PeerHasItemMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ConstructibleConstruction:
-                            HandleConstructible(ConstructibleMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ClientStateBackup:
-                            HandleClientStateBackup(ClientStateBackupMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.InteractiveItemSwitch:
-                            HandleInteractiveItemSwitch(InteractiveItemSwitchMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PadlockUnlock:
-                            HandlePadlockUnlock(PadlockUnlockMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LockedUnlock:
-                            HandleLockedUnlock(LockedUnlockMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.GameEventsFired:
-                            HandleGameEventsFired(GameEventsFiredMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.HideoutUpgrade:
-                            HandleHideoutUpgrade(HideoutUpgradeMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.MapMarker:
-                            HandleMapMarker(MapMarkerMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.MapMarkerRemove:
-                            HandleMapMarkerRemove(MapMarkerRemoveMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.MapElementDiscovered:
-                            HandleMapElementDiscovered(MapElementDiscoveredMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.OxygenTankStash:
-                            HandleOxygenTankStash(OxygenTankStashMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.CompressorTankConvert:
-                            HandleCompressorTankConvert(CompressorTankConvertMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.JournalBulkSync:
-                            HandleJournalBulkSync(JournalBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ShadowStateUpdate:
-                            HandleShadowStateUpdate(ShadowStateUpdateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ContainerStateRequest:
-                            HandleContainerStateRequest(ContainerStateRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ContainerStateSync:
-                            HandleContainerStateSync(ContainerStateSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ContainerTakeDenied:
-                            HandleContainerTakeDenied(ContainerTakeDeniedMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ReputationSync:
-                            HandleReputationSync(ReputationSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DoorOpen:
-                            HandleDoorOpen(DoorOpenMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LocationEnter:
-                            HandleLocationEnter(LocationEnterMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.LocationExit:
-                            HandleLocationExit(LocationExitMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.EntitySpawn:
-                            HandleEntitySpawn(EntitySpawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.TrapTriggered:
-                            HandleTrapTriggered(TrapTriggeredMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.TrapBulk:
-                            HandleTrapBulk(TrapBulkMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ThrowableDespawn:
-                            HandleThrowableDespawn(ThrowableDespawnMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.RemotePlayerForward:
-                            {
-                                var fwd = RemotePlayerForwardMessage.Deserialize(new NetReader(payload));
-                                // Host trust: only the original player may ask the host to re-broadcast
-                                // their own message. A claimed OriginalPlayerId that differs from the
-                                // The actual sender does not match the claimed identity.
-                                // Drop the forward.
-                                if (_role == NetworkRole.Host && fwd.OriginalPlayerId != _currentReceivePlayerId)
-                                {
-                                    ModLog.Warn(LogCat.Network,
-                                        "Reject RemotePlayerForward: claimed p" + fwd.OriginalPlayerId
-                                        + " from p" + _currentReceivePlayerId);
-                                    break;
-                                }
-                                int saved = _currentReceivePlayerId;
-                                _currentReceivePlayerId = fwd.OriginalPlayerId;
-                                _isForwardedMessage = true;
-                                try
-                                {
-                                    DispatchRemotePlayerForward((NetMessageType)fwd.InnerType, fwd.InnerPayload);
-                                }
-                                finally
-                                {
-                                    _isForwardedMessage = false;
-                                    _currentReceivePlayerId = saved;
-                                }
-                                break;
-                            }
-                        case NetMessageType.VaultState:
-                            HandleVaultState(VaultStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WeatherSync:
-                            HandleWeatherSync(WeatherSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.FlagBulkSync:
-                            HandleFlagBulkSync(FlagBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ReputationBulkSync:
-                            HandleReputationBulkSync(ReputationBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ScenarioStateSync:
-                            HandleScenarioStateSync(ScenarioSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.HideoutStateSync:
-                            HandleHideoutStateSync(HideoutStateSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorkbenchLevelSync:
-                            HandleWorkbenchLevelSync(WorkbenchLevelMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.MapStateSync:
-                            HandleMapStateSync(MapStateSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.PlayerSkillsSync:
-                            HandlePlayerSkillsSync(PlayerSkillsSyncMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldSaveBegin:
-                            _worldSaveShare?.HandleBegin(WorldSaveBeginMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldSaveChunk:
-                            _worldSaveShare?.HandleChunk(WorldSaveChunkMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldSaveEnd:
-                            _worldSaveShare?.HandleEnd(WorldSaveEndMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.WorldRequest:
-                            HandleWorldRequest(WorldRequestMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.ChatMessage:
-                            {
-                                var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                    chat.SenderId = _currentReceivePlayerId;
-                                // Sanitize peer input (Yokyy had no length/content clamp)
-                                if (chat.Message != null && chat.Message.Length > 160)
-                                    chat.Message = chat.Message.Substring(0, 160);
-                                if (chat.SenderName != null && chat.SenderName.Length > 32)
-                                    chat.SenderName = chat.SenderName.Substring(0, 32);
-                                // Skip echo of our own send (we already drew locally)
-                                if (chat.SenderId != _localPlayerId)
-                                    ChatHud.OnRemote(chat);
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                {
-                                    var chatWriter = new NetWriter();
-                                    chat.Serialize(chatWriter);
-                                    payload = chatWriter.CopyData();
-                                }
-                                break;
-                            }
-                        case NetMessageType.VoiceData:
-                            {
-                                var voice = VoiceDataMessage.Deserialize(new NetReader(payload));
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                    voice.PlayerId = _currentReceivePlayerId;
-                                Audio.VoiceChatService.OnVoiceData(voice);
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                {
-                                    var vw = new NetWriter();
-                                    voice.Serialize(vw);
-                                    byte[] body = vw.CopyData();
-                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.VoiceData,
-                                        w => w.PutRaw(body), DeliveryMethod.Unreliable);
-                                    _suppressForwardThisMessage = true;
-                                }
-                                break;
-                            }
-                        case NetMessageType.DialogNpcLock:
-                            HandleDialogNpcLock(DialogNpcLockMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        case NetMessageType.DialogTreeState:
-                            HandleDialogTreeState(DialogTreeStateMessage.Deserialize(new NetReader(payload)));
-                            break;
-                        default:
-                            ModRuntime.Log?.LogWarning($"[Network] Unhandled message type: {type}");
-                            break;
-                    }
-                }
-                catch (InvalidDataException ex)
-                {
-                    ModLog.Warn(
-                        LogCat.Network,
-                        "Rejected malformed " + type + " packet from p"
-                        + _currentReceivePlayerId + " (" + (payload != null ? payload.Length : 0)
-                        + " bytes): " + ex.Message);
-                    return;
-                }
-                finally
-                {
-                    _isForwardedMessage = false;
-                }
-            }
-
-            // === Forward client messages to other clients (3+ support) ===
-            if (_suppressForwardThisMessage)
-            {
-                _suppressForwardThisMessage = false;
-                return;
-            }
-
-            if (!_isForwardedMessage && _role == NetworkRole.Host && _currentReceivePlayerId > 0)
-            {
-                if (_forwardableMap.TryGetValue(type, out var fwdKind))
-                {
-                    if (fwdKind == ForwardableKind.Direct)
-                    {
-                        // Direct rebroadcast must be reliable (default SendToAllExcept is Unreliable).
-                        // PutRaw is already the message body; adding a length
-                        // prefix would break deserializers.
-                        SendToAllExcept(_currentReceivePlayerId, type, w => w.PutRaw(payload),
-                            DeliveryMethod.ReliableOrdered);
-                    }
-                    else
-                    {
-                        var fwd = new RemotePlayerForwardMessage
-                        {
-                            OriginalPlayerId = _currentReceivePlayerId,
-                            InnerType = (byte)type,
-                            InnerPayload = payload
-                        };
-                        SendToAllExcept(_currentReceivePlayerId, NetMessageType.RemotePlayerForward,
-                            w => fwd.Serialize(w), DeliveryMethod.ReliableOrdered);
-                    }
-                }
-            }
-        }
     }
 }
-

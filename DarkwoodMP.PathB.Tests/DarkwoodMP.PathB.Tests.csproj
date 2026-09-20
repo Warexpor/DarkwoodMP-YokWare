@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -17,8 +17,8 @@
   </ItemGroup>
   <!-- Compile shipped pure helpers without Unity/game references. -->
   <ItemGroup>
-    <Compile Include="..\DarkwoodMP.Mod\CoopPolicy.cs" Link="Shipped\CoopPolicy.cs" />
-    <Compile Include="..\DarkwoodMP.Mod\Sync\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.cs" Link="Shipped\CoopPolicy.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Domains\Dialogue\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetWriter.cs" Link="Shipped\NetWriter.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\ForwardableAttribute.cs" Link="Shipped\ForwardableAttribute.cs" />

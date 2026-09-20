@@ -1,0 +1,179 @@
+using System.Collections.Generic;
+using DWMPHorde;
+using DWMPHorde.Sync;
+using HarmonyLib;
+using UnityEngine;
+
+namespace DWMPHorde.Networking
+{
+    /// <summary>
+    /// World Door / Window / Item Burn sync (pos-keyed absolute state).
+    /// Covers Flame/molotov ignition, Burn.stop, and late-join burning objects.
+    /// </summary>
+    internal sealed class WorldBurnNetHandlers
+    {
+        private readonly LanNetworkManager _net;
+
+        internal const int MaxPendingWorldBurns = 32;
+        private readonly List<WorldBurnStateMessage> _pending = new List<WorldBurnStateMessage>();
+        private float _nextPendingFlushTime;
+        private const float PendingFlushInterval = 1f;
+
+        internal int PendingCount => _pending.Count;
+
+        internal WorldBurnNetHandlers(LanNetworkManager net)
+        {
+            _net = net ?? throw new System.ArgumentNullException(nameof(net));
+        }
+
+        internal void ClearPending()
+        {
+            _pending.Clear();
+        }
+
+        internal void HandleWorldBurnState(WorldBurnStateMessage msg)
+        {
+            ApplyWorldBurnState(msg, queueIfMissing: true);
+        }
+
+        internal void ApplyWorldBurnState(WorldBurnStateMessage msg, bool queueIfMissing)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            GameObject go = FindTarget(msg.TargetType, pos);
+            if (go == null)
+            {
+                if (queueIfMissing)
+                {
+                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    {
+                        var p = _pending[i];
+                        if (p.TargetType == msg.TargetType &&
+                            Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
+                            Mathf.Abs(p.PosY - msg.PosY) < 0.5f &&
+                            Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
+                            _pending.RemoveAt(i);
+                    }
+                    if (_pending.Count >= MaxPendingWorldBurns)
+                        _pending.RemoveAt(0);
+                    _pending.Add(msg);
+                    ModRuntime.LegacyInfo("[WorldBurnSync] queued (target not loaded) at " + pos);
+                }
+                return;
+            }
+
+            using (new NetworkApplyGuard())
+            {
+                bool prevHack = TraverseHack.GetExplicitFlag();
+                TraverseHack.SetExplicitFlag(true);
+                try
+                {
+                    if (msg.Burning != 0)
+                    {
+                        Burn burn = go.GetComponent<Burn>();
+                        if (burn == null)
+                        {
+                            burn = go.AddComponent<Burn>();
+                            float remain = msg.HasRemainingTime && msg.RemainingTime > 0f
+                                ? msg.RemainingTime
+                                : WorldBurnSyncHelpers.DefaultBurnTime;
+                            burn.burnTime = remain;
+                            WorldBurnSyncHelpers.MarkRemoteApplied(burn);
+                        }
+                    }
+                    else
+                    {
+                        Burn burn = go.GetComponent<Burn>();
+                        if (burn != null)
+                            burn.stop();
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[WorldBurnSync] apply: " + ex.Message);
+                }
+                finally
+                {
+                    TraverseHack.SetExplicitFlag(prevHack);
+                }
+            }
+
+            ModRuntime.LegacyInfo(
+                $"[WorldBurnSync] applied type={msg.TargetType} burning={msg.Burning != 0} at {pos}");
+        }
+
+        internal void TryFlushPending()
+        {
+            if (_pending.Count == 0) return;
+            float now = Time.unscaledTime;
+            if (now < _nextPendingFlushTime) return;
+            _nextPendingFlushTime = now + PendingFlushInterval;
+
+            for (int i = _pending.Count - 1; i >= 0; i--)
+            {
+                var msg = _pending[i];
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                if (FindTarget(msg.TargetType, pos) == null)
+                    continue;
+                _pending.RemoveAt(i);
+                ApplyWorldBurnState(msg, queueIfMissing: false);
+            }
+        }
+
+        /// <summary>
+        /// Host: push currently burning Door/Window/Item Burn components to a joiner.
+        /// </summary>
+        internal void SendWorldBurnStatesTo(int targetPlayerId)
+        {
+            if (_net.Role != NetworkRole.Host) return;
+
+            Burn[] all = UnityEngine.Object.FindObjectsOfType<Burn>(true);
+            int sent = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Burn burn = all[i];
+                if (burn == null) continue;
+                if (!WorldBurnSyncHelpers.TryResolveWorldTarget(burn, out _, out _))
+                    continue;
+                if (sent >= 256) break;
+
+                var msg = WorldBurnSyncHelpers.BuildMessage(burn, burning: true);
+                _net.SendBulkOrAll(NetMessageType.WorldBurnState, w => msg.Serialize(w), targetPlayerId);
+                sent++;
+            }
+
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} world-burn state(s) to player {targetPlayerId}"
+                : $"[BulkSync] Sent {sent} world-burn state(s) to all clients");
+        }
+
+        private static GameObject FindTarget(byte targetType, Vector3 pos)
+        {
+            switch (targetType)
+            {
+                case WorldBurnStateMessage.TargetDoor:
+                {
+                    Door door = WorldQueryHelper.FindDoorByPos(pos);
+                    if (door == null)
+                        door = WorldQueryHelper.FindDoorByPosLoose(pos, 4f);
+                    return door != null ? door.gameObject : null;
+                }
+                case WorldBurnStateMessage.TargetWindow:
+                {
+                    Window window = WorldQueryHelper.FindWindowByPos(pos);
+                    if (window == null)
+                        window = WorldQueryHelper.FindWindowByPosLoose(pos, 4f);
+                    return window != null ? window.gameObject : null;
+                }
+                case WorldBurnStateMessage.TargetItem:
+                {
+                    Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
+                    if (item == null)
+                        item = WorldQueryHelper.FindNearest<Item>(pos, 8f);
+                    return item != null ? item.gameObject : null;
+                }
+                default:
+                    return null;
+            }
+        }
+    }
+}

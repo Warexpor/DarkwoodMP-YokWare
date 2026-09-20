@@ -34,7 +34,12 @@ public class NetMessageContractTests
         Assert.Equal(131, (byte)NetMessageType.LocationTransport);
         Assert.Equal(132, (byte)NetMessageType.EntityDespawn);
         Assert.Equal(133, (byte)NetMessageType.PeerHasItem);
-        Assert.Equal(133, (byte)NetMessageType._Highest);
+        Assert.Equal(134, (byte)NetMessageType.ChainState);
+        Assert.Equal(135, (byte)NetMessageType.ShadowArmorState);
+        Assert.Equal(136, (byte)NetMessageType.GameEventsBulk);
+        Assert.Equal(137, (byte)NetMessageType.WorldBurnState);
+        Assert.Equal(138, (byte)NetMessageType.ScenarioStateBulk);
+        Assert.Equal(138, (byte)NetMessageType._Highest);
     }
 
     [Fact]

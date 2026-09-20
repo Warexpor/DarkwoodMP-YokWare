@@ -1,0 +1,359 @@
+using DG.Tweening;
+using DWMPHorde.Networking;
+using DWMPHorde.Players;
+using DWMPHorde.Spectator;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.Video;
+
+namespace DWMPHorde.Sync
+{
+    internal static partial class DreamSyncManager
+    {
+        public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition)
+        {
+            if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
+            // Host already refused completed presets in TryBegin / HandleDreamStarted.
+            _remoteDreamActive[playerId] = true;
+            _currentDreamPreset[playerId] = presetName;
+
+            FreezeWorld();
+
+            if (!FinalDreamsceneManager.IsActive)
+                FinalDreamsceneManager.OnDreamStarted();
+
+            ModRuntime.LegacyInfo($"[DreamSync] Remote dream started (p{playerId}): {presetName}, pos={locationPosition}");
+
+            SavePreDreamState(playerId);
+            ProcessRemoteDream(playerId, locationPosition);
+        }
+
+        private static void ProcessRemoteDream(int playerId, Vector3 locationPosition)
+        {
+            string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
+            if (presetName == null) return;
+            ApplyDreamCameraEffects(presetName);
+            Singleton<Controller>.Instance.StartCoroutine(ProcessRemoteDreamCoroutine(playerId, locationPosition));
+        }
+
+        /// <summary>
+        /// Peer started Dreams.startTransition. Play the same video now, not after DreamStarted.
+        /// </summary>
+        public static void OnPeerDreamEntryTransition()
+        {
+            if (_localDreamActive) return;
+            if (_earlyEntryTransitionPlayed) return;
+            // DreamStarted already started the video; do not stack a second Play.
+            if (_remoteEntryTransitionPlaying) return;
+
+            _earlyEntryTransitionPlayed = true;
+            FreezeWorld();
+
+            float wait = StartRemoteDreamTransition();
+            _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, wait);
+            // So DreamTransition.skip / ActionSkipTransition can cut the wait.
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = true;
+
+            // Arm safety watchdog: if nothing resolves the transition within 20s of
+            // the expected completion, force-clear the stuck overlay + EnteringDream.
+            Singleton<Controller>.Instance.StartCoroutine(
+                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f));
+
+            ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
+        }
+
+        /// <summary>Skip / cancel early entry wait so DreamStarted load is not blocked.</summary>
+        public static void OnEntryTransitionSkipped()
+        {
+            if (!_earlyEntryTransitionPlayed) return;
+            _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup;
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = false;
+            FadeOutDreamTransition();
+        }
+
+        private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
+        {
+            string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
+
+            // Keep the snapshot aligned with host prepareDream.
+            if (Dreams.Instance != null && !Dreams.Instance.dreaming && !Dreams.Instance.switchingDream)
+            {
+                try { Dreams.Instance.saveCurrentPlayerState(); }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] saveCurrentPlayerState: " + ex.Message);
+                }
+            }
+
+            // Host prepareDream shows Saving; SaveSync is suppressed for the whole dream
+            // window (avoids hitch mid-video). Peer path never ran prepareDream; mirror a
+            // local Save+indicator so clients see the same cue. Fan-out stays suppressed.
+            try
+            {
+                Singleton<SaveManager>.Instance?.Save(
+                    doJson: true, doSaveProfile: true, force: true,
+                    forceSaveStatic: false, showSavingIndicator: true);
+                ModRuntime.LegacyInfo("[DreamSync] peer dream-entry local Save (Saving UI)");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] peer dream-entry Save: " + ex.Message);
+            }
+
+            // 1. Entry video: already started on CutsceneSync DreamEntry, or play now (late/missed).
+            if (_earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying)
+            {
+                float remain = _earlyEntryTransitionDoneAt - Time.realtimeSinceStartup;
+                if (remain > 0.05f)
+                {
+                    ModRuntime.LegacyInfo($"[DreamSync] Waiting remaining entry transition {remain:F1}s");
+                    // Realtime: EnteringDream / pause can zero timescale and stall WaitForSeconds,
+                    // which prolonged the black screen and made the stinger feel doubled.
+                    yield return new WaitForSecondsRealtime(remain);
+                }
+            }
+            else
+            {
+                float waitTime = StartRemoteDreamTransition();
+                if (waitTime > 0f)
+                {
+                    ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
+                    yield return new WaitForSecondsRealtime(waitTime);
+                }
+            }
+
+            // 2. Clean up the video overlay (fade out)
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
+
+            // 3. NOW load the dream scene (after transition is complete)
+            if (presetName != null)
+                yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, playerId);
+            else
+            {
+                ModRuntime.Log?.LogError("[DreamSync] Remote dream entry missing preset — unfreezing");
+                UnfreezeWorld();
+                if (_remoteDreamActive.ContainsKey(playerId))
+                    _remoteDreamActive[playerId] = false;
+            }
+        }
+
+        /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
+        public static void OnDreamChain(string nextPreset)
+        {
+            if (string.IsNullOrEmpty(nextPreset)) return;
+            _localDreamPreset = nextPreset;
+            _localDreamActive = true;
+            if (Player.Instance != null)
+            {
+                int pid = 0;
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net != null)
+                    pid = net.LocalPlayerId;
+                _currentDreamPreset[pid] = nextPreset;
+                _remoteDreamActive[pid] = true;
+            }
+            Vector3 pos = Dreams.Instance?.dreamLocation != null
+                ? Dreams.Instance.dreamLocation.transform.position
+                : (Player.Instance != null ? Player.Instance._transform.position : Vector3.zero);
+            if (Singleton<Controller>.Instance != null)
+                Singleton<Controller>.Instance.StartCoroutine(ProcessChainCoroutine(nextPreset, pos));
+        }
+
+        private static IEnumerator ProcessChainCoroutine(string presetName, Vector3 locationPosition)
+        {
+            // Keep world frozen; tear previous dream location if still present.
+            if (Dreams.Instance != null && Dreams.Instance.dreaming)
+            {
+                LanNetworkManager.IsApplyingRemoteState = true;
+                try
+                {
+                    Dreams.Instance.dreaming = false;
+                    Dreams.Instance.destroyDream();
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] chain destroy: " + ex.Message);
+                }
+                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+            }
+
+                // Preserve inventory and time copies across a dream-chain pocket.
+            if (Dreams.Instance != null)
+                Dreams.Instance.switchingDream = true;
+
+            yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
+            DreamSession.MarkActive();
+        }
+
+        /// <summary>
+        /// Host-only: waits out the remaining early transition time, then fades the
+        /// video overlay and clears EnteringDream. Mirrors the peer-path cleanup
+        /// that ProcessRemoteDreamCoroutine performs for clients.
+        /// </summary>
+        private static IEnumerator LocalEntryFadeoutCoroutine(float delay)
+        {
+            if (delay > 0.05f)
+                yield return new WaitForSecondsRealtime(delay);
+            FadeOutDreamTransition();
+            // Peer path sets base UI.blackScreen opaque; vanilla startDreaming only clears
+            // blackScreenTop; without this the host stays black forever.
+            FadeInDreamBlackScreen();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            _remoteEntryTransitionPlaying = false;
+            _remoteEntryAudioId = null;
+        }
+
+        /// <summary>
+        /// Safety watchdog: if the early entry transition is still active after the
+        /// timeout and neither a local nor remote dream session started, force-clear
+        /// the stuck state so the player is not permanently blinded + paralysed.
+        /// </summary>
+        private static IEnumerator EntryTransitionWatchdog(float expireAt)
+        {
+            float delay = expireAt - Time.realtimeSinceStartup;
+            if (delay > 0f)
+                yield return new WaitForSeconds(delay);
+            yield return null; // one frame for any pending transitions to settle
+            if (_earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] Watchdog: early entry transition stuck — force-clearing");
+                FadeOutDreamTransition();
+                _earlyEntryTransitionPlayed = false;
+                _earlyEntryTransitionDoneAt = 0f;
+                try
+                {
+                    if (Dreams.Instance != null && !Dreams.Instance.dreaming)
+                        Dreams.Instance.dreamPrepared = false;
+                }
+                catch { /* ignore */ }
+                Core.EnteringDream = false;
+                UnfreezeWorld();
+            }
+        }
+
+        /// <summary>
+        /// Client sent DreamStartRequest and is holding opaque black. If host never
+        /// delivers DreamStarted, clear the void so the player is not stuck blind.
+        /// </summary>
+        public static void ArmClientEntryWatchdog()
+        {
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+            ctrl.StartCoroutine(ClientEntryWatchdog());
+        }
+
+        private static IEnumerator ClientEntryWatchdog()
+        {
+            float deadline = Time.realtimeSinceStartup + 25f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                // Do not use IsDreamActive; it includes _earlyEntryTransitionPlayed, which
+                // made this watchdog exit immediately after peer CutsceneSync and never clear
+                // the void when DreamStarted never arrived.
+                if (_localDreamActive
+                    || (Dreams.Instance != null && Dreams.Instance.dreaming))
+                    yield break;
+                if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                    break;
+                yield return null;
+            }
+            if (_localDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming))
+                yield break;
+
+            ModRuntime.Log?.LogWarning(
+                "[DreamSync] Client entry watchdog — no DreamStarted, clearing black void");
+            FadeOutDreamTransition();
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            Core.EnteringDream = false;
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui != null)
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore */ }
+            UnfreezeWorld(restoreTime: false);
+        }
+
+        private static void FadeOutDreamTransition()
+        {
+            // Keep EnteringDream until LoadDreamSceneCoroutine fades in. Clearing it here
+            // left a frame of overworld between video teardown and scene load.
+            _remoteEntryTransitionPlaying = false;
+            // Stop the entry stinger so it cannot overlap dream-scene music after a long wait.
+            if (!string.IsNullOrEmpty(_remoteEntryAudioId))
+            {
+                try { AudioController.Stop(_remoteEntryAudioId); } catch { /* ignore */ }
+                _remoteEntryAudioId = null;
+            }
+            if (Dreams.Instance?.startTransition != null)
+                Dreams.Instance.startTransition.isPlaying = false;
+            if (Singleton<UI>.Instance == null) return;
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                // Snap black opaque first so any video fade cannot expose overworld.
+                try
+                {
+                    if (ui.blackScreen != null)
+                    {
+                        var baseSprite = ui.blackScreen.GetComponent<tk2dBaseSprite>();
+                        if (baseSprite != null)
+                            baseSprite.color = new Color(0f, 0f, 0f, 1f);
+                    }
+                    if (ui.blackScreenTop != null)
+                    {
+                        var topSprite = ui.blackScreenTop.GetComponent<tk2dBaseSprite>();
+                        if (topSprite != null)
+                            topSprite.color = new Color(0f, 0f, 0f, 1f);
+                    }
+                }
+                catch { /* ignore */ }
+                ui.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0f);
+
+                var overlay = ui.videoOverlay;
+                if (overlay != null && overlay.gameObject.activeSelf)
+                {
+                    var renderer = overlay.GetComponent<Renderer>();
+                    if (renderer != null)
+                    {
+                        VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
+                        if (vp != null && vp.isPlaying)
+                            vp.Stop();
+                        // Snap off. DOFade(0.5s) exposed overworld when black was not yet solid.
+                        if (renderer.material != null)
+                            renderer.material.color = new Color(1f, 1f, 1f, 0f);
+                        renderer.enabled = false;
+                    }
+                    overlay.gameObject.SetActive(false);
+                    Core.showGameCursor();
+                }
+                else
+                {
+                    Core.showGameCursor();
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning($"[DreamSync] Error fading out transition: {ex}");
+            }
+        }
+
+    }
+}

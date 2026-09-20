@@ -1,0 +1,47 @@
+using DWMPHorde;
+using DWMPHorde.Sync;
+using UnityEngine;
+
+namespace DWMPHorde.Networking
+{
+    /// <summary>Map marker / discovery handlers composed for 0.8.</summary>
+    internal sealed class MapNetHandlers
+    {
+        private readonly LanNetworkManager _net;
+
+        internal MapNetHandlers(LanNetworkManager net)
+        {
+            _net = net ?? throw new System.ArgumentNullException(nameof(net));
+        }
+
+        internal void HandleMapMarker(MapMarkerMessage msg)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            if (playerId <= 0) return;
+            if (playerId == _net.LocalPlayerId) return; // never treat own marker as remote
+            MultiplayerMapManager.AddRemoteMarker(playerId, pos);
+            ModRuntime.LegacyInfo($"[MapMarker] player {playerId} marker at {pos:F1}");
+        }
+
+        internal void HandleMapMarkerRemove(MapMarkerRemoveMessage msg)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            if (playerId <= 0) return;
+            if (playerId == _net.LocalPlayerId) return;
+            MultiplayerMapManager.RemoveRemoteMarker(playerId, pos);
+            ModRuntime.LegacyInfo($"[MapMarker] player {playerId} marker removed at {pos:F1}");
+        }
+
+        /// <summary>
+        /// Handles a MapElement discovery notification from the remote peer.
+        /// Both host and client can discover locations, so this is bidirectional.
+        /// </summary>
+        internal void HandleMapElementDiscovered(MapElementDiscoveredMessage msg)
+        {
+            if (string.IsNullOrEmpty(msg.ElementName)) return;
+            MultiplayerMapManager.OnRemoteElementDiscovered(msg.ElementName);
+        }
+    }
+}

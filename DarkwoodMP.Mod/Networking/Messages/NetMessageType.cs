@@ -308,7 +308,34 @@ namespace DWMPHorde.Networking
         /// Client→host: compact bag item presence for EventTrigger `haveItem`.
         /// </summary>
         PeerHasItem = 133,
+        /// <summary>
+        /// ChainParent health / attached absolute state (pos-keyed). Forwardable for
+        /// client→host→peers fan-out of hits and detach (timer / health-zero / onDie).
+        /// </summary>
+        [Forwardable] ChainState = 134,
+        /// <summary>
+        /// World Item / ShadowArmor absolute health (pos-keyed). Forwardable for
+        /// mid-fight HP bar + die fan-out (melee / light damageMe).
+        /// </summary>
+        [Forwardable] ShadowArmorState = 135,
+        /// <summary>
+        /// Host→peer: late-join bulk of already-fired one-shot GameEvents
+        /// (pos + name). Joiner applies via the live GameEventsFired path.
+        /// </summary>
+        GameEventsBulk = 136,
+        /// <summary>
+        /// Door / Window / Item Burn absolute state (pos-keyed). Forwardable for
+        /// client→host→peers fan-out when Flame (molotov) ignites world objects.
+        /// Character/Player burn stays on EntityBurning / PlayerBurning.
+        /// </summary>
+        [Forwardable] WorldBurnState = 137,
+        /// <summary>
+        /// Host→peer late-join: night scenario name + non-firing event flags
+        /// (CustomEvent.started, RandomEvent.startedToday/disabled, currentEvent).
+        /// Does not replay ScenarioEventFired / RandomEvent.fire.
+        /// </summary>
+        ScenarioStateBulk = 138,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 133
+        _Highest = 138
     }
 }
