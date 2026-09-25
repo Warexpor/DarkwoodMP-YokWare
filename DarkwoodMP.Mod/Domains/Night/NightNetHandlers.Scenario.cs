@@ -203,6 +203,32 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in nightId {msg.NightId}");
 
+            CustomEvent ce = scenario.customEventAndInts[msg.EventIndex].customEvent;
+            bool outside = Player.Instance == null || Player.Instance.whereAmI == null
+                || Player.Instance.whereAmI.bigLocation == null;
+            if (ce != null && ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent)
+            {
+                if (outside)
+                {
+                    Patches.ScenarioPendingEventState.PendingEventIndex = -1;
+                    Patches.ScenarioPendingEventState.PendingScenario = null;
+                    return;
+                }
+                Patches.ClientRandomEventGate.Arm(20f);
+                try
+                {
+                    using (new NetworkApplyGuard())
+                        ce.fire(force: true);
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[ScenarioEventFired] location event replay failed: " + ex.Message);
+                }
+                Patches.ScenarioPendingEventState.PendingEventIndex = -1;
+                Patches.ScenarioPendingEventState.PendingScenario = null;
+                return;
+            }
+
             Patches.ScenarioPendingEventState.PendingEventIndex = msg.EventIndex;
             Patches.ScenarioPendingEventState.PendingScenario = scenario;
         }

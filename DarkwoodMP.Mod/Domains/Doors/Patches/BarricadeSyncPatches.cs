@@ -187,6 +187,14 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void Postfix(Door __instance, object[] __args)
         {
+            if (ClientRandomEventGate.PlayingHostLocationEvent
+                && !(__args.Length > 1 && __args[1] is Transform doorAtk
+                    && Player.Instance != null
+                    && (doorAtk == Player.Instance.transform || doorAtk.IsChildOf(Player.Instance.transform))))
+            {
+                BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
+                return;
+            }
             int id = __instance.GetInstanceID();
             bool wasBarricaded;
             int barricadeHealthBefore;
@@ -283,6 +291,14 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void Postfix(Window __instance, object[] __args)
         {
+            if (ClientRandomEventGate.PlayingHostLocationEvent
+                && !(__args.Length > 1 && __args[1] is Transform winAtk
+                    && Player.Instance != null
+                    && (winAtk == Player.Instance.transform || winAtk.IsChildOf(Player.Instance.transform))))
+            {
+                BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
+                return;
+            }
             int damage = (int)__args[0];
             int id = __instance.GetInstanceID();
 

@@ -80,7 +80,7 @@ namespace DWMPHorde.Patches
             for (int i = 0; i < __instance.customEventAndInts.Count; i++)
             {
                 var cei = __instance.customEventAndInts[i];
-                if (cei.customEvent == __instance.currentEvent && cei.timeToStart == 0)
+                if (cei.customEvent == __instance.currentEvent)
                 {
                     if (__instance.nightId == _lastSentNightId && i == _lastSentEventIndex)
                         return;

@@ -1,5 +1,6 @@
 using DWMPHorde.Networking;
 using HarmonyLib;
+using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
@@ -71,6 +72,90 @@ namespace DWMPHorde.Patches
         {
             if (!ClientWorldHelper.IsClient) return true;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
+            // Host told us this night scene fired. Play its local effects.
+            // Creature spawns stay on the host.
+            if (ClientRandomEventGate.PlayingHostLocationEvent
+                && __instance != null
+                && __instance.type == RandomEvent.Type.locationEvent)
+                return true;
+            return false;
+        }
+    }
+
+    /// <summary>Set while a client replays a host night location event, including its delayed steps.</summary>
+    internal static class ClientRandomEventGate
+    {
+        private static float _until;
+
+        public static bool PlayingHostLocationEvent => UnityEngine.Time.unscaledTime < _until;
+
+        public static void Arm(float seconds)
+        {
+            float until = UnityEngine.Time.unscaledTime + seconds;
+            if (until > _until)
+                _until = until;
+        }
+    }
+
+    /// <summary>
+    /// The location event's own prefab may try to spawn a creature. The host
+    /// already did that and will send the body. Skip a second one here.
+    /// </summary>
+    [HarmonyPatch(typeof(CharacterSpawner), "spawnCharacterAround")]
+    [HarmonyPriority(Priority.First)]
+    public static class ClientScenarioEventNoDuplicateSpawnPatch
+    {
+        private static bool Prefix()
+        {
+            return !ClientRandomEventGate.PlayingHostLocationEvent;
+        }
+    }
+
+    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    [HarmonyPriority(Priority.First)]
+    public static class ClientScenarioEventNoCharacterPrefabPatch
+    {
+        private static bool Prefix(string prefab, ref GameObject __result)
+        {
+            if (!ClientRandomEventGate.PlayingHostLocationEvent)
+                return true;
+            if (string.IsNullOrEmpty(prefab))
+                return true;
+            if (prefab.IndexOf("characters/", System.StringComparison.OrdinalIgnoreCase) < 0)
+                return true;
+            __result = null;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Door), "getHit")]
+    [HarmonyPriority(Priority.First)]
+    public static class ClientScenarioEventNoDoorHitPatch
+    {
+        private static bool Prefix(Transform attackerTransform)
+        {
+            if (!ClientRandomEventGate.PlayingHostLocationEvent)
+                return true;
+            if (attackerTransform != null && Player.Instance != null
+                && (attackerTransform == Player.Instance.transform
+                    || attackerTransform.IsChildOf(Player.Instance.transform)))
+                return true;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Window), "getHit")]
+    [HarmonyPriority(Priority.First)]
+    public static class ClientScenarioEventNoWindowHitPatch
+    {
+        private static bool Prefix(Transform attackerTransform)
+        {
+            if (!ClientRandomEventGate.PlayingHostLocationEvent)
+                return true;
+            if (attackerTransform != null && Player.Instance != null
+                && (attackerTransform == Player.Instance.transform
+                    || attackerTransform.IsChildOf(Player.Instance.transform)))
+                return true;
             return false;
         }
     }
