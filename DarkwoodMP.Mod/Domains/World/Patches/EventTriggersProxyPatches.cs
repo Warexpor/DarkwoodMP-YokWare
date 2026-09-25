@@ -89,7 +89,7 @@ namespace DWMPHorde.Patches
                 return;
 
             if (EventTriggersAuth.IsHost())
-                ThreatTriggerContext.NoteProxyEnter(proxy);
+                ThreatTriggerContext.NoteProxyEnter(proxy, __instance.transform.position);
 
             __instance.fireEventTrigger(EventTrigger.Type.area);
             __instance.entered++;

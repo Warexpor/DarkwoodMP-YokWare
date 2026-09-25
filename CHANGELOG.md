@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.18**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.19**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.19 — An enemy chases the player who is there
+
+Walking into any trigger remembered one remote player for eight seconds, for the whole map. With three people, a wolf next to you could turn and run to whoever last touched a door somewhere else.
+
+- Ordinary enemies pick the nearest living player. Touching a door somewhere else does not pull them off the person standing next to them.
+- The dream bunker spirit only remembers a player who entered a trigger within 2000 of the dream. A meadow door does not spawn that spirit on them.
+- Protocol **25** unchanged. Product bump **0.8.18 → 0.8.19**.
 
 ---
 

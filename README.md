@@ -4,7 +4,7 @@ Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.18** |
+| Product | YokWare Branch **0.8.19** |
 | Wire | Horde protocol **25** |
 | Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
 | Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
@@ -51,7 +51,7 @@ game installation.
 3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
    `DarkwoodMP.Mod/bin/Release/BepInEx/` to
    `Darkwood/BepInEx/plugins/`.
-4. Launch Darkwood. The menu should show YokWare Branch 0.8.18 and protocol
+4. Launch Darkwood. The menu should show YokWare Branch 0.8.19 and protocol
    25.
 
 The project can also copy these files to the configured local Steam and
@@ -167,5 +167,5 @@ Warexpor and Yokyy co-author the YokWare Branch. See
 GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
 [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Current ship: **0.8.18**, protocol **25**. See
+Current ship: **0.8.19**, protocol **25**. See
 [CHANGELOG.md](CHANGELOG.md).

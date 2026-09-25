@@ -13,12 +13,14 @@ namespace DWMPHorde.Patches
     {
         private static int _lastProxyPlayerId;
         private static float _lastProxyEnterTime = -999f;
+        private static Vector3 _lastProxyEnterPos;
 
-        public static void NoteProxyEnter(RemotePlayerProxy proxy)
+        public static void NoteProxyEnter(RemotePlayerProxy proxy, Vector3 volumePos)
         {
             if (proxy == null) return;
             _lastProxyPlayerId = proxy.PlayerId;
             _lastProxyEnterTime = Time.unscaledTime;
+            _lastProxyEnterPos = volumePos;
         }
 
         public static void NoteHostEnter()
@@ -47,6 +49,19 @@ namespace DWMPHorde.Patches
             if (cb != null && (!cb.alive || cb.invisible || cb.ignoreMe))
                 return null;
             return proxy.transform;
+        }
+
+        /// <summary>
+        /// Same memory, but only if that enter happened near <paramref name="near"/>.
+        /// A door in the meadow must not count as the dream bunker.
+        /// </summary>
+        public static Transform TryGetRecentProxyNear(Vector3 near, float maxDist, float maxAgeSec)
+        {
+            Transform t = TryGetRecentProxyTransform(maxAgeSec);
+            if (t == null) return null;
+            if (Core.trueDistance(_lastProxyEnterPos, near) > maxDist)
+                return null;
+            return t;
         }
 
         public static Vector3? TryGetRecentProxyPosition(float maxAgeSec)

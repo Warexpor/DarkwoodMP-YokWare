@@ -93,8 +93,6 @@ namespace DWMPHorde.Patches
             if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
                 prefer = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
             if (prefer == null)
-                prefer = ThreatTriggerContext.TryGetRecentProxyTransform(8f);
-            if (prefer == null)
                 prefer = FindNearestPlayerTransform(__instance.transform.position);
             if (prefer == null)
                 return true;

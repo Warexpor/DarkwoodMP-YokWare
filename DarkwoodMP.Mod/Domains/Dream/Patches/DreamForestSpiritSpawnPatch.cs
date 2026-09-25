@@ -9,7 +9,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Dream bunker forest spirit: vanilla always spawns around + attacks
     /// <see cref="Player.Instance"/>. When a remote proxy entered the runaway
-    /// volume, spawn/chase that peer instead. Aggro sticks to the spawn owner
+    /// volume near the dream, spawn/chase that peer instead. Aggro sticks to the spawn owner
     /// so a later peer entering the volume cannot steal the chase.
     /// </summary>
     [HarmonyPatch(typeof(Player), "special_spawnDreamForestSpirit")]
@@ -23,7 +23,10 @@ namespace DWMPHorde.Patches
                 return true;
 
             var net = LanNetworkManager.Instance;
-            Transform prefer = ThreatTriggerContext.TryGetRecentProxyTransform(8f);
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            Transform prefer = pad != null
+                ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f)
+                : null;
             int ownerId;
             Vector3 anchor;
             string who;
