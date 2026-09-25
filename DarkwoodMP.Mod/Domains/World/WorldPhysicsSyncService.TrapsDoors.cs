@@ -26,7 +26,8 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
-                if (named != null && TrapNetworkId.IsWorldTrap(named) && HasTrapField(named))
+                if (named != null && TrapNetworkId.IsWorldTrap(named) && HasTrapField(named)
+                    && (named.transform.position - pos).sqrMagnitude <= 20f * 20f)
                     return named;
             }
 

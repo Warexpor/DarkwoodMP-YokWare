@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.29**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.30**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.30 — A trap update stays on that trap
+
+If the nearby search missed a trap, the game looked up the name anywhere in the world. Another trap with the same name, even across the map, could spring or reset instead.
+
+- That name lookup now has to be within 20 steps of the trap that actually changed.
+- Protocol **25** unchanged. Product bump **0.8.29 → 0.8.30**.
 
 ---
 
