@@ -55,6 +55,9 @@ namespace DWMPHorde.Networking
                     anim.PlayDeathClip("Death1");
             }
 
+            if (_net.Role == NetworkRole.Host)
+                Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
+
             if (isNight)
             {
                 DeathStateTracker.OnRemoteNightDeath(playerId, deathPos);

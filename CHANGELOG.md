@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.19**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.20**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.20 — The morning trader stays while anyone is still in the hideout
+
+Walking out of the hideout after night ended the morning for the whole party. The trader vanished and time started again while other people were still inside.
+
+- The morning now waits until the hideout is empty. Walking back in counts again. If the last person inside dies or disconnects, the morning ends.
+- Killing the night trader still ends the morning immediately.
+- Protocol **25** unchanged. Product bump **0.8.19 → 0.8.20**.
 
 ---
 

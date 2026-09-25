@@ -77,6 +77,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
                 NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
+                NetworkResetRegistry.Register(MorningHideoutHold.Reset);
                 NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
                 NetworkResetRegistry.Register(ClientMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);

@@ -220,6 +220,8 @@ namespace DWMPHorde.Networking
                     {
                         if (DeathStateTracker.OnRemoteDisconnected(playerId))
                             DeathStateTracker.TryResolveNightMorning("steam peer disconnect");
+                        Patches.MorningHideoutHold.Forget(playerId);
+                        Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
                     }
                     StatusText = $"Steam player {playerId} left ({_steamPeers.Count} remaining)";
                 }

@@ -127,6 +127,8 @@ namespace DWMPHorde.Networking
                     {
                         if (DeathStateTracker.OnRemoteDisconnected(playerId))
                             DeathStateTracker.TryResolveNightMorning("peer disconnect");
+                        Patches.MorningHideoutHold.Forget(playerId);
+                        Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
                     }
                     else
                     {

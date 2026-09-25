@@ -11,9 +11,9 @@ namespace DWMPHorde
         /// <summary>
         /// BepInEx plugin version. The supported product line is 0.8.x.
         /// </summary>
-        public const string Version = "0.8.19";
+        public const string Version = "0.8.20";
         /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.8.19 Path B (architecture rewrite)";
+        public const string DisplayVersion = "0.8.20 Path B (architecture rewrite)";
         /// <summary>Horde wire protocol. 25 includes ordered state snapshots.</summary>
         public const int ProtocolVersion = 25;
         public const int DefaultPort = 7788;

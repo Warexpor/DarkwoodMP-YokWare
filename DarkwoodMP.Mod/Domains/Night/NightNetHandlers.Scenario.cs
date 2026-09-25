@@ -289,11 +289,25 @@ namespace DWMPHorde.Networking
 
             if (!ctrl.isAfterNight)
             {
+                MorningHideoutHold.Reset();
                 // Already clear; still push the clock so a stale requester unfreezes.
                 _net.SendTimeSyncTo(-1);
                 return;
             }
 
+            bool confirmedOutside = true;
+            RemotePlayerProxy leaver = _net.GetProxy(_net.CurrentReceivePlayerId);
+            if (leaver != null)
+                confirmedOutside = !MorningHideoutHold.PositionIsPlayerBase(leaver.transform.position);
+            MorningHideoutHold.NoteLeft(_net.CurrentReceivePlayerId, confirmedOutside);
+            if (MorningHideoutHold.SomeoneStillInside())
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DayNight] peer p{_net.CurrentReceivePlayerId} left the hideout — someone is still inside, morning stays");
+                return;
+            }
+
+            MorningHideoutHold.Reset();
             ModRuntime.LegacyInfo(
                 $"[DayNight] host endAfterNight from peer p{_net.CurrentReceivePlayerId}");
             try

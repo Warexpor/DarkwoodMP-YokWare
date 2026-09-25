@@ -38,6 +38,8 @@ namespace DWMPHorde.Networking
                 PlayerPositionManager.UpdateRemotePlayer(playerId,
                     new Vector3(state.PosX, state.PosY, state.PosZ),
                     state.TorsoFacingY);
+                if (Patches.MorningHideoutHold.HasPending)
+                    Patches.MorningHideoutHold.Observe(playerId, new Vector3(state.PosX, state.PosY, state.PosZ));
 
                 if (playerId > 0)
                 {
