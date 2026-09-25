@@ -263,19 +263,23 @@ namespace DWMPHorde.Sync
             if (d != null) return d;
 
             int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
+            Door best = null;
+            float bestD = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 if (OverlapBuf[i] == null) continue;
                 Door door = OverlapBuf[i].GetComponentInParent<Door>();
-                if (door != null) return door;
-                // MeleeSensor uses Door.getDoorScript(parent) for Door-tagged colliders
-                if (OverlapBuf[i].CompareTag("Door") && OverlapBuf[i].transform.parent != null)
-                {
+                if (door == null && OverlapBuf[i].CompareTag("Door") && OverlapBuf[i].transform.parent != null)
                     door = Door.getDoorScript(OverlapBuf[i].transform.parent);
-                    if (door != null) return door;
+                if (door == null) continue;
+                float dist = Vector3.Distance(door.transform.position, pos);
+                if (dist < bestD)
+                {
+                    bestD = dist;
+                    best = door;
                 }
             }
-            return null;
+            return best;
         }
 
         public static Window FindWindowByPos(Vector3 pos) => FindWindowByPosLoose(pos, 2f);
@@ -283,20 +287,35 @@ namespace DWMPHorde.Sync
         public static Window FindWindowByPosLoose(Vector3 pos, float radius)
         {
             int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
+            Window best = null;
+            float bestD = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 if (OverlapBuf[i] == null) continue;
                 Window w = OverlapBuf[i].GetComponentInParent<Window>();
-                if (w != null) return w;
+                if (w == null) continue;
+                float d = Vector3.Distance(w.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = w;
+                }
             }
+            if (best != null) return best;
             int n2 = Physics2D.OverlapCircleNonAlloc(pos, radius, Overlap2DBuf);
             for (int i = 0; i < n2; i++)
             {
                 if (Overlap2DBuf[i] == null) continue;
                 Window w = Overlap2DBuf[i].GetComponentInParent<Window>();
-                if (w != null) return w;
+                if (w == null) continue;
+                float d = Vector3.Distance(w.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = w;
+                }
             }
-            return null;
+            return best;
         }
 
         /// <summary>Nearest destructible Item by XZ distance (ignore Y drift).</summary>

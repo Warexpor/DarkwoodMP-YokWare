@@ -35,14 +35,20 @@ namespace DWMPHorde.Sync
         /// <summary>Finds a tracked instance within <paramref name="maxDist"/> of the given position.</summary>
         public static T FindByPosition(Vector3 pos, float maxDist = 0.5f)
         {
+            T best = null;
+            float bestD = maxDist;
             for (int i = 0; i < _items.Count; i++)
             {
                 T item = _items[i];
                 if (item == null) continue;
-                if (Vector3.Distance(item.transform.position, pos) < maxDist)
-                    return item;
+                float d = Vector3.Distance(item.transform.position, pos);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = item;
+                }
             }
-            return null;
+            return best;
         }
 
         /// <summary>

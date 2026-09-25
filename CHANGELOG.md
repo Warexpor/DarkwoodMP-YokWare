@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.28**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.29**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.29 — The nearest door and window are the ones that move
+
+Opening, hitting, or barricading a door could land on a different door in the same room. The search kept the first door it found inside the range, not the closest one. Windows did the same.
+
+- Door, window, and the other position searches now keep the closest match.
+- Protocol **25** unchanged. Product bump **0.8.28 → 0.8.29**.
 
 ---
 
