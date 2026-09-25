@@ -114,11 +114,9 @@ namespace DWMPHorde.Sync
                         if (go == null || !go.scene.IsValid()) continue;
                         string slotType = FirstSlotType(inv);
                         bool nameOk = NameOrItemTypeMatches(go, slotType, needle);
+                        if (!nameOk)
+                            continue;
                         float dSq = XzDistSq(go.transform.position, pos);
-                        if (!nameOk && dSq > 4f * 4f) continue;
-                        if (!nameOk && string.IsNullOrEmpty(slotType) && dSq <= 4f * 4f)
-                        { /* empty itemInv near pickup pos */ }
-                        else if (!nameOk) continue;
                         if (dSq > scanSq) continue;
                         if (dSq < bestDistSq)
                         {
@@ -126,17 +124,6 @@ namespace DWMPHorde.Sync
                             best = go;
                         }
                     }
-                }
-            }
-
-            // Last resort: GameObject.Find, used only when the name is unique.
-            if (best == null && !string.IsNullOrEmpty(objectName))
-            {
-                GameObject named = GameObject.Find(objectName);
-                if (named != null && XzDistSq(named.transform.position, pos) < 12f * 12f)
-                {
-                    best = named;
-                    bestDistSq = XzDistSq(named.transform.position, pos);
                 }
             }
 
@@ -196,7 +183,11 @@ namespace DWMPHorde.Sync
             try { n = go.name.ToLowerInvariant(); }
             catch { return false; }
             string bare = n.Replace("(clone)", "").Trim();
-            if (n == needleLower || n.Contains(needleLower) || needleLower.Contains(bare))
+            if (n == needleLower || bare == needleLower)
+                return true;
+            if (needleLower.Length >= 4 && n.Contains(needleLower))
+                return true;
+            if (bare.Length >= 4 && needleLower.Contains(bare))
                 return true;
             if (!string.IsNullOrEmpty(itemType)
                 && itemType.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
@@ -231,11 +222,8 @@ namespace DWMPHorde.Sync
             string rootName;
             try { rootName = root.name.ToLowerInvariant(); }
             catch { return false; }
-            if (rootName.Contains("mushroom") || rootName.Contains("exp") || rootName.Contains("bio")
-                || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap") || rootName.Contains("animal")
-                || rootName.Contains("barrel") || rootName.Contains("tank") || rootName.Contains("glass") || rootName.Contains("chain")
-                || rootName.Contains("infect"))
-                return true;
+            if (rootName.Contains("audioobject"))
+                return false;
 
             if (needleLower == null) return false;
 

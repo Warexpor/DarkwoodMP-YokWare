@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.24**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.25**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.25 — Picking something up does not delete a different container
+
+If the picked object could not be matched by name, an empty container within a few steps could be removed instead. A crate or barrel you had emptied could vanish because someone picked up something else nearby.
+
+- A pickup now removes an object only when the name matches. A nearby barrel, crate, or mushroom is not taken just because it is close. If two copies share a name, the nearest one within range is the one removed.
+- Protocol **25** unchanged. Product bump **0.8.24 → 0.8.25**.
 
 ---
 
