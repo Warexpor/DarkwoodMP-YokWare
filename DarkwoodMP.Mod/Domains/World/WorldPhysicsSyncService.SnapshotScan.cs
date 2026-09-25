@@ -249,9 +249,7 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            // Quick name check
-            string name = root.name.ToLowerInvariant();
-            if (!name.Contains("trap") && !name.Contains("bear") && !name.Contains("snap") && !name.Contains("animal") && !name.Contains("mushroom") && !name.Contains("chain") && !name.Contains("glass"))
+            if (!TrapNetworkId.IsWorldTrap(root))
             {
                 _trapResultCache[id] = false;
                 return;

@@ -260,6 +260,11 @@ namespace DWMPHorde.Networking
                 if (healthPct == 0)
                     healthPct = 1;
             }
+            if (c.behaviour == Character.Behaviour.escaping
+                || c.aggressiveness == Aggressiveness.flee
+                || c.aggressiveness == Aggressiveness.fleeAndDespawn
+                || c.wantToDespawn)
+                flags |= EntitySnapshotNet.FlagFleeing;
 
             // Cheap dirty gate before Unity name / PrefabPathComponent work.
             if (_lastSent.TryGetValue(id, out EntitySnapshotNet last)

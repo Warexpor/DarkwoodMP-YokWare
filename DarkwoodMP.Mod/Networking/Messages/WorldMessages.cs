@@ -78,16 +78,18 @@ namespace DWMPHorde.Networking
         public byte HealthPct;
         public string EntityName;
         public string PrefabPath;
-        /// <summary>bit0=sleeping, bit1=eating, bit2=downed (pre-death, not a finished kill).</summary>
+        /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing.</summary>
         public byte Flags;
 
         public const byte FlagSleeping = 1;
         public const byte FlagEating = 2;
         public const byte FlagDowned = 4;
+        public const byte FlagFleeing = 8;
 
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
         public bool Downed => (Flags & FlagDowned) != 0;
+        public bool Fleeing => (Flags & FlagFleeing) != 0;
 
         public void Serialize(NetWriter w)
         {

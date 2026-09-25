@@ -43,6 +43,30 @@ namespace DWMPHorde.Sync
             return c != null ? c.NetId : 0;
         }
 
+        /// <summary>
+        /// True for a trap the other player should see spring, break, or disappear.
+        /// Name lists miss prefabs that only set <see cref="Trigger.isBearTrap"/> or chain/mutated flags.
+        /// </summary>
+        public static bool IsWorldTrap(GameObject go)
+        {
+            if (go == null) return false;
+            Trigger trig = go.GetComponent<Trigger>();
+            if (trig != null && (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap))
+                return true;
+            string name = go.name != null ? go.name.ToLowerInvariant() : "";
+            if (name.Contains("trap") || name.Contains("snap") || name.Contains("mushroom"))
+                return true;
+            return name.Contains("brokenglass") || name.Contains("broken_glass");
+        }
+
+        /// <summary>Vanilla only sets inBearTrap on isBearTrap. Name fragments were grabbing the wrong prop.</summary>
+        public static bool IsOccupancyTrap(GameObject go)
+        {
+            if (go == null) return false;
+            Trigger trig = go.GetComponent<Trigger>();
+            return trig != null && trig.isBearTrap;
+        }
+
         public static void Ensure(GameObject go, int netId)
         {
             if (go == null || netId <= 0) return;
@@ -104,8 +128,7 @@ namespace DWMPHorde.Sync
                     ? WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody.gameObject
                     : WorldQueryHelper.SharedOverlapBuf[i].gameObject;
                 if (root == null) continue;
-                string n = root.name.ToLowerInvariant();
-                if (!n.Contains("trap") && !n.Contains("bear") && !n.Contains("snap") && !n.Contains("animal"))
+                if (!TrapNetworkId.IsOccupancyTrap(root))
                     continue;
                 float sq = (root.transform.position - playerPos).sqrMagnitude;
                 if (sq < bestSq)

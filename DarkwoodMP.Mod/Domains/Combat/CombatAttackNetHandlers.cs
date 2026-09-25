@@ -152,19 +152,22 @@ namespace DWMPHorde.Networking
             if (msg.TargetNameHash != 0)
             {
                 target = CharacterTracker.FindByStableId(msg.TargetNameHash);
-                // Return even if dead; HandlePlayerAttack silently drops !alive without a spam log.
-                if (target != null)
+                if (target != null && AttackTargetNameMatches(target, msg.TargetName))
                     return target;
             }
 
             if (string.IsNullOrEmpty(msg.TargetName))
                 return null;
 
-            float matchR = GameplayConstants.PlayerAttackNameMatchRadius;
-            // Prefer tight match around client's reported hit position (phantom/host drift).
+            // A stale id must not leap to another wolf tens of meters away.
+            // Unsynced hits (id 0) still use the wider name match.
+            bool staleId = msg.TargetNameHash != 0;
+            float matchR = staleId ? 12f : GameplayConstants.PlayerAttackNameMatchRadius;
             target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR);
             if (target != null)
                 return target;
+            if (staleId)
+                return null;
 
             // Wider ring still anchored at targetPos (not map-wide closest name).
             target = CharacterTracker.FindByPositionAndName(targetPos, msg.TargetName, matchR * 2.5f);
@@ -183,6 +186,19 @@ namespace DWMPHorde.Networking
             }
 
             return null;
+        }
+
+        private static bool AttackTargetNameMatches(Character target, string reportedName)
+        {
+            if (target == null || string.IsNullOrEmpty(reportedName))
+                return false;
+            string have = target.name ?? "";
+            if (have.EndsWith("(Clone)", StringComparison.Ordinal))
+                have = have.Substring(0, have.Length - 7);
+            string want = reportedName;
+            if (want.EndsWith("(Clone)", StringComparison.Ordinal))
+                want = want.Substring(0, want.Length - 7);
+            return string.Equals(have, want, StringComparison.OrdinalIgnoreCase);
         }
 
         internal void HandleDamagePlayer(DamagePlayerMessage msg)

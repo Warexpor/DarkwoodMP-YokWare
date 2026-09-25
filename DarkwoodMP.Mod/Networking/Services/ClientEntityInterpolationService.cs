@@ -19,6 +19,8 @@ namespace DWMPHorde.Networking
             public bool alive;
             /// <summary>Host has this body in the pre-death downed phase.</summary>
             public bool downed;
+            /// <summary>Host aggro says this body is running off. Client AI never updates behaviour.</summary>
+            public bool fleeing;
             public bool isFirst;
             public float staleSince;
             public Rigidbody CachedRb;

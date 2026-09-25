@@ -26,7 +26,7 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(objectName))
             {
                 GameObject named = GameObject.Find(objectName);
-                if (named != null && HasTrapField(named))
+                if (named != null && TrapNetworkId.IsWorldTrap(named) && HasTrapField(named))
                     return named;
             }
 
@@ -36,17 +36,24 @@ namespace DWMPHorde.Sync
         private static GameObject FindTrapInSphere(Vector3 pos, float radius)
         {
             int nearbyN = OverlapNear(pos, radius);
+            GameObject best = null;
+            float bestSq = float.MaxValue;
             for (int i = 0; i < nearbyN; i++)
             {
                 if (_overlap3D[i] == null) continue;
                 GameObject root = _overlap3D[i].gameObject;
                 Rigidbody rb = _overlap3D[i].attachedRigidbody;
                 if (rb != null) root = rb.gameObject;
-                if (root == null) continue;
-                if (HasTrapField(root))
-                    return root;
+                if (root == null || !TrapNetworkId.IsWorldTrap(root)) continue;
+                if (!HasTrapField(root)) continue;
+                float sq = (root.transform.position - pos).sqrMagnitude;
+                if (sq < bestSq)
+                {
+                    bestSq = sq;
+                    best = root;
+                }
             }
-            return null;
+            return best;
         }
 
         /// <summary>

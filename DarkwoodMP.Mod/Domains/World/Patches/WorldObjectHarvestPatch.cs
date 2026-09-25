@@ -29,7 +29,7 @@ namespace DWMPHorde.Patches
             // Group name checks by component type to reduce false positives
             bool isTrap = name.Contains("trap") || name.Contains("bear") || name.Contains("snap") || name.Contains("animal");
             Trigger trigComp = go.GetComponent<Trigger>();
-            if (trigComp != null && trigComp.isBearTrap)
+            if (trigComp != null && (trigComp.isBearTrap || trigComp.isChainTrap || trigComp.isMutatedTrap))
                 isTrap = true;
             bool isDestructible = name.Contains("barrel") || name.Contains("tank") || name.Contains("glass") || name.Contains("chain");
             bool isHarvestable = name.Contains("mushroom") || name.Contains("_exp") || name.Contains("bio_");

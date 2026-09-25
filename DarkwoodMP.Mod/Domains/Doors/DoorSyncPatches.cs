@@ -75,9 +75,7 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            // Only sync objects whose name suggests they are a trap
-            string name = __instance.name.ToLowerInvariant();
-            if (!name.Contains("trap") && !name.Contains("bear") && !name.Contains("snap") && !name.Contains("animal") && !name.Contains("mushroom") && !name.Contains("chain") && !name.Contains("glass"))
+            if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
                 return;
 
             Vector3 p = __instance.transform.position;

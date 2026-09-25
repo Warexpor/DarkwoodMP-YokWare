@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.6**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.7**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.7 — Traps and hits that the name list missed
+
+- **Bear, chain, and mutated traps** spring and get picked up for the other player even when the object name does not contain "trap". The old check was a word list copied in several places.
+- **A swing** no longer lands on whatever enemy happens to hold that id when the name does not match. A stale id only counts if the same-named enemy is within a few steps. Unsynced hits still use the wider search.
+- **Broken glass** still springs for the other player. Ordinary names that merely contain "glass" do not. The client only asks the host to spring a real trap, and being stuck follows the bear-trap flag.
+- **Fleeing enemies** hide when they actually run away (`escaping`, flee, or want to despawn). Investigating a noise or a bird that is still flying stays visible.
+- Protocol **25** unchanged. Product bump **0.8.6 → 0.8.7**.
 
 ---
 

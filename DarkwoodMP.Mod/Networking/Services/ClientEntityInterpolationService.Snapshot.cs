@@ -214,8 +214,10 @@ namespace DWMPHorde.Networking
         private static void StopDriving(short hostId)
         {
             Character driven = CharacterTracker.FindByStableId(hostId);
+            bool hostFleeing = false;
             if (_states.TryGetValue(hostId, out var state))
             {
+                hostFleeing = state.fleeing;
                 state.hasTarget = false;
                 if (state.CachedRb != null)
                 {
@@ -232,13 +234,7 @@ namespace DWMPHorde.Networking
                 && driven.alive && driven.GetComponent<Item>() == null
                 && !IsInClientInterest(driven.transform.position))
             {
-                bool fleeing = driven.behaviour == Character.Behaviour.escaping
-                    || driven.behaviour == Character.Behaviour.running
-                    || (driven.flier != null && driven.flier.inFlight)
-                    || driven.wantToDespawn
-                    || driven.aggressiveness == Aggressiveness.flee
-                    || driven.aggressiveness == Aggressiveness.fleeAndDespawn;
-                if (fleeing || _spawnedPhantomIds.Contains(hostId))
+                if (hostFleeing || _spawnedPhantomIds.Contains(hostId))
                     driven.gameObject.SetActive(false);
             }
         }
@@ -282,6 +278,7 @@ namespace DWMPHorde.Networking
             state.targetRotY = e.RotY;
             state.arrivalTime = Time.time;
             state.hasTarget = true;
+            state.fleeing = e.Fleeing;
 
             bool wasAlive = state.alive;
             ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state);

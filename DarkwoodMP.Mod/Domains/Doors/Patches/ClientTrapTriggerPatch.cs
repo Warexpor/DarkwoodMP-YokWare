@@ -20,6 +20,8 @@ namespace DWMPHorde.Patches
                 return;
             if (net.Role != NetworkRole.Client)
                 return;
+            if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
             if (TraverseHack.ApplyingFromNetwork)
                 return;
             // Silent disarm / already sprung — do not ask host to boom.

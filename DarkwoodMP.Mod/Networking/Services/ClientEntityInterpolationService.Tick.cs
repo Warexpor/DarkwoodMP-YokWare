@@ -33,6 +33,14 @@ namespace DWMPHorde.Networking
                     // after the hold so LateUpdate is not walking a frozen id.
                     if (state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
                     {
+                        if (state.fleeing)
+                        {
+                            Character gone = CharacterTracker.FindByStableId(id);
+                            if (gone != null && gone.alive && gone.gameObject != null
+                                && gone.gameObject.activeSelf
+                                && gone.GetComponent<Item>() == null)
+                                gone.gameObject.SetActive(false);
+                        }
                         _staleKeys.Add(id);
                         _displayPositions.Remove(id);
                         _displayRotations.Remove(id);
