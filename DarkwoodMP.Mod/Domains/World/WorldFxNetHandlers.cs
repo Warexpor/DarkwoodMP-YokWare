@@ -162,8 +162,14 @@ namespace DWMPHorde.Networking
 
             if (string.IsNullOrEmpty(msg.SoundId)) return;
 
+            if (!msg.StickToSender && msg.Volume <= 0.001f)
+            {
+                AudioController.Stop(msg.SoundId, 0.2f);
+                return;
+            }
+
             // Defensive: never play world ambients that slipped past send-side filter.
-            if (LocalAudioService.IsWorldAmbientLocalOnly(msg.SoundId))
+            if (msg.StickToSender && LocalAudioService.IsWorldAmbientLocalOnly(msg.SoundId))
                 return;
 
             // Body-push / scrape with ObjectName: single-owner path.

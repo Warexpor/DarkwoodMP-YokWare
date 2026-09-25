@@ -12,7 +12,7 @@ namespace DWMPHorde.Patches
         /// When true, suppress player footstep / personal SFX (remote peers use
         /// HandleProxyFootstep). When false (enemy/world), footsteps are forwarded.
         /// </param>
-        internal static void ForwardSound(string audioID, float volume, Vector3 position, bool requireRateLimit = true, bool fromPlayer = true)
+        internal static void ForwardSound(string audioID, float volume, Vector3 position, bool requireRateLimit = true, bool fromPlayer = true, bool allowObjectLoop = false)
         {
             if (string.IsNullOrEmpty(audioID)) return;
             var net = ModRuntime.Network;
@@ -21,16 +21,13 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: fromPlayer)) return;
             // Never network menu / BGM tracks (5.3).
-            if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
-            // Forest / SoundArea / RandomWorldSounds loops parent to Player for listener
-            // follow only, not player SFX. Forwarding them makes peers hear ambients
-            // from the remote proxy (host walks outside → client hears forest from host).
-            if (LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
+            if (!allowObjectLoop && AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
+            if (!allowObjectLoop && LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
 
             // Dream: host world one-shots go DreamAudio (host-only). Enemy AI → EntitySound.
             // Player-origin still needs PlayerAudio so peers hear client guns/equip in dream.
             // Non-player one-shots during dream: leave to EntitySound / host DreamAudio.
-            if (Dreams.Instance != null && Dreams.Instance.dreaming && !fromPlayer)
+            if (!allowObjectLoop && Dreams.Instance != null && Dreams.Instance.dreaming && !fromPlayer)
                 return;
 
             if (requireRateLimit && !LocalAudioService.TryAllowForward(audioID))
@@ -45,6 +42,13 @@ namespace DWMPHorde.Patches
                 PosZ = position.z,
                 StickToSender = fromPlayer
             });
+        }
+
+        internal static void ForwardWorldObjectSound(string audioID, float volume, Vector3 position)
+        {
+            if (TraverseHack.InsideCharacterSounds) return;
+            if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: false)) return;
+            ForwardSound(audioID, volume, position, requireRateLimit: volume > 0.001f, fromPlayer: false, allowObjectLoop: true);
         }
 
         internal static bool IsPlayerTransform(Transform t)
@@ -78,6 +82,10 @@ namespace DWMPHorde.Patches
         private static void Prefix(string audioID, Transform parentObj)
         {
             if (parentObj == null) return;
+            if (HostBansheeAgitatedPatch.SuppressHostScreamForward
+                && audioID != null
+                && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
 
             if (PlayerAudioHelper.IsPlayerTransform(parentObj))
             {
@@ -99,7 +107,10 @@ namespace DWMPHorde.Patches
                 && PlayerAudioHelper.IsEnemyTransform(parentObj))
             {
                 PlayerAudioHelper.ForwardSound(audioID, 1f, parentObj.position, fromPlayer: false);
+                return;
             }
+
+            PlayerAudioHelper.ForwardWorldObjectSound(audioID, 1f, parentObj.position);
         }
     }
 
@@ -111,6 +122,10 @@ namespace DWMPHorde.Patches
         private static void Prefix(string audioID, Transform parentObj, float volume)
         {
             if (parentObj == null) return;
+            if (HostBansheeAgitatedPatch.SuppressHostScreamForward
+                && audioID != null
+                && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
 
             if (PlayerAudioHelper.IsPlayerTransform(parentObj))
             {
@@ -129,7 +144,10 @@ namespace DWMPHorde.Patches
                 && PlayerAudioHelper.IsEnemyTransform(parentObj))
             {
                 PlayerAudioHelper.ForwardSound(audioID, volume, parentObj.position, fromPlayer: false);
+                return;
             }
+
+            PlayerAudioHelper.ForwardWorldObjectSound(audioID, volume, parentObj.position);
         }
     }
 
@@ -166,7 +184,10 @@ namespace DWMPHorde.Patches
                 && enemy)
             {
                 PlayerAudioHelper.ForwardSound(audioID, 1f, parentObj.position, fromPlayer: false);
+                return;
             }
+
+            PlayerAudioHelper.ForwardWorldObjectSound(audioID, 1f, worldPosition);
         }
     }
 

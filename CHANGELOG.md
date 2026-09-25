@@ -3,12 +3,24 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.30**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.31**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.31 — The leftovers before a real playtest
+
+Four things could still split a long session.
+
+- Two traders with the same name keep their own stock. A purchase hits the one you are standing at.
+- Another crate with the same name can be moved. Only the crate actually being dragged, or the one at that spot, stays locked.
+- If you were still on the title screen during the opening movie, the movie waits until your world exists, and a late join still wakes with everyone else after the movie has finished.
+- The banshee scream plays on the person it saw. Sounds from a stove, a radio, or a crate travel from that object instead of staying on the host.
+- Protocol **25** unchanged. Product bump **0.8.30 → 0.8.31**.
 
 ---
 

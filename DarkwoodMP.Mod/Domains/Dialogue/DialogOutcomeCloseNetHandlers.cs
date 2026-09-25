@@ -238,6 +238,43 @@ namespace DWMPHorde.Networking
             return found;
         }
 
+        /// <summary>Same world filter as <see cref="FindNpcByName(string, bool)"/>, then the closest body.</summary>
+        internal static NPC FindNpcByNameNear(string name, bool preferDreamPad, Vector3 near)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            string want = StripCloneSuffix(name);
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            NPC best = null;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < all.Length; i++)
+            {
+                NPC n = all[i];
+                if (n == null || !NpcNameMatches(n, want)) continue;
+                bool onPad = pad != null && n.transform.IsChildOf(pad);
+                if (preferDreamPad)
+                {
+                    if (!onPad) continue;
+                }
+                else if (onPad)
+                {
+                    continue;
+                }
+                float d = Vector3.Distance(n.transform.position, near);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = n;
+                }
+            }
+            if (best != null && !best.gameObject.activeInHierarchy)
+            {
+                try { best.gameObject.SetActive(true); }
+                catch { /* ignore */ }
+            }
+            return best;
+        }
+
         internal static string StripCloneSuffix(string name)
         {
             if (string.IsNullOrEmpty(name)) return name;

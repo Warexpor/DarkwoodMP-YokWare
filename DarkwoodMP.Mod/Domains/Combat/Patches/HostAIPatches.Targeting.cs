@@ -242,6 +242,57 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [HarmonyPatch(typeof(Character), "bansheeAgitated")]
+    public static class HostBansheeAgitatedPatch
+    {
+        private static AudioObject _victimScream;
+
+        internal static void StopVictimScream()
+        {
+            if (_victimScream != null)
+            {
+                _victimScream.Stop(0.2f);
+                _victimScream = null;
+            }
+            PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 0f, Vector3.zero);
+        }
+
+        internal static bool SuppressHostScreamForward;
+
+        private static bool Prefix(Character __instance)
+        {
+            SuppressHostScreamForward = false;
+            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
+                return true;
+            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            Player host = Player.Instance;
+            if (n == null || host == null)
+                return true;
+            if (n == host.transform || (host._transform != null && n == host._transform))
+                return true;
+            SuppressHostScreamForward = true;
+            return true;
+        }
+
+        private static void Postfix(Character __instance)
+        {
+            if (!SuppressHostScreamForward)
+                return;
+            SuppressHostScreamForward = false;
+            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            Player host = Player.Instance;
+            if (n == null || host == null)
+                return;
+            if (host.bansheeAgitatedSoundAO != null)
+            {
+                host.bansheeAgitatedSoundAO.Stop(0.05f);
+                host.bansheeAgitatedSoundAO = null;
+            }
+            _victimScream = AudioController.Play("banshee_agitated_player", n.position, null);
+            PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 1f, n.position);
+        }
+    }
+
     [HarmonyPatch(typeof(Character), "onBansheeSeePlayer")]
     public static class HostBansheeSeePlayerPatch
     {
@@ -268,6 +319,7 @@ namespace DWMPHorde.Patches
             Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
             if (n != null)
                 __instance.goToPos(n);
+            HostBansheeAgitatedPatch.StopVictimScream();
         }
     }
 

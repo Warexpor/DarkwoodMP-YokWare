@@ -183,6 +183,14 @@ namespace DWMPHorde.Patches
                 idx++;
             }
             msg.InDream = NpcIsOnDreamPad(npc);
+            if (npc != null)
+            {
+                Vector3 p = npc.transform.position;
+                msg.HasPos = true;
+                msg.PosX = p.x;
+                msg.PosY = p.y;
+                msg.PosZ = p.z;
+            }
             return msg;
         }
 
@@ -275,8 +283,9 @@ namespace DWMPHorde.Patches
 
         public static NPC FindNpcByName(TradeInventorySyncMessage msg)
         {
-            // Dream-pad stock must not clear the overworld twin just because
-            // someone else is dreaming, and the reverse.
+            if (msg.HasPos)
+                return DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
+                    msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ));
             return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream);
         }
 

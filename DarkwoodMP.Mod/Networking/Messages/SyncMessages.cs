@@ -49,6 +49,9 @@ namespace DWMPHorde.Networking
         public int[] Amounts;
         /// <summary>True when this stock belongs to the dream-pad copy, not the overworld twin.</summary>
         public bool InDream;
+        /// <summary>Which body, when two traders share a name. Missing on old packets.</summary>
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -60,6 +63,10 @@ namespace DWMPHorde.Networking
                 w.Put(Amounts != null && i < Amounts.Length ? Amounts[i] : 0);
             }
             w.Put(InDream);
+            w.Put(HasPos);
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
         }
 
         public static TradeInventorySyncMessage Deserialize(NetReader r)
@@ -75,6 +82,13 @@ namespace DWMPHorde.Networking
             }
             if (r.AvailableBytes >= 1)
                 msg.InDream = r.GetBool();
+            if (r.AvailableBytes >= 13)
+            {
+                msg.HasPos = r.GetBool();
+                msg.PosX = r.GetFloat();
+                msg.PosY = r.GetFloat();
+                msg.PosZ = r.GetFloat();
+            }
             return msg;
         }
     }

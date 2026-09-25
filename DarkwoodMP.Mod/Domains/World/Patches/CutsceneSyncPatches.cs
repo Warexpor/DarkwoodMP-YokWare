@@ -377,6 +377,8 @@ namespace DWMPHorde.Patches
     internal static class PrologueSync
     {
         private static bool _hostEndingIntro;
+        private static bool _sessionHadPrologue;
+        private static int _pendingAction;
 
         internal static bool ClientDeferredFirstPlay;
 
@@ -386,6 +388,8 @@ namespace DWMPHorde.Patches
         {
             ClientDeferredFirstPlay = false;
             _hostEndingIntro = false;
+            _sessionHadPrologue = false;
+            _pendingAction = 0;
             if (_prepared != null)
             {
                 _prepared.prepareCompleted -= DisplayIntro;
@@ -410,6 +414,27 @@ namespace DWMPHorde.Patches
                 DeliveryMethod.ReliableOrdered);
         }
 
+        internal static void SendCatchUpTo(int playerId)
+        {
+            WorldGenerator intro = Singleton<WorldGenerator>.Instance;
+            if (intro != null && intro.playingIntro)
+                SendStartTo(playerId);
+            else if (_sessionHadPrologue)
+                SendEndTo(playerId);
+        }
+
+        internal static void FlushPending()
+        {
+            if (_pendingAction == 0) return;
+            if (Singleton<WorldGenerator>.Instance == null) return;
+            int action = _pendingAction;
+            _pendingAction = 0;
+            if (action == CutsceneSyncMessage.ActionPrologueStart)
+                ApplyStart();
+            else if (action == CutsceneSyncMessage.ActionPrologueEnd)
+                ApplyEnd();
+        }
+
         internal static void SendEndTo(int playerId)
         {
             if (!CutsceneSyncHelpers.IsHost() || playerId <= 0)
@@ -430,6 +455,7 @@ namespace DWMPHorde.Patches
         {
             if (!CutsceneSyncHelpers.IsHost() || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            _sessionHadPrologue = true;
             Broadcast(CutsceneSyncMessage.ActionPrologueStart);
             CutsceneSyncHelpers.SetProxiesHidden(true);
         }
@@ -438,6 +464,7 @@ namespace DWMPHorde.Patches
         {
             if (!CutsceneSyncHelpers.IsHost() || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            _sessionHadPrologue = true;
             Broadcast(CutsceneSyncMessage.ActionPrologueEnd);
             CutsceneSyncHelpers.SetProxiesHidden(false);
         }
@@ -461,7 +488,10 @@ namespace DWMPHorde.Patches
             Controller ctrl = Singleton<Controller>.Instance;
             WorldGenerator wg = Singleton<WorldGenerator>.Instance;
             if (ui == null || ctrl == null || wg == null)
+            {
+                _pendingAction = CutsceneSyncMessage.ActionPrologueStart;
                 return;
+            }
             if (wg.playingIntro)
                 return;
 
@@ -484,8 +514,12 @@ namespace DWMPHorde.Patches
         {
             WorldGenerator wg = Singleton<WorldGenerator>.Instance;
             UI ui = Singleton<UI>.Instance;
-            if (wg != null)
-                wg.playingIntro = false;
+            if (wg == null)
+            {
+                _pendingAction = CutsceneSyncMessage.ActionPrologueEnd;
+                return;
+            }
+            wg.playingIntro = false;
             Core.forbidInputs = false;
             Time.timeScale = 1f;
             AudioController.Stop("DW4_1", 8f);
@@ -610,6 +644,15 @@ namespace DWMPHorde.Patches
                     SceneIndex = 0
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    [HarmonyPatch(typeof(Controller), "FixedUpdate")]
+    public static class ProloguePendingFlushPatch
+    {
+        private static void Postfix()
+        {
+            PrologueSync.FlushPending();
         }
     }
 

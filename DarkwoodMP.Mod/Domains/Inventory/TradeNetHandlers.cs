@@ -18,6 +18,16 @@ namespace DWMPHorde.Networking
         private const float TradeFlushInterval = 0.5f;
         private const int MaxPendingTradeInventories = 64;
 
+        private static string TradePendingKey(TradeInventorySyncMessage msg)
+        {
+            string world = msg.InDream ? "dream" : "world";
+            if (!msg.HasPos)
+                return msg.NpcName + "|" + world;
+            return msg.NpcName + "|" + world + "|"
+                + Mathf.Round(msg.PosX * 10f) + "|"
+                + Mathf.Round(msg.PosZ * 10f);
+        }
+
         internal TradeNetHandlers(LanNetworkManager net)
         {
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
@@ -64,7 +74,7 @@ namespace DWMPHorde.Networking
         internal void QueuePendingTradeInventory(TradeInventorySyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.NpcName)) return;
-            if (!_pendingTradeInventories.ContainsKey(msg.NpcName + (msg.InDream ? "|dream" : "|world"))
+            if (!_pendingTradeInventories.ContainsKey(TradePendingKey(msg))
                 && _pendingTradeInventories.Count >= MaxPendingTradeInventories)
             {
                 // Drop an arbitrary oldest-ish key so join storms cannot grow forever.
@@ -77,7 +87,7 @@ namespace DWMPHorde.Networking
                 if (drop != null)
                     _pendingTradeInventories.Remove(drop);
             }
-            _pendingTradeInventories[msg.NpcName + (msg.InDream ? "|dream" : "|world")] = msg;
+            _pendingTradeInventories[TradePendingKey(msg)] = msg;
             ModRuntime.LegacyInfo($"[TradeSync] queued inventory for '{msg.NpcName}' (NPC not loaded)");
         }
 
