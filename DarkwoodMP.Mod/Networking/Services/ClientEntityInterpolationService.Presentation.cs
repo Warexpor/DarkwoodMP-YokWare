@@ -195,11 +195,24 @@ namespace DWMPHorde.Networking
             }
             else if (!anim.Playing)
             {
+                Character ch = null;
+                try
+                {
+                    ch = anim.GetComponent<Character>()
+                        ?? anim.GetComponentInParent<Character>();
+                }
+                catch { /* dismantled */ }
+
+                if (ch != null
+                    && (ch.behaviour == Character.Behaviour.chasingTarget
+                        || ch.behaviour == Character.Behaviour.escaping
+                        || ch.behaviour == Character.Behaviour.running)
+                    && anim.CurrentClip != null)
+                    return;
+
                 string idleClip = null;
                 try
                 {
-                    Character ch = anim.GetComponent<Character>()
-                        ?? anim.GetComponentInParent<Character>();
                     if (ch != null)
                         idleClip = Traverse.Create(ch).Field("idleAni").GetValue<string>();
                 }

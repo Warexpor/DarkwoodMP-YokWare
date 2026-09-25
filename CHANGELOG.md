@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.7**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.8**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.8 — Client chase matches the host's aggro
+
+- **Movement** coasts a short way if the next update is late, then sits on the host spot. It does not slide a full extra step past the enemy, and it does not freeze and then jump.
+- **What the enemy is doing** (idle, chase, investigate, flee) is copied onto the client. A gap with no clip keeps the last frame during a chase. A blank sprite still falls back to idle.
+- **Rabbits and crows** that were only investigating a noise still flee when you get close. That was being treated as "already running away."
+- Protocol **25** unchanged. The behaviour rides in spare bits of the existing entity flags byte. Product bump **0.8.7 → 0.8.8**.
 
 ---
 

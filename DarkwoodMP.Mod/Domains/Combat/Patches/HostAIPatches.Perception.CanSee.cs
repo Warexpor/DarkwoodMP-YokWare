@@ -289,8 +289,7 @@ namespace DWMPHorde.Patches
                 __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
             {
                 bool alreadyFleeingPrefer = __instance.target == preferT
-                    && (__instance.behaviour == Character.Behaviour.escaping
-                        || __instance.behaviour == Character.Behaviour.running);
+                    && __instance.behaviour == Character.Behaviour.escaping;
                 if (!alreadyFleeingPrefer)
                 {
                     __instance.target = preferT;

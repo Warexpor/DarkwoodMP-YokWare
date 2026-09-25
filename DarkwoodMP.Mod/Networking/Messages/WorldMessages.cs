@@ -78,7 +78,7 @@ namespace DWMPHorde.Networking
         public byte HealthPct;
         public string EntityName;
         public string PrefabPath;
-        /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing.</summary>
+        /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
         public byte Flags;
 
         public const byte FlagSleeping = 1;
@@ -90,6 +90,37 @@ namespace DWMPHorde.Networking
         public bool Eating => (Flags & FlagEating) != 0;
         public bool Downed => (Flags & FlagDowned) != 0;
         public bool Fleeing => (Flags & FlagFleeing) != 0;
+
+        public Character.Behaviour PackedBehaviour
+        {
+            get
+            {
+                switch ((Flags >> 4) & 7)
+                {
+                    case 1: return Character.Behaviour.walking;
+                    case 2: return Character.Behaviour.running;
+                    case 3: return Character.Behaviour.defensive;
+                    case 4: return Character.Behaviour.chasingTarget;
+                    case 5: return Character.Behaviour.escaping;
+                    case 6: return Character.Behaviour.listening;
+                    case 7: return Character.Behaviour.following;
+                    default: return Character.Behaviour.idle;
+                }
+            }
+        }
+
+        public static byte PackBehaviour(Character.Behaviour behaviour)
+        {
+            int n = 0;
+            if (behaviour == Character.Behaviour.walking) n = 1;
+            else if (behaviour == Character.Behaviour.running) n = 2;
+            else if (behaviour == Character.Behaviour.defensive) n = 3;
+            else if (behaviour == Character.Behaviour.chasingTarget) n = 4;
+            else if (behaviour == Character.Behaviour.escaping) n = 5;
+            else if (behaviour == Character.Behaviour.listening) n = 6;
+            else if (behaviour == Character.Behaviour.following) n = 7;
+            return (byte)(n << 4);
+        }
 
         public void Serialize(NetWriter w)
         {

@@ -279,6 +279,7 @@ namespace DWMPHorde.Networking
             state.arrivalTime = Time.time;
             state.hasTarget = true;
             state.fleeing = e.Fleeing;
+            c.behaviour = e.PackedBehaviour;
 
             bool wasAlive = state.alive;
             ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state);

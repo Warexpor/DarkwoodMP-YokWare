@@ -265,6 +265,7 @@ namespace DWMPHorde.Networking
                 || c.aggressiveness == Aggressiveness.fleeAndDespawn
                 || c.wantToDespawn)
                 flags |= EntitySnapshotNet.FlagFleeing;
+            flags = (byte)((flags & 0x0F) | EntitySnapshotNet.PackBehaviour(c.behaviour));
 
             // Cheap dirty gate before Unity name / PrefabPathComponent work.
             if (_lastSent.TryGetValue(id, out EntitySnapshotNet last)

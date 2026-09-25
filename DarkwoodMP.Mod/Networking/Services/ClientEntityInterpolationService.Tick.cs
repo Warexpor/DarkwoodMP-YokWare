@@ -70,9 +70,15 @@ namespace DWMPHorde.Networking
                 }
                 else if (elapsed > SnapshotInterval)
                 {
-                    float extrapT = elapsed - SnapshotInterval;
-                    Vector3 velocity = (state.targetPosition - state.previousPosition) / SnapshotInterval;
-                    _displayPositions[id] = state.targetPosition + velocity * extrapT;
+                    // Short coast, then sit on the host spot. A full extra step
+                    // slid past the enemy; a hard hold made the chase stop-go.
+                    float extrapT = Mathf.Min(elapsed - SnapshotInterval, 0.08f);
+                    Vector3 step = state.targetPosition - state.previousPosition;
+                    Vector3 lead = step * (extrapT / SnapshotInterval);
+                    float cap = step.magnitude * 0.35f;
+                    if (lead.sqrMagnitude > cap * cap && cap > 0.001f)
+                        lead *= cap / lead.magnitude;
+                    _displayPositions[id] = state.targetPosition + lead;
                     _displayRotations[id] = state.targetRotY;
                 }
                 else
