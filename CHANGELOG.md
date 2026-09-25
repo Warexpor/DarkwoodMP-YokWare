@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.17**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.18**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.18 — The trader you bought from is the one who loses the stock
+
+Shop updates searched for the first NPC with that name. A dream copy, or another person with the same name earlier in the scene, had their shelves cleared instead. A third player then saw the wrong shop.
+
+- Trade stock now says whether it belongs to the dream copy. An overworld purchase does not clear the dream twin just because someone else is dreaming.
+- Protocol **25** unchanged. Product bump **0.8.17 → 0.8.18**.
 
 ---
 

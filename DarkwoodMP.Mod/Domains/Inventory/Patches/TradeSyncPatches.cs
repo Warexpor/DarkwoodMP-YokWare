@@ -182,7 +182,15 @@ namespace DWMPHorde.Patches
                 msg.Amounts[idx] = kv.Value;
                 idx++;
             }
+            msg.InDream = NpcIsOnDreamPad(npc);
             return msg;
+        }
+
+        private static bool NpcIsOnDreamPad(NPC npc)
+        {
+            if (npc == null) return false;
+            Transform root = DreamSyncManager.GetDreamLocationTransform();
+            return root != null && npc.transform.IsChildOf(root);
         }
 
         public static void BroadcastNpcInventory(NPC npc)
@@ -216,7 +224,7 @@ namespace DWMPHorde.Patches
         {
             if (string.IsNullOrEmpty(msg.NpcName)) return;
 
-            NPC npc = FindNpcByName(msg.NpcName);
+            NPC npc = FindNpcByName(msg);
             if (npc == null)
             {
                 // NPC may not be streamed yet — queue for flush.
@@ -265,15 +273,16 @@ namespace DWMPHorde.Patches
                 $"[TradeSync] applied absolute stock '{msg.NpcName}' types={msg.ItemCount}");
         }
 
+        public static NPC FindNpcByName(TradeInventorySyncMessage msg)
+        {
+            // Dream-pad stock must not clear the overworld twin just because
+            // someone else is dreaming, and the reverse.
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream);
+        }
+
         public static NPC FindNpcByName(string name)
         {
-            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
-            for (int i = 0; i < all.Length; i++)
-            {
-                if (all[i] != null && all[i].name == name)
-                    return all[i];
-            }
-            return null;
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(name, preferDreamPad: false);
         }
     }
 

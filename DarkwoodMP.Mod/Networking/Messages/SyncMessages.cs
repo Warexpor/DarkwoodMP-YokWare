@@ -47,6 +47,8 @@ namespace DWMPHorde.Networking
         public int ItemCount;
         public string[] ItemTypes;
         public int[] Amounts;
+        /// <summary>True when this stock belongs to the dream-pad copy, not the overworld twin.</summary>
+        public bool InDream;
 
         public void Serialize(NetWriter w)
         {
@@ -57,6 +59,7 @@ namespace DWMPHorde.Networking
                 w.Put(ItemTypes?[i] ?? "");
                 w.Put(Amounts != null && i < Amounts.Length ? Amounts[i] : 0);
             }
+            w.Put(InDream);
         }
 
         public static TradeInventorySyncMessage Deserialize(NetReader r)
@@ -70,6 +73,8 @@ namespace DWMPHorde.Networking
                 msg.ItemTypes[i] = r.GetString();
                 msg.Amounts[i] = r.GetInt();
             }
+            if (r.AvailableBytes >= 1)
+                msg.InDream = r.GetBool();
             return msg;
         }
     }

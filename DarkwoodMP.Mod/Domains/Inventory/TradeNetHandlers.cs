@@ -49,7 +49,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo(
                         $"[TradeSync] rejected inventory from p{senderId} for '{msg.NpcName}' (no dialog lock)");
 
-                NPC npc = TradeInventorySync.FindNpcByName(msg.NpcName);
+                NPC npc = TradeInventorySync.FindNpcByName(msg);
                 if (npc != null)
                     TradeInventorySync.BroadcastNpcInventory(npc);
                 return;
@@ -64,7 +64,7 @@ namespace DWMPHorde.Networking
         internal void QueuePendingTradeInventory(TradeInventorySyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.NpcName)) return;
-            if (!_pendingTradeInventories.ContainsKey(msg.NpcName)
+            if (!_pendingTradeInventories.ContainsKey(msg.NpcName + (msg.InDream ? "|dream" : "|world"))
                 && _pendingTradeInventories.Count >= MaxPendingTradeInventories)
             {
                 // Drop an arbitrary oldest-ish key so join storms cannot grow forever.
@@ -77,7 +77,7 @@ namespace DWMPHorde.Networking
                 if (drop != null)
                     _pendingTradeInventories.Remove(drop);
             }
-            _pendingTradeInventories[msg.NpcName] = msg;
+            _pendingTradeInventories[msg.NpcName + (msg.InDream ? "|dream" : "|world")] = msg;
             ModRuntime.LegacyInfo($"[TradeSync] queued inventory for '{msg.NpcName}' (NPC not loaded)");
         }
 
@@ -94,7 +94,7 @@ namespace DWMPHorde.Networking
             _tradeFlushApplied.Clear();
             foreach (var kvp in pending)
             {
-                NPC npc = TradeInventorySync.FindNpcByName(kvp.Key);
+                NPC npc = TradeInventorySync.FindNpcByName(kvp.Value);
                 if (npc == null) continue;
                 TradeInventorySync.ApplyToNpc(npc, kvp.Value);
                 _tradeFlushApplied.Add(kvp.Key);

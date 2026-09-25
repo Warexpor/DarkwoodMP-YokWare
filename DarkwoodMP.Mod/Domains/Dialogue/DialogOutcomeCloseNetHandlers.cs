@@ -176,12 +176,17 @@ namespace DWMPHorde.Networking
 
         internal static NPC FindNpcByName(string name)
         {
+            return FindNpcByName(name, preferDreamPad: DreamSyncManager.IsDreamActive);
+        }
+
+        internal static NPC FindNpcByName(string name, bool preferDreamPad)
+        {
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
 
             // Unity 2021.3 supports includeInactive. Dialogue door NPCs often deactivate after talk.
             NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
-            Transform dreamRoot = DreamSyncManager.IsDreamActive
+            Transform dreamRoot = preferDreamPad
                 ? DreamSyncManager.GetDreamLocationTransform()
                 : null;
 
@@ -194,6 +199,10 @@ namespace DWMPHorde.Networking
                 NPC n = all[i];
                 if (n == null) continue;
                 if (!NpcNameMatches(n, want)) continue;
+                Transform pad = DreamSyncManager.GetDreamLocationTransform();
+                bool onPad = pad != null && n.transform.IsChildOf(pad);
+                if (!preferDreamPad && onPad)
+                    continue;
                 bestAny = n;
 
                 if (dreamRoot != null
