@@ -238,8 +238,8 @@ namespace DWMPHorde.Networking
             try
             {
                 Transform parent = null;
-                if (!prefer2d)
-                    parent = proxy != null ? proxy.transform : null;
+                if (!prefer2d && proxy != null && msg.StickToSender)
+                    parent = proxy.transform;
 
                 AudioObject audioObj;
                 if (prefer2d)

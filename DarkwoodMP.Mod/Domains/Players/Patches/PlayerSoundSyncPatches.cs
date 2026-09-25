@@ -42,7 +42,8 @@ namespace DWMPHorde.Patches
                 Volume = Mathf.Clamp01(volume),
                 PosX = position.x,
                 PosY = position.y,
-                PosZ = position.z
+                PosZ = position.z,
+                StickToSender = fromPlayer
             });
         }
 
@@ -227,7 +228,8 @@ namespace DWMPHorde.Patches
                 Volume = 1f,
                 PosX = px,
                 PosY = py,
-                PosZ = pz
+                PosZ = pz,
+                StickToSender = true
             });
         }
     }

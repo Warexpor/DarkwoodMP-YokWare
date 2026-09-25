@@ -563,6 +563,8 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public bool IsStopSignal;
         public string ObjectName;
+        /// <summary>False for creature one-shots stamped with the host id. Missing on old packets means true.</summary>
+        public bool StickToSender;
 
         public void Serialize(NetWriter w)
         {
@@ -571,17 +573,25 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(IsStopSignal);
             w.Put(ObjectName ?? "");
+            w.Put(StickToSender);
         }
 
-        public static PlayerAudioMessage Deserialize(NetReader r) => new PlayerAudioMessage
+        public static PlayerAudioMessage Deserialize(NetReader r)
         {
-            SoundId = r.GetString(),
-            Volume = r.GetFloat(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            IsStopSignal = r.GetBool(),
-            ObjectName = r.GetString()
-        };
+            var msg = new PlayerAudioMessage
+            {
+                SoundId = r.GetString(),
+                Volume = r.GetFloat(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                IsStopSignal = r.GetBool(),
+                ObjectName = r.GetString(),
+                StickToSender = true
+            };
+            if (r.AvailableBytes >= 1)
+                msg.StickToSender = r.GetBool();
+            return msg;
+        }
     }
 }

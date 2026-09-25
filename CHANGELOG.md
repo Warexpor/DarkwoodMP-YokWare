@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.21**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.22**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.22 — Creature sounds stay on the creature
+
+A growl or footstep from an enemy was pinned to the host's body. Everyone heard the animal walking with the host, even when it was across the clearing.
+
+- Sounds that belong to a player still follow that player, so indoor echo stays right.
+- Creature sounds are marked as not the player's, so they stay where the animal was, even in melee.
+- Protocol **25** unchanged. Product bump **0.8.21 → 0.8.22**.
 
 ---
 
