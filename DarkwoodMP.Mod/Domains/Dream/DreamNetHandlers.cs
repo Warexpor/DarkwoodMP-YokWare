@@ -351,6 +351,8 @@ namespace DWMPHorde.Networking
         internal void HandleDreamEntered(DreamEnteredMessage msg)
         {
             int playerId = _net.CurrentReceivePlayerId;
+            if (_net.Role == NetworkRole.Host && playerId > 0)
+                DreamSyncManager.ConfirmRemoteInDream(playerId);
             FinalDreamsceneManager.RefreshConnectedPlayers();
             var proxy = _net.GetProxy(playerId);
             if (proxy != null)

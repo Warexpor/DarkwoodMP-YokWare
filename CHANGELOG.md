@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.27**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.28**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.28 — A dream can end when the dreamers are dead
+
+Dying in a dream waited until every connected player was dead. Someone who never entered the dream, still outside in the woods, kept the dream from ending. The people inside stayed stuck watching.
+
+- The dream now ends when everyone who was pulled into it has died. The host remembers those peers when the dream starts. Someone who left the game no longer holds it open.
+- Protocol **25** unchanged. Product bump **0.8.27 → 0.8.28**.
 
 ---
 

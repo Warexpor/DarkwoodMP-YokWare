@@ -123,7 +123,7 @@ namespace DWMPHorde.Sync
             _remoteEntryAudioId = null;
             _dreamEndBroadcastSent = false;
             _hostOrderedDreamEnd = false;
-            _remoteDreamActive.Clear();
+            ClearRemoteDreamRoster();
             _currentDreamPreset.Clear();
             _preDreamPosition.Clear();
             _preDreamGridName.Clear();

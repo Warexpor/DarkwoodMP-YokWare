@@ -56,6 +56,7 @@ namespace DWMPHorde.Sync
         {
             ClearStoryEndDefer();
             ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
+            ClearRemoteDreamRoster();
             FadeOutDreamTransition();
             _earlyEntryTransitionPlayed = false;
             _earlyEntryTransitionDoneAt = 0f;
@@ -91,6 +92,7 @@ namespace DWMPHorde.Sync
                 catch { /* ignore */ }
                 UnfreezeWorld(restoreTime: false);
                 FinalDreamsceneManager.OnDreamEnded();
+                ClearRemoteDreamRoster();
                 WorldQueryHelper.InvalidateCommonSceneScanCaches();
             }
             _localDreamActive = false;
@@ -117,6 +119,53 @@ namespace DWMPHorde.Sync
             || _earlyEntryTransitionPlayed;
 
         public static bool IsLocalDreamActive => _localDreamActive;
+
+        /// <summary>True when that remote peer is inside the shared dream.</summary>
+        private static readonly System.Collections.Generic.HashSet<int> _dreamEntryConfirmed =
+            new System.Collections.Generic.HashSet<int>();
+        private static float _dreamEntryDeadline;
+
+        public static bool IsRemoteInDream(int playerId)
+        {
+            if (playerId <= 0 || !_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
+                return false;
+            if (UnityEngine.Time.unscaledTime < _dreamEntryDeadline)
+                return true;
+            return _dreamEntryConfirmed.Contains(playerId);
+        }
+
+        public static void NoteRemoteInDream(int playerId)
+        {
+            if (playerId <= 0)
+                return;
+            _remoteDreamActive[playerId] = true;
+            if (_dreamEntryDeadline <= 0f)
+                _dreamEntryDeadline = UnityEngine.Time.unscaledTime + 10f;
+        }
+
+        public static void ConfirmRemoteInDream(int playerId)
+        {
+            if (playerId <= 0)
+                return;
+            _remoteDreamActive[playerId] = true;
+            _dreamEntryConfirmed.Add(playerId);
+        }
+
+        public static void ClearRemoteDreamRoster()
+        {
+            _remoteDreamActive.Clear();
+            _dreamEntryConfirmed.Clear();
+            _dreamEntryDeadline = 0f;
+        }
+
+        public static void ClearRemoteInDream(int playerId)
+        {
+            if (playerId <= 0)
+                return;
+            if (_remoteDreamActive.ContainsKey(playerId))
+                _remoteDreamActive[playerId] = false;
+            _dreamEntryConfirmed.Remove(playerId);
+        }
 
         /// <summary>Returns the dream Location's transform during an active dream, or null.</summary>
         public static Transform GetDreamLocationTransform()
@@ -177,6 +226,16 @@ namespace DWMPHorde.Sync
                 // and confirm with DreamEntered after scene load.
                 if (net.Role == NetworkRole.Host)
                 {
+                    foreach (int id in net.GetHandshakedPeerIds())
+                    {
+                        if (id > 0 && id != net.LocalPlayerId)
+                            NoteRemoteInDream(id);
+                    }
+                    foreach (var dreamProxy in net.GetAllProxies())
+                    {
+                        if (dreamProxy != null)
+                            NoteRemoteInDream(dreamProxy.PlayerId);
+                    }
                     var started = DreamStartedMessage.Build(
                         presetName, locationPosition.x, locationPosition.y, locationPosition.z);
                     net.Broadcast(NetMessageType.DreamStarted,
@@ -272,6 +331,7 @@ namespace DWMPHorde.Sync
             UnfreezeWorld();
 
             FinalDreamsceneManager.OnDreamEnded();
+            ClearRemoteDreamRoster();
             (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
             _localDreamActive = false;

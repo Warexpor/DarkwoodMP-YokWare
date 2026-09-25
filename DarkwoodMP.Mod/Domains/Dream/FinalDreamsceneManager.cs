@@ -29,10 +29,37 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static bool AllowDeathEndPass;
 
-        /// <summary>True when ALL players (local + all remotes) are dead in the dream.</summary>
-        public static bool AllDead => _isActive && _localDeadInDream
-            && _deadPlayerIds.Count > 0
-            && _deadPlayerIds.SetEquals(_connectedPlayerIds);
+        /// <summary>True when every peer who is actually in the dream is dead.</summary>
+        public static bool AllDead
+        {
+            get
+            {
+                if (!_isActive || !_localDeadInDream)
+                    return false;
+                var net = ModRuntime.Network as LanNetworkManager;
+                if (net == null)
+                    return true;
+                foreach (int id in net.GetHandshakedPeerIds())
+                {
+                    if (id <= 0 || id == net.LocalPlayerId)
+                        continue;
+                    if (!DreamSyncManager.IsRemoteInDream(id))
+                        continue;
+                    if (!_deadPlayerIds.Contains(id))
+                        return false;
+                }
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || proxy.PlayerId <= 0)
+                        continue;
+                    if (!DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
+                        continue;
+                    if (!_deadPlayerIds.Contains(proxy.PlayerId))
+                        return false;
+                }
+                return true;
+            }
+        }
 
         /// <summary>Refresh roster and report whether any remote participants are tracked.</summary>
         public static bool HasRemoteParticipants()
@@ -191,6 +218,7 @@ namespace DWMPHorde.Sync
         {
             _connectedPlayerIds.Remove(playerId);
             _deadPlayerIds.Remove(playerId);
+            DreamSyncManager.ClearRemoteInDream(playerId);
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
