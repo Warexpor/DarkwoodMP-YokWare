@@ -4,10 +4,10 @@ Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.3** |
+| Product | YokWare Branch **0.8.5** |
 | Wire | Horde protocol **25** |
 | Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
-| Loaders | BepInEx 5.x and MelonLoader |
+| Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
 | License | GPLv3, see [LICENSE](LICENSE) |
 | Authors | Warexpor and Yokyy |
 
@@ -42,14 +42,16 @@ game installation.
 ### BepInEx
 
 1. Install BepInEx 5.x for the installed Darkwood architecture.
-2. Build the BepInEx variant:
+2. Build both loaders (recommended), or BepInEx only:
+
+   `./scripts/build-loaders.sh`
 
    `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`
 
 3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
    `DarkwoodMP.Mod/bin/Release/BepInEx/` to
    `Darkwood/BepInEx/plugins/`.
-4. Launch Darkwood. The menu should show YokWare Branch 0.8.3 and protocol
+4. Launch Darkwood. The menu should show YokWare Branch 0.8.5 and protocol
    25.
 
 The project can also copy these files to the configured local Steam and
@@ -58,18 +60,28 @@ development convenience, not as a release packaging step.
 
 ### MelonLoader
 
-1. Install MelonLoader 0.7.x for Darkwood.
-2. Set `MelonLoaderDir` to the directory containing the MelonLoader reference
-   assemblies. The references are not vendored.
+Melon and BepInEx share the same Path B runtime. The Melon DLL does **not**
+need BepInEx installed.
+
+1. Install MelonLoader 0.7.x for Darkwood (separate game dir from BepInEx —
+   one Doorstop per install).
+2. Fetch Melon reference assemblies (once per clone):
+
+   `./scripts/fetch-melonloader-refs.sh`
+
 3. Build:
 
    `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader`
 
+   Or both: `./scripts/build-loaders.sh`
+
 4. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
    `DarkwoodMP.Mod/bin/Release/MelonLoader/` to `Darkwood/Mods/`.
 
-Configuration is stored by the loader. For BepInEx, the usual file is
-`Darkwood/BepInEx/config/com.yokware.branch.cfg`.
+Configuration uses the same INI key shape on both loaders:
+
+- BepInEx: `Darkwood/BepInEx/config/com.yokware.branch.cfg`
+- Melon: Melon `UserData/YokWare/com.yokware.branch.cfg`
 
 ### Dual-box testing
 
@@ -155,5 +167,5 @@ Warexpor and Yokyy co-author the YokWare Branch. See
 GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
 [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Current ship: **0.8.3**, protocol **25**. See
+Current ship: **0.8.5**, protocol **25**. See
 [CHANGELOG.md](CHANGELOG.md).

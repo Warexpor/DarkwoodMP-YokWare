@@ -1,4 +1,3 @@
-using BepInEx.Configuration;
 using DWMPHorde.Logging;
 
 namespace DWMPHorde.Config
@@ -11,52 +10,57 @@ namespace DWMPHorde.Config
 
     public static class ModConfig
     {
-        public static ConfigEntry<string> ConnectAddress { get; private set; }
-        public static ConfigEntry<int> ConnectPort { get; private set; }
-        public static ConfigEntry<string> HostPassword { get; private set; }
+        public static ModSetting<string> ConnectAddress { get; private set; }
+        public static ModSetting<int> ConnectPort { get; private set; }
+        public static ModSetting<string> HostPassword { get; private set; }
         /// <summary>Last Steam lobby id (ulong) for Steam join field / host display.</summary>
-        public static ConfigEntry<string> SteamLobbyId { get; private set; }
+        public static ModSetting<string> SteamLobbyId { get; private set; }
         /// <summary>Steam lobby visibility: friends | public | private.</summary>
-        public static ConfigEntry<string> SteamLobbyType { get; private set; }
+        public static ModSetting<string> SteamLobbyType { get; private set; }
         /// <summary>
         /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
         /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
         /// </summary>
-        public static ConfigEntry<string> SaveRootOverride { get; private set; }
+        public static ModSetting<string> SaveRootOverride { get; private set; }
         /// <summary>Last profile slot used for a permanent co-op world copy (1-5). 0 means none.</summary>
-        public static ConfigEntry<int> PreferredCoopCopySlot { get; private set; }
+        public static ModSetting<int> PreferredCoopCopySlot { get; private set; }
         /// <summary>Display name in chat (Yokyy product port).</summary>
-        public static ConfigEntry<string> PlayerName { get; private set; }
-        public static ConfigEntry<bool> FriendlyFireEnabled { get; private set; }
-        public static ConfigEntry<bool> DoubleItemsEnabled { get; private set; }
-        public static ConfigEntry<string> LootShareModeSetting { get; private set; }
+        public static ModSetting<string> PlayerName { get; private set; }
+        public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
+        public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
+        public static ModSetting<string> LootShareModeSetting { get; private set; }
         /// <summary>Host: scale allowlisted dream NPC presence by party multiplier.</summary>
-        public static ConfigEntry<bool> NamedNpcScaleEnabled { get; private set; }
+        public static ModSetting<bool> NamedNpcScaleEnabled { get; private set; }
         /// <summary>Comma-separated short names (e.g. ChomperBlack). Dream presence only.</summary>
-        public static ConfigEntry<string> NamedNpcAllowlist { get; private set; }
-        public static ConfigEntry<bool> VerboseLogging { get; private set; }
+        public static ModSetting<string> NamedNpcAllowlist { get; private set; }
+        public static ModSetting<bool> VerboseLogging { get; private set; }
         /// <summary>Transition-only light sync logs (flare/flash on/off, join bulk). Not 30 Hz spam.</summary>
-        public static ConfigEntry<bool> VerboseLightSync { get; private set; }
+        public static ModSetting<bool> VerboseLightSync { get; private set; }
+        /// <summary>
+        /// Deep entity path Trace/Event: host snapshot, client interp/anim/clip, hit reaction,
+        /// damage/FF, spawn/despawn. Rate-limited on hot paths. Prefer this over full LogPreset=Trace.
+        /// </summary>
+        public static ModSetting<bool> VerboseEntitySync { get; private set; }
         /// <summary>
         /// Force free OS pointer (no Confined/ClipCursor). Required for dual-box Wayland + Wine.
         /// </summary>
-        public static ConfigEntry<bool> FreeCursorForDualBox { get; private set; }
-        public static ConfigEntry<int> MaxPlayers { get; private set; }
-        public static ConfigEntry<bool> AllowJoinDuringDream { get; private set; }
-        public static ConfigEntry<int> MaxPeerDamage { get; private set; }
+        public static ModSetting<bool> FreeCursorForDualBox { get; private set; }
+        public static ModSetting<int> MaxPlayers { get; private set; }
+        public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
+        public static ModSetting<int> MaxPeerDamage { get; private set; }
         /// <summary>
         /// On host crash/timeout, survivors elect lowest player id as new host (LAN + Steam).
         /// Requires PeerRoster gossip; keep true for dual-box / friends crash recovery.
         /// </summary>
-        public static ConfigEntry<bool> HostMigrationEnabled { get; private set; }
-        public static ConfigEntry<bool> VoiceEnabled { get; private set; }
-        public static ConfigEntry<string> VoiceMode { get; private set; }
-        public static ConfigEntry<string> VoicePttKey { get; private set; }
-        public static ConfigEntry<float> VoiceVolume { get; private set; }
-        public static ConfigEntry<float> VoiceGain { get; private set; }
-        public static ConfigEntry<float> VoiceRangeFull { get; private set; }
-        public static ConfigEntry<float> VoiceRangeMax { get; private set; }
-        public static ConfigEntry<string> WalkieItemName { get; private set; }
+        public static ModSetting<bool> HostMigrationEnabled { get; private set; }
+        public static ModSetting<bool> VoiceEnabled { get; private set; }
+        public static ModSetting<string> VoiceMode { get; private set; }
+        public static ModSetting<string> VoicePttKey { get; private set; }
+        public static ModSetting<float> VoiceVolume { get; private set; }
+        public static ModSetting<float> VoiceGain { get; private set; }
+        public static ModSetting<float> VoiceRangeFull { get; private set; }
+        public static ModSetting<float> VoiceRangeMax { get; private set; }
+        public static ModSetting<string> WalkieItemName { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -71,14 +75,14 @@ namespace DWMPHorde.Config
         }
 
         // --- Logging (public testing) ---
-        public static ConfigEntry<string> LogPresetSetting { get; private set; }
-        public static ConfigEntry<string> LogMinLevelSetting { get; private set; }
-        public static ConfigEntry<string> LogExtraCategories { get; private set; }
-        public static ConfigEntry<string> LogTraceCategories { get; private set; }
-        public static ConfigEntry<float> LogRateLimitSeconds { get; private set; }
-        public static ConfigEntry<bool> LogRedactPaths { get; private set; }
-        public static ConfigEntry<bool> LogRedactIPs { get; private set; }
-        public static ConfigEntry<bool> LogIncludeStacks { get; private set; }
+        public static ModSetting<string> LogPresetSetting { get; private set; }
+        public static ModSetting<string> LogMinLevelSetting { get; private set; }
+        public static ModSetting<string> LogExtraCategories { get; private set; }
+        public static ModSetting<string> LogTraceCategories { get; private set; }
+        public static ModSetting<float> LogRateLimitSeconds { get; private set; }
+        public static ModSetting<bool> LogRedactPaths { get; private set; }
+        public static ModSetting<bool> LogRedactIPs { get; private set; }
+        public static ModSetting<bool> LogIncludeStacks { get; private set; }
 
         public static LootShareMode GetLootShareMode()
         {
@@ -114,7 +118,7 @@ namespace DWMPHorde.Config
             return LogLevel.Trace;
         }
 
-        public static void Bind(ConfigFile config)
+        public static void Bind(ModConfigStore config)
         {
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort, "Default UDP port for LAN connections.");
@@ -190,15 +194,25 @@ namespace DWMPHorde.Config
                 "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
                 "Transition light sync logs. Leave false unless debugging lights.");
+            VerboseEntitySync = config.Bind("Debug", "VerboseEntitySync", true,
+                "Deep entity sync logs (anim/interp/reaction/damage/spawn). Rate-limited Trace + "
+                + "lifecycle Events. Default true for dual-box diagnosis — set false for quiet play. "
+                + "Also enables Entity/Combat/AI Trace under Support without full Trace preset.");
             FreeCursorForDualBox = config.Bind("Debug", "FreeCursorForDualBox", true,
                 "Force Cursor.lockState=None (skip vanilla Confined). Needed for dual-box on "
                 + "Hyprland/Wayland and especially Wine/Proton SecondDarkwood — Confined ClipCursor "
                 + "traps the mouse and blur-release can freeze the Wine window. Set false only for "
                 + "single-window vanilla confine behavior.");
+
+            config.Save();
         }
 
         /// <summary>True when VerboseLightSync is enabled (safe if unbound).</summary>
         public static bool IsVerboseLightSync =>
             VerboseLightSync != null && VerboseLightSync.Value;
+
+        /// <summary>True when VerboseEntitySync is enabled (safe if unbound — defaults on).</summary>
+        public static bool IsVerboseEntitySync =>
+            VerboseEntitySync == null || VerboseEntitySync.Value;
     }
 }

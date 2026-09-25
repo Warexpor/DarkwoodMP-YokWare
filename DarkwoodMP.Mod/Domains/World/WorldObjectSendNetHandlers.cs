@@ -65,6 +65,7 @@ namespace DWMPHorde.Networking
         internal void SendEntityDespawn(short entityId)
         {
             if (_net.Role != NetworkRole.Host || !_net.IsConnected || entityId == 0) return;
+            EntitySyncLog.Event(() => "[HostDespawn] broadcast id=" + entityId);
             var msg = new EntityDespawnMessage { EntityId = entityId };
             _net.Broadcast(NetMessageType.EntityDespawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

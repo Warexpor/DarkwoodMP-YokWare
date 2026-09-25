@@ -175,11 +175,23 @@ namespace DWMPHorde.Networking
             if (_hostShareRunning)
             {
                 ProgressText = "World share already in progress";
-                // Chain: run after current share finishes (include same target)
-                if (afterShare != null || targetPlayerId > 0)
+                // Coalesce: a second push to the same peer (or while broadcasting to all)
+                // mid-share caused client Missing chunk 0:0 — Begin wiped buffers under apply.
+                // Still chain afterShare (chapter load must not stall); skip duplicate share.
+                bool samePeerAlreadyCovered = targetPlayerId > 0
+                    && (_shareTargetPlayerId == targetPlayerId || _shareTargetPlayerId < 0);
+                if (samePeerAlreadyCovered && afterShare == null)
+                {
+                    ModLog.Event(LogCat.Save,
+                        "World share coalesce — skip duplicate push to player " + targetPlayerId
+                        + " (share already running, target=" + _shareTargetPlayerId + ")");
+                    return;
+                }
+                if (afterShare != null || (targetPlayerId > 0 && !samePeerAlreadyCovered))
                 {
                     var prev = _afterHostShare;
-                    int chainedTarget = targetPlayerId;
+                    int chainedTarget = (targetPlayerId > 0 && !samePeerAlreadyCovered)
+                        ? targetPlayerId : -1;
                     _afterHostShare = () =>
                     {
                         try { prev?.Invoke(); } catch { /* ignore */ }

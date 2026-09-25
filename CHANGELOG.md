@@ -3,12 +3,63 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.3**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.5**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.5 — MelonLoader peer build (no BepInEx dependency)
+
+MelonLoader is a real peer of BepInEx again: same shared Path B body, no
+BepInEx types on the Melon runtime path.
+
+- **Loader-agnostic config/log:** `ModConfigStore` + `ModSetting<T>` (BepInEx-
+  compatible INI) and `IModLogger` with BepInEx / Melon wrappers. Melon DLL no
+  longer references `BepInEx.dll`.
+- **Entries:** BepInEx still uses `BepInEx/config/com.yokware.branch.cfg`; Melon
+  writes the same key shape under Melon `UserData/YokWare/`.
+- **Repo pipeline:** `scripts/fetch-melonloader-refs.sh` + `scripts/build-loaders.sh`
+  build both variants from a fresh clone (Melon refs stay uncommitted).
+- **Parked:** in-game Melon smoke on a Melon-installed Darkwood (one Doorstop per
+  game dir — cannot co-host with BepInEx on the same install).
+
+Protocol **25** unchanged. Product bump **0.8.4 → 0.8.5**.
+
+---
+
+## 0.8.4 — Dual-box join/dialog log fixes + entity debug logging
+
+- **`VerboseEntitySync`** (Debug, default **true**): enables Entity/Combat/AI/Death
+  Trace under Support without full Trace preset; bumps LogMinLevel to Trace for
+  those dumps. Set false for quiet play.
+- **`EntitySyncLog`** facade + TraceRate on hot paths:
+  host snapshot/anim/alive, client snap/match/interp/HP, clip apply + reaction
+  clips, death anim, pending/phantom spawn/despawn, PlayerAnim TX/RX,
+  EntitySound (incl. GetHit echo skip), Attack/FF/ProxyDmg/DamagePlayer.
+
+
+Log-grounded stability pass from a dual-box session (protocol **25** unchanged).
+
+- **Missing chunk 0:0:** overlapping host world share (auto-share + WorldRequest
+  chain) wiped client `_chunkBuffers` under apply. Client now ignores Begin while
+  receiving/applying; host coalesces duplicate pushes to the same peer mid-share.
+- **GetProfiles WARN ×1000:** slot picker OnGUI invoked private `GetProfiles`
+  (no `profs.dat` Exists check) on empty `Darkwood_Second`. Prefer public
+  `loadGameProfiles`, Exists-gate private path, cache for 2s, log InnerException
+  once.
+- **Oven DialogOutcome NRE:** drain-abort `SilentCloseAfterWorldApply` nulled
+  `dw.npc` before `displayDialogue(lookAtPot)`. Re-bind NPC after scrub; preflight
+  null guard; richer catch context.
+- **Walkie ItemsDatabase:** expected boot race demoted Warn → Event (still retries).
+- **Parked:** host `flushPending` / `footType=Item` PerfSeg cliffs after late-join
+  settle — needs another Dev soak with segment attribution before changing flush
+  budget.
+
+Product bump **0.8.3 → 0.8.4**.
 
 ---
 

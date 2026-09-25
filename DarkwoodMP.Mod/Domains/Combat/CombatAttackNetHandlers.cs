@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DWMPHorde;
 using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -44,7 +45,7 @@ namespace DWMPHorde.Networking
             if (reported < 0) reported = 0;
             if (reported > max)
             {
-                ModRuntime.LegacyInfo($"[{context}] clamped damage {reported} → {max}");
+                EntitySyncLog.Damage("[DmgClamp] " + context + " " + reported + " → " + max);
                 return max;
             }
             return reported;
@@ -54,7 +55,8 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host)
             {
-                ModRuntime.LegacyInfo($"[HandlePlayerAttack] rejected: not host (role={_net.Role})");
+                EntitySyncLog.CombatTrace("atk:role",
+                    "[Attack] rejected: not host role=" + _net.Role, 5f);
                 return;
             }
 
@@ -95,18 +97,27 @@ namespace DWMPHorde.Networking
             Character target = ResolvePlayerAttackTarget(msg, attackPos, targetPos);
             if (target == null)
             {
-                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target null: nameHash={msg.TargetNameHash} name='{msg.TargetName}' tPos={targetPos}");
+                EntitySyncLog.Damage(
+                    "[Attack] target null nameHash=" + msg.TargetNameHash
+                    + " name='" + msg.TargetName + "' tPos=" + targetPos);
                 return;
             }
 
             if (!target.alive)
+            {
+                EntitySyncLog.CombatTrace("atk:dead",
+                    "[Attack] target already dead " + target.name
+                    + "(id=" + CharacterTracker.GetStableId(target) + ")", 1f);
                 return;
+            }
 
             float maxRange = GameplayConstants.MaxPlayerAttackRange;
             float distSq = Vector3.SqrMagnitude(target.transform.position - attackPos);
             if (distSq > maxRange * maxRange)
             {
-                ModRuntime.LegacyInfo($"[HandlePlayerAttack] target too far: dist={Mathf.Sqrt(distSq):F1} > {maxRange} (target={target.name})");
+                EntitySyncLog.Damage(
+                    "[Attack] too far dist=" + Mathf.Sqrt(distSq).ToString("F1")
+                    + " > " + maxRange + " target=" + target.name);
                 return;
             }
 
@@ -119,9 +130,15 @@ namespace DWMPHorde.Networking
             if (damage <= 0) return;
             Transform attackerT = attackingProxy.transform;
 
+            float hpBefore = target.Health;
             target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
 
-            ModRuntime.LegacyInfo($"[Attack] player {playerId} dealt {damage} to {target.name}(id={CharacterTracker.GetStableId(target)}) alive={target.alive} health={target.Health}");
+            EntitySyncLog.Damage(
+                "[Attack] p" + playerId + " → " + target.name
+                + "(id=" + CharacterTracker.GetStableId(target) + ") dmg=" + damage
+                + " hp " + hpBefore.ToString("F0") + "→" + target.Health.ToString("F0")
+                + " alive=" + target.alive
+                + " clip=" + (target.clipToPlay ?? ""));
         }
 
         /// <summary>
@@ -180,6 +197,9 @@ namespace DWMPHorde.Networking
             int damage = SanitizePeerDamage(msg.Damage, "DamagePlayer");
             if (damage <= 0) return;
 
+            EntitySyncLog.Damage(
+                "[DamagePlayer] local took " + damage
+                + " cut=" + msg.CanCutInHalf + " interrupt=" + msg.CanInterrupt);
             local.getHit(
                 damage,
                 null,
@@ -262,8 +282,9 @@ namespace DWMPHorde.Networking
             float now = Time.time;
             if (_ffDebounce.TryGetValue(debounceKey, out float last) && now - last < FriendlyFireDebounceSec)
             {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[FriendlyFire] debounced atk={atkPlayerId}→vic={victimPlayerId} dmg={damage}");
+                EntitySyncLog.CombatTrace("ff:deb",
+                    "[FriendlyFire] debounced atk=" + atkPlayerId + "→vic=" + victimPlayerId
+                    + " dmg=" + damage, 1f);
                 return;
             }
             _ffDebounce[debounceKey] = now;
@@ -275,7 +296,8 @@ namespace DWMPHorde.Networking
                 Player host = Player.Instance;
                 if (host == null) return;
                 host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
-                ModRuntime.LegacyInfo($"[FriendlyFire] Host took {damage} damage from player {atkPlayerId}");
+                EntitySyncLog.Damage(
+                    "[FriendlyFire] host took " + damage + " from p" + atkPlayerId);
 
                 Vector3 hitPoint = host.transform.position;
                 Vector3 toHost = (host.transform.position - atkPos).normalized;
@@ -287,7 +309,9 @@ namespace DWMPHorde.Networking
             }
             else
             {
-                ModRuntime.LegacyInfo($"[FriendlyFire] Forwarding {damage} damage from player {atkPlayerId} to victim player {victimPlayerId}");
+                EntitySyncLog.Damage(
+                    "[FriendlyFire] forward " + damage + " from p" + atkPlayerId
+                    + " → victim p" + victimPlayerId);
                 _net.SendToPlayer(victimPlayerId, NetMessageType.DamagePlayer, w =>
                 {
                     new DamagePlayerMessage

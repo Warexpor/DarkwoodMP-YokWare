@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using UnityEngine;
 
@@ -54,8 +55,9 @@ namespace DWMPHorde.Networking
 
                         if (_hostSyncedIds.Contains(p.HostId))
                         {
-                            if (ModRuntime.VerboseLogging)
-                                ModRuntime.LegacyInfo($"[Entity] dropping pending (already host-synced): {p.EntityName}(id={p.HostId})");
+                            EntitySyncLog.Trace("pend:drop",
+                                "[ClientPending] drop already-synced " + p.EntityName
+                                + "(id=" + p.HostId + ")", 2f);
                             _pendingMatches.RemoveAt(i);
                             continue;
                         }
@@ -68,8 +70,8 @@ namespace DWMPHorde.Networking
                             _hostSyncedIds.Add(p.HostId);
                             _everHostSyncedIds.Add(p.HostId);
                             EnsureEntityAwake(inactive);
-                            if (ModRuntime.VerboseLogging)
-                                ModRuntime.LegacyInfo($"[Entity] activated existing entity: {p.EntityName}(id={p.HostId})");
+                            EntitySyncLog.Event(() =>
+                                "[ClientPending] activated " + p.EntityName + "(id=" + p.HostId + ")");
 
                             if (!_states.TryGetValue(p.HostId, out var state))
                             {
@@ -115,9 +117,9 @@ namespace DWMPHorde.Networking
                                 _hostSyncedIds.Add(p.HostId);
                                 _everHostSyncedIds.Add(p.HostId);
                                 EnsureEntityAwake(closest);
-                                if (ModRuntime.VerboseLogging || claimDist > MatchRadius)
-                                    ModRuntime.LegacyInfo(
-                                        $"[Entity] claimed closest local {p.EntityName}(id={p.HostId}) d={claimDist:F0}");
+                                EntitySyncLog.Event(() =>
+                                    "[ClientPending] claimed " + p.EntityName + "(id=" + p.HostId
+                                    + ") d=" + claimDist.ToString("F0"));
 
                                 if (!_states.TryGetValue(p.HostId, out var claimState))
                                 {
@@ -155,8 +157,9 @@ namespace DWMPHorde.Networking
                             _everHostSyncedIds.Add(p.HostId);
                             _spawnedPhantomIds.Add(p.HostId);
                             EnsureEntityAwake(spawned);
-                            if (ModRuntime.VerboseLogging)
-                                ModRuntime.LegacyInfo($"[Entity] pending spawned: {p.EntityName}(id={p.HostId})");
+                            EntitySyncLog.Event(() =>
+                                "[ClientPending] phantom spawn " + p.EntityName + "(id=" + p.HostId
+                                + ") clip=" + (p.Clip ?? ""));
 
                             if (!_states.TryGetValue(p.HostId, out var state))
                             {

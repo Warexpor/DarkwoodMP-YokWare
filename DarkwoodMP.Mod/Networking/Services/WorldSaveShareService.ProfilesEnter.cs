@@ -271,6 +271,7 @@ namespace DWMPHorde.Networking
             try
             {
                 sm.saveGameProfiles();
+                InvalidateDiskProfilesCache();
                 ModLog.Event(LogCat.Save,
                     "Saved profile index with " + profiles.Count + " slots (merged receive slot "
                     + slot.id + ")");

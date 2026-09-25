@@ -1,5 +1,3 @@
-using BepInEx.Configuration;
-using BepInEx.Logging;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
@@ -17,8 +15,8 @@ namespace DWMPHorde
     /// </summary>
     public static class ModRuntime
     {
-        /// <summary>BepInEx logger, shared across all systems.</summary>
-        public static ManualLogSource Log;
+        /// <summary>Loader-agnostic logger, shared across all systems.</summary>
+        public static IModLogger Log;
 
         /// <summary>The LAN network manager singleton (host or client).</summary>
         public static LanNetworkManager Network { get; private set; }
@@ -44,10 +42,10 @@ namespace DWMPHorde
         private static HarmonyLib.Harmony _harmony;
 
         /// <summary>
-        /// Called by <see cref="DWMPHordeEntry.Awake"/> once on plugin load.
+        /// Called by loader entry once on plugin load.
         /// Binds config, applies all Harmony patches, and boots the runtime GameObject.
         /// </summary>
-        public static void Start(ManualLogSource log, ConfigFile config)
+        public static void Start(IModLogger log, ModConfigStore config)
         {
             Log = log;
 

@@ -40,6 +40,17 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Overlapping Begin (auto-share + WorldRequest chain) used to allocate a fresh
+            // null _chunkBuffers while apply still verified the prior package → Missing chunk 0:0.
+            if (_clientReceiving || _clientApplying)
+            {
+                ModLog.Event(LogCat.Save,
+                    "Ignoring world share begin — already "
+                    + (_clientReceiving ? "receiving" : "applying")
+                    + " a package (duplicate host push)");
+                return;
+            }
+
             _clientReceiving = true;
             _clientApplying = false;
             _awaitingSlotPick = false;

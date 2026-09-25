@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -50,6 +51,8 @@ namespace DWMPHorde.Patches
                 TorsoClip = isTorso ? name : null,
                 LegsClip = isLegs ? name : null
             });
+            EntitySyncLog.Anim("player",
+                "[PlayerAnim] TX " + (isTorso ? "torso=" : "legs=") + name, 0.4f);
         }
     }
 }

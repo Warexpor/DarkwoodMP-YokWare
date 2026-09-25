@@ -71,8 +71,10 @@ appsettings.*.local.json
 /AGENTS.md
 /docs/
 /research/
-/scripts/
+/scripts/*
 !/scripts/check-dualbox-perf.sh
+!/scripts/fetch-melonloader-refs.sh
+!/scripts/build-loaders.sh
 /tools/
 /libs/
 

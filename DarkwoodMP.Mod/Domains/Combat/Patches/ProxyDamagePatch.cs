@@ -1,5 +1,6 @@
 using DWMPHorde;
 using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -61,7 +62,8 @@ namespace DWMPHorde.Patches
 
             if (isPlayerSourced && !Config.ModConfig.FriendlyFireEnabled.Value)
             {
-                ModRuntime.LegacyInfo("[ProxyDmg] friendly fire disabled, blocking " + damage + " dmg from player");
+                EntitySyncLog.Damage(
+                    "[ProxyDmg] FF off — block " + damage + " on proxy p" + proxy.PlayerId);
                 return false;
             }
 
@@ -94,9 +96,9 @@ namespace DWMPHorde.Patches
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 
-                ModRuntime.LegacyInfo("[ProxyDmg] host proxy took " + dmg + " damage — sent to client p"
-                    + proxy.PlayerId + " playerSourced=" + isPlayerSourced
-                    + " normalHit=" + normalHit);
+                EntitySyncLog.Damage(
+                    "[ProxyDmg] host→client p" + proxy.PlayerId + " dmg=" + dmg
+                    + " playerSourced=" + isPlayerSourced + " normalHit=" + normalHit);
             }
             else
             {
@@ -115,7 +117,9 @@ namespace DWMPHorde.Patches
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 
-                ModRuntime.LegacyInfo("[ProxyDmg] client proxy took " + dmg + " damage — sent to host (victim=" + proxy.PlayerId + ")");
+                EntitySyncLog.Damage(
+                    "[ProxyDmg] client→host FF victim=p" + proxy.PlayerId + " dmg=" + dmg
+                    + " atk=p" + localId);
             }
 
             return false;

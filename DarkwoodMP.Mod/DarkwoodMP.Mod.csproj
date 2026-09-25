@@ -23,8 +23,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.8.3</Version>
-    <InformationalVersion>0.8.3-path-b</InformationalVersion>
+    <Version>0.8.5</Version>
+    <InformationalVersion>0.8.5-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
@@ -77,7 +77,7 @@
     </Reference>
   </ItemGroup>
 
-  <!-- MelonLoader: Melon + Harmony + BepInEx types for ConfigFile/ManualLogSource only -->
+  <!-- MelonLoader: Melon + Harmony only (no BepInEx runtime dependency) -->
   <ItemGroup Condition="'$(Loader)' == 'MelonLoader'">
     <Reference Include="MelonLoader">
       <HintPath>$(MelonLoaderDir)\MelonLoader.dll</HintPath>
@@ -85,10 +85,6 @@
     </Reference>
     <Reference Include="0Harmony">
       <HintPath>$(MelonLoaderDir)\0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="BepInEx">
-      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -184,9 +180,7 @@
     <Error Condition="'$(Loader)' == 'BepInEx' and !Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
            Text="BepInEx not found at $(GameDir). Set GameDir in GamePath.local.props." />
     <Error Condition="'$(Loader)' == 'MelonLoader' and !Exists('$(MelonLoaderDir)\MelonLoader.dll')"
-           Text="MelonLoader.dll not found at $(MelonLoaderDir). Run scripts/fetch-melonloader-refs.ps1." />
-    <Error Condition="'$(Loader)' == 'MelonLoader' and !Exists('$(GameDir)\BepInEx\core\BepInEx.dll')"
-           Text="Melon Path B build still needs BepInEx.dll at $(GameDir)\BepInEx\core for ConfigFile/ManualLogSource (compile ref only)." />
+           Text="MelonLoader.dll not found at $(MelonLoaderDir). Run scripts/fetch-melonloader-refs.sh." />
   </Target>
 
   <!-- Deploy BepInEx build to local playtest installs (mod + LiteNetLib only). -->

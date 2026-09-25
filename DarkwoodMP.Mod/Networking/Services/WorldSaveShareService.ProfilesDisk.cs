@@ -18,57 +18,114 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class WorldSaveShareService
     {
+        /// <summary>
+        /// Cached while slot-pick UI polls every OnGUI — avoid re-invoking SaveManager
+        /// hundreds of times (empty Darkwood_Second had no profs.dat → WARN spam).
         /// </summary>
+        private static List<GameProfile> _cachedDiskProfiles;
+        private static float _cachedDiskProfilesAt = -999f;
+        private static bool _diskProfilesCacheValid;
+        private static bool _loggedMissingProfs;
+        private const float DiskProfilesCacheSeconds = 2f;
+
         private static List<GameProfile> LoadProfilesFromDisk()
         {
+            float now = Time.unscaledTime;
+            if (_diskProfilesCacheValid
+                && (now - _cachedDiskProfilesAt) < DiskProfilesCacheSeconds)
+                return _cachedDiskProfiles;
+
             var sm = Singleton<SaveManager>.Instance;
             if (sm == null) return null;
 
-            try
-            {
-                // Prefer private GetProfiles(), which matches Yokyy and returns MainMenu.SaveState with .profiles
-                var getProfiles = typeof(SaveManager).GetMethod("GetProfiles",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (getProfiles != null)
-                {
-                    object state = getProfiles.Invoke(sm, null);
-                    if (state != null)
-                    {
-                        var field = state.GetType().GetField("profiles",
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (field != null && field.GetValue(state) is List<GameProfile> fromGet)
-                            return new List<GameProfile>(fromGet);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                ModLog.Warn(LogCat.Save, "GetProfiles failed: " + ex.Message);
-            }
+            List<GameProfile> loaded = TryLoadProfilesViaPublicApi(sm);
+            if (loaded == null)
+                loaded = TryLoadProfilesViaPrivateGet(sm);
 
+            _cachedDiskProfiles = loaded;
+            _cachedDiskProfilesAt = now;
+            _diskProfilesCacheValid = true;
+            return loaded;
+        }
+
+        /// <summary>Invalidate after we rewrite profs.dat / merge a receive slot.</summary>
+        internal static void InvalidateDiskProfilesCache()
+        {
+            _cachedDiskProfiles = null;
+            _cachedDiskProfilesAt = -999f;
+            _diskProfilesCacheValid = false;
+        }
+
+        private static List<GameProfile> ExtractProfilesList(object state)
+        {
+            if (state == null) return null;
+            var field = state.GetType().GetField("profiles",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field != null && field.GetValue(state) is List<GameProfile> list)
+                return new List<GameProfile>(list);
+            return null;
+        }
+
+        /// <summary>
+        /// Public loadGameProfiles Exists-guards profs.dat — safe on empty dual-box roots.
+        /// </summary>
+        private static List<GameProfile> TryLoadProfilesViaPublicApi(SaveManager sm)
+        {
             try
             {
-                // Public fallback
                 var load = typeof(SaveManager).GetMethod("loadGameProfiles",
                     BindingFlags.Public | BindingFlags.Instance);
-                if (load != null)
-                {
-                    object state = load.Invoke(sm, null);
-                    if (state != null)
-                    {
-                        var field = state.GetType().GetField("profiles",
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (field != null && field.GetValue(state) is List<GameProfile> fromLoad)
-                            return new List<GameProfile>(fromLoad);
-                    }
-                }
+                if (load == null) return null;
+                return ExtractProfilesList(load.Invoke(sm, null));
             }
             catch (Exception ex)
             {
-                ModLog.Warn(LogCat.Save, "loadGameProfiles failed: " + ex.Message);
+                Exception inner = ex.InnerException ?? ex;
+                ModLog.Warn(LogCat.Save, "loadGameProfiles failed: " + inner.Message);
+                return null;
             }
+        }
 
-            return null;
+        /// <summary>
+        /// Private GetProfiles does File.ReadAllText(profs.dat) with no Exists check.
+        /// Only call when the file is present (vanilla's intended path).
+        /// </summary>
+        private static List<GameProfile> TryLoadProfilesViaPrivateGet(SaveManager sm)
+        {
+            string profilesPath = null;
+            try
+            {
+                profilesPath = Path.Combine(Application.persistentDataPath, "1_4Save", "profs.dat");
+                if (!File.Exists(profilesPath))
+                {
+                    if (!_loggedMissingProfs)
+                    {
+                        _loggedMissingProfs = true;
+                        ModLog.Event(LogCat.Save,
+                            "No profs.dat yet under save root (empty dual-box client is normal) — "
+                            + "slot picker will use file presence / Core.profiles");
+                    }
+                    return null;
+                }
+
+                var getProfiles = typeof(SaveManager).GetMethod("GetProfiles",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (getProfiles == null) return null;
+                return ExtractProfilesList(getProfiles.Invoke(sm, null));
+            }
+            catch (Exception ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                // Once per session — OnGUI used to spam TargetInvocationException 1000+.
+                if (!_loggedMissingProfs)
+                {
+                    _loggedMissingProfs = true;
+                    ModLog.Warn(LogCat.Save,
+                        "GetProfiles failed: " + inner.GetType().Name + ": " + inner.Message
+                        + (profilesPath != null ? " path=" + profilesPath : ""));
+                }
+                return null;
+            }
         }
 
         private static int GetHostProfileId()

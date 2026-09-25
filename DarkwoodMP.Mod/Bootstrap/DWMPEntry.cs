@@ -1,5 +1,8 @@
 #if BEPINEX
+using System.IO;
 using BepInEx;
+using DWMPHorde.Config;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde
 {
@@ -11,7 +14,10 @@ namespace DWMPHorde
     {
         private void Awake()
         {
-            ModRuntime.Start(Logger, Config);
+            string cfgPath = Path.Combine(Paths.ConfigPath, PluginInfo.Guid + ".cfg");
+            var store = new ModConfigStore(
+                cfgPath, PluginInfo.Name, PluginInfo.Version, PluginInfo.Guid);
+            ModRuntime.Start(new BepInExModLogger(Logger), store);
         }
 
         private void OnDestroy()
@@ -21,4 +27,3 @@ namespace DWMPHorde
     }
 }
 #endif
-

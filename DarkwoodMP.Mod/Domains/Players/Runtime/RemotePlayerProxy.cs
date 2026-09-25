@@ -1,6 +1,6 @@
 using System;
-using BepInEx.Logging;
 using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using HarmonyLib;
 using UnityEngine;
 
@@ -64,7 +64,7 @@ namespace DWMPHorde.Players
         /// <summary>
         /// Creates the remote player GameObject, wires components, and returns the proxy component.
         /// </summary>
-        public static bool Spawn(ManualLogSource log, out RemotePlayerProxy proxy)
+        public static bool Spawn(IModLogger log, out RemotePlayerProxy proxy)
         {
             proxy = null;
             Player source = PlayerControlRouter.MainPlayer ?? Player.Instance;
@@ -102,7 +102,7 @@ namespace DWMPHorde.Players
             return true;
         }
 
-        private static void AddCharBase(GameObject go, ManualLogSource log)
+        private static void AddCharBase(GameObject go, IModLogger log)
         {
             CharBase cb = go.AddComponent<CharBase>();
             cb.alive = true;
@@ -125,7 +125,7 @@ namespace DWMPHorde.Players
             log?.LogInfo("RemoteProxy: added standalone CharBase with Faction.player.");
         }
 
-        private static void EnableGroundLight(Transform root, ManualLogSource log)
+        private static void EnableGroundLight(Transform root, IModLogger log)
         {
             Transform shadow = root.Find("Shadow");
             if (shadow != null)
@@ -142,7 +142,7 @@ namespace DWMPHorde.Players
             }
         }
 
-        private static void EnableCollision(GameObject clone, ManualLogSource log)
+        private static void EnableCollision(GameObject clone, IModLogger log)
         {
             Rigidbody existing = clone.GetComponent<Rigidbody>();
             if (existing != null)

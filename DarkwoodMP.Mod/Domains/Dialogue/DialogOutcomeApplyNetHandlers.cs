@@ -67,10 +67,6 @@ namespace DWMPHorde.Networking
                     && dw.npc != null
                     && dw.npc.name == msg.NpcName;
 
-                dw.npc = npc;
-                if (Player.Instance != null)
-                    Player.Instance.talkedToNPC = npc;
-
                 // Vanilla onPress marks source node alreadyShown before switching.
                 if (!string.IsNullOrEmpty(msg.DialogueName) && npc.characterDialogue != null)
                 {
@@ -105,11 +101,25 @@ namespace DWMPHorde.Networking
                     while (DialogHostApplyGuard.Active)
                         DialogHostApplyGuard.EndWorldOnly();
                     // Scrub leftover oven/keyhole backdrop before the next world-only apply.
+                    // SilentClose nulls dw.npc — re-bind after scrub (lookAtBottle→lookAtPot NRE).
                     try
                     {
                         DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
                     }
                     catch { /* ignore */ }
+                }
+
+                // Bind AFTER drain scrub — SilentCloseAfterWorldApply clears dw.npc.
+                dw.npc = npc;
+                if (Player.Instance != null)
+                    Player.Instance.talkedToNPC = npc;
+                if (dw.npc == null || dw.npc.characterDialogue == null)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DialogOutcome] world-only displayDialogue aborted — npc/characterDialogue null"
+                        + " target=" + msg.TargetDialogueName + " NPC=" + msg.NpcName);
+                    HostFinishDialogWorldApply(npc);
+                    return;
                 }
 
                 DialogHostApplyGuard.BeginWorldOnly();
@@ -151,7 +161,10 @@ namespace DWMPHorde.Networking
                 catch (Exception ex)
                 {
                     ModRuntime.Log?.LogWarning(
-                        "[DialogOutcome] world-only displayDialogue failed: " + ex.Message);
+                        "[DialogOutcome] world-only displayDialogue failed: " + ex.Message
+                        + " target=" + msg.TargetDialogueName
+                        + " NPC=" + msg.NpcName
+                        + " npcBound=" + (dw != null && dw.npc != null));
                     try
                     {
                         DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);

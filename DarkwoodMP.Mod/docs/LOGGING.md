@@ -11,6 +11,7 @@
 | `LogIncludeStacks` | true | Full stacks on Error |
 | `VerboseLogging` | false | Deprecated compatibility switch; forces Trace when the preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
+| `VerboseEntitySync` | **true** | Deep entity anim/interp/reaction/damage Trace+Event (rate-limited). Dual-box diagnosis default; set false for quiet play |
 
 Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) section **`[Logging]`**.  
 **Restart the game after changing LogPreset.**

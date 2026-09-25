@@ -117,7 +117,9 @@ namespace DWMPHorde.Networking
                     }
                 }
 
-                ModRuntime.LegacyInfo($"[Entity] spawned local entity: {path} at ({position.x:F1},{position.z:F1})");
+                EntitySyncLog.Event(() =>
+                    "[ClientSpawn] phantom " + path
+                    + " at (" + position.x.ToString("F0") + "," + position.z.ToString("F0") + ")");
                 return c;
             }
             catch (System.Exception ex)

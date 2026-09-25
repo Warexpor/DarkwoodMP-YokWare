@@ -1,5 +1,4 @@
 using System;
-using BepInEx.Logging;
 using DWMPHorde.Config;
 using HarmonyLib;
 using UnityEngine;

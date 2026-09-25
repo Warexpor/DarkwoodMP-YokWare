@@ -1,19 +1,19 @@
 #if MELONLOADER
 using System;
 using System.IO;
-using BepInEx.Configuration;
-using BepInEx.Logging;
+using System.Reflection;
+using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using MelonLoader;
 
 [assembly: MelonInfo(typeof(DWMPHorde.MelonModMain), DWMPHorde.PluginInfo.Name, DWMPHorde.PluginInfo.Version, DWMPHorde.PluginInfo.Authors)]
-[assembly: MelonGame(null, null)]
+[assembly: MelonGame("Acid Wizard Studio", "Darkwood")]
 
 namespace DWMPHorde
 {
     /// <summary>
     /// MelonLoader 0.7 entry for Path B. Config under Melon UserData;
-    /// reuses BepInEx ConfigFile/ManualLogSource types for the shared runtime body.
+    /// shared runtime body is loader-agnostic (no BepInEx types).
     /// </summary>
     public sealed class MelonModMain : MelonMod
     {
@@ -24,8 +24,28 @@ namespace DWMPHorde
             if (_booted) return;
             _booted = true;
 
-            // Melon 0.7: Utils.MelonEnvironment; fall back if type missing on older refs.
-            string userData = Path.Combine(
+            string userData = ResolveUserDataDirectory();
+            string cfgDir = Path.Combine(userData, "YokWare");
+            Directory.CreateDirectory(cfgDir);
+            string cfgPath = Path.Combine(cfgDir, PluginInfo.Guid + ".cfg");
+
+            var store = new ModConfigStore(
+                cfgPath, PluginInfo.Name, PluginInfo.Version, PluginInfo.Guid);
+            var log = new MelonLoaderModLogger(LoggerInstance);
+            log.LogInfo("YokWare MelonLoader entry — Path B");
+            ModRuntime.Start(log, store);
+            ModLog.Event(LogCat.Core, "Loader: MelonLoader | config=" + cfgPath);
+        }
+
+        public override void OnDeinitializeMelon()
+        {
+            ModRuntime.Stop();
+            _booted = false;
+        }
+
+        private static string ResolveUserDataDirectory()
+        {
+            string fallback = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "MelonLoader", "UserData");
             try
@@ -33,26 +53,16 @@ namespace DWMPHorde
                 Type env = Type.GetType("MelonLoader.Utils.MelonEnvironment, MelonLoader")
                     ?? Type.GetType("MelonLoader.MelonEnvironment, MelonLoader");
                 var prop = env?.GetProperty("UserDataDirectory",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    BindingFlags.Public | BindingFlags.Static);
                 if (prop != null)
                 {
                     object v = prop.GetValue(null, null);
                     if (v is string s && !string.IsNullOrEmpty(s))
-                        userData = s;
+                        return s;
                 }
             }
             catch { /* use fallback */ }
-
-            string cfgDir = Path.Combine(userData, "YokWare");
-            Directory.CreateDirectory(cfgDir);
-            string cfgPath = Path.Combine(cfgDir, PluginInfo.Guid + ".cfg");
-
-            ManualLogSource log = BepInEx.Logging.Logger.CreateLogSource(PluginInfo.Name);
-            log.LogInfo("YokWare MelonLoader entry — Path B");
-
-            var config = new ConfigFile(cfgPath, saveOnInit: true);
-            ModRuntime.Start(log, config);
-            ModLog.Event(LogCat.Core, "Loader: MelonLoader | config=" + cfgPath);
+            return fallback;
         }
     }
 }

@@ -127,7 +127,8 @@ namespace DWMPHorde.Items
                 if (!_warnedNoDb)
                 {
                     _warnedNoDb = true;
-                    ModLog.Warn(LogCat.Audio, "Walkie: ItemsDatabase not ready yet");
+                    // Expected once at boot before ItemsDatabase Awake — not a failure.
+                    ModLog.Event(LogCat.Audio, "Walkie: ItemsDatabase not ready yet (will retry)");
                 }
                 return false;
             }

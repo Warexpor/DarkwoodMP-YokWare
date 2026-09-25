@@ -1,5 +1,5 @@
 using System;
-using BepInEx.Logging;
+using DWMPHorde.Logging;
 using UnityEngine;
 
 namespace DWMPHorde.Players
@@ -41,7 +41,7 @@ namespace DWMPHorde.Players
             string objectName,
             Vector3 positionOffset,
             PlayerCloneKind kind,
-            ManualLogSource log)
+            IModLogger log)
         {
             if (sourcePlayer == null)
             {
@@ -149,7 +149,7 @@ namespace DWMPHorde.Players
             return clone;
         }
 
-        private static void PrepareLocalCoopPlayer(GameObject clone, Player template, ManualLogSource log)
+        private static void PrepareLocalCoopPlayer(GameObject clone, Player template, IModLogger log)
         {
             Player player = clone.GetComponent<Player>();
             if (player == null)

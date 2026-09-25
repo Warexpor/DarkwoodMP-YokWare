@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using BepInEx.Logging;
 using DWMPHorde.Config;
 using UnityEngine;
 
@@ -13,7 +12,7 @@ namespace DWMPHorde.Logging
     /// </summary>
     public static class ModLog
     {
-        private static ManualLogSource _log;
+        private static IModLogger _log;
         private static LogLevel _minLevel = LogLevel.Trace;
         private static LogPreset _preset = LogPreset.Trace;
         private static readonly bool[] _catEvent = new bool[16];
@@ -54,13 +53,13 @@ namespace DWMPHorde.Logging
         /// <summary>Typical second-install client log path for dual testing.</summary>
         public const string ClientLogHint = @"…\SecondDarkwood\Darkwood\BepInEx\LogOutput.log";
 
-        public static void Init(ManualLogSource log)
+        public static void Init(IModLogger log)
         {
             _log = log;
             ApplyConfig();
         }
 
-        /// <summary>Re-read BepInEx config values into live filters.</summary>
+        /// <summary>Re-read config values into live filters.</summary>
         public static void ApplyConfig()
         {
             _preset = ModConfig.GetLogPreset();
@@ -115,6 +114,22 @@ namespace DWMPHorde.Logging
 
             ParseExtraCategories(ModConfig.LogExtraCategories?.Value, eventLevel: true);
             ParseExtraCategories(ModConfig.LogTraceCategories?.Value, eventLevel: false);
+
+            // Dual-box entity diagnosis: Entity/Combat/AI Trace without full Trace preset flood.
+            if (ModConfig.IsVerboseEntitySync)
+            {
+                EnableEvent(LogCat.Entity, LogCat.Combat, LogCat.AI, LogCat.Death);
+                int e = (int)LogCat.Entity;
+                int c = (int)LogCat.Combat;
+                int a = (int)LogCat.AI;
+                int d = (int)LogCat.Death;
+                if (e >= 0 && e < _catTrace.Length) _catTrace[e] = true;
+                if (c >= 0 && c < _catTrace.Length) _catTrace[c] = true;
+                if (a >= 0 && a < _catTrace.Length) _catTrace[a] = true;
+                if (d >= 0 && d < _catTrace.Length) _catTrace[d] = true;
+                if (_minLevel < LogLevel.Trace)
+                    _minLevel = LogLevel.Trace;
+            }
         }
 
         private static void EnableEvent(params LogCat[] cats)
@@ -294,11 +309,12 @@ namespace DWMPHorde.Logging
                     + " | RedactPath=" + _redactPaths);
                 Event(LogCat.Core, "  Unity=" + Application.unityVersion
                     + " | " + SystemInfo.operatingSystem);
-                Event(LogCat.Core, "  Config: BepInEx/config/" + PluginInfo.Guid + ".cfg");
+                Event(LogCat.Core, "  Config: BepInEx/config/" + PluginInfo.Guid + ".cfg"
+                    + " (Melon: UserData/YokWare/" + PluginInfo.Guid + ".cfg)");
                 Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | F5=spawner");
-                Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log (this install)");
-                Event(LogCat.Core, "  Client log: second install's BepInEx/LogOutput.log");
-                Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client BepInEx/LogOutput.log");
+                Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log or MelonLoader/Latest.log");
+                Event(LogCat.Core, "  Client log: second install's loader log");
+                Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client loader logs");
                 Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (default is full Trace)");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
                 Event(LogCat.Core, "  Docs: docs/PATH_B_FEATURE_INVENTORY.md + DarkwoodMP.Mod/docs/LOGGING.md");

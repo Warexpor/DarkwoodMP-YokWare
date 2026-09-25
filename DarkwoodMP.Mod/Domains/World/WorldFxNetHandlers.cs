@@ -30,12 +30,28 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Host) return;
 
             Character c = CharacterTracker.FindByStableId(msg.HostId);
-            if (c == null || c.sounds == null) return;
+            if (c == null || c.sounds == null)
+            {
+                EntitySyncLog.Reaction("snd:miss",
+                    "[EntitySound] no char/sounds id=" + msg.HostId
+                    + " type=" + msg.SoundType, 2f);
+                return;
+            }
 
             // Match entity visual interest + send cull (not the shorter DefaultMaxAudioDistance).
             Vector3 cpos = c.transform != null ? c.transform.position : Vector3.zero;
             if (!ClientEntityInterpolationService.IsInClientInterest(cpos))
+            {
+                EntitySyncLog.Reaction("snd:far",
+                    "[EntitySound] cull interest id=" + msg.HostId
+                    + " type=" + msg.SoundType, 3f);
                 return;
+            }
+
+            EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundType,
+                "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
+                + " type=" + msg.SoundType
+                + (string.IsNullOrEmpty(msg.LoopName) ? "" : " loop=" + msg.LoopName), 0.35f);
 
             // Prevent CharacterSounds → AudioController patches from re-forwarding.
             TraverseHack.ApplyingFromNetwork = true;
@@ -95,7 +111,11 @@ namespace DWMPHorde.Networking
                     case EntitySoundType.GetHit:
                         // Attacker already played the local hit presentation; skip the echo.
                         if (ClientEntityInterpolationService.ShouldIgnoreGetHitEcho(msg.HostId))
+                        {
+                            EntitySyncLog.Reaction("snd:echo",
+                                "[EntitySound] GetHit echo skipped id=" + msg.HostId, 0.5f);
                             break;
+                        }
                         c.sounds.playGetHitByAxe1();
                         break;
                     default:

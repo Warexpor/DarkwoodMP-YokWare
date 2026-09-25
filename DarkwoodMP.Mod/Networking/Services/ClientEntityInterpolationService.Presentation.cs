@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
@@ -122,7 +123,9 @@ namespace DWMPHorde.Networking
             string deathClip = ResolveDeathClipName(c, body, hostClip);
             if (string.IsNullOrEmpty(deathClip))
             {
-                ModRuntime.LegacyInfo($"[Entity] death anim missing for {c.name}(id={entityId}) hostClip={hostClip}");
+                EntitySyncLog.Event(() =>
+                    "[ClientDeathAnim] MISSING for " + c.name + "(id=" + entityId
+                    + ") hostClip=" + (hostClip ?? ""));
                 // Still mark so we don't spam; corpse stays lootable via die() patch.
                 _deathAnimationPlayed.Add(entityId);
                 return;
@@ -138,7 +141,9 @@ namespace DWMPHorde.Networking
             }
 
             _deathAnimationPlayed.Add(entityId);
-            ModRuntime.LegacyInfo($"[Entity] death anim Play({deathClip}) on {c.name}(id={entityId})");
+            EntitySyncLog.Event(() =>
+                "[ClientDeathAnim] Play(" + deathClip + ") on " + c.name + "(id=" + entityId
+                + ") hostClip=" + (hostClip ?? "") + " frame=" + hostFrame);
         }
 
         private static void ApplyClipToAnimator(
@@ -157,6 +162,8 @@ namespace DWMPHorde.Networking
                 // → floaty roam sprites until clip name changes (aggro). Restart if stopped.
                 if ((clipChanged || !anim.Playing) && anim.GetClipByName(clip) != null)
                 {
+                    string prev = anim.CurrentClip != null ? anim.CurrentClip.name : "";
+                    bool wasPlaying = anim.Playing;
                     if (!anim.enabled)
                         anim.enabled = true;
                     anim.Play(clip);
@@ -167,6 +174,18 @@ namespace DWMPHorde.Networking
                         int maxFrame = anim.CurrentClip.frames.Length - 1;
                         if (maxFrame >= 0)
                             anim.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
+                    }
+
+                    if (clipChanged)
+                    {
+                        EntitySyncLog.Anim(entityId.ToString(),
+                            "[ClientAnim] id=" + entityId + " clip " + prev + " → " + clip
+                            + " frame=" + clipFrame + " wasPlaying=" + wasPlaying, 0.35f);
+                        // Hit / attack / react clip names are high-signal for reaction debug.
+                        if (IsReactionClipName(clip))
+                            EntitySyncLog.Reaction(entityId.ToString(),
+                                "[ClientReact] id=" + entityId + " clip=" + clip
+                                + " frame=" + clipFrame, 0.25f);
                     }
                 }
                 // Alive, same clip, and already playing: leave natural playback
@@ -185,8 +204,23 @@ namespace DWMPHorde.Networking
                 catch { /* ignore */ }
 
                 if (!string.IsNullOrEmpty(idleClip) && anim.GetClipByName(idleClip) != null)
+                {
                     anim.Play(idleClip);
+                    EntitySyncLog.Anim(entityId.ToString(),
+                        "[ClientAnim] id=" + entityId + " empty host clip → idle=" + idleClip, 2f);
+                }
             }
+        }
+
+        private static bool IsReactionClipName(string clip)
+        {
+            if (string.IsNullOrEmpty(clip)) return false;
+            if (clip.StartsWith("Hit", System.StringComparison.OrdinalIgnoreCase)) return true;
+            if (clip.StartsWith("Attack", System.StringComparison.OrdinalIgnoreCase)) return true;
+            if (clip.IndexOf("React", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (clip.IndexOf("Stun", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (clip.IndexOf("Flinch", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         public static void ApplyHostDespawn(short entityId)
@@ -211,8 +245,8 @@ namespace DWMPHorde.Networking
 
             if (c != null && c.gameObject != null)
             {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[Entity] host despawn: {c.name}(id={entityId})");
+                EntitySyncLog.Event(() =>
+                    "[ClientDespawn] id=" + entityId + " " + c.name);
                 Object.Destroy(c.gameObject);
             }
         }

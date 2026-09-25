@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using System.Collections.Generic;
 using UnityEngine;
@@ -11,17 +12,17 @@ namespace DWMPHorde.Networking
             if (msg.Sequence == 0
                 || !_AcceptSnapshotSequence(msg.Sequence))
             {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo(
-                        "[Entity] stale or invalid snapshot rejected seq=" + msg.Sequence
-                        + " last=" + _lastSnapshotSequence);
+                EntitySyncLog.Interp("stale",
+                    "[ClientSnap] rejected seq=" + msg.Sequence
+                    + " last=" + _lastSnapshotSequence, 2f);
                 return;
             }
 
             if (msg.Entities == null || msg.Entities.Length == 0)
             {
                 if (_lastApplyCount > 0)
-                    ModRuntime.LegacyInfo($"[Entity] received empty snapshot (no entities)");
+                    EntitySyncLog.Interp("empty",
+                        "[ClientSnap] empty snapshot (had applied=" + _lastApplyCount + ")", 2f);
                 _lastApplyCount = 0;
                 return;
             }
@@ -29,14 +30,17 @@ namespace DWMPHorde.Networking
             bool wasFirst = !_receivedFirstSnapshot;
             _receivedFirstSnapshot = true;
             if (wasFirst)
+            {
                 _firstSnapshotTime = Time.time;
+                EntitySyncLog.Event(() =>
+                    "[ClientSnap] FIRST snapshot seq=" + msg.Sequence
+                    + " entities=" + msg.Entities.Length);
+            }
 
             int applied = 0;
             int skipped = 0;
-            // High-freq dumps only on full Trace preset (Dev playtest must stay light).
-            bool dump = ModRuntime.VerboseLogging && ((_snapshotCount + 1) % 50 == 0);
-            System.Text.StringBuilder sb = dump ? new System.Text.StringBuilder() : null;
-            System.Text.StringBuilder skippedSb = dump ? new System.Text.StringBuilder() : null;
+            int pendingAdded = 0;
+            bool dump = EntitySyncLog.On && ((_snapshotCount + 1) % 40 == 0);
 
             for (int i = 0; i < msg.Entities.Length; i++)
             {
@@ -57,14 +61,6 @@ namespace DWMPHorde.Networking
                         far.gameObject.SetActive(false);
                     skipped++;
                     continue;
-                }
-
-                if (sb != null)
-                {
-                    if (sb.Length == 0)
-                        sb.Append("[Entity] snapshot IDs: ");
-                    sb.Append(e.Index);
-                    sb.Append(' ');
                 }
 
                 Character c = CharacterTracker.FindByStableId(e.Index);
@@ -98,8 +94,9 @@ namespace DWMPHorde.Networking
                                 _spawnedPhantomIds.Remove(e.Index);
                                 Object.Destroy(c.gameObject);
                                 c = real;
-                                if (ModRuntime.VerboseLogging)
-                                    ModRuntime.LegacyInfo($"[Entity] replaced phantom with real entity: {e.EntityName}(id={e.Index})");
+                                EntitySyncLog.Event(() =>
+                                    "[ClientMatch] replaced phantom → real " + e.EntityName
+                                    + "(id=" + e.Index + ")");
                             }
                         }
                         _hostSyncedIds.Add(e.Index);
@@ -109,8 +106,9 @@ namespace DWMPHorde.Networking
                     }
 
                     // The stable ID matched a different local entity.
-                    if (ModRuntime.VerboseLogging || (_snapshotCount % 100 == 0))
-                        ModRuntime.LegacyInfo($"[Entity] stable ID collision: id={e.Index} found {c.name} but expected {e.EntityName}");
+                    EntitySyncLog.Event(() =>
+                        "[ClientMatch] ID COLLISION id=" + e.Index + " found=" + c.name
+                        + " expected=" + e.EntityName);
                     CharacterTracker.ClearId(c);
                 }
 
@@ -122,8 +120,9 @@ namespace DWMPHorde.Networking
                     _hostSyncedIds.Add(e.Index);
                     _everHostSyncedIds.Add(e.Index);
                     EnsureEntityAwake(c);
-                    if (wasFirst || ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo($"[Entity] matched by position: {e.EntityName}(id={e.Index}) at ({targetPos.x:F1},{targetPos.z:F1})");
+                    EntitySyncLog.Event(() =>
+                        "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
+                        + ") at (" + targetPos.x.ToString("F0") + "," + targetPos.z.ToString("F0") + ")");
                     UpdateInterpolation(c, e, targetPos, ref applied);
                     continue;
                 }
@@ -145,18 +144,9 @@ namespace DWMPHorde.Networking
                         Alive = e.Alive,
                         TimeAdded = Time.time
                     });
+                    pendingAdded++;
                 }
                 skipped++;
-                if (skippedSb != null)
-                {
-                    if (skippedSb.Length == 0)
-                        skippedSb.Append("[Entity] PENDING: ");
-                    skippedSb.Append("id=");
-                    skippedSb.Append(e.Index);
-                    skippedSb.Append('(');
-                    skippedSb.Append(e.EntityName);
-                    skippedSb.Append(") ");
-                }
             }
 
             // Do NOT mass-Destroy "unmatched" save NPCs on first snapshot.
@@ -171,24 +161,17 @@ namespace DWMPHorde.Networking
             _totalSkipped += skipped;
 
             _snapshotCount++;
-            if (dump && sb != null)
+            if (dump)
             {
-                if (sb.Length > 0)
-                    ModRuntime.LegacyInfo(sb.ToString());
-
-                Character[] all = null;
-                int nDump = CharacterTracker.CopyAll(out all);
-                var tb = new System.Text.StringBuilder();
-                tb.Append($"[Entity] tracker has {nDump} chars: ");
-                for (int i = 0; i < nDump; i++)
-                {
-                    if (all[i] != null)
-                        tb.Append($"{CharacterTracker.GetStableId(all[i])}({all[i].name}) ");
-                }
-                ModRuntime.LegacyInfo(tb.ToString());
-                ModRuntime.LegacyInfo($"[Entity] applied={applied} pending={_pendingMatches.Count} hostSynced={_hostSyncedIds.Count}");
-                if (skippedSb != null && skippedSb.Length > 0)
-                    ModRuntime.LegacyInfo(skippedSb.ToString());
+                EntitySyncLog.Interp("snap:sum", () =>
+                    "[ClientSnap] seq=" + msg.Sequence
+                    + " n=" + msg.Entities.Length
+                    + " applied=" + applied
+                    + " skipped=" + skipped
+                    + " pendingNew=" + pendingAdded
+                    + " pendingQ=" + _pendingMatches.Count
+                    + " hostSynced=" + _hostSyncedIds.Count
+                    + " phantoms=" + _spawnedPhantomIds.Count, 1.5f);
             }
         }
 
@@ -298,7 +281,9 @@ namespace DWMPHorde.Networking
 
             if (!e.Alive && c.alive)
             {
-                ModRuntime.LegacyInfo($"[Entity] DETECTED DEATH: {c.name}(id={e.Index})");
+                EntitySyncLog.Event(() =>
+                    "[ClientDeath] DETECTED " + c.name + "(id=" + e.Index
+                    + ") hpSnap=" + e.HealthPct + " clip=" + (e.Clip ?? ""));
                 c.die();
                 // Client Character.Update (processAnims) is AI-suppressed, so die() does not
                 // starts the death clip. Host often later sends empty Clip after
@@ -307,6 +292,13 @@ namespace DWMPHorde.Networking
                 // die2 is soundless on host-synced clients; play death SFX here so Y-cull
                 // or late EntitySound cannot leave a silent kill.
                 NoteLocalDeathPresentation(c, e.Index);
+            }
+            else if (e.Alive && state.alive && e.HealthPct > 0)
+            {
+                // Health jump (hit) — rate-limited per id.
+                EntitySyncLog.Interp("hp:" + e.Index,
+                    () => "[ClientHP] id=" + e.Index + " " + c.name
+                        + " hp%=" + e.HealthPct + " clip=" + (e.Clip ?? ""), 0.75f);
             }
 
             state.alive = e.Alive;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using LiteNetLib;
 using UnityEngine;
@@ -145,22 +146,54 @@ namespace DWMPHorde.Networking
             DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
             _sendCount++;
-            if (_sendCount % 10 == 0 && ModRuntime.VerboseLogging)
+            // Rate-limited deep dump (not every 10 ticks StringBuilder under VerboseLogging).
+            EntitySyncLog.Trace("ent:send", () =>
             {
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                sb.Append($"[HostEntitySync] sending {entityCount} entities: ");
+                var sb = new System.Text.StringBuilder(128);
+                sb.Append("[HostEntitySync] send n=").Append(entityCount)
+                    .Append(" seq=").Append(_nextSnapshotSequence)
+                    .Append(" tracked=").Append(nAll)
+                    .Append(" | ");
+                int lim = Mathf.Min(entityCount, 12);
+                for (int i = 0; i < lim; i++)
+                {
+                    sb.Append(_buffer[i].EntityName)
+                        .Append("(id=").Append(_buffer[i].Index)
+                        .Append(" clip=").Append(_buffer[i].Clip ?? "")
+                        .Append(" hp=").Append(_buffer[i].HealthPct)
+                        .Append("% alive=").Append(_buffer[i].Alive ? 1 : 0)
+                        .Append(") ");
+                }
+                if (entityCount > lim)
+                    sb.Append("…+").Append(entityCount - lim);
+                return sb.ToString();
+            }, 1.5f);
+
+            // Clip / alive transitions get per-id Trace (no per-frame spam).
+            if (EntitySyncLog.On)
+            {
                 for (int i = 0; i < entityCount; i++)
                 {
-                    Character c = CharacterTracker.FindByStableId(_buffer[i].Index);
-                    if (c != null)
+                    EntitySnapshotNet snap = _buffer[i];
+                    if (_prevClip.TryGetValue(snap.Index, out string prevClip)
+                        && !string.Equals(prevClip, snap.Clip, StringComparison.Ordinal))
                     {
-                        sb.Append(c.name);
-                        sb.Append("(id=");
-                        sb.Append(_buffer[i].Index);
-                        sb.Append(") ");
+                        EntitySyncLog.Anim(snap.Index.ToString(),
+                            "[HostAnim] id=" + snap.Index + " " + snap.EntityName
+                            + " clip " + (prevClip ?? "") + " → " + (snap.Clip ?? "")
+                            + " frame=" + snap.ClipFrame, 0.4f);
                     }
+                    _prevClip[snap.Index] = snap.Clip ?? "";
+
+                    if (_prevAlive.TryGetValue(snap.Index, out bool prevAlive) && prevAlive != snap.Alive)
+                    {
+                        EntitySyncLog.Event(() =>
+                            "[HostAlive] id=" + snap.Index + " " + snap.EntityName
+                            + " alive " + prevAlive + " → " + snap.Alive
+                            + " hp=" + snap.HealthPct);
+                    }
+                    _prevAlive[snap.Index] = snap.Alive;
                 }
-                ModRuntime.LegacyInfo(sb.ToString());
             }
         }
 
@@ -184,6 +217,10 @@ namespace DWMPHorde.Networking
                     if (!c.gameObject.activeSelf)
                         c.gameObject.SetActive(true);
                     c.enableComponents(true);
+                    EntitySyncLog.Trace("ent:wake:" + id,
+                        () => "[HostWake] id=" + id + " " + (c.name ?? "")
+                            + " wasActive=" + c.isActive + " animOn="
+                            + (c.animator != null && c.animator.enabled), 2f);
                 }
                 catch { /* dismantled mid-frame */ }
             }
@@ -265,6 +302,8 @@ namespace DWMPHorde.Networking
         private static int _sendCount;
         private static int _fullResyncCounter;
         private static bool _paused;
+        private static readonly Dictionary<short, string> _prevClip = new Dictionary<short, string>(128);
+        private static readonly Dictionary<short, bool> _prevAlive = new Dictionary<short, bool>(128);
 
         /// <summary>Pauses broadcasting (positions frozen on receiver).</summary>
         public static void Pause() => _paused = true;
@@ -280,6 +319,8 @@ namespace DWMPHorde.Networking
             _lastSent.Clear();
             _cachedEntityNames.Clear();
             _cachedPrefabPaths.Clear();
+            _prevClip.Clear();
+            _prevAlive.Clear();
             _fullResyncCounter = 0;
             _paused = false;
             _scanStart = 0;

@@ -1,4 +1,5 @@
 using DWMPHorde.Audio;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using System.Collections.Generic;
 using UnityEngine;
@@ -142,6 +143,9 @@ namespace DWMPHorde.Networking
             if (id != 0)
                 _localHitEchoIgnoreUntil[id] = Time.unscaledTime + LocalHitEchoIgnoreSec;
 
+            EntitySyncLog.Reaction(id.ToString(),
+                "[LocalHit] presentation id=" + id + " " + (c.name ?? ""), 0.25f);
+
             CharacterSounds cs = c.sounds ?? c.GetComponent<CharacterSounds>();
             if (cs != null)
             {
@@ -155,7 +159,11 @@ namespace DWMPHorde.Networking
             string hitClip = PickHitClip(body);
             if (string.IsNullOrEmpty(hitClip)) return;
             if (body.GetClipByName(hitClip) != null)
+            {
+                EntitySyncLog.Anim(id.ToString(),
+                    "[LocalHit] speculative clip=" + hitClip + " id=" + id, 0.25f);
                 body.Play(hitClip);
+            }
         }
 
         public static bool ShouldIgnoreGetHitEcho(short hostId)
