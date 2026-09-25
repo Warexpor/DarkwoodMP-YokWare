@@ -3,12 +3,20 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.10**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.11**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.11 — Forest spirit can still visit the host
+
+When the other player was far away, every forest spirit spawn was moved to them. The host's own night event never ran. Dogs and worms already used a coin flip. The spirit now does too, so a split party shares the visits.
+
+- Protocol **25** unchanged. Product bump **0.8.10 → 0.8.11**.
 
 ---
 

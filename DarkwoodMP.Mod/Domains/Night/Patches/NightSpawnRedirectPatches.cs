@@ -35,6 +35,11 @@ namespace DWMPHorde.Patches
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
             if (farProxies.Count == 0) return true;
 
+            // Same coin as the other night redirects. Always stealing the
+            // spirit meant the host never saw it when the party was split.
+            if (Random.value >= 0.5f)
+                return true;
+
             RemotePlayerProxy target = farProxies[Random.Range(0, farProxies.Count)];
             Transform proxyT = target.transform;
 
