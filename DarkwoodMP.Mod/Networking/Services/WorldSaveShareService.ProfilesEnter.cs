@@ -20,6 +20,11 @@ namespace DWMPHorde.Networking
     {
         public bool TryBeginEnterWorld()
         {
+            return TryBeginEnterWorld(allowInGame: false);
+        }
+
+        public bool TryBeginEnterWorld(bool allowInGame)
+        {
             if (!_awaitingEnterWorld)
                 return false;
             if (_net == null)
@@ -30,7 +35,7 @@ namespace DWMPHorde.Networking
                     "TryBeginEnterWorld blocked — " + ProgressText);
                 return false;
             }
-            if (!Core.mainMenu)
+            if (!allowInGame && !Core.mainMenu)
             {
                 ModLog.Warn(LogCat.Save, "TryBeginEnterWorld ignored — not on main menu");
                 return false;

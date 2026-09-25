@@ -47,6 +47,18 @@ namespace DWMPHorde.Networking
                     // LanNetworkManager.IsApplyingRemoteState inside this inbound handler.
                     DWMPHorde.Sync.DreamSyncManager.OnPeerDreamEntryTransition();
                     break;
+
+                case CutsceneSyncMessage.ActionPrologueStart:
+                    if (_net.Role == NetworkRole.Host)
+                        return;
+                    PrologueSync.ApplyStart();
+                    break;
+
+                case CutsceneSyncMessage.ActionPrologueEnd:
+                    if (_net.Role == NetworkRole.Host)
+                        return;
+                    PrologueSync.ApplyEnd();
+                    break;
             }
         }
     

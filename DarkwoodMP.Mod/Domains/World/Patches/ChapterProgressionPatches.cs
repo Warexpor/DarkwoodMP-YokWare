@@ -108,10 +108,13 @@ namespace DWMPHorde.Patches
     internal static class ChapterTransitionHelpers
     {
         private static bool _chapterLoadPending;
+        /// <summary>Client is in a chapter and waiting for the host's new save before LoadScene.</summary>
+        internal static bool ChapterShareExpected { get; private set; }
 
         internal static void Reset()
         {
             _chapterLoadPending = false;
+            ChapterShareExpected = false;
         }
 
         /// <summary>
@@ -121,6 +124,7 @@ namespace DWMPHorde.Patches
         internal static void ApplyChapterLoad(int chapterId, bool loadChapterSave, bool resumeAfter)
         {
             if (chapterId < 1) chapterId = 1;
+            ChapterShareExpected = false;
             if (_chapterLoadPending) return;
             _chapterLoadPending = true;
 
@@ -200,6 +204,7 @@ namespace DWMPHorde.Patches
             // unless share never arrives (timeout fallback).
             if (msg.ExpectWorldShare)
             {
+                ChapterShareExpected = true;
                 if (Core.currentProfile != null)
                     Core.currentProfile.chapter = msg.ChapterId;
                 if (Singleton<WorldGenerator>.Instance != null)
@@ -221,7 +226,11 @@ namespace DWMPHorde.Patches
                     ctrl.Invoke(delegate
                     {
                         if (_chapterLoadPending) return;
-                        if (Core.loadingGame || Core.loadedGame) return;
+                        if (Core.loadingGame) return;
+                        if (!ChapterShareExpected) return;
+                        var shareNet = ModRuntime.Network as LanNetworkManager;
+                        if (shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy)
+                            return;
                         // Still on the old scene; the share never completed.
                         ModLog.Warn(LogCat.Session,
                             $"[Chapter] World share timeout — fallback LoadScene chapter{ch}");

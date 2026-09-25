@@ -3,12 +3,32 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.14**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.16**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.16 — The opening movie plays for everyone
+
+A new game's prologue (the title card, the intro video, then the tutorial) only ran on the host. Other players either skipped it or played their own copy out of time.
+
+- The host still plays the vanilla opening. Everyone else in the session plays that same movie and wakes up when it ends, including a third player.
+- A client does not start a private opening on top of that.
+- Protocol **25** unchanged. Product bump **0.8.15 → 0.8.16**.
+
+---
+
+## 0.8.15 — A new chapter reaches players already in the game
+
+The host moved to the next chapter and sent the new world. Anyone already playing ignored that package, and the backup load treated “a game is loaded” as “the new chapter is already here,” so it never ran.
+
+- An in-game chapter change accepts the host world, writes it onto the current profile, and loads the chapter without sitting on the title screen.
+- If that package never arrives, the backup load still switches chapter after a short wait.
+- Protocol **25** unchanged. Product bump **0.8.14 → 0.8.15**.
 
 ---
 

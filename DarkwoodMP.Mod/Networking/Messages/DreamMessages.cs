@@ -333,6 +333,9 @@ namespace DWMPHorde.Networking
         public const byte ActionSkipTransition = 2;
         /// <summary>Peer started Dreams.startTransition (video before prepareDream).</summary>
         public const byte ActionDreamEntryTransition = 3;
+        /// <summary>New-game opening movie (WorldGenerator firstPlay), not a CutsceneManager.</summary>
+        public const byte ActionPrologueStart = 4;
+        public const byte ActionPrologueEnd = 5;
 
         public byte Action;
         public float PosX, PosY, PosZ;

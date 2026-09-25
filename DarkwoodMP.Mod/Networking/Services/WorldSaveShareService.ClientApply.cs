@@ -23,8 +23,10 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
 
-            // Already in chapter; ignore resend because it would LoadScene and wipe the session.
-            if (!Core.mainMenu && Player.Instance != null)
+            // Already in a chapter. A join resend must not wipe the session.
+            // A host chapter change is the exception: the new save has to land.
+            if (!Core.mainMenu && Player.Instance != null
+                && !Patches.ChapterTransitionHelpers.ChapterShareExpected)
             {
                 ModLog.Event(LogCat.Save, "Ignoring world share begin — already in game");
                 return;
@@ -170,7 +172,8 @@ namespace DWMPHorde.Networking
                 matchSlot = FindLocalSlotWithSameWorld(packageFp);
             }
 
-            if (matchSlot >= MinProfileId && matchSlot <= MaxProfileId)
+            if (matchSlot >= MinProfileId && matchSlot <= MaxProfileId
+                && !Patches.ChapterTransitionHelpers.ChapterShareExpected)
             {
                 GameProfile target = EnsureProfileSlot(matchSlot, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
                 Core.currentProfile = target;
@@ -216,11 +219,30 @@ namespace DWMPHorde.Networking
                 ProgressText = "Same world already on Profile " + matchSlot + " — press ENTER WORLD";
                 if (_net != null)
                     _net.StatusText = ProgressText;
-                ModLog.Event(LogCat.Session,
-                    "Join pipeline: exact same world on slot " + matchSlot
-                    + " — skipped overwrite, waiting ENTER WORLD");
+                if (Patches.ChapterTransitionHelpers.ChapterShareExpected)
+                    TryBeginEnterWorld(allowInGame: true);
+                else
+                    ModLog.Event(LogCat.Session,
+                        "Join pipeline: exact same world on slot " + matchSlot
+                        + " — skipped overwrite, waiting ENTER WORLD");
                 yield break;
             }
+
+            string commitError = null;
+            bool wroteCurrentProfile = false;
+            if (Patches.ChapterTransitionHelpers.ChapterShareExpected && Core.currentProfile != null)
+            {
+                _awaitingSlotPick = true;
+                wroteCurrentProfile = TryCommitPermanentSlot(
+                    Core.currentProfile.id, overwriteConfirmed: true, out commitError);
+            }
+            if (wroteCurrentProfile)
+            {
+                TryBeginEnterWorld(allowInGame: true);
+                yield break;
+            }
+            if (Patches.ChapterTransitionHelpers.ChapterShareExpected)
+                ModLog.Warn(LogCat.Save, "Chapter share could not write the current profile: " + (commitError ?? "no profile"));
 
             _clientApplying = false;
             _awaitingSlotPick = true;

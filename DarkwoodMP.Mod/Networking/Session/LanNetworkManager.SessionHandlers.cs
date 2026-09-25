@@ -164,6 +164,11 @@ namespace DWMPHorde.Networking
                         _awaitingLateJoinBulk[playerId] = 0f;
                         // Immediate bulk settle path (shorter for reconnect).
                         MarkPeerGameplayReady(playerId);
+                        WorldGenerator intro = Singleton<WorldGenerator>.Instance;
+                        if (intro != null && intro.playingIntro)
+                            PrologueSync.SendStartTo(playerId);
+                        else if (Player.Instance != null && Player.Instance.firstPlay)
+                            PrologueSync.SendEndTo(playerId);
                     }
                     else if (HostHasShareableWorld())
                     {
