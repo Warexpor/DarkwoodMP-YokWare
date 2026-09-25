@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.26**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.27**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.27 — Loot comes out of the container you opened
+
+Two containers next to each other could share a search. Taking an item from one could empty the other, because the first container the search touched won, not the closest.
+
+- The container search now keeps the closest match, and it will not reach across the room to a different crate or a different body.
+- Protocol **25** unchanged. Product bump **0.8.26 → 0.8.27**.
 
 ---
 

@@ -176,22 +176,31 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Find an Inventory by position (OverlapSphere + fallback scan + DeathDrop).</summary>
-        public static Inventory FindInventoryByPos(Vector3 pos, float maxDist = 10f)
+        public static Inventory FindInventoryByPos(Vector3 pos, float maxDist = 2.5f)
         {
             int n = Physics.OverlapSphereNonAlloc(pos, 1f, OverlapBuf);
+            Inventory overlapBest = null;
+            float overlapBestD = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 if (OverlapBuf[i] == null) continue;
                 Inventory inv = OverlapBuf[i].GetComponentInParent<Inventory>();
-                if (inv != null && (inv.invType == Inventory.InvType.itemInv || inv.invType == Inventory.InvType.deathDrop))
-                    return inv;
+                if (inv == null || (inv.invType != Inventory.InvType.itemInv && inv.invType != Inventory.InvType.deathDrop))
+                    continue;
+                float d = Vector3.Distance(inv.transform.position, pos);
+                if (d < overlapBestD)
+                {
+                    overlapBestD = d;
+                    overlapBest = inv;
+                }
             }
-
-            // Fallback: scan all item and death-drop inventories by position; handles containers
-            // that are loaded but outside the 1m OverlapSphere radius (e.g. on the
-            // host's scene when the client player looted a distant container).
             Inventory best = null;
             float bestDist = maxDist;
+            if (overlapBest != null && overlapBestD < maxDist)
+            {
+                best = overlapBest;
+                bestDist = overlapBestD;
+            }
             Inventory[] all = SceneScanCache<Inventory>.Get();
             for (int i = 0; i < all.Length; i++)
             {
@@ -216,7 +225,7 @@ namespace DWMPHorde.Sync
             // a physics collider and the inventory type may be set after initialization)
             DeathDrop[] bags = GetCachedSceneComponents<DeathDrop>();
             DeathDrop closestBag = null;
-            float closestBagDist = 15f;
+            float closestBagDist = 3f;
             foreach (DeathDrop bag in bags)
             {
                 if (bag == null) continue;
