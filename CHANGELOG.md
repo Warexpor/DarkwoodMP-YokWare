@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.11**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.12**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.12 — A second hit in one swing still lands
+
+The host was ignoring any melee that hit the same character again within a fifth of a second. That was meant to stop a remote player's extra colliders from taking the same swing twice. It also cancelled a real follow-up hit on an enemy, and every untracked body shared one timer.
+
+- The guard now applies only to the remote player's body, and only for the same attacker. A different enemy can still land a hit in that same moment.
+- Protocol **25** unchanged. Product bump **0.8.11 → 0.8.12**.
 
 ---
 

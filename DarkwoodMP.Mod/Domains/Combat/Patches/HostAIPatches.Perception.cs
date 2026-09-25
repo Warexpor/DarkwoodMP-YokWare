@@ -333,8 +333,8 @@ namespace DWMPHorde.Patches
         // in one swing. Time.time keyed by character nameHash.
         // This avoids pooling issues with GetInstanceID().
         private const float HIT_DEBOUNCE = 0.2f;
-        internal static readonly Dictionary<short, float> _lastCharHitTime = new Dictionary<short, float>();
-        private static readonly List<short> _staleHitKeys = new List<short>(8);
+        internal static readonly Dictionary<long, float> _lastCharHitTime = new Dictionary<long, float>();
+        private static readonly List<long> _staleHitKeys = new List<long>(8);
 
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
@@ -347,11 +347,15 @@ namespace DWMPHorde.Patches
             if (cb == null)
                 return true;
 
-            Character c = cb.GetComponent<Character>();
-            if (c == null)
+            // Only the remote body has several child colliders that each fire
+            // this swing. Debouncing every character was eating real second hits.
+            RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
+            if (proxy == null)
                 return true;
 
-            short nameHash = Sync.CharacterTracker.GetStableId(c);
+            Transform attacker = __instance.attackerTransform;
+            int attackerInst = attacker != null ? attacker.GetInstanceID() : __instance.GetInstanceID();
+            long nameHash = ((long)attackerInst << 32) | (uint)proxy.PlayerId;
 
             // Time-based debounce: prevent duplicate OnTriggerEnter from
             // multiple colliders on the same character in one swing.
