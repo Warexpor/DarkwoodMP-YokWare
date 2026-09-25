@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.16**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.17**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.17 — Letting go unsticks the crate you actually moved
+
+Stopping a drag looked up the first object with that name and then gave up. In a house full of identical furniture, often with a third player, the crate that was really moving stayed frozen and another one was released.
+
+- A second identical crate can be picked up. Only the body that is actually moving stays locked.
+- Protocol **25** unchanged. Product bump **0.8.16 → 0.8.17**.
 
 ---
 

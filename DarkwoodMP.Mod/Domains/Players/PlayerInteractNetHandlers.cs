@@ -140,11 +140,9 @@ namespace DWMPHorde.Networking
 
                 _net._lastDragSyncPos.Remove(msg.ObjectName);
                 CleanupSpawnedDragProxy(msg.ObjectName);
-                // Remove remote-drag tracking for items of this name so
-                // PhysicsState can resume sending their position.
-                RemoveRemoteDragIds(msg.ObjectName);
-                // Release kinematic so local physics can affect the item again.
+                // Release while the instance ids are still recorded, then drop them.
                 ReleaseRemoteDragKinematic(msg.ObjectName);
+                RemoveRemoteDragIds(msg.ObjectName);
                 // Host free-body hold from client PhysicsState must also drop on drag end
                 // or the object stays kinematic / untouchable for the host.
                 if (!string.IsNullOrEmpty(msg.ObjectName))

@@ -26,8 +26,11 @@ namespace DWMPHorde.Patches
 
             string objName = __instance.gameObject.name;
 
-            if (net.IsDragClaimedByOther(objName, net.LocalPlayerId) ||
-                net._remoteDragItemNames.Contains(objName))
+            bool nameHeld = net.IsDragClaimedByOther(objName, net.LocalPlayerId)
+                || net._remoteDragItemNames.Contains(objName);
+            bool thisBodyHeld = net._remoteDragItemIds.Contains(__instance.GetInstanceID());
+            // Same Unity name, different crate: only the body actually being moved is locked.
+            if (nameHeld && (thisBodyHeld || net._remoteDragItemIds.Count == 0))
             {
                 Player.Instance?.displayMessage("This object is already being moved by another player");
                 return false;

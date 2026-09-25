@@ -89,8 +89,8 @@ namespace DWMPHorde.Networking
             // Clean up drag tracking for items this player was dragging
             foreach (string key in toRemove)
             {
-                RemoveRemoteDragIds(key);
                 ReleaseRemoteDragKinematic(key);
+                RemoveRemoteDragIds(key);
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
             }
 

@@ -185,8 +185,8 @@ namespace DWMPHorde.Networking
             foreach (string key in toRemove)
             {
                 _dragClaims.Remove(key);
-                RemoveRemoteDragIds(key);
                 ReleaseRemoteDragKinematic(key);
+                RemoveRemoteDragIds(key);
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
             }
 

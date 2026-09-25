@@ -185,10 +185,11 @@ namespace DWMPHorde.Networking
             {
                 if (candidate == null) continue;
                 if (!candidate.gameObject.name.Equals(objectName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!_net._remoteDragItemIds.Contains(candidate.GetInstanceID()))
+                    continue;
                 Rigidbody rb = candidate.GetComponent<Rigidbody>();
                 if (rb != null && rb.isKinematic)
                     rb.isKinematic = false;
-                return; // only one item per name needs releasing
             }
         }
 
