@@ -45,6 +45,20 @@ namespace DWMPHorde.Networking
             }
 
             Vector3 npcPos = npc.transform.position;
+            if (DreamSyncManager.IsDreamActive)
+            {
+                Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+                bool onPad = dreamRoot != null
+                    && (npc.transform.IsChildOf(dreamRoot)
+                        || Vector3.Distance(npcPos, dreamRoot.position) <= 250f);
+                if (!onPad)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[DialogOutcome] skip onCloseDialogue — dream pad NPC not ready for "
+                        + npcName);
+                    return;
+                }
+            }
             ModRuntime.LegacyInfo(
                 "[DialogOutcome] host replaying onCloseDialogue for NPC=" + npcName
                 + " at (" + npcPos.x.ToString("F0") + "," + npcPos.z.ToString("F0") + ")");
@@ -112,6 +126,11 @@ namespace DWMPHorde.Networking
         private static int HostFireDreamLeaveDoorGameEvents(Vector3 nearPos)
         {
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            // Dream is on but the pad is not loaded. Firing now hits the
+            // overworld bunker, which uses the same leave-door events.
+            if (DreamSyncManager.IsDreamActive && dreamRoot == null)
+                return 0;
+
             GameEvents[] all = WorldQueryHelper.GetCachedSceneComponents<GameEvents>();
             int fired = 0;
             for (int i = 0; i < all.Length; i++)
