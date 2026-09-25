@@ -228,6 +228,9 @@ namespace DWMPHorde.Networking
 
         internal void SendWeatherSync() => SendWeatherSyncTo(-1);
 
+        internal void SendWeatherSyncWithStrike(byte strike) =>
+            WorldWeatherTimeHandlers.SendWeatherSyncWithStrike(strike);
+
         internal void SendWeatherSyncTo(int targetPlayerId) =>
             WorldWeatherTimeHandlers.SendWeatherSyncTo(targetPlayerId);
 

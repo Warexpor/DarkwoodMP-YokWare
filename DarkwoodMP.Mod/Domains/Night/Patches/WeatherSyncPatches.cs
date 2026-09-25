@@ -17,27 +17,9 @@ namespace DWMPHorde.Patches
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return true;
 
-            // Visual-only lightning while host says it is raining
-            try
-            {
-                if (__instance.Raining
-                    && Player.Instance != null
-                    && Player.Instance.whereAmI != null
-                    && !Player.Instance.whereAmI.inUndergroundLocation
-                    && Core.time == __instance.lightningTime
-                    && Singleton<CamMain>.Instance != null
-                    && Singleton<CamMain>.Instance.lightning != null)
-                {
-                    Singleton<CamMain>.Instance.lightning.strike();
-                    // Keep host lightningTime until next WeatherSync (do not re-randomize)
-                }
-            }
-            catch
-            {
-                // Cam/player not ready
-            }
-
-            return false; // skip vanilla schedule (rain start/stop/fog by local day timer)
+            // Client clock does not run Rain.onUpdateTime, so this prefix never
+            // used to see the strike. Lightning is sent with the weather packet.
+            return false;
         }
     }
 
@@ -83,6 +65,57 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role != NetworkRole.Host) return;
             net.SendWeatherSync();
+        }
+    }
+
+    /// <summary>
+    /// Host lightning is a one-frame clock check. Peers do not run that clock,
+    /// so the flash and thunder have to be sent when they happen.
+    /// </summary>
+    [HarmonyPatch(typeof(Rain), "onUpdateTime")]
+    public static class RainHostLightningSyncPatch
+    {
+        private static float _lightningBefore;
+        private static bool _wasRaining;
+
+        private static void Prefix(Rain __instance)
+        {
+            _lightningBefore = __instance != null ? __instance.lightningTime : 0f;
+            _wasRaining = __instance != null && __instance.Raining;
+        }
+
+        private static void Postfix(Rain __instance)
+        {
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected || __instance == null)
+                return;
+
+            byte strike = 0;
+            // A real bolt advances lightningTime from the current clock.
+            // Rain starting also rewrites lightningTime; that is not a bolt.
+            if (_wasRaining && _lightningBefore == Core.time && __instance.lightningTime != _lightningBefore)
+                strike = 1;
+            else if (__instance.Raining
+                && Core.time == __instance.lightningTime
+                && Player.Instance != null
+                && Player.Instance.whereAmI != null
+                && Player.Instance.whereAmI.inUndergroundLocation)
+            {
+                // Host is indoors, so vanilla skipped the flash. Someone outside
+                // still needs it, and the next bolt has to move forward.
+                __instance.lightningTime = Core.time + UnityEngine.Random.Range(10, 50);
+                strike = 1;
+            }
+            else if (__instance.preRainLightning && __instance.rainToday
+                && Core.time == __instance.preRainLightningTime
+                && Singleton<Controller>.Instance != null
+                && Singleton<Controller>.Instance.day != 1
+                && (Singleton<NightScenarios>.Instance == null || Singleton<NightScenarios>.Instance.scenarioId != 1))
+                strike = 2;
+            if (strike == 0)
+                return;
+
+            net.SendWeatherSyncWithStrike(strike);
         }
     }
 }

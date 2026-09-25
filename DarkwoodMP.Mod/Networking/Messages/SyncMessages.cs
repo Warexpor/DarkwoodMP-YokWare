@@ -803,6 +803,8 @@ namespace DWMPHorde.Networking
         public float TimeToStart, LightningTime, PreRainLightningTime, Duration;
         public float TimeToFadeInFog_Hours, TimeToFadeOutFog_Hours;
         public int TimeToFadeInFog_Day, TimeToFadeOutFog_Day;
+        /// <summary>0 none, 1 strike, 2 distant pre-rain flash. Missing on old packets means none.</summary>
+        public byte Strike;
 
         public void Serialize(NetWriter w)
         {
@@ -811,23 +813,30 @@ namespace DWMPHorde.Networking
             w.Put(TimeToFadeInFog_Hours); w.Put(TimeToFadeInFog_Day);
             w.Put(TimeToFadeOutFog_Hours); w.Put(TimeToFadeOutFog_Day);
             w.Put(FogFadedOutToday); w.Put(FogIsActive);
+            w.Put(Strike);
         }
 
-        public static WeatherSyncMessage Deserialize(NetReader r) => new WeatherSyncMessage
+        public static WeatherSyncMessage Deserialize(NetReader r)
         {
-            Raining = r.GetBool(),
-            RainToday = r.GetBool(),
-            TimeToStart = r.GetFloat(),
-            LightningTime = r.GetFloat(),
-            PreRainLightning = r.GetBool(),
-            PreRainLightningTime = r.GetFloat(),
-            Duration = r.GetFloat(),
-            TimeToFadeInFog_Hours = r.GetFloat(),
-            TimeToFadeInFog_Day = r.GetInt(),
-            TimeToFadeOutFog_Hours = r.GetFloat(),
-            TimeToFadeOutFog_Day = r.GetInt(),
-            FogFadedOutToday = r.GetBool(),
-            FogIsActive = r.GetBool()
-        };
+            var msg = new WeatherSyncMessage
+            {
+                Raining = r.GetBool(),
+                RainToday = r.GetBool(),
+                TimeToStart = r.GetFloat(),
+                LightningTime = r.GetFloat(),
+                PreRainLightning = r.GetBool(),
+                PreRainLightningTime = r.GetFloat(),
+                Duration = r.GetFloat(),
+                TimeToFadeInFog_Hours = r.GetFloat(),
+                TimeToFadeInFog_Day = r.GetInt(),
+                TimeToFadeOutFog_Hours = r.GetFloat(),
+                TimeToFadeOutFog_Day = r.GetInt(),
+                FogFadedOutToday = r.GetBool(),
+                FogIsActive = r.GetBool()
+            };
+            if (r.AvailableBytes >= 1)
+                msg.Strike = r.GetByte();
+            return msg;
+        }
     }
 }

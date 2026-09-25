@@ -19,8 +19,12 @@ namespace DWMPHorde.Networking
 
         internal void SendWeatherSync() => SendWeatherSyncTo(-1);
 
+        internal void SendWeatherSyncWithStrike(byte strike) => SendWeatherSyncTo(-1, strike);
+
         /// <summary>Send weather to one client (targetPlayerId &gt; 0) or all (targetPlayerId &lt;= 0).</summary>
-        internal void SendWeatherSyncTo(int targetPlayerId)
+        internal void SendWeatherSyncTo(int targetPlayerId) => SendWeatherSyncTo(targetPlayerId, 0);
+
+        internal void SendWeatherSyncTo(int targetPlayerId, byte strike)
         {
             if (_net.Role != NetworkRole.Host) return;
             var rain = Singleton<Rain>.Instance;
@@ -37,6 +41,7 @@ namespace DWMPHorde.Networking
                 Duration = rain.duration,
                 FogFadedOutToday = rain.fogFadedOutToday,
                 FogIsActive = rain.fogIsActive,
+                Strike = strike,
             };
             if (rain.timeToFadeInFog != null)
             {
@@ -116,6 +121,19 @@ namespace DWMPHorde.Networking
             else
             {
                 rain.fogIsActive = msg.FogIsActive;
+            }
+
+            if (msg.Strike != 0
+                && Player.Instance != null
+                && Player.Instance.whereAmI != null
+                && !Player.Instance.whereAmI.inUndergroundLocation
+                && Singleton<CamMain>.Instance != null
+                && Singleton<CamMain>.Instance.lightning != null)
+            {
+                if (msg.Strike == 2)
+                    Singleton<CamMain>.Instance.lightning.strikeVeryFar();
+                else
+                    Singleton<CamMain>.Instance.lightning.strike();
             }
 
             if (ModRuntime.VerboseLogging)

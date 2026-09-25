@@ -3,12 +3,23 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.23**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.24**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.24 — Lightning flashes for everyone in the rain
+
+Only the host saw lightning. The flash and the thunder are decided on the host's clock, and other players do not run that clock.
+
+- When the host's storm flashes, every peer who is outside sees and hears it.
+- If the host is indoors, people standing in the rain still get the flash.
+- Someone underground does not get a bolt in the basement.
+- Protocol **25** unchanged. Product bump **0.8.23 → 0.8.24**.
 
 ---
 
