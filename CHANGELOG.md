@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.22**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.23**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.23 — The scripted event that was named is the one that runs
+
+When a peer did not have an exact copy of a scripted event, a shorter name inside that name was enough. The wrong door, lamp, or scene could run.
+
+- A match now needs the full event name. A shorter name that only sits inside it is left alone.
+- Protocol **25** unchanged. Product bump **0.8.22 → 0.8.23**.
 
 ---
 

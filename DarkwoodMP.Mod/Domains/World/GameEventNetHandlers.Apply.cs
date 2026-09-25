@@ -243,16 +243,15 @@ namespace DWMPHorde.Networking
             }
 
             // Rare: Clone/suffix drift that NormalizeGeName did not collapse.
+            // The object name must contain the full wanted name. A shorter name
+            // that merely sits inside the wanted name is a different event.
             for (int i = 0; i < all.Length; i++)
             {
                 GameEvents ge = all[i];
                 if (ge == null) continue;
                 string n = ge.name ?? "";
-                string nNorm = NormalizeGeName(n);
                 if (!n.Equals(want, System.StringComparison.OrdinalIgnoreCase)
-                    && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0
-                    && (nNorm.Length == 0
-                        || want.IndexOf(nNorm, System.StringComparison.OrdinalIgnoreCase) < 0))
+                    && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 Consider(ge);
             }
