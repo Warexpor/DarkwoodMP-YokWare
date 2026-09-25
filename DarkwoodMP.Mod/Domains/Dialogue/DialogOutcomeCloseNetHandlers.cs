@@ -249,13 +249,33 @@ namespace DWMPHorde.Networking
                 string cd = StripCloneSuffix(n.characterDialogue.name ?? "");
                 if (string.Equals(cd, want, System.StringComparison.OrdinalIgnoreCase))
                     return true;
-                // door_underground vs door_underground_act1
-                if (!string.IsNullOrEmpty(cd)
-                    && (cd.StartsWith(want, System.StringComparison.OrdinalIgnoreCase)
-                        || want.StartsWith(cd, System.StringComparison.OrdinalIgnoreCase)))
+                // door_underground vs door_underground_act1. A short name must not
+                // match every longer one ("Wolf" is not "Wolfman").
+                if (IsNameSuffixVariant(cd, want) || IsNameSuffixVariant(want, cd))
                     return true;
             }
             return false;
+        }
+
+        private static bool IsNameSuffixVariant(string longer, string shorter)
+        {
+            if (string.IsNullOrEmpty(longer) || string.IsNullOrEmpty(shorter))
+                return false;
+            if (!longer.StartsWith(shorter, System.StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (longer.Length == shorter.Length)
+                return true;
+            if (longer[shorter.Length] != '_')
+                return false;
+            string rest = longer.Substring(shorter.Length + 1);
+            if (rest.Length < 4 || !rest.StartsWith("act", System.StringComparison.OrdinalIgnoreCase))
+                return false;
+            for (int i = 3; i < rest.Length; i++)
+            {
+                if (rest[i] < '0' || rest[i] > '9')
+                    return false;
+            }
+            return true;
         }
     }
 }

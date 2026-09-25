@@ -3,12 +3,21 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.13**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.14**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.14 — Dialogue finds the named person
+
+A requested name was treated as a match when it merely started another NPC's name, or the other way around. The trade or story result could land on the wrong person.
+
+- `door_underground` still matches `door_underground_act1`. A different story branch such as `talkingtree_darkside` does not match `TalkingTree`.
+- Protocol **25** unchanged. Product bump **0.8.13 → 0.8.14**.
 
 ---
 
