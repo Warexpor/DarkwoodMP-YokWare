@@ -188,13 +188,16 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role != NetworkRole.Host) return;
 
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            // Dream flagged but the pad is not ready: do not broadcast every
+            // opened overworld door. That was hitting the bunker twin.
+            if (DreamSyncManager.IsDreamActive && dreamRoot == null)
+                return;
+
             Door[] all = GetDoorsCached();
             for (int i = 0; i < all.Length; i++)
             {
                 Door d = all[i];
                 if (d == null || !d.opened) continue;
-                // Only dream-pad doors. Overworld opened doors were flooding DoorOpen and
-                // clients name-matched the wrong "Wooden door" inside the bunker.
                 if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
                     && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
                     continue;
@@ -222,8 +225,10 @@ namespace DWMPHorde.Patches
 
         private static void TryForceOpenDialogueDoor(Vector3 eventPos, bool broadcast)
         {
-            // Anchor: dialogue NPC door_underground under the dream pad only.
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+            if (DreamSyncManager.IsDreamActive && dreamRoot == null)
+                return;
+
             Vector3 anchor = eventPos;
             bool foundNpc = false;
             float bestNpcDist = float.MaxValue;
@@ -233,15 +238,16 @@ namespace DWMPHorde.Patches
                 Character c = chars[i];
                 if (c == null) continue;
                 string n = c.name ?? "";
-                if (n.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) < 0
-                    && !(n.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
-                        && n.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0))
+                if (n.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 if (dreamRoot != null
                     && !c.transform.IsChildOf(dreamRoot)
                     && Vector3.Distance(c.transform.position, dreamRoot.position) > 200f)
                     continue;
                 float d = Vector3.Distance(c.transform.position, eventPos);
+                // The overworld twin shares this name. Never adopt it from across the map.
+                if (d > 200f)
+                    continue;
                 if (d < bestNpcDist)
                 {
                     bestNpcDist = d;

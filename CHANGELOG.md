@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.9**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.10**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.10 — Dream bunker door stays on the dream pad
+
+The dream bunker and the overworld bunker share `door_underground`. If the dream pad was not ready, the search still accepted that overworld copy, however far away, and opened it. The same window also broadcast every opened door in the world.
+
+- While a dream is active and the pad is not loaded, door force-open and the open-door poll do nothing.
+- The dialogue NPC has to be the real `door_underground` and within 200 of the event. A name that merely contains "door" and "underground" is not enough.
+- Protocol **25** unchanged. Product bump **0.8.9 → 0.8.10**.
 
 ---
 
