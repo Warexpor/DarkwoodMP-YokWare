@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.8**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.9**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.9 — The named door and lamp are the ones that change
+
+A message named "door" or "lamp" could hit any nearby object whose name merely contained those letters. Opening, unlocking, or switching the light then happened on the wrong one.
+
+- **Doors** match the full name only, and only when that door is near the position in the message. A different door a few steps away is not opened just because it is the only one nearby.
+- **Lamps** match the full name only, including the usual "(Clone)" suffix.
+- Protocol **25** unchanged. Product bump **0.8.8 → 0.8.9**.
 
 ---
 

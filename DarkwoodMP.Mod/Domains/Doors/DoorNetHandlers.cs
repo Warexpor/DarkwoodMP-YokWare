@@ -36,11 +36,12 @@ namespace DWMPHorde.Networking
             Door door = Sync.ListTracker<Door>.FindByPosition(pos);
             if (door == null)
                 door = WorldQueryHelper.FindDoorByPosLoose(pos, 4f);
-            if (door == null && !string.IsNullOrEmpty(doorName))
+            if (door == null)
             {
-                string want = DialogOutcomeNetHandlers.StripCloneSuffix(doorName);
                 Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();
-                float bestD = float.MaxValue;
+                string want = DialogOutcomeNetHandlers.StripCloneSuffix(doorName);
+                Door named = null;
+                float bestNamed = float.MaxValue;
                 for (int i = 0; i < all.Length; i++)
                 {
                     Door d = all[i];
@@ -49,19 +50,20 @@ namespace DWMPHorde.Networking
                         && !d.transform.IsChildOf(dreamRoot)
                         && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
                         continue;
-                    string n = DialogOutcomeNetHandlers.StripCloneSuffix(d.name);
-                    if (!string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase)
-                        && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
-                        continue;
                     float dist = Vector3.Distance(d.transform.position, pos);
-                    // A name-only match must be near the message position.
                     if (dist > 20f) continue;
-                    if (dist < bestD)
+                    if (!string.IsNullOrEmpty(want))
                     {
-                        bestD = dist;
-                        door = d;
+                        string n = DialogOutcomeNetHandlers.StripCloneSuffix(d.name);
+                        if (string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase) && dist < bestNamed)
+                        {
+                            bestNamed = dist;
+                            named = d;
+                        }
                     }
                 }
+                if (named != null)
+                    door = named;
             }
             // Dream event positions can be the location origin, while the door
             // body is offset, so widen the local search.

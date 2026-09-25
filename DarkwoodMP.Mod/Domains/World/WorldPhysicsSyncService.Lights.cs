@@ -241,8 +241,7 @@ namespace DWMPHorde.Sync
             if (!string.IsNullOrEmpty(name))
             {
                 if (iname.Equals(name, StringComparison.OrdinalIgnoreCase)
-                    || bare.Equals(name, StringComparison.OrdinalIgnoreCase)
-                    || iname.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                    || bare.Equals(name, StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             if (!string.IsNullOrEmpty(itemType))
