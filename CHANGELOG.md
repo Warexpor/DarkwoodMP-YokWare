@@ -3,12 +3,22 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.25**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.26**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.26 — A chapter change still arrives if the save is slow
+
+When the story moved to the next chapter, other players waited for the new save. If that save was still transferring when the backup timer ran out, the backup gave up. They could stay on the old map while the host had already moved on.
+
+- The backup now waits twice more while the save is still moving, then loads the chapter anyway. An older backup from a previous chapter does not load over the new one.
+- If the save finishes in time, that backup does nothing.
+- Protocol **25** unchanged. Product bump **0.8.25 → 0.8.26**.
 
 ---
 

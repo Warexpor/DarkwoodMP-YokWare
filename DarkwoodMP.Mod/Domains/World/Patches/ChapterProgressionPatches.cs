@@ -108,6 +108,8 @@ namespace DWMPHorde.Patches
     internal static class ChapterTransitionHelpers
     {
         private static bool _chapterLoadPending;
+        private static int _shareFallbackWaits;
+        private static int _shareFallbackGen;
         /// <summary>Client is in a chapter and waiting for the host's new save before LoadScene.</summary>
         internal static bool ChapterShareExpected { get; private set; }
 
@@ -115,6 +117,8 @@ namespace DWMPHorde.Patches
         {
             _chapterLoadPending = false;
             ChapterShareExpected = false;
+            _shareFallbackWaits = 0;
+            _shareFallbackGen++;
         }
 
         /// <summary>
@@ -217,30 +221,44 @@ namespace DWMPHorde.Patches
                 if (netEarly != null && netEarly.IsConnected)
                     ChapterSessionResume.CaptureForResume(netEarly);
 
-                // Fallback if share fails: load after 12s if still not loading.
+                _shareFallbackWaits = 0;
+                _shareFallbackGen++;
                 var ctrl = Singleton<Controller>.Instance;
-                int ch = msg.ChapterId;
-                bool loadSave = msg.LoadChapterSave;
                 if (ctrl != null)
-                {
-                    ctrl.Invoke(delegate
-                    {
-                        if (_chapterLoadPending) return;
-                        if (Core.loadingGame) return;
-                        if (!ChapterShareExpected) return;
-                        var shareNet = ModRuntime.Network as LanNetworkManager;
-                        if (shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy)
-                            return;
-                        // Still on the old scene; the share never completed.
-                        ModLog.Warn(LogCat.Session,
-                            $"[Chapter] World share timeout — fallback LoadScene chapter{ch}");
-                        ApplyChapterLoad(ch, loadSave, resumeAfter: true);
-                    }, 12f, timeScaleDependent: false);
-                }
+                    ScheduleChapterShareFallback(ctrl, msg.ChapterId, msg.LoadChapterSave, _shareFallbackGen);
                 return;
             }
 
             ApplyChapterLoad(msg.ChapterId, msg.LoadChapterSave, resumeAfter: true);
+        }
+
+        /// <summary>
+        /// If the chapter save is still transferring, wait and check again.
+        /// After three waits, load anyway so a stuck transfer cannot leave the party behind.
+        /// </summary>
+        private static void ScheduleChapterShareFallback(Controller ctrl, int chapterId, bool loadChapterSave, int generation)
+        {
+            if (ctrl == null) return;
+            ctrl.Invoke(delegate
+            {
+                if (generation != _shareFallbackGen) return;
+                if (_chapterLoadPending) return;
+                if (Core.loadingGame) return;
+                if (!ChapterShareExpected) return;
+                var shareNet = ModRuntime.Network as LanNetworkManager;
+                bool busy = shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy;
+                if (busy && _shareFallbackWaits < 2)
+                {
+                    _shareFallbackWaits++;
+                    ModLog.Event(LogCat.Session,
+                        $"[Chapter] World share still moving — wait again ({_shareFallbackWaits}) for chapter{chapterId}");
+                    ScheduleChapterShareFallback(ctrl, chapterId, loadChapterSave, generation);
+                    return;
+                }
+                ModLog.Warn(LogCat.Session,
+                    $"[Chapter] World share timeout — fallback LoadScene chapter{chapterId}");
+                ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
+            }, 12f, timeScaleDependent: false);
         }
     }
 }
