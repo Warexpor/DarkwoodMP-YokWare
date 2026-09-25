@@ -17,12 +17,11 @@ namespace DWMPHorde.Networking
             public float arrivalTime;
             public bool hasTarget;
             public bool alive;
+            /// <summary>Host has this body in the pre-death downed phase.</summary>
+            public bool downed;
             public bool isFirst;
             public float staleSince;
             public Rigidbody CachedRb;
-            /// <summary>True once we have checked for a corpse <see cref="Item"/> on this entity.</summary>
-            public bool CorpseItemChecked;
-            public bool HasCorpseItem;
         }
 
         private static readonly Dictionary<short, EntityInterpState> _states = new Dictionary<short, EntityInterpState>(64);
@@ -43,8 +42,7 @@ namespace DWMPHorde.Networking
         /// <summary>Timeout resolve (inactive FoT / claim / phantom) budget per LateUpdate.</summary>
         private const int PendingTimeoutResolvesPerFrame = 3;
         private static int _pendingScanCursor;
-        /// <summary>Claim an existing same-name NPC before creating a phantom.</summary>
-        private const float ClaimClosestRadius = 60f;
+        /// <summary>Claim an existing same-name NPC only when it is already at the host position.</summary>
         private const float PhantomCleanupDelay = 5f;
         /// <summary>Grace before destroying local-only NPCs inside interest.</summary>
         private const float UnmatchedCleanupDelay = 3f;
@@ -100,6 +98,8 @@ namespace DWMPHorde.Networking
             public string Clip;
             public short ClipFrame;
             public bool Alive;
+            public bool Downed;
+            public byte HealthPct;
             public float TimeAdded;
         }
         private static readonly List<PendingEntry> _pendingMatches = new List<PendingEntry>(16);

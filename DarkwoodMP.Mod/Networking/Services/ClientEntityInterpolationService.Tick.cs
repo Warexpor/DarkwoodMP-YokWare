@@ -28,89 +28,14 @@ namespace DWMPHorde.Networking
 
                 if (!state.hasTarget)
                 {
-                    bool isPhantom = _spawnedPhantomIds.Contains(id);
-                    Character staleChar = CharacterTracker.FindByStableId(id);
-                    bool isCorpse = false;
-                    if (staleChar != null)
-                    {
-                        if (!staleChar.alive || _deathAnimationPlayed.Contains(id))
-                            isCorpse = true;
-                        else
-                        {
-                            if (!state.CorpseItemChecked)
-                            {
-                                state.HasCorpseItem = staleChar.GetComponent<Item>() != null;
-                                state.CorpseItemChecked = true;
-                            }
-                            isCorpse = state.HasCorpseItem;
-                        }
-                    }
-
-                    // Keep lootable corpses when host streaming stops.
-                    if (isCorpse)
+                    // Snapshots paused (walked away, dream, crowded packet). The body
+                    // stays. Only a host despawn removes it. Drop the interp record
+                    // after the hold so LateUpdate is not walking a frozen id.
+                    if (state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
                     {
                         _staleKeys.Add(id);
                         _displayPositions.Remove(id);
                         _displayRotations.Remove(id);
-                        _hostSyncedIds.Remove(id);
-                        // Keep phantom id so we don't re-spawn; keep ever-synced for unmatched skip.
-                        continue;
-                    }
-
-                    if (isPhantom && state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
-                    {
-                        if (staleChar != null)
-                        {
-                            if (ModRuntime.VerboseLogging)
-                                ModRuntime.LegacyInfo($"[Entity] destroying phantom: id={id}");
-                            Object.Destroy(staleChar.gameObject);
-                        }
-                        _staleKeys.Add(id);
-                        _displayPositions.Remove(id);
-                        _displayRotations.Remove(id);
-                        _hostSyncedIds.Remove(id);
-                        _spawnedPhantomIds.Remove(id);
-                        _everHostSyncedIds.Remove(id);
-                    }
-                    else if (!isPhantom && state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
-                    {
-                        // Host stopped streaming after removeMe or leaving the
-                        // world. Remove the stale local entity.
-                        if (staleChar != null && staleChar.alive)
-                        {
-                            if (!state.CorpseItemChecked)
-                            {
-                                state.HasCorpseItem = staleChar.GetComponent<Item>() != null;
-                                state.CorpseItemChecked = true;
-                            }
-                            if (!state.HasCorpseItem)
-                            {
-                                if (ModRuntime.VerboseLogging)
-                                    ModRuntime.LegacyInfo($"[Entity] destroying stale host-synced: {staleChar.name}(id={id})");
-                                Object.Destroy(staleChar.gameObject);
-                            }
-                            else
-                            {
-                                Rigidbody rb = state.CachedRb != null
-                                    ? state.CachedRb
-                                    : staleChar.GetComponent<Rigidbody>();
-                                if (rb != null)
-                                    rb.isKinematic = false;
-                            }
-                        }
-                        else if (staleChar != null)
-                        {
-                            Rigidbody rb = state.CachedRb != null
-                                ? state.CachedRb
-                                : staleChar.GetComponent<Rigidbody>();
-                            if (rb != null)
-                                rb.isKinematic = false;
-                        }
-                        _staleKeys.Add(id);
-                        _displayPositions.Remove(id);
-                        _displayRotations.Remove(id);
-                        _hostSyncedIds.Remove(id);
-                        _everHostSyncedIds.Remove(id);
                     }
                     continue;
                 }
@@ -178,10 +103,6 @@ namespace DWMPHorde.Networking
             if (now < _nextUnmatchedCleanupTime) return;
             _nextUnmatchedCleanupTime = now + UnmatchedCleanupInterval;
 
-            // While pending claim/phantom processing is busy, do not destroy unmapped save locals;
-            // they are the claim targets. Destroying them mid-storm caused mass desync at POIs.
-            bool pendingBusy = _pendingMatches.Count > 0;
-
             Player localPlayer = Player.Instance;
             int nChars = CharacterTracker.CopyAll(out Character[] allChars);
             for (int i = 0; i < nChars; i++)
@@ -208,29 +129,17 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                // Client save NPCs with no host id: AI is frozen and they never
-                // receive EntityState → permanent stale dogs/crows. Destroy after grace
-                // once host has been streaming (same window as id'd unmatched).
-                // Keep pending matches because those objects may still be claim targets.
+                // Save bodies with no host id stay in the world. If the host is
+                // already driving another body of the same name, hide this twin
+                // so the player sees one enemy. Do not delete it.
                 if (!CharacterTracker.TryGetStableId(c, out short sid))
                 {
-                    if (pendingBusy)
+                    if (HasSyncedTwin(c, allChars, nChars))
                     {
-                        _unmatchedSince.Remove(c);
-                        continue;
+                        if (c.gameObject != null && c.gameObject.activeSelf)
+                            c.gameObject.SetActive(false);
                     }
-                    if (!_unmatchedSince.TryGetValue(c, out float firstUnmapped))
-                    {
-                        _unmatchedSince[c] = now;
-                        continue;
-                    }
-                    if (now - firstUnmapped > UnmatchedCleanupDelay)
-                    {
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo($"[Entity] destroying unmapped local: {c.name}");
-                        _unmatchedSince.Remove(c);
-                        Object.Destroy(c.gameObject);
-                    }
+                    _unmatchedSince.Remove(c);
                     continue;
                 }
 
@@ -241,34 +150,41 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                // Also skip if currently host-synced
                 if (_hostSyncedIds.Contains(sid))
                 {
                     _unmatchedSince.Remove(c);
                     continue;
                 }
 
-                if (pendingBusy)
-                {
-                    _unmatchedSince.Remove(c);
-                    continue;
-                }
-
-                // Track how long this character has been unmatched
-                if (!_unmatchedSince.TryGetValue(c, out float firstSeen))
-                {
-                    _unmatchedSince[c] = now;
-                    continue;
-                }
-
-                if (now - firstSeen > UnmatchedCleanupDelay)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo($"[Entity] destroying unmatched entity: {c.name}(sid={sid})");
-                    _unmatchedSince.Remove(c);
-                    Object.Destroy(c.gameObject);
-                }
+                _unmatchedSince.Remove(c);
             }
+        }
+
+        private static bool HasSyncedTwin(Character c, Character[] allChars, int count)
+        {
+            if (c == null || allChars == null) return false;
+            string name = StripCloneName(c.name);
+            if (string.IsNullOrEmpty(name)) return false;
+            for (int i = 0; i < count; i++)
+            {
+                Character other = allChars[i];
+                if (other == null || other == c) continue;
+                if (!string.Equals(StripCloneName(other.name), name, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!CharacterTracker.TryGetStableId(other, out short sid))
+                    continue;
+                if (_hostSyncedIds.Contains(sid) || _spawnedPhantomIds.Contains(sid))
+                    return true;
+            }
+            return false;
+        }
+
+        private static string StripCloneName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            if (name.EndsWith("(Clone)", System.StringComparison.Ordinal))
+                return name.Substring(0, name.Length - 7);
+            return name;
         }
 
     }

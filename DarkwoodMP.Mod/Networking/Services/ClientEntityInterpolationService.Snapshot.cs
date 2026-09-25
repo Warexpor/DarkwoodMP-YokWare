@@ -142,6 +142,8 @@ namespace DWMPHorde.Networking
                         Clip = e.Clip,
                         ClipFrame = e.ClipFrame,
                         Alive = e.Alive,
+                        Downed = e.Downed,
+                        HealthPct = e.HealthPct,
                         TimeAdded = Time.time
                     });
                     pendingAdded++;
@@ -197,6 +199,8 @@ namespace DWMPHorde.Networking
                 p.Clip = e.Clip;
                 p.ClipFrame = e.ClipFrame;
                 p.Alive = e.Alive;
+                p.Downed = e.Downed;
+                p.HealthPct = e.HealthPct;
                 p.EntityName = e.EntityName;
                 p.PrefabPath = e.PrefabPath;
                 // Keep TimeAdded so timeout still fires from first sighting.
@@ -279,35 +283,78 @@ namespace DWMPHorde.Networking
             state.arrivalTime = Time.time;
             state.hasTarget = true;
 
-            if (!e.Alive && c.alive)
+            bool wasAlive = state.alive;
+            ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state);
+            if (e.Alive && wasAlive && e.HealthPct > 0)
             {
-                EntitySyncLog.Event(() =>
-                    "[ClientDeath] DETECTED " + c.name + "(id=" + e.Index
-                    + ") hpSnap=" + e.HealthPct + " clip=" + (e.Clip ?? ""));
-                c.die();
-                // Client Character.Update (processAnims) is AI-suppressed, so die() does not
-                // starts the death clip. Host often later sends empty Clip after
-                // destroyComponents2 nukes the animator. Play death anim locally now.
-                EnsureDeathAnimation(c, e.Index, e.Clip, e.ClipFrame);
-                // die2 is soundless on host-synced clients; play death SFX here so Y-cull
-                // or late EntitySound cannot leave a silent kill.
-                NoteLocalDeathPresentation(c, e.Index);
-            }
-            else if (e.Alive && state.alive && e.HealthPct > 0)
-            {
-                // Health jump (hit) — rate-limited per id.
                 EntitySyncLog.Interp("hp:" + e.Index,
                     () => "[ClientHP] id=" + e.Index + " " + c.name
                         + " hp%=" + e.HealthPct + " clip=" + (e.Clip ?? ""), 0.75f);
             }
 
-            state.alive = e.Alive;
             ApplySleepEatFlags(c, e);
-
-            // 1.2b presentation: clip + death pose (see ApplyEntityPresentation).
-            ApplyEntityPresentation(c, e.Index, e.Clip, e.ClipFrame, e.Alive);
-
             applied++;
+        }
+
+        /// <summary>
+        /// Copy host life onto the local body. Death is presentation only:
+        /// vanilla <c>die()</c> stays on the host.
+        /// </summary>
+        private static void ApplyAuthoritativeBody(
+            Character c, short id, bool alive, bool downed, byte healthPct,
+            string clip, short clipFrame, EntityInterpState state)
+        {
+            if (c == null) return;
+            ApplyHealth(c, healthPct, alive, downed);
+
+            if (downed)
+            {
+                PresentHostDowned(c, id, clip);
+                if (state != null)
+                {
+                    state.downed = true;
+                    state.alive = false;
+                }
+                ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+                return;
+            }
+
+            if (!alive)
+            {
+                bool wasDowned = state != null && state.downed;
+                if (state != null)
+                {
+                    state.downed = false;
+                    state.alive = false;
+                }
+                if (c.alive || wasDowned)
+                    PresentHostDeath(c, id, clip, clipFrame);
+                else
+                    ApplyEntityPresentation(c, id, clip, clipFrame, alive: false);
+                return;
+            }
+
+            if (!c.alive)
+                PresentHostRevive(c, id);
+            if (state != null)
+            {
+                state.alive = true;
+                state.downed = false;
+            }
+            ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+        }
+
+        private static void ApplyHealth(Character c, byte healthPct, bool alive, bool downed)
+        {
+            if (!alive && !downed)
+            {
+                c.Health = 0f;
+                return;
+            }
+            float max = c.maxHealth > 0.01f ? c.maxHealth : 100f;
+            if (downed && healthPct == 0)
+                healthPct = 1;
+            c.Health = (healthPct / 100f) * max;
         }
 
         private static void ApplySleepEatFlags(Character c, EntitySnapshotNet e)

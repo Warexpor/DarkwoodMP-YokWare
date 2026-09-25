@@ -246,10 +246,20 @@ namespace DWMPHorde.Networking
             short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
             Vector3 rot = c.transform.eulerAngles;
             byte healthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100);
+            // A still-positive pre-death pool can round to 0%. Keep 1% so the
+            // client does not turn a downed enemy into a finished corpse.
             byte flags = 0;
             if (c.sleeping) flags |= EntitySnapshotNet.FlagSleeping;
             if (c.eating) flags |= EntitySnapshotNet.FlagEating;
             bool alive = c.alive;
+            // Pre-death is alive=false with health still above zero. That is the
+            // downed phase, not the finished kill.
+            if (!alive && c.hasPreDeath && c.Health > 0f)
+            {
+                flags |= EntitySnapshotNet.FlagDowned;
+                if (healthPct == 0)
+                    healthPct = 1;
+            }
 
             // Cheap dirty gate before Unity name / PrefabPathComponent work.
             if (_lastSent.TryGetValue(id, out EntitySnapshotNet last)

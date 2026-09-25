@@ -3,12 +3,24 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.5**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.6**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.6 — Client enemies stay on the host's bodies
+
+Clients were deleting save enemies when updates paused, swapping same-name packs, and running the single-player death (triggers, night spawner, trader night-end) on their own machine.
+
+- **Out of range, dream, or a crowded snapshot** no longer deletes the body. It stays put and picks up again when the host sends the next update. Only a real despawn removes it.
+- **Same-name enemies** bind only when they are already next to the host position. A one-of-a-kind character is moved onto the host pose instead of being replaced by a blank copy. Extra locals are hidden, not deleted.
+- **Death on the client is presentation.** Health percentage is applied. Downed (pre-death) is separate from a finished kill. The corpse uses the host's loot when opened. Attack clips play once.
+- **Host despawn removes the body** even if your side already played the death. A downed enemy stays downed when health rounds to 0%. The first fall of a get-up enemy is not a finished kill. Dream and overworld copies of the same name are not swapped. The lying-down collider is applied with the death, and standing back up drops the corpse shell.
+- Protocol **25** unchanged. Product bump **0.8.5 → 0.8.6**.
 
 ---
 

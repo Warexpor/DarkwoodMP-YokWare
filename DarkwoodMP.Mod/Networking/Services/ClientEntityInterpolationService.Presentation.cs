@@ -157,10 +157,12 @@ namespace DWMPHorde.Networking
 
             if (!string.IsNullOrEmpty(clip))
             {
+                tk2dSpriteAnimationClip clipDef = anim.GetClipByName(clip);
                 bool clipChanged = anim.CurrentClip == null || anim.CurrentClip.name != clip;
-                // After SetActive(false)→true, CurrentClip name can stick while Playing=false
-                // → floaty roam sprites until clip name changes (aggro). Restart if stopped.
-                if ((clipChanged || !anim.Playing) && anim.GetClipByName(clip) != null)
+                bool looping = clipDef != null && IsLoopingWrap(clipDef.wrapMode);
+                // Replay a loop that stopped after the object woke. One-shots
+                // (hit, attack) stay on the last frame until the host changes clip.
+                if (clipDef != null && (clipChanged || (!anim.Playing && looping)))
                 {
                     string prev = anim.CurrentClip != null ? anim.CurrentClip.name : "";
                     bool wasPlaying = anim.Playing;
@@ -212,6 +214,166 @@ namespace DWMPHorde.Networking
             }
         }
 
+        private static bool IsLoopingWrap(tk2dSpriteAnimationClip.WrapMode wrapMode)
+        {
+            return wrapMode == tk2dSpriteAnimationClip.WrapMode.Loop
+                || wrapMode == tk2dSpriteAnimationClip.WrapMode.LoopSection
+                || wrapMode == tk2dSpriteAnimationClip.WrapMode.PingPong
+                || wrapMode == tk2dSpriteAnimationClip.WrapMode.RandomLoop;
+        }
+
+        /// <summary>
+        /// Show the host's kill without running vanilla die/die2.
+        /// Those fire death triggers, night-spawner bookkeeping, and the trader ending.
+        /// </summary>
+        public static void PresentHostDeath(Character c, short entityId, string hostClip, short hostFrame)
+        {
+            if (c == null) return;
+            if (Player.Instance != null && c.gameObject == Player.Instance.gameObject)
+                return;
+
+            bool already = entityId != 0 && !c.alive && _deathAnimationPlayed.Contains(entityId);
+            c.dying = true;
+            c.alive = false;
+            c.Health = 0f;
+            c.immobilised = false;
+            c.cuttingInHalf = string.Equals(hostClip, "Cut_half", System.StringComparison.OrdinalIgnoreCase);
+
+            if (!c.dontSwitchColliderTriggerOnDeath && c.collider != null)
+            {
+                c.collider.isTrigger = true;
+                c.collider.enabled = true;
+            }
+
+            if (c.hitCollider != null)
+                UnityEngine.Object.Destroy(c.hitCollider);
+
+            try
+            {
+                ParticleSystem[] particles = c.GetComponentsInChildren<ParticleSystem>();
+                for (int i = 0; i < particles.Length; i++)
+                {
+                    if (particles[i] != null)
+                        particles[i].Stop();
+                }
+            }
+            catch { /* dismantled */ }
+
+            if (c.AIpath != null)
+                UnityEngine.Object.Destroy(c.AIpath);
+
+            NoteClientDeathForCorpse(c);
+            if (!already)
+            {
+                EnsureDeathAnimation(c, entityId, hostClip, hostFrame);
+                NoteLocalDeathPresentation(c, entityId);
+                EntitySyncLog.Event(() =>
+                    "[ClientDeath] present " + c.name + "(id=" + entityId
+                    + ") clip=" + (hostClip ?? ""));
+            }
+
+            // Shape uses the death clip that just started. Doing this earlier
+            // matched the walk clip and left the standing collider.
+            ApplyDeathColliderShape(c);
+        }
+
+        /// <summary>
+        /// First fall for an enemy that gets back up. Vanilla die2 keeps them
+        /// downed with health restored, not a finished corpse.
+        /// </summary>
+        public static void PresentHostDowned(Character c, short entityId, string hostClip)
+        {
+            if (c == null) return;
+            c.alive = false;
+            c.dying = true;
+            c.startingPreDeath = string.IsNullOrEmpty(hostClip)
+                || string.Equals(hostClip, "PreDeath_Start", System.StringComparison.Ordinal);
+            if (c.Health <= 0f)
+            {
+                if (c.preDeathMaxHealth > 0f)
+                    c.Health = c.preDeathMaxHealth;
+                else
+                    c.Health = c.maxHealth > 0.01f ? c.maxHealth * 0.01f : 1f;
+            }
+            c.isActive = true;
+            _deathAnimationPlayed.Remove(entityId);
+            _localDeathSoundPlayed.Remove(entityId);
+            ClearPendingCorpse(c);
+            RemovePresentationCorpseItem(c);
+            if (c.gameObject != null && !c.gameObject.activeSelf)
+                c.gameObject.SetActive(true);
+        }
+
+        /// <summary>
+        /// Host says this body is alive again (stood up from pre-death, or a
+        /// finished kill the host brought back). Drop the local corpse shell.
+        /// </summary>
+        public static void PresentHostRevive(Character c, short entityId)
+        {
+            if (c == null) return;
+            c.alive = true;
+            c.dying = false;
+            c.startingPreDeath = false;
+            c.cuttingInHalf = false;
+            c.isActive = true;
+            if (c.collider != null && !c.dontSwitchColliderTriggerOnDeath)
+                c.collider.isTrigger = false;
+            _deathAnimationPlayed.Remove(entityId);
+            _localDeathSoundPlayed.Remove(entityId);
+            ClearPendingCorpse(c);
+            RemovePresentationCorpseItem(c);
+            if (c.gameObject != null && !c.gameObject.activeSelf)
+                c.gameObject.SetActive(true);
+        }
+
+        /// <summary>
+        /// Lying-down collider and ground height. Loot and the dead flag stay on the host.
+        /// Opening the body requests the host inventory.
+        /// </summary>
+        public static void ApplyDeathPose(Character c)
+        {
+            if (c == null) return;
+            ApplyDeathColliderShape(c);
+        }
+
+        private static void ApplyDeathColliderShape(Character c)
+        {
+            try { Traverse.Create(c).Method("setYPosAfterDeath").GetValue(); }
+            catch { /* ignore */ }
+
+            tk2dSpriteAnimator anim = ResolveBodyAnimator(c);
+            string clipName = anim != null && anim.CurrentClip != null ? anim.CurrentClip.name : null;
+            if (c.capsuleCollider != null && c.deathColliders != null && !string.IsNullOrEmpty(clipName))
+            {
+                for (int i = 0; i < c.deathColliders.Count; i++)
+                {
+                    ColliderInfo info = c.deathColliders[i];
+                    if (info != null && info.identifier == clipName)
+                    {
+                        c.capsuleCollider.center = info.center;
+                        c.capsuleCollider.radius = info.radius;
+                        c.capsuleCollider.height = info.height;
+                        break;
+                    }
+                }
+            }
+
+            if (!c.dontSwitchColliderTriggerOnDeath && c.collider != null)
+            {
+                c.collider.isTrigger = true;
+                c.collider.enabled = true;
+            }
+        }
+
+        private static void RemovePresentationCorpseItem(Character c)
+        {
+            Item corpse = c.GetComponent<Item>();
+            if (corpse == null || corpse.name == null) return;
+            if (!corpse.name.EndsWith("_corpse", System.StringComparison.Ordinal))
+                return;
+            UnityEngine.Object.Destroy(corpse);
+        }
+
         private static bool IsReactionClipName(string clip)
         {
             if (string.IsNullOrEmpty(clip)) return false;
@@ -228,9 +390,8 @@ namespace DWMPHorde.Networking
             if (entityId == 0) return;
 
             Character c = CharacterTracker.FindByStableId(entityId);
-            // Never despawn lootable corpses via removeMe echo.
-            if (c != null && (!c.alive || c.GetComponent<Item>() != null))
-                return;
+            // Host removeMe destroyed the object. A local corpse shell is not a
+            // reason to keep a ghost the host no longer has.
 
             _states.Remove(entityId);
             _displayPositions.Remove(entityId);

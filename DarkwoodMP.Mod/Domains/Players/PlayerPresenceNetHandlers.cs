@@ -127,10 +127,10 @@ namespace DWMPHorde.Networking
             {
                 Character c = all[i];
                 if (c == null) continue;
-                if (c.alive && c.Health > 0) continue;
+                if (c.alive || c.Health > 0f) continue;
                 if (c.GetComponent<Item>() != null) continue;
 
-                // Arm deferred corpse if die() patch missed (late join / already dead).
+                // Arm deferred corpse if the death presentation missed (late join).
                 ClientEntityInterpolationService.NoteClientDeathForCorpse(c);
                 if (!ClientEntityInterpolationService.ShouldFinalizeClientCorpse(c))
                     continue;
@@ -143,6 +143,7 @@ namespace DWMPHorde.Networking
                 if (c.inventory != null)
                     c.inventory.invType = Inventory.InvType.deathDrop;
 
+                ClientEntityInterpolationService.ApplyDeathPose(c);
                 c.isActive = false;
                 ClientEntityInterpolationService.ClearPendingCorpse(c);
 

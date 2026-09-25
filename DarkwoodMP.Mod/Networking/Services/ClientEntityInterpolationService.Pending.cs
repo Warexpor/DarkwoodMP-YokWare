@@ -92,13 +92,7 @@ namespace DWMPHorde.Networking
                             state.hasTarget = true;
                             state.alive = p.Alive;
 
-                            if (!p.Alive && inactive.alive)
-                            {
-                                inactive.die();
-                                NoteLocalDeathPresentation(inactive, p.HostId);
-                            }
-
-                            ApplyEntityPresentation(inactive, p.HostId, p.Clip, p.ClipFrame, p.Alive);
+                            ApplyAuthoritativeBody(inactive, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
 
                             _pendingMatches.RemoveAt(i);
                             continue;
@@ -111,7 +105,7 @@ namespace DWMPHorde.Networking
                             float claimDx = closest.transform.position.x - p.Position.x;
                             float claimDz = closest.transform.position.z - p.Position.z;
                             float claimDist = Mathf.Sqrt(claimDx * claimDx + claimDz * claimDz);
-                            if (claimDist <= ClaimClosestRadius)
+                            if (claimDist <= MatchRadius)
                             {
                                 CharacterTracker.AssignId(closest, p.HostId);
                                 _hostSyncedIds.Add(p.HostId);
@@ -138,15 +132,45 @@ namespace DWMPHorde.Networking
                                 claimState.arrivalTime = now;
                                 claimState.hasTarget = true;
                                 claimState.alive = p.Alive;
-                                if (!p.Alive && closest.alive)
-                                {
-                                    closest.die();
-                                    NoteLocalDeathPresentation(closest, p.HostId);
-                                }
-                                ApplyEntityPresentation(closest, p.HostId, p.Clip, p.ClipFrame, p.Alive);
+                                ApplyAuthoritativeBody(closest, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, claimState);
                                 _pendingMatches.RemoveAt(i);
                                 continue;
                             }
+                        }
+
+                        Character sole = FindSoleUnmapped(pendingChars, nPendingChars, p.EntityName);
+                        if (sole != null && SamePresentationWorld(sole.transform.position, p.Position))
+                        {
+                            CharacterTracker.AssignId(sole, p.HostId);
+                            _hostSyncedIds.Add(p.HostId);
+                            _everHostSyncedIds.Add(p.HostId);
+                            sole.transform.position = p.Position;
+                            Vector3 euler = sole.transform.eulerAngles;
+                            euler.y = p.RotY;
+                            sole.transform.eulerAngles = euler;
+                            EnsureEntityAwake(sole);
+                            EntitySyncLog.Event(() =>
+                                "[ClientPending] adopted sole " + p.EntityName + "(id=" + p.HostId + ")");
+
+                            if (!_states.TryGetValue(p.HostId, out var soleState))
+                            {
+                                soleState = new EntityInterpState { isFirst = true };
+                                _states[p.HostId] = soleState;
+                            }
+                            soleState.staleSince = 0f;
+                            _displayPositions[p.HostId] = p.Position;
+                            _displayRotations[p.HostId] = p.RotY;
+                            soleState.isFirst = false;
+                            soleState.previousPosition = p.Position;
+                            soleState.previousRotY = p.RotY;
+                            soleState.targetPosition = p.Position;
+                            soleState.targetRotY = p.RotY;
+                            soleState.arrivalTime = now;
+                            soleState.hasTarget = true;
+                            soleState.alive = p.Alive;
+                            ApplyAuthoritativeBody(sole, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, soleState);
+                            _pendingMatches.RemoveAt(i);
+                            continue;
                         }
 
                         Character spawned = SpawnEntityLocally(p.EntityName, p.PrefabPath, p.Position, p.RotY);
@@ -181,13 +205,7 @@ namespace DWMPHorde.Networking
                             state.hasTarget = true;
                             state.alive = p.Alive;
 
-                            if (!p.Alive && spawned.alive)
-                            {
-                                spawned.die();
-                                NoteLocalDeathPresentation(spawned, p.HostId);
-                            }
-
-                            ApplyEntityPresentation(spawned, p.HostId, p.Clip, p.ClipFrame, p.Alive);
+                            ApplyAuthoritativeBody(spawned, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
                         }
 
                         _pendingMatches.RemoveAt(i);
@@ -234,13 +252,7 @@ namespace DWMPHorde.Networking
                         state.hasTarget = true;
                         state.alive = p.Alive;
 
-                        if (!p.Alive && c.alive)
-                        {
-                            c.die();
-                            NoteLocalDeathPresentation(c, p.HostId);
-                        }
-
-                        ApplyEntityPresentation(c, p.HostId, p.Clip, p.ClipFrame, p.Alive);
+                        ApplyAuthoritativeBody(c, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
 
                         _pendingMatches.RemoveAt(i);
                         continue;
@@ -253,6 +265,59 @@ namespace DWMPHorde.Networking
                     ? 0
                     : (i % _pendingMatches.Count);
             }
+        }
+
+        /// <summary>
+        /// The one save body with this name that the host has not tagged yet.
+        /// Story characters are unique, so this is that character. Packs of the
+        /// same enemy return null and stay on the close-range match.
+        /// </summary>
+        private static Character FindSoleUnmapped(Character[] chars, int count, string entityName)
+        {
+            if (chars == null || count <= 0 || string.IsNullOrEmpty(entityName))
+                return null;
+            string search = entityName;
+            if (search.EndsWith("(Clone)"))
+                search = search.Substring(0, search.Length - 7);
+
+            Character sole = null;
+            for (int i = 0; i < count; i++)
+            {
+                Character c = chars[i];
+                if (c == null) continue;
+                if (c.name.Contains("Player") || c.name.Contains("RemotePlayer"))
+                    continue;
+                if (CharacterTracker.TryGetStableId(c, out short sid)
+                    && (_hostSyncedIds.Contains(sid) || sid != 0))
+                    continue;
+
+                string cname = c.name;
+                if (cname.EndsWith("(Clone)"))
+                    cname = cname.Substring(0, cname.Length - 7);
+                if (!string.Equals(cname, search, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (sole != null)
+                    return null;
+                sole = c;
+            }
+            return sole;
+        }
+
+        /// <summary>
+        /// Dream pad and overworld share NPC names. A sole name match is only
+        /// the same character when both positions sit in the same place.
+        /// </summary>
+        private static bool SamePresentationWorld(Vector3 bodyPos, Vector3 hostPos)
+        {
+            const float dreamRadiusSq = 5000f * 5000f;
+            Transform dreamTf = DreamSyncManager.GetDreamLocationTransform();
+            if ((DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive) && dreamTf == null)
+                return false;
+            if (dreamTf == null)
+                return true;
+            bool bodyInDream = (bodyPos - dreamTf.position).sqrMagnitude <= dreamRadiusSq;
+            bool hostInDream = (hostPos - dreamTf.position).sqrMagnitude <= dreamRadiusSq;
+            return bodyInDream == hostInDream;
         }
     }
 }

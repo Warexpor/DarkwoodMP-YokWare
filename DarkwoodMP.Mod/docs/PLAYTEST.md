@@ -1,4 +1,4 @@
-# Dual-box playtest (0.8.5)
+# Dual-box playtest (0.8.6)
 
 Runtime proof for YokWare Branch. Code-only green is not enough — hitch and
 sync bugs need host + client logs.
@@ -7,7 +7,7 @@ sync bugs need host + client logs.
 
 1. Same DLL on both installs (`dotnet build DarkwoodMP.Mod -c Release` deploys
    when `GamePath.local.props` points at Steam + SecondDarkwood).
-2. Menu shows **0.8.5** and protocol **25** on both boxes.
+2. Menu shows **0.8.6** and protocol **25** on both boxes.
 3. `BepInEx/config/com.yokware.branch.cfg` → `[Logging]` → `LogPreset=Support`
    (default). Restart after changing presets.
 4. Clear or rotate old `LogOutput.log` if you want a clean session slice.
