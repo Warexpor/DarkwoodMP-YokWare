@@ -406,6 +406,12 @@ namespace DWMPHorde.Networking
             // Host removeMe destroyed the object. A local corpse shell is not a
             // reason to keep a ghost the host no longer has.
 
+            // Full untrack immediately: ClearId alone left the dying Character in
+            // _characters so FindByPositionAndName could claim it for a new nearby
+            // same-name spawn (crow/rabbit) while Destroy is still deferred.
+            if (c != null)
+                CharacterTracker.Remove(c);
+
             _states.Remove(entityId);
             _displayPositions.Remove(entityId);
             _displayRotations.Remove(entityId);
@@ -416,6 +422,14 @@ namespace DWMPHorde.Networking
             _deathAnimationPlayed.Remove(entityId);
             _localHitEchoIgnoreUntil.Remove(entityId);
             _localDeathSoundPlayed.Remove(entityId);
+            _recentlyDespawnedUntil[entityId] = Time.unscaledTime + DespawnSnapshotIgnoreSec;
+
+            // Drop pending match rows for this host id (would otherwise claim a twin).
+            for (int i = _pendingMatches.Count - 1; i >= 0; i--)
+            {
+                if (_pendingMatches[i].HostId == entityId)
+                    _pendingMatches.RemoveAt(i);
+            }
 
             if (c != null && c.gameObject != null)
             {

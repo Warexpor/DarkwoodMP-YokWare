@@ -62,7 +62,7 @@ namespace DWMPHorde.Patches
                     {
                         PresetName = preset,
                         RequestId = (int)(Time.realtimeSinceStartup * 1000f),
-                        LvlFlags = DreamSession.ReadLocalLvlFlags()
+                        LvlFlags = DreamSession.ReadUnionLvlFlags()
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     // Local empty roll already consumed pool; keep aligned with host named prepare.
                     DreamSession.MirrorPoolRemove(preset);

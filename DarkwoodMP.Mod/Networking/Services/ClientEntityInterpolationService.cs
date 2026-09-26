@@ -62,6 +62,10 @@ namespace DWMPHorde.Networking
         /// </summary>
         public const float ClientInterestDistance = 1400f;
         private const float ClientInterestDistanceSq = ClientInterestDistance * ClientInterestDistance;
+        /// <summary>Match RemotePlayerProxy hard-snap: large XZ jumps (unload/claim/teleport).</summary>
+        private const float EntityHardSnapXz = 150f;
+        /// <summary>Match RemotePlayerProxy hard-snap: large Y jumps (bunker pad / knockback).</summary>
+        private const float EntityHardSnapY = 40f;
 
         private static int _lastApplyCount;
         private static int _lastSkippedCount;
@@ -82,6 +86,13 @@ namespace DWMPHorde.Networking
         private static readonly Dictionary<Character, float> _pendingCorpseSince = new Dictionary<Character, float>(16);
         private static readonly Dictionary<short, float> _localHitEchoIgnoreUntil = new Dictionary<short, float>(16);
         private const float LocalHitEchoIgnoreSec = 0.35f;
+        /// <summary>
+        /// After ApplyHostDespawn: ignore EntityState for this id briefly so late
+        /// snapshots cannot re-claim the deferred-Destroy GO (same-name recycle race).
+        /// Host recycle grace is the primary fix; this is the client belt.
+        /// </summary>
+        private static readonly Dictionary<short, float> _recentlyDespawnedUntil = new Dictionary<short, float>(32);
+        private const float DespawnSnapshotIgnoreSec = 2.5f;
         private static readonly HashSet<short> _localDeathSoundPlayed = new HashSet<short>();
         private static bool _receivedFirstSnapshot;
         private static uint _lastSnapshotSequence;
@@ -277,6 +288,7 @@ namespace DWMPHorde.Networking
             _pendingCorpseSince.Clear();
             _localHitEchoIgnoreUntil.Clear();
             _localDeathSoundPlayed.Clear();
+            _recentlyDespawnedUntil.Clear();
             _pendingMatches.Clear();
             _pendingScanCursor = 0;
             _lastApplyCount = 0;

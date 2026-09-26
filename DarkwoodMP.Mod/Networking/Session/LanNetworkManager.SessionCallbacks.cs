@@ -81,6 +81,8 @@ namespace DWMPHorde.Networking
             _peersCoopReconnect.Clear();
             SaveHandlers?.Reset();
             _hostWasShareableForWaitingClients = false;
+            _hostWorldReadyEmitted = false;
+            _clientHostWorldReady = false;
             TradeHandlers?.ClearPendingTradeInventories();
             LockHandlers?.ClearConstructibleState();
             StationHandlers?.ClearPendingStations();

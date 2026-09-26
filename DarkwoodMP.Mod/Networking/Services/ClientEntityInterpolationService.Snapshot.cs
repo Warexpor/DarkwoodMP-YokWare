@@ -47,6 +47,18 @@ namespace DWMPHorde.Networking
                 EntitySnapshotNet e = msg.Entities[i];
                 Vector3 targetPos = new Vector3(e.PosX, e.PosY, e.PosZ);
 
+                // Recently despawned: ignore late EntityState until grace ends (host holds
+                // recycled ids longer; this covers in-flight snapshots for the old body).
+                if (_recentlyDespawnedUntil.TryGetValue(e.Index, out float despawnUntil))
+                {
+                    if (Time.unscaledTime < despawnUntil)
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    _recentlyDespawnedUntil.Remove(e.Index);
+                }
+
                 // Far host-range snaps: do not EnsureEntityAwake / spawn phantoms map-wide.
                 if (!IsInClientInterest(targetPos))
                 {
@@ -265,11 +277,23 @@ namespace DWMPHorde.Networking
             }
             state.staleSince = 0f;
 
-            if (state.isFirst)
+            // Hard-snap on first drive or large teleports (unload/reload, claim from a
+            // distant twin, knockback). Pure lerp left NPCs sliding map-wide for seconds —
+            // same thresholds as RemotePlayerProxy.ApplyNetworkState.
+            bool snap = state.isFirst;
+            if (!snap && _displayPositions.TryGetValue(e.Index, out Vector3 fromPos))
+            {
+                Vector3 flat = fromPos - targetPos;
+                flat.y = 0f;
+                snap = flat.sqrMagnitude > EntityHardSnapXz * EntityHardSnapXz
+                    || Mathf.Abs(fromPos.y - targetPos.y) > EntityHardSnapY;
+            }
+            if (snap)
+                HardSnapEntityDisplay(c, e.Index, state, targetPos, e.RotY);
+            else if (!_displayPositions.ContainsKey(e.Index))
             {
                 _displayPositions[e.Index] = c.transform.position;
                 _displayRotations[e.Index] = c.transform.eulerAngles.y;
-                state.isFirst = false;
             }
 
             state.previousPosition = _displayPositions[e.Index];
@@ -292,6 +316,45 @@ namespace DWMPHorde.Networking
 
             ApplySleepEatFlags(c, e);
             applied++;
+        }
+
+
+        /// <summary>
+        /// Snap display + rigidbody to host pose and clear first-frame so the next
+        /// tick does not lerp from a stale pre-teleport position.
+        /// </summary>
+        private static void HardSnapEntityDisplay(
+            Character c, short id, EntityInterpState state, Vector3 targetPos, float rotY)
+        {
+            _displayPositions[id] = targetPos;
+            _displayRotations[id] = rotY;
+            state.previousPosition = targetPos;
+            state.previousRotY = rotY;
+            state.targetPosition = targetPos;
+            state.targetRotY = rotY;
+            state.isFirst = false;
+
+            Rigidbody rb = state.CachedRb;
+            if (rb == null || rb.gameObject != c.gameObject)
+            {
+                rb = c.GetComponent<Rigidbody>();
+                state.CachedRb = rb;
+            }
+            if (rb != null)
+            {
+                rb.position = targetPos;
+                rb.velocity = Vector3.zero;
+            }
+            else if (c != null && c.transform != null)
+            {
+                c.transform.position = targetPos;
+            }
+            if (c != null && c.transform != null)
+            {
+                Vector3 euler = c.transform.eulerAngles;
+                euler.y = rotY;
+                c.transform.eulerAngles = euler;
+            }
         }
 
         /// <summary>

@@ -37,7 +37,9 @@ namespace DWMPHorde.Patches
             }
             if (thisBodyHeld || thisSpotHeld)
             {
-                Player.Instance?.displayMessage("This object is already being moved by another player");
+                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                try { Player.Instance?.displayMessage("This object is already being moved by another player"); }
+                finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 return false;
             }
 

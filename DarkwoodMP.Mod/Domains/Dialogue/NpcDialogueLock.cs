@@ -152,6 +152,50 @@ namespace DWMPHorde.Sync
             BroadcastState(net, npcName, ownerPlayerId, granted: true, release: true);
         }
 
+        /// <summary>
+        /// Host disconnect: drop every NPC lock held by the leaver and fan release so
+        /// remaining peers are not stuck "Someone is already talking…" for up to the
+        /// 90s lease. Local-only <see cref="ReleaseAllForPlayer"/> covers roster prune.
+        /// </summary>
+        public static void HostReleaseAllForPlayer(LanNetworkManager net, int playerId)
+        {
+            if (playerId < 0) return;
+            if (_locks.Count == 0) return;
+
+            var toRelease = new List<string>();
+            foreach (var kvp in _locks)
+            {
+                if (kvp.Value.OwnerId == playerId)
+                    toRelease.Add(kvp.Key);
+            }
+            if (toRelease.Count == 0) return;
+
+            for (int i = 0; i < toRelease.Count; i++)
+            {
+                string npc = toRelease[i];
+                if (net != null && net.Role == NetworkRole.Host && net.IsConnected)
+                    HostRelease(net, npc, playerId);
+                else
+                    Release(npc, playerId);
+            }
+            ModLog.Event(LogCat.Session,
+                "[DialogLock] released " + toRelease.Count + " NPC lock(s) for disconnect p" + playerId);
+        }
+
+        /// <summary>Local clear of locks owned by a pruned roster peer (clients).</summary>
+        public static void ReleaseAllForPlayer(int playerId)
+        {
+            if (playerId < 0 || _locks.Count == 0) return;
+            var toRelease = new List<string>();
+            foreach (var kvp in _locks)
+            {
+                if (kvp.Value.OwnerId == playerId)
+                    toRelease.Add(kvp.Key);
+            }
+            for (int i = 0; i < toRelease.Count; i++)
+                _locks.Remove(toRelease[i]);
+        }
+
         private static void BroadcastState(LanNetworkManager net, string npcName, int ownerPlayerId, bool granted, bool release)
         {
             if (net == null || !net.IsConnected) return;

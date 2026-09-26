@@ -212,19 +212,27 @@ namespace DWMPHorde
         {
             try
             {
-                var net = ModRuntime.Network;
-                if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
+                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                try
                 {
-                    Player.Instance.displayMessage(message);
-                    return;
-                }
+                    var net = ModRuntime.Network;
+                    if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
+                    {
+                        Player.Instance.displayMessage(message);
+                        return;
+                    }
 
-                // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
-                if (net is LanNetworkManager lnm)
+                    // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
+                    if (net is LanNetworkManager lnm)
+                    {
+                        RemotePlayerProxy proxy = lnm.GetProxy(senderId);
+                        if (proxy != null && proxy.transform != null)
+                            Core.displayMessage(message, proxy.transform, 1f, false);
+                    }
+                }
+                finally
                 {
-                    RemotePlayerProxy proxy = lnm.GetProxy(senderId);
-                    if (proxy != null && proxy.transform != null)
-                        Core.displayMessage(message, proxy.transform, 1f, false);
+                    DWMPHorde.Patches.PersonalFlavorHud.EndBypass();
                 }
             }
             catch

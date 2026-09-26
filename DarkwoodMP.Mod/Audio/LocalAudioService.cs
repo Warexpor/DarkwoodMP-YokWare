@@ -243,6 +243,21 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// Player bag / drawer open-close — must stay spatial at the remote proxy with
+        /// indoor reverb (same path as local <c>Play(id, playerTransform)</c>).
+        /// </summary>
+        public static bool IsRemotePlayerPresenceSound(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            if (string.Equals(audioID, "open_drawer", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(audioID, "close_drawer", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        /// <summary>
         /// Flashlight / torch / lighter toggles — network as spatial at proxy with reverb.
         /// </summary>
         public static bool IsRemotePlayerSpatialToolSound(string audioID)

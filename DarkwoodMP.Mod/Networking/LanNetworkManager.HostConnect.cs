@@ -70,7 +70,10 @@ namespace DWMPHorde.Networking
                     WorldProxyHandlers.DestroyRemoteProxy(id);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
+                // Proxies gone — drop sticky membership so host LocationEnter re-places.
+                LocationHandlers?.ClearMembershipForSoftReconnect();
                 PlayerLightFxHandlers?.ClearPendingPlayerLights();
+                PlayerFXHandlers?.ClearAllPendingAnimLibraries();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
                 _awaitingLateJoinBulk.Clear();
@@ -78,6 +81,8 @@ namespace DWMPHorde.Networking
                 _peersLoadingWorld.Clear();
                 _peersCoopReconnect.Clear();
                 _hostWasShareableForWaitingClients = false;
+                _hostWorldReadyEmitted = false;
+                _clientHostWorldReady = false;
             }
             else
             {
@@ -105,8 +110,10 @@ namespace DWMPHorde.Networking
             // This is an intentional teardown, not a host-crash migration.
             _suppressHostMigration = true;
 
-            // Before tearing the wire: snapshot client exit pos/inv so next rejoin is current
-            // even if they quit without a coordinated Save. Skip title/offline-load tear.
+            // Before tearing the wire: host flushes sav.dat (next session ownership),
+            // then client snapshots exit pos/inv. Skip title/offline-load tear.
+            // Migration promote still does NOT auto-Save (survivor slot corruption).
+            TryHostWorldSaveCheckpointOnExit();
             TrySnapshotClientBackupOnExit();
 
             // Snapshot for public session-stop line before we wipe peers/ids
@@ -121,6 +128,7 @@ namespace DWMPHorde.Networking
                 WorldProxyHandlers.DestroyRemoteProxy(id);
             _remoteProxies.Clear();
             PlayerLightFxHandlers?.ClearPendingPlayerLights();
+                PlayerFXHandlers?.ClearAllPendingAnimLibraries();
             _wasDragging = false;
             _lastDraggedItemName = null;
             _dragScrapeActive = false;
@@ -140,6 +148,7 @@ namespace DWMPHorde.Networking
             _remotePlayers.Clear();
             ShutdownSteamBackend();
             ClearAllPeerSlots();
+            ClearAllStableClientKeys();
             _sendTimer = 0f;
             _nextPlayerStateSequence = 0;
             _lastPlayerStateSequence.Clear();

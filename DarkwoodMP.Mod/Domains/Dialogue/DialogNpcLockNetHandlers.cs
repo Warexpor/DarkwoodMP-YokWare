@@ -72,7 +72,11 @@ namespace DWMPHorde.Networking
                 if (dw != null && dw.npc != null && dw.npc.name == msg.NpcName && dw.opened)
                     dw.close();
                 if (Player.Instance != null)
-                    Player.Instance.displayMessage("Someone is already talking to them…");
+                {
+                    DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                    try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                    finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                }
             }
             catch (System.Exception ex)
             {

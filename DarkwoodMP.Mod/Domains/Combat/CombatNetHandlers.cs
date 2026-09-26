@@ -40,6 +40,9 @@ namespace DWMPHorde.Networking
         internal void UnregisterDeathBag(string bagId) =>
             _deathBags.UnregisterDeathBag(bagId);
 
+        internal void TryHostFanDeathBagEmptied(Inventory inv) =>
+            _deathBags.TryHostFanDeathBagEmptied(inv);
+
         internal DeathDrop FindDeathBagById(string bagId) =>
             _deathBags.FindDeathBagById(bagId);
 

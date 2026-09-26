@@ -75,7 +75,8 @@ namespace DWMPHorde.Patches
                 item.amount,
                 item.durability,
                 item.ammo,
-                isPlayerPlaced: false);
+                isPlayerPlaced: false,
+                shouldBeActive: item.shouldBeActive);
         }
     }
 }

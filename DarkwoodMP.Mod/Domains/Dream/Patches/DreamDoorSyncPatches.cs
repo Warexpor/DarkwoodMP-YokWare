@@ -27,10 +27,28 @@ namespace DWMPHorde.Patches
             // Already open before this call; skip rebroadcast to avoid client spam.
             if (__state) return;
             float openForce = __args != null && __args.Length > 2 ? (float)__args[2] : 0f;
-            BroadcastDoorOpened(__instance, openForce);
+            // Vanilla open(openerPosition, openerTransform, OpenForce): transform wins when set
+            // (openThump / openClose). Prefer that over local Player so AI kicks aim correctly.
+            Vector3 opener = default;
+            bool haveOpener = false;
+            if (__args != null && __args.Length > 1 && __args[1] is Transform ot && ot != null)
+            {
+                opener = ot.position;
+                haveOpener = true;
+            }
+            else if (__args != null && __args.Length > 0 && __args[0] is Vector3 opPos
+                     && opPos.sqrMagnitude > 0.01f)
+            {
+                opener = opPos;
+                haveOpener = true;
+            }
+            BroadcastDoorOpened(__instance, openForce, haveOpener ? opener : (Vector3?)null);
         }
 
         internal static void BroadcastDoorOpened(Door door, float openForce = 0f)
+            => BroadcastDoorOpened(door, openForce, null);
+
+        internal static void BroadcastDoorOpened(Door door, float openForce, Vector3? openerOverride)
         {
             if (door == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
@@ -64,18 +82,30 @@ namespace DWMPHorde.Patches
                     return;
             }
 
+            Vector3 opener = openerOverride ?? (Player.Instance != null
+                ? Player.Instance.transform.position
+                : pos);
+
+            // 0.8.64: DoorOpen carries OpenForce + opener. DoorState alone was skipped on
+            // peers after DoorOpen flipped opened (Physics apply early-out), so thump
+            // (45000 → door_hit_run) and hinge direction never applied.
             net.Broadcast(NetMessageType.DoorOpen,
                 w => new DoorOpenMessage
                 {
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    DoorName = name
+                    DoorName = name,
+                    OpenForce = openForce,
+                    OpenerPosX = opener.x,
+                    OpenerPosY = opener.y,
+                    OpenerPosZ = opener.z,
+                    HasOpenForceTrailer = true
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
-            // DoorState carries body rot / force for peers that miss DoorOpen /
-            // need PhysicsState-style apply (door_hit_run needs real OpenForce).
+            // DoorState still fans body rot / angVel for peers that miss DoorOpen /
+            // need PhysicsState-style apply.
             float bodyRotY = 0f;
             Vector3 angVel = Vector3.zero;
             if (door.body != null)
@@ -84,10 +114,6 @@ namespace DWMPHorde.Patches
                 Rigidbody rb = door.body.GetComponent<Rigidbody>();
                 if (rb != null) angVel = rb.angularVelocity;
             }
-
-            Vector3 opener = Player.Instance != null
-                ? Player.Instance.transform.position
-                : pos;
 
             net.SendDoorState(new DoorState
             {

@@ -100,8 +100,18 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (isClientOrigin && (oc > 0 || isEventStyle))
-                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.PhysicsState, w => state.Serialize(w));
+            if (isClientOrigin && isEventStyle && gc > 0 && oc == 0 && dc == 0 && tc == 0)
+            {
+                // Pure generator event: include pourer so host-auth abs (clamp / concurrent
+                // sum) converges on the originator. Reliable like SendGeneratorState.
+                _net.Broadcast(NetMessageType.PhysicsState, w => state.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            else if (isClientOrigin && (oc > 0 || isEventStyle))
+            {
+                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.PhysicsState,
+                    w => state.Serialize(w));
+            }
         }
 
         internal void HandleItemSpawn(ItemSpawnMessage msg)

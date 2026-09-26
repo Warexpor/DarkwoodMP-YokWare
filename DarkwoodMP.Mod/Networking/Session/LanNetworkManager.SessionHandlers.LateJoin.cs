@@ -53,6 +53,10 @@ namespace DWMPHorde.Networking
                 "Sending late-join bulk → player " + playerId
                 + " (light now; heavy sticky world staggered)");
 
+            // Prologue catch-up (mid/post intro). Soft-reconnect also calls this at
+            // handshake; ApplyEnd no-ops when the peer is already past intro.
+            PrologueSync.SendCatchUpTo(playerId);
+
             // Light / already-capped / no full-scene bag thrash.
             JournalHandlers.SendJournalBulkSyncTo(playerId);
             FlagHandlers.SendFlagBulkSyncTo(playerId);
@@ -71,6 +75,7 @@ namespace DWMPHorde.Networking
             DreamHandlers.SendDreamSessionBulkTo(playerId);
             SendStoredClientBackupTo(playerId);
             SyncCurrentLightState();
+            SyncCurrentAnimLibrary();
             WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId);
             WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId);
             SendTrapBulkTo(playerId);
@@ -217,28 +222,28 @@ namespace DWMPHorde.Networking
             SendLateJoinGameplayBulk(playerId);
         }
 
-        /// <summary>True when host has a chapter world worth sending to title clients.</summary>
+        /// <summary>
+        /// True when host is fully in-chapter and safe to start world share / download.
+        /// Mid-load (<see cref="Core.loadingGame"/>), title-only, and profile-select are NOT ready.
+        /// Requires a live Player past load (<see cref="Core.loadedGame"/> /
+        /// <see cref="Core.coreStarted"/>). Sticky <c>Core.mainMenu</c> with a loaded
+        /// player still counts (dual-box quirk that used to block share forever).
+        /// Does not treat mainMenu-cleared-but-not-yet-loaded as ready (mid-transition).
+        /// </summary>
         private static bool HostHasShareableWorld()
         {
             try
             {
-                // Live loaded player wins over a sticky Core.mainMenu flag.
-                // Dual-box saw: mainMenu=true + player=true + loaded=true while host still
-                // had full world bulk (lights/generators); the old gate blocked all world share,
-                // so clients never left CONNECTED and never saw ENTER WORLD.
-                if (Player.Instance != null && (Core.loadedGame || Core.coreStarted || Core.loadingGame))
-                    return true;
-                if (Core.mainMenu)
+                if (Core.loadingGame)
                     return false;
-                if (Player.Instance != null)
-                    return true;
-                if (Singleton<WorldGenerator>.Instance != null)
-                    return true;
-                if (Core.loadedGame || Core.loadingGame)
-                    return true;
-                if (Core.currentProfile != null)
-                    return true;
-                return false;
+
+                Player p = Player.Instance;
+                if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)
+                    return false;
+
+                // Fully past load only — no !mainMenu shortcut (avoids mid-transition true).
+                // Sticky mainMenu with loaded/coreStarted still wins.
+                return Core.loadedGame || Core.coreStarted;
             }
             catch
             {
@@ -246,15 +251,20 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>Public mirror for share service / UI (same gate as auto-share).</summary>
+        internal static bool HostIsFullyInWorld() => HostHasShareableWorld();
+
         /// <summary>
-        /// Host recovery: if we become shareable while title clients are already connected
-        /// (Player.Start may already have run, or mainMenu flag was sticky), push the world once.
+        /// Host recovery: when host becomes fully in-world, emit HostWorldReady and push
+        /// save share to title clients already waiting (Player.Start may have raced mid-load,
+        /// or mainMenu was sticky). Rising-edge only.
         /// </summary>
         private void TickHostWorldShareWhenReady()
         {
             if (_role != NetworkRole.Host || !IsConnected || !_handshakeComplete)
             {
                 _hostWasShareableForWaitingClients = false;
+                _hostWorldReadyEmitted = false;
                 return;
             }
 
@@ -262,10 +272,21 @@ namespace DWMPHorde.Networking
             if (!shareable)
             {
                 _hostWasShareableForWaitingClients = false;
+                if (_hostWorldReadyEmitted)
+                {
+                    _hostWorldReadyEmitted = false;
+                    BroadcastHostWorldReady(ready: false);
+                    ModLog.Event(LogCat.Session,
+                        "Host left fully-in-world state — HostWorldReady Ready=false broadcast");
+                }
                 return;
             }
 
-                // Share only on the transition to the ready state.
+            // Always announce ready (even with zero waiters) so mid-session joiners
+            // that handshaked during load get the signal on the next tick if missed.
+            EmitHostWorldReadyIfNeeded();
+
+            // Share only on the transition to the ready state.
             if (_hostWasShareableForWaitingClients)
                 return;
             _hostWasShareableForWaitingClients = true;
@@ -273,7 +294,8 @@ namespace DWMPHorde.Networking
             int waiting = 0;
             foreach (int id in _handshakedPeers)
             {
-                if (id > 1)
+                // Phase-3 soft reconnect already has the world; do not re-share.
+                if (id > 1 && !_peersCoopReconnect.Contains(id))
                     waiting++;
             }
             if (waiting == 0)
@@ -282,10 +304,69 @@ namespace DWMPHorde.Networking
                 return;
 
             ModLog.Event(LogCat.Save,
-                "Host shareable with " + waiting
-                + " peer(s) waiting — auto world share (sticky-mainMenu / late enter recovery)");
+                "Host fully in-world with " + waiting
+                + " peer(s) waiting — auto world share (host-ready gate)");
             _worldSaveShare?.ScheduleHostResend();
             ScheduleLateJoinBulkAfterWorldShare();
+        }
+
+        /// <summary>Host→all peers: world is fully loaded. Idempotent until host leaves world.</summary>
+        private void EmitHostWorldReadyIfNeeded()
+        {
+            if (_role != NetworkRole.Host || !HostHasShareableWorld())
+                return;
+            if (_hostWorldReadyEmitted)
+                return;
+            _hostWorldReadyEmitted = true;
+            BroadcastHostWorldReady(ready: true);
+        }
+
+        /// <summary>Host→one peer (late handshake while already in-world).</summary>
+        private void SendHostWorldReadyTo(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0 || !HostHasShareableWorld())
+                return;
+            var msg = BuildHostWorldReadyMessage(ready: true);
+            SendToPlayer(playerId, NetMessageType.HostWorldReady,
+                w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session,
+                "HostWorldReady → p" + playerId
+                + " ready=" + msg.Ready
+                + " ch" + msg.ChapterId + " day" + msg.DayIndex);
+        }
+
+        private void BroadcastHostWorldReady(bool ready)
+        {
+            if (_role != NetworkRole.Host)
+                return;
+            var msg = BuildHostWorldReadyMessage(ready);
+            SendToAll(NetMessageType.HostWorldReady,
+                w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session,
+                "HostWorldReady broadcast ready=" + msg.Ready
+                + " ch" + msg.ChapterId
+                + " day" + msg.DayIndex + " peers=" + _handshakedPeers.Count);
+        }
+
+        private static HostWorldReadyMessage BuildHostWorldReadyMessage(bool ready)
+        {
+            int chapter = 0;
+            int day = 0;
+            if (ready)
+            {
+                try
+                {
+                    chapter = ClientSaveBridge.GetChapterId();
+                    day = ClientSaveBridge.GetDayIndex();
+                }
+                catch { /* ignore */ }
+            }
+            return new HostWorldReadyMessage
+            {
+                Ready = ready,
+                ChapterId = chapter,
+                DayIndex = day
+            };
         }
 
         /// <summary>

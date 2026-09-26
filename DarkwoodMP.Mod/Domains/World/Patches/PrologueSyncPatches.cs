@@ -56,8 +56,32 @@ namespace DWMPHorde.Patches
             WorldGenerator intro = Singleton<WorldGenerator>.Instance;
             if (intro != null && intro.playingIntro)
                 SendStartTo(playerId);
-            else if (_sessionHadPrologue)
+            else if (_sessionHadPrologue || HostIsPastPrologue())
                 SendEndTo(playerId);
+        }
+
+        /// <summary>
+        /// Host finished prologue this campaign (save already past firstPlay) even if
+        /// this process never saw showPrologueText (_sessionHadPrologue false after
+        /// cold restart). Used so a stuck peer (forbidInputs / playingIntro leftover)
+        /// still gets ActionPrologueEnd on soft-reconnect.
+        /// </summary>
+        private static bool HostIsPastPrologue()
+        {
+            try
+            {
+                WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+                Player p = Player.Instance;
+                if (wg == null || p == null)
+                    return false;
+                if (wg.playingIntro || p.firstPlay)
+                    return false;
+                return Core.loadedGame || Core.coreStarted;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         internal static void FlushPending()
@@ -156,6 +180,10 @@ namespace DWMPHorde.Patches
                 _pendingAction = CutsceneSyncMessage.ActionPrologueEnd;
                 return;
             }
+            // Healthy late-join / day-N peer: already past intro — do not re-flash
+            // blackScreen / tutorial pad (ApplyEnd used to run on every End catch-up).
+            if (!wg.playingIntro && !ClientDeferredFirstPlay && !Core.forbidInputs)
+                return;
             wg.playingIntro = false;
             Core.forbidInputs = false;
             Time.timeScale = 1f;

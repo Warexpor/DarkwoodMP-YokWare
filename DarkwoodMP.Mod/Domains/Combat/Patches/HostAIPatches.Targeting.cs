@@ -291,6 +291,12 @@ namespace DWMPHorde.Patches
             _victimScream = AudioController.Play("banshee_agitated_player", n.position, null);
             PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 1f, n.position);
         }
+
+        // bansheeAgitated can throw after Prefix set Suppress; stuck true kills scream forward.
+        private static void Finalizer()
+        {
+            SuppressHostScreamForward = false;
+        }
     }
 
     [HarmonyPatch(typeof(Character), "onBansheeSeePlayer")]

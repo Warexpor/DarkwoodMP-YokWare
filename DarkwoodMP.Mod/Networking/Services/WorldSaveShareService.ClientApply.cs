@@ -23,6 +23,9 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
 
+            // World package start implies host was ready (compat if HostWorldReady missed).
+            _net.NoteClientHostWorldReadyFromShareBegin();
+
             // Already in a chapter. A join resend must not wipe the session.
             // A host chapter change is the exception: the new save has to land.
             if (!Core.mainMenu && Player.Instance != null

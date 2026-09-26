@@ -115,6 +115,32 @@ namespace DWMPHorde.Sync
             }
 
             state.Target = go;
+
+            // Large jumps (trap/door/object teleports across locations): hard-snap like
+            // the client-push path (ClientPushSnapDistance). Generic 0.2s lerp left
+            // furniture sliding across the map after a pad teleport.
+            float jump = Vector3.Distance(state.PrevPos, targetPos);
+            if (jump >= ClientPushSnapDistance)
+            {
+                state.PrevPos = targetPos;
+                state.PrevRot = targetRot;
+                Rigidbody rbSnap = go.GetComponent<Rigidbody>();
+                if (rbSnap != null)
+                {
+                    rbSnap.position = targetPos;
+                    rbSnap.rotation = Quaternion.Euler(targetRot);
+                    rbSnap.velocity = Vector3.zero;
+                    rbSnap.angularVelocity = Vector3.zero;
+                }
+                else
+                {
+                    go.transform.position = targetPos;
+                    go.transform.rotation = Quaternion.Euler(targetRot);
+                }
+                // Short residual interp so a late packet does not re-lerp from far Prev.
+                duration = Mathf.Min(duration, 0.05f);
+            }
+
             state.TargetPos = targetPos;
             state.TargetRot = targetRot;
             state.PrevTime = now;

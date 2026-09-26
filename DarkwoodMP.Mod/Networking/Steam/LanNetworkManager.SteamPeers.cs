@@ -102,12 +102,16 @@ namespace DWMPHorde.Networking
             if (HostHasShareableWorld())
             {
                 ModLog.Event(LogCat.Session,
-                    "Peer " + playerId + " connected while host in-world — "
-                    + "deferring gameplay bulk until after world share");
+                    "Peer " + playerId + " connected while host fully in-world — "
+                    + "deferring gameplay bulk until after handshake / world share");
             }
             else
             {
-                SendLateJoinGameplayBulk(playerId);
+                // Title / mid-load joiners: do NOT dump sticky bulk yet — wait for
+                // HostWorldReady + handshake AlreadyInWorld / share pipeline.
+                ModLog.Event(LogCat.Session,
+                    "Peer " + playerId + " connected while host not fully in-world — "
+                    + "holding late-join bulk until host ready or phase-3 reconnect");
             }
 
             Connected?.Invoke();
@@ -121,6 +125,7 @@ namespace DWMPHorde.Networking
 
             bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
             short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;
+            string lanKey = ClientStateBackup.GetOrCreateLanClientKey() ?? string.Empty;
             Broadcast(NetMessageType.Handshake, w =>
             {
                 new HandshakeMessage
@@ -128,6 +133,7 @@ namespace DWMPHorde.Networking
                     ProtocolVersion = PluginInfo.ProtocolVersion,
                     PlayerId = preferredId,
                     AlreadyInWorld = alreadyInWorld,
+                    StableClientKey = lanKey,
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
 
@@ -136,6 +142,7 @@ namespace DWMPHorde.Networking
                     "Join pipeline phase 3: co-op reconnect (AlreadyInWorld) — host should skip share");
 
             SyncCurrentLightState();
+            SyncCurrentAnimLibrary();
             Connected?.Invoke();
         }
 
@@ -176,53 +183,18 @@ namespace DWMPHorde.Networking
             // Reuse LAN disconnect cleanup by synthesizing the host branch.
             ModLog.Event(LogCat.Network, $"Steam player {playerId} disconnected: " + reason);
 
-            var toRemove = new List<string>();
-            foreach (var kv in _dragClaims)
-            {
-                if (kv.Value == playerId)
-                    toRemove.Add(kv.Key);
-            }
-            foreach (string key in toRemove)
-            {
-                _dragClaims.Remove(key);
-                ReleaseRemoteDragKinematic(key);
-                RemoveRemoteDragIds(key);
-                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
-            }
+            // Same N-peer claim release as LAN OnPeerDisconnected.
+            if (playerId > 0)
+                PlayerInteractHandlers?.ReleaseDragClaimsForDisconnectedPlayer(
+                    playerId, broadcastStop: _role == NetworkRole.Host);
 
             if (_role == NetworkRole.Host)
             {
                 if (playerId > 0)
                 {
-                    Sync.WorkbenchOpenLock.HostReleaseAllForPlayer(this, playerId);
+                    // Remove Steam slot first so roster build excludes the leaver.
                     RemovePeerSlot(playerId);
-                    _handshakedPeers.Remove(playerId);
-                    bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId)
-                        && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
-                    bool expectedJoinDetach = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId);
-
-                    _awaitingLateJoinBulk.Remove(playerId);
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
-                    _peersLoadingWorld.Remove(playerId);
-                    _peersCoopReconnect.Remove(playerId);
-                    if (_handshakedPeers.Count == 0)
-                        _handshakeComplete = false;
-                    WorldProxyHandlers.DestroyRemoteProxy(playerId);
-                    DestroyRemoteFlareLight(playerId);
-                    DestroyRemoteItemLight(playerId);
-                    _remotePlayers.Remove(playerId);
-                    PlayerPositionManager.RemovePlayer(playerId);
-                    _remoteOutsideLocation.Remove(playerId);
-                    Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
-                    if (!expectedJoinDetach && !wasLoadingOnly)
-                    {
-                        if (DeathStateTracker.OnRemoteDisconnected(playerId))
-                            DeathStateTracker.TryResolveNightMorning("steam peer disconnect");
-                        Patches.MorningHideoutHold.Forget(playerId);
-                        Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
-                    }
+                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: false, reasonTag: "steam peer disconnect");
                     StatusText = $"Steam player {playerId} left ({_steamPeers.Count} remaining)";
                 }
             }

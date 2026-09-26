@@ -98,6 +98,14 @@ namespace DWMPHorde.Patches
             string resolved = EntitySoundSyncHelper.ResolveIdleLoopName(__instance, loopName);
             EntitySoundSyncHelper.BroadcastIdleLoop(__instance, resolved);
         }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            // playIdleLoop throw would leave InsideCharacterSounds true → suppress
+            // PlayerAudio forward + AudioSuppression forever for this peer.
+            TraverseHack.InsideCharacterSounds = false;
+        }
     }
 
     [HarmonyPatch(typeof(CharacterSounds), "destroySounds")]
@@ -122,6 +130,12 @@ namespace DWMPHorde.Patches
             TraverseHack.InsideCharacterSounds = false;
             EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Growl);
         }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            TraverseHack.InsideCharacterSounds = false;
+        }
     }
 
     [HarmonyPatch(typeof(CharacterSounds), "playEscapingLoop")]
@@ -140,6 +154,13 @@ namespace DWMPHorde.Patches
             EntitySoundSyncHelper.InsideEscapingLoop = false;
             TraverseHack.InsideCharacterSounds = false;
             EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Escaping);
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            EntitySoundSyncHelper.InsideEscapingLoop = false;
+            TraverseHack.InsideCharacterSounds = false;
         }
     }
 
@@ -173,6 +194,12 @@ namespace DWMPHorde.Patches
                 EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Defensive);
             else if (!string.IsNullOrEmpty(__instance.escapingStart) && sound == __instance.escapingStart)
                 EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.EscapingStart);
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            TraverseHack.InsideCharacterSounds = false;
         }
 
         internal static bool ShouldSuppressClientLocal(CharacterSounds sounds, string sound)
@@ -217,6 +244,12 @@ namespace DWMPHorde.Patches
             else if (!string.IsNullOrEmpty(__instance.escapingStart2) && sound == __instance.escapingStart2)
                 EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.EscapingStart2);
         }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            TraverseHack.InsideCharacterSounds = false;
+        }
     }
 
     [HarmonyPatch(typeof(CharacterSounds), "playGetHitByAxe1")]
@@ -239,6 +272,12 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
                 return;
             EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.GetHit);
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            TraverseHack.InsideCharacterSounds = false;
         }
     }
 

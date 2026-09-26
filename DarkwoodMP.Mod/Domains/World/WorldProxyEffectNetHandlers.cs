@@ -119,15 +119,29 @@ namespace DWMPHorde.Networking
             float volumeModifier = running ? 1.3f : 0.7f;
             float vol = cs.footstepVolume * volumeModifier;
 
-            if (!string.IsNullOrEmpty(soundID))
-                ForceSpatialProxyOneShot(AudioController.Play(soundID, proxyT, vol), soundID);
-
-            ForceSpatialProxyOneShot(AudioController.Play("walk_clothes_noises", proxyT, vol), "walk_clothes_noises");
-
-            if (UnityEngine.Random.Range(0f, 1f) > 1f - cs.footHitGroundSoundChance)
+            // Local playback of a remote peer's steps must not re-enter AudioController
+            // forward patches (0.8.31 ForwardWorldObjectSound would echo feet back to
+            // the runner → doubled footsteps on the client).
+            // Use explicit flag (same pattern as NetworkApplyGuard) — ApplyingFromNetwork
+            // getter ORs NetworkApplyGuard.IsActive and must not be used as prev/restore.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
             {
-                string addSound = gt == GroundType.wood ? "footsteps_wood_add" : "footstep_branches_add";
-                ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, 1f), addSound);
+                if (!string.IsNullOrEmpty(soundID))
+                    ForceSpatialProxyOneShot(AudioController.Play(soundID, proxyT, vol), soundID);
+
+                ForceSpatialProxyOneShot(AudioController.Play("walk_clothes_noises", proxyT, vol), "walk_clothes_noises");
+
+                if (UnityEngine.Random.Range(0f, 1f) > 1f - cs.footHitGroundSoundChance)
+                {
+                    string addSound = gt == GroundType.wood ? "footsteps_wood_add" : "footstep_branches_add";
+                    ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, 1f), addSound);
+                }
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prevNet);
             }
         }
 

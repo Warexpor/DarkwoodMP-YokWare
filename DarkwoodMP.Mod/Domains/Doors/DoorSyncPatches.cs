@@ -159,6 +159,12 @@ namespace DWMPHorde.Sync
             });
             ModRuntime.LegacyInfo("[ItemSpawn] sent " + _pendingType + " at " + _pendingPos);
         }
+
+        // progressBarCompleted can throw; stuck true suppresses WorldObject harvest/destroy forever.
+        private static void Finalizer()
+        {
+            InsideTrapPlacement = false;
+        }
     }
 
     /// <summary>Harmony patch: intercepts Generator.turnOn() and broadcasts the state.</summary>

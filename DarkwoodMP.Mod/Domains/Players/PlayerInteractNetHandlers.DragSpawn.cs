@@ -149,6 +149,54 @@ namespace DWMPHorde.Networking
                 _spawnedDragProxyItems.Remove(id);
         }
 
+        /// <summary>
+        /// Peer disconnect: drop that player's drag claims locally and (host) fan out
+        /// reliable DragSync STOP so N-peer observers do not keep a stuck claim.
+        /// </summary>
+        /// <param name="broadcastStop">Host should broadcast; clients only clear local maps.</param>
+        internal void ReleaseDragClaimsForDisconnectedPlayer(int playerId, bool broadcastStop)
+        {
+            if (playerId <= 0) return;
+
+            var toRemove = new List<string>();
+            foreach (var kv in DragClaims)
+            {
+                if (kv.Value == playerId)
+                    toRemove.Add(kv.Key);
+            }
+            if (toRemove.Count == 0) return;
+
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                string key = toRemove[i];
+                DragClaims.Remove(key);
+                LastDragSyncPos.Remove(key);
+                DragEndedAt[key] = Time.unscaledTime;
+                ReleaseRemoteDragKinematic(key);
+                RemoveRemoteDragIds(key);
+                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
+                Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(key);
+
+                if (!broadcastStop || !_net.IsConnected)
+                    continue;
+
+                var dragMsg = new DragSyncMessage
+                {
+                    IsDragging = false,
+                    ObjectName = key,
+                    ClaimedByPlayerId = playerId
+                };
+                _net.BroadcastHot(NetMessageType.DragSync, w => dragMsg.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                if (_net.Role == NetworkRole.Host)
+                    NotifyBodyPushStopped(key);
+            }
+
+            ModLog.Event(LogCat.Network,
+                "Released " + toRemove.Count + " drag claim(s) for disconnected p" + playerId
+                + (broadcastStop ? " (broadcast STOP)" : " (local only)"));
+        }
+
         /// <summary>Remove all remote-drag tracking for items matching the given name.
         /// Called when a DragSync with IsDragging=false arrives, so PhysicsState
         /// resumes tracking the item.</summary>

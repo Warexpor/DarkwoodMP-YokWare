@@ -53,7 +53,12 @@ namespace DWMPHorde.Patches
 
             if (__instance.type == MeleeSensor.MeleeSensorType.player
                 && !Config.ModConfig.FriendlyFireEnabled.Value)
+            {
+                // Still consume the sensor — returning false alone left it lingering and
+                // retriggering every FixedUpdate against the proxy colliders.
+                ConsumeSensor(__instance);
                 return false;
+            }
 
             // Don't damage client if proxy's CharBase is dead / night-dead.
             CharBase proxyCB = proxy.CachedCharBase;

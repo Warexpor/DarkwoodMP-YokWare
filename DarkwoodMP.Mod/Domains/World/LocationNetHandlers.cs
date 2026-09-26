@@ -40,8 +40,24 @@ namespace DWMPHorde.Networking
         public bool IsAnyRemoteInOutsideLocation(string locationName) =>
             _enterExit.IsAnyRemoteInOutsideLocation(locationName);
 
+        internal void ClearMembershipForSoftReconnect() =>
+            _enterExit.ClearMembershipForSoftReconnect();
+
+        internal void ForceAnnounceLocalOutsideLocationEnter(string reason) =>
+            _enterExit.ForceAnnounceLocalOutsideLocationEnter(reason);
+
+        internal void TryFlushPendingForceAnnounce() =>
+            _enterExit.TryFlushPendingForceAnnounce();
+
+        internal bool HasPendingForceAnnounce =>
+            _enterExit.HasPendingForceAnnounce;
+
         internal void SyncExistingLocationsTo(int targetPlayerId) =>
             _enterExit.SyncExistingLocationsTo(targetPlayerId);
+
+        internal void NotifyRemotePeerDisconnected(
+            int playerId, string leftLoc, float posX = 0f, float posY = 0f, float posZ = 0f) =>
+            _enterExit.NotifyRemotePeerDisconnected(playerId, leftLoc, posX, posY, posZ);
 
         internal void HandleEntitySpawn(EntitySpawnMessage msg) =>
             _entityTrap.HandleEntitySpawn(msg);

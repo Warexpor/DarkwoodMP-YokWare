@@ -43,6 +43,13 @@ namespace DWMPHorde.Sync
         public const byte LvlFlag6 = 1 << 3;
         public const byte LvlFlag7 = 1 << 4;
 
+        /// <summary>
+        /// Party-once union of hadDreamAtLvl* across DreamStarted/Ended/Bulk snapshots.
+        /// Survives Dreams.Instance churn so SkillsMenu.confirmSkills can reassert gates
+        /// for bunker and random lvl 3/5/6/7 (second peer must not re-fire).
+        /// </summary>
+        private static byte _unionLvlFlags;
+
         public static bool IsActive =>
             Current == State.Starting || Current == State.Active || Current == State.Ending;
 
@@ -267,6 +274,8 @@ namespace DWMPHorde.Sync
             if (Current == State.Idle) return;
             Current = State.Ending;
             MarkCompleted(PresetName);
+            // Capture host/peer hadDreamAtLvl* set at confirmSkills before pad teardown.
+            NoteLocalLvlFlags();
             ModLog.Event(LogCat.Dream,
                 $"Ending session {SessionId} preset={PresetName} outcome={outcomeName}");
             FinalDreamsceneManager.OnDreamEnded();
@@ -298,6 +307,7 @@ namespace DWMPHorde.Sync
         {
             Reset();
             _completedPresets.Clear();
+            _unionLvlFlags = 0;
         }
 
         public static bool ShouldRejectNewConnections => IsActive;
@@ -314,11 +324,16 @@ namespace DWMPHorde.Sync
             if (d.hadDreamAtLvl5) b |= LvlFlag5;
             if (d.hadDreamAtLvl6) b |= LvlFlag6;
             if (d.hadDreamAtLvl7) b |= LvlFlag7;
+            // Outbound DreamStarted/Ended/Bulk paths fold live flags into the party union.
+            if (b != 0)
+                _unionLvlFlags |= b;
             return b;
         }
 
         public static void ApplyLvlFlags(byte flags)
         {
+            if (flags == 0) return;
+            _unionLvlFlags |= flags;
             var d = Dreams.Instance;
             if (d == null) return;
             if ((flags & LvlFlag2) != 0) d.hadDreamAtLvl2 = true;
@@ -326,6 +341,35 @@ namespace DWMPHorde.Sync
             if ((flags & LvlFlag5) != 0) d.hadDreamAtLvl5 = true;
             if ((flags & LvlFlag6) != 0) d.hadDreamAtLvl6 = true;
             if ((flags & LvlFlag7) != 0) d.hadDreamAtLvl7 = true;
+        }
+
+        /// <summary>
+        /// Fold live Dreams.hadDreamAtLvl* into the party-once union (host confirm / End).
+        /// </summary>
+        public static void NoteLocalLvlFlags()
+        {
+            // ReadLocalLvlFlags already ORs into _unionLvlFlags.
+            ReadLocalLvlFlags();
+        }
+
+        /// <summary>Party-once union including live Dreams flags (for wire snapshots).</summary>
+        public static byte ReadUnionLvlFlags()
+        {
+            NoteLocalLvlFlags();
+            return _unionLvlFlags;
+        }
+
+        /// <summary>
+        /// Re-apply party-once skill gates onto Dreams.Instance before confirmSkills.
+        /// Covers bunker completion lag and random lvl 3/5/6/7 after DreamSessionBulk.
+        /// </summary>
+        public static void ReassertLocalLvlFlags()
+        {
+            NoteLocalLvlFlags();
+            if (_unionLvlFlags != 0)
+                ApplyLvlFlags(_unionLvlFlags);
+            if (IsPresetCompleted("dream_bunker_underground_01") && Dreams.Instance != null)
+                Dreams.Instance.hadDreamAtLvl2 = true;
         }
 
         /// <summary>Merge host snapshot into local completed set + lvl flags (union, never clear remote-unknown).</summary>
@@ -352,7 +396,7 @@ namespace DWMPHorde.Sync
         public static void WriteSnapshot(NetWriter w)
         {
             w.Put(SessionId);
-            w.Put(ReadLocalLvlFlags());
+            w.Put(ReadUnionLvlFlags());
             string[] done = GetCompletedPresets();
             w.Put(done.Length);
             for (int i = 0; i < done.Length; i++)

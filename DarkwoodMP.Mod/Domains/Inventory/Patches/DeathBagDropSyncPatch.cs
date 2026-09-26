@@ -52,15 +52,23 @@ namespace DWMPHorde.Patches
             var amounts = new List<int>();
             var durabilities = new List<float>();
             var ammos = new List<int>();
+            var recipes = new List<bool>();
+            var upgrades = new List<string[]>();
+            var actives = new List<bool>();
 
             foreach (InvSlot slot in bagInv.slots)
             {
                 if (!InvItemClass.isNull(slot.invItem))
                 {
-                    types.Add(slot.invItem.type);
+                    // 0.8.63: recipes share type "recipe" — wire craftable + IsRecipe.
+                    bool isRecipe = slot.invItem.isRecipe;
+                    types.Add(isRecipe ? slot.invItem.recipeFor : slot.invItem.type);
                     amounts.Add(slot.invItem.amount);
                     durabilities.Add(slot.invItem.durability);
                     ammos.Add(slot.invItem.ammo);
+                    recipes.Add(isRecipe);
+                    upgrades.Add(Sync.InvItemUpgradeWire.CollectNames(slot.invItem));
+                    actives.Add(slot.invItem.shouldBeActive);
                 }
             }
 
@@ -81,7 +89,10 @@ namespace DWMPHorde.Patches
                 ItemAmounts = amounts.ToArray(),
                 ItemDurabilities = durabilities.ToArray(),
                 ItemAmmos = ammos.ToArray(),
-                BagId = bagId
+                BagId = bagId,
+                IsRecipe = recipes.ToArray(),
+                ItemUpgrades = upgrades.ToArray(),
+                ShouldBeActive = actives.ToArray()
             };
 
             net.Broadcast(NetMessageType.DeathBagSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

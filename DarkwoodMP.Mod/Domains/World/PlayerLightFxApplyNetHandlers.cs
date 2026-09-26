@@ -33,6 +33,12 @@ namespace DWMPHorde.Networking
             _pendingPlayerLights.Clear();
         }
 
+        internal void ClearPendingPlayerLightsFor(int playerId)
+        {
+            if (playerId > 0)
+                _pendingPlayerLights.Remove(playerId);
+        }
+
         internal static bool IsAmbientLanternType(string type)
         {
             if (string.IsNullOrEmpty(type)) return true;

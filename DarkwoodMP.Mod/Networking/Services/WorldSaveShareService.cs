@@ -131,6 +131,16 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void ScheduleHostResend()
         {
+            if (!LanNetworkManager.HostIsFullyInWorld())
+            {
+                ModLog.Warn(LogCat.Save,
+                    "Resend world skipped — host not fully in-world yet (loading="
+                    + Core.loadingGame + " player=" + (Player.Instance != null) + ")");
+                ProgressText = "Host not ready — enter world first";
+                if (_net != null)
+                    _net.StatusText = ProgressText;
+                return;
+            }
             // waitForGameSave=true enables the single force Save path (see HostShareCoroutine).
             ScheduleHostShare(waitForGameSave: true, afterShare: null, targetPlayerId: -1);
         }
@@ -141,6 +151,13 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void ScheduleHostShareToPlayer(int playerId)
         {
+            if (!LanNetworkManager.HostIsFullyInWorld())
+            {
+                ModLog.Warn(LogCat.Save,
+                    "World share to p" + playerId
+                    + " deferred — host not fully in-world yet");
+                return;
+            }
             if (playerId <= 0)
             {
                 ScheduleHostResend();

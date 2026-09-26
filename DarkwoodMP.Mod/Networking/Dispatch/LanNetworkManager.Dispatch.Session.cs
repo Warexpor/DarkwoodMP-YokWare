@@ -136,6 +136,9 @@ namespace DWMPHorde.Networking
                         case NetMessageType.WorldRequest:
                             HandleWorldRequest(WorldRequestMessage.Deserialize(new NetReader(payload)));
                             return true;
+                        case NetMessageType.HostWorldReady:
+                            HandleHostWorldReady(HostWorldReadyMessage.Deserialize(new NetReader(payload)));
+                            return true;
                         case NetMessageType.ChatMessage:
                             {
                                 var chat = ChatMessagePayload.Deserialize(new NetReader(payload));

@@ -111,6 +111,18 @@ namespace DWMPHorde.Networking
             }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Hot path: client just opened this container — avoid FindInventoryByPos scan.
+            if (inv == null && Player.Instance != null)
+            {
+                Inventory opened = Player.Instance.openedItemInventory2 ?? Player.Instance.openedItemInventory;
+                if (opened != null)
+                {
+                    float odx = opened.transform.position.x - pos.x;
+                    float odz = opened.transform.position.z - pos.z;
+                    if (odx * odx + odz * odz < 2.5f * 2.5f)
+                        inv = opened;
+                }
+            }
             if (inv == null)
             {
                 inv = WorldQueryHelper.FindInventoryByPos(pos);
@@ -156,13 +168,16 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                inv.slots[entry.SlotIndex].createItem(entry.ItemType, entry.Amount,
-                    entry.Durability > 0f ? entry.Durability : 1f);
-                if (entry.Ammo > 0)
+                // Durability on the wire is absolute (vanilla InvItemClass.durability).
+                // createItem's float arg is a 0..1 multiplier — always pass 1f then assign.
+                InvItemClass created = inv.slots[entry.SlotIndex].createItem(
+                    entry.ItemType, entry.Amount, 1f,
+                    InvItem.ModifierQuality.none, entry.IsRecipe);
+                if (!InvItemClass.isNull(created))
                 {
-                    var item = inv.slots[entry.SlotIndex].invItem;
-                    if (!InvItemClass.isNull(item))
-                        item.ammo = entry.Ammo;
+                    Sync.InvItemTransferApply.ApplyMeta(
+                        created, entry.Durability, entry.Ammo, entry.ShouldBeActive);
+                    Sync.InvItemUpgradeWire.Apply(created, entry.Upgrades);
                 }
             }
 

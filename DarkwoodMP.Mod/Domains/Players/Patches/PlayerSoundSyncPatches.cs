@@ -44,18 +44,52 @@ namespace DWMPHorde.Patches
             });
         }
 
+        /// <summary>
+        /// Door.Update owns start/stop of hinge scrape on every peer that has the
+        /// door swinging. Networking those loops (0.8.31 allowObjectLoop) left an
+        /// orphan AudioController loop on peers because Stop is never forwarded.
+        /// </summary>
+        internal static bool IsDoorOwnedRotatingLoop(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID)) return false;
+            return string.Equals(audioID, "door_rotating", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(audioID, "door_metal_rotating", System.StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static void ForwardWorldObjectSound(string audioID, float volume, Vector3 position)
         {
             if (TraverseHack.InsideCharacterSounds) return;
-            if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: false)) return;
+            // Door hinge scrape is simulated locally via Door.Update — never network it.
+            if (IsDoorOwnedRotatingLoop(audioID)) return;
+            // Keep foot/walk_clothes local-or-proxy-owned. Enemy feet use ForwardSound
+            // (fromPlayer: false) on the enemy path above; proxy feet must not re-enter.
+            if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: true)) return;
             ForwardSound(audioID, volume, position, requireRateLimit: volume > 0.001f, fromPlayer: false, allowObjectLoop: true);
+        }
+
+        /// <summary>
+        /// Trap snap / activate is applied on peers via TrapState → ApplyTrapState
+        /// (AudioController.Play on the trap transform). Forwarding the host's local
+        /// activateSound doubled the snap for listeners.
+        /// </summary>
+        internal static bool IsTrapOwnedActivateSound(Transform parentObj, string audioID)
+        {
+            if (parentObj == null || string.IsNullOrEmpty(audioID)) return false;
+            Trigger trig = parentObj.GetComponent<Trigger>();
+            if (trig == null) trig = parentObj.GetComponentInParent<Trigger>();
+            if (trig == null) return false;
+            if (!TrapNetworkId.IsWorldTrap(trig.gameObject)) return false;
+            if (string.IsNullOrEmpty(trig.activateSound)) return false;
+            return string.Equals(audioID, trig.activateSound, System.StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool IsPlayerTransform(Transform t)
         {
             if (t == null) return false;
             Player p = Player.Instance;
-            return p != null && t == p.transform;
+            if (p == null) return false;
+            // Vanilla often parents SFX to Player._transform (same as transform after Awake).
+            return t == p.transform || t == p._transform;
         }
 
         internal static bool IsEnemyTransform(Transform t)
@@ -85,6 +119,9 @@ namespace DWMPHorde.Patches
             if (HostBansheeAgitatedPatch.SuppressHostScreamForward
                 && audioID != null
                 && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            if (PlayerAudioHelper.IsTrapOwnedActivateSound(parentObj, audioID))
                 return;
 
             if (PlayerAudioHelper.IsPlayerTransform(parentObj))
@@ -127,6 +164,9 @@ namespace DWMPHorde.Patches
                 && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return;
 
+            if (PlayerAudioHelper.IsTrapOwnedActivateSound(parentObj, audioID))
+                return;
+
             if (PlayerAudioHelper.IsPlayerTransform(parentObj))
             {
                 PlayerAudioHelper.ForwardSound(audioID, volume, parentObj.position);
@@ -165,6 +205,9 @@ namespace DWMPHorde.Patches
 
             bool enemy = PlayerAudioHelper.IsEnemyTransform(parentObj);
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: !enemy))
+                return;
+
+            if (PlayerAudioHelper.IsTrapOwnedActivateSound(parentObj, audioID))
                 return;
 
             if (PlayerAudioHelper.IsPlayerTransform(parentObj))

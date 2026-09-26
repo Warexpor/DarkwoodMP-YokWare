@@ -16,6 +16,21 @@ namespace DWMPHorde.Networking
     {
         private readonly LanNetworkManager _net;
 
+        /// <summary>Min gap between remote-driven createLocation calls (load pressure).</summary>
+        private const float CreateLocationMinIntervalSec = 2.5f;
+        private static float _nextCreateLocationAllowedAt;
+        private static string _createLocationInFlight;
+        /// <summary>Peers whose pad was missing; place proxy once ResolveOutsideLocation succeeds.</summary>
+        private readonly HashSet<int> _pendingPlaceOnLocationResolve = new HashSet<int>();
+        /// <summary>
+        /// Soft-reconnect ForceAnnounce while mid ol.loading / loadingGame (playerInOutsideLocation
+        /// still false). Retry on settle / Tick flush — do not invent a pad name on the world map.
+        /// </summary>
+        private string _pendingForceAnnounceReason;
+        /// <summary>Remote pads deferred because local OutsideLocations.loading (0.8.39 guard).</summary>
+        private readonly HashSet<string> _deferredCreateWhileLocalLoading =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         internal LocationEnterExitNetHandlers(LanNetworkManager net)
         {
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
@@ -42,8 +57,10 @@ namespace DWMPHorde.Networking
             var ol = Singleton<OutsideLocations>.Instance;
             if (ol == null) return;
 
+            // *_done twin: prev may be "foo_done" while msg is "foo" (or vice versa) —
+            // raw Equals treated that as first enter → re-place + light re-push thrash.
             bool firstEnterThisLoc = !_net.RemoteOutsideLocation.TryGetValue(playerId, out string prev)
-                || !string.Equals(prev, locName, StringComparison.OrdinalIgnoreCase);
+                || !CoopWorldPresencePolicy.LocationNamesMatch(prev, locName);
             _net.RemoteOutsideLocation[playerId] = locName;
 
             // Prefer live non-_done location instance when both exist.
@@ -59,11 +76,17 @@ namespace DWMPHorde.Networking
                 string localCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
                     ol.currentLocationName ?? "");
                 bool localSameLoc = ol.playerInOutsideLocation
-                    && string.Equals(localCanon, locName, StringComparison.OrdinalIgnoreCase);
+                    && CoopWorldPresencePolicy.LocationNamesMatch(localCanon, locName);
                 bool dreamLoc = Sync.DreamSyncManager.IsDreamLocationName(locName)
                     || (Sync.DreamSyncManager.IsDreamActive
                         && locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase));
-                bool shouldPlace = firstEnterThisLoc || (localSameLoc && !dreamLoc);
+                bool pendingPlace = _pendingPlaceOnLocationResolve.Remove(playerId);
+                // Soft-reconnect destroys proxies but used to keep RemoteOutsideLocation —
+                // firstEnterThisLoc stayed false and Place was skipped. Belt: missing proxy.
+                bool proxyMissing = !_net.RemoteProxies.TryGetValue(playerId, out var existingProxy)
+                    || existingProxy == null;
+                bool shouldPlace = firstEnterThisLoc || pendingPlace || (localSameLoc && !dreamLoc)
+                    || proxyMissing;
                 if (shouldPlace)
                     PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
 
@@ -74,7 +97,10 @@ namespace DWMPHorde.Networking
 
                 // Peer just got location geometry; re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
-                if (_net.Role == NetworkRole.Host && firstEnterThisLoc && playerId != _net.LocalPlayerId)
+                // Also on pendingPlace / proxyMissing (soft-reconnect re-place) — not on
+                // every localSameLoc heartbeat (that would thrash lights at ~1 Hz).
+                if (_net.Role == NetworkRole.Host && playerId != _net.LocalPlayerId
+                    && (firstEnterThisLoc || pendingPlace || proxyMissing))
                     _net.ResyncWorldLightsForPeer(playerId);
             }
             else
@@ -89,19 +115,95 @@ namespace DWMPHorde.Networking
                 {
                     if (firstEnterThisLoc)
                         _net.RemoteOutsideLocation.Remove(playerId);
+                    _pendingPlaceOnLocationResolve.Remove(playerId);
                     ModRuntime.LegacyInfo(
                         $"[LocationSync] dream pad not ready yet, skip createLocation: {locName}");
                     return;
                 }
 
-                // Async spawn; ~1 Hz LocationEnter retries until key exists.
-                // Keep firstEnter pending by clearing so next successful enter still snaps once.
+                // Prefer grid wake for remote sim / split-map (CoopWorldPresencePolicy)
+                // without stacking vanilla createLocation load+transport pressure when
+                // N remotes enter different villages.
+                if (_net.Role == NetworkRole.Host)
+                    TryEnterLocationGridNearRemotes(locName);
+
+                // Remember to place once the pad exists. Keep RemoteOutsideLocation so
+                // CoopWorldPresencePolicy still sees the remote during defer (do not
+                // Remove membership on rate-limit / loadingGame / client skip).
                 if (firstEnterThisLoc)
-                    _net.RemoteOutsideLocation.Remove(playerId);
+                    _pendingPlaceOnLocationResolve.Add(playerId);
+
+                // Clients must not createLocation for a remote peer — that is load+transport
+                // of the LOCAL player. Host/local pad entry uses LocationTransport / doors.
+                if (_net.Role != NetworkRole.Host)
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] client skip createLocation for remote pad: {locName}");
+                    return;
+                }
+
+                if (Core.loadingGame)
+                {
+                    _deferredCreateWhileLocalLoading.Add(locName);
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] skip createLocation (loadingGame): {locName}");
+                    return;
+                }
+
+                // Soft-reconnect / mid-transfer sticky LocationEnter: OutsideLocations.loading
+                // means local is already in prepare/transport. Stacking createLocation here
+                // races a second spawn (unloadTextures + grid) during the loading screen.
+                if (ol.loading)
+                {
+                    _deferredCreateWhileLocalLoading.Add(locName);
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] defer createLocation (OutsideLocations.loading): {locName}");
+                    return;
+                }
+
+                // Host already inside this pad (or about to settle): allow create.
+                // Otherwise rate-limit so concurrent remote-only enters prefer grid wake.
+                // Note: vanilla createLocation uses transportAfterSpawn:false — it does not
+                // yank the host; pressure is load/grid only.
+                bool localNeedsPad = ol.playerInOutsideLocation
+                    && CoopWorldPresencePolicy.LocationNamesMatch(
+                        ol.currentLocationName ?? "", locName);
+                if (!localNeedsPad && !TryBeginRemoteLocationCreate(locName))
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[LocationSync] defer createLocation (rate-limit/grid prefer): {locName}");
+                    return;
+                }
+
                 string createName = locName;
                 ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {createName}");
+                if (localNeedsPad)
+                    NoteRemoteLocationCreate(createName);
                 ol.createLocation(createName);
             }
+        }
+
+
+        private static bool TryBeginRemoteLocationCreate(string locName)
+        {
+            float now = Time.unscaledTime;
+            if (!string.IsNullOrEmpty(_createLocationInFlight)
+                && string.Equals(_createLocationInFlight, locName, StringComparison.OrdinalIgnoreCase)
+                && now < _nextCreateLocationAllowedAt)
+            {
+                // Same pad already requested; wait for key / retry.
+                return false;
+            }
+            if (now < _nextCreateLocationAllowedAt)
+                return false;
+            NoteRemoteLocationCreate(locName);
+            return true;
+        }
+
+        private static void NoteRemoteLocationCreate(string locName)
+        {
+            _createLocationInFlight = locName;
+            _nextCreateLocationAllowedAt = Time.unscaledTime + CreateLocationMinIntervalSec;
         }
 
         /// <summary>
@@ -210,6 +312,11 @@ namespace DWMPHorde.Networking
                     }
                 }
 
+                // Settle announce covers soft-reconnect sticky ForceAnnounce mid ol.loading.
+                ClearPendingForceAnnounce("location settle");
+                // Local loading screen done — retry remote pads deferred by 0.8.39 guard.
+                TryFlushDeferredCreatesWhileLocalLoading();
+
                 ModRuntime.LegacyInfo(
                     $"[LocationSync] local settled in '{locationName}' — proxies resynced, LocationEnter forced");
             }
@@ -225,6 +332,7 @@ namespace DWMPHorde.Networking
             if (!_net.IsConnected) return;
             try
             {
+                ClearPendingForceAnnounce("returned to world");
                 _net.PreviousInOutsideLocation = false;
                 _net.PreviousLocationName = "";
                 // Hard-snap world-side proxies so they are not left at bunker coords
@@ -287,15 +395,17 @@ namespace DWMPHorde.Networking
         private void ResyncRemoteProxiesForOutsideLocation(string locationName)
         {
             var ol = Singleton<OutsideLocations>.Instance;
-            if (ol == null || !ol.spawnedLocations.ContainsKey(locationName))
-                return;
-            var loc = ol.spawnedLocations[locationName];
+            if (ol == null) return;
+            // Prefer ResolveOutsideLocation (canonical / *_done / dream-safe) over
+            // ContainsKey-only — dict may key under a twin name while peers send canonical.
+            Location loc = ResolveOutsideLocation(ol, locationName);
+            if (loc == null) return;
             loc.enter(force: true);
 
-            // Peers known to be in this location
+            // Peers known to be in this location (name-match strips *_done)
             foreach (var kvp in new List<KeyValuePair<int, string>>(_net.RemoteOutsideLocation))
             {
-                if (!string.Equals(kvp.Value, locationName, StringComparison.OrdinalIgnoreCase))
+                if (!CoopWorldPresencePolicy.LocationNamesMatch(kvp.Value, locationName))
                     continue;
                 PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
             }
@@ -317,65 +427,23 @@ namespace DWMPHorde.Networking
             }
         }
 
-        internal void PlaceRemoteProxyInOutsideLocation(int playerId, Location loc, bool preferLastKnown)
+        /// <summary>
+        /// Soft-reconnect tears remote proxies but must not keep sticky membership —
+        /// otherwise host SyncExistingLocationsTo LocationEnter sees firstEnter=false and
+        /// skips PlaceRemoteProxyInOutsideLocation (proxy stays gone until a real exit/enter).
+        /// </summary>
+        internal void ClearMembershipForSoftReconnect()
         {
-            if (playerId <= 0 || loc == null) return;
-            _net.EnsureRemoteProxy(playerId);
-            if (!_net.RemoteProxies.ContainsKey(playerId))
-                return;
-
-            // Active dream: never anchor to a completed *_done instance.
-            if (Sync.DreamSyncManager.IsDreamActive
-                && loc.gameObject != null
-                && loc.gameObject.name.EndsWith("_done", StringComparison.OrdinalIgnoreCase))
-            {
-                var dreamLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
-                if (dreamLoc != null)
-                    loc = dreamLoc;
-                else
-                {
-                    // No scoped dream Location means the async pad is not ready.
-                    // Never use a global name lookup, which can select the
-                    // overworld duplicate.
-                    return;
-                }
-            }
-
-            Vector3 pos;
-            float rotY = 0f;
-            if (preferLastKnown && PlayerPositionManager.TryGetRemote(playerId, out pos, out rotY))
-            {
-                // Last known must look like it is in this location (not stale world map).
-                // Compare XZ only. 3D distance rejected valid host positions when the client
-                // playerSpawn Y disagreed (bunker: place at Y=-12k → invisible).
-                if (loc.playerSpawn != null)
-                {
-                    Vector3 spawn = loc.playerSpawn.transform.position;
-                    float dx = pos.x - spawn.x;
-                    float dz = pos.z - spawn.z;
-                    if (dx * dx + dz * dz > 2500f * 2500f)
-                        pos = spawn;
-                }
-            }
-            else if (loc.playerSpawn != null)
-            {
-                pos = loc.playerSpawn.transform.position;
-            }
-            else
-            {
-                return;
-            }
-
-            var proxy = _net.GetProxy(playerId);
-            if (proxy != null)
-                proxy.FreezePosition = false;
-
-            _net.TeleportRemoteProxyTo(pos, rotY, playerId);
-            string placeName = loc.gameObject != null
-                ? Sync.DreamSyncManager.CanonicalDreamLocationName(loc.gameObject.name)
-                : loc.name;
-            ModRuntime.LegacyInfo(
-                $"[LocationSync] placed p{playerId} proxy in '{placeName}' at {pos}");
+            int n = _net.RemoteOutsideLocation.Count;
+            _net.RemoteOutsideLocation.Clear();
+            _pendingPlaceOnLocationResolve.Clear();
+            // Drop stale sticky from prior session; Handshake OK ForceAnnounce re-queues if needed.
+            _pendingForceAnnounceReason = null;
+            _deferredCreateWhileLocalLoading.Clear();
+            if (n > 0)
+                ModRuntime.LegacyInfo(
+                    "[LocationSync] soft reconnect cleared RemoteOutsideLocation x" + n
+                    + " (proxies destroyed — await LocationEnter re-place)");
         }
 
         public bool IsAnyRemoteInOutsideLocation(string locationName)

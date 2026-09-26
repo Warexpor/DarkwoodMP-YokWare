@@ -111,4 +111,31 @@ namespace DWMPHorde.Networking
             RequesterId = r.GetInt()
         };
     }
+
+    /// <summary>
+    /// Host→clients: host finished entering the chapter world (Ready=true),
+    /// or left fully-in-world (Ready=false). Clients on title wait for Ready=true
+    /// (or WorldSaveBegin) before treating the host as ready to share.
+    /// Soft-reconnect (AlreadyInWorld) ignores both edges.
+    /// </summary>
+    public struct HostWorldReadyMessage
+    {
+        public bool Ready;
+        public int ChapterId;
+        public int DayIndex;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Ready);
+            w.Put(ChapterId);
+            w.Put(DayIndex);
+        }
+
+        public static HostWorldReadyMessage Deserialize(NetReader r) => new HostWorldReadyMessage
+        {
+            Ready = r.GetBool(),
+            ChapterId = r.AvailableBytes >= 4 ? r.GetInt() : 0,
+            DayIndex = r.AvailableBytes >= 4 ? r.GetInt() : 0
+        };
+    }
 }

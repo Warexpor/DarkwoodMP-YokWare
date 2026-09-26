@@ -107,8 +107,8 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            if (!string.IsNullOrEmpty(msg.Guid))
-                LanNetworkManager.ConsumedDropGuids.Add(msg.Guid); // local consume before peers process
+            // Host ModeRemove fan: Guid already TryConsume'd by FinishGuidPickupClaim /
+            // HandleDroppedItemPickup claim path. Do not double-Add here.
             _net.Broadcast(NetMessageType.DroppedItemPickup, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
@@ -116,6 +116,13 @@ namespace DWMPHorde.Networking
         internal static bool IsDropGuidConsumed(string guid)
         {
             return !string.IsNullOrEmpty(guid) && LanNetworkManager.ConsumedDropGuids.Contains(guid);
+        }
+
+        /// <summary>Session consume — first Add wins (same-frame dual-grant gate).</summary>
+        internal static bool TryConsumeDropGuid(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return false;
+            return LanNetworkManager.ConsumedDropGuids.Add(guid);
         }
 
         /// <summary>
@@ -152,6 +159,8 @@ namespace DWMPHorde.Networking
                 int ammo = 0;
                 if (item.baseClass != null && item.baseClass.hasAmmo)
                     ammo = item.ammo;
+                bool isRecipe = item.isRecipe;
+                string wireType = isRecipe ? item.recipeFor : item.type;
 
                 var msg = new DroppedItemSpawnMessage
                 {
@@ -163,10 +172,13 @@ namespace DWMPHorde.Networking
                     RotX = euler.x,
                     RotY = euler.y,
                     RotZ = euler.z,
-                    ItemType = item.type,
+                    ItemType = wireType,
                     Amount = item.amount,
                     Durability = item.durability,
-                    Ammo = ammo
+                    Ammo = ammo,
+                    IsRecipe = isRecipe,
+                    Upgrades = Sync.InvItemUpgradeWire.CollectNames(item),
+                    ShouldBeActive = item.shouldBeActive
                 };
                 _net.SendToPlayer(targetPlayerId, NetMessageType.DroppedItemSpawn,
                     w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

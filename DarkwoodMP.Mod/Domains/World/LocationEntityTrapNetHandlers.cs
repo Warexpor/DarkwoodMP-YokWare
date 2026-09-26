@@ -114,16 +114,8 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // ApplyTrapState already plays activateSound — do not Play again (local double snap).
             if (go == null) return;
-            var triggerSnd = go.GetComponent<Trigger>();
-            if (triggerSnd != null && !string.IsNullOrEmpty(triggerSnd.activateSound))
-            {
-                try { AudioController.Play(triggerSnd.activateSound, pos); }
-                catch (System.Exception ex)
-                {
-                    ModRuntime.Log?.LogWarning("[TrapTrigger] activateSound failed: " + ex.Message);
-                }
-            }
 
             Vector3 key = new Vector3(
                 Mathf.Round(pos.x * 10f) / 10f,

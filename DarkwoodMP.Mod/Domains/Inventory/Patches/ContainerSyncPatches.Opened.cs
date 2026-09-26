@@ -65,10 +65,13 @@ namespace DWMPHorde.Patches
             if (pickedUp == null || InvItemClass.isNull(pickedUp)) return;
 
             __state.Active = true;
-            __state.Type = pickedUp.type;
+            __state.IsRecipe = pickedUp.isRecipe;
+            __state.Type = __state.IsRecipe ? pickedUp.recipeFor : pickedUp.type;
             __state.Amount = pickedUp.amount;
             __state.Dur = pickedUp.durability;
             __state.Ammo = pickedUp.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(pickedUp);
+            __state.ShouldBeActive = pickedUp.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
         }
@@ -76,7 +79,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isPlayerPlaced: true);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isPlayerPlaced: true, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }
 
@@ -102,10 +105,13 @@ namespace DWMPHorde.Patches
             if (!hadJournalComponent) return;
 
             __state.Active = true;
-            __state.Type = __instance.invItem.type;
+            __state.IsRecipe = __instance.invItem.isRecipe;
+            __state.Type = __state.IsRecipe ? __instance.invItem.recipeFor : __instance.invItem.type;
             __state.Amount = __instance.invItem.amount;
             __state.Dur = __instance.invItem.durability;
             __state.Ammo = __instance.invItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(__instance.invItem);
+            __state.ShouldBeActive = __instance.invItem.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
         }
@@ -118,7 +124,7 @@ namespace DWMPHorde.Patches
             // corresponding slot on the remote peer.
             if (__result && InvItemClass.isNull(__instance.invItem))
             {
-                ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo);
+                ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
             }
         }
     }

@@ -155,6 +155,9 @@ namespace DWMPHorde.Sync
             try
             {
                 TraverseHack.ApplyingFromNetwork = true;
+                // Co-op rescue: free anyone still flagged inBearTrap near this destroy pose.
+                ReleaseLocalBearTrapIfNear(best.transform.position);
+
                 UnityEngine.Object.DestroyImmediate(best);
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
@@ -216,6 +219,15 @@ namespace DWMPHorde.Sync
             return false;
         }
 
+        private static bool NeedleLooksLikeTrap(string needleLower)
+        {
+            if (string.IsNullOrEmpty(needleLower)) return false;
+            return needleLower.Contains("trap") || needleLower.Contains("bear")
+                || needleLower.Contains("snap") || needleLower.Contains("animal")
+                || needleLower.Contains("mushroom") || needleLower.Contains("brokenglass")
+                || needleLower.Contains("broken_glass");
+        }
+
         private static bool ShouldDestroyWorldPickup(GameObject root, string needleLower)
         {
             if (root == null) return false;
@@ -226,6 +238,14 @@ namespace DWMPHorde.Sync
                 return false;
 
             if (needleLower == null) return false;
+
+            // Sprung beartraps keep an Item/Inventory whose slot type is often "junk"
+            // (display "Scrap metal"). A junk WorldObjectRemoved must not eat the trap GO
+            // — that vanished the trap without a co-op free / grant path.
+            bool trapGo = TrapNetworkId.IsWorldTrap(root) || TrapNetworkId.IsOccupancyTrap(root)
+                || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap");
+            if (trapGo && !NeedleLooksLikeTrap(needleLower))
+                return false;
 
             Item item = root.GetComponent<Item>() ?? root.GetComponentInParent<Item>();
             if (item != null)

@@ -231,24 +231,52 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// After silent disarm: free local player still flagged inBearTrap on this trap.
+        /// Free local player still flagged inBearTrap near this trap (silent disarm, co-op pickup/remove).
+        /// XZ only — trap Y is often underground. Also matches by TrapNetId when Resolve works.
         /// </summary>
-        private static void ReleaseLocalBearTrapIfNear(Vector3 trapPos)
+        internal static void ReleaseLocalBearTrapIfNear(Vector3 trapPos)
         {
             Player local = Player.Instance;
-            if (local == null || !local.inBearTrap) return;
+            if (local == null) return;
+            if (!local.inBearTrap && !local.startingInBearTrap && !local.endingInBearTrap)
+                return;
+
             float dx = local.transform.position.x - trapPos.x;
             float dz = local.transform.position.z - trapPos.z;
-            if (dx * dx + dz * dz > 100f * 100f) return;
+            float xzSq = dx * dx + dz * dz;
+            bool near = xzSq <= 8f * 8f;
+
+            // Prefer NetId match when occupancy resolve works (N-peer / far vertical).
+            if (!near)
+            {
+                var net = ModRuntime.Network as Networking.LanNetworkManager;
+                int localTrap = TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
+                    hostMint: net != null && net.Role == Networking.NetworkRole.Host);
+                if (localTrap > 0)
+                {
+                    GameObject atPos = FindTrapByPos(trapPos);
+                    if (atPos != null && TrapNetworkId.GetId(atPos) == localTrap)
+                        near = true;
+                }
+            }
+
+            if (!near) return;
             try
             {
                 local.interruptAllActions(doDropItem: false, stopBeartrap: true);
-                ModRuntime.LegacyInfo("[TrapApply] released local inBearTrap after silent disarm");
+                // Belt: interrupt clears flags; ensure anim state cannot re-stick.
+                local.startingInBearTrap = false;
+                local.endingInBearTrap = false;
+                local.inBearTrap = false;
+                ModRuntime.LegacyInfo("[TrapApply] released local inBearTrap near trap at " + trapPos
+                    + " xz=" + UnityEngine.Mathf.Sqrt(xzSq).ToString("F1"));
             }
             catch (System.Exception ex)
             {
                 ModRuntime.Log?.LogWarning("[TrapApply] interruptAllActions failed: " + ex.Message);
                 local.inBearTrap = false;
+                local.startingInBearTrap = false;
+                local.endingInBearTrap = false;
             }
         }
 

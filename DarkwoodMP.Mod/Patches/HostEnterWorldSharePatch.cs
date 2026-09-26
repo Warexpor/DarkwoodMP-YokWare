@@ -7,8 +7,9 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Join flow fix: host starts LAN from the title menu, clients connect while host is still
-    /// on profiles / loading — no world to share yet. When the host finally has a Player in
-    /// chapter, push the save to every already-handshaked client still waiting.
+    /// on profiles / loading — no world to share yet. When the host is fully in-world
+    /// (not mid-load), push the save to every already-handshaked client still waiting.
+    /// Mid-load Player.Start is ignored; TickHostWorldShareWhenReady catches the ready edge.
     /// </summary>
     [HarmonyPatch(typeof(Player), "Start")]
     public static class HostEnterWorldSharePatch
@@ -30,13 +31,22 @@ namespace DWMPHorde.Patches
                 if (net.WorldSaveShare != null && net.WorldSaveShare.IsBusy)
                     return;
 
+                // Player.Start can fire mid-load; only share when fully in-world.
+                if (!LanNetworkManager.HostIsFullyInWorld())
+                {
+                    ModLog.Event(LogCat.Save,
+                        "Host Player.Start — not fully in-world yet (loading=" + Core.loadingGame
+                        + "); defer share to TickHostWorldShareWhenReady");
+                    return;
+                }
+
                 // Debounce: Player.Start can fire more than once across loads
                 if (Time.unscaledTime - _lastShareAttempt < 8f)
                     return;
                 _lastShareAttempt = Time.unscaledTime;
 
                 ModLog.Event(LogCat.Save,
-                    "Host entered world with " + net.ConnectedPlayerCount
+                    "Host fully in-world with " + net.ConnectedPlayerCount
                     + " peer(s) — auto world share to all (late joiners on title)");
                 // Broadcast package; clients already in-game ignore begin (HandleBegin guard).
                 net.WorldSaveShare?.ScheduleHostResend();

@@ -346,14 +346,10 @@ namespace DWMPHorde
             float beforeHp = Player.Instance.health;
             int beforeLvl = Player.Instance.currentLevel;
 
-            ClientStateBackup.RestoreFromBackup(data);
-
-            // Campaign/empty guards inside RestoreFromBackup log + no-op.
-            if (!ClientStateBackup.MatchesCurrentCampaign(data)
-                || !ClientStateBackup.HasMeaningfulProgress(data))
+            if (!ClientStateBackup.RestoreFromBackup(data))
             {
                 SetRestoreSelfStatus(WrongSaveWarning.Format(
-                    "campaign mismatch or empty backup — restore refused"));
+                    "campaign mismatch, empty, or stale backup — restore refused"));
                 return;
             }
 

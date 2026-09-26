@@ -28,10 +28,23 @@ namespace DWMPHorde.Networking
         internal void ClearPendingBarricades()
         {
             _pendingBarricadeEvents.Clear();
+            BarricadeSyncHelpers.ClearRemovedBoards();
         }
 
         internal void HandleBarricadeEvent(BarricadeEventMessage msg)
         {
+            // Host: latch peer-sourced board tear-downs for late-join (local Send already notes).
+            if (_net.Role == NetworkRole.Host && msg.IsWindow <= 1)
+            {
+                Vector3 key = new Vector3(
+                    (float)System.Math.Round(msg.PosX, 1),
+                    (float)System.Math.Round(msg.PosY, 1),
+                    (float)System.Math.Round(msg.PosZ, 1));
+                if (msg.Action == BarricadeAction.Destroyed)
+                    BarricadeSyncHelpers.NoteBoardRemoved(key, msg.IsWindow);
+                else if (msg.Action == BarricadeAction.Built)
+                    BarricadeSyncHelpers.NoteBoardBuilt(key, msg.IsWindow);
+            }
             ApplyBarricadeEvent(msg, queueIfMissing: true);
         }
 
@@ -317,6 +330,8 @@ namespace DWMPHorde.Networking
             }
             if (sent > 0)
                 ModRuntime.LegacyInfo("[BulkSync] Barricade doors → p" + targetPlayerId + ": " + sent);
+            // Mid-session board removals (door.destroyed stays false) — not in scan above.
+            sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 0, maxSend: maxSend - sent);
             return sent;
         }
 
@@ -352,6 +367,8 @@ namespace DWMPHorde.Networking
             }
             if (sent > 0)
                 ModRuntime.LegacyInfo("[BulkSync] Barricade windows → p" + targetPlayerId + ": " + sent);
+            // Soft-reconnect / late-join: torn window boards (scan only sends Built).
+            sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 1, maxSend: maxSend - sent);
             return sent;
         }
 

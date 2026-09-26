@@ -35,7 +35,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Prefix/Postfix on Explodes.onActivate() to set IsInsideSpawnObjects before
+    /// Prefix/Finalizer on Explodes.onActivate() to set IsInsideSpawnObjects before
     /// spawnObjects() runs, so ExplosionObjectSpawnSyncPatch can intercept the
     /// Core.AddPrefab calls.
     /// </summary>
@@ -84,12 +84,16 @@ namespace DWMPHorde.Patches
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = true;
         }
 
-        [HarmonyPostfix]
-        private static void Postfix()
+        // Finalizer (not Postfix): onActivate can throw after Prefix bumped
+        // ActivationDepth / IsInsideSpawnObjects; Postfix would leave depth sticky
+        // and host would keep treating AddPrefab as explosion secondaries forever.
+        [HarmonyFinalizer]
+        private static void Finalizer()
         {
-            ExplosionSpawnFlagTracker.ActivationDepth--;
             if (ExplosionSpawnFlagTracker.ActivationDepth > 0)
-                return; // Still inside a nested explosion — outer Postfix will clear
+                ExplosionSpawnFlagTracker.ActivationDepth--;
+            if (ExplosionSpawnFlagTracker.ActivationDepth > 0)
+                return; // Still inside a nested explosion — outer Finalizer will clear
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
             ExplosionSpawnFlagTracker.IsHostSynced = false;
@@ -115,6 +119,13 @@ namespace DWMPHorde.Patches
         private static void Postfix()
         {
             // Always clear. Even if Prefix skipped, false is the safe idle state.
+            TraverseHack.IsInsideLocalExplosion = false;
+        }
+
+        // explode can throw; stuck true mis-routes client hitscan as explosion AOE forever.
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
             TraverseHack.IsInsideLocalExplosion = false;
         }
     }

@@ -162,17 +162,29 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Safety timeout: unfreezes all remote proxies after <paramref name="delay"/> seconds
-        /// of real time. Prevents permanent proxy freeze if DreamEntered never arrives.
+        /// Safety timeout: unfreezes remote proxies after <paramref name="delay"/> seconds
+        /// of real time. Drops optimistic NoteRemoteInDream stamps that never confirmed
+        /// (matches IsRemoteInDream post-deadline). DreamEntered after this still Confirm-s.
         /// </summary>
         private static System.Collections.IEnumerator UnfreezeProxiesAfterDelay(float delay)
         {
             yield return new UnityEngine.WaitForSecondsRealtime(delay);
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net != null)
+            if (net == null) yield break;
+
+            foreach (var proxy in net.GetAllProxies())
             {
-                foreach (var proxy in net.GetAllProxies())
-                    proxy.FreezePosition = false;
+                if (proxy == null) continue;
+                proxy.FreezePosition = false;
+                // N-peer: optimistic host stamp at dream start — clear if never entered.
+                if (!_dreamEntryConfirmed.Contains(proxy.PlayerId))
+                    ClearRemoteInDream(proxy.PlayerId);
+            }
+            foreach (int id in net.GetHandshakedPeerIds())
+            {
+                if (id <= 0 || id == net.LocalPlayerId) continue;
+                if (!_dreamEntryConfirmed.Contains(id))
+                    ClearRemoteInDream(id);
             }
         }
     }

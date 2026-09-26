@@ -367,6 +367,22 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.PlayerAnimLibrary, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>
+        /// Sticky: re-broadcast the local torso library (late join / proxy create race).
+        /// Mirrors <see cref="SyncCurrentLightState"/>.
+        /// </summary>
+        internal void SyncCurrentAnimLibrary()
+        {
+            if (!_net.IsConnected) return;
+            Player local = Player.Instance;
+            if (local == null || local.torsoAnimator == null || local.torsoAnimator.Library == null)
+                return;
+            string libName = local.torsoAnimator.Library.name;
+            if (string.IsNullOrEmpty(libName)) return;
+            SendPlayerAnimLibrary(new PlayerAnimLibraryMessage { LibraryName = libName });
+            ModRuntime.Log?.LogDebug("[AnimLib] SyncCurrent library: " + libName);
+        }
+
         internal void SendBulletImpact(BulletImpactMessage msg)
         {
             if (!_net.IsConnected) return;

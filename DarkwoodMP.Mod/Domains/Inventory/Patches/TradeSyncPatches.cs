@@ -14,6 +14,16 @@ namespace DWMPHorde.Patches
     /// Live path: after a successful acceptTrade, broadcast absolute NPC inventory.
     /// Restock path: host-only randomizeTraderInv, then absolute push.
     /// Join path: host SendTradeInventoriesTo(playerId) for every trader NPC.
+    ///
+    /// 0.8.62: wire carries isRecipe + absolute durability per stack. Pre-0.8.62
+    /// collapsed every recipe to type "recipe" (lost recipeFor) and client trade
+    /// replies could poison the host stock.
+    /// 0.8.67: empty-mag firearms (ammo=0) stay on the wire; broken items keep
+    /// absolute durability 0 (same apply hole class as container 0.8.66).
+    /// 0.8.68: workbench upgrades + shouldBeActive on absolute stock (player-sold
+    /// upgraded / flashlight-on items). NPC InventoryRandom stock rarely has
+    /// upgrades; trailer still required for sold items. Dual-deploy via
+    /// AvailableBytes like ContainerStateSync.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "acceptTrade")]
     public static class TradeSyncAcceptPatch
@@ -155,33 +165,53 @@ namespace DWMPHorde.Patches
                 NpcName = npc != null ? npc.name : "",
                 ItemCount = 0,
                 ItemTypes = System.Array.Empty<string>(),
-                Amounts = System.Array.Empty<int>()
+                Amounts = System.Array.Empty<int>(),
+                IsRecipe = System.Array.Empty<bool>(),
+                Durabilities = System.Array.Empty<float>(),
+                Upgrades = System.Array.Empty<string[]>(),
+                ShouldBeActive = System.Array.Empty<bool>()
             };
             if (npc?.inventory == null) return msg;
 
-            var totals = new Dictionary<string, int>();
+            // Per-stack entries (do NOT collapse by item.type). Vanilla recipes all
+            // share type "recipe" with distinct recipeFor — aggregating wiped which
+            // recipes the trader sold and let client→host trade replies poison stock.
+            var types = new System.Collections.Generic.List<string>(16);
+            var amounts = new System.Collections.Generic.List<int>(16);
+            var recipes = new System.Collections.Generic.List<bool>(16);
+            var durs = new System.Collections.Generic.List<float>(16);
+            var ups = new System.Collections.Generic.List<string[]>(16);
+            var actives = new System.Collections.Generic.List<bool>(16);
             var items = npc.inventory.getAllItems();
             for (int i = 0; i < items.Count; i++)
             {
-                if (InvItemClass.isNull(items[i])) continue;
-                string type = items[i].type;
+                InvItemClass it = items[i];
+                if (InvItemClass.isNull(it)) continue;
+                bool isRecipe = it.isRecipe;
+                string type = isRecipe ? it.recipeFor : it.type;
                 if (string.IsNullOrEmpty(type)) continue;
-                if (totals.ContainsKey(type))
-                    totals[type] += items[i].amount;
-                else
-                    totals[type] = items[i].amount;
+                bool hasAmmo = it.baseClass != null && it.baseClass.hasAmmo;
+                int amt = hasAmmo ? it.ammo : it.amount;
+                // Empty-mag firearms must stay on the wire (Amounts=0). Pre-0.8.67
+                // skipped amt<=0 and peers never saw sold/restocked empty guns.
+                if (amt <= 0 && !isRecipe && !hasAmmo) continue;
+                if (amt < 0) amt = 0;
+                if (amt <= 0 && isRecipe) amt = 1;
+                types.Add(type);
+                amounts.Add(amt);
+                recipes.Add(isRecipe);
+                durs.Add(it.durability);
+                ups.Add(Sync.InvItemUpgradeWire.CollectNames(it));
+                actives.Add(it.shouldBeActive);
             }
 
-            msg.ItemCount = totals.Count;
-            msg.ItemTypes = new string[msg.ItemCount];
-            msg.Amounts = new int[msg.ItemCount];
-            int idx = 0;
-            foreach (var kv in totals)
-            {
-                msg.ItemTypes[idx] = kv.Key;
-                msg.Amounts[idx] = kv.Value;
-                idx++;
-            }
+            msg.ItemCount = types.Count;
+            msg.ItemTypes = types.ToArray();
+            msg.Amounts = amounts.ToArray();
+            msg.IsRecipe = recipes.ToArray();
+            msg.Durabilities = durs.ToArray();
+            msg.Upgrades = ups.ToArray();
+            msg.ShouldBeActive = actives.ToArray();
             msg.InDream = NpcIsOnDreamPad(npc);
             if (npc != null)
             {
@@ -262,12 +292,63 @@ namespace DWMPHorde.Patches
                     string type = msg.ItemTypes[i];
                     if (string.IsNullOrEmpty(type)) continue;
                     int amount = i < msg.Amounts.Length ? msg.Amounts[i] : 0;
-                    if (amount <= 0) continue;
-                    inv.addItemType(type, amount);
+                    if (amount < 0) amount = 0;
+                    bool isRecipe = msg.IsRecipe != null && i < msg.IsRecipe.Length && msg.IsRecipe[i];
+                    bool hasAbsDur = msg.Durabilities != null && i < msg.Durabilities.Length;
+                    float absDur = hasAbsDur ? msg.Durabilities[i] : 0f;
+
+                    // amount==0 is empty-mag firearm only (Build keeps hasAmmo zeros).
+                    if (amount <= 0 && !isRecipe)
+                    {
+                        InvItem def = null;
+                        try
+                        {
+                            if (Singleton<ItemsDatabase>.Instance != null)
+                                def = Singleton<ItemsDatabase>.Instance.getItem(type, instantiate: false);
+                        }
+                        catch { /* title/join race */ }
+                        if (def == null || !def.hasAmmo)
+                            continue;
+                    }
+
+                    InvSlot slot = inv.getNextFreeSlot();
+                    if (slot == null) break;
+                    // createItem durability arg is a 0..1 multiplier; set absolute after.
+                    // hasAmmo: Amount→ammo (0 stays empty). Non-ammo never reaches here at 0.
+                    InvItemClass created = slot.createItem(type, amount, 1f,
+                        InvItem.ModifierQuality.none, isRecipe);
+                    if (created == null) continue;
+                    // Trailer present: always assign absolute durability (0 = broken).
+                    // Pre-0.8.67 absDur>0 left createItem's full bar. No trailer
+                    // (pre-0.8.62): leave createItem default.
+                    bool hasActive = msg.ShouldBeActive != null && i < msg.ShouldBeActive.Length;
+                    bool active = hasActive && msg.ShouldBeActive[i];
+                    if (hasAbsDur && hasActive)
+                        Sync.InvItemTransferApply.ApplyMeta(created, absDur, amount, active);
+                    else
+                    {
+                        if (hasAbsDur)
+                            created.durability = absDur;
+                        if (created.baseClass != null && created.baseClass.hasAmmo)
+                            created.ammo = amount;
+                        if (hasActive)
+                            created.shouldBeActive = active;
+                    }
+                    string[] upNames = msg.Upgrades != null && i < msg.Upgrades.Length
+                        ? msg.Upgrades[i] : null;
+                    Sync.InvItemUpgradeWire.Apply(created, upNames);
                 }
             }
 
-            inv.refreshReputation();
+            try
+            {
+                inv.refreshReputation();
+            }
+            catch (System.Exception ex)
+            {
+                // Title/join can apply stock before reputation UI deps exist.
+                ModRuntime.Log?.LogWarning("[TradeSync] refreshReputation skipped: " + ex.Message);
+            }
 
             var dw = Singleton<UI>.Instance?.dialogueWindow;
             if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)

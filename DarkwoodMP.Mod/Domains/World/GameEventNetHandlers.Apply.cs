@@ -11,7 +11,6 @@ namespace DWMPHorde.Networking
     /// <summary>GameEventsFired + late-join GameEventsBulk handlers composed for 0.8.</summary>
     internal sealed partial class GameEventNetHandlers
     {
-
         /// <returns>True when the event is resolved (fired, already fired, or intentionally skipped).</returns>
         private bool ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
         {
@@ -138,6 +137,11 @@ namespace DWMPHorde.Networking
             bool leaveDoor = geName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
                 || geName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0;
 
+            // Location/proximity flavor (displayMessage + HelpMessage) is personal.
+            // fire() only StartCoroutines delayed GameEvent actions — do NOT set a
+            // process-wide HUD blacklist here (blanks local examine/help). Delayed
+            // text re-checks NearRange against the GE transform when MoveNext runs
+            // (PersonalFlavorHud + GameEventFireFlavorSourcePatch).
             using (new NetworkApplyGuard())
             {
                 best.fire();

@@ -1,68 +1,88 @@
-# Dual-box playtest (0.8.31)
+## 0.8.71 Batch 38 (code-only until dual-box)
 
-Runtime proof for YokWare Branch. Code-only green is not enough — hitch and
-sync bugs need host + client logs.
+- Grenade/explosion onActivate throw — IsInsideSpawnObjects / ActivationDepth no
+  longer sticky (host AddPrefab not permanently treated as explosion FX).
+- Local explode / FastProjectile FixedUpdate throw — IsInsideLocalExplosion /
+  IsInsideFastProjectileRaycast no longer stuck (peer damage + impact sync OK).
+- Banshee agitated throw — SuppressHostScreamForward no longer stuck off.
+- Trap place progressBar throw — InsideTrapPlacement no longer suppresses harvest.
+- Map/journal/dialogue open throw — SuppressPause no longer stuck (co-op pause OK).
+- Regression: 0.8.70 HostCheckStuff / EntitySound / ClientProjectile Finalizers OK;
+  0.8.69 EmptyRoutine OK; trade upgrades from 0.8.68 still OK.
 
-## Before you start
+# Dual-box playtest (0.8.71)
 
-1. Same DLL on both installs (`dotnet build DarkwoodMP.Mod -c Release` deploys
-   when `GamePath.local.props` points at Steam + SecondDarkwood).
-2. Menu shows **0.8.31** and protocol **25** on both boxes.
-3. `BepInEx/config/com.yokware.branch.cfg` → `[Logging]` → `LogPreset=Support`
-   (default). Restart after changing presets.
-4. Clear or rotate old `LogOutput.log` if you want a clean session slice.
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.71** and protocol **25** on both boxes.
+3. Enter world; throw molotov/grenade + shoot + place beartrap + open map — no
+   stuck explosion FX spam / damage misroute / pause lock.
+4. Optional: banshee near remote peer — scream still forwards after any edge throw.
 
-## Launch
+## Host-ready join (0.8.71)
 
-| Role | How |
-|------|-----|
-| Host | Steam Darkwood via `darkwood-host` / `run_bepinex.sh` |
-| Client | SecondDarkwood via `seconddarkwood` (LAN join) |
+Unchanged from 0.8.70 — wait for HostWorldReady (139) before Enter World.
 
-Handshake must complete (`[Perf] probe ON` appears on both once in-world).
+## 0.8.70 Batch 37 (code-only until dual-box)
 
-## What to do in-session
+- NPC near remote peer: checkStuff throw no longer leaves temporarySpawned /
+  wantToDespawn / forestSpirit permanently wrong.
+- Creature growl/idle/escape sound throw — InsideCharacterSounds no longer stuck
+  (peer audio forward works again).
+- Client bullet onCollide throw — IsInsidePlayerBulletCollision no longer stuck
+  (peer projectile damage routing OK).
+- Regression: 0.8.69 EmptyRoutine prepareDream/onDeath/waitToSpawn* still OK;
+  trade upgrades from 0.8.68 still OK.
 
-Minimum soak (FPS / hitch gate):
+# Dual-box playtest (0.8.70)
 
-1. Host + client in the same hideout/yard for ≥2 minutes of free movement.
-2. Open/close a door, loot a container, fire a weapon, drag a body once.
-3. Optional: one player walks far enough to stress entity + physics sync.
-4. Quit cleanly on both (flush logs).
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.70** and protocol **25** on both boxes.
+3. Enter world; night spawn + shoot + hear enemy growl — no stuck audio/damage.
+4. Optional: force an NPC checkStuff edge near a remote — despawn still happens later.
 
-## Diagnosis (logs + this script)
+## Host-ready join (0.8.70)
 
-Paths (Omarchy / this machine):
+Unchanged from 0.8.69 — wait for HostWorldReady (139) before Enter World.
 
-| Role | Log |
-|------|-----|
-| Host | `~/.local/share/Steam/steamapps/common/Darkwood/BepInEx/LogOutput.log` |
-| Client | `~/Work/MyProjects/SecondDarkwood/Darkwood/BepInEx/LogOutput.log` |
+## 0.8.69 Batch 36 (code-only until dual-box)
 
-```bash
-./scripts/check-dualbox-perf.sh
-# or: ./scripts/check-dualbox-perf.sh /path/to/host/LogOutput.log /path/to/client/LogOutput.log
-```
+- Client waits for host DreamStarted with empty prepareDream — no Unity
+  "routine is null" / StartCoroutine NRE.
+- Shared-dream death (host or client) — onDeath Prefix skip no longer NREs.
+- Client connected: CharacterSpawner worm wait + CharacterSpawnPoint wait
+  coroutines skip cleanly (no StartCoroutine null).
+- Regression: door scrape / beartrap / HelpMessage proximity / trade upgrades
+  from 0.8.68 still OK.
 
-- **PASS** — both logs have `[Perf]`, zero `[PerfCliff]`.
-- **FAIL** — missing probe (not connected / wrong preset) or cliffs present.
+# Dual-box playtest (0.8.69)
 
-Triage field meanings: `DarkwoodMP.Mod/docs/LOGGING.md` (stutter section).
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.69** and protocol **25** on both boxes.
+3. Enter world; client near hideout tutorial GE; no GameEvent/prepareDream
+   StartCoroutine null spam in either log.
+4. Optional: shared dream death once — both sides stay up without routine-null.
 
-| Tag | Meaning |
-|-----|---------|
-| `[Perf]` | 2s window summary (fps, poll, upd, entApply, pktRx, …) |
-| `[PerfCliff]` | Single frame ≥100ms **or** window fps~ &lt;15 |
-| `[PerfSeg]` | Update sub-segment spike ≥25ms (names the hot segment) |
+## Host-ready join (0.8.69)
 
-**Host clean / client cliff:** compare `role=Host` vs `role=Client` lines —
-client-side apply/interp is the first suspect. Reverse for host cliffs.
+Unchanged from 0.8.68 — wait for HostWorldReady (139) before Enter World.
 
-## Sync spot-checks (not covered by the perf script)
+## 0.8.68 Batch 33 (code-only until dual-box)
 
-Reverse initiator and observer (see `.cursor/rules/gamedev-reverse-check.mdc`):
+- Sell workbench-upgraded melee / gun to NightTrader → peer opens trade → stock
+  shows same upgrade names (getModdedDamage / SaveState.upgrades parity).
+- Sell flashlight with light ON (`shouldBeActive`) → peer trader stock keeps ON
+  flag; buy-back restores active light.
+- Regression: empty-mag + 0-dur sold guns from 0.8.67 still OK; recipe stock from
+  0.8.62 still OK.
 
-- Door / container / flag / GE: host did X → client saw it; client did X → host saw it.
-- Late join while something is mid-state when that domain matters.
+# Dual-box playtest (0.8.68)
 
-Coverage map: `DarkwoodMP.Mod/docs/COOP_COVERAGE.md`.
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.68** and protocol **25** on both boxes.
+3. Host upgrades axe → sells to trader → client opens same trader → upgrades
+   present. Repeat with flashlight ON.
+4. Buy-back on either peer restores upgrades / active flag.
+
+## Host-ready join (0.8.68)
+
+Unchanged from 0.8.67 — wait for HostWorldReady (139) before Enter World.

@@ -110,7 +110,20 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                float force = door.type == Door.Type.metal ? 30000f : 0f;
+                // 0.8.64: prefer wire OpenForce + opener (thump 45000 → door_hit_run).
+                // Legacy packets lack the trailer — keep metal/wood fallback + door pos.
+                float force;
+                Vector3 openerPos;
+                if (msg.HasOpenForceTrailer)
+                {
+                    force = msg.OpenForce;
+                    openerPos = new Vector3(msg.OpenerPosX, msg.OpenerPosY, msg.OpenerPosZ);
+                }
+                else
+                {
+                    force = door.type == Door.Type.metal ? 30000f : 0f;
+                    openerPos = pos;
+                }
                 // Leave-door GE already played openSound; mute Door.open audio on apply.
                 string prevSound = null;
                 bool mute = DWMPHorde.Patches.DialogueDoorAftermath.ShouldMuteRemoteDoorOpenSound;
@@ -121,7 +134,7 @@ namespace DWMPHorde.Networking
                 }
                 try
                 {
-                    door.open(pos, null, force);
+                    door.open(openerPos, null, force);
                 }
                 finally
                 {

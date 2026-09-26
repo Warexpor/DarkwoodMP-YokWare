@@ -23,14 +23,14 @@ Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) se
 | **Public** | Quiet play | Core, Network, Session, Dream, Death, Save Events |
 | **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container + **`[Perf]`** |
 | **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps (large logs) |
-| **Trace** | High-freq | All categories plus Trace; **`VerboseLogging` gates** it, not `LegacyInfo` |
+| **Trace** | **Max capture** | All categories + Trace + **`LegacyInfo`** + **`VerboseLogging` gates** (largest logs; dual-box FPS cost) |
 
-**Important:** `ModRuntime.LegacyInfo` runs only when `LogPreset=Dev`.
-Trace does not enable it.
+**Important:** `ModRuntime.LegacyInfo` runs on `LogPreset=Dev` or **`Trace`**.
+Use **Trace on both** installs for maximum dual-box capture.
 
 ## Stutter / hitch triage (dual-box)
 
-1. Prefer **Support** or **Dev** on **both** installs, same mod build.  
+1. Prefer **Trace** (max) or **Support** on **both** installs, same mod build.  
 2. Reproduce; quit cleanly.  
 3. Attach **both** `BepInEx/LogOutput.log` files.  
 4. Or run the gate script (defaults to this machine’s Steam + SecondDarkwood paths):
@@ -68,7 +68,7 @@ Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 ## How to file a bug
 
 1. Same mod version on host + client.  
-2. Support for join bugs; Dev if you need Legacy bulk dumps.  
+2. Support for join bugs; **Trace** for maximum capture (Legacy + Verbose).  
 3. Quit cleanly.  
 4. Attach both LogOutput.log files + steps.
 
@@ -104,6 +104,6 @@ Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 ## Dev notes
 
 - Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)`.  
-- `LegacyInfo` = Dev only.  
+- `LegacyInfo` = Dev or Trace.  
 - Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so Support packs still work.  
 - Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias on both roles when connected.

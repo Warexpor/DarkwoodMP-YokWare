@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Steamworks;
+using DWMPHorde.Networking.Steam;
 using DWMPHorde.Sync;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -20,6 +22,11 @@ namespace DWMPHorde.Networking
                 data.PlayerId = ModRuntime.Network.LocalPlayerId;
             else
                 data.PlayerId = 0;
+
+            // SteamID64 is the preferred stable host disk key across PlayerId reshuffles.
+            data.SteamId = TryResolveLocalSteamIdString();
+            // LAN / non-Steam: install-scoped key (Steam+SecondDarkwood dual-box path).
+            data.StableClientKey = GetOrCreateLanClientKey();
 
             data.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
@@ -60,6 +67,7 @@ namespace DWMPHorde.Networking
             if (player.skills != null)
             {
                 data.SkillPoints = player.skills.SkillPoints;
+                data.CanActivateSkill = player.skills.canActivateSkill;
                 if (player.skills.skills != null)
                 {
                     data.Skills = new List<SkillEntry>();
@@ -107,7 +115,12 @@ namespace DWMPHorde.Networking
                     if (slot != null && !InvItemClass.isNull(slot.invItem))
                         data.HotbarItems.Add(MakeItemEntry(slot.invItem, i));
                 }
+                // Prefer live selected flag; getSelectedSlotId returns 0 when none.
+                data.HotbarSelectedSlot = player.Hotbar.getSelectedSlotId();
             }
+
+            data.ActiveEffects = CollectActiveEffects(player);
+            data.LocalMapMarkers = CollectLocalMapMarkers();
 
             var controller = Singleton<Controller>.Instance;
             if (controller != null)
@@ -116,10 +129,65 @@ namespace DWMPHorde.Networking
                 data.GameTimeMinutes = controller.CurrentTime;
             }
 
-        // Persist morning-trader reputation per player rather than in host-shared bulk.
+            // Persist morning-trader reputation per player rather than in host-shared bulk.
             data.NightTraderReputations = CollectNightTraderReputations();
+            data.CraftedItems = CollectCraftedItems(player);
 
             return data;
+        }
+
+        private static List<CraftedEntry> CollectCraftedItems(Player player)
+        {
+            var list = new List<CraftedEntry>();
+            if (player?.craftedItems == null) return list;
+            for (int i = 0; i < player.craftedItems.Count; i++)
+            {
+                StringAndInt entry = player.craftedItems[i];
+                if (entry == null || string.IsNullOrEmpty(entry._string)) continue;
+                // Skip zero counts (getCraftedItem may insert zeros).
+                if (entry._int <= 0) continue;
+                list.Add(new CraftedEntry { Type = entry._string, Count = entry._int });
+            }
+            return list;
+        }
+
+        private static List<EffectEntry> CollectActiveEffects(Player player)
+        {
+            var list = new List<EffectEntry>();
+            if (player?.effects?.activeEffects == null) return list;
+            for (int i = 0; i < player.effects.activeEffects.Count; i++)
+            {
+                CharacterEffect fx = player.effects.activeEffects[i];
+                if (fx == null) continue;
+                // Instant damage pulse — re-activate would getHit again on restore.
+                if (fx.type == CharacterEffectType.damage)
+                    continue;
+                // timeFreeze toggles Controller.DoUpdateTime globally — host TimeSync owns the clock.
+                if (fx.type == CharacterEffectType.timeFreeze)
+                    continue;
+                list.Add(new EffectEntry
+                {
+                    Type = (int)fx.type,
+                    Duration = fx.duration,
+                    Modifier = fx.modifier,
+                    Interval = fx.interval,
+                    TimeElapsed = fx.timeElapsed
+                });
+            }
+            return list;
+        }
+
+        private static List<MarkerEntry> CollectLocalMapMarkers()
+        {
+            var list = new List<MarkerEntry>();
+            var markers = Sync.MultiplayerMapManager.LocalMarkers;
+            if (markers == null || markers.Count == 0) return list;
+            for (int i = 0; i < markers.Count; i++)
+            {
+                Vector3 p = markers[i];
+                list.Add(new MarkerEntry { X = p.x, Y = p.y, Z = p.z });
+            }
+            return list;
         }
 
         private static List<NpcRepEntry> CollectNightTraderReputations()
@@ -139,16 +207,52 @@ namespace DWMPHorde.Networking
             return list;
         }
 
+
+        /// <summary>SteamID64 string for this box when Steamworks is ready; else null.</summary>
+        internal static string TryResolveLocalSteamIdString()
+        {
+            try
+            {
+                var sid = SteamCoopTransport.LocalSteamId();
+                if (sid.IsValid() && sid.m_SteamID != 0)
+                    return sid.m_SteamID.ToString();
+            }
+            catch { /* Steam not ready / non-Steam box */ }
+            return null;
+        }
+
         private static ItemEntry MakeItemEntry(InvItemClass item, int slot)
         {
+            // Mirror vanilla InvItemClass.SaveState (see decompile InvItemClass.SaveState
+            // ctor). Firearm magazine lives in amount when hasAmmo; createItem maps
+            // Amount → ammo. Also persist shouldBeActive / timeDeactivated / upgrades
+            // — durability alone is not enough for flashlight on/off or workbench
+            // ItemUpgrade damage/durability modifiers (melee/armor).
+            bool hasAmmo = item.baseClass != null && item.baseClass.hasAmmo;
+            List<string> upgrades = null;
+            if (item.upgrades != null && item.upgrades.Count > 0)
+            {
+                upgrades = new List<string>(item.upgrades.Count);
+                for (int u = 0; u < item.upgrades.Count; u++)
+                {
+                    ItemUpgrade up = item.upgrades[u];
+                    if (up != null && !string.IsNullOrEmpty(up.name))
+                        upgrades.Add(up.name);
+                }
+                if (upgrades.Count == 0)
+                    upgrades = null;
+            }
             return new ItemEntry
             {
                 Slot = slot,
                 Type = item.type,
                 Durability = item.durability,
-                Amount = item.amount,
+                Amount = hasAmmo ? item.ammo : item.amount,
                 IsRecipe = item.isRecipe,
-                RecipeFor = item.recipeFor
+                RecipeFor = item.recipeFor,
+                ShouldBeActive = item.shouldBeActive,
+                Upgrades = upgrades,
+                TimeDeactivated = item.timeDeactivated
             };
         }
 

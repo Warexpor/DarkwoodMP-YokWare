@@ -322,6 +322,7 @@ namespace DWMPHorde.Sync
             _lastClientUpdateTime.Clear();
             _nextSnapshotSequence = 0;
             _destroyDebounce.Clear();
+            ResetConsumedWorldPickups();
             _pendingLights.Clear();
             MovingObjectSoundService.Reset();
             ListTracker<Door>.Clear();

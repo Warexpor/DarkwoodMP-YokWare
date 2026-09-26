@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
-    internal static class MultiplayerMapManager
+    internal static partial class MultiplayerMapManager
     {
         // World-position lists for persistence across map open/close cycles
         public static readonly List<Vector3> LocalMarkers = new List<Vector3>();
@@ -117,12 +117,35 @@ namespace DWMPHorde.Sync
             return -1;
         }
 
+        /// <summary>
+        /// Drop remote marker lists + spawned GOs (keeps LocalMarkers). Used by MapStateSync
+        /// snapshot apply so soft-reconnect late-join bulk cannot duplicate green pins.
+        /// </summary>
+        public static void ClearRemoteMarkers()
+        {
+            foreach (var kvp in _remoteMarkerObjects)
+            {
+                foreach (var go in kvp.Value)
+                    if (go != null) Object.Destroy(go);
+            }
+            _remoteMarkerObjects.Clear();
+            RemoteMarkers.Clear();
+        }
+
         public static void AddRemoteMarker(int playerId, Vector3 worldPos)
         {
+            if (playerId <= 0) return;
             if (!RemoteMarkers.TryGetValue(playerId, out var markers))
             {
                 markers = new List<Vector3>();
                 RemoteMarkers[playerId] = markers;
+            }
+            // Live retransmit / double-apply belt (MapStateSync also clears first).
+            const float dedupeSqr = 0.25f * 0.25f;
+            for (int i = 0; i < markers.Count; i++)
+            {
+                if ((markers[i] - worldPos).sqrMagnitude <= dedupeSqr)
+                    return;
             }
             markers.Add(worldPos);
 
@@ -187,12 +210,43 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Cold-rejoin: rehydrate personal blue pins from ClientStateBackup after
+        /// NetworkReset cleared LocalMarkers. Dedupes and re-broadcasts so peers
+        /// see the pins again (MapStateSync only fans host→client remotes).
+        /// </summary>
+        public static int RestoreLocalMarkersFromBackup(System.Collections.Generic.List<Vector3> positions)
+        {
+            if (positions == null || positions.Count == 0) return 0;
+            const float dedupeSqr = 0.25f;
+            int added = 0;
+            for (int i = 0; i < positions.Count; i++)
+            {
+                Vector3 pos = positions[i];
+                bool exists = false;
+                for (int j = 0; j < LocalMarkers.Count; j++)
+                {
+                    if ((LocalMarkers[j] - pos).sqrMagnitude <= dedupeSqr)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (exists) continue;
+                LocalMarkers.Add(pos);
+                SendMarkerMessage(pos);
+                added++;
+            }
+            return added;
+        }
+
         public static void Reset()
         {
             ClearMarkerObjects();
             LocalMarkers.Clear();
             RemoteMarkers.Clear();
             _remoteMarkerObjects.Clear();
+            ClearPendingDiscoveries();
             if (_clickPlane != null)
             {
                 Object.Destroy(_clickPlane);
@@ -346,11 +400,8 @@ namespace DWMPHorde.Sync
         public static void OnRemoteElementDiscovered(string elementName)
         {
             if (string.IsNullOrEmpty(elementName)) return;
-            Map map = Map.Instance;
-            if (map == null) return;
-
-            map.showElement(elementName);
-            ModRuntime.LegacyInfo($"[MapDiscovery] remote discovered '{elementName}' — showing locally");
+            if (!TryApplyRemoteDiscovery(elementName))
+                QueuePendingDiscovery(elementName);
         }
 
         private static void SendMarkerMessage(Vector3 worldPos)

@@ -23,6 +23,25 @@ namespace DWMPHorde.Networking
 
         public ConnectionBackend Backend => _backend;
         public bool IsSteamSession => _backend == ConnectionBackend.Steam;
+
+        /// <summary>SteamID64 of the peer whose message is currently being handled (0 if LAN/none).</summary>
+        internal ulong CurrentReceiveSteamId64 =>
+            _currentReceiveSteamId.IsValid() ? _currentReceiveSteamId.m_SteamID : 0UL;
+
+        /// <summary>Host map: network PlayerId → SteamID64 when this is a Steam session.</summary>
+        internal bool TryGetSteamIdForPlayer(int playerId, out ulong steamId)
+        {
+            steamId = 0;
+            if (!IsSteamSession || playerId <= 0)
+                return false;
+            if (_steamPeers.TryGetValue(playerId, out CSteamID sid) && sid.IsValid() && sid.m_SteamID != 0)
+            {
+                steamId = sid.m_SteamID;
+                return true;
+            }
+            return false;
+        }
+
         public string SteamLobbyIdText => _steam != null && _steam.LobbyId.IsValid()
             ? _steam.LobbyIdString
             : "";
@@ -156,6 +175,9 @@ namespace DWMPHorde.Networking
                     WorldProxyHandlers.DestroyRemoteProxy(_steamSoftReconnectProxyIds[i]);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
+                LocationHandlers?.ClearMembershipForSoftReconnect();
+                PlayerLightFxHandlers?.ClearPendingPlayerLights();
+                PlayerFXHandlers?.ClearAllPendingAnimLibraries();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
                 _awaitingLateJoinBulk.Clear();
@@ -163,6 +185,8 @@ namespace DWMPHorde.Networking
                 _peersLoadingWorld.Clear();
                 _peersCoopReconnect.Clear();
                 _hostWasShareableForWaitingClients = false;
+                _hostWorldReadyEmitted = false;
+                _clientHostWorldReady = false;
             }
             else
             {

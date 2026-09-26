@@ -86,21 +86,28 @@ namespace DWMPHorde.Networking
 
                 if (ClientReportsAlreadyInWorld())
                 {
+                    // Soft reconnect must not wait on HostWorldReady / world download.
+                    _clientHostWorldReady = true;
                     StatusText = "Reconnected — co-op sync…";
                     ModLog.Event(LogCat.Network,
                         "Handshake OK — assigned PlayerId=" + _localPlayerId
                         + " hostId=" + hostId
                         + " (phase 3 / migration reconnect)");
+                    // Host cleared our OutsideLocation membership on the brief disconnect;
+                    // do not wait for the ~1 Hz sticky LocationEnter heartbeat.
+                    LocationHandlers?.ForceAnnounceLocalOutsideLocationEnter("phase3 reconnect");
                     BeginClientBackupRestoreWait();
                 }
                 else
                 {
-                    StatusText = "Connected — waiting for host world…";
+                    _clientHostWorldReady = false;
+                    StatusText = "Connected — waiting for host to enter world…";
                     ModLog.Event(LogCat.Network, "Handshake OK — assigned PlayerId=" + _localPlayerId
                         + " hostId=" + hostId);
                     if (Core.mainMenu)
                         ModLog.Event(LogCat.Session,
-                            "Join pipeline phase 1: transfer link up — waiting for world share, then offline load.");
+                            "Join pipeline phase 1: transfer link up — waiting for host fully in-world, "
+                            + "then world share / offline load.");
                 }
             }
             else
@@ -133,7 +140,10 @@ namespace DWMPHorde.Networking
                 }
 
                 if (playerId > 0)
+                {
                     _handshakedPeers.Add(playerId);
+                    NoteStableClientKey(playerId, handshake.StableClientKey);
+                }
                 // Host gameplay traffic stays up for already-ready peers; first ready peer enables send loop.
                 _handshakeComplete = _handshakedPeers.Count > 0;
                 ModLog.Event(LogCat.Network, $"Handshake OK from Player {playerId} (ready peers: {_handshakedPeers.Count})");
@@ -170,18 +180,22 @@ namespace DWMPHorde.Networking
                     {
                         ModLog.Event(LogCat.Save,
                             "Join pipeline phase 1: client " + playerId
-                            + " handshaked on title — scheduling world share");
+                            + " handshaked while host fully in-world — HostWorldReady + scheduling world share");
+                        SendHostWorldReadyTo(playerId);
+                        // Mid-prologue / stuck-End catch-up before offline-load detach.
+                        PrologueSync.SendCatchUpTo(playerId);
                         MarkPeerLoadingWorld(playerId);
                         StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
                     }
                     else
                     {
                         ModLog.Warn(LogCat.Save,
-                            "Client " + playerId + " joined but host is NOT in-world (mainMenu="
+                            "Client " + playerId + " joined but host is NOT fully in-world yet (mainMenu="
                             + Core.mainMenu + " profile=" + (Core.currentProfile != null)
                             + " player=" + (Player.Instance != null)
                             + " loaded=" + Core.loadedGame
-                            + ") — no auto world share yet. Will share when host enters chapter, or use F2 Resend.");
+                            + " loading=" + Core.loadingGame
+                            + ") — no world download until host ready. Will emit HostWorldReady + share when host enters chapter.");
                     }
                 }
             }
@@ -238,8 +252,11 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
 
             ModLog.Event(LogCat.Save,
-                "WorldRequest → host (" + (reason ?? "manual") + ") localId=" + _localPlayerId);
-            StatusText = "Requesting host world…";
+                "WorldRequest → host (" + (reason ?? "manual") + ") localId=" + _localPlayerId
+                + " hostReady=" + _clientHostWorldReady);
+            StatusText = _clientHostWorldReady
+                ? "Requesting host world…"
+                : "Waiting for host to enter world…";
             return true;
         }
 
@@ -266,17 +283,85 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Warn(LogCat.Save,
                     "WorldRequest from p" + playerId
-                    + " — host not in-world yet (mainMenu=" + Core.mainMenu
+                    + " — host not fully in-world yet (mainMenu=" + Core.mainMenu
                     + " player=" + (Player.Instance != null)
-                    + "). Will share when host enters chapter, or client retries.");
+                    + " loading=" + Core.loadingGame
+                    + "). Client must wait; HostWorldReady + share when host enters chapter.");
                 return;
             }
 
+            // Host already ready — ensure joiner sees the signal even if they missed broadcast.
+            SendHostWorldReadyTo(playerId);
             ModLog.Event(LogCat.Save,
-                "WorldRequest from p" + playerId + " — scheduling share to that peer");
+                "WorldRequest from p" + playerId + " — host ready, scheduling share to that peer");
             MarkPeerLoadingWorld(playerId);
             _worldSaveShare?.ScheduleHostShareToPlayer(playerId);
             _awaitingLateJoinBulk[playerId] = 0f;
+        }
+
+        private void HandleHostWorldReady(HostWorldReadyMessage msg)
+        {
+            if (_role != NetworkRole.Client)
+                return;
+
+            // Soft reconnect / already playable: ignore (must not stall phase 3).
+            if (ClientReportsAlreadyInWorld())
+            {
+                _clientHostWorldReady = true;
+                return;
+            }
+
+            if (msg.Ready)
+            {
+                bool was = _clientHostWorldReady;
+                _clientHostWorldReady = true;
+                if (!was)
+                {
+                    ModLog.Event(LogCat.Session,
+                        "HostWorldReady received — ch" + msg.ChapterId
+                        + " day" + msg.DayIndex
+                        + " — waiting for world package / ENTER WORLD");
+                }
+                if (Core.mainMenu
+                    && (_worldSaveShare == null || !_worldSaveShare.IsClientReceivingOrApplying))
+                {
+                    StatusText = "Host ready — waiting for world download…";
+                }
+            }
+            else
+            {
+                // Package already in flight / ENTER WORLD — keep ready so UI does not
+                // flap back to WAIT HOST (N peers; soft reconnect already ignored above).
+                if (_worldSaveShare != null
+                    && (_worldSaveShare.IsClientReceivingOrApplying
+                        || _worldSaveShare.IsAwaitingEnterWorld
+                        || _worldSaveShare.IsAwaitingSlotPick))
+                {
+                    ModLog.Event(LogCat.Session,
+                        "HostWorldReady Ready=false ignored — world share already in progress");
+                    return;
+                }
+                _clientHostWorldReady = false;
+                if (Core.mainMenu)
+                    StatusText = "Connected — waiting for host to enter world…";
+                ModLog.Event(LogCat.Session,
+                    "HostWorldReady Ready=false — cleared WAIT/HOST READY; waiting for host again");
+            }
+        }
+
+        /// <summary>Client: host announced fully in-world (or WorldSaveBegin arrived).</summary>
+        public bool ClientSeesHostWorldReady => _clientHostWorldReady;
+
+        /// <summary>Client helper: mark ready when WorldSaveBegin arrives (compat / missed signal).</summary>
+        internal void NoteClientHostWorldReadyFromShareBegin()
+        {
+            if (_role != NetworkRole.Client)
+                return;
+            if (_clientHostWorldReady)
+                return;
+            _clientHostWorldReady = true;
+            ModLog.Event(LogCat.Session,
+                "Host world ready inferred from WorldSaveBegin (no prior HostWorldReady)");
         }
 
         private void HandleWorldSession(WorldSessionMessage session)

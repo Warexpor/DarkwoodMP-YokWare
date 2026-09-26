@@ -176,6 +176,11 @@ namespace DWMPHorde.Sync
         /// to spawn the generator on-demand when it doesn't exist locally.
         /// </summary>
         public string ItemType;
+        /// <summary>
+        /// Client addFuel delta for host-auth accumulation. 0 = absolute Fuel apply
+        /// (turnOn/off, late-join, host pour). Always on the wire (same-DLL dual deploy).
+        /// </summary>
+        public float FuelDelta;
 
         /// <summary>Serializes this generator state into a network writer.</summary>
         /// <param name="w">The network writer.</param>
@@ -183,6 +188,7 @@ namespace DWMPHorde.Sync
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(IsOn); w.Put(Fuel);
             w.Put(LowPower); w.Put(ItemType ?? "");
+            w.Put(FuelDelta);
         }
         /// <summary>Deserializes a generator state from a network reader.</summary>
         /// <param name="r">The network reader.</param>
@@ -194,7 +200,8 @@ namespace DWMPHorde.Sync
             IsOn = r.GetBool(),
             Fuel = r.GetFloat(),
             LowPower = r.GetBool(),
-            ItemType = r.GetString()
+            ItemType = r.GetString(),
+            FuelDelta = r.GetFloat()
         };
     }
 

@@ -175,16 +175,23 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>Find an Inventory by position (OverlapSphere + fallback scan + DeathDrop).</summary>
+        /// <summary>
+        /// Find an Inventory by position. OverlapSphere first and return immediately on hit
+        /// — the old path always ran SceneScanCache&lt;Inventory&gt; (FindObjectsOfType ~45ms)
+        /// even after overlap succeeded, hitching every container/corpse open.
+        /// </summary>
         public static Inventory FindInventoryByPos(Vector3 pos, float maxDist = 2.5f)
         {
-            int n = Physics.OverlapSphereNonAlloc(pos, 1f, OverlapBuf);
+            float overlapR = Mathf.Max(maxDist, 1.5f);
+            int n = Physics.OverlapSphereNonAlloc(pos, overlapR, OverlapBuf);
             Inventory overlapBest = null;
             float overlapBestD = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 if (OverlapBuf[i] == null) continue;
                 Inventory inv = OverlapBuf[i].GetComponentInParent<Inventory>();
+                if (inv == null)
+                    inv = OverlapBuf[i].GetComponentInChildren<Inventory>();
                 if (inv == null || (inv.invType != Inventory.InvType.itemInv && inv.invType != Inventory.InvType.deathDrop))
                     continue;
                 float d = Vector3.Distance(inv.transform.position, pos);
@@ -194,13 +201,12 @@ namespace DWMPHorde.Sync
                     overlapBest = inv;
                 }
             }
+            if (overlapBest != null && overlapBestD <= maxDist)
+                return overlapBest;
+
+            // Cache miss / no collider: short-TTL scene scan (rate-limited by SceneScanCache).
             Inventory best = null;
             float bestDist = maxDist;
-            if (overlapBest != null && overlapBestD < maxDist)
-            {
-                best = overlapBest;
-                bestDist = overlapBestD;
-            }
             Inventory[] all = SceneScanCache<Inventory>.Get();
             for (int i = 0; i < all.Length; i++)
             {
@@ -221,8 +227,6 @@ namespace DWMPHorde.Sync
                 return best;
             }
 
-            // Final fallback: search DeathDrop objects by position (they may not have
-            // a physics collider and the inventory type may be set after initialization)
             DeathDrop[] bags = GetCachedSceneComponents<DeathDrop>();
             DeathDrop closestBag = null;
             float closestBagDist = 3f;
@@ -246,7 +250,7 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            ModRuntime.LegacyInfo($"[Container] FindInventoryByPos: no inventory at {pos} (1m overlap + {maxDist}m scan + DeathDrop fallback)");
+            ModRuntime.LegacyInfo($"[Container] FindInventoryByPos: no inventory at {pos} (overlap {overlapR:F1}m + scan + DeathDrop)");
             return null;
         }
 

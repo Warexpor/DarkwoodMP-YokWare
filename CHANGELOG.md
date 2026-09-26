@@ -3,12 +3,1843 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.31**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.71**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## Batch 39 — NO-SHIP (day-death spectator audit + dig; stay on 0.8.71)
+
+Warexpor concern: ship notes about a “day death” / death-of-a-player fix may have
+meant we forcibly switch the dead peer to spectator on normal daytime death
+(vanilla = bag drop ~half items + house respawn). Protocol **25** unchanged.
+Product stays **0.8.71**. Dual-deploy untouched (md5 `919c300db8287d18e74ea38c7a63a3cd`).
+
+- **Day-death verdict: CORRECT (no spectator on day death).**
+  - **Vanilla** (`Player.onDeath`): `transportToHome` + revive at hideout, then
+    `dropBody` when inventory > 1; `skipDay` only when
+    `isHardNight && (!Core.isDay() || CurrentTime > nightTime - 50f)`.
+  - **YokWare day path:** `ClientDeathPatch` / `HostDeathSendPatch` Prefix set
+    `isNight` via `isHardNight && (!Core.isDay() || CurrentTime <= dayTime + 50f)`,
+    then `DeathStateTracker.OnLocalDayDeath()` (clears `LocalNightDeath`, log
+    “normal respawn”) and **`return true`** so vanilla bag + house continue.
+    Remotes: `CombatDeathStateNetHandlers.HandlePlayerDied` →
+    `OnRemoteDayDeath` (proxy Death1 pose; **no** `ForceEnter`).
+  - **Bag sync:** `DeathBagDropSyncPatch` Postfix on `Player.dropBody` fans
+    `DeathBagSpawn` (dream skipped only).
+  - **House grid hygiene (not spectator):** `DayDeathTransportHomeGridPatch` +
+    `OutsideLocationDeathGridHygienePatch` +
+    `LocationEnterExitNetHandlers.OnLocalReturnedToWorldAfterDeath` leave stale
+    outside-location grid / fan LocationExit so hideout respawn is visible.
+  - **Spectator only when:**
+    1. **Partial night death** — `NightDeathSkipDayPatch` →
+       `EnterNightDeathSpectator` → `SpectatorModeController.ForceEnter`
+       (gated `DeathStateTracker.LocalNightDeath`;
+       `NightDeathPolicy.ShouldSuppressWorldDeathMutations` also blocks
+       `transportToHome` / enemy respawn until morning).
+    2. **Final dreamscene death** — `FinalDreamsceneManager` `ForceEnter`.
+    3. F4 target cycle while already spectating (`SpectatorModeController.EnterExit`).
+  - **Ship-note clarification:** 0.8.42 “Day-death proxy premature revive” /
+    `LanNetworkManager.Tick` Death1 force when `LocalNightDeath || !local.alive`
+    only keeps the remote proxy corpse-dead during vanilla’s brief `!alive`
+    window / get-up clips — it does **not** enter spectator on day death.
+- **Dig ranked (Batch 39, outside parked):**
+  1. Day-death → spectator misunderstanding — **audited correct; no code change.**
+  2. Remaining Prefix sticky flag / Postfix-only clear without Finalizer —
+     scan found **0** residual `IsInside*`/`Suppress*`/`Inside*` set+clear pairs
+     missing Finalizer (theme exhausted 0.8.70–0.8.71).
+  3. Fresh other P0/P1 — none with file:symbol beyond parked list.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; oxygentank_full fan;
+  mid-dream migrate; InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer
+  `__result=null` only if playtest NRE; fresh 0.8.71 dual-box LogOutput (both
+  installs still show load banner **0.8.34**, mtime **26 Sep 16:02 MSK** — stale
+  vs live **0.8.71** md5 `919c300db8287d18e74ea38c7a63a3cd`).
+- **Shipped:** none (ZERO safe CAN-fixes).
+- **Rev / deploy:** none. No product bump, no redeploy. Live remains **0.8.71**.
+
+---
+
+## 0.8.71 — Harmony Finalizer restore (more stash/flag)
+
+Batch 38 dig: remaining Prefix sticky flag/counter + Postfix-only clear (Batch 37
+class). Protocol **25** unchanged. Product bump **0.8.70 → 0.8.71**.
+
+- **Dig ranked:**
+  1. **Postfix-only stash/flag restore (CAN-FIX P0/P1)** — Harmony skips Postfix
+     when the original throws; Prefix flags/counters stay wrong forever:
+     - `ExplosionOnActivatePrefix` bumps `ActivationDepth` / `IsInsideSpawnObjects` /
+       `IsHostSynced` / `CurrentExplodes`; Postfix-only clear → throw leaves host
+       treating later `AddPrefab` as explosion secondaries (or depth never unwinds).
+       Move clear to **Finalizer** (nesting-aware).
+     - `ExplosionDamageSkipPatch` Prefix sets `IsInsideLocalExplosion`; Postfix-only
+       clear → stuck true mis-routes client hitscan as explosion AOE. Add **Finalizer**.
+     - `FastProjectileSweepPatch` Prefix sets `IsInsideFastProjectileRaycast`;
+       Postfix-only clear → stuck true makes `HitscanImpactSyncPatch` skip forever.
+       Add **Finalizer**.
+     - `HostBansheeAgitatedPatch` Prefix sets `SuppressHostScreamForward`; Postfix-only
+       clear → stuck true suppresses banshee scream forward. Add **Finalizer** clear.
+     - `TrapPlacementPatch` Prefix sets `InsideTrapPlacement`; Postfix-only clear →
+       stuck true suppresses WorldObject harvest/destroy. Add **Finalizer**.
+     - `UiOpenNoPausePatches` / `UiCloseNoUnpausePatches` / `LevelingMenuHide` Prefix
+       Begin + Postfix End on shared `SuppressPause`/`SuppressUnpause` → throw leaves
+       pause/unpause blocked. Move End to **Finalizer** only (avoid double-End stealing
+       LevelingMenu.show cross-method hold).
+  2. **Fresh other P0/P1 outside parked** — none with file:symbol evidence beyond this
+     Finalizer class. WorkbenchOpenLock / oxygentank_full / mid-dream migrate /
+     InvItem trailers / gasoline `__result` untouched (no NRE proof).
+  3. **LogOutput** — Steam + SecondDarkwood `BepInEx/LogOutput.log` mtime still
+     **26 Sep 16:02 MSK**, load banner **0.8.34** (pre-0.8.68). Stale vs live
+     **0.8.70** md5 `64fc462d0b3087b576423c544156c712`. No fresh 0.8.70 dual-box
+     playtest log yet.
+- **Shipped:** Explosion onActivate/explode Finalizer clears; FastProjectile +
+  Banshee + TrapPlacement Finalizer flag clears; UI pause End→Finalizer;
+  ProductInvariant Batch 38 gates.
+- **Skipped / parked:** WorkbenchOpenLock; oxygentank_full fan; mid-dream migrate;
+  InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer `__result=null`
+  (no caller NRE proof).
+- **Rev1:** Finalizer restores + ProductInvariant Batch 38 gates; Release BepInEx
+  build OK (0 warn); PathB **77/77**.
+- **Rev2:** hubs OK (ExplosionSpawn 175, FastProjectile 181, HostAIPatches.Targeting
+  373, DoorSyncPatches 419, NoWorldPause 150, all &lt;500); HostWorldReady/_Highest
+  **139**; protocol **25**; dual-deploy Steam+SecondDarkwood md5
+  `919c300db8287d18e74ea38c7a63a3cd`.
+- **Player situations:** If a grenade/explosion activate hiccups, the host no longer
+  keeps tagging every later spawn as an explosion secondary. If a local explode or
+  bullet FixedUpdate throws, peer hitscan/explosion damage routing and impact sync
+  keep working. If banshee agitates and throws mid-call, scream forward is not stuck
+  off. If trap placement throws mid-progress bar, world harvest/destroy is not stuck
+  suppressed. If map/journal/dialogue open throws, co-op pause is not stuck blocked.
+- **Batch 39 residuals:** parked WorkbenchOpenLock / oxygentank_full fan /
+  mid-dream migrate / InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer only
+  if playtest NRE; fresh 0.8.71 dual-box LogOutput (replace stale 0.8.34).
+
+---
+
+## 0.8.70 — Harmony Finalizer restore (stash/flag bad-state)
+
+Batch 37 dig: remaining Prefix `return false` without `__result` + Postfix/Finalizer
+bad-state. Protocol **25** unchanged. Product bump **0.8.69 → 0.8.70**.
+
+- **Dig ranked:**
+  1. **Postfix-only stash/flag restore (CAN-FIX P0/P1)** — Harmony skips Postfix when
+     the original throws; Prefix mutations / sticky flags stay wrong forever:
+     - `HostCheckStuffPatch` Prefix clears `temporarySpawned` / `wantToDespawn` /
+       `forestSpirit` for remote-near NPCs, restored only in Postfix → throw leaves
+       never-despawn / spirit-idle corruption. Move restore to **Finalizer**.
+     - `EntitySoundSyncPatches` Prefix sets `TraverseHack.InsideCharacterSounds` (+
+       `InsideEscapingLoop` on escaping); Postfix-only clear → stuck true suppresses
+       PlayerAudio forward / AudioSuppression for the rest of the session. Add
+       **HarmonyFinalizer** clears (Idle/Growl/Escaping/SingleInstance/play/GetHit).
+     - `ClientProjectileDamagePatch` Prefix sets `IsInsidePlayerBulletCollision`;
+       Postfix-only clear → stuck true mis-routes peer projectile/hitscan damage.
+       Add **Finalizer** clear.
+  2. **Remaining non-void Prefix without `__result` (skipped — no NRE proof)** —
+     Cecil scan vs Assembly-CSharp: only gasoline `Core.AddPrefab` (GameObject) and
+     `ObjectPoolSpawner.spawnObject`/`tryToSpawn` (GameObject). Caller IL:
+     - GasolineTrail string path → `Player.waitToSpillLiquid` → `addToSaveable` which
+       `op_Inequality` null-checks (returns null). Object overload callers
+       (`Explodes.spawnObjects`) **pop** the result. No NRE path.
+     - ObjectPool only external caller `ObjectPoolSpawnerController.tryToSpawn`
+       null-checks with `op_Inequality`. No NRE path.
+     - `Inventory.addItemTypeToPlayer` (InvItemClass): all 15 call sites **pop** or
+       `InvItemClass.isNull` — RISK=0. Dialog suppress stays as-is.
+     No remaining IEnumerator Prefix without `__result` (Batch 36 EmptyRoutine covered).
+  3. **Fresh other P0/P1 outside parked** — none with file:symbol evidence beyond
+     this Finalizer class. WorkbenchOpenLock / oxygentank_full / mid-dream migrate /
+     InvItem trailers untouched.
+  4. **LogOutput** — Steam + SecondDarkwood `BepInEx/LogOutput.log` mtime still
+     **26 Sep 16:02 MSK**, load banner **0.8.34** (pre-0.8.68). Stale vs live
+     **0.8.69** md5 `70c1efdc6ba3d472a1e9af346c82cb1e`. No fresh 0.8.6x dual-box
+     playtest log yet.
+- **Shipped:** HostCheckStuff Finalizer restore; EntitySound + ClientProjectile
+  Finalizer flag clears; ProductInvariant `HarmonyFlagStash_UsesFinalizerRestore`.
+- **Skipped / parked:** WorkbenchOpenLock; oxygentank_full fan; mid-dream migrate;
+  InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer `__result=null`
+  (no caller NRE proof).
+- **Rev1:** Finalizer restores + ProductInvariant gate; Release BepInEx build OK;
+  PathB **77/77**.
+- **Rev2:** hubs OK (HostAIPatches.Perception 402, EntitySoundSync 312,
+  ClientProjectile 30, all &lt;500); HostWorldReady/_Highest **139**; protocol **25**;
+  dual-deploy Steam+SecondDarkwood md5 `64fc462d0b3087b576423c544156c712`.
+- **Player situations:** If an NPC `checkStuff` hiccups while a co-op partner is
+  nearby, that NPC no longer stays permanently "don't despawn" / spirit-idle from a
+  half-applied keep-alive. If a creature sound or your bullet collide throws mid-call,
+  the mod no longer leaves "inside character sounds" or "inside bullet collide" stuck
+  on — peer damage and audio forwarding keep working.
+- **Batch 38 residuals:** parked WorkbenchOpenLock / oxygentank_full fan /
+  mid-dream migrate / InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer only
+  if playtest NRE; fresh 0.8.70 dual-box LogOutput (replace stale 0.8.34).
+
+---
+
+## 0.8.69 — Harmony IEnumerator suppress EmptyRoutine (HelpMessage-class)
+
+Batch 36 creative adversarial dig: Prefix `return false` on non-void methods
+without `__result`. Protocol **25** unchanged. Product bump **0.8.68 → 0.8.69**.
+
+- **Dig ranked:**
+  1. **Harmony suppress NRE (IEnumerator / StartCoroutine null)** — same class as
+     0.8.37 HelpMessage / `GameEvent.fire`. Cecil scan of Prefix `return false`
+     without `__result` against `Assembly-CSharp` found coroutine skips that leave
+     `__result` null while vanilla `StartCoroutine(method())` callers:
+     - `Dreams.prepareDream` (client abort + host TryBegin reject)
+     - `Player.onDeath` (dream-death skip, host+client)
+     - `CharacterSpawnPoint.waitToSpawnCharacter` (client skip)
+     - `CharacterSpawner.waitToSpawnWorm` / `waitToSpawnShadow` / `spawnForestSpirit`
+       (client disable + host forest-spirit redirect)
+     Fix: shared `HarmonyCoroutineUtil.Empty()` assigned to `__result` before
+     `return false` (mirrors `GameEventDreamAuthorityPatch`).
+  2. **Remaining non-void suppressors (skipped)** — `Core.AddPrefab` gasoline trail
+     (intentional null; network apply uses Explicit flag), `ObjectPoolSpawner`
+     (controller `op_Inequality` null-check), `Inventory.addItemTypeToPlayer`
+     (dialog path `pop`s result). Not StartCoroutine-null class; no playtest NRE.
+  3. **Sibling fork gaps** — Yokyy/DarkwoodMod have same ClientWorld / onDeath
+     Prefix skips without EmptyRoutine; nothing safer to port. No wholesale merge.
+  4. **Hot net Apply null/throw** — DialogOutcome / Flag / Night Apply paths already
+     null-guard `Player.Instance` / Singletons. No new CAN-fix.
+  5. **LogOutput** — Steam `BepInEx/LogOutput.log` mtime 26 Sep 16:02 MSK loads
+     **0.8.34** (pre-0.8.68). Shows historical `GameEvent.fire` MoveNext NRE on
+     Hideout1_tutorial_02 — stale vs live **0.8.68** md5. No fresh 0.8.6x playtest.
+- **Shipped:** EmptyRoutine on prepareDream / onDeath / waitToSpawn* /
+  spawnForestSpirit Prefix suppresses; `HarmonyCoroutineUtil`; ProductInvariant gate.
+- **Skipped / parked:** WorkbenchOpenLock; oxygentank_full fan; mid-dream migrate;
+  InvItem trailers; gasoline/ObjectPool/addItemTypeToPlayer non-IEnumerator
+  suppressors (no StartCoroutine-null proof).
+- **Rev1:** EmptyRoutine util + Prefix `__result` on prepareDream / onDeath /
+  waitToSpawn* / spawnForestSpirit; ProductInvariant gate; Release build OK.
+- **Rev2:** GameEventDreamAuthorityPatch brace cleanup after util migrate;
+  PathB **76/76**; hubs OK (DreamSyncPatches 239, ClientWorld 195,
+  NightSpawnRedirect 153, all &lt;500); HostWorldReady/_Highest **139**;
+  protocol **25**; dual-deploy Steam+SecondDarkwood md5
+  `70c1efdc6ba3d472a1e9af346c82cb1e`.
+- **Player situations:** If a peer aborts `prepareDream("")` while waiting host
+  DreamStarted, or dies in shared dream, or client skips worm/spawn wait
+  coroutines — Unity no longer throws "routine is null" from those Prefix skips.
+  Gameplay outcome unchanged (still skip); only the NRE is gone.
+- **Batch 37 residuals:** parked WorkbenchOpenLock / oxygentank_full fan /
+  mid-dream migrate / InvItem trailers; optional defensive `__result=null` on
+  gasoline AddPrefab / ObjectPool / dialog addItemTypeToPlayer only if playtest
+  shows NRE; fresh 0.8.69 dual-box LogOutput.
+
+---
+
+## Batch 35 — NO-SHIP (wiki unique softlock + TODO dig; stay on 0.8.68)
+
+Warexpor unique / limited progression dig + AGENTS/CHANGELOG/FIXME near
+networking. Protocol **25** unchanged. Product stays **0.8.68**. Dual-deploy
+untouched (md5 `1d60791c92cd0ce18f020b2d58bde057`).
+
+- **Wiki unique / limited (cross-check vs mod):**
+  - **Keys** (Prologue Key, Big Metal Key, Cellar/Chest/Rusty/Wolf hideout,
+    Burned House/Cottage, Room Key, Mushroom Granny, Sawmill, Shed, Twisted,
+    Keyring, etc.) → `KeyReference` live JournalItem + already-claimed Prefix
+    destroy + late-join `DestroyWorldJournalObject` (KeyReference scan). Covered.
+  - **Doctor / chapter quest items** (Doctor key reclaim, instructions, Wolf
+    wantsToTalk) → shared journal + ReputationBulk / DialogTree wantsToTalk
+    (0.8.55). No new softlock file:symbol.
+  - **Elephant → Empty Oxygen Tank; Old Shed second empty; Compressor Parts →
+    compressor fill** → `OxygenTankAcquirePatch` fans `oxygentank_empty`;
+    `CompressorConvertDetectPatch` fans empty→full convert; `PeerItemPresence`
+    OR on host `EventTriggerRequirement.haveItem` includes Inventory+Hotbar
+    (0.8.52). Flooded passage is personal haveItem / dialogue
+    (`noOxygenTankToGoUnderwater`); host world gates use PeerItemPresence.
+  - **Compressor Parts / Drawings / other quest InvItems** → journal
+    QuestItemReference path + host-auth world pickup claim
+    (`FinishWorldPickupClaim` / GUID claim). No new missing destroy path.
+- **Dig ranked:**
+  1. **oxygentank_full world-pick fan** — still no softlock proof beyond hotbar
+     PeerItemPresence + empty fan + compressor convert. Vanilla
+     `getItemInPlayer` already includes Hotbar for local dive. Second empty
+     (Old Shed) remains alternate acquire. Inventing a full-tank fan without
+     playtest brick = not a CAN-fix. **Parked / skip.**
+  2. **WorkbenchOpenLock** — intentional product park since 0.7.40
+     (`COOP_COVERAGE`: both may open/use; vanilla `Workbench.open` has no
+     exclusive latch; msg 119 stub + ignore handler; disconnect release is
+     no-op). Not a softlock. Surgical DragClaim-style lock only if playtest
+     asks one-crafter. **Skip.**
+  3. **AGENTS.md / CHANGELOG / FIXME|TODO near networking** — no unshipped
+     P0/P1 softlock with file:symbol outside the parked list (Hub comments are
+     TraverseHack / historical bug notes, not open holes).
+  4. **Host-auth unique pickup / journal destroy / PeerItemPresence** —
+     re-validated against wiki set; no regression hole found. Do not re-fix.
+  5. Fresh other P0/P1 with file:symbol — **none**.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined; EventTrigger.fired bulk; timeSeen/modifiers;
+  locationDirections; timeDeactivated; InvItem trailers on
+  trade/drop/deathbag/container (theme exhausted through 0.8.68).
+- **Shipped:** none (ZERO safe CAN-fixes).
+- **Rev / deploy:** none. No product bump, no redeploy. Live remains **0.8.68**
+  md5 `1d60791c92cd0ce18f020b2d58bde057`. Protocol **25**; HostWorldReady/_Highest
+  **139**; beartrap / indoor reverb / CoopWorldPresencePolicy preserved.
+- **Player situations:** N/A (no-ship).
+- **Batch 36 residuals:** same parked list; only ship if playtest proves a
+  concrete unique softlock (esp. oxygentank_full world-pick / late-join after
+  convert) or asks Workbench one-crafter exclusive lock.
+
+## Batch 34 — NO-SHIP (fresh dig, non-item-wire; stay on 0.8.68)
+
+Fresh dig outside InvItem trailers / parked list. Protocol **25** unchanged.
+Product stays **0.8.68**. Dual-deploy untouched (md5 `1d60791c92cd0ce18f020b2d58bde057`).
+
+- **Dig ranked:**
+  1. **Proxy attack swing / hit react** — PlayerAnimationTriggerPatch + PlayerState
+     torso clips + SecondPlayerAnimController transient Once-clip guard already cover
+     Attack/HitN. ProxyDamagePatch→DamagePlayer/FF + HitscanBloodPatch forward blood.
+     HostMeleeSensorPatch blood+DamagePlayer. No remaining file:symbol hole. Skip.
+  2. **Stealth / crouch / smell** — vanilla has **no crouch**. Smell = Sniffer + FOV;
+     HostSnifferUpdatePatch / HostCanSeeEnemyPatch / WorldProxyLifecycle notice already
+     multi-proxy. Skip.
+  3. **Fire / burning world objects** — WorldBurnState Door/Window/Item + EntityBurning
+     / PlayerBurning + LiquidStopBurning. Infection AddComponent<Burn> only clears
+     splats (InfectionDisappear synced); no world-burn target hole. Skip.
+  4. **Gas / mushrooms / spores** — GasTrail/GasIgnite + late-join SendGasStateTo;
+     WormsSpawner host-auth; Infection spawn/disappear live+bulk. Skip.
+  5. **Wolf / dog companion** — wiki+decompile: no persistent companion. Dog lure/eat
+     host AI + EntityState Behaviour.following presentational. PetDog via PlayerAnim.
+     Skip.
+  6. **Piotrek / special NPC follow** — dialogue vendor + tractor parts (personal);
+     Aggressiveness.follower is story NPC, EntityState packs following. Skip.
+  7. **Chapter transition softlocks** — ChapterProgression + share fallback (3×12s) +
+     ChapterSessionResume loadingGame unstick 45s already ship. No new softlock
+     file:symbol. Skip.
+  8. **Host migration mid-combat** — ReclaimSimulationAuthorityAfterPromote +
+     ReleaseAuthorityForPromote + EntityStateBroadcast Resume + ClientAI Role-dynamic;
+     promote auto-Save still parked (F3 reminder). Mid-dream still parked. No new
+     mid-combat CAN-fix. Skip.
+  9. Fresh other P0/P1 with file:symbol — **none**.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream migration;
+  Examinable examined; EventTrigger.fired bulk; timeSeen/modifiers; locationDirections;
+  timeDeactivated; InvItem trailers on trade/drop/deathbag/container (theme exhausted
+  through 0.8.68 — do not re-fix).
+- **Rev / deploy:** none. ZERO safe CAN-fixes → no bump, no redeploy.
+- **Batch 35 residuals:** same parked list; only ship if playtest proves a concrete
+  non-item-wire P0/P1 with file:symbol.
+
+## 0.8.68 — TradeInventory upgrades + shouldBeActive stock parity
+
+Batch 33 (Warexpor residual — player-sold upgraded / flashlight-on items on
+trader absolute stock; fresh dig outside parked + outside just-shipped empty-mag).
+Protocol **25** unchanged.
+
+- **Sold upgraded item shows base on peer trader (P1):** Drop/death-bag/container
+  already carried workbench `ItemUpgrade` names (0.8.65), but
+  `TradeInventorySync` only had type/amount/IsRecipe/durability. Sell an upgraded
+  axe to NightTrader → peer `ApplyToNpc` `createItem` left upgrades empty —
+  buy-back / peer UI showed base damage. Wire: AvailableBytes upgrade trailer
+  (count+names per entry) after the 0.8.62 recipe/dur block, same pattern as
+  `ContainerStateSync`. Build collects via `InvItemUpgradeWire.CollectNames`;
+  Apply calls `InvItemUpgradeWire.Apply`. NPC InventoryRandom stock rarely has
+  upgrades; trailer still required for player-sold items.
+- **Sold flashlight-on shows off on peer trader (P1):** `shouldBeActive` already
+  on drop/death-bag/container (0.8.66) and ClientStateBackup (0.8.59). Trade
+  absolute stock omitted it. Wire: bool trailer per entry after upgrades;
+  Apply via `InvItemTransferApply.ApplyMeta` (also keeps empty-mag / 0-dur from
+  0.8.67).
+- **Dig ranked:**
+  1. **TradeInventorySync upgrades + shouldBeActive — SHIPPED**
+     (SyncMessages TradeInventorySyncMessage; TradeSyncPatches Build/Apply).
+  2. timeDeactivated on transfer — still ~1s early regen only; no playtest
+     recharge evidence. Skip.
+  3. oxygentank_full world-pick fan — parked (PeerItemPresence / compressor
+     path covered). Skip.
+  4. WorkbenchOpenLock — parked stub by design. Skip.
+  5. hotbar 3D / trap mid-lerp / promote auto-Save / night music / Examinable
+     examined / mid-dream migration / EventTrigger.fired bulk /
+     timeSeen/modifiers / locationDirections — parked unchanged. Skip.
+  6. Trade empty-mag / 0-dur — just shipped 0.8.67; do not re-fix. Skip.
+  7. Drop/death-bag/container upgrade/active trailers — just shipped
+     0.8.65–0.8.66; do not re-fix. Skip.
+  8. Fresh other P0/P1 outside parked — none beyond this Trade wire hole.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-
+  lerp; promote auto-Save; night music; oxygentank_full world-pick fan;
+  mid-dream migration; Examinable examined presentation; EventTrigger.fired
+  bulk; timeSeen/modifiers; journal locationDirections; empty-mag / 0-dur on
+  TradeInventory (just shipped); upgrade/shouldBeActive/IsRecipe/DoorOpen on
+  drop-deathbag-container (just shipped).
+- **Rev1:** TradeInventorySync Upgrades[][] + ShouldBeActive[] AvailableBytes
+  trailers; Build CollectNames/shouldBeActive; Apply UpgradeWire + ApplyMeta;
+  ProductInvariant gate; version 0.8.68.
+- **Rev2:** ApplyMeta only when both abs-dur + shouldBeActive trailers present
+  (legacy 0.8.62–0.8.67 dual-deploy leaves createItem defaults); PathB 75/75;
+  hubs OK (TradeSync 426, CombatDeathBag 395, ContainerSyncPatches 364);
+  HostWorldReady/_Highest=139; protocol 25; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.67 → 0.8.68**.
+- **Deployed md5** `1d60791c92cd0ce18f020b2d58bde057` (build = Steam host =
+  SecondDarkwood client).
+- **Runtime:** code-only until dual-box: upgrade melee at workbench → sell to
+  NightTrader → peer opens trade → same upgrades on stock; sell ON flashlight
+  → peer stock keeps shouldBeActive; buy-back restores upgrades/active.
+- **Batch 34 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves; timeSeen/modifiers / locationDirections / timeDeactivated
+  only if playtest proves; pre-0.8.68 TradeInventory packets omit upgrades /
+  shouldBeActive (legacy apply = base / off).
+
+---
+
+## 0.8.67 — TradeInventory empty-mag + 0-dur stock parity
+
+Batch 32 (Warexpor fresh dig — InvItem peer-transfer fields exhausted after
+0.8.66; dig elsewhere: timeDeactivated / reload-aim / heal-eat double-consume /
+sleep-bed / multi-session; Trade stock hole found). Protocol **25** unchanged.
+
+- **Empty magazine sold/restocked gun vanishes from peer trader UI (P1):**
+  `TradeInventorySync.BuildMessage` used `Amounts = ammo` for hasAmmo items and
+  skipped `amt <= 0`. Sell an empty pistol to NightTrader → absolute fan omitted
+  the gun; peer `ApplyToNpc` cleared stock and never recreated it. Client→host
+  trade reply could also drop the empty gun from host truth. Build now keeps
+  hasAmmo entries with Amounts=0; Apply creates with Amount→ammo (0 stays empty)
+  after an ItemsDatabase hasAmmo gate.
+- **Broken (durability 0) sold item restored full on peer trader (P1):** Apply
+  used `absDur > 0f` after createItem(…, 1f, …) — same hole class as container
+  0.8.66. Always assign absolute durability (including 0).
+- **Dig ranked:**
+  1. **TradeInventorySync empty-mag omission + 0-dur apply — SHIPPED**
+     (file:symbol BuildMessage `amt <= 0` skip; ApplyToNpc `absDur > 0f`).
+  2. timeDeactivated on transfer — regeneratesWhenInactive uses
+     `timeDeactivated < Time.time - 1f`; peer createItem defaults 0 → ~1s early
+     regen only. No playtest recharge evidence. Skip.
+  3. Reload animation / chamber — torso reload clips already via
+     PlayerAnimationTriggerPatch; chamber ammo is personal until drop (ammo on
+     wire 0.8.58/66). No remaining file:symbol gap. Skip.
+  4. Aim / ADS / zoom — local FOV / Far Look; proxy aim pose via synced torso
+     clips; Crosshair gated off on proxy by design. Skip.
+  5. Healing / eat/drink double-consume — InvItemClass.use is local personal
+     inventory; no network use() fan. No evidence. Skip.
+  6. Sleep / bed remaining — SleepEndRequest clock only; no vanilla per-bed
+     SaveState (0.8.62). Skip.
+  7. Multi-session brick beyond 0.8.49–0.8.61 — Player.SaveState vs
+     ClientStateBackup covered; remaining fields parked (timeSeen/modifiers /
+     locationDirections / gotHit readers). No new softlock file:symbol. Skip.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-
+  lerp; promote auto-Save; night music; oxygentank_full world-pick fan;
+  mid-dream migration; Examinable examined presentation; EventTrigger.fired
+  bulk; timeSeen/modifiers; journal locationDirections; shouldBeActive /
+  empty-mag / 0-dur / upgrades / IsRecipe / DoorOpen on drop-deathbag-container
+  (just shipped — do not re-fix).
+- **Rev1:** TradeInventorySync Build empty-mag keep; Apply hasAmmo+ammo assign +
+  always absDur; ProductInvariant gate; version 0.8.67.
+- **Rev2:** Apply durability only when Durabilities trailer present (legacy
+  pre-0.8.62 safe); PathB 74/74; hubs OK (TradeSync 400, CombatDeathBag 395,
+  ContainerSyncPatches 364); HostWorldReady/_Highest=139; protocol 25;
+  dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.66 → 0.8.67**.
+- **Deployed md5** `a1cc9ce6680e448f2bb443d70814bd51` (build = Steam host =
+  SecondDarkwood client).
+- **Runtime:** code-only until dual-box: sell empty pistol / broken melee to
+  NightTrader → peer opens trade → same empty/broken item still in stock;
+  buy-back keeps 0 ammo / 0 durability.
+- **Batch 33 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves; timeSeen/modifiers / locationDirections / timeDeactivated
+  only if playtest proves; Trade upgrades/shouldBeActive only if playtest
+  proves; pre-0.8.67 TradeInventory packets omit empty-mag / may full-bar
+  broken (legacy apply).
+
+---
+
+## 0.8.66 — shouldBeActive + empty-mag / 0-dur on peer createItem
+
+Batch 31 (Warexpor fresh dig — InvItem fields lost on drop/death-bag/container
+peer createItem; ammo/durability verify; broader multi-session). Protocol **25**
+unchanged.
+
+- **Flashlight on/off stripped on peer copies (P1):** ClientStateBackup already
+  persisted `shouldBeActive` (0.8.59) for the owning player, but
+  `DroppedItemSpawn`, `DeathBagSpawn`, `ContainerItem`, and
+  `ContainerStateSync` never carried it. Peer `createItem` left the flag
+  false — ON flashlight dropped / bagged / crated came back OFF when another
+  player took it (Player.currentItem light gate needs the flag). Wire:
+  AvailableBytes bool trailer after the upgrade trailer on those messages;
+  place-deny refund too. Send paths collect; `InvItemTransferApply.ApplyMeta`
+  after createItem.
+- **Empty magazine → 1 round on peer (P1):** Wire already had Ammo, but death-
+  bag / container apply used `Ammo > 0` and skipped zero. Vanilla createItem
+  maps Amount→ammo for hasAmmo, so Amount=1 left the peer with 1 in the mag.
+  Apply now always assigns ammo when hasAmmo (drop path already did).
+- **Broken item (durability 0) restored full on peer container (P1):** Container
+  Place / StateSync / place-deny used `Durability > 0f` (deny also fed absolute
+  dur into the createItem 0..1 multiplier). Always assign absolute durability
+  via ApplyMeta after createItem(…, 1f, …).
+- **Dig ranked:**
+  1. **shouldBeActive on death-bag / drop / container — SHIPPED.**
+  2. **Empty-mag ammo apply hole — SHIPPED** (apply-side; ammo already on wire).
+  3. **Durability already on wire — verified;** 0-dur container apply hole —
+     SHIPPED with ApplyMeta.
+  4. Other InvItem fields (timeSeen / modifiers / timeDeactivated / modifierQuality)
+     — no new playtest evidence beyond parked list. Skip.
+  5. Broader non-item multi-session brick — no new file:symbol evidence outside
+     parked. Skip.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-
+  lerp; promote auto-Save; night music; oxygentank_full world-pick fan;
+  mid-dream migration; Examinable examined presentation; EventTrigger.fired
+  bulk; timeSeen/modifiers; journal locationDirections; upgrade trailers /
+  DoorOpen / recipe IsRecipe (just shipped — do not re-fix).
+- **Rev1:** InvItemTransferApply; ShouldBeActive trailers; send+apply on
+  drop/death-bag/container (+late-join sync, deny refund); empty-mag/0-dur
+  apply; ProductInvariant gate.
+- **Rev2:** PathB 73/73; hubs OK (CombatDeathBag 395, ContainerSyncPatches
+  364, DroppedItems 189); HostWorldReady/_Highest=139; protocol 25;
+  dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.65 → 0.8.66**.
+- **Deployed md5** `007329e2ecb8cafbe7d17e2e57e12d4c` (build = Steam host =
+  SecondDarkwood client).
+- **Runtime:** code-only until dual-box: turn flashlight ON → drop / die / put
+  in crate → peer picks up / loots / takes → select item → light still ON;
+  empty pistol in crate → peer sees 0 rounds; broken weapon in crate → peer
+  sees 0 durability.
+- **Batch 32 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves; timeSeen/modifiers / locationDirections / timeDeactivated
+  only if playtest proves; pre-0.8.66 shouldBeActive trailers absent (legacy
+  apply = off / prior ammo>0 / dur>0 holes).
+
+---
+
+## 0.8.65 — Shared InvItem upgrades on death-bag / drop / container
+
+Batch 30 (Warexpor residual — shared workbench ItemUpgrade names on
+death-bag / ground drop / container Place+StateSync; deny place refund;
+fresh dig in those files). Protocol **25** unchanged.
+
+- **Shared upgraded items stripped on peer copies (P1):** ClientStateBackup
+  already persisted `Upgrades[]` (0.8.59) for the owning player, but
+  `DroppedItemSpawn`, `DeathBagSpawn`, `ContainerItem`, and
+  `ContainerStateSync` only carried type/amount/dur/ammo/`IsRecipe`. Peer
+  `createItem` rebuilt a base weapon — workbench damage/dur modifiers gone
+  when the item moved between players via drop, death bag, or shared crate.
+  Wire: AvailableBytes upgrade trailer (byte count + names) after the
+  IsRecipe trailer on those messages; `InvItemUpgradeWire` Collect/Apply/
+  Write/TryRead(+Many). Send paths collect; apply paths after createItem.
+  Place-deny refund carries the same trailer on `ContainerTakeDenied`.
+- **Dig ranked:**
+  1. **Shared InvItem upgrades on death-bag / drop / container — SHIPPED**
+     (DroppedItemSpawn + late-join SyncExistingDroppedItems;
+     DeathBagSpawn + late-join SyncExistingDeathBags;
+     ContainerItem Place + ContainerStateSync snapshots + InventoryRandom
+     fan-out; place-deny refund).
+  2. TradeInventory upgrades — NPC shop stock is InventoryRandom (no
+     workbench upgrades). Skip.
+  3. UpgradeItemMenu / UpgradeItemBtn — remains personal (COOP_COVERAGE
+     parked). Skip.
+  4. DoorOpen OpenForce — just shipped 0.8.64; do not re-fix. Skip.
+  5. Fresh other P0/P1 in touched files — none beyond this wire hole.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-
+  lerp; promote auto-Save; night music; oxygentank_full world-pick fan;
+  mid-dream migration; Examinable examined presentation; EventTrigger.fired
+  bulk; timeSeen/modifiers; journal locationDirections.
+- **Rev1:** InvItemUpgradeWire; message trailers; drop/death-bag/container
+  send+apply; deny refund; ProductInvariant source gate.
+- **Rev2:** PathB 72/72; hubs OK (CombatDeathBag 389, ContainerSyncPatches
+  356, DroppedItems 191); HostWorldReady/_Highest=139; protocol 25;
+  dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.64 → 0.8.65**.
+- **Deployed md5** `155d095cf59b6fcc30cf1dbe010ac96f` (build = Steam host =
+  SecondDarkwood client).
+- **Runtime:** code-only until dual-box: upgrade a melee at workbench →
+  drop / die / put in crate → peer sees same upgrades (getModdedDamage /
+  SaveState.upgrades parity).
+- **Batch 31 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves; timeSeen/modifiers / locationDirections only if playtest
+  proves; pre-0.8.65 upgrade trailers absent (legacy apply = no upgrades);
+  TradeInventory upgrades only if playtest shows upgraded trader stock.
+
+---
+
+## 0.8.64 — Door kick OpenForce / opener on DoorOpen
+
+Batch 29 (Warexpor fresh dig — InventoryRandom field collapses, ThrownItem /
+projectile ownership, door kick/open after scrape, voice-less HelpMessage,
+weather particles, chapter/biome, fresh 0.8.6x logs, inventive multi-session).
+Protocol **25** unchanged.
+
+- **Door kick OpenForce lost on peers (P1):** `DoorOpen` applied with hardcoded
+  metal 30000 / wood 0 and opener = door pos. `DoorState` (real OpenForce +
+  opener, incl. AI `openThump` 45000 → `door_hit_run`) then **skipped** because
+  `opened` already matched. Peers heard soft `openSound`, wrong hinge kick.
+  Wire: `DoorOpenMessage` AvailableBytes trailer OpenForce + OpenerPos; apply
+  uses trailer; broadcast prefers `openerTransform` (AI thump) over local
+  Player; Physics door apply still snaps body rot/angVel when already open.
+- **Dig ranked:**
+  1. **Door kick OpenForce / opener on DoorOpen — SHIPPED.**
+  2. InventoryRandom upgrades/ammo — ammo+dur+IsRecipe already on
+     ContainerStateSync (0.8.62); loot `createItem` never rolls upgrades.
+     Skip.
+  3. ThrownItem / projectile ownership / damage remaining — host-auth
+     SpawnThrownItem + MuteThrownCombat visualOnly; LongevitySec flare remain
+     already wired. No new smoking gun. Skip.
+  4. Voice-less HelpMessage / examinable — PersonalFlavorHud NearRange +
+     Postfix-hide (not Prefix-null) already fixes Hideout1_tutorial_02 NRE.
+     Skip.
+  5. Weather particles / rain softlock — WeatherSync startRain/stopRain +
+     schedule suppress covered; no softlock evidence. Skip.
+  6. Chapter load / biome transition — ChapterProgression + LocationEnter
+     guards covered; no new file:symbol hole. Skip.
+  7. Fresh 0.8.6x logs — host/client logs are **0.8.34** @ 16:02 MSK; no
+     0.8.6x smoking gun. Skip.
+  8. Inventive multi-session — death-bag/drop upgrades not on wire (personal
+     UpgradeItemMenu parked; backup already has Upgrades). Large recipe-
+     adjacent theme; not surgical for this batch. Skip.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-
+  lerp; promote auto-Save; night music; oxygentank_full world-pick fan;
+  mid-dream migration; Examinable examined presentation; EventTrigger.fired
+  bulk; timeSeen/modifiers; journal locationDirections; shared-item upgrades
+  on death-bag/drop/container (Batch 30 if playtest proves).
+- **Rev1:** DoorOpen OpenForce+Opener trailer; Broadcast openerTransform;
+  HandleDoorOpen apply; Physics already-open body snap.
+- **Rev2:** PathB 71/71; hubs OK (DoorNetHandlers 154, DreamDoorSyncPatches 193,
+  Apply 497); HostWorldReady/_Highest=139; protocol 25; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.63 → 0.8.64**.
+- **Deployed md5** `1c9e4223934300e263127460baeec80b` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box: AI/player thump a closed door → peer
+  hears `door_hit_run` and sees matching hinge kick.
+- **Batch 30 residuals:** shared InvItem upgrades on death-bag/drop/container;
+  oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save (F3); night music; Examinable examined presentation;
+  mid-dream migration; EventTrigger.fired only if playtest proves;
+  timeSeen/modifiers / locationDirections only if playtest proves; pre-0.8.64
+  DoorOpen packets lack OpenForce trailer (legacy apply = metal/wood fallback).
+
+---
+
+## 0.8.63 — Dropped-item / death-bag recipe wire parity
+
+Batch 28 (Warexpor fresh dig — dropped world IsRecipe, death-bag recipes,
+give/throw recipe flag, workbench craft output peer scrap, other InvItem wire
+holes, multi-session softlock outside parked). Protocol **25** unchanged.
+
+- **Dropped ground recipes collapsed (P1):** `DroppedItemSpawn` / late-join
+  `SyncExistingDroppedItems` sent `InvItemClass.type` (`"recipe"`) with no
+  `isRecipe`/`recipeFor`. Peer `new InvItemClass(type)` spawned a junk recipe
+  scrap (same collapse as trade/container pre-0.8.62). Wire now carries
+  craftable type + `IsRecipe` AvailableBytes trailer; apply uses
+  `createItem(..., isRecipe)`.
+- **Death-bag recipes collapsed (P1):** `DeathBagDropSyncPatch` + late-join
+  `SyncExistingDeathBags` stored `type` only; `HandleDeathBagSpawn`
+  `createItem(type, amount)` dropped recipe identity. Per-entry `IsRecipe`
+  trailer after `BagId`; ItemTypes = recipeFor when set; apply
+  `createItem(..., isRecipe)`.
+- **Dig ranked:**
+  1. **DroppedItemSpawn IsRecipe collapse — SHIPPED** (SendDrop + late-join sync
+     + HandleDroppedItemSpawn createItem).
+  2. **DeathBagSpawn IsRecipe collapse — SHIPPED** (dropBody fan + late-join +
+     HandleDeathBagSpawn).
+  3. Give/throw recipe flag — dialog `giveItem` is personal
+     (`DialogApplyPolicy` / suppress on remote); `throwItem` is ThrownItem FX
+     (molotov/flare), not inventory recipe stacks. No InvItem recipe wire.
+     Skip.
+  4. Workbench craft output scrap for peers — `doCraft` only fans
+     WorkbenchLevel; craft result stays personal inventory (COOP_COVERAGE
+     craftedItems personal). No craft-output InvItem wire. Skip.
+  5. Other InvItem wire — Trade/Container/InventoryRandom/ClientStateBackup
+     already 0.8.62. No further createItem apply holes found. Skip.
+  6. Broader multi-session softlock — no new evidence outside parked list.
+     Skip.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk;
+  timeSeen/modifiers; journal locationDirections.
+- **Rev1:** DroppedItemSpawn IsRecipe trailer; DeathBagSpawn IsRecipe[] trailer;
+  SendDrop / SyncExisting / dropBody / late-join encode recipeFor; apply
+  createItem(..., isRecipe).
+- **Rev2:** PathB 71/71; hubs OK (CombatDeathBag 383, DroppedItems 190); HostWorldReady/_Highest=139; protocol 25; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.62 → 0.8.63**.
+- **Deployed md5** `151ecdd84eea47718fb8b01a6cfacc1a` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box: drop a recipe on ground → peer sees the
+  same craftable recipe; die with a recipe in bag → peer loots the same recipe.
+- **Batch 29 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves; timeSeen/modifiers / locationDirections only if playtest
+  proves; pre-0.8.63 DroppedItem/DeathBag packets lack IsRecipe trailer
+  (legacy apply = non-recipe).
+
+---
+
+## 0.8.62 — TradeInventory / container recipe + durability parity
+
+Batch 27 (Warexpor fresh dig — locationDirections, expMachine personal, rot/smell/
+infection, sleep bed ownership, hideout crates, remaining SaveState/Journal,
+night-trader inventory holes, inventive multi-session softlock). Protocol **25**
+unchanged.
+
+- **Trader recipe stock collapsed / poisoned (P1):** `TradeInventorySync` keyed
+  stacks by `InvItemClass.type`. Vanilla recipes all share type `"recipe"` with
+  distinct `recipeFor` — host restock + absolute fan merged every recipe into one
+  `"recipe"` stack and `addItemType` dropped `isRecipe`. Client `acceptTrade` →
+  host reply then overwrote host stock with the stripped list (poison). Per-stack
+  entries now carry craftable type + `IsRecipe` + absolute durability trailer;
+  Apply uses `createItem(..., isRecipe)`.
+- **Hideout / chest recipe slots lost on ContainerStateSync (P1):** Same
+  type=`"recipe"` hole on `SlotStateEntry` / live `ContainerItem`. Build stores
+  `recipeFor` + `IsRecipe` trailer; apply / PlaceItem / take validate via
+  recipe-aware match. Absolute durability assigned after create (multiplier arg
+  stays 1f).
+- **ClientStateBackup recipe restore (P2 ride-along):** Restore used
+  `createItem("recipe")` then flipped flags; now `createItem(recipeFor, …,
+  isRecipe:true)` matching vanilla ctor.
+- **Dig ranked:**
+  1. **TradeInventory recipe collapse / host poison — SHIPPED** (decompile
+     InvItemClass ctor type→`"recipe"` + recipeFor; TradeSync Build/Apply).
+  2. **ContainerStateSync / live ContainerItem recipe — SHIPPED** (hideout
+     crates / chests / InventoryRandom fan; SlotStateEntry + PlaceItem).
+  3. ClientStateBackup recipe createItem — SHIPPED (ride-along).
+  4. locationDirections journal — lazy `convertToLocationText` rebuilds from
+     WorldGenerator when missing; locationsDict covered 0.8.61. No softlock
+     evidence. Skip (parked).
+  5. expMachineId / examinedExpMachine — world `ExperienceMachine.enable` via
+     HideoutStateSync sets `Player.experienceMachine`. Skip.
+  6. rot / smell / infection personal — timeSeen rot-age body still dead
+     (`_ = totalTime`); CharacterEffects backed 0.8.60; infection splat host-auth.
+     Skip.
+  7. Sleep bed ownership / who slept — SleepEndRequest clock sync only; no
+     vanilla per-bed SaveState. Skip.
+  8. Hideout crates personal vs shared — crates are shared world containers by
+     design (COOP_COVERAGE); confusion was recipe wipe (shipped), not personal
+     stash.
+  9. Remaining SaveState — gotHit/diedAtLeastOnce still no readers; modifiers
+     broken SP. Skip.
+  10. Night trader inventory remaining — reputation already personal backup;
+      stock hole was shared recipe wire (shipped).
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk;
+  timeSeen/modifiers; journal locationDirections.
+- **Rev1:** TradeInventory IsRecipe/Durability trailer; per-stack Build/Apply;
+  SlotStateEntry IsRecipe trailer; ContainerItem IsRecipe; recipe-aware take
+  match; ClientStateBackup recipe createItem.
+- **Rev2:** TakeSnapshot braces; recipe-aware take/validate match; hubs &lt;500;
+  HostWorldReady/_Highest=139; PathB 71/71; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.61 → 0.8.62**.
+- **Deployed md5** `148fdd63d8ce5cd479d61d1d44fb1246` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box NightTrader/TheThree restock shows
+  distinct recipes on client + place/take recipe in hideout chest survives sync.
+- **Batch 28 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves trigger-local gate; timeSeen/modifiers / locationDirections
+  only if playtest proves; pre-0.8.62 TradeInventory/Container packets lack
+  IsRecipe trailer (legacy apply = non-recipe).
+
+---
+
+## 0.8.61 — ClientStateBackup craftedItems + journal known locations
+
+Batch 26 (Warexpor fresh dig — journal notes/quest personal, skills beyond
+LessHealth, trader rep, known locations, FOV/settings, death/face, inventory
+weight, remaining Player.SaveState vs ClientStateBackup, multi-session brick).
+Protocol **25** unchanged.
+
+- **Personal craft counts wiped on cold rejoin (P1):** Vanilla
+  `Player.SaveState.craftedItems` / `CraftingRecipes.timesCraftedLimit` is
+  personal (COOP_COVERAGE parked wire-sync by design). WorldSaveShare still
+  loads the **host** list onto the client body; ClientStateBackup never
+  collected/restored it — limited crafts reset to host counts (dupe past limit
+  or false lockout). Collect `CraftedEntry[]`; restore clears + reapplies
+  (null = pre-0.8.61 skip).
+- **Journal known locations missing from live/bulk (P1):** `Location.discoverMe`
+  writes `journal.locationsDict` (Locations tab) but Map discovery only fans
+  `Map.showElement`. JournalBulkSync omitted locations; cold rejoin / late-join
+  dropped peer-discovered place names even when map pins survived. Live
+  `JournalItemKind.Location` + bulk `LocationTypes` AvailableBytes trailer.
+- **canActivateSkill SaveState parity (P2 ride-along):** Vanilla
+  `PlayerSkills.SaveState` persists the active-skill cooldown gate after
+  `initialize`; RestoreSkills did not. Collect + restore (legacy JSON defaults
+  true — never locks from old backups).
+- **Dig ranked:**
+  1. **craftedItems ClientStateBackup — SHIPPED** (Player.SaveState +
+     CraftingRecipes.reachedMaxNumberOfTimesCrafted; file:symbol Collect /
+     Restore.Extras).
+  2. **journal locationsDict live+bulk — SHIPPED** (Location.discoverMe;
+     JournalBulk LocationTypes trailer; Kind=5). Shared world journal, not
+     personal backup.
+  3. canActivateSkill — SHIPPED (PlayerSkills.SaveState parity).
+  4. Journal notes text / quest progress personal backup — notes/keys/entries
+     already JournalItem + JournalBulk (shared by design; text from
+     JournalDatabase). No personal ClientStateBackup hole. Skip.
+  5. Skills XP/levels beyond LessHealth — skills use `timesUsed` (already
+     Collect/Restore); no separate skill XP field. LessHealth unset 0.8.57.
+     Skip.
+  6. Reputation traders personal — NightTrader/TheThree already backup;
+     others ReputationBulk shared. Skip.
+  7. Camera FOV / settings shared — FOV is runtime (skills/items), not
+     Player.SaveState; GameSettings is local prefs. Skip.
+  8. Death count / face custom — `lifes` already backed; `diedAtLeastOnce` /
+     `gotHitAtLeastOnce` have **no readers** in decompile (Flags
+     `player_diedAtLeastOneTime` is world). No face custom in vanilla. Skip.
+  9. Inventory weight / overload — no weight/overload fields in vanilla
+     Inventory/Player. Skip.
+  10. Remaining Player.SaveState gaps — `rot` cosmetic; `expMachineId` /
+      `examinedExpMachine` world ExperienceMachine (host). Skip.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk;
+  timeSeen/modifiers; journal locationDirections (compass hints — no smoking
+  gun beyond locationsDict).
+- **Rev1:** CraftedEntry Collect/Restore; CanActivateSkill; JournalItemKind.Location;
+  discoverMe Postfix; JournalBulk LocationTypes trailer.
+- **Rev2:** discoverMe Prefix only fans on first add (no re-broadcast spam);
+  hubs &lt;500; HostWorldReady/_Highest=139; PathB 71/71; dual-deploy
+  Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.60 → 0.8.61**.
+- **Deployed md5** `eda70b4e4306329f8c8d8990c1c5727b` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box cold-rejoin after limited craft + peer
+  location discover (journal Locations tab + map pin).
+- **Batch 27 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves trigger-local gate; timeSeen/modifiers / locationDirections
+  only if playtest proves; pre-0.8.61 backup JSON lacks CraftedItems until
+  next Collect.
+
+---
+
+## 0.8.60 — ClientStateBackup recipes / hotbar select / effects / personal map pins
+
+Batch 25 (Warexpor fresh dig — timeSeen/rot, hotbar selected, clothing visuals,
+status effects, reputation/money, map markers personal, Collect/Restore vs
+vanilla SaveState, multi-session softlock). Protocol **25** unchanged.
+
+- **Recipes collected but never restored (P1):** `CollectBackupData` mirrored
+  vanilla `Player.SaveState.recipes`, but `RestoreFromBackup` never applied them.
+  WorldSaveShare loads the **host** character first, so client-learned recipes
+  were wiped on cold rejoin / soft-reconnect / migration. Restore now clears and
+  re-adds via `ItemsDatabase.getRecipes` + `refreshRecipes` (vanilla loadValues).
+- **Hotbar selected index lost on restore (P1):** Inventory.SaveState does not
+  persist `InvSlot.selected`; co-op restores onto a host-loaded body whose
+  selected flag can disagree with the client's last slot. Collect stores
+  `HotbarSelectedSlot`; restore flips selected flags only (does **not** call
+  `InvSlot.select()`, which forces `shouldBeActive=true` and would undo
+  flashlight-off from 0.8.59). Pre-0.8.60 JSON uses sentinel −1 (skip).
+- **Status effects on backup restore (P1):** Vanilla `Player.SaveState.chEffS`
+  / `CharacterEffects.SaveState` was never in ClientStateBackup. Bleed, poison,
+  hunger, wards, etc. were lost (or host effects left behind) on resume. Collect
+  + restore via `effects.activate(...)`; clears host effects first. Skips
+  `damage` (instant getHit) and `timeFreeze` (global `DoUpdateTime`; host
+  TimeSync owns the clock).
+- **Personal map markers (P1 residual):** `LocalMarkers` cleared by NetworkReset;
+  MapStateSync only fans host→client **remotes**. Client blue pins vanished on
+  cold rejoin. Backup Collect/Restore + re-broadcast so peers see them again.
+- **Dig ranked:**
+  1. **Recipes Collect→Restore gap — SHIPPED** (decompile Player.SaveState.loadValues).
+  2. **HotbarSelectedSlot — SHIPPED** (InvSlot.selected / CoopPlayerBootstrap selectSlot;
+     avoid InvSlot.select shouldBeActive force).
+  3. **CharacterEffects backup — SHIPPED** (chEffS parity; skip damage/timeFreeze).
+  4. **Personal LocalMarkers backup — SHIPPED** (mod-only; NetworkReset + MapStateSync gap).
+  5. timeSeen / item rot — vanilla SaveState copies timeSeen, but createInvItemIcon
+     rot-age body is dead (`_ = totalTime` / `_ = timeSeen+100`). No concrete MP
+     rot-loss path beyond SP. Skip (parked unless playtest proves).
+  6. modifiers — vanilla SaveState ctor self-copies empty list (broken SP). Skip.
+  7. Equipped clothing visuals on proxy — hotbar 3D / changedClothes parked; no new
+     resume-only smoking gun beyond PeerItemPresence.
+  8. Reputation / money — NightTrader per-player already Collect/Restore; no player
+     money field in vanilla. ReputationBulk covers shared NPC standing. Skip.
+  9. Map fog / discoveries — discoveries via MapStateSync + 0.8.53 OutsideLocation;
+     personal pins were the remaining gap (shipped).
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk;
+  timeSeen/modifiers backup.
+- **Rev1:** EffectEntry/MarkerEntry/HotbarSelectedSlot; Collect effects+markers+
+  selected; RestoreRecipes/Effects/Markers/ApplyHotbarSelectedSlot.
+- **Rev2:** HotbarSelectedSlot −1 legacy sentinel; marker re-broadcast via
+  MultiplayerMapManager.RestoreLocalMarkersFromBackup; skip damage/timeFreeze;
+  split Restore.Extras.cs (hub &lt;500); Release + PathB 71/71.
+- Protocol **25** unchanged. Product bump **0.8.59 → 0.8.60**.
+- **Deployed md5** `0cd9643e8574c9e92fde53f0c590afdd` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box cold-rejoin with learned recipe, non-zero
+  hotbar select, active bleed/poison, and personal map pins.
+- **Batch 26 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves trigger-local gate; timeSeen/modifiers only if playtest proves
+  rot/mod loss; pre-0.8.60 backup JSON lacks HotbarSelectedSlot/ActiveEffects/
+  LocalMapMarkers until next Collect.
+
+---
+
+## 0.8.59 — ClientStateBackup item SaveState parity (lights / upgrades / slots)
+
+Batch 24 (Warexpor fresh dig — melee durability / explosives / lights / armor /
+keys / day clock / MakeItemEntry vs vanilla SaveState / multi-session brick).
+Protocol **25** unchanged.
+
+- **ClientStateBackup MakeItemEntry incomplete vs vanilla SaveState (P1 set):**
+  After 0.8.58 ammo parity, Collect still omitted `shouldBeActive`,
+  `timeDeactivated`, and workbench `upgrades[]`. Restore packed items via
+  `addSlot()` + `getNextFreeSlot()` (ignored `Slot`, grew inv/hotbar by item
+  count every restore) and only wrote durability. Flashlight on/off + fuel
+  presentation, workbench ItemUpgrade damage/durability mods on melee/armor,
+  and hotbar key layout scrambled / slots ballooned across cold rejoin /
+  soft-reconnect / migration. Collect now mirrors SaveState fields;
+  Restore places at `entry.Slot`, reconciles Hotbar/Inventory upgrade slot
+  deltas (no per-item `addSlot`), applies upgrades + `shouldBeActive`, rebinds
+  `Player.currentItem` from the selected hotbar slot.
+- **Dig ranked:**
+  1. **MakeItemEntry / Restore SaveState gap (shouldBeActive, upgrades, Slot,
+     upgrade-slot reconcile) — SHIPPED** (decompile `InvItemClass.SaveState` +
+     `Inventory.SaveState.loadValues` + `Player.onDoneSwitchingItem` flashlight
+     branch; file:symbol Collect.MakeItemEntry / Restore.RestoreItems).
+  2. Melee / armor **durability** — already Collect+Restore (`item.durability`);
+     no separate mapping bug. Upgrades were the missing combat/armor residual.
+  3. Thrown / placed explosives / bear traps inventory — unplaced stacks are
+     normal items (type/amount/durability). Placed world traps stay world sync
+     (beartrap preserve). No new inventory-state hole.
+  4. Light fuel — flashlight fuel **is** durability (already backed). On/off is
+     `shouldBeActive` (shipped).
+  5. Keyring / door key consumed beyond journal — journal `keysDict` add/remove
+     already JournalNetHandlers + JournalSyncPatches. No ClientStateBackup key
+     list; door lock is world. Skip.
+  6. Time of day / day index after migrate morning — `Day`/`GameTimeMinutes`
+     collected for diagnostics only; host **TimeSync** owns the clock. Restoring
+     client day would fight TimeSync. Skip.
+  7. Systematic MakeItemEntry vs SaveState — remaining vanilla fields:
+     `modifiers` (vanilla SaveState ctor self-copies empty list — broken in SP
+     too), `timeSeen` (food rot). Not shipped (low / no SP parity).
+  8. Inventive multi-session — per-item `addSlot` growth + ignored Slot was the
+     brick with code evidence (shipped).
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk;
+  `timeSeen` / `modifiers` backup.
+- **Rev1:** ItemEntry ShouldBeActive/Upgrades/TimeDeactivated; MakeItemEntry;
+  RestoreItems slot-accurate; ReconcileInventoryUpgradeSlots; apply upgrades.
+- **Rev2:** RebindCurrentItemFromSelectedHotbar after hotbar restore; List tidy;
+  Release build clean.
+- Protocol **25** unchanged. Product bump **0.8.58 → 0.8.59**.
+- **Deployed md5** `d8680038357066d7fe5766f059b2310b` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box cold-rejoin with flashlight left on,
+  workbench-upgraded melee, and gapped hotbar slots.
+- **Batch 25 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable
+  examined presentation; mid-dream migration; EventTrigger.fired only if
+  playtest proves trigger-local gate; timeSeen/modifiers backup only if
+  playtest proves rot/mod loss; pre-0.8.59 backup JSON lacks ShouldBeActive/
+  Upgrades until next Collect.
+
+---
+
+## 0.8.58 — ClientStateBackup firearm magazine ammo
+
+Batch 23 (Warexpor fresh dig — trader/ammo/rep/map/death/unique/farm/logs/migration). Protocol **25** unchanged.
+
+- **ClientStateBackup hotbar/inv firearm magazine on resume (P1):** `MakeItemEntry`
+  stored live `item.amount` (usually 1 for a gun). Vanilla `InvItemClass.SaveState`
+  stores magazine rounds in `amount` when `hasAmmo`; `createItem(type, Amount)` maps
+  that back to `ammo`. Soft reconnect / cold rejoin / migration restore via
+  `RestoreFromBackup` therefore rebuilt guns with ~1 round in the mag — combat
+  softlock until reload or spare ammo. Collect now mirrors SaveState
+  (`Amount = hasAmmo ? item.ammo : item.amount`). Restore path unchanged
+  (`createItem` + durability). Pre-0.8.58 backup JSON still has stack Amount for
+  guns until the next successful Collect.
+- **Dig ranked:**
+  1. **ClientStateBackup firearm ammo-in-Amount — SHIPPED** (decompile SaveState +
+     InvItemClass ctor hasAmmo branch; file:symbol Collect.MakeItemEntry).
+  2. Trader concurrent buy / stock — COVERED (exclusive NpcDialogueLock + absolute
+     TradeInventorySync host fan; restock host-only). refreshReputation NRE on
+     title/join already caught. No new race smoking gun.
+  3. Reputation thresholds beyond wantsToTalk — COVERED (NPCState is rep/dead/
+     wantsToTalk only; ReputationBulk 0.8.55 trailer; FlagBulk for musician_/story
+     flags). No separate threshold channel.
+  4. Map fog / explored cells — NO system (PosType.fog is height layer; discovery
+     is MapElement pins — 0.8.53 OutsideLocation + marker snapshot). Skip.
+  5. Corpse / death bag after DeathBagLooted — COVERED (0.8.43 empty fan + defer
+     Destroy under open UI; SyncExistingDeathBags skips looted). No new residual.
+  6. Plague doctor / mushroom granny / musician — gates are Flag + DialogTree +
+     wants/rep (already bulk). No unique MP hole with file:symbol evidence.
+  7. Chicken / livestock / farm — CharacterType.Chicken entity path only;
+     chicken_egg_red balance list. No MP hole.
+  8. Logs — **stale** (host+client banners still **0.8.34** @ ~16:02 MSK; not 0.8.5x).
+  9. 3p mid-night host crash → migrate → cold morning — promote auto-Save stays
+     parked; ammo backup fix helps survivor restore. No additional CAN-fix brick.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp;
+  promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream
+  migration; Examinable examined presentation; EventTrigger.fired bulk.
+- **Rev1:** MakeItemEntry hasAmmo → Amount=ammo (vanilla SaveState parity).
+- **Rev2:** comment precision; PathB tests; HostWorldReady/_Highest=139; hubs &lt;500;
+  dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.57 → 0.8.58**.
+- **Deployed md5** `ce60e41cefebe2bc0da39dd9fd03b430` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box cold-rejoin / soft-reconnect with loaded
+  firearm magazine parity (backup Collect after fire, then restore).
+- **Batch 24 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D;
+  trap mid-lerp; promote auto-Save (F3); night music; Examinable examined presentation;
+  mid-dream migration; EventTrigger.fired only if playtest proves trigger-local gate;
+  pre-0.8.58 backup JSON mag until next Collect.
+
+---
+
+## 0.8.57 — RestoreSkills host LessHealth/MoreHealth unset
+
+Batch 22 (Warexpor multi-session / vitals residual from 0.8.56). Protocol **25** unchanged.
+
+- **Host LessHealth/MoreHealth bleed into client vitals on cold rejoin (P1):** After WorldSaveShare loads the **host** character, `RestoreSkills` mirrored vanilla `loadValues` by clearing `chosen` only, then `initialize` on the client skill list. Host `LessHealth1`/`MoreHealth1` setters had already mutated `maxHealth` (−50 / +25). Clearing `chosen` without unsetting left the host trait on the peer, or double-applied when the client also had the skill (`chosen=false` then `initialize(true)` sets the property again). Unset `LessHealth1`/`MoreHealth1` before client init (after `ReconcileVitalUpgradePools`; upgrade deltas are independent additives). Clamp vitals after skills unchanged.
+- **Dig ranked:**
+  1. **RestoreSkills host LessHealth/MoreHealth unset — SHIPPED** (Batch 21 residual; decompile `PlayerSkills.LessHealth1`/`MoreHealth1` + `PlayerSkill.initialize`).
+  2. Fresh P0/P1 multi-session / unique / night-defense leftovers beyond parked — **none** with file:symbol evidence (boards/vitals covered by 0.8.56 + this unset).
+  3. **Regression skim BarricadeSyncHelpers removed-board latch — OK** (Send path + host Handle latch, bulk `SendRemovedBoardsTo` doors/windows, Reset/ClearPending).
+  4. **Regression skim ReconcileVitalUpgradePools — OK** (delta ±25, min floor 1, runs before RestoreSkills unset/init).
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream migration; Examinable examined presentation; EventTrigger.fired bulk.
+- **Rev1:** RestoreSkills unset LessHealth1/MoreHealth1 before chosen-clear + client initialize.
+- **Rev2:** comment precision (post-Reconcile additive); PathB 71 pass; HostWorldReady/_Highest=139; hubs &lt;500; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.56 → 0.8.57**.
+- **Deployed md5** `be089c9d1ecdc6c30a07d4eba676354d` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box cold-rejoin with host LessHealth or MoreHealth vs peer without (and both-with) maxHealth parity + night board soft-reconnect regression.
+- **Batch 23 residuals:** oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable examined presentation; mid-dream migration; EventTrigger.fired only if playtest proves trigger-local gate.
+
+---
+
+## 0.8.56 — Night board late-join + permanent HP pool restore
+
+Batch 21 (Warexpor multi-session / hideout defense / permanent health focus). Protocol **25** unchanged.
+
+- **Hideout window/door boards late-join & soft-reconnect (P0):** Live `BarricadeEvent` Destroyed fan-out worked while connected, but late-join bulk only scanned *currently* `barricaded` doors/windows. After `destroyBarricade`, vanilla clears `barricaded`/`playerBarricade` with no leftover flag — soft-reconnect / AlreadyInWorld (skips WorldSaveShare) kept stale boards → night defense asymmetry. Host now latches removed board sites (`BarricadeSyncHelpers._removedBoards`, cap 128) on Destroyed/Built and pushes them in `SendBarricadeDoorsTo` / `SendBarricadeWindowsTo` phases 6–7.
+- **Permanent health/stamina pool on cold rejoin (P1):** `ClientStateBackup.RestoreFromBackup` assigned `healthUpgrades`/`staminaUpgrades` counts after WorldSaveShare loaded the **host** character, but never delta-adjusted `maxHealth`/`maxStamina` (vanilla `SaveState.loadValues` loops `upgradeHealth`/`upgradeStamina`, +25 each). Peers kept the host max pool. `ReconcileVitalUpgradePools` delta-adjusts; clamp after `RestoreSkills` (LessHealth/MoreHealth setters also touch maxHealth).
+- **Dig ranked (no ship / covered / out of scope):**
+  1. Save/profile/chapter beyond StableClientKey/SteamId — no new smoking gun (savch share, AlreadyInWorld menu guard, orphan profs already covered 0.8.50–51).
+  2. Crafted furniture / Constructible — live+bulk+pending intact.
+  3. Infection splat — EntitySpawn bulk phase 9 intact; player `gassed` is local stamina (not plague).
+  4. Motorcycle — wiki = Piotrek tractor parts (personal inv), not a vehicle; flamethrower is firearm muzzle path.
+  5. Swamp/ch2 — oxygen softlock still parked (no new proof beyond hotbar PeerItemPresence); compressor covered.
+  6. Cord/rope/climb/ladder — no climb/ladder systems in decompile (top-down); rope/cable are craft/trade items.
+  7. Smoke/gas/flamethrower world — gas trail/ignite/burn bulk intact; oven smoke is ExperienceMachine particle.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save; night music; oxygentank_full world-pick fan; mid-dream migration; Examinable examined presentation; EventTrigger.fired bulk; skill LessHealth unset-on-restore (pre-existing RestoreSkills host-flag residual → Batch 22).
+- **Rev1:** removed-board registry + restore reconcile.
+- **Rev2:** drop dangerous maxHealth=100 floor (LessHealth-safe min 1); clamp vitals after RestoreSkills; hubs &lt;500; HostWorldReady/_Highest=139; PathB 71 pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.55 → 0.8.56**.
+- **Deployed md5** `ee62f0b484f5241b4914879e03d52a32` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box night board soft-reconnect + cold-rejoin HP upgrade playtest.
+- **Batch 22 residuals:** RestoreSkills host LessHealth/MoreHealth unset → shipped in **0.8.57**; remaining parked: oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save (F3); night music; Examinable examined presentation; mid-dream migration; EventTrigger.fired only if playtest proves trigger-local gate.
+
+---
+
+## Batch 20 dig — no-ship (stay 0.8.55)
+
+
+Adversarial N-peer dig; protocol **25** / HostWorldReady **139** unchanged. **No product bump, no redeploy.**
+
+### Dig ranked
+1. **`EventTrigger.fired` / `firedExit` dedicated bulk — COVERED, no CAN-fix.**
+   Decompile `EventTrigger.fire` latches `fired` then only calls `gameEvents.fire()`
+   (+ optional `RemovePooledPrefab`). `fireExit` only calls `gameEventsExit.fire()`.
+   `EventTriggerRequirement.Type.gameEventsFired` reads **`GameEvents.fired`**, not
+   `EventTrigger.fired`. Late-join already sends `FlagBulk` + `GameEventsBulk` (**136**,
+   heavy phase 11, `fired && !multipleFire` + destroyOnFire identities). Client one-shot
+   `GameEvents.fire` blocked by `GameEventsFiredPatch` Prefix (`NetworkApplyGuard` apply
+   path exempt). Joiner may re-enter volume with local `EventTrigger.fired=false`, but
+   GE side effects do not re-run. Adding `EventTriggerBulk` would not fix resolve misses
+   and could worsen retry-after-miss. Remains parked per `COOP_COVERAGE.md`.
+2. **Other story one-shot / flag / trigger softlocks — no new smoking gun.**
+   FlagBulk + live FlagSync, ScenarioStateBulk **138**, DialogTree bulk + close fan-out,
+   ReputationBulk wants trailer (0.8.55), GE live **65** + bulk **136** cover story gates.
+   Skip-list items unchanged (WorkbenchOpenLock / hotbar 3D / trap mid-lerp / promote
+   auto-Save / night music / oxygentank without softlock proof / mid-dream migration /
+   Examinable examined presentation-only).
+3. **Regression skim 0.8.55 wantsToTalk:** ReputationBulk end-trailer `WantsToTalk[]`
+   (AvailableBytes-safe) + apply; `DialogTreeSync.FindNpcForDialogue` + non-default
+   wants refresh on bulk — present and preserved. Deployed md5
+   `3db37cc9f3db387c292498143c65cce7` Steam=SecondDarkwood.
+4. **Other P0/P1 resume/unique/story:** none with file:symbol evidence beyond parked list.
+
+### Shipped / skipped
+- **Shipped:** none (zero safe CAN-fixes).
+- **Skipped / parked:** EventTrigger.fired bulk; Examinable examined late-join bulk;
+  oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote
+  auto-Save; night music; mid-dream host migration.
+
+### Rev / deploy
+- No rev1/rev2 (no code). Stay **0.8.55**. Dual-deploy skipped.
+
+### Retest (unchanged from 0.8.55)
+- Doctor/Wolf soft-reconnect talkTo; DialogTree late-join; volume one-shot after host
+  fired (peer must not softlock — GE bulk latch).
+
+### Batch 21 residuals
+- oxygentank_full world-pick fan if concrete softlock beyond hotbar;
+  WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save (F3 reminder);
+  night music cosmetic on cold rejoin; Examinable examined late-join bulk (presentation);
+  mid-dream host migration; EventTrigger.fired bulk only if playtest proves trigger-local
+  state (not GE) gates progression without volume re-entry.
+
+---
+
+## 0.8.55 — Doctor/Wolf wantsToTalk late-join softlock
+
+Batch 19 (Warexpor multi-session / unique / story focus). Protocol **25** unchanged.
+
+- **Doctor / Wolf / story NPC `wantsToTalk` late-join & soft reconnect (P0):**
+  `NPC.talkTo()` early-outs when `!wantsToTalk`. Soft-reconnect / AlreadyInWorld skips
+  WorldSaveShare and only runs late-join bulk. `ReputationBulkSync` synced rep+dead but
+  not wants; `DialogTreeSync.SendBulkTo` encoded progressed trees with `npc: null` and
+  skipped host-default wants=true — so a peer SP save with wants=false could not talk
+  to Doctor/Wolf after host re-enabled story talk. ReputationBulk now trails
+  `WantsToTalk[]` (AvailableBytes-safe end trailer); apply writes host wants for all NPCs.
+  DialogTree bulk attaches live NPC on progressed trees and re-sends non-default wants
+  even when the tree already shipped.
+- **Dig skipped / presentation / parked:** Examinable `examined` late-join bulk —
+  presentation/cursor only (`examined` never gates GE; onExamine host-auth + GameEventsBulk
+  136 covers story; CustomCursorAction still reachable after local examine). Mid-dream
+  host migration — no surgical safe path (refuse + disconnect without GRANT; dream session
+  not migratable). oxygentank_full / WorkbenchOpenLock / hotbar 3D / trap mid-lerp /
+  promote auto-Save / night music parked per Batch 19 skip list.
+- **Regression skim 0.8.54:** `_unionLvlFlags` + `ReassertLocalLvlFlags` +
+  `ReadUnionLvlFlags` outbound; deadline `ClearRemoteInDream` in
+  `UnfreezeProxiesAfterDelay` — present and preserved.
+- **Rev1:** ReputationBulk wants trailer + apply; DialogTree FindNpcForDialogue +
+  non-default wants refresh.
+- **Rev2:** end-of-message wants trailer (not per-entry AvailableBytes); hubs &lt;500;
+  HostWorldReady/_Highest=139; PathB 71 pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.54 → 0.8.55**.
+- **Deployed md5** 3db37cc9f3db387c292498143c65cce7 (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box Doctor/Wolf late-join talkTo + soft-reconnect playtest.
+- **Batch 20 dig (no-ship):** EventTrigger.fired bulk confirmed covered by GE bulk 136 +
+  FlagBulk + client one-shot Prefix — see section above. Residuals roll to Batch 21
+  (oxygentank / WorkbenchOpenLock / hotbar 3D / trap mid-lerp / promote auto-Save /
+  night music / Examinable examined presentation / mid-dream migration; EventTrigger.fired
+  only if playtest proves trigger-local gate).
+
+---
+
+## 0.8.54 — Skill-dream party-once lvl flags + dream stamp cleanup
+
+Batch 18 (Warexpor multi-session / unique / story focus). Protocol **25** unchanged.
+
+- **Skills / traits party-once harden (P1):** `SkillsMenuDreamPartyOncePatch` claimed
+  bunker/random party-once but only forced `hadDreamAtLvl2` from bunker completion.
+  Random lvl 3/5/6/7 could re-fire when `Dreams.Instance` flags lagged the session
+  snapshot (late join / cold resume). `DreamSession` now keeps a `_unionLvlFlags`
+  OR across Apply/End/Read; confirmSkills calls `ReassertLocalLvlFlags()`; outbound
+  DreamStarted/Ended/Bulk/WriteSnapshot send the union.
+- **Dream entry stamp cleanup (P1 N-peer):** Host `NoteRemoteInDream` stamps all
+  peers at start (party-once). After the 10s entry deadline, `UnfreezeProxiesAfterDelay`
+  now `ClearRemoteInDream` for peers who never `DreamEntered` (matches
+  `IsRemoteInDream` post-deadline). Late `DreamEntered` still Confirms.
+- **Dig skipped / already covered:** dream enter/exit/spirit sticky/death tracking
+  (0.8.19–0.8.39) intact; chapter share + fallback (0.8.15/0.8.26) + map pins (0.8.53);
+  well repair-only InteractiveItem; generator/saw FuelDelta (0.8.46) — no non-fuel
+  abs last-writer; photo InvItems via PeerItemPresence + unique claim (no new softlock
+  proof); map Discoveries pending + hideout oven 1.5f/pending regression skim OK;
+  oxygentank_full / WorkbenchOpenLock / hotbar 3D / trap mid-lerp / promote auto-Save /
+  night music parked per Batch 18 skip list.
+- **Rev1:** union lvl flags + ReassertLocalLvlFlags; deadline ClearRemoteInDream.
+- **Rev2:** outbound snapshots use ReadUnionLvlFlags; WriteSnapshot aligned; hubs &lt;500;
+  HostWorldReady/_Highest=139; PathB 71 pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.53 → 0.8.54**.
+- **Deployed md5** `341c0ea3933e42d70445d295ce3c04f8` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box skill-confirm party-once + dream stamp playtest.
+- **Batch 19 residuals:** oxygentank_full world-pick fan if concrete softlock beyond hotbar;
+  WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save still disabled (F3 reminder);
+  night music cosmetic on cold rejoin; doctor/wolf story-gate playtest if dialog tree gap found;
+  Examinable examined late-join bulk (presentation; onExamine host-auth + GE bulk covers story);
+  mid-dream host migration still parked.
+
+---
+
+## 0.8.53 — Map discovery OutsideLocation + hideout oven pending
+
+Batch 17 (Warexpor multi-session / unique / map-unlock focus). Protocol **25** unchanged.
+
+- **Map / biome pin unlock late-join & cold resume (P0):** `Map.showElement(string)` only
+  searches `getCurrentType()` (WorldGrid / OutsideLocation). World discoveries (Silent Forest /
+  Old Woods hideouts, map-item reveals, dialogue mark-on-map) were dropped while a peer was in
+  a bunker / village / doctor house, and MapStateSync had no pending when MapElements were not
+  spawned yet. Apply now resolves `MapElement` by scene scan (all types) → `showElement(MapElement)`;
+  pending queue + tick flush; MapStateSync queues when `!ClientCanApplyWorldBulk`.
+- **Hideout oven permanent state holes (P1):** live `HideoutUpgrade` FindNearest **0.5f** missed
+  ovens (StateSync used 1f); no pending when oven missing. Radius **1.5f** + pending flush;
+  `HideoutStateSync` queues when not in-world / no machines / partial match.
+- **Dig skipped / already covered:** reputation + DialogTree + FlagBulk for doctor/wolf/story
+  gates (no new softlock patch evidence); workbench level live+bulk intact; generator late-join
+  `SyncExistingGeneratorsTo` intact; oxygentank_full world-pick fan (empty+convert + hotbar
+  PeerItemPresence still covers; no new softlock beyond 0.8.52); WorkbenchOpenLock / hotbar 3D /
+  trap mid-lerp / promote auto-Save parked; night music cosmetic skip.
+- **Regression skim 0.8.52:** prologue `HostIsPastPrologue` + ApplyEnd guard + bulk catch-up;
+  PeerItemPresence hotbar combine + `addItemType(string,int)` — present and preserved.
+- **Rev1:** MapElement scene-resolve + pending discoveries; HideoutUpgrade/State pending + radius.
+- **Rev2:** HideoutStateSync keep-pending on partial oven match; MapElement SceneScanCache
+  invalidate on miss during discovery apply; hubs &lt;500; HostWorldReady/_Highest=139;
+  PathB 71 pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.52 → 0.8.53**.
+- **Deployed md5** 808178d90968a41a917661f194331e60 (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box OutsideLocation map-pin + hideout oven late-join playtest.
+- **Batch 18 residuals:** oxygentank_full world-pick fan if concrete softlock beyond hotbar;
+  WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save still disabled (F3 reminder);
+  night music cosmetic on cold rejoin; doctor/wolf story-gate playtest if dialog tree gap found.
+
+---
+
+## 0.8.52 — Prologue cold catch-up + hotbar PeerItemPresence
+
+Batch 16 (Warexpor multi-session / unique focus). Protocol **25** unchanged.
+
+- **Prologue catch-up harden (P0 multi-session):** Soft-reconnect only called
+  `PrologueSync.SendCatchUpTo`. Cold host restart cleared `_sessionHadPrologue` →
+  stuck peer (`forbidInputs` / `playingIntro`) never got `ActionPrologueEnd`.
+  `HostIsPastPrologue()` (loaded, `!firstPlay`, `!playingIntro`) now sends End;
+  `ApplyEnd` no-ops when the peer is already past intro (no day-N blackScreen flash).
+  Catch-up also on phase-1 share handshake + late-join bulk belt.
+- **PeerItemPresence hotbar (P1 unique softlock):** `Inventory.getItemInPlayer` /
+  bag-only presence missed Hotbar (wiki oxygen-tank softlock; keys/quest on hotbar).
+  Combined inv+hotbar counts; `SendFullLocalInventory` scans Hotbar; Harmony on
+  `Inventory.addItemType(string,int)` when target is local Hotbar (compressor path).
+- **Dig skipped / already covered:** night TimeSync + HideoutStateSync + ScenarioStateBulk
+  (siren = nightComing msg via day-chain host-only; no new hole); vendor TradeInventory
+  heavy late-join; StableClientKey / graceful-leave (0.8.51) no remaining brick;
+  oxygentank_full world-pick fan (empty+convert still covers; no new softlock proof
+  beyond hotbar presence); WorkbenchOpenLock / hotbar 3D / trap mid-lerp / promote
+  auto-Save parked.
+- **Rev1:** prologue HostIsPastPrologue + ApplyEnd guard + bulk catch-up; PeerItemPresence
+  hotbar combine + patches.
+- **Rev2:** Harmony `addItemType(string,int)` exact; phase-1 handshake catch-up;
+  hubs &lt;500 (logic); HostWorldReady/_Highest=139; PathB 71 pass; dual-deploy.
+- Protocol **25** unchanged. Product bump **0.8.51 → 0.8.52**.
+- **Deployed md5** `7af954d9919df5930cc9e44e0a50bcce` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box prologue cold-stuck + hotbar haveItem playtest.
+- **Batch 17 residuals:** oxygentank_full world-pick fan if concrete softlock beyond
+  hotbar presence; WorkbenchOpenLock; hotbar 3D; trap mid-lerp; promote auto-Save
+  still disabled (F3 reminder only); night music cosmetic on cold rejoin.
+
+---
+
+## 0.8.51 — LAN StableClientKey backup + graceful-leave host checkpoint
+
+Batch 15 (LAN-without-Steam backup id + migration survivor ownership). Protocol **25** unchanged.
+
+- **LAN StableClientKey host backup (P0):** Pure LAN / Steam+SecondDarkwood cold rejoin
+  reshuffled `PlayerId` → host pushed the wrong `client_backup_p{N}` (or none). SteamId
+  (0.8.50) covers SNS only. New install-scoped `dwmp_lan_client_key.txt` GUID stamped into
+  `ClientStateBackupData.StableClientKey` + Handshake trailing string (AvailableBytes-safe;
+  **no new msg id**). Host disk `client_backup_k{key}_{campaign}.json`. Cold push without
+  SteamId/StableClientKey skips PlayerId fallback (anti false-merge); soft-reconnect still
+  allows pN. Local-self remains primary restore.
+- **Graceful host-leave world checkpoint (P1 migration ownership):**
+  `GracefulHostLeaveReleasePortThenStop` set `_role = Offline` *before* `StopNetwork`, so
+  `TryHostWorldSaveCheckpointOnExit` (Role==Host gate) no-op'd — next cold start of the
+  old host slot missed mid-session ownership. Now checkpoints **while still Host**, then
+  releases port. Promote auto-Save stays **disabled** (survivor sav corruption); survivor
+  gets F3 reminder HUD instead.
+- **Dig skipped:** oxygentank_full world-pick fan (empty+convert still covers softlock);
+  WorkbenchOpenLock / hotbar 3D / trap mid-lerp parked; promote auto-Save not re-enabled.
+- **Regression skim 0.8.50:** SteamId Collect/Paths/SaveNetHandlers + intentional
+  StopNetwork host checkpoint — present and preserved.
+- **Rev1:** StableClientKey mint+handshake+Paths+push gate; graceful-leave checkpoint;
+  promote F3 reminder.
+- **Rev2:** clean — NotifyPromotedHostSaveReminder method present; hubs &lt;500;
+  HostWorldReady/_Highest=139; PathB 71 pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.50 → 0.8.51**.
+- **Deployed md5** `831221c775fd3b8573c788379e69b753` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box LAN cold-rejoin backup + graceful-leave→promote
+  cold-start playtest.
+- **Batch 16 residuals:** oxygentank_full world-pick fan if concrete softlock; WorkbenchOpenLock;
+  hotbar 3D; trap mid-lerp; migration promote Save still disabled (F3 reminder only).
+
+---
+
+## 0.8.50 — ClientBackup SteamId key + host-leave world checkpoint
+
+Batch 14 (Warexpor multi-session + unique priorities). Protocol **25** unchanged.
+
+- **ClientBackup SteamID64 disk key (P0 residual):** Host stored backups were
+  `client_backup_p{PlayerId}_{campaign}.json`. PlayerId reshuffles on cold sessions →
+  wrong inventory restore / stuck items. Steam sessions (and any payload that stamps
+  SteamId) now save/load `client_backup_s{SteamId64}_{campaign}.json`. Collect stamps
+  `ClientStateBackupData.SteamId`; host save uses `CurrentReceiveSteamId64` then JSON
+  field; late-join push resolves via `TryGetSteamIdForPlayer`. Legacy PlayerId files
+  still load and one-shot migrate to the Steam key. LAN-without-Steam keeps PlayerId
+  paths; client local-self remains primary fallback (0.8.49).
+- **Host intentional quit world checkpoint (P1):** `StopNetwork` while host is in-world
+  flushes `sav.dat` (local Save, no SaveSync fan-out) so the next session loads current
+  world ownership. Migration promote auto-Save stays **disabled** (survivor client Save
+  corrupts the slot — HostMigration.Handoff.Promote).
+- **Dig skipped / already covered:** oxygentank_full world-pick fan (empty+convert covers
+  softlock); journal/GUID/non-GUID unique claim (0.8.47–49); tutorial/story without new
+  patch evidence; WorkbenchOpenLock / hotbar 3D / trap mid-lerp parked.
+- **Regression skim 0.8.49:** GUID claim + `ClientReportsAlreadyInWorld` mainMenu gate +
+  `PeerItemPresence.ClearPlayer` on disconnect — intact.
+- **Rev1:** SteamId Collect stamp + Paths save/load + SaveNetHandlers wire + host-leave
+  checkpoint; build clean; HostWorldReady/_Highest=139; PathB 71 pass; hubs &lt;500.
+- **Rev2:** no further churn (rev1 dual-deploy clean).
+- Protocol **25** unchanged. Product bump **0.8.49 → 0.8.50**.
+- **Deployed md5** `52a3734ab5bbd11828048373c9150b57` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box Steam cold-rejoin backup + host-quit save playtest.
+- **Batch 15 → 0.8.51:** LAN StableClientKey + graceful-leave host checkpoint + promote F3
+  reminder shipped. Residuals: oxygentank_full world-pick fan; WorkbenchOpenLock; hotbar 3D;
+  trap mid-lerp; promote auto-Save still disabled.
+
+---
+
+## 0.8.49 — GUID drop host-auth + cold-rejoin AlreadyInWorld gate
+
+Batch 13 (Warexpor priorities: multi-session resume + unique/GUID + tutorial dig). Protocol **25** unchanged.
+
+- **GUID DroppedItemPickup same-frame host-auth (P0 residual from 0.8.48):** Player-dropped
+  GUID items still used optimistic Broadcast pickup — same-frame cross-machine dual-grant.
+  Now mirrors 0.8.48 WOR claim: capture slot meta → vanilla transfer → on success host
+  `TryConsumeDropGuid` + fan Remove(`ClaimedBy`); client optimistic + `ModeClaimRequest`;
+  loser `ModeClaimDeny` / Remove-with-other ClaimedBy → pre-count surplus refund.
+  `DroppedItemPickupMessage` Always-on trailer (Mode/ClaimedBy/ItemType/Amount/Dur/Ammo);
+  AvailableBytes-safe; **no new msg id** (`HostWorldReady`/`_Highest` stay **139**).
+  ClaimRequest sets `_suppressForwardThisMessage` (Forwardable must not fan requests).
+- **Cold-rejoin AlreadyInWorld false-positive (P0 resume):** `ClientReportsAlreadyInWorld`
+  treated lingering `Core.loadedGame` (and profile) as in-world even on **main menu** after
+  quit — host skipped world share → brick on 3-friend ALL-quit → return same world.
+  Hard gate: `Core.mainMenu` → false; phase-2/3 paths unchanged.
+- **PeerItemPresence ghost after disconnect (P1):** host `haveItem` OR kept departed peer
+  bag presence until full network Reset. `ClearPlayer` on host peer disconnect (LAN+Steam).
+- **Dig skipped / already covered:** oxygen empty fan + compressor convert (CompressorSync);
+  journal key/quest share + InvItem destroy (0.8.47–48); non-GUID world unique claim (0.8.48);
+  HostWorldReady wait vs soft-reconnect (AlreadyInWorld skip share); client local-self backup
+  primary on cold rejoin (host push still PlayerId-keyed — SteamId residual);
+  tutorial HelpMessage NearRange (0.8.32+); WorkbenchOpenLock / hotbar 3D / trap mid-lerp parked.
+- **Rev1:** GUID claim + AlreadyInWorld gate + PeerItemPresence clear; hub line test failed
+  (PlayerFX 501 / DroppedItemSyncPatches 539).
+- **Rev2:** split `PlayerFXNetHandlers.DroppedItems.cs` + `DroppedItemSyncHelpers.cs`;
+  Apply hubs &lt;500; HostWorldReady/_Highest=139; NetMessage contract tests pass (71);
+  dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.48 → 0.8.49**.
+- **Deployed md5** `bb0038120c18cec2e8dc9ca10737e92f` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box same-frame GUID drop + cold-rejoin playtest.
+- **Batch 14 residuals → 0.8.50:** SteamId ClientBackup key + host-leave world checkpoint
+  shipped; migration promote Save still disabled; tutorial/oxygen-full/Workbench/hotbar/trap
+  parked.
+
+---
+
+## 0.8.48 — Host-auth world pickup claim (same-frame dual-grant)
+
+Batch 12 (host-auth world pickup + residuals dig). Protocol **25** unchanged.
+
+- **Host-auth world unique pickup (P0 residual from 0.8.47):** Non-GUID
+  `getDroppedItem` was optimistic broadcast `WorldObjectRemoved` — same-frame
+  cross-machine dual-grant. Now: capture slot meta → vanilla transfer → on
+  success host `TryConsume` + fan Remove(`ClaimedBy`); client optimistic +
+  `ModeClaimRequest` to host; loser gets `ModeClaimDeny` / Remove-with-other
+  ClaimedBy → pre-count surplus refund (container deny parity). WOR trailer
+  always-on (Mode/ClaimedBy/ItemType/Amount/Dur/Ammo); AvailableBytes-safe;
+  **no new msg id** (`HostWorldReady`/`_Highest` stay **139**).
+- **Wire guard:** `WorldPickupWireGuard` during `getDroppedItem` suppresses
+  `ObjectDestroyTrapPatch` WOR so harvestable Destroy cannot beat host-auth
+  with Mode0 Remove. Traps/GUID drops unchanged (SendPickup path).
+- **Prefix return-false guard End:** trap guard cleared when Prefix denies
+  (Harmony skips Postfix on `return false`).
+- **Dig skipped (no smoking gun / parked):** craft result double-grant
+  (`craftedItems` personal; workbench lock parked); tree/chop beyond harvest
+  WOR; liquid pour beyond gen/saw FuelDelta; bed/sleep (SleepEndRequest);
+  photo/examinable host onExamine; doctor/wolf trade absolute stock; GUID
+  DroppedItemPickup same-frame (Batch 13); WorkbenchOpenLock; hotbar 3D;
+  trap/door mid-lerp.
+- **Regression skim 0.8.47:** InvItem-only journal destroy + `dontDestroy`
+  honor + world consume Prefix — present.
+- **LogOutput:** still **stale 0.8.34** (DLL was 0.8.47; no fresh playtest log).
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy, 0.8.37–0.8.47 work.
+- **Rev1:** Destroy-path WOR suppressed during pickup; Capture uses slot
+  `InvItemClass` (not `Item.invItem` template).
+- **Rev2:** clean — Prefix `return false` Ends trap guard; Apply hubs &lt;500;
+  HostWorldReady/_Highest=139; NetMessage contract tests pass (71); dual-deploy
+  Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.47 → 0.8.48**.
+- **Deployed md5** `c138c4bcbe20ef1a18752f7720ff97fb` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box same-frame world unique pickup playtest.
+- **Batch 13 residuals (Warexpor priorities):** multi-session resume (3-friend
+  new world → prologue → early days → night → all quit host-left → return same
+  world: save/share, HostWorldReady, client backup, stuck peer inv, cold rejoin
+  vs soft-reconnect, world ownership); unique/limited item softlocks (wiki+code
+  1–2 instance keys/tanks/uniques — share/duplicate/host-grant); tutorial/tank/
+  story patches; GUID DroppedItemPickup same-frame host-auth (mirror this batch).
+
+---
+
+## 0.8.47 — Journal InvItem destroy + world unique pickup claim
+
+Batch 11 (quest/key dual-pickup + absolute last-writer scan). Protocol **25** unchanged.
+
+- **InvItem-only key/note destroy (P0):** `DestroyWorldJournalObject` only destroyed
+  Key/Note when `GetComponent<Item>()` was present. InvItem-only scene keys/notes
+  survived peer `JournalItem` and stayed dual-pickable. Now destroys scene-valid
+  journal refs (prefer Item root; else reference GO) — QuestItem parity.
+- **Already-claimed journal pickup Prefix (P1):** `KeyReference` / `QuestItemReference`
+  / `JournalNoteReference.pickup` Prefix: if type already in local journal (peer
+  JournalItem arrived first), destroy world GO and skip vanilla + wire (no second
+  popup / no redundant fan-out).
+- **Non-GUID world unique pickup claim (P1):** `getDroppedItem` without
+  `DroppedItemIdentifier` had no consume set (GUID drops already did). Session
+  `TryConsumeWorldPickup` on send + inbound `WorldObjectRemoved`; Prefix denies
+  grant when already consumed. Closes sequential dual-grant; true same-frame
+  cross-machine race remains residual (needs host-auth request).
+- **Absolute last-writer scan:** only `Generator`/`Saw` have `addFuel` /
+  `waitToSpillLiquid`. Wells (repair-only InteractiveItem), barrels, stoves, radio
+  — no identical concurrent Fuel/uses race. No FuelDelta clone.
+- **Regression skim 0.8.46:** Generator FuelDelta host-accum + Saw
+  `BroadcastAbsoluteFromHost` / `_suppressForwardThisMessage` — present.
+- **Skipped / watchlist:** WorkbenchOpenLock (parked); hotbar 3D mesh; trap/door
+  mid-lerp (no smoking gun); true same-frame world InvItem dupe (host-auth pickup
+  request); LogOutput still **stale 0.8.34** (DLL was 0.8.46; no fresh playtest log).
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy, 0.8.37–0.8.46 work.
+- **Rev1:** DestroyJournalWorldGo scene-valid + Item-root prefer; journal Prefix
+  `__state` gates Postfix; world pickup claim skips traps.
+- **Rev2:** clean — Note `dontDestroy` honored (Prefix + DestroyWorld); Apply.cs
+  474&lt;500; HostWorldReady/_Highest=139 unchanged; NetMessage contract tests pass
+  (71); dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.46 → 0.8.47**.
+- **Deployed md5** `0c522616fe2298cad7e94d3f37dbd91a` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box journal key + world unique pickup playtest.
+
+---
+
+## 0.8.46 — Generator/saw host-auth fuel delta (concurrent pour underfuel)
+
+Batch 10 (generators/fuel host-auth + residuals dig). Protocol **25** unchanged.
+
+- **Generator concurrent addFuel underfuel (P0):** `waitToSpillLiquid` pours `addFuel(1)` every
+  0.07s; `GeneratorAddFuelPatch` broadcast absolute `GeneratorState.Fuel` and host
+  `ApplyGeneratorState` last-writer absolute → dual pour leaves tank short of combined can
+  spend. Client pours now send **FuelDelta** (always-on wire field, same-DLL dual deploy);
+  host accumulates via `gen.addFuel(delta)`, mutates fan-out to absolute `FuelDelta=0`, and
+  **Broadcast** (includes pourer) so clamp/concurrent sum converges on originator. Host pours
+  / turnOn / late-join stay absolute (`FuelDelta=0`).
+- **Saw concurrent addFuel underfuel (P0, same race):** `SawState` Forwardable absolute last-writer.
+  Client `FuelDelta`; host applies delta, `_suppressForwardThisMessage`, rebroadcasts absolute
+  (bypasses `IsApplyingRemoteState` send guard). Convert path unchanged (absolute).
+- **Skipped / watchlist:** WorkbenchOpenLock (parked); hotbar 3D mesh; trap/door mid-lerp (no
+  smoking gun); unique quest/key beyond journal + `DestroyWorldJournalObject` (no new dual-pickup
+  race); monologue non-`initiateDialogue` (vanilla `openDialogue` GE → `initiateDialogue` only);
+  night siren/scenario/scent (no new concrete hole); ammo/reload (no double-apply evidence);
+  LogOutput still **stale 0.8.34** (DLL was 0.8.45; no fresh playtest log).
+- **Regression skim 0.8.45:** place-deny refund (`ModePlaceRefund`), dialog-lock
+  `DialogHostApplyGuard.Active` release skip, ET exit `HasAny` — present.
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.45 work.
+- **Rev1:** FuelDelta always serialized (not AvailableBytes trailer — GeneratorState lives in
+  PhysicsState arrays); pure-gen fan-out ReliableOrdered Broadcast; saw suppress+rebroadcast.
+- **Rev2:** clean — Apply.cs 474&lt;500; Saw suppress+BroadcastAbsoluteFromHost; pure-gen
+  fan-out includes pourer (ReliableOrdered); HostWorldReady/_Highest=139 unchanged; NetMessage
+  contract tests pass; dual-deploy Steam+SecondDarkwood.
+- Protocol **25** unchanged. Product bump **0.8.45 → 0.8.46**.
+- **Deployed md5** `378b235fd72c2a3f8109c51b016f6596` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box concurrent pour playtest (gen + saw).
+
+---
+
+## 0.8.45 — Container place-deny refund + dialog-lock world-only belt + ET exit occupancy
+
+Batch 9 (inventory/ammo/generators/dialogue/night dig). Protocol **25** unchanged.
+
+- **Container PlaceItem race vanishes item (P0):** Host denied type-clash / bad-amount /
+  stack-overflow places with `_suppressForward` only — no refund. Placer already removed
+  the item from their bag and kept it only in the local container → item vanish. Reuses
+  msg **115** `ContainerTakeDenied` with Mode trailer (`0` take remove / `1` place restore)
+  + Durability/Ammo; host snaps container. Legacy 0.8.44 packets still deserialize (AvailableBytes).
+  `MarkContainerSlotPlayerPlaced` only after a successful place.
+- **NpcDialogueLock released by world-only SilentClose (P1):** `NpcDialogueLockReleasePatch`
+  on `DialogueWindow.close` had no `DialogHostApplyGuard.Active` check. Harmony Prefix order
+  vs `DialogHostSilentClosePatch` is undefined → host world-only close could `HostRelease(localId)`
+  and drop the host's real talk lease mid-conversation (dual open / stuck lock). Guard skips
+  release while world-only apply is active.
+- **EventTriggers exit belt (P1):** Proxy exit fired when `exited >= entered` even if the
+  per-proxy occupancy set still had peers (counter drift vs 0.8.44 local enter++). Defer exit
+  fire while `HasAny` so delayed one-shots do not latch with a body still inside.
+- **Skipped / watchlist:** Workbench exclusive lock (parked); hotbar 3D mesh; trap/door mid-lerp
+  (no smoking gun); inventory stack/ammo/reload personal (no new double-apply); generators/fuel
+  absolute last-writer underfuel on concurrent addFuel (no host-auth request path this batch);
+  monologue proximity (PersonalFlavorHud NearRange); night siren/chase/scent (redirect + sniff
+  commit covered); unique key/quest (journal shared + DestroyWorldJournalObject); LogOutput still
+  **stale 0.8.34** (DLL 0.8.45 deployed, no fresh 0.8.44/45 playtest logs).
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.44 work.
+- **Rev1:** Place refund uses `Inventory.addItem(source, addSlotIfNoPlace)` (not bool dropIfNoRoom);
+  mark-player-placed only after success; Mode trailer backward-compatible.
+- **Rev2:** clean — exit HasAny checked after TryRemove; dialog guard host+client Prefix;
+  `ContainerLootNetHandlers.Deny.cs` partial so hub stays &lt;500 lines; no protocol / _Highest bump.
+- Protocol **25** unchanged. Product bump **0.8.44 → 0.8.45**.
+- **Deployed md5** `b782057808f8b8453ef6b2092f7bb672` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.44 — Padlock/key host triggers + EventTriggers N-peer occupancy + dialog-lock disconnect
+
+Batch 8 (NEW systems dig — door/lock, GameEvents occupancy, dialogue lock). Protocol **25** unchanged.
+
+- **Padlock client unlock drops story GEs (P0):** Client `Padlock.unlock(true)` fires
+  `onTryToOpenLocked` / `onUnlockPadlock` locally, but one-shot `GameEvents.fire` is
+  Prefix-blocked. Host `ApplyPadlockUnlock` only called `unlock(false)` → combination
+  unlock never ran story on anyone. Host now synthesizes both triggers when `wasLocked`
+  (pending flush safe; late-join echo skipped).
+- **Locked key/lockpick host `onActivate` (P1):** Same hole for `Locked.unlock` after
+  client key/lockpick — InputScript `onActivate` was client-only/blocked. Host synth
+  `onActivate` when `wasLocked`.
+- **EventTriggers N-peer occupancy (P1):** Proxy enter used vanilla multi-collider guard
+  (`entered != 0 && isComponentAtPos`) which skipped `entered++` for a second peer → first
+  body leaving fired exit while the second was still inside; delayed one-shots could also
+  race. Per-proxy id set + fire-only-when-volume-was-empty; local Player Postfix counts
+  when vanilla skipped increment because a proxy already occupied.
+- **NpcDialogueLock stuck 90s after disconnect (P1):** Host LAN/Steam leave now
+  `HostReleaseAllForPlayer` (fan release). PeerRoster prune clears local leases so peers
+  are not blocked on "Someone is already talking…" until lease expiry.
+- **Skipped / watchlist:** Workbench exclusive lock (parked); hotbar 3D mesh (no small win);
+  trap/door mid-lerp (no new smoking gun); weather/time (late-join WeatherSync already);
+  inventory stack/ammo double-apply (no new CAN-fix); examination HUD (PersonalFlavorHud
+  NearRange already); generators/power beyond Map lights (ApplyGeneratorState covered);
+  monologue proximity (covered by flavor HUD + dialog lock).
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.43 work.
+- **Rev1:** Padlock/Locked synth must key off `wasLocked` (not only CurrentReceivePlayerId)
+  so pending flush still fires; EventTriggers local Player entered++ only when vanilla
+  skipped and body still at pos.
+- **Rev2:** clean — occupancy Reset on NetworkResetRegistry; dialog release on roster prune
+  belt; no protocol bump.
+- Protocol **25** unchanged. Product bump **0.8.43 → 0.8.44**.
+- **Deployed md5** `6381a8afac4edb29cad742384a533aa5` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.43 — Fire-packet muzzle + map marker snapshot + death-bag empty fan
+
+Batch 7 (leftovers dig — workbench/hotbar/death/trade/sleep/map/trap). Protocol **25** unchanged.
+
+- **Weapon-fire muzzle desync (P1):** `HandlePlayerFiredWeapon` ignored serialized
+  `PosX/Y/Z` and used lagged proxy `transform.up/right`. Now places muzzle/particles/
+  PistolFlash/shot audio from the fire-packet pose + `AimY` axes (vanilla
+  `Quaternion.Euler(90, AimY, 0)`), falling back to proxy only if pos is zero.
+- **Map marker soft-reconnect dupes + migration owner (P1):** `MapStateSync` late-join
+  (including phase-3 AlreadyInWorld) used to `AddRemoteMarker` without clearing → stacked
+  green pins every soft reconnect. Snapshot now `ClearRemoteMarkers` then apply;
+  `AddRemoteMarker` near-dedupes. Host local markers tagged with `_net.LocalPlayerId`
+  (not hardcoded `1`) so post-migration late-join ownership stays correct.
+- **Death bag empty linger (P1):** Host `ContainerItem` take/remove that empties a
+  `deathDrop` fans `DeathBagLooted` immediately (idempotent via looted set) so peers do
+  not keep ghost bags until opener `Inventory.hide` / disconnect. `HandleDeathBagLooted`
+  defers Destroy while the local player still has that inventory UI open.
+- **Workbench exclusive lock:** skipped — parked product decision (0.7.40 / COOP_COVERAGE);
+  both peers may open/use same bench; msg 119 stub ignored. Dual craft is host-validated
+  via workbench level + container loot, not exclusive UI.
+- **Skipped / watchlist:** Hotbar held-mesh (sprite proxy + light/stream already);
+  trade/give (dialog lock + absolute stock); sleep (host clock adopt by design);
+  trap/door mid-lerp (8m snap already; no new smoking gun); journal notes shared by
+  design (not a leak). Batch 5 ForceAnnounce / Batch 6 ClearAiTargets skimmed — no new hole.
+- **Rev1:** DeathBagLooted must not Destroy under open local UI (host empty-fan race).
+- **Rev2:** clean — fire pose fallback; map clear-before-apply + LocalPlayerId; death fan
+  host-only + defer destroy; workbench stay parked.
+- Protocol **25** unchanged. Product bump **0.8.42 → 0.8.43**.
+- **Deployed md5** `42b6a1b8205f6befc7aa7cb3b04c5dc3` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.42 — Disconnect drag-claim fan-out + death/AI leave harden
+
+Batch 6 (combat/death/AI/craft dig — systems less touched by Batches 1–5). Protocol **25** unchanged.
+
+- **N-peer drag claim stuck on disconnect (P0):** Host/Steam peer leave now releases the
+  leaver's `_dragClaims` **and** broadcasts reliable DragSync STOP so remaining peers drop
+  RemoteDrag maps / kinematic holds. PeerRoster prune also clears local claims (belt if STOP
+  lost). Classic "already being moved" forever after a third peer drops mid-drag.
+- **AI chase after proxy destroy (P1):** `DestroyRemoteProxy` calls vanilla
+  `Character.stopAttacking(proxyT)` before Destroy so target/superTarget do not hold a
+  destroyed Transform mid-chase. Dream bunker sticky owner cleared via `ClearIfOwner`.
+- **Day-death proxy premature revive (P1):** PlayerState send forces Death1 whenever local
+  `!alive` (not only `LocalNightDeath`), so day spectate get-up clips cannot re-alive the
+  remote proxy and re-aggro AI on a corpse.
+- **Host melee FF-off sensor linger (P2):** `HostMeleeSensorPatch` consumes the MeleeSensor
+  when FF is off (same as debounce path) so FixedUpdate does not keep retriggering on proxy
+  colliders.
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.41 work.
+- **Dig skips / watchlist:** Trap/door mid-lerp (no smoking-gun resolve path); save/backup races
+  beyond 0.8.33 (no new poison path found); workbench exclusive lock still stubbed; hitscan/
+  ProxyDamage/HostMelee paths already debounce via ProxyCombatRelay + FF debounce — no new
+  double-apply CAN-fix; hotbar/weapon-fire VFX no concrete wrong-resolve; logs still likely
+  stale 0.8.34 — runtime prove on dual-box after deploy.
+- **Rev2:** `LocationEnterExitNetHandlers.Announce.cs` partial (ForceAnnounce/deferred create/place) so hub stays <500 lines; NetMessageContract HostWorldReady/_Highest=139 aligned with product.
+- Protocol **25** unchanged. Product bump **0.8.41 → 0.8.42**.
+- **Deployed md5** `46ac90d1b473e3abb8fff02b8a9d8e9b` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.41 — Soft-reconnect sticky ForceAnnounce + deferred create flush
+
+Batch 5 (soft-reconnect mid-`ol.loading` membership gap + fresh dig). Protocol **25** unchanged.
+
+- **Sticky ForceAnnounce (P0 residual):** Phase-3 `ForceAnnounceLocalOutsideLocationEnter` no longer
+  silently no-ops while `playerInOutsideLocation` is still false mid `OutsideLocations.loading` /
+  `loadingGame`. Queues a sticky reason when mid-load or previous pad membership is known; Tick
+  `TryFlushPendingForceAnnounce` and location settle clear/fire it. World-map reconnect stays a
+  silent no-op (no forever pending). Does not call `createLocation`.
+- **False LocationExit suppress mid-load (P1):** PlayerState Tick no longer fans `LocationExit` while
+  `Core.loadingGame` or `ol.loading` (brief `playerInOutsideLocation=false` flicker). Real
+  return-to-world still exits; pending ForceAnnounce alone does not suppress Exit.
+- **Deferred remote createLocation flush (P1):** Host pads deferred by the 0.8.39 `ol.loading` /
+  `loadingGame` create guard are retried after local settle / Tick flush, still under rate-limit +
+  dream skip + grid-prefer guards (no createLocation spam).
+- **Settle / return hygiene:** `OnLocalOutsideLocationSettled` clears sticky ForceAnnounce (settle
+  already announces) and flushes deferred creates; `OnLocalReturnedToWorld` clears sticky;
+  soft-reconnect membership clear drops stale sticky from the prior session.
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.40 work (NetId recycle, dream proxy filter, ol.loading create defer, soft-reconnect
+  membership clear + force announce + missing-proxy place).
+- **Dig (no smoking-gun CAN-fix this batch):** Combat hit/damage asymmetry, death/downed/wake,
+  workbench/craft/drag/carry ownership, save/backup races beyond 0.8.33, night chase/scent, container
+  pending hitch leftovers, AI aggro/player-index for remotes, door kick/open loops — code review only;
+  both install `LogOutput.log` still from **0.8.34** sessions (DLL 0.8.40 deployed, no fresh 0.8.40
+  playtest). Trap/door mid-lerp skipped (no smoking gun).
+- **Skipped / Batch 6:** Trap/door resolve during peer mid-lerp; runtime prove soft-reconnect sticky
+  on dual-box; combat/death/AI/craft/save dig needs 0.8.41 playtest logs.
+- **Reviewer Pass 1:** LocationExit suppress must not key off pending ForceAnnounce alone (would
+  swallow real return-to-world Exit if Tick ran before return Postfix). Deferred create flush must
+  not synthesize `HandleLocationEnter` with PlayerId=0 (host uses `CurrentReceivePlayerId`).
+- **Reviewer Pass 2:** clean — LocationExit suppress loading-only; deferred create is host-only path (clients return before defer add); no HandleLocationEnter PlayerId=0; soft-reconnect clears stale sticky before handshake re-queue.
+- Protocol **25** unchanged. Product bump **0.8.40 → 0.8.41**.
+- **Deployed md5** `45082a81c6f2cbc3158bc3e3db43d9a3` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.40 — Soft-reconnect LocationEnter re-place + force announce
+
+Batch 4 (soft-reconnect sticky LocationEnter / proxy place). Protocol **25** unchanged.
+
+- **Soft-reconnect membership clear (P0):** Phase-3 soft reconnect destroys remote proxies but
+  used to keep `RemoteOutsideLocation`. Host `SyncExistingLocationsTo` LocationEnter then saw
+  `firstEnterThisLoc=false` and skipped `PlaceRemoteProxyInOutsideLocation` unless local was on
+  the same pad — host/peer proxies stayed gone after AlreadyInWorld. LAN + Steam soft paths now
+  `ClearMembershipForSoftReconnect` (membership + `_pendingPlaceOnLocationResolve`).
+- **Force LocationEnter on AlreadyInWorld handshake (P1):** Client Handshake OK (phase 3) calls
+  `ForceAnnounceLocalOutsideLocationEnter` immediately so host re-learns our pad without waiting
+  for the ~1 Hz sticky Tick heartbeat (host cleared membership on the brief disconnect).
+- **Place-if-proxy-missing belt (P1):** `HandleLocationEnter` treats a missing/destroyed proxy as
+  `shouldPlace` even when membership was already sticky (covers any path that tears proxies
+  without clearing the dict).
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37–0.8.39 work (NetId recycle grace, dream proxy filter, ol.loading createLocation defer).
+- **Skipped / Batch 5:** Trap/door resolve during peer mid-lerp — still no fresh smoking-gun
+  beyond 0.8.38 8m object snap; needs dual-box playtest. AnimLib / HelpMessage / AudioSource
+  Destroy already shipped 0.8.37–0.8.38 (stale 0.8.34 log NREs).
+- **Reviewer Pass 1:** ResyncWorldLightsForPeer also on pendingPlace / proxyMissing re-place
+  (not on every localSameLoc heartbeat). Soft-reconnect clear + force announce + missing-proxy
+  place belt unchanged.
+- **Reviewer Pass 2:** clean — no further code changes.
+- Protocol **25** unchanged. Product bump **0.8.39 → 0.8.40**.
+- **Deployed md5** `0731681bd71cedd954a8f959a6b75611` (build = Steam host = SecondDarkwood client).
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.39 — NetId recycle grace + dream proxy filter + *_done enter match
+
+Batch 3 (entity id lifecycle + dream N-peer + location name twin). Protocol **25** unchanged.
+
+- **NetId recycle grace (P2):** Host `CharacterTracker.Remove` holds freed ids for 2.5s before
+  `GetCollisionFreeId` reuse. Client `ApplyHostDespawn` immediately `CharacterTracker.Remove`s
+  (not map-clear only), drops pending rows, and ignores EntityState for that id for 2.5s so
+  deferred Destroy + late snapshots cannot same-name-claim a crow/rabbit twin.
+- **Dream ResyncDreamProxiesAfterLocalLoad (P1):** Only place peers with
+  `DreamSyncManager.IsRemoteInDream` — dreams are shared-session / party-once but peers enter
+  individually. Stamping every `RemoteProxy` yanked overworld peers onto the pad and polluted
+  `RemoteOutsideLocation`.
+- **firstEnterThisLoc / localSameLoc (P2):** Use `CoopWorldPresencePolicy.LocationNamesMatch`
+  instead of raw `Equals` so `foo` ↔ `foo_done` is not treated as a fresh enter (re-place +
+  light re-push thrash).
+- **OutsideLocations.loading createLocation defer (P1 dig):** Soft-reconnect / mid-transfer
+  sticky `LocationEnter` no longer stacks `createLocation` while local `ol.loading` is true.
+  Verified vanilla `createLocation` already uses `transportAfterSpawn:false` (no host yank);
+  pressure was load/grid race during the loading screen.
+- Preserves: protocol 25, HostWorldReady 139, beartrap, indoor reverb, CoopWorldPresencePolicy,
+  0.8.37 peer lifecycle, 0.8.38 interp/createLocation guards.
+- **Skipped / Batch 4:** Trap/door resolve during peer teleport mid-lerp — 0.8.38 8m object
+  snap already covers pad teleports; no fresh smoking-gun without playtest. Soft-reconnect
+  AlreadyInWorld LocationEnter re-announce beyond `ol.loading` guard — monitor dual-box logs.
+- **Reviewer Pass 1:** Despawn must `CharacterTracker.Remove` (not ClearId only) so
+  FindByPositionAndName cannot claim the deferred-Destroy GO for a new same-name id;
+  client ignore window matched host recycle grace (2.5s).
+- **Reviewer Pass 2:** clean — no further code changes.
+- Protocol **25** unchanged. Product bump **0.8.38 → 0.8.39**.
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.38 — Entity hard-snap + proxy reverb + createLocation guard
+
+Batch 2 (entity/object snap + proxy audio + location create pressure). Protocol **25** unchanged.
+
+- **Entity hard-snap (P1):** `ClientEntityInterpolationService.UpdateInterpolation` hard-snaps
+  display + rigidbody at the same thresholds as `RemotePlayerProxy` (>150 XZ / >40 Y) on first
+  drive and large teleports (unload/reload, claim from distant twin, knockback). Resets
+  first-frame equivalent so LateUpdate does not lerp map-wide.
+- **Proxy AudioSource vs reverb (P1):** `RemotePlayerProxy.Spawn` mutes/disables native
+  `AudioSource`s instead of `Destroy`. Keeps indoor remote inventory reverb
+  (`open_drawer` + `AudioReverbFilter` parented to proxy) without
+  "Can't remove AudioSource because AudioReverbFilter depends on it".
+- **createLocation guard (P1):** Missing remote pad: prefer host `TryEnterLocationGridNearRemotes`
+  (split-map / `CoopWorldPresencePolicy`). Skip `createLocation` on clients, during
+  `loadingGame`, and rate-limit remote-only creates (2.5s). Local/host pad entry still uses
+  LocationTransport / doors. Does not strand remote sim (grid wake + eventual create).
+- **Free-body SetObjectTarget snap (P2):** Generic object apply hard-snaps jumps ≥
+  `ClientPushSnapDistance` (8m) like the push path — trap/door/object teleports across pads.
+- **ResyncOutsideLocation (bonus):** `ResyncRemoteProxiesForOutsideLocation` uses
+  `ResolveOutsideLocation` + `LocationNamesMatch` instead of `ContainsKey` only.
+- **SyncExistingLocationsTo:** host LocationEnter uses `LocalPlayerId` instead of hardcoded `1`
+  (host-migration safe).
+- Preserves: HostWorldReady 139, beartrap rescue, indoor reverb behavior, CoopWorldPresencePolicy,
+  protocol 25, Batch 1 / 0.8.37 peer disconnect + HelpMessage + AnimLib pending.
+- **Reviewer Pass 1:** Keep `RemoteOutsideLocation` while deferring create (rate-limit /
+  loadingGame / client skip) so `CoopWorldPresencePolicy` does not lose remote membership;
+  `_pendingPlaceOnLocationResolve` forces proxy place once the pad resolves; clear pending
+  on LocationExit / disconnect. Entity 150/40 thresholds leave fast movers alone; object
+  8m snap matches push path (throws under 8m still lerp).
+- **Reviewer Pass 2:** clean — no further code changes.
+- Protocol **25** unchanged. Product bump **0.8.37 → 0.8.38**.
+- **Runtime:** code-only until dual-box playtest. Deployed md5
+  `70182ab6f3c0ce9981d1f0207268bb75` (build = Steam host = SecondDarkwood client).
+
+---
+
+## 0.8.37 — Peer disconnect cleanup + HelpMessage NRE + AnimLib pending
+
+Batch 1 (peer lifecycle + location membership + log NRE). Protocol **25** unchanged.
+
+- **Peer disconnect cleanup (P0):** Host LAN/Steam disconnect now captures outside-location
+  membership, runs `TryLeaveUnoccupiedOutsideLocation`, broadcasts reliable `LocationExit`,
+  and immediately pushes `PeerRoster`. Remaining peers destroy the frozen proxy and clear
+  `RemoteOutsideLocation` (N-peer: bunker stays live while another peer is inside; two
+  same-frame disconnects leave only when the last occupant is gone).
+- **PeerRoster proxy prune (P0):** `ApplyPeerRosterLocal` prunes client proxies whose ids
+  vanished from the roster (never the local player). Complements LocationExit fan-out;
+  roster is sent before LocationExit so clients hit the destroy path instead of teleport.
+- **HandleLocationExit defer hole (P1):** Host leave-unoccupied always runs after
+  `RemoteOutsideLocation.Remove`, even when `CanSpawnRemoteProxies` is false. Only proxy
+  teleport/place is deferred during `loadingGame`.
+- **HelpMessage suppress NRE (P0):** `UiDisplayHelpMessageSuppressPatch` no longer
+  bool-skips `UI.displayHelpMessage` (that nulled `__result` and crashed
+  `GameEvent.fire` on `actionToDisable`). Always create, then hide + zero alpha for
+  out-of-range peers so hideout tutorials stay personal.
+- **AnimLibrary pending (P1):** `HandlePlayerAnimLibrary` stashes when proxy is null
+  (like PendingPlayerLights); flush on `EnsureRemoteProxy`. Sticky `SyncCurrentAnimLibrary`
+  on join / late-join bulk mirrors light sticky.
+
+## 0.8.36 — Bear-trap co-op rescue + remote inventory indoor reverb
+
+Dual-box playtest follow-ups on top of 0.8.34/0.8.35.
+
+- **Bear-trap co-op rescue:** Sprung traps become vanilla `isDroppedItem` with loot
+  type often `junk` ("Scrap metal"). Picking that up sent `WorldObjectRemoved` for
+  junk; peer `DestroyObjectByPos` matched the beartrap via the junk slot and
+  destroyed it without a reliable free, while container `RemoveItem` was denied and
+  refunded the grant. Fix: never match occupancy/world traps on a non-trap needle;
+  send trap GO name on rescue pickup; exclude trap inventories from container sync
+  during pickup; strengthen `ReleaseLocalBearTrapIfNear` (flag belt + NetId); XZ
+  occupancy resolve (`ResolveOccupyingTrapId` tall sphere + XZ filter) so
+  `TrapNetId` is non-zero. Host-stuck/client-pickup and reverse covered; each peer
+  frees its local body on destroy (N-peer).
+- **Double snap sound:** Host `activateSound` was forwarded via PlayerAudio while
+  peers also played it in `ApplyTrapState`. Trap-owned activate sounds are no longer
+  forwarded (TrapState owns peer FX).
+- **Remote inventory indoor reverb:** `open_drawer` / `close_drawer` now always
+  parent to the remote proxy after `CharBase.checkGround()` so
+  `AudioController` sees `isInside` and applies `AudioReverbFilter` like local bag
+  open. Shared path covers other stick-to-sender presence SFX.
+- Does not regress door scrape, footsteps, HelpMessage proximity, ClientBackup,
+  container hitch, or HostWorldReady **0.8.35**.
+- **Reviewer Pass 1 nits:** `DarkwoodMP.Mod.csproj` Version/InformationalVersion
+  **0.8.36**; collapse identical `ReleaseLocalBearTrapIfNear` branches in
+  `DestroyObjectByPos`; `TrapPickupGuard.IsGuarded` matches exact inventory only
+  (null `_inv` no longer guards all); drop host `activateSound` Play after
+  `ApplyTrapState` (ApplyTrapState already plays it); Prefix clears guard on throw
+  so Postfix is not required for that path.
+- Protocol **25** unchanged. Product bump **0.8.35 → 0.8.36**.
+- **Runtime:** code-only until dual-box playtest.
+
+---
+
+## 0.8.35 — Clients wait until the host is fully in-world
+
+If a client joined (or pressed JOIN / auto WorldRequest) while the host was
+still loading or entering the chapter, world download could start mid-load and
+cascade into join bugs. Gate is host-authoritative and works for any peer id
+(2nd, 3rd, late joiner) — not “first client only.”
+
+- **Host ready gate:** `HostHasShareableWorld` no longer treats `Core.loadingGame`
+  (or profile / WorldGenerator alone) as shareable. Requires a live `Player` past
+  load (`loadedGame` / `coreStarted`) — no `!mainMenu`-only shortcut (avoids
+  mid-transition true). Sticky `mainMenu` with a live loaded player still counts
+  (keeps the 0.8.x dual-box share fix).
+- **Host→clients signal:** new `HostWorldReady` (msg **139**, protocol **25**
+  unchanged). Host broadcasts `Ready=true` on rising edge of fully in-world; also
+  sends to a peer that handshakes or WorldRequests while already ready. When host
+  leaves fully-in-world, broadcasts `Ready=false` so every waiting title peer
+  clears WAIT/HOST READY (N peers). Soft reconnect / share-in-flight ignore the
+  clear so there is no deadlock.
+- **Client wait:** title join shows **WAIT HOST…** / status “waiting for host to
+  enter world” until HostWorldReady Ready=true or `WorldSaveBegin` (Begin also
+  marks ready for missed-signal / older-host compat). Soft reconnect
+  (`AlreadyInWorld`) sets ready immediately and still skips world share — no
+  deadlock. Ready=false after share has started is ignored until ENTER WORLD.
+- **Share triggers:** handshake delayed share, sticky TickHostWorldShareWhenReady,
+  HostEnterWorldSharePatch (`Player.Start`), and WorldRequest all require the
+  strict gate. Mid-load `Player.Start` defers to the tick rising edge.
+- **Connect path:** host no longer dumps late-join sticky bulk to peers while not
+  fully in-world (title / mid-load waiters); phase-3 reconnect still queues bulk
+  from handshake.
+- Does not break 0.8.32–0.8.34 fixes (trace logging, container hitch, bird-trap
+  rescue, HelpMessage proximity, stale backup / AlreadyInWorld sticky share skip).
+- Protocol **25** unchanged. Product bump **0.8.34 → 0.8.35**.
+- **Runtime:** code-only until dual-box (and imagined 3rd peer) playtest.
+
+---
+
+## 0.8.34 — Playtest: container hitch, bird-trap rescue, location HelpMessage leak
+
+Dual-box playtest follow-ups on top of 0.8.32/0.8.33.
+
+- **Container open hitch:** `FindInventoryByPos` always ran `SceneScanCache<Inventory>` (`FindObjectsOfType` ~45–50ms, `footType=Inventory`) even after OverlapSphere already found the wardrobe/corpse. Overlap now uses `maxDist`, returns immediately on hit, and client `ContainerStateSync` prefers the already-opened inventory.
+- **Bird / bear trap co-op rescue:** Occupied-trap pickup is allowed. Removing or picking up the trap frees the stuck player (`interruptAllActions(stopBeartrap)` via `ReleaseLocalBearTrapIfNear` on local destroy and on `WorldObjectRemoved`). Occupancy distance checks use **XZ only** (trap Y≈-10 vs player Y≈16 was false-negative). Host-stuck/client-pickup and client-stuck/host-pickup both covered.
+- **Location hint leak:** Hideout tutorials use `UI.displayHelpMessage` (`GameEvent` `isHelpMessage`), not `Player.displayMessage` — the 0.8.32 gate never saw them. Also `GameEvents.fire()` only *starts* delayed coroutines, so try/finally `SuppressCount` around `fire()` missed delayed HelpMessage/displayMessage. Fix: gate `UI.displayHelpMessage`; re-check `NearRange` (**250→60** XZ) against the GE transform when delayed `GameEvent.fire` MoveNext actually displays (no process-wide `_forceSuppressUntil` blacklist that blanked local examine/help); chat/system tips `BeginBypass`. Proxy enter/exit rely on the same MoveNext proximity gate (not a short DefaultSuppressSeconds window).
+- **Trade stock NRE:** `Inventory.refreshReputation` during early `TradeInventorySync` is try/caught (join/title race).
+- Protocol **25** unchanged. Product bump **0.8.33 → 0.8.34**.
+
+---
+
+## 0.8.33 — Stale client backup no longer voids a join
+
+Dual-box rejoin restored a July character snapshot (molotov / gasBomb hotbar, Y=16 at Z≈89) over a correct offline load near the hideout, so the client appeared in nowhere with weird cocktails. Host also pushed the shared legacy `client_backup.json` to the wrong player id.
+
+- Host no longer falls back to shared `client_backup.json` when loading a per-player backup.
+- Stale detection uses **CampaignId** (stable), not ContentFingerprint inequality (hashes churn every Save; host/client diverge after share).
+- Empty-CampaignId legacy migrate **and** host `SaveBackupFile` stamp are refused when the snapshot looks like July poison/spoil (missing/ancient timestamp, absurd item stacks, or null-fp lvl-1+ hotbar/inv) — **including on day 2+**, so hotbar/inv cannot slip through after a position-only skip.
+- Pose-vs-live absurdity is **client/offline apply only** — host `LoadBackupFileForPlayer` / late-join push never compares a peer backup against host `Player.Instance` (peers far apart must not false-positive skip a good null-fp campaign backup).
+- Matched campaign-scoped backups are trusted; optional belt on client apply is missing fingerprint **plus** absurd pose vs the already-loaded body.
+- `RestoreFromBackup` returns bool success; host push sets `_receivedHostClientBackup` only when restore actually applied so a rejected stale push still allows local self fallback.
+- Restore refuses the whole snapshot when stale (inv/hotbar/skills/pose), not pose alone.
+- Soft age floor for legacy spoil is **14 days** (weekends must not false-positive); missing/unparseable timestamps still count as poison for empty-CampaignId files.
+- Position restore is still skipped when the backup is far from the pose already loaded from `sav.dat` (XZ or Y) as belt-and-suspenders.
+- Phase-3 AlreadyInWorld peers are not counted as waiting for sticky-mainMenu world share (stops the useless re-share the client ignored).
+- Protocol **25** unchanged. Product bump **0.8.32 → 0.8.33**.
+
+---
+
+## 0.8.32 — Trace is max dual-box capture
+
+`LogPreset=Trace` now also emits `LegacyInfo` dumps (previously Dev-only), so one preset covers Legacy + Verbose gates + full Trace categories.
+
+- Dual-box playtest configs on this machine: host + client set to **Trace** / MinLevel Trace, VerboseLogging + VerboseEntitySync + VerboseLightSync on, BepInEx disk/console `LogLevels=All` and `WriteUnityLog=true`.
+- **Door hinge scrape no longer loops forever on the client.** `door_rotating` / `door_metal_rotating` stay local to `Door.Update` (start/stop on each peer). Networking them via 0.8.31 `ForwardWorldObjectSound` left orphan loops because Stop was never forwarded.
+- **Client runner hears one footstep stream.** Proxy footstep playback sets `ApplyingFromNetwork`, and world-object forward again suppresses foot/walk_clothes IDs, so host proxy steps do not echo back to the runner as a second `PlayerAudio` stream.
+- **Location/proximity narrative hints stay on the observer.** Remote `GameEventsFired` apply suppresses `displayMessage` unless the local listener is within `PersonalFlavorHud.NearRange` (250 XZ). Proxy area enter/exit always suppress — host must not show the client's hint while auth-firing.
+- Protocol **25** unchanged. Product bump **0.8.31 → 0.8.32**.
 
 ---
 

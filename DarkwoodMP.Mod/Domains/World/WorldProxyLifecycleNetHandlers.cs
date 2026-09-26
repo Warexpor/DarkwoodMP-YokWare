@@ -77,6 +77,9 @@ namespace DWMPHorde.Networking
                     ModLog.Event(LogCat.World,
                         $"[Light] applied pending state for p{playerId} after proxy create");
                 }
+
+                // Anim library may have arrived before the proxy existed (equip race / late join).
+                _net.PlayerFXHandlers?.FlushPendingAnimLibrary(playerId);
             }
         }
 
@@ -158,6 +161,18 @@ namespace DWMPHorde.Networking
             if (!_net.RemoteProxies.TryGetValue(playerId, out var proxy))
                 return;
 
+            // Before Destroy: vanilla stopAttacking so chase/superTarget do not hold a
+            // destroyed Transform (N-peer leave mid-chase → null chase / (0,0,0) wander).
+            try
+            {
+                if (proxy != null)
+                    ClearAiTargetsOnProxy(proxy.transform);
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "ClearAiTargetsOnProxy p" + playerId + ": " + ex.Message);
+            }
+
             _net.RemoteProxies.Remove(playerId);
             try
             {
@@ -172,7 +187,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// After local dream pad load: place each remote proxy at last PlayerState (or spawn).
+        /// After local dream pad load: place remotes who are actually in the shared dream
+        /// (<see cref="Sync.DreamSyncManager.IsRemoteInDream"/>). Dreams are party-once /
+        /// shared-session but peers enter individually — stamping every RemoteProxy yanked
+        /// overworld peers onto the dream pad and polluted RemoteOutsideLocation.
         /// </summary>
         internal void ResyncDreamProxiesAfterLocalLoad(string locationName)
         {
@@ -180,7 +198,8 @@ namespace DWMPHorde.Networking
             try
             {
                 var ol = Singleton<OutsideLocations>.Instance;
-                Location loc = LocationNetHandlers.ResolveOutsideLocation(ol, Sync.DreamSyncManager.CanonicalDreamLocationName(locationName));
+                string canon = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
+                Location loc = LocationNetHandlers.ResolveOutsideLocation(ol, canon);
                 if (loc == null && Dreams.Instance != null)
                     loc = Dreams.Instance.dreamLocation;
                 if (loc == null) return;
@@ -189,13 +208,31 @@ namespace DWMPHorde.Networking
                 foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_net.RemoteProxies))
                 {
                     if (kvp.Key == _net.LocalPlayerId) continue;
-                    _net.RemoteOutsideLocation[kvp.Key] = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
+                    // N-peer: only participants. IsRemoteInDream covers entry-deadline window.
+                    if (!Sync.DreamSyncManager.IsRemoteInDream(kvp.Key))
+                        continue;
+                    _net.RemoteOutsideLocation[kvp.Key] = canon;
                     _net.LocationHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
                 }
             }
             catch (System.Exception ex)
             {
                 ModLog.Warn(LogCat.Session, "ResyncDreamProxiesAfterLocalLoad: " + ex.Message);
+            }
+        }
+
+
+        private static void ClearAiTargetsOnProxy(UnityEngine.Transform proxyT)
+        {
+            if (proxyT == null) return;
+            Character[] all;
+            int nAll = CharacterTracker.CopyAll(out all);
+            for (int ci = 0; ci < nAll; ci++)
+            {
+                Character c = all[ci];
+                if (c == null) continue;
+                if (c.target == proxyT || c.superTarget == proxyT)
+                    c.stopAttacking(proxyT);
             }
         }
 

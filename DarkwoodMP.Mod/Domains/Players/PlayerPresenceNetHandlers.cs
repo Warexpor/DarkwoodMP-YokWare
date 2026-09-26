@@ -57,8 +57,14 @@ namespace DWMPHorde.Networking
                     hostMint: _net.Role == NetworkRole.Host);
                 if (trapId > 0 && localTrap == trapId)
                     return true;
-                if (trapId <= 0 && (local.transform.position - trapPos).sqrMagnitude < 4f)
-                    return true;
+                // XZ only: trap Y is often -10 while the player stands at ~16.
+                if (trapId <= 0)
+                {
+                    float ldx = local.transform.position.x - trapPos.x;
+                    float ldz = local.transform.position.z - trapPos.z;
+                    if (ldx * ldx + ldz * ldz < 4f)
+                        return true;
+                }
             }
 
             foreach (var kv in _net.RemotePlayers)
@@ -68,8 +74,13 @@ namespace DWMPHorde.Networking
                     continue;
                 if (trapId > 0 && st.TrapNetId == trapId)
                     return true;
-                if (st.TrapNetId <= 0 && (st.BearTrapPos - trapPos).sqrMagnitude < 6.25f)
-                    return true;
+                if (st.TrapNetId <= 0)
+                {
+                    float rdx = st.BearTrapPos.x - trapPos.x;
+                    float rdz = st.BearTrapPos.z - trapPos.z;
+                    if (rdx * rdx + rdz * rdz < 6.25f)
+                        return true;
+                }
             }
 
             return false;
@@ -84,8 +95,13 @@ namespace DWMPHorde.Networking
 
             foreach (var st in _net.RemotePlayers.Values)
             {
-                if (st != null && st.InBearTrap && (st.BearTrapPos - trapPos).sqrMagnitude < 6.25f)
-                    return true;
+                if (st != null && st.InBearTrap)
+                {
+                    float rdx = st.BearTrapPos.x - trapPos.x;
+                    float rdz = st.BearTrapPos.z - trapPos.z;
+                    if (rdx * rdx + rdz * rdz < 6.25f)
+                        return true;
+                }
             }
             return false;
         }

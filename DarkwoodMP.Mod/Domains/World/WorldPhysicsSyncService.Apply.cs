@@ -348,6 +348,29 @@ namespace DWMPHorde.Sync
                         bool currentOpened = TraverseHack.ReadDoorOpened(door);
                         if (currentOpened == ds.Opened)
                         {
+                            // DoorOpen often arrives first and flips opened. Still snap body
+                            // rot/angVel from DoorState so kick hinge matches the opener.
+                            if (ds.Opened && door.body != null
+                                && (ds.BodyRotY != 0f
+                                    || ds.AngVelX * ds.AngVelX + ds.AngVelY * ds.AngVelY
+                                        + ds.AngVelZ * ds.AngVelZ > 0f))
+                            {
+                                Rigidbody doorBodyRB = door.body.GetComponent<Rigidbody>();
+                                if (doorBodyRB != null)
+                                {
+                                    Vector3 currentEuler = door.body.eulerAngles;
+                                    if (ds.BodyRotY != 0f)
+                                    {
+                                        door.body.rotation = Quaternion.Euler(
+                                            currentEuler.x, ds.BodyRotY, currentEuler.z);
+                                        doorBodyRB.velocity = Vector3.zero;
+                                    }
+                                    Vector3 senderAngVel = new Vector3(
+                                        ds.AngVelX, ds.AngVelY, ds.AngVelZ);
+                                    if (senderAngVel.sqrMagnitude > 0f)
+                                        doorBodyRB.angularVelocity = senderAngVel;
+                                }
+                            }
                             doorSkipped++;
                             continue;
                         }
@@ -428,6 +451,12 @@ namespace DWMPHorde.Sync
                     // Guard turnOn/turnOff/setLowPower patches from re-sending
                     TraverseHack.ApplyingFromNetwork = true;
                     int gc = state.EffectiveGeneratorCount;
+                    // Host: client FuelDelta accumulates (concurrent pour underfuel fix).
+                    // Absolute Fuel when FuelDelta==0 (turnOn/off, late-join, host pour).
+                    // Mutate gs before HandlePhysicsState fans out so peers get absolute.
+                    bool hostAccum = fromPeer == "client"
+                        && LanNetworkManager.Instance != null
+                        && LanNetworkManager.Instance.Role == NetworkRole.Host;
                     for (int gi = 0; gi < gc; gi++)
                     {
                         GeneratorState gs = state.Generators[gi];
@@ -437,7 +466,25 @@ namespace DWMPHorde.Sync
                             gen = SpawnGenerator(gs);
                         if (gen == null) continue;
 
-                        ApplyGeneratorState(gen, gs.IsOn, gs.Fuel, gs.LowPower);
+                        if (hostAccum && gs.FuelDelta > 0.01f)
+                        {
+                            float delta = gs.FuelDelta;
+                            float before = gen.fuel;
+                            gen.addFuel(delta);
+                            ApplyGeneratorState(gen, gs.IsOn, gen.fuel, gs.LowPower);
+                            gs.Fuel = gen.fuel;
+                            gs.FuelDelta = 0f;
+                            gs.IsOn = gen.isOn;
+                            gs.LowPower = gen.lowPower;
+                            state.Generators[gi] = gs;
+                            ModRuntime.LegacyInfo("[GeneratorSync] host-auth addFuel +"
+                                + delta.ToString("F0") + " " + before.ToString("F0")
+                                + "→" + gen.fuel.ToString("F0") + " at " + gPos);
+                        }
+                        else
+                        {
+                            ApplyGeneratorState(gen, gs.IsOn, gs.Fuel, gs.LowPower);
+                        }
                     }
                 }
                 finally

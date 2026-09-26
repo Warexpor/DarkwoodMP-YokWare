@@ -16,6 +16,16 @@ namespace DWMPHorde.Patches
         // before GetHit Postfix — suppress destroy patch send; GetHit owns the event.
         private static int _getHitInstanceId;
 
+        /// <summary>
+        /// Session latches for door/window boards removed mid-session. Late-join bulk
+        /// only scanned currently-barricaded sites, so soft-reconnect / AlreadyInWorld
+        /// peers kept stale boards after host night defense tore them down.
+        /// Key = "x_y_z|isWindow". Cap keeps N-peer night chaff bounded.
+        /// </summary>
+        internal const int MaxRemovedBoards = 128;
+        private static readonly Dictionary<string, byte> _removedBoards =
+            new Dictionary<string, byte>(64);
+
         public static void Reset()
         {
             DoorBarricadePatch.ClearSessionState();
@@ -24,6 +34,78 @@ namespace DWMPHorde.Patches
             ItemGetHitPatch.ClearSessionState();
             ClientWorldMeleeRedirectHelper.Reset();
             _getHitInstanceId = 0;
+            ClearRemovedBoards();
+        }
+
+        internal static void ClearRemovedBoards() => _removedBoards.Clear();
+
+        internal static string RemovedBoardKey(Vector3 key, byte isWindow)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return key.x.ToString("F1", inv) + "_" + key.y.ToString("F1", inv) + "_"
+                + key.z.ToString("F1", inv) + "|" + isWindow;
+        }
+
+        internal static void NoteBoardRemoved(Vector3 key, byte isWindow)
+        {
+            if (isWindow > 1) return;
+            string id = RemovedBoardKey(key, isWindow);
+            if (_removedBoards.ContainsKey(id)) return;
+            if (_removedBoards.Count >= MaxRemovedBoards)
+            {
+                // Drop oldest insertion order (Dictionary preserves order on netstandard/modern).
+                string first = null;
+                foreach (var k in _removedBoards.Keys) { first = k; break; }
+                if (first != null) _removedBoards.Remove(first);
+            }
+            _removedBoards[id] = isWindow;
+        }
+
+        internal static void NoteBoardBuilt(Vector3 key, byte isWindow)
+        {
+            if (isWindow > 1) return;
+            _removedBoards.Remove(RemovedBoardKey(key, isWindow));
+        }
+
+        /// <summary>Host late-join: Destroyed for boards removed this session (door=0 / window=1).</summary>
+        internal static int SendRemovedBoardsTo(LanNetworkManager net, int targetPlayerId, byte isWindow, int maxSend)
+        {
+            if (net == null || net.Role != NetworkRole.Host || maxSend <= 0) return 0;
+            if (_removedBoards.Count == 0) return 0;
+            int sent = 0;
+            foreach (var kv in _removedBoards)
+            {
+                if (sent >= maxSend) break;
+                if (kv.Value != isWindow) continue;
+                // id = "x_y_z|w"
+                string id = kv.Key;
+                int pipe = id.LastIndexOf('|');
+                if (pipe <= 0) continue;
+                string[] parts = id.Substring(0, pipe).Split('_');
+                if (parts.Length != 3) continue;
+                if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float x)) continue;
+                if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float y)) continue;
+                if (!float.TryParse(parts[2], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float z)) continue;
+                var msg = new BarricadeEventMessage
+                {
+                    PosX = x, PosY = y, PosZ = z,
+                    IsWindow = isWindow,
+                    Action = BarricadeAction.Destroyed,
+                    Health = 0,
+                    PlayerBarricade = false,
+                    MainHealth = -1,
+                    DamageAmount = -1
+                };
+                net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
+                sent++;
+            }
+            if (sent > 0)
+                ModRuntime.LegacyInfo("[BulkSync] Barricade removed-boards isWindow="
+                    + isWindow + " → p" + targetPlayerId + ": " + sent);
+            return sent;
         }
 
         internal static void BeginGetHit(int instanceId) => _getHitInstanceId = instanceId;
@@ -58,6 +140,11 @@ namespace DWMPHorde.Patches
                 AttackerPosZ = attackerPos?.z ?? 0f
             };
             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] SEND type={targetType} act={action} hp={health} pos={key}");
+            // Host latch: Destroyed boards must survive soft-reconnect (bulk scan misses them).
+            if (action == BarricadeAction.Destroyed && targetType <= 1)
+                NoteBoardRemoved(key, targetType);
+            else if (action == BarricadeAction.Built && targetType <= 1)
+                NoteBoardBuilt(key, targetType);
             var net = LanNetworkManager.Instance;
             if (net != null)
                 net.Broadcast(NetMessageType.BarricadeEvent, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

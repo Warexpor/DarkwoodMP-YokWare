@@ -145,6 +145,47 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Intentional host StopNetwork while in-world: flush sav.dat so the next session
+        /// (same or new host) loads current world ownership. Does NOT run on migration
+        /// promote — survivor client Save corrupts the slot (see HostMigration.Handoff.Promote).
+        /// Local Save only — no SaveSync fan-out (peers are tearing down).
+        /// </summary>
+        internal void TryHostWorldSaveCheckpointOnExit()
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
+                return;
+            if (LanNetworkManager._isRemoteSaveInProgress)
+                return;
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null)
+                return;
+            try
+            {
+                ModLog.Event(LogCat.Save,
+                    "Host leave checkpoint → local Save (intentional StopNetwork)");
+                LanNetworkManager._isRemoteSaveInProgress = true;
+                sm.Save(
+                    doJson: true,
+                    doSaveProfile: true,
+                    force: true,
+                    forceSaveStatic: false,
+                    showSavingIndicator: false);
+                CoopWorldCopyMeta.RefreshAfterLocalSave();
+                ModRuntime.LegacyInfo("[HostLeave] world save checkpoint written");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[HostLeave] world save checkpoint failed: " + ex.Message);
+            }
+            finally
+            {
+                LanNetworkManager._isRemoteSaveInProgress = false;
+            }
+        }
+
         /// <summary>Collect → local self file; optionally push to host.</summary>
         private void PersistClientBackupSnapshot(bool sendToHost)
         {

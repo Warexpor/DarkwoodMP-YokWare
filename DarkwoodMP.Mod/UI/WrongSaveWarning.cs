@@ -40,7 +40,11 @@ namespace DWMPHorde
             try
             {
                 if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
-                    Player.Instance.displayMessage(msg);
+                {
+                    DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                    try { Player.Instance.displayMessage(msg); }
+                    finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                }
             }
             catch { /* non-fatal */ }
         }

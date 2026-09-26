@@ -20,12 +20,16 @@ namespace DWMPHorde.Networking
     /// <summary>
     /// Container loot take/put/place + deny/refund + hideout/reputation.
     /// </summary>
-    internal sealed class ContainerLootNetHandlers
+    internal sealed partial class ContainerLootNetHandlers
     {
         private readonly LanNetworkManager _net;
         private readonly ContainerPendingNetHandlers _pending;
 
         private const int MaxContainerPlaceAmount = 999;
+        private const float HideoutUpgradeFindRadius = 1.5f;
+        private const int MaxPendingHideoutUpgrades = 32;
+        private readonly System.Collections.Generic.List<HideoutUpgradeMessage> _pendingHideoutUpgrades =
+            new System.Collections.Generic.List<HideoutUpgradeMessage>(8);
 
         internal ContainerLootNetHandlers(LanNetworkManager net, ContainerPendingNetHandlers pending)
         {
@@ -35,11 +39,33 @@ namespace DWMPHorde.Networking
 
         internal void HandleHideoutUpgrade(HideoutUpgradeMessage msg)
         {
+            ApplyHideoutUpgrade(msg, queueIfMissing: true);
+        }
+
+        internal void ApplyHideoutUpgrade(HideoutUpgradeMessage msg, bool queueIfMissing)
+        {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            ExperienceMachine best = WorldQueryHelper.FindNearest<ExperienceMachine>(pos, 0.5f);
+            // 0.5f was too tight vs HideoutStateSync (1f) / oven key rounding — late/live miss.
+            ExperienceMachine best = WorldQueryHelper.FindNearest<ExperienceMachine>(pos, HideoutUpgradeFindRadius);
             if (best == null)
             {
-                ModRuntime.Log?.LogWarning("[HideoutUpgrade] no ExperienceMachine found near " + pos);
+                if (queueIfMissing)
+                {
+                    for (int i = _pendingHideoutUpgrades.Count - 1; i >= 0; i--)
+                    {
+                        var p = _pendingHideoutUpgrades[i];
+                        if (Mathf.Abs(p.PosX - msg.PosX) < 0.05f
+                            && Mathf.Abs(p.PosY - msg.PosY) < 0.05f
+                            && Mathf.Abs(p.PosZ - msg.PosZ) < 0.05f)
+                            _pendingHideoutUpgrades.RemoveAt(i);
+                    }
+                    if (_pendingHideoutUpgrades.Count >= MaxPendingHideoutUpgrades)
+                        _pendingHideoutUpgrades.RemoveAt(0);
+                    _pendingHideoutUpgrades.Add(msg);
+                    ModRuntime.LegacyInfo("[HideoutUpgrade] queued — no ExperienceMachine near " + pos);
+                }
+                else
+                    ModRuntime.Log?.LogWarning("[HideoutUpgrade] no ExperienceMachine found near " + pos);
                 return;
             }
 
@@ -47,6 +73,20 @@ namespace DWMPHorde.Networking
                 best.enable();
             else if (!msg.IsOn && best.isOn)
                 best.disable();
+        }
+
+        internal void TryFlushPendingHideoutUpgrades()
+        {
+            if (_pendingHideoutUpgrades.Count == 0) return;
+            for (int i = _pendingHideoutUpgrades.Count - 1; i >= 0; i--)
+            {
+                var msg = _pendingHideoutUpgrades[i];
+                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                if (WorldQueryHelper.FindNearest<ExperienceMachine>(pos, HideoutUpgradeFindRadius) == null)
+                    continue;
+                _pendingHideoutUpgrades.RemoveAt(i);
+                ApplyHideoutUpgrade(msg, queueIfMissing: false);
+            }
         }
 
         internal void HandleContainerItem(ContainerItemMessage msg)
@@ -92,11 +132,12 @@ namespace DWMPHorde.Networking
                     {
                         // Soft type check on clients (host already validated).
                         if (!string.IsNullOrEmpty(msg.ItemType)
-                            && !string.Equals(slot.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+                            && !Patches.ContainerSyncHelpers.ItemTypeMatchesWire(
+                                slot.invItem, msg.ItemType, msg.IsRecipe))
                         {
                             ModRuntime.Log?.LogWarning(
                                 $"[Container] HandleContainerItem: type mismatch slot {msg.SlotIndex} "
-                                + $"have={slot.invItem.type} msg={msg.ItemType}");
+                                + $"have={slot.invItem.type} msg={msg.ItemType} recipe={msg.IsRecipe}");
                             return;
                         }
 
@@ -122,6 +163,10 @@ namespace DWMPHorde.Networking
                                     ModRuntime.Log?.LogWarning("[Container] empty itemInv destroy: " + ex.Message);
                             }
                         }
+                        // Death bag emptied by take: fan Looted now (do not wait for opener hide).
+                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
+                            && inv.invType == Inventory.InvType.deathDrop)
+                            _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                     else
                     {
@@ -134,6 +179,9 @@ namespace DWMPHorde.Networking
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
                             catch { /* non-fatal */ }
                         }
+                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
+                            && inv.invType == Inventory.InvType.deathDrop)
+                            _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                 }
                 else
@@ -145,41 +193,83 @@ namespace DWMPHorde.Networking
             }
             else if (msg.Action == ContainerAction.PlaceItem)
             {
-                // Host trust: clamp a client-side place amount so a peer cannot mint
-                // items into a container with an oversized amount field.
+                // Host trust: reject out-of-bounds place amounts (no silent mint / vanish).
                 if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
                     && (msg.Amount <= 0 || msg.Amount > MaxContainerPlaceAmount))
                 {
-                    _net._suppressForwardThisMessage = true;
-                    ModLog.Warn(LogCat.Container,
-                        "[Container] PlaceItem denied — amount out of bounds: " + msg.Amount);
+                    if (_net.CurrentReceivePlayerId > 0)
+                        DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "amount out of bounds");
+                    else
+                    {
+                        _net._suppressForwardThisMessage = true;
+                        ModLog.Warn(LogCat.Container,
+                            "[Container] PlaceItem denied — amount out of bounds: " + msg.Amount);
+                    }
                     return;
                 }
-
-                if (msg.IsPlayerPlaced)
-                    Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
 
                 if (msg.SlotIndex < inv.slots.Count)
                 {
                     InvSlot slot = inv.slots[msg.SlotIndex];
                     if (InvItemClass.isNull(slot.invItem))
                     {
-                        slot.createItem(msg.ItemType, msg.Amount, msg.Durability > 0f ? msg.Durability : 1f);
-                        if (msg.Ammo > 0 && !InvItemClass.isNull(slot.invItem))
-                            slot.invItem.ammo = msg.Ammo;
+                        InvItemClass created = slot.createItem(msg.ItemType, msg.Amount, 1f,
+                            InvItem.ModifierQuality.none, msg.IsRecipe);
+                        if (!InvItemClass.isNull(created))
+                        {
+                            Sync.InvItemTransferApply.ApplyMeta(
+                                created, msg.Durability, msg.Ammo, msg.ShouldBeActive);
+                            Sync.InvItemUpgradeWire.Apply(created, msg.Upgrades);
+                        }
+                        // Only arm after a successful place (deny must not mark).
+                        if (msg.IsPlayerPlaced)
+                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
                     }
-                    else if (slot.invItem.type == msg.ItemType)
+                    else if ((!msg.IsRecipe && slot.invItem.type == msg.ItemType)
+                        || (msg.IsRecipe && slot.invItem.isRecipe
+                            && slot.invItem.recipeFor == msg.ItemType))
                     {
+                        // Stack merge race: reject if combined stack would exceed the place cap
+                        // (otherwise the placer loses the overflow silently).
+                        long merged = (long)slot.invItem.amount + msg.Amount;
+                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
+                            && merged > MaxContainerPlaceAmount)
+                        {
+                            if (_net.CurrentReceivePlayerId > 0)
+                                DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "stack overflow");
+                            else
+                            {
+                                _net._suppressForwardThisMessage = true;
+                                ModLog.Warn(LogCat.Container,
+                                    "[Container] PlaceItem denied — stack overflow to " + merged);
+                            }
+                            return;
+                        }
                         slot.invItem.amount += msg.Amount;
                         slot.invItem.refresh();
+                        if (msg.IsPlayerPlaced)
+                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
                     }
                     else if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState)
                     {
-                        // Place race: the slot contains a different type; do not overwrite it.
-                        ModLog.Warn(LogCat.Container,
-                            "[Container] PlaceItem denied — slot occupied by " + slot.invItem.type);
-                        _net._suppressForwardThisMessage = true;
+                        // Place race: the slot contains a different type; do not overwrite.
+                        // Without a refund the placer already removed the item from their bag
+                        // and kept it only in the local container — item vanish on deny.
+                        if (_net.CurrentReceivePlayerId > 0)
+                            DenyContainerPlace(_net.CurrentReceivePlayerId, msg,
+                                "slot occupied by " + slot.invItem.type);
+                        else
+                        {
+                            _net._suppressForwardThisMessage = true;
+                            ModLog.Warn(LogCat.Container,
+                                "[Container] PlaceItem denied — slot occupied by " + slot.invItem.type);
+                        }
                     }
+                }
+                else if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
+                    && _net.CurrentReceivePlayerId > 0)
+                {
+                    DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "bad slot index");
                 }
             }
             else if (msg.Action == ContainerAction.Searched)
@@ -216,9 +306,11 @@ namespace DWMPHorde.Networking
                 return false;
             }
             if (!string.IsNullOrEmpty(msg.ItemType)
-                && !string.Equals(slot.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
+                && !Patches.ContainerSyncHelpers.ItemTypeMatchesWire(
+                    slot.invItem, msg.ItemType, msg.IsRecipe))
             {
-                reason = "type mismatch have=" + slot.invItem.type;
+                reason = "type mismatch have=" + slot.invItem.type
+                    + (slot.invItem.isRecipe ? ("/" + slot.invItem.recipeFor) : "");
                 return false;
             }
             if (msg.Amount <= 0)
@@ -229,143 +321,6 @@ namespace DWMPHorde.Networking
             return true;
         }
 
-        internal void DenyContainerTake(int playerId, ContainerItemMessage msg, string reason)
-        {
-            _net._suppressForwardThisMessage = true;
-            ModLog.Event(LogCat.Container,
-                "[Container] H6 deny take p" + playerId + " slot=" + msg.SlotIndex
-                + " type=" + msg.ItemType + " amt=" + msg.Amount + " (" + reason + ")");
-
-            _net.SendToPlayer(playerId, NetMessageType.ContainerTakeDenied, w =>
-            {
-                new ContainerTakeDeniedMessage
-                {
-                    PosX = msg.PosX,
-                    PosY = msg.PosY,
-                    PosZ = msg.PosZ,
-                    SlotIndex = msg.SlotIndex,
-                    ItemType = msg.ItemType ?? "",
-                    Amount = msg.Amount > 0 ? msg.Amount : 1
-                }.Serialize(w);
-            }, LiteNetLib.DeliveryMethod.ReliableOrdered);
-
-            // Push authoritative container snapshot so UI matches host.
-            try
-            {
-                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                Inventory inv = WorldQueryHelper.FindInventoryByPos(pos);
-                if (inv != null)
-                    SendContainerStateSnapshotTo(playerId, inv, pos);
-            }
-            catch { /* ignore */ }
-        }
-
-        internal void SendContainerStateSnapshotTo(int playerId, Inventory inv, Vector3 pos)
-        {
-            if (inv == null || inv.slots == null) return;
-            var slots = new System.Collections.Generic.List<SlotStateEntry>();
-            for (int i = 0; i < inv.slots.Count; i++)
-            {
-                InvSlot s = inv.slots[i];
-                if (InvItemClass.isNull(s.invItem)) continue;
-                slots.Add(new SlotStateEntry
-                {
-                    SlotIndex = (byte)i,
-                    ItemType = s.invItem.type,
-                    Amount = s.invItem.amount,
-                    Durability = s.invItem.durability,
-                    Ammo = s.invItem.ammo
-                });
-            }
-            var sync = new ContainerStateSyncMessage
-            {
-                PosX = pos.x,
-                PosY = pos.y,
-                PosZ = pos.z,
-                EntityHash = 0,
-                SlotCount = slots.Count,
-                Slots = slots.ToArray()
-            };
-            _net.SendToPlayer(playerId, NetMessageType.ContainerStateSync,
-                w => sync.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
-        }
-
-        internal void HandleContainerTakeDenied(ContainerTakeDeniedMessage msg)
-        {
-            if (_net.Role != NetworkRole.Client)
-                return;
-
-            // Build the pending pre-count key from the denied message (matches
-            // the key format in RecordPendingTakePreCount).
-            string preKey = $"{msg.PosX:F2}_{msg.PosY:F2}_{msg.PosZ:F2}_{msg.SlotIndex}";
-            _pending.ConsumePendingTakePreCount(preKey, out int preTakeCount);
-
-            ModLog.Event(LogCat.Container,
-                "[Container] take denied by host — refunding " + msg.ItemType + " x" + msg.Amount
-                + " (preTakeCount=" + preTakeCount + ")");
-
-            try
-            {
-                Inventory pinv = Player.Instance != null ? Player.Instance.Inventory : null;
-                if (pinv == null || pinv.slots == null || string.IsNullOrEmpty(msg.ItemType) || msg.Amount <= 0)
-                    return;
-
-                int totalNow = ContainerSyncHelpers.CountPlayerItemType(msg.ItemType);
-
-                int toRemove;
-                if (preTakeCount >= 0)
-                {
-                    // Precise refund: calculate what the take actually added.
-                    // If the player already had some of this type, only
-                    // remove the surplus, not the pre-existing items.
-                    toRemove = Math.Max(0, totalNow - preTakeCount);
-                }
-                else
-                {
-                    // No pre-count recorded, for example after a reconnect;
-                    // fall back to the old type-scan behavior.
-                    toRemove = msg.Amount;
-                }
-
-                if (toRemove <= 0)
-                {
-                    ModLog.Warn(LogCat.Container,
-                        "[Container] refund: nothing to remove (totalNow=" + totalNow
-                        + " preTakeCount=" + preTakeCount + ")");
-                    return;
-                }
-
-                int left = Math.Min(toRemove, totalNow);
-                for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
-                {
-                    InvSlot s = pinv.slots[i];
-                    if (InvItemClass.isNull(s.invItem)) continue;
-                    if (!string.Equals(s.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
-                        continue;
-                    if (s.invItem.amount <= left)
-                    {
-                        left -= s.invItem.amount;
-                        s.removeItem();
-                    }
-                    else
-                    {
-                        s.invItem.removeAmount(left);
-                        left = 0;
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ModLog.Warn(LogCat.Container, "refund failed: " + ex.Message);
-            }
-
-            try
-            {
-                if (Player.Instance != null)
-                    Player.Instance.displayMessage("Already taken…");
-            }
-            catch { /* ignore */ }
-        }
         /// <summary>
         /// Apply shared NPC reputation. Host and clients both apply;
         /// night-trader names are ignored (per-player). Writes Flags.npcStates

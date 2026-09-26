@@ -8,7 +8,7 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Shared helper methods for journal item synchronization (notes,
-    /// keys, quest items, journal entries) between host and clients.
+    /// keys, quest items, journal entries, locations) between host and clients.
     /// </summary>
     internal static class JournalSyncHelpers
     {
@@ -77,14 +77,53 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>
+        /// <summary>
     /// Syncs journal note pickups to connected clients.
+    /// Prefix: if peer JournalItem already claimed this note, destroy world GO and skip
+    /// (no second popup / no redundant wire).
     /// </summary>
     [HarmonyPatch(typeof(JournalNoteReference), "pickup")]
     public static class JournalNotePickupPatch
     {
-        private static void Postfix(JournalNoteReference __instance)
+        private static bool Prefix(JournalNoteReference __instance, ref bool __state)
         {
+            __state = false;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            {
+                __state = true;
+                return true;
+            }
+            if (LanNetworkManager.IsApplyingRemoteState)
+            {
+                __state = true;
+                return true;
+            }
+            if (Singleton<JournalDatabase>.Instance == null)
+            {
+                __state = true;
+                return true;
+            }
+            JournalNote.Note note = Singleton<JournalDatabase>.Instance.getNote(__instance.noteName);
+            if (note == null || string.IsNullOrEmpty(note.type))
+            {
+                __state = true;
+                return true;
+            }
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.notesDict != null && journal.notesDict.ContainsKey(note.type))
+            {
+                // Vanilla Item.activate respects dontDestroy — keep world props that stay.
+                if (!__instance.dontDestroy)
+                    JournalNetHandlers.DestroyJournalWorldGo(__instance);
+                return false;
+            }
+            __state = true;
+            return true;
+        }
+
+        private static void Postfix(JournalNoteReference __instance, bool __state)
+        {
+            if (!__state) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (Singleton<JournalDatabase>.Instance == null) return;
             JournalNote.Note note = Singleton<JournalDatabase>.Instance.getNote(__instance.noteName);
@@ -93,31 +132,94 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>
+
+        /// <summary>
     /// Syncs key pickups to connected clients.
+    /// Prefix: already-in-journal (peer claimed) → destroy world GO, skip dual-pickup.
     /// </summary>
     [HarmonyPatch(typeof(KeyReference), "pickup")]
     public static class JournalKeyPickupPatch
     {
-        private static void Postfix(KeyReference __instance)
+        private static bool Prefix(KeyReference __instance, ref bool __state)
         {
+            __state = false;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            {
+                __state = true;
+                return true;
+            }
+            if (LanNetworkManager.IsApplyingRemoteState)
+            {
+                __state = true;
+                return true;
+            }
+            if (string.IsNullOrEmpty(__instance.type))
+            {
+                __state = true;
+                return true;
+            }
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.keysDict != null && journal.keysDict.ContainsKey(__instance.type))
+            {
+                JournalNetHandlers.DestroyJournalWorldGo(__instance);
+                return false;
+            }
+            __state = true;
+            return true;
+        }
+
+        private static void Postfix(KeyReference __instance, bool __state)
+        {
+            if (!__state) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             JournalSyncHelpers.SendJournalItem(JournalItemKind.Key, __instance.type);
         }
     }
 
-    /// <summary>
+
+        /// <summary>
     /// Syncs quest item pickups to connected clients.
+    /// Prefix: already-in-journal (peer claimed) → destroy world GO, skip dual-pickup.
     /// </summary>
     [HarmonyPatch(typeof(QuestItemReference), "pickup")]
     public static class JournalQuestItemPickupPatch
     {
-        private static void Postfix(QuestItemReference __instance)
+        private static bool Prefix(QuestItemReference __instance, ref bool __state)
         {
+            __state = false;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            {
+                __state = true;
+                return true;
+            }
+            if (LanNetworkManager.IsApplyingRemoteState)
+            {
+                __state = true;
+                return true;
+            }
+            if (string.IsNullOrEmpty(__instance.type))
+            {
+                __state = true;
+                return true;
+            }
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.itemsDict != null && journal.itemsDict.ContainsKey(__instance.type))
+            {
+                JournalNetHandlers.DestroyJournalWorldGo(__instance);
+                return false;
+            }
+            __state = true;
+            return true;
+        }
+
+        private static void Postfix(QuestItemReference __instance, bool __state)
+        {
+            if (!__state) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             JournalSyncHelpers.SendJournalItem(JournalItemKind.QuestItem, __instance.type);
         }
     }
+
 
     /// <summary>
     /// Syncs journal entry additions to connected clients (e.g. story
@@ -131,6 +233,41 @@ namespace DWMPHorde.Patches
             string type = (string)__args[0];
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             JournalSyncHelpers.SendJournalItem(JournalItemKind.JournalEntry, type);
+        }
+    }
+
+    /// <summary>
+    /// Sync journal Locations-tab names from Location.discoverMe (map pins
+    /// already fan via Map.showElement). WorldSaveShare loads HOST journal;
+    /// without this, a peer-discovered place vanishes from the journal list
+    /// on cold rejoin / late-join bulk.
+    /// </summary>
+    [HarmonyPatch(typeof(Location), "discoverMe")]
+    public static class JournalLocationDiscoverPatch
+    {
+        private static void Prefix(Location __instance, out bool __state)
+        {
+            __state = false;
+            if (__instance == null) return;
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.locationsDict == null) return;
+            string name = Core.getTrueLocationName(__instance.name);
+            if (string.IsNullOrEmpty(name)) return;
+            // True = was already known — Postfix must not re-broadcast.
+            __state = journal.locationsDict.ContainsKey(name);
+        }
+
+        private static void Postfix(Location __instance, bool __state)
+        {
+            if (__state) return; // already known before discoverMe
+            if (__instance == null) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            string name = Core.getTrueLocationName(__instance.name);
+            if (string.IsNullOrEmpty(name)) return;
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.locationsDict == null || !journal.locationsDict.ContainsKey(name))
+                return;
+            JournalSyncHelpers.SendJournalItem(JournalItemKind.Location, name);
         }
     }
 

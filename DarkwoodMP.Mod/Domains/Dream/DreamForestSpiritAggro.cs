@@ -27,6 +27,13 @@ namespace DWMPHorde.Sync
             _until = -999f;
         }
 
+        /// <summary>Peer leave: drop sticky bind so chase does not keep a dead owner id.</summary>
+        public static void ClearIfOwner(int playerId)
+        {
+            if (playerId > 0 && _ownerPlayerId == playerId)
+                Reset();
+        }
+
         public static bool IsBunkerDreamSpirit(Character c)
         {
             if (c == null) return false;

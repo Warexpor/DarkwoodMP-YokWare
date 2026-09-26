@@ -132,13 +132,110 @@ namespace DWMPHorde.Networking
 
         internal void HandleWorldObjectRemoved(WorldObjectRemovedMessage msg)
         {
+            if (msg.Mode == WorldObjectRemovedMessage.ModeClaimRequest)
+            {
+                HandleWorldPickupClaimRequest(msg);
+                return;
+            }
+            if (msg.Mode == WorldObjectRemovedMessage.ModeClaimDeny)
+            {
+                HandleWorldPickupClaimDeny(msg);
+                return;
+            }
+
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             ModRuntime.LegacyInfo("[ObjectRemove] received destroy request for \"" + msg.ObjectName + "\" at " + pos);
+            // Mark consumed before destroy so a same-frame local getDroppedItem Prefix loses.
+            Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
             Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
 
-            // Forward client-originated removal to other clients (3+ support)
-            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+            // Optimistic client lost the host-auth race: refund once via pending.
+            if (_net.Role == NetworkRole.Client
+                && msg.ClaimedByPlayerId != _net.LocalPlayerId)
+            {
+                Patches.WorldPickupClaimPending.TryRefundIfPending(
+                    msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName, "remove claimedBy=" + msg.ClaimedByPlayerId);
+            }
+            else
+            {
+                Patches.WorldPickupClaimPending.Clear(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+            }
+
+            // Forward client-originated removal to other clients (3+ support).
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
+                && msg.Mode == WorldObjectRemovedMessage.ModeRemove)
                 _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
+        }
+
+        /// <summary>
+        /// Host: first ClaimRequest wins — consume, destroy local, fan Remove with ClaimedBy.
+        /// Loser gets ClaimDeny (optimistic grant refund on client).
+        /// </summary>
+        private void HandleWorldPickupClaimRequest(WorldObjectRemovedMessage msg)
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            int claimer = _net.CurrentReceivePlayerId;
+            if (claimer <= 0)
+                return;
+
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            if (!Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
+            {
+                var deny = new WorldObjectRemovedMessage
+                {
+                    PosX = msg.PosX,
+                    PosY = msg.PosY,
+                    PosZ = msg.PosZ,
+                    ObjectName = msg.ObjectName,
+                    Mode = WorldObjectRemovedMessage.ModeClaimDeny,
+                    ClaimedByPlayerId = 0,
+                    ItemType = msg.ItemType ?? "",
+                    Amount = msg.Amount,
+                    Durability = msg.Durability,
+                    Ammo = msg.Ammo
+                };
+                _net.SendToPlayer(claimer, NetMessageType.WorldObjectRemoved, w => deny.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                ModLog.Event(LogCat.World,
+                    "[WorldPickup] deny p" + claimer + " " + msg.ObjectName + " at " + pos);
+                return;
+            }
+
+            Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
+
+            var remove = new WorldObjectRemovedMessage
+            {
+                PosX = msg.PosX,
+                PosY = msg.PosY,
+                PosZ = msg.PosZ,
+                ObjectName = msg.ObjectName,
+                Mode = WorldObjectRemovedMessage.ModeRemove,
+                ClaimedByPlayerId = claimer,
+                ItemType = msg.ItemType ?? "",
+                Amount = msg.Amount,
+                Durability = msg.Durability,
+                Ammo = msg.Ammo
+            };
+            // Broadcast includes claimer (GO already gone — destroy is idempotent).
+            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => remove.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.World,
+                "[WorldPickup] grant p" + claimer + " " + msg.ObjectName + " at " + pos);
+        }
+
+        private void HandleWorldPickupClaimDeny(WorldObjectRemovedMessage msg)
+        {
+            if (_net.Role != NetworkRole.Client)
+                return;
+            if (Patches.WorldPickupClaimPending.TryTake(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName,
+                out string type, out int amt, out int pre))
+            {
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny");
+                return;
+            }
+            if (!string.IsNullOrEmpty(msg.ItemType) && msg.Amount > 0)
+                Patches.WorldPickupClaimPending.Refund(msg.ItemType, msg.Amount, -1, "claim deny fallback");
         }
 
 
@@ -244,8 +341,32 @@ namespace DWMPHorde.Networking
             try
             {
                 Transform parent = null;
-                if (!prefer2d && proxy != null && msg.StickToSender)
+                // Inventory open/close and other stick-to-sender presence SFX must parent to
+                // the proxy so AudioController can read CharBase.isInside for reverb.
+                bool presenceSpatial = LocalAudioService.IsRemotePlayerPresenceSound(msg.SoundId);
+                if ((!prefer2d || presenceSpatial) && proxy != null && (msg.StickToSender || presenceSpatial))
+                {
                     parent = proxy.transform;
+                    // Proxy has no CharacterSounds tick — refresh indoor ground before Play
+                    // or open_drawer arrives with isInside=false and skips AudioReverbFilter.
+                    CharBase pcb = proxy.CachedCharBase;
+                    if (pcb != null)
+                    {
+                        try { pcb.checkGround(); }
+                        catch { /* ignore */ }
+                    }
+                    prefer2d = false;
+                }
+                else if (!prefer2d && proxy != null && msg.StickToSender)
+                {
+                    parent = proxy.transform;
+                    CharBase pcb = proxy.CachedCharBase;
+                    if (pcb != null)
+                    {
+                        try { pcb.checkGround(); }
+                        catch { /* ignore */ }
+                    }
+                }
 
                 AudioObject audioObj;
                 if (prefer2d)

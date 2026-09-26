@@ -115,7 +115,11 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix(Character __instance)
+        // Finalizer (not Postfix): if checkStuff throws after Prefix mutated
+        // temporarySpawned / wantToDespawn / forestSpirit, Postfix never runs and
+        // those flags stay permanently wrong (never-despawn / spirit idle). Same class
+        // as NightSpawnFlagPatch / HostGridOccupancy Finalizer clears.
+        private static void Finalizer(Character __instance)
         {
             if (__instance == null)
                 return;

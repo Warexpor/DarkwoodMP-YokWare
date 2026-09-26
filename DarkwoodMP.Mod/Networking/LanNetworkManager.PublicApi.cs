@@ -172,6 +172,9 @@ namespace DWMPHorde.Networking
         public void SyncCurrentLightState() =>
             WorldSendHandlers.SyncCurrentLightState();
 
+        public void SyncCurrentAnimLibrary() =>
+            WorldSendHandlers.SyncCurrentAnimLibrary();
+
         public void SendThrowableSpawn(ThrowableSpawnMessage msg) =>
             WorldObjectSendHandlers.SendThrowableSpawn(msg);
 

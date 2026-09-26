@@ -1,3 +1,5 @@
+using System.Collections;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
@@ -24,9 +26,13 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawner), "waitToSpawnShadow")]
     public static class ClientDisableShadowSpawnPatch
     {
-        private static bool Prefix()
+        // IEnumerator — assign empty when skipping so StartCoroutine is never null.
+        private static bool Prefix(ref IEnumerator __result)
         {
-            return !ClientWorldHelper.IsClient;
+            if (!ClientWorldHelper.IsClient)
+                return true;
+            __result = HarmonyCoroutineUtil.Empty();
+            return false;
         }
     }
 
@@ -34,9 +40,13 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawner), "waitToSpawnWorm")]
     public static class ClientDisableWormSpawnPatch
     {
-        private static bool Prefix()
+        // IEnumerator — CharacterSpawner.init StartCoroutines this; null __result NREs.
+        private static bool Prefix(ref IEnumerator __result)
         {
-            return !ClientWorldHelper.IsClient;
+            if (!ClientWorldHelper.IsClient)
+                return true;
+            __result = HarmonyCoroutineUtil.Empty();
+            return false;
         }
     }
 
@@ -54,9 +64,13 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
     public static class ClientDisableForestSpiritPatch
     {
-        private static bool Prefix()
+        // IEnumerator — same StartCoroutine(null) class as GameEvent.fire / HelpMessage.
+        private static bool Prefix(ref IEnumerator __result)
         {
-            return !ClientWorldHelper.IsClient;
+            if (!ClientWorldHelper.IsClient)
+                return true;
+            __result = HarmonyCoroutineUtil.Empty();
+            return false;
         }
     }
 

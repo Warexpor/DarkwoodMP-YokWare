@@ -115,12 +115,24 @@ namespace DWMPHorde.Networking
                 }
             }
 
+            if (msg.LocationTypes != null && journal.locationsDict != null)
+            {
+                for (int i = 0; i < msg.LocationTypes.Length; i++)
+                {
+                    string type = msg.LocationTypes[i];
+                    if (string.IsNullOrEmpty(type) || journal.locationsDict.ContainsKey(type))
+                        continue;
+                    journal.locationsDict.Add(type, type);
+                }
+            }
+
             // Late join: remove world pickups already claimed by the host journal.
             _needsJournalWorldCleanup = true;
             TryJournalWorldCleanup();
             ModRuntime.LegacyInfo(
                 $"[BulkSync] Journal applied notes={msg.NoteTypes?.Length ?? 0} keys={msg.KeyTypes?.Length ?? 0} " +
-                $"quest={msg.QuestItemTypes?.Length ?? 0} entries={msg.JournalEntryTypes?.Length ?? 0}");
+                $"quest={msg.QuestItemTypes?.Length ?? 0} entries={msg.JournalEntryTypes?.Length ?? 0} " +
+                $"locs={msg.LocationTypes?.Length ?? 0}");
         }
 
         /// <summary>
@@ -230,6 +242,19 @@ namespace DWMPHorde.Networking
             idx = 0;
             foreach (var key in journalEntries)
                 msg.JournalEntryTypes[idx++] = key;
+
+            if (journal.locationsDict != null)
+            {
+                var locs = journal.locationsDict.Keys;
+                msg.LocationTypes = new string[locs.Count];
+                idx = 0;
+                foreach (var key in locs)
+                    msg.LocationTypes[idx++] = key;
+            }
+            else
+            {
+                msg.LocationTypes = System.Array.Empty<string>();
+            }
 
             _net.SendBulkOrAll(NetMessageType.JournalBulkSync, w => msg.Serialize(w), targetPlayerId);
         }

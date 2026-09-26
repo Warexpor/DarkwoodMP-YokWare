@@ -189,6 +189,12 @@ namespace DWMPHorde.Networking
         /// </summary>
         private bool _hostWasShareableForWaitingClients;
 
+        /// <summary>Host: HostWorldReady already broadcast for the current in-world stay.</summary>
+        private bool _hostWorldReadyEmitted;
+
+        /// <summary>Client: host announced fully in-world (or WorldSaveBegin implied it).</summary>
+        private bool _clientHostWorldReady;
+
 
         /// <summary>Remote peer OutsideLocation membership (location sync / late-join).</summary>
         private readonly Dictionary<int, string> _remoteOutsideLocation = new Dictionary<int, string>();

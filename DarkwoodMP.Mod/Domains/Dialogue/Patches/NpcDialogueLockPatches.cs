@@ -33,7 +33,11 @@ namespace DWMPHorde.Patches
                     try
                     {
                         if (Player.Instance != null)
-                            Player.Instance.displayMessage("Someone is already talking to them…");
+                        {
+                            PersonalFlavorHud.BeginBypass();
+                            try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                            finally { PersonalFlavorHud.EndBypass(); }
+                        }
                     }
                     catch { /* ignore */ }
                     return false;
@@ -50,7 +54,11 @@ namespace DWMPHorde.Patches
                 try
                 {
                     if (Player.Instance != null)
-                        Player.Instance.displayMessage("Someone is already talking to them…");
+                    {
+                        PersonalFlavorHud.BeginBypass();
+                        try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                        finally { PersonalFlavorHud.EndBypass(); }
+                    }
                 }
                 catch { /* ignore */ }
                 return false;
@@ -82,6 +90,12 @@ namespace DWMPHorde.Patches
         {
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected) return;
+            // World-only DialogOutcome SilentClose must not release the speaker's lease.
+            // Harmony Prefix order vs DialogHostSilentClosePatch is undefined; without this
+            // guard HostRelease(localId) can drop the host's real talk lock mid-conversation
+            // when world-only close runs on the same NPC name (dual open / stuck lock).
+            if (DialogHostApplyGuard.Active)
+                return;
 
             NPC npc = __instance != null ? __instance.npc : null;
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;

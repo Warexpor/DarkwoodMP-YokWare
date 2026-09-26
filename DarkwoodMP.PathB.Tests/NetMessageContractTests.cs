@@ -39,7 +39,8 @@ public class NetMessageContractTests
         Assert.Equal(136, (byte)NetMessageType.GameEventsBulk);
         Assert.Equal(137, (byte)NetMessageType.WorldBurnState);
         Assert.Equal(138, (byte)NetMessageType.ScenarioStateBulk);
-        Assert.Equal(138, (byte)NetMessageType._Highest);
+        Assert.Equal(139, (byte)NetMessageType.HostWorldReady);
+        Assert.Equal(139, (byte)NetMessageType._Highest);
     }
 
     [Fact]

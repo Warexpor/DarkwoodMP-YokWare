@@ -127,14 +127,24 @@ namespace DWMPHorde
                     SetJoinProgress("DOWNLOADING…");
                     return;
                 }
-                if (lan != null && lan.RequestHostWorld("join-button"))
+                if (lan != null && !lan.ClientSeesHostWorldReady)
+                {
+                    SetJoinProgress("WAIT HOST…");
+                    ModLog.Event(LogCat.Session,
+                        "JOIN while connected — host not fully in-world yet; waiting (no download).");
+                    // Still nudge host in case they are ready but signal was missed.
+                    lan.RequestHostWorld("join-button-wait-host");
+                }
+                else if (lan != null && lan.RequestHostWorld("join-button"))
                 {
                     SetJoinProgress("REQUESTING WORLD…");
                     ModLog.Event(LogCat.Session, "JOIN while connected — WorldRequest sent to host.");
                 }
                 else
                 {
-                    SetJoinProgress("WAITING…");
+                    SetJoinProgress(lan != null && lan.ClientSeesHostWorldReady
+                        ? "WAITING…"
+                        : "WAIT HOST…");
                     ModLog.Event(LogCat.Session,
                         "JOIN while connected — request rate-limited or share already in progress.");
                 }
@@ -230,7 +240,7 @@ namespace DWMPHorde
                     _worldRequest10sSent = false;
                     _worldRequest25sSent = false;
                     ModLog.Event(LogCat.Session,
-                        "Connected to host — waiting for world share / auto-load…");
+                        "Connected to host — waiting for host fully in-world, then world share / auto-load…");
                 }
                 UpdateJoinLabelFromShare(net);
                 RefreshSessionButtons();
@@ -290,22 +300,30 @@ namespace DWMPHorde
             if (!_loggedWaitingWorld && waited > 8f && !receiving)
             {
                 _loggedWaitingWorld = true;
+                bool hostReady = net.ClientSeesHostWorldReady;
                 ModLog.Warn(LogCat.Session,
                     "Still on title 8s after handshake with no world download. "
-                    + "Host must be IN the chapter (not title). Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
+                    + (hostReady
+                        ? "Host announced ready — waiting for world package. "
+                        : "Host not fully in-world yet (loading / title). ")
+                    + "Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
             }
 
             if (!receiving && waited >= 10f && !_worldRequest10sSent)
             {
                 _worldRequest10sSent = true;
                 if (net.RequestHostWorld("title-wait-10s"))
-                    SetJoinProgress("REQUESTING WORLD…");
+                    SetJoinProgress(net.ClientSeesHostWorldReady
+                        ? "REQUESTING WORLD…"
+                        : "WAIT HOST…");
             }
             else if (!receiving && waited >= 25f && !_worldRequest25sSent)
             {
                 _worldRequest25sSent = true;
                 if (net.RequestHostWorld("title-wait-25s"))
-                    SetJoinProgress("REQUESTING WORLD…");
+                    SetJoinProgress(net.ClientSeesHostWorldReady
+                        ? "REQUESTING WORLD…"
+                        : "WAIT HOST…");
             }
         }
 
@@ -389,7 +407,12 @@ namespace DWMPHorde
             }
             else if (net.IsHandshakeComplete)
             {
-                SetJoinProgress("CONNECTED");
+                if (!net.ClientSeesHostWorldReady && Core.mainMenu)
+                    SetJoinProgress("WAIT HOST…");
+                else if (net.ClientSeesHostWorldReady && Core.mainMenu)
+                    SetJoinProgress("HOST READY");
+                else
+                    SetJoinProgress("CONNECTED");
             }
         }
 

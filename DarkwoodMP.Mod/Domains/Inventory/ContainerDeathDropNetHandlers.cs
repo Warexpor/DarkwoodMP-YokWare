@@ -128,13 +128,18 @@ namespace DWMPHorde.Networking
                 var slot = inv.slots[i];
                 if (!InvItemClass.isNull(slot.invItem))
                 {
+                    InvItemClass dit = slot.invItem;
+                    bool isRecipe = dit.isRecipe;
                     sync.Slots[idx++] = new SlotStateEntry
                     {
                         SlotIndex = (byte)i,
-                        ItemType = slot.invItem.type,
-                        Amount = slot.invItem.amount,
-                        Durability = slot.invItem.durability,
-                        Ammo = slot.invItem.ammo
+                        ItemType = isRecipe ? dit.recipeFor : dit.type,
+                        Amount = dit.amount,
+                        Durability = dit.durability,
+                        Ammo = dit.ammo,
+                        IsRecipe = isRecipe,
+                        Upgrades = Sync.InvItemUpgradeWire.CollectNames(dit),
+                        ShouldBeActive = dit.shouldBeActive
                     };
                 }
             }

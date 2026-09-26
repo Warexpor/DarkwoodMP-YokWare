@@ -84,6 +84,23 @@ namespace DWMPHorde.Networking
                 if (!InvItemClass.isNull(woodItem)) prevWood = woodItem.amount;
             }
 
+            // Host: client FuelDelta accumulates (concurrent pour). Suppress Forwardable
+            // raw delta fan-out and rebroadcast absolute so peers converge.
+            bool hostDelta = _net.Role == NetworkRole.Host
+                && _net.CurrentReceivePlayerId > 0
+                && msg.FuelDelta > 0.01f;
+            if (hostDelta)
+            {
+                float delta = msg.FuelDelta;
+                saw.addFuel(delta);
+                _net._suppressForwardThisMessage = true;
+                Sync.SawSyncHelpers.BroadcastAbsoluteFromHost(saw, "addFuel-delta");
+                SafeSawRefresh(saw);
+                ModRuntime.LegacyInfo(
+                    $"[SawSync] host-auth addFuel +{delta:F0} {prevFuel:F0}→{saw.fuel:F0} at {pos}");
+                return;
+            }
+
             saw.fuel = Mathf.Clamp(msg.Fuel, 0f, saw.maxFuel);
 
             if (inv != null)

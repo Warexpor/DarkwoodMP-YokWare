@@ -82,8 +82,10 @@ namespace DWMPHorde.Networking
 
             // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
             // survivor was a co-op client with a partially synced world; writing sav.dat corrupted
-            // their slot. New host persists via manual F3 when the sim is trustworthy.
-            // TryHostMigrationSaveCheckpoint(); // disabled; host-leave client Save
+            // their slot. Old host already flushed via graceful-leave checkpoint; survivor
+            // persists via manual F3 when the sim is trustworthy.
+            // TryHostMigrationSaveCheckpoint(); // disabled; corrupts survivor sav
+            NotifyPromotedHostSaveReminder();
 
             BroadcastPeerRoster();
             // Time authority is us now; push the clock to reconnecting peers as they join.
@@ -120,9 +122,35 @@ namespace DWMPHorde.Networking
             StatusText = "HOST GRANTED — Steam (p" + keepId + ")";
             ModLog.Event(LogCat.Network,
                 "HOST GRANTED (Steam): local p" + keepId + " | reason=" + reason);
+            NotifyPromotedHostSaveReminder();
 
             BroadcastPeerRoster();
             try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+        }
+
+
+        /// <summary>
+        /// Safer than auto-Save on promote: remind the survivor to F3 when the sim is
+        /// trustworthy. Does not write sav.dat (that corrupted co-op client slots).
+        /// </summary>
+        private void NotifyPromotedHostSaveReminder()
+        {
+            const string tip = "You are host now — press F3 to save when ready (auto-save on promote is disabled)";
+            try
+            {
+                StatusText = tip;
+                ModLog.Event(LogCat.Save, tip);
+                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                {
+                    DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                    try { Player.Instance.displayMessage(tip); }
+                    finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Promote F3 reminder: " + ex.Message);
+            }
         }
 
         private void ConnectSteamPreservingId(string steamIdRaw, int electHostId)

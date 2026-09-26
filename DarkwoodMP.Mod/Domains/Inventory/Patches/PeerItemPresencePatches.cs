@@ -31,4 +31,23 @@ namespace DWMPHorde.Patches
             PeerItemPresence.SendLocalChange(__instance.type, amt);
         }
     }
+    /// <summary>
+    /// Hotbar.addItemType does not go through Inventory.addItemTypeToPlayer
+    /// (e.g. compressor → oxygentank_full). Keep PeerItemPresence live.
+    /// </summary>
+    [HarmonyPatch(typeof(Inventory), "addItemType", new[] { typeof(string), typeof(int) })]
+    public static class PeerHasItemHotbarGivePatch
+    {
+        private static void Postfix(Inventory __instance, string type)
+        {
+            if (DialogHostApplyGuard.Active) return;
+            if (string.IsNullOrEmpty(type)) return;
+            if (Player.Instance == null || Player.Instance.Hotbar == null) return;
+            if (!ReferenceEquals(__instance, Player.Instance.Hotbar)) return;
+            int amt = 0;
+            try { amt = Player.Instance.Hotbar.getItemAmount(type); }
+            catch { return; }
+            PeerItemPresence.SendLocalChange(type, amt);
+        }
+    }
 }

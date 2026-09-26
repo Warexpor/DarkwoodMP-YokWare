@@ -33,6 +33,9 @@ namespace DWMPHorde.Networking
         internal void HandleHideoutUpgrade(HideoutUpgradeMessage msg) =>
             _loot.HandleHideoutUpgrade(msg);
 
+        internal void TryFlushPendingHideoutUpgrades() =>
+            _loot.TryFlushPendingHideoutUpgrades();
+
         internal void HandleContainerItem(ContainerItemMessage msg) =>
             _loot.HandleContainerItem(msg);
 

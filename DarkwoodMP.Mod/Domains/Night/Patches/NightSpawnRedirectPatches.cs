@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -24,7 +26,8 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
     public static class ForestSpiritRedirectPatch
     {
-        private static bool Prefix(CharacterSpawner __instance)
+        // spawnForestSpirit is IEnumerator; return false without __result → StartCoroutine(null).
+        private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
         {
             if (!ShouldRedirect())
                 return true;
@@ -50,6 +53,7 @@ namespace DWMPHorde.Patches
             Core.AddPooledPrefab("FX", "ForestSpirit_fastSpawnEff", destPosition, Quaternion.identity);
             __instance.StartCoroutine(DelayedSpawnForestSpirit(destPosition));
 
+            __result = HarmonyCoroutineUtil.Empty();
             return false;
         }
 

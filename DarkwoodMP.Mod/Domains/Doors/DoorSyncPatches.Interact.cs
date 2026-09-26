@@ -163,11 +163,19 @@ namespace DWMPHorde.Sync
         }
     }
 
-    /// <summary>Harmony patch: intercepts Generator.addFuel() and broadcasts updated state.</summary>
+    /// <summary>
+    /// Generator.addFuel: clients send FuelDelta for host-auth accumulation (concurrent pour
+    /// no longer last-writer absolute underfuel). Host pours stay absolute (FuelDelta=0).
+    /// </summary>
     [HarmonyPatch(typeof(Generator), "addFuel")]
     public static class GeneratorAddFuelPatch
     {
-        private static void Postfix(Generator __instance)
+        private static void Prefix(float addFuelAmount, out float __state)
+        {
+            __state = addFuelAmount;
+        }
+
+        private static void Postfix(Generator __instance, float __state)
         {
             if (ModRuntime.Network == null)
                 return;
@@ -180,6 +188,12 @@ namespace DWMPHorde.Sync
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
 
+            // Client → host: delta so concurrent pours sum. Host → peers: absolute.
+            float delta = 0f;
+            var net = LanNetworkManager.Instance;
+            if (net != null && net.Role == NetworkRole.Client && __state > 0.01f)
+                delta = __state;
+
             ModRuntime.Network.SendGeneratorState(new GeneratorState
             {
                 PosX = key.x,
@@ -188,10 +202,12 @@ namespace DWMPHorde.Sync
                 IsOn = __instance.isOn,
                 Fuel = __instance.fuel,
                 LowPower = __instance.lowPower,
-                ItemType = itemType
+                ItemType = itemType,
+                FuelDelta = delta
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GeneratorSync] send addFuel at " + key + " fuel=" + __instance.fuel);
+                ModRuntime.LegacyInfo("[GeneratorSync] send addFuel at " + key
+                    + " fuel=" + __instance.fuel + " delta=" + delta);
         }
     }
 

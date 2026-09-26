@@ -281,11 +281,11 @@ namespace DWMPHorde.Logging
             }
         }
 
-        /// <summary>Dev-only legacy dumps: max ~2 lines/sec per message prefix.</summary>
+        /// <summary>Dev/Trace legacy dumps: max ~2 lines/sec per message prefix.</summary>
         public static void LegacyRateLimited(string message)
         {
             if (_log == null || message == null) return;
-            if (_preset != LogPreset.Dev) return;
+            if (_preset != LogPreset.Dev && _preset != LogPreset.Trace) return;
             string key = message.Length > 48 ? message.Substring(0, 48) : message;
             if (!PassRate("legacy:" + key, 0.5f)) return;
             _log.LogInfo("[YokWare][LEGACY] " + message);
@@ -315,7 +315,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log or MelonLoader/Latest.log");
                 Event(LogCat.Core, "  Client log: second install's loader log");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client loader logs");
-                Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (default is full Trace)");
+                Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
                 Event(LogCat.Core, "  Docs: docs/PATH_B_FEATURE_INVENTORY.md + DarkwoodMP.Mod/docs/LOGGING.md");
                 Event(LogCat.Core, "================================================");

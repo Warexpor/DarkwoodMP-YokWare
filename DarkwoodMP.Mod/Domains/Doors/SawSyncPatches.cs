@@ -34,7 +34,7 @@ namespace DWMPHorde.Sync
             };
         }
 
-        internal static void SendState(Saw saw, string reason)
+        internal static void SendState(Saw saw, string reason, float fuelDelta = 0f)
         {
             if (saw == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
@@ -43,8 +43,23 @@ namespace DWMPHorde.Sync
                 return;
 
             var msg = BuildMessage(saw);
+            msg.FuelDelta = fuelDelta;
             ModRuntime.Network.SendSawState(msg);
-            ModRuntime.LegacyInfo($"[SawSync] send {reason} at ({msg.PosX:F1},{msg.PosZ:F1}) fuel={msg.Fuel} logs={msg.WoodLogAmount} wood={msg.WoodAmount}");
+            ModRuntime.LegacyInfo($"[SawSync] send {reason} at ({msg.PosX:F1},{msg.PosZ:F1}) fuel={msg.Fuel} delta={fuelDelta} logs={msg.WoodLogAmount} wood={msg.WoodAmount}");
+        }
+
+        /// <summary>Host rebroadcast after delta apply (bypasses IsApplyingRemoteState send guard).</summary>
+        internal static void BroadcastAbsoluteFromHost(Saw saw, string reason)
+        {
+            if (saw == null) return;
+            var net = LanNetworkManager.Instance;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return;
+            var msg = BuildMessage(saw);
+            msg.FuelDelta = 0f;
+            net.Broadcast(NetMessageType.SawState, w => msg.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo($"[SawSync] host-auth {reason} at ({msg.PosX:F1},{msg.PosZ:F1}) fuel={msg.Fuel}");
         }
 
         internal static Inventory GetInventory(Saw saw)
@@ -60,9 +75,18 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(Saw), "addFuel")]
     public static class SawAddFuelPatch
     {
-        private static void Postfix(Saw __instance)
+        private static void Prefix(float amount, out float __state)
         {
-            SawSyncHelpers.SendState(__instance, "addFuel");
+            __state = amount;
+        }
+
+        private static void Postfix(Saw __instance, float __state)
+        {
+            float delta = 0f;
+            var net = LanNetworkManager.Instance;
+            if (net != null && net.Role == NetworkRole.Client && __state > 0.01f)
+                delta = __state;
+            SawSyncHelpers.SendState(__instance, "addFuel", delta);
         }
     }
 

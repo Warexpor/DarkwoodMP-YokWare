@@ -21,6 +21,9 @@ namespace DWMPHorde.Networking
 
         internal void ClearPendingPlayerLights() => _apply.ClearPendingPlayerLights();
 
+        internal void ClearPendingPlayerLightsFor(int playerId) =>
+            _apply.ClearPendingPlayerLightsFor(playerId);
+
         internal static bool IsAmbientLanternType(string type) =>
             PlayerLightFxApplyNetHandlers.IsAmbientLanternType(type);
 

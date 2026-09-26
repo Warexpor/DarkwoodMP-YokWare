@@ -335,7 +335,13 @@ namespace DWMPHorde.Networking
         /// Does not replay ScenarioEventFired / RandomEvent.fire.
         /// </summary>
         ScenarioStateBulk = 138,
+        /// <summary>
+        /// Host→clients: host is fully in-world (past load). Title clients may
+        /// start waiting for WorldSaveBegin / should not treat mid-load as ready.
+        /// Additive on protocol 25; older peers ignore unknown types.
+        /// </summary>
+        HostWorldReady = 139,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 138
+        _Highest = 139
     }
 }

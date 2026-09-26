@@ -95,7 +95,10 @@ namespace DWMPHorde.Patches
     internal static class UiOpenNoPausePatches
     {
         private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
+        // Finalizer (not Postfix): open/show can throw after Begin → stuck
+        // SuppressPause blocks Core.pause forever. Finalizer-only End so we do not
+        // double-decrement against LevelingMenu.show's cross-method hold.
+        private static void Finalizer() => PauseSuppression.EndNoPause();
     }
 
     // ---- UI close/hide paths: hold unpause suppression ----
@@ -111,7 +114,8 @@ namespace DWMPHorde.Patches
     internal static class UiCloseNoUnpausePatches
     {
         private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
+        // Finalizer (not Postfix): close/hide throw after Begin → stuck SuppressUnpause.
+        private static void Finalizer() => PauseSuppression.EndNoUnpause();
     }
 
     // ---- Leveling / skill menus (delayed coroutine pause; different body) ----
@@ -141,6 +145,7 @@ namespace DWMPHorde.Patches
                 PauseSuppression.SuppressPause--;
         }
 
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
+        // Finalizer (not Postfix): hide throw after BeginNoUnpause → stuck SuppressUnpause.
+        private static void Finalizer() => PauseSuppression.EndNoUnpause();
     }
 }

@@ -20,5 +20,11 @@ namespace DWMPHorde.Patches
         {
             TraverseHack.IsInsidePlayerBulletCollision = false;
         }
+
+        // onCollide can throw; stuck true redirects peer hitscan/projectile damage forever.
+        private static void Finalizer()
+        {
+            TraverseHack.IsInsidePlayerBulletCollision = false;
+        }
     }
 }

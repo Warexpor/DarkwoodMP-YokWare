@@ -133,6 +133,13 @@ namespace DWMPHorde.Networking
                     if (journal.itemsDict != null && journal.itemsDict.ContainsKey(msg.Type))
                         journal.itemsDict.Remove(msg.Type);
                     break;
+                case JournalItemKind.Location:
+                    // Journal Locations tab (Location.discoverMe). Map pins sync separately.
+                    // No popup — discoverMe already showed on the discovering peer.
+                    if (journal.locationsDict != null && !string.IsNullOrEmpty(msg.Type)
+                        && !journal.locationsDict.ContainsKey(msg.Type))
+                        journal.locationsDict.Add(msg.Type, msg.Type);
+                    break;
                 default:
                     ModRuntime.Log?.LogWarning($"[Journal] Unhandled JournalItemKind: {msg.Kind}");
                     break;
@@ -147,6 +154,8 @@ namespace DWMPHorde.Networking
         /// Finds and destroys the physical world object (JournalNoteReference,
         /// KeyReference, or QuestItemReference) matching the given journal item,
         /// so the host's world reflects that the remote player already took it.
+        /// Item path + InvItem-only path (keys/notes on InvItem without Item used to
+        /// survive peer pickup and stay dual-pickable).
         /// </summary>
         internal static void DestroyWorldJournalObject(JournalItemKind kind, string type)
         {
@@ -161,12 +170,10 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allNotes.Length; i++)
                         {
                             if (allNotes[i] == null) continue;
+                            if (allNotes[i].dontDestroy) continue;
                             var note = Singleton<JournalDatabase>.Instance?.getNote(allNotes[i].noteName);
                             if (note != null && note.type == type)
-                            {
-                                if (allNotes[i].GetComponent<Item>() != null)
-                                    UnityEngine.Object.Destroy(allNotes[i].gameObject);
-                            }
+                                DestroyJournalWorldGo(allNotes[i]);
                         }
                         break;
                     }
@@ -177,10 +184,7 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allKeys.Length; i++)
                         {
                             if (allKeys[i] != null && allKeys[i].type == type)
-                            {
-                                if (allKeys[i].GetComponent<Item>() != null)
-                                    UnityEngine.Object.Destroy(allKeys[i].gameObject);
-                            }
+                                DestroyJournalWorldGo(allKeys[i]);
                         }
                         break;
                     }
@@ -191,18 +195,47 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allQuest.Length; i++)
                         {
                             if (allQuest[i] != null && allQuest[i].type == type)
-                                UnityEngine.Object.Destroy(allQuest[i].gameObject);
+                                DestroyJournalWorldGo(allQuest[i]);
                         }
                         break;
                     }
                 case JournalItemKind.JournalEntry:
                     // Story journal entries have no world pickup object to despawn.
                     break;
+                case JournalItemKind.Location:
+                    // Journal location names have no world pickup object to despawn.
+                    break;
                 default:
                     // Avoid per-frame spam: log once per kind value.
                     ModRuntime.Log?.LogWarning($"[Journal] Unhandled destroy kind: {kind}");
                     break;
             }
+        }
+
+        /// <summary>
+        /// Destroy a scene journal pickup GO. Prefer parent Item root so mesh+colliders go;
+        /// InvItem-only scene keys/notes (no Item) destroy the reference GO. Scene-valid
+        /// guard skips database prefabs (FindObjectsOfType never returns those anyway).
+        /// </summary>
+        internal static void DestroyJournalWorldGo(Component journalRef)
+        {
+            if (journalRef == null) return;
+            GameObject go = journalRef.gameObject;
+            if (go == null) return;
+            try
+            {
+                if (!go.scene.IsValid() || !go.scene.isLoaded)
+                    return;
+            }
+            catch { return; }
+
+            Item item = journalRef.GetComponent<Item>() ?? journalRef.GetComponentInParent<Item>();
+            GameObject target = item != null ? item.gameObject : go;
+            try
+            {
+                UnityEngine.Object.Destroy(target);
+            }
+            catch { /* destroyed Unity object */ }
         }
 
 

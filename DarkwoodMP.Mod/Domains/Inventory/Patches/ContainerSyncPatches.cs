@@ -14,16 +14,29 @@ namespace DWMPHorde.Patches
     {
         internal static bool IsContainer(InvSlot slot)
         {
-            return slot.inventory != null &&
-                (slot.inventory.invType == Inventory.InvType.itemInv ||
-                 slot.inventory.invType == Inventory.InvType.deathDrop);
+            if (slot == null || slot.inventory == null) return false;
+            return IsContainer(slot.inventory);
         }
 
         internal static bool IsContainer(Inventory inv)
         {
-            return inv != null &&
-                (inv.invType == Inventory.InvType.itemInv ||
-                 inv.invType == Inventory.InvType.deathDrop);
+            if (inv == null) return false;
+            if (inv.invType != Inventory.InvType.itemInv
+                && inv.invType != Inventory.InvType.deathDrop)
+                return false;
+
+            // Sprung beartrap loot uses itemInv + isDroppedItem; co-op rescue pickup
+            // must not run container RemoveItem (host misses the GO → TakeDenied refund).
+            if (TrapPickupGuard.IsGuarded(inv))
+                return false;
+            GameObject go = inv.gameObject;
+            if (go != null && (Sync.TrapNetworkId.IsWorldTrap(go) || Sync.TrapNetworkId.IsOccupancyTrap(go)))
+                return false;
+            Trigger trig = go != null ? go.GetComponent<Trigger>() : null;
+            if (trig != null && (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap))
+                return false;
+
+            return true;
         }
 
         /// <summary>Count total amount of <paramref name="itemType"/> in the local player's inventory.</summary>
@@ -40,7 +53,21 @@ namespace DWMPHorde.Patches
             return count;
         }
 
-        internal static void SendContainerAction(ContainerAction action, Vector3 pos, int slotIdx, string itemType, int amount, float durability, int ammo, bool isPlayerPlaced = false, int preTakePlayerCount = -1)
+        /// <summary>
+        /// Wire ItemType is recipeFor when IsRecipe; live slot.type is still "recipe".
+        /// </summary>
+        internal static bool ItemTypeMatchesWire(InvItemClass item, string wireType, bool isRecipe)
+        {
+            if (InvItemClass.isNull(item) || string.IsNullOrEmpty(wireType))
+                return string.IsNullOrEmpty(wireType);
+            if (isRecipe)
+                return item.isRecipe && string.Equals(item.recipeFor, wireType, System.StringComparison.Ordinal);
+            if (item.isRecipe)
+                return false;
+            return string.Equals(item.type, wireType, System.StringComparison.Ordinal);
+        }
+
+        internal static void SendContainerAction(ContainerAction action, Vector3 pos, int slotIdx, string itemType, int amount, float durability, int ammo, bool isPlayerPlaced = false, int preTakePlayerCount = -1, bool isRecipe = false, string[] upgrades = null, bool shouldBeActive = false)
         {
             if (LanNetworkManager.IsApplyingRemoteState)
             {
@@ -57,7 +84,7 @@ namespace DWMPHorde.Patches
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[Container] SendContainerAction: {action} pos={pos} slot={slotIdx} type={itemType} amt={amount}");
+                ModRuntime.LegacyInfo($"[Container] SendContainerAction: {action} pos={pos} slot={slotIdx} type={itemType} amt={amount} recipe={isRecipe}");
 
             var msg = new ContainerItemMessage
             {
@@ -70,7 +97,10 @@ namespace DWMPHorde.Patches
                 Amount = amount,
                 Durability = durability,
                 Ammo = ammo,
-                IsPlayerPlaced = isPlayerPlaced
+                IsPlayerPlaced = isPlayerPlaced,
+                IsRecipe = isRecipe,
+                Upgrades = upgrades,
+                ShouldBeActive = shouldBeActive
             };
             var net = LanNetworkManager.Instance;
             if (net == null) return;
@@ -111,6 +141,9 @@ namespace DWMPHorde.Patches
         public int Amount;
         public float Dur;
         public int Ammo;
+        public bool IsRecipe;
+        public string[] Upgrades;
+        public bool ShouldBeActive;
         public Vector3 Pos;
         public int Idx;
         /// <summary>Player inventory count of <see cref="Type"/> before the take.
@@ -138,10 +171,13 @@ namespace DWMPHorde.Patches
             if (InvItemClass.isNull(__instance.invItem)) return;
 
             __state.Active = true;
-            __state.Type = __instance.invItem.type;
+            __state.IsRecipe = __instance.invItem.isRecipe;
+            __state.Type = __state.IsRecipe ? __instance.invItem.recipeFor : __instance.invItem.type;
             __state.Amount = __instance.invItem.amount;
             __state.Dur = __instance.invItem.durability;
             __state.Ammo = __instance.invItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(__instance.invItem);
+            __state.ShouldBeActive = __instance.invItem.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
             __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
@@ -152,7 +188,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }
 
@@ -170,10 +206,13 @@ namespace DWMPHorde.Patches
             if (InvItemClass.isNull(__instance.invItem)) return;
 
             __state.Active = true;
-            __state.Type = __instance.invItem.type;
+            __state.IsRecipe = __instance.invItem.isRecipe;
+            __state.Type = __state.IsRecipe ? __instance.invItem.recipeFor : __instance.invItem.type;
             __state.Amount = 1;
             __state.Dur = __instance.invItem.durability;
             __state.Ammo = __instance.invItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(__instance.invItem);
+            __state.ShouldBeActive = __instance.invItem.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
             __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
@@ -182,7 +221,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.TakeItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.TakeItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }
 
@@ -200,10 +239,13 @@ namespace DWMPHorde.Patches
             if (InvItemClass.isNull(__instance.invItem)) return;
 
             __state.Active = true;
-            __state.Type = __instance.invItem.type;
+            __state.IsRecipe = __instance.invItem.isRecipe;
+            __state.Type = __state.IsRecipe ? __instance.invItem.recipeFor : __instance.invItem.type;
             __state.Amount = __instance.invItem.amount;
             __state.Dur = __instance.invItem.durability;
             __state.Ammo = __instance.invItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(__instance.invItem);
+            __state.ShouldBeActive = __instance.invItem.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
             __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItemType(__instance.invItem.type);
@@ -212,7 +254,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }
 
@@ -231,10 +273,13 @@ namespace DWMPHorde.Patches
             if (currentItem == null || InvItemClass.isNull(currentItem)) return;
 
             __state.Active = true;
-            __state.Type = currentItem.type;
+            __state.IsRecipe = currentItem.isRecipe;
+            __state.Type = __state.IsRecipe ? currentItem.recipeFor : currentItem.type;
             __state.Amount = currentItem.amount;
             __state.Dur = currentItem.durability;
             __state.Ammo = currentItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(currentItem);
+            __state.ShouldBeActive = currentItem.shouldBeActive;
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
         }
@@ -242,7 +287,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active) return;
-            ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isPlayerPlaced: true);
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isPlayerPlaced: true, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }
 
@@ -254,6 +299,9 @@ namespace DWMPHorde.Patches
         public int Amount;
         public float Durability;
         public int Ammo;
+        public bool IsRecipe;
+        public string[] Upgrades;
+        public bool ShouldBeActive;
     }
 
     /// <summary>
@@ -268,7 +316,20 @@ namespace DWMPHorde.Patches
             {
                 var slot = inv.slots[i];
                 if (!InvItemClass.isNull(slot.invItem))
-                    dict[i] = new SlotSnapshot { Index = i, Type = slot.invItem.type, Amount = slot.invItem.amount, Durability = slot.invItem.durability, Ammo = slot.invItem.ammo };
+                {
+                    bool isRecipe = slot.invItem.isRecipe;
+                    dict[i] = new SlotSnapshot
+                    {
+                        Index = i,
+                        Type = isRecipe ? slot.invItem.recipeFor : slot.invItem.type,
+                        Amount = slot.invItem.amount,
+                        Durability = slot.invItem.durability,
+                        Ammo = slot.invItem.ammo,
+                        IsRecipe = isRecipe,
+                        Upgrades = Sync.InvItemUpgradeWire.CollectNames(slot.invItem),
+                        ShouldBeActive = slot.invItem.shouldBeActive
+                    };
+                }
             }
             return dict;
         }
@@ -284,11 +345,11 @@ namespace DWMPHorde.Patches
                 if (before.TryGetValue(kv.Key, out var prev))
                 {
                     if (kv.Value.Type == prev.Type && kv.Value.Amount > prev.Amount)
-                        ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount - prev.Amount, kv.Value.Durability, kv.Value.Ammo, isPlayerPlaced: true);
+                        ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount - prev.Amount, kv.Value.Durability, kv.Value.Ammo, isPlayerPlaced: true, isRecipe: kv.Value.IsRecipe, upgrades: kv.Value.Upgrades, shouldBeActive: kv.Value.ShouldBeActive);
                 }
                 else
                 {
-                    ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount, kv.Value.Durability, kv.Value.Ammo, isPlayerPlaced: true);
+                    ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount, kv.Value.Durability, kv.Value.Ammo, isPlayerPlaced: true, isRecipe: kv.Value.IsRecipe, upgrades: kv.Value.Upgrades, shouldBeActive: kv.Value.ShouldBeActive);
                 }
             }
         }

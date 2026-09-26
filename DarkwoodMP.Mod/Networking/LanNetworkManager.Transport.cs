@@ -232,13 +232,20 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                // Preferred: fully playable after offline load.
+                // Title / cold rejoin MUST receive world share. loadedGame can linger
+                // after quit-to-menu (vanilla rarely clears it) — never treat menu as
+                // AlreadyInWorld or host skips share and bricks the session.
+                if (Core.mainMenu)
+                    return false;
+                // Preferred: fully playable after offline load (phase 3 soft reconnect).
                 if (Sync.ChapterSessionResume.IsLocalPlayableForCoopReconnect())
                     return true;
-                // Mid LoadScene / SaveManager.Load (should be rare once resume waits for playable).
-                if (Core.loadingGame || Core.loadedGame)
+                // Phase-2 offline load in chapter (scene/load without menu).
+                if (Core.loadingGame)
                     return true;
-                if (!Core.mainMenu && Core.currentProfile != null)
+                if (Core.loadedGame && Core.currentProfile != null)
+                    return true;
+                if (Core.currentProfile != null)
                     return true;
                 return false;
             }

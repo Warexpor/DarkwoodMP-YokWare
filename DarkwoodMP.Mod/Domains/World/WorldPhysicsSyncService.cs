@@ -79,6 +79,12 @@ namespace DWMPHorde.Sync
         private static readonly List<int> _outboundRemoveStaleKeys = new List<int>(8);
         private const float DestroyDebounceTime = 0.5f;
         private const float OutboundRemoveDebounceTime = 0.75f;
+        /// <summary>
+        /// Session consume set for non-GUID world pickups (isDroppedItem without
+        /// DroppedItemIdentifier). Mirrors ConsumedDropGuids so the second peer
+        /// cannot grant after the first remove is claimed locally or on the wire.
+        /// </summary>
+        private static readonly HashSet<int> _consumedWorldPickups = new HashSet<int>();
 
         /// <summary>
         /// Claim a one-shot outbound WorldObjectRemoved for this pose+name.
@@ -107,7 +113,24 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        private static int MakePosNameKey(float x, float y, float z, string objectName)
+        /// <summary>True if first claim wins (local pickup or inbound WorldObjectRemoved).</summary>
+        public static bool TryConsumeWorldPickup(float x, float y, float z, string objectName)
+        {
+            int key = MakePosNameKey(x, y, z, objectName);
+            return _consumedWorldPickups.Add(key);
+        }
+
+        public static bool IsWorldPickupConsumed(float x, float y, float z, string objectName)
+        {
+            return _consumedWorldPickups.Contains(MakePosNameKey(x, y, z, objectName));
+        }
+
+        public static void ResetConsumedWorldPickups()
+        {
+            _consumedWorldPickups.Clear();
+        }
+
+        internal static int MakePosNameKey(float x, float y, float z, string objectName)
         {
             int posKey = (int)(x * 10f) ^ ((int)(y * 10f) << 10) ^ ((int)(z * 10f) << 20);
             if (!string.IsNullOrEmpty(objectName))

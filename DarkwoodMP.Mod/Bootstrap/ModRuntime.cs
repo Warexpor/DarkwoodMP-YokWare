@@ -26,15 +26,16 @@ namespace DWMPHorde
 
         /// <summary>
         /// Legacy high-frequency dumps (entity/physics/container).
-        /// <b>Dev only</b>. Trace still gets ModLog.Event join/session lines without
-        /// multi-MB LogOutput.log spam (Physics/HostEntitySync were ~10MB in minutes).
+        /// <b>Dev or Trace</b>. Trace is the max-capture preset (Legacy + Verbose gates).
+        /// Support/Public stay quiet — Physics/HostEntitySync can be multi-MB in minutes.
         /// </summary>
         public static void LegacyInfo(string message)
         {
             if (Log == null || message == null) return;
-            if (Logging.ModLog.CurrentPreset != Logging.LogPreset.Dev)
+            var preset = Logging.ModLog.CurrentPreset;
+            if (preset != Logging.LogPreset.Dev && preset != Logging.LogPreset.Trace)
                 return;
-            // Rate-limit even on Dev: same message prefix at most ~2/sec
+            // Rate-limit: same message prefix at most ~2/sec
             Logging.ModLog.LegacyRateLimited(message);
         }
 
@@ -77,14 +78,17 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
                 NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
+                NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
                 NetworkResetRegistry.Register(MorningHideoutHold.Reset);
                 NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
                 NetworkResetRegistry.Register(ClientMeleeSensorPatch.Reset);
                 NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
+                NetworkResetRegistry.Register(WorldPickupClaimPending.Reset);
                 NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
                 NetworkResetRegistry.Register(FreezeTracker.Reset);
                 NetworkResetRegistry.Register(FinalDreamsceneManager.OnDisconnected);
                 NetworkResetRegistry.Register(NetworkApplyGuard.ResetDepth);
+                NetworkResetRegistry.Register(PersonalFlavorHud.Reset);
                 NetworkResetRegistry.Register(MultiplayerMapManager.Reset);
                 NetworkResetRegistry.Register(CharacterTracker.ResetForNetworkStop);
                 NetworkResetRegistry.Register(DreamSession.ResetIncludingCompletions);

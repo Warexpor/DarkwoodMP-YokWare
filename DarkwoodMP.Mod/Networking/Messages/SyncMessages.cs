@@ -52,6 +52,17 @@ namespace DWMPHorde.Networking
         /// <summary>Which body, when two traders share a name. Missing on old packets.</summary>
         public bool HasPos;
         public float PosX, PosY, PosZ;
+        /// <summary>
+        /// 0.8.62: per-entry recipe flag. ItemTypes stores recipeFor when true
+        /// (vanilla InvItemClass ctor flips type to "recipe"). Null/absent = pre-0.8.62.
+        /// </summary>
+        public bool[] IsRecipe;
+        /// <summary>0.8.62: absolute durability per entry. Null/absent = pre-0.8.62.</summary>
+        public float[] Durabilities;
+        /// <summary>0.8.68: per-entry workbench upgrade names. Null/absent = pre-0.8.68.</summary>
+        public string[][] Upgrades;
+        /// <summary>0.8.68: per-entry shouldBeActive (flashlight on). Absent = pre-0.8.68.</summary>
+        public bool[] ShouldBeActive;
 
         public void Serialize(NetWriter w)
         {
@@ -67,6 +78,17 @@ namespace DWMPHorde.Networking
             w.Put(PosX);
             w.Put(PosY);
             w.Put(PosZ);
+            // Recipe/durability trailer (0.8.62). Always written so dual-deploy peers match.
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(Durabilities != null && i < Durabilities.Length ? Durabilities[i] : 0f);
+            // 0.8.68 upgrade trailer (count+names per entry). Dual-deploy writes always.
+            for (int i = 0; i < ItemCount; i++)
+                DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades != null && i < Upgrades.Length ? Upgrades[i] : null);
+            // 0.8.68 shouldBeActive trailer (one bool per entry). Dual-deploy writes always.
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
         }
 
         public static TradeInventorySyncMessage Deserialize(NetReader r)
@@ -88,6 +110,31 @@ namespace DWMPHorde.Networking
                 msg.PosX = r.GetFloat();
                 msg.PosY = r.GetFloat();
                 msg.PosZ = r.GetFloat();
+            }
+            // 0.8.62 trailer: ItemCount bools + ItemCount floats.
+            int trailer = msg.ItemCount * 5;
+            if (msg.ItemCount > 0 && r.AvailableBytes >= trailer)
+            {
+                msg.IsRecipe = new bool[msg.ItemCount];
+                msg.Durabilities = new float[msg.ItemCount];
+                for (int i = 0; i < msg.ItemCount; i++)
+                    msg.IsRecipe[i] = r.GetBool();
+                for (int i = 0; i < msg.ItemCount; i++)
+                    msg.Durabilities[i] = r.GetFloat();
+            }
+            // 0.8.68 upgrade trailer.
+            if (msg.ItemCount > 0 && r.AvailableBytes >= 1)
+            {
+                msg.Upgrades = new string[msg.ItemCount][];
+                for (int i = 0; i < msg.ItemCount; i++)
+                    msg.Upgrades[i] = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
+            }
+            // 0.8.68 shouldBeActive trailer.
+            if (msg.ItemCount > 0 && r.AvailableBytes >= msg.ItemCount)
+            {
+                msg.ShouldBeActive = new bool[msg.ItemCount];
+                for (int i = 0; i < msg.ItemCount; i++)
+                    msg.ShouldBeActive[i] = r.GetBool();
             }
             return msg;
         }
@@ -251,7 +298,7 @@ namespace DWMPHorde.Networking
         public static WorkbenchLevelMessage Deserialize(NetReader r) => new WorkbenchLevelMessage { Level = r.GetInt() };
     }
 
-    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3, Remove = 4 }
+    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3, Remove = 4, Location = 5 }
 
     public struct JournalItemMessage
     {
@@ -551,20 +598,30 @@ namespace DWMPHorde.Networking
     public struct JournalBulkSyncMessage
     {
         public string[] NoteTypes, KeyTypes, QuestItemTypes, JournalEntryTypes;
+        /// <summary>Journal locationsDict keys (0.8.61). AvailableBytes trailer.</summary>
+        public string[] LocationTypes;
 
         public void Serialize(NetWriter w)
         {
             WriteArray(w, NoteTypes); WriteArray(w, KeyTypes);
             WriteArray(w, QuestItemTypes); WriteArray(w, JournalEntryTypes);
+            WriteArray(w, LocationTypes);
         }
 
-        public static JournalBulkSyncMessage Deserialize(NetReader r) => new JournalBulkSyncMessage
+        public static JournalBulkSyncMessage Deserialize(NetReader r)
         {
-            NoteTypes = ReadArray(r),
-            KeyTypes = ReadArray(r),
-            QuestItemTypes = ReadArray(r),
-            JournalEntryTypes = ReadArray(r)
-        };
+            var msg = new JournalBulkSyncMessage
+            {
+                NoteTypes = ReadArray(r),
+                KeyTypes = ReadArray(r),
+                QuestItemTypes = ReadArray(r),
+                JournalEntryTypes = ReadArray(r)
+            };
+            // Pre-0.8.61 peers omit LocationTypes; AvailableBytes-safe.
+            if (r.AvailableBytes >= 4)
+                msg.LocationTypes = ReadArray(r);
+            return msg;
+        }
 
         static void WriteArray(NetWriter w, string[] arr)
         {
@@ -656,6 +713,8 @@ namespace DWMPHorde.Networking
         public string[] NpcNames;
         public int[] Reputations;
         public bool[] Dead;
+        /// <summary>Host Flags.NPCState.wantsToTalk (0.8.55). End-of-message trailer; AvailableBytes-safe.</summary>
+        public bool[] WantsToTalk;
 
         public void Serialize(NetWriter w)
         {
@@ -666,6 +725,10 @@ namespace DWMPHorde.Networking
                 w.Put(Reputations != null && i < Reputations.Length ? Reputations[i] : 0);
                 w.Put(Dead != null && i < Dead.Length && Dead[i]);
             }
+            // Trailer after legacy fields so 0.8.54 readers stop at Dead without desync.
+            w.Put(true); // hasWantsToTalkTrailer
+            for (int i = 0; i < NpcCount; i++)
+                w.Put(WantsToTalk == null || i >= WantsToTalk.Length || WantsToTalk[i]);
         }
 
         public static ReputationBulkSyncMessage Deserialize(NetReader r)
@@ -675,11 +738,23 @@ namespace DWMPHorde.Networking
             msg.NpcNames = new string[msg.NpcCount];
             msg.Reputations = new int[msg.NpcCount];
             msg.Dead = new bool[msg.NpcCount];
+            msg.WantsToTalk = new bool[msg.NpcCount];
             for (int i = 0; i < msg.NpcCount; i++)
             {
                 msg.NpcNames[i] = r.GetString();
                 msg.Reputations[i] = r.GetInt();
                 msg.Dead[i] = r.GetBool();
+                msg.WantsToTalk[i] = true; // fail open for talkTo() story gates
+            }
+            // 0.8.55+: bool hasTrailer + NpcCount wants bits. Pre-0.8.55: no trailer.
+            if (r.AvailableBytes >= 1 + msg.NpcCount)
+            {
+                bool hasTrailer = r.GetBool();
+                if (hasTrailer)
+                {
+                    for (int i = 0; i < msg.NpcCount; i++)
+                        msg.WantsToTalk[i] = r.GetBool();
+                }
             }
             return msg;
         }

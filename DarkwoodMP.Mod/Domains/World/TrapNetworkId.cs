@@ -118,9 +118,12 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static int ResolveOccupyingTrapId(Vector3 playerPos, bool hostMint)
         {
+            // Trap Y is often ~-10 while the player stands at ~16 — 3D OverlapSphere(2.5)
+            // never hits. Use a tall sphere then filter by XZ (same as ReleaseLocalBearTrapIfNear).
             GameObject best = null;
             float bestSq = 2.5f * 2.5f;
-            int hitN = Physics.OverlapSphereNonAlloc(playerPos, 2.5f, WorldQueryHelper.SharedOverlapBuf);
+            const float overlapR = 30f;
+            int hitN = Physics.OverlapSphereNonAlloc(playerPos, overlapR, WorldQueryHelper.SharedOverlapBuf);
             for (int i = 0; i < hitN; i++)
             {
                 if (WorldQueryHelper.SharedOverlapBuf[i] == null) continue;
@@ -130,7 +133,10 @@ namespace DWMPHorde.Sync
                 if (root == null) continue;
                 if (!TrapNetworkId.IsOccupancyTrap(root))
                     continue;
-                float sq = (root.transform.position - playerPos).sqrMagnitude;
+                Vector3 tp = root.transform.position;
+                float dx = tp.x - playerPos.x;
+                float dz = tp.z - playerPos.z;
+                float sq = dx * dx + dz * dz;
                 if (sq < bestSq)
                 {
                     bestSq = sq;

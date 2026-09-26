@@ -13,13 +13,49 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Player FX / anim / dropped-item handlers composed for 0.8.</summary>
-    internal sealed class PlayerFXNetHandlers
+    internal sealed partial class PlayerFXNetHandlers
     {
         private readonly LanNetworkManager _net;
+
+        /// <summary>Anim library arrived before proxy existed (late join / race).</summary>
+        private readonly Dictionary<int, string> _pendingAnimLibraries =
+            new Dictionary<int, string>();
 
         internal PlayerFXNetHandlers(LanNetworkManager net)
         {
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
+        }
+
+        internal void ClearPendingAnimLibrary(int playerId)
+        {
+            if (playerId > 0)
+                _pendingAnimLibraries.Remove(playerId);
+        }
+
+        internal void ClearAllPendingAnimLibraries()
+        {
+            _pendingAnimLibraries.Clear();
+        }
+
+        /// <summary>Apply stashed library after <see cref="WorldProxyLifecycleNetHandlers.EnsureRemoteProxy"/>.</summary>
+        internal void FlushPendingAnimLibrary(int playerId)
+        {
+            if (playerId <= 0) return;
+            if (!_pendingAnimLibraries.TryGetValue(playerId, out string libName))
+                return;
+            _pendingAnimLibraries.Remove(playerId);
+            if (string.IsNullOrEmpty(libName)) return;
+            int prevRecv = _net.CurrentReceivePlayerId;
+            _net.AssignCurrentReceivePlayerId(playerId);
+            try
+            {
+                HandlePlayerAnimLibrary(new PlayerAnimLibraryMessage { LibraryName = libName });
+            }
+            finally
+            {
+                _net.AssignCurrentReceivePlayerId(prevRecv);
+            }
+            ModRuntime.Log?.LogDebug("[AnimLib] applied pending library for p" + playerId + ": " + libName);
         }
 
         internal void HandlePlayerAnimation(PlayerAnimationMessage msg)
@@ -77,9 +113,16 @@ namespace DWMPHorde.Networking
         internal void HandlePlayerAnimLibrary(PlayerAnimLibraryMessage msg)
         {
             int playerId = _net.CurrentReceivePlayerId;
-            RemotePlayerProxy proxy = _net.GetProxy(playerId);
-            if (proxy == null) return;
             if (string.IsNullOrEmpty(msg.LibraryName)) return;
+
+            RemotePlayerProxy proxy = _net.GetProxy(playerId);
+            if (proxy == null)
+            {
+                // Early handshake / pre-proxy: stash like PendingPlayerLights.
+                if (playerId > 0)
+                    _pendingAnimLibraries[playerId] = msg.LibraryName;
+                return;
+            }
 
             tk2dSpriteAnimator anim = proxy.GetComponent<tk2dSpriteAnimator>();
             if (anim == null) return;
@@ -218,10 +261,18 @@ namespace DWMPHorde.Networking
 
             Transform proxyT = proxy.transform;
 
-            Vector3 muzzlePos = proxyT.position
-                + proxyT.up * itemDef.muzzleOffset.y
-                + proxyT.right * itemDef.muzzleOffset.x;
+            // Prefer fire-packet pose (serialized Pos + AimY). Proxy interp lags PlayerState
+            // and used to place muzzle/flash/audio at the wrong body facing mid-strafe.
+            Vector3 firePos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            if (firePos.sqrMagnitude < 1e-6f)
+                firePos = proxyT.position;
+            // Vanilla fireWeapon: Quaternion.Euler(90, transform.eulerAngles.y, 0) axes.
             Quaternion muzzleRot = Quaternion.Euler(90f, msg.AimY, 0f);
+            Vector3 aimUp = muzzleRot * Vector3.up;
+            Vector3 aimRight = muzzleRot * Vector3.right;
+            Vector3 muzzlePos = firePos
+                + aimUp * itemDef.muzzleOffset.y
+                + aimRight * itemDef.muzzleOffset.x;
 
             ModRuntime.LegacyInfo("[WeaponFire] handle: spawning muzzle for " + msg.ItemType + " count=" + msg.ProjectileCount + " aimY=" + msg.AimY);
 
@@ -241,7 +292,7 @@ namespace DWMPHorde.Networking
 
             if (!itemDef.noMuzzleFlash)
             {
-                Core.AddPrefab("FX/Muzzle/PistolFlash", proxyT.position + proxyT.up, muzzleRot, null, worldSpace: true);
+                Core.AddPrefab("FX/Muzzle/PistolFlash", firePos + aimUp, muzzleRot, null, worldSpace: true);
             }
 
             // Shot audio: local shooter plays parentless attackSound; peers need it here
@@ -249,7 +300,7 @@ namespace DWMPHorde.Networking
             // PlayerAudio re-forward loops.
             if (!string.IsNullOrEmpty(itemDef.attackSound))
             {
-                Vector3 shotPos = proxyT.position;
+                Vector3 shotPos = firePos;
                 if (LocalAudioService.IsNearListener(shotPos, LocalAudioService.DefaultMaxAudioDistance))
                 {
                     TraverseHack.ApplyingFromNetwork = true;
@@ -275,86 +326,5 @@ namespace DWMPHorde.Networking
             // double-apply with that path and could hit every peer incorrectly.
         }
 
-        internal void HandleDroppedItemSpawn(DroppedItemSpawnMessage msg)
-        {
-            if (string.IsNullOrEmpty(msg.Guid) || string.IsNullOrEmpty(msg.PrefabPath) || string.IsNullOrEmpty(msg.ItemType))
-                return;
-            if (Players.DroppedItemIdentifier.FindById(msg.Guid) != null)
-                return;
-
-            // Only the host's drops are authoritative. Client drops are local-only.
-            // Receiving a client drop on the host would spawn a second copy,
-            // causing item multiplication (both sides can pick up their copy).
-            // Allow client drops through the GUID-based system (DroppedItemIdentifier +
-            // LanNetworkManager.ConsumedDropGuids) prevents multiplication: when one player picks
-            // up, the other player's copy is destroyed via DroppedItemPickupMessage.
-            if (Singleton<ItemsDatabase>.Instance == null || !Singleton<ItemsDatabase>.Instance.hasItem(msg.ItemType))
-            {
-                ModRuntime.Log?.LogWarning("[DroppedItemSpawn] unknown item type: " + msg.ItemType);
-                return;
-            }
-
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
-
-            GameObject go = Core.AddPrefab(msg.PrefabPath, pos, rot, Core.ItemContainer);
-            if (go == null) return;
-
-            Inventory inv = go.GetComponent<Inventory>();
-            if (inv == null || inv.slots == null || inv.slots.Count == 0) return;
-
-            InvSlot slot = inv.slots[0];
-            slot.inventory = inv;
-
-            InvItemClass item = new InvItemClass(msg.ItemType, 1f, msg.Amount);
-            if (item.baseClass == null)
-            {
-                ModRuntime.Log?.LogWarning("[DroppedItemSpawn] failed to assign baseClass for " + msg.ItemType);
-                return;
-            }
-
-            slot.createItem(item);
-
-            if (!InvItemClass.isNull(slot.invItem))
-            {
-                slot.invItem.durability = msg.Durability;
-                if (slot.invItem.baseClass.hasAmmo)
-                    slot.invItem.ammo = msg.Ammo;
-            }
-
-            Core.addToSaveable(go, isDynamic: true);
-            Singleton<WorldGrid>.Instance?.registerToNode(go);
-
-            var ident = go.AddComponent<Players.DroppedItemIdentifier>();
-            ident.Id = msg.Guid;
-            Players.DroppedItemIdentifier.Register(ident);
-
-            ModRuntime.LegacyInfo("[DroppedItemSpawn] " + msg.ItemType + " x" + msg.Amount + " guid=" + msg.Guid);
-        }
-
-        /// <summary>Resets consumed GUID tracking (call on scene change / disconnect).</summary>
-        internal void ResetConsumedDropGuids()
-        {
-            LanNetworkManager.ConsumedDropGuids.Clear();
-        }
-
-        internal void HandleDroppedItemPickup(DroppedItemPickupMessage msg)
-        {
-            if (string.IsNullOrEmpty(msg.Guid)) return;
-
-            // Mark consumed even if we already did (idempotent). Always try destroy
-            // so a late packet still removes a lingering world copy.
-            bool first = LanNetworkManager.ConsumedDropGuids.Add(msg.Guid);
-            if (!first)
-                ModRuntime.LegacyInfo("[DroppedItemPickup] already consumed: " + msg.Guid);
-
-            var ident = Players.DroppedItemIdentifier.FindById(msg.Guid);
-            if (ident == null || ident.gameObject == null) return;
-
-            ModRuntime.LegacyInfo("[DroppedItemPickup] removing guid=" + msg.Guid);
-            UnityEngine.Object.Destroy(ident.gameObject);
-        }
-
-    
     }
 }

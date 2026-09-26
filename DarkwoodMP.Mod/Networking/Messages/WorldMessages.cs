@@ -226,22 +226,68 @@ namespace DWMPHorde.Networking
 
     public struct WorldObjectRemovedMessage
     {
+        public const byte ModeRemove = 0;
+        /// <summary>Client→host: optimistic world pickup claim (non-GUID, non-trap).</summary>
+        public const byte ModeClaimRequest = 1;
+        /// <summary>Host→client: claim lost — refund optimistic grant.</summary>
+        public const byte ModeClaimDeny = 2;
+
         public float PosX, PosY, PosZ;
         public string ObjectName;
+        /// <summary>0 = remove (default), 1 = claim request, 2 = claim deny.</summary>
+        public byte Mode;
+        /// <summary>ModeRemove: player id that won the pickup (0 = unknown / legacy).</summary>
+        public int ClaimedByPlayerId;
+        public string ItemType;
+        public int Amount;
+        public float Durability;
+        public int Ammo;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(ObjectName ?? "");
+            // Always-on trailer (same-DLL dual deploy). Legacy readers stop at ObjectName.
+            w.Put(Mode);
+            w.Put(ClaimedByPlayerId);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+            w.Put(Durability);
+            w.Put(Ammo);
         }
 
-        public static WorldObjectRemovedMessage Deserialize(NetReader r) => new WorldObjectRemovedMessage
+        public static WorldObjectRemovedMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            ObjectName = r.GetString()
-        };
+            var msg = new WorldObjectRemovedMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                ObjectName = r.GetString(),
+                Mode = ModeRemove,
+                ClaimedByPlayerId = 0,
+                ItemType = "",
+                Amount = 0,
+                Durability = 0f,
+                Ammo = 0
+            };
+            if (r.AvailableBytes >= 1 + 4)
+            {
+                msg.Mode = r.GetByte();
+                msg.ClaimedByPlayerId = r.GetInt();
+                if (r.AvailableBytes >= 2)
+                {
+                    msg.ItemType = r.GetString();
+                    if (r.AvailableBytes >= 4 + 4 + 4)
+                    {
+                        msg.Amount = r.GetInt();
+                        msg.Durability = r.GetFloat();
+                        msg.Ammo = r.GetInt();
+                    }
+                }
+            }
+            return msg;
+        }
     }
 
     public struct SawStateMessage
@@ -250,6 +296,11 @@ namespace DWMPHorde.Networking
         public float Fuel;
         public int WoodLogAmount;
         public int WoodAmount;
+        /// <summary>
+        /// Client addFuel delta for host-auth accumulation. 0 = absolute Fuel.
+        /// Always on the wire (same-DLL dual deploy).
+        /// </summary>
+        public float FuelDelta;
 
         public void Serialize(NetWriter w)
         {
@@ -257,6 +308,7 @@ namespace DWMPHorde.Networking
             w.Put(Fuel);
             w.Put(WoodLogAmount);
             w.Put(WoodAmount);
+            w.Put(FuelDelta);
         }
 
         public static SawStateMessage Deserialize(NetReader r) => new SawStateMessage
@@ -266,7 +318,8 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             Fuel = r.GetFloat(),
             WoodLogAmount = r.GetInt(),
-            WoodAmount = r.GetInt()
+            WoodAmount = r.GetInt(),
+            FuelDelta = r.GetFloat()
         };
     }
 
@@ -482,20 +535,44 @@ namespace DWMPHorde.Networking
     {
         public float PosX, PosY, PosZ;
         public string DoorName;
+        /// <summary>0.8.64: real Door.open OpenForce (thump=45000 → door_hit_run). Absent = legacy.</summary>
+        public float OpenForce;
+        /// <summary>0.8.64: opener world pos for hinge force direction. Absent = legacy door pos.</summary>
+        public float OpenerPosX, OpenerPosY, OpenerPosZ;
+        /// <summary>True when OpenForce/Opener trailer was present on the wire.</summary>
+        public bool HasOpenForceTrailer;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(DoorName ?? "");
+            // Trailer: OpenForce + OpenerPos (16 bytes). Pre-0.8.64 peers stop after DoorName.
+            w.Put(OpenForce);
+            w.Put(OpenerPosX); w.Put(OpenerPosY); w.Put(OpenerPosZ);
         }
 
-        public static DoorOpenMessage Deserialize(NetReader r) => new DoorOpenMessage
+        public static DoorOpenMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            DoorName = r.GetString()
-        };
+            var msg = new DoorOpenMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                DoorName = r.GetString(),
+                OpenForce = 0f,
+                HasOpenForceTrailer = false
+            };
+            // 4 floats = 16 bytes
+            if (r.AvailableBytes >= 16)
+            {
+                msg.OpenForce = r.GetFloat();
+                msg.OpenerPosX = r.GetFloat();
+                msg.OpenerPosY = r.GetFloat();
+                msg.OpenerPosZ = r.GetFloat();
+                msg.HasOpenForceTrailer = true;
+            }
+            return msg;
+        }
     }
 
     public struct ConstructibleMessage
@@ -654,6 +731,12 @@ namespace DWMPHorde.Networking
         public int Amount;
         public float Durability;
         public int Ammo;
+        /// <summary>0.8.63: ItemType is recipeFor when true. Absent on pre-0.8.63 packets.</summary>
+        public bool IsRecipe;
+        /// <summary>0.8.65: workbench ItemUpgrade names. Absent on pre-0.8.65 packets.</summary>
+        public string[] Upgrades;
+        /// <summary>0.8.66: flashlight / toggle on. Absent on pre-0.8.66 packets.</summary>
+        public bool ShouldBeActive;
 
         public void Serialize(NetWriter w)
         {
@@ -665,31 +748,100 @@ namespace DWMPHorde.Networking
             w.Put(Amount);
             w.Put(Durability);
             w.Put(Ammo);
+            w.Put(IsRecipe);
+            DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
+            w.Put(ShouldBeActive);
         }
 
-        public static DroppedItemSpawnMessage Deserialize(NetReader r) => new DroppedItemSpawnMessage
+        public static DroppedItemSpawnMessage Deserialize(NetReader r)
         {
-            Guid = r.GetString(),
-            PrefabPath = r.GetString(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            RotX = r.GetFloat(),
-            RotY = r.GetFloat(),
-            RotZ = r.GetFloat(),
-            ItemType = r.GetString(),
-            Amount = r.GetInt(),
-            Durability = r.GetFloat(),
-            Ammo = r.GetInt()
-        };
+            var msg = new DroppedItemSpawnMessage
+            {
+                Guid = r.GetString(),
+                PrefabPath = r.GetString(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotX = r.GetFloat(),
+                RotY = r.GetFloat(),
+                RotZ = r.GetFloat(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt(),
+                IsRecipe = false,
+                ShouldBeActive = false
+            };
+            if (r.AvailableBytes >= 1)
+                msg.IsRecipe = r.GetBool();
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
+            if (r.AvailableBytes >= 1)
+                msg.ShouldBeActive = r.GetBool();
+            return msg;
+        }
     }
 
     public struct DroppedItemPickupMessage
     {
-        public string Guid;
+        public const byte ModeRemove = 0;
+        /// <summary>Client→host: optimistic GUID drop claim (mirror WorldObjectRemoved claim).</summary>
+        public const byte ModeClaimRequest = 1;
+        /// <summary>Host→client: claim lost — refund optimistic grant.</summary>
+        public const byte ModeClaimDeny = 2;
 
-        public void Serialize(NetWriter w) => w.Put(Guid ?? string.Empty);
-        public static DroppedItemPickupMessage Deserialize(NetReader r) => new DroppedItemPickupMessage { Guid = r.GetString() };
+        public string Guid;
+        public byte Mode;
+        public int ClaimedByPlayerId;
+        public string ItemType;
+        public int Amount;
+        public float Durability;
+        public int Ammo;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Guid ?? string.Empty);
+            // Always-on trailer (same-DLL dual deploy). Legacy readers stop at Guid.
+            w.Put(Mode);
+            w.Put(ClaimedByPlayerId);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+            w.Put(Durability);
+            w.Put(Ammo);
+        }
+
+        public static DroppedItemPickupMessage Deserialize(NetReader r)
+        {
+            var msg = new DroppedItemPickupMessage
+            {
+                Guid = r.GetString(),
+                Mode = ModeRemove,
+                ClaimedByPlayerId = 0,
+                ItemType = "",
+                Amount = 0,
+                Durability = 0f,
+                Ammo = 0
+            };
+            if (r.AvailableBytes >= 1 + 4)
+            {
+                msg.Mode = r.GetByte();
+                msg.ClaimedByPlayerId = r.GetInt();
+                if (r.AvailableBytes >= 2)
+                {
+                    msg.ItemType = r.GetString();
+                    if (r.AvailableBytes >= 4)
+                    {
+                        msg.Amount = r.GetInt();
+                        if (r.AvailableBytes >= 4)
+                        {
+                            msg.Durability = r.GetFloat();
+                            if (r.AvailableBytes >= 4)
+                                msg.Ammo = r.GetInt();
+                        }
+                    }
+                }
+            }
+            return msg;
+        }
     }
 
     public struct DeathBagSpawnMessage
@@ -704,6 +856,21 @@ namespace DWMPHorde.Networking
         public int[] ItemAmmos;
         /// <summary>Stable ID. Empty only if the sender is broken.</summary>
         public string BagId;
+        /// <summary>
+        /// 0.8.63: per-entry recipe flag. ItemTypes stores recipeFor when true.
+        /// Null/absent = pre-0.8.63 (AvailableBytes trailer after BagId).
+        /// </summary>
+        public bool[] IsRecipe;
+        /// <summary>
+        /// 0.8.65: per-entry workbench ItemUpgrade names. Null/absent = pre-0.8.65
+        /// (AvailableBytes trailer after IsRecipe bools).
+        /// </summary>
+        public string[][] ItemUpgrades;
+        /// <summary>
+        /// 0.8.66: per-entry shouldBeActive (flashlight on). Null/absent = pre-0.8.66
+        /// (AvailableBytes trailer after upgrade lists).
+        /// </summary>
+        public bool[] ShouldBeActive;
 
         public void Serialize(NetWriter w)
         {
@@ -720,6 +887,14 @@ namespace DWMPHorde.Networking
                 w.Put(ItemAmmos != null && i < ItemAmmos.Length ? ItemAmmos[i] : 0);
             }
             w.Put(BagId ?? "");
+            // Recipe trailer (0.8.63). Always written so dual-deploy peers match.
+            for (int i = 0; i < count; i++)
+                w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
+            // Upgrade trailer (0.8.65). Always written (count byte per item, may be 0).
+            DWMPHorde.Sync.InvItemUpgradeWire.WriteMany(w, ItemUpgrades, count);
+            // shouldBeActive trailer (0.8.66). Always written.
+            for (int i = 0; i < count; i++)
+                w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
         }
 
         public static DeathBagSpawnMessage Deserialize(NetReader r)
@@ -747,6 +922,19 @@ namespace DWMPHorde.Networking
                 msg.ItemAmmos[i] = r.GetInt();
             }
             msg.BagId = r.GetString();
+            if (count > 0 && r.AvailableBytes >= count)
+            {
+                msg.IsRecipe = new bool[count];
+                for (int i = 0; i < count; i++)
+                    msg.IsRecipe[i] = r.GetBool();
+            }
+            msg.ItemUpgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryReadMany(r, count);
+            if (count > 0 && r.AvailableBytes >= count)
+            {
+                msg.ShouldBeActive = new bool[count];
+                for (int i = 0; i < count; i++)
+                    msg.ShouldBeActive[i] = r.GetBool();
+            }
             return msg;
         }
     }

@@ -18,6 +18,13 @@ namespace DWMPHorde.Sync
             _byPlayer.Clear();
         }
 
+        /// <summary>Drop presence for a disconnected peer (avoids ghost haveItem after leave).</summary>
+        public static void ClearPlayer(int playerId)
+        {
+            if (playerId > 0)
+                _byPlayer.Remove(playerId);
+        }
+
         public static void Apply(int playerId, string itemType, int amount)
         {
             if (playerId < 0 || string.IsNullOrEmpty(itemType)) return;
@@ -37,15 +44,8 @@ namespace DWMPHorde.Sync
             if (string.IsNullOrEmpty(itemType)) return false;
             if (minAmount < 1) minAmount = 1;
 
-            if (Player.Instance != null && Player.Instance.Inventory != null)
-            {
-                InvItemClass local = Player.Instance.Inventory.getItemInPlayer(itemType);
-                if (local != null)
-                {
-                    bool ok = !local.baseClass.stackable || local.amount >= minAmount;
-                    if (ok) return true;
-                }
-            }
+            if (LocalHasIncludingHotbar(itemType, minAmount))
+                return true;
 
             foreach (var kvp in _byPlayer)
             {
@@ -55,12 +55,29 @@ namespace DWMPHorde.Sync
             return false;
         }
 
+        /// <summary>
+        /// Inventory + Hotbar. getItemInPlayer / getItemAmount on Inventory miss Hotbar
+        /// (compressor / walkie already check both). Unique haveItem EventTriggers softlock
+        /// 3p when the only holder keeps oxygentank_full / keys on the hotbar.
+        /// </summary>
+        private static bool LocalHasIncludingHotbar(string itemType, int minAmount)
+        {
+            int n = CountLocalCombined(itemType);
+            return n >= minAmount;
+        }
+
         public static void SendLocalChange(string itemType, int amount)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
             var net = LanNetworkManager.Instance;
             if (net == null || !net.IsConnected) return;
             if (string.IsNullOrEmpty(itemType)) return;
+
+            // Always publish inv+hotbar total — Hotbar and Inventory write separately;
+            // a hotbar-only stamp must not wipe an inventory count (and vice versa).
+            int combined = CountLocalCombined(itemType);
+            if (combined >= 0)
+                amount = combined;
 
             if (net.Role == NetworkRole.Host)
             {
@@ -77,16 +94,67 @@ namespace DWMPHorde.Sync
             net.Send(NetMessageType.PeerHasItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>Sum Inventory + Hotbar counts for type; -1 if player missing.</summary>
+        private static int CountLocalCombined(string itemType)
+        {
+            if (Player.Instance == null || string.IsNullOrEmpty(itemType))
+                return -1;
+            int total = 0;
+            try
+            {
+                if (Player.Instance.Inventory != null)
+                    total += Player.Instance.Inventory.getItemAmount(itemType);
+                if (Player.Instance.Hotbar != null)
+                    total += Player.Instance.Hotbar.getItemAmount(itemType);
+            }
+            catch
+            {
+                return -1;
+            }
+            return total;
+        }
+
         public static void SendFullLocalInventory()
         {
-            if (Player.Instance == null || Player.Instance.Inventory == null) return;
-            System.Collections.Generic.List<InvItemClass> items = Player.Instance.Inventory.getAllItemsInPlayer();
-            if (items == null) return;
-            for (int i = 0; i < items.Count; i++)
+            if (Player.Instance == null) return;
+            if (Player.Instance.Inventory != null)
             {
-                if (InvItemClass.isNull(items[i]) || string.IsNullOrEmpty(items[i].type))
-                    continue;
-                SendLocalChange(items[i].type, items[i].amount);
+                System.Collections.Generic.List<InvItemClass> items =
+                    Player.Instance.Inventory.getAllItemsInPlayer();
+                if (items != null)
+                {
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        if (InvItemClass.isNull(items[i]) || string.IsNullOrEmpty(items[i].type))
+                            continue;
+                        SendLocalChange(items[i].type, items[i].amount);
+                    }
+                }
+            }
+            // Hotbar is a separate Inventory — unique tanks/keys often live here.
+            SendHotbarPresence();
+        }
+
+        private static void SendHotbarPresence()
+        {
+            try
+            {
+                Inventory hotbar = Player.Instance != null ? Player.Instance.Hotbar : null;
+                if (hotbar == null || hotbar.slots == null) return;
+                for (int i = 0; i < hotbar.slots.Count; i++)
+                {
+                    var slot = hotbar.slots[i];
+                    if (slot == null || InvItemClass.isNull(slot.invItem)
+                        || string.IsNullOrEmpty(slot.invItem.type))
+                        continue;
+                    // Prefer total across hotbar for stackables.
+                    int amt = hotbar.getItemAmount(slot.invItem.type);
+                    SendLocalChange(slot.invItem.type, amt);
+                }
+            }
+            catch
+            {
+                /* hotbar mid-teardown */
             }
         }
     }

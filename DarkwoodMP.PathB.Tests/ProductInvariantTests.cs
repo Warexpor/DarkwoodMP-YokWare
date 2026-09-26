@@ -27,6 +27,75 @@ public class ProductInvariantTests
     private static string ModDir => Path.Combine(RepoRoot, "DarkwoodMP.Mod");
 
     [Fact]
+    public void SharedInvItemUpgrades_WireTrailerPresent()
+    {
+        // Batch 30: death-bag / drop / container carry workbench upgrade names.
+        var wire = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "InvItemUpgradeWire.cs"));
+        Assert.Contains("InvItemUpgradeWire", wire);
+        Assert.Contains("TryReadMany", wire);
+
+        var drop = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "WorldMessages.cs"));
+        Assert.Contains("DroppedItemSpawnMessage", drop);
+        Assert.Contains("InvItemUpgradeWire.Write", drop);
+        Assert.Contains("ItemUpgrades", drop);
+
+        var cont = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "ContainerMessages.cs"));
+        Assert.Contains("InvItemUpgradeWire.Write", cont);
+        Assert.Contains("public string[] Upgrades", cont);
+    }
+
+    [Fact]
+    public void SharedInvItemShouldBeActive_AndTransferApplyPresent()
+    {
+        // Batch 31: flashlight on + empty-mag/0-dur apply after createItem.
+        var apply = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "InvItemTransferApply.cs"));
+        Assert.Contains("ApplyMeta", apply);
+        Assert.Contains("shouldBeActive", apply);
+        Assert.Contains("hasAmmo", apply);
+
+        var drop = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "WorldMessages.cs"));
+        Assert.Contains("ShouldBeActive", drop);
+        Assert.Contains("msg.ShouldBeActive = r.GetBool()", drop);
+
+        var cont = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "ContainerMessages.cs"));
+        Assert.Contains("ShouldBeActive", cont);
+        Assert.Contains("Slots[i].ShouldBeActive", cont);
+
+        var droppedRx = File.ReadAllText(Path.Combine(ModDir, "Domains", "Players", "PlayerFXNetHandlers.DroppedItems.cs"));
+        Assert.Contains("InvItemTransferApply.ApplyMeta", droppedRx);
+    }
+
+    [Fact]
+    public void TradeInventorySync_EmptyMagAndZeroDurParity()
+    {
+        // Batch 32: TradeInventorySync keeps ammo=0 firearms and assigns abs dur 0.
+        var trade = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "TradeSyncPatches.cs"));
+        Assert.Contains("hasAmmo", trade);
+        Assert.Contains("!hasAmmo) continue", trade);
+        Assert.Contains("InvItemTransferApply.ApplyMeta", trade);
+        Assert.Contains("created.durability = absDur", trade);
+        Assert.Contains("created.ammo = amount", trade);
+        Assert.DoesNotContain("if (absDur > 0f)", trade);
+    }
+
+    [Fact]
+    public void TradeInventorySync_UpgradesAndShouldBeActiveTrailer()
+    {
+        // Batch 33: player-sold upgraded / flashlight-on stock on TradeInventorySync.
+        var msg = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "SyncMessages.cs"));
+        Assert.Contains("public struct TradeInventorySyncMessage", msg);
+        Assert.Contains("public string[][] Upgrades", msg);
+        Assert.Contains("public bool[] ShouldBeActive", msg);
+        Assert.Contains("InvItemUpgradeWire.Write", msg);
+        Assert.Contains("InvItemUpgradeWire.TryRead", msg);
+
+        var trade = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "TradeSyncPatches.cs"));
+        Assert.Contains("InvItemUpgradeWire.CollectNames", trade);
+        Assert.Contains("InvItemUpgradeWire.Apply", trade);
+        Assert.Contains("shouldBeActive", trade);
+    }
+
+    [Fact]
     public void PluginInfo_IsYokWarePathB_Protocol25()
     {
         var text = File.ReadAllText(Path.Combine(ModDir, "Bootstrap", "PluginInfo.cs"));
@@ -37,6 +106,71 @@ public class ProductInvariantTests
 
         var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.8\.[^""]+)""");
         Assert.True(versionMatch.Success, "PluginInfo.Version must be 0.8.x");
+    }
+
+
+    [Fact]
+    public void HarmonyFlagStash_UsesFinalizerRestore()
+    {
+        // Batch 37/38: Prefix mutates / sets sticky flags; Postfix-only restore leaves
+        // bad state when the original throws (Harmony skips Postfix).
+        var checkStuff = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "HostAIPatches.Perception.cs"));
+        Assert.Contains("HostCheckStuffPatch", checkStuff);
+        Assert.Contains("private static void Finalizer(Character __instance)", checkStuff);
+        Assert.Contains("temporarySpawned", checkStuff);
+
+        var projectile = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "ClientProjectileDamagePatch.cs"));
+        Assert.Contains("IsInsidePlayerBulletCollision = false", projectile);
+        Assert.Contains("Finalizer", projectile);
+
+        var sounds = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "EntitySoundSyncPatches.cs"));
+        Assert.Contains("[HarmonyFinalizer]", sounds);
+        Assert.Contains("InsideEscapingLoop = false", sounds);
+        Assert.Contains("InsideCharacterSounds = false", sounds);
+
+        // Batch 38
+        var explode = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "ExplosionSpawnSyncPatches.cs"));
+        Assert.Contains("[HarmonyFinalizer]", explode);
+        Assert.Contains("IsInsideSpawnObjects = false", explode);
+        Assert.Contains("IsInsideLocalExplosion = false", explode);
+
+        var fastProj = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "FastProjectileAwakePatch.cs"));
+        Assert.Contains("IsInsideFastProjectileRaycast = false", fastProj);
+        Assert.Contains("Finalizer", fastProj);
+
+        var banshee = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "HostAIPatches.Targeting.cs"));
+        Assert.Contains("SuppressHostScreamForward = false", banshee);
+        Assert.Contains("private static void Finalizer()", banshee);
+
+        var trap = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "DoorSyncPatches.cs"));
+        Assert.Contains("InsideTrapPlacement = false", trap);
+        Assert.Contains("private static void Finalizer()", trap);
+
+        var pause = File.ReadAllText(Path.Combine(ModDir, "Patches", "NoWorldPausePatch.cs"));
+        Assert.Contains("UiOpenNoPausePatches", pause);
+        Assert.Contains("Finalizer() => PauseSuppression.EndNoPause()", pause);
+        Assert.Contains("Finalizer() => PauseSuppression.EndNoUnpause()", pause);
+    }
+
+    [Fact]
+    public void HarmonyCoroutineSuppress_SetsEmptyResult()
+    {
+        // Batch 36: Prefix return false on IEnumerator without __result → StartCoroutine(null).
+        var util = File.ReadAllText(Path.Combine(ModDir, "Harmony", "HarmonyCoroutineUtil.cs"));
+        Assert.Contains("HarmonyCoroutineUtil", util);
+        Assert.Contains("Empty()", util);
+
+        var prepare = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dream", "Patches", "DreamSyncPatches.cs"));
+        Assert.Contains("ref System.Collections.IEnumerator __result", prepare);
+        Assert.Contains("HarmonyCoroutineUtil.Empty()", prepare);
+
+        var death = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "ClientDeathPatches.cs"));
+        Assert.Contains("ref IEnumerator __result", death);
+        Assert.Contains("HarmonyCoroutineUtil.Empty()", death);
+
+        var worm = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "ClientWorldPatches.cs"));
+        Assert.Contains("waitToSpawnWorm", worm);
+        Assert.Contains("HarmonyCoroutineUtil.Empty()", worm);
     }
 
     [Fact]

@@ -7,6 +7,93 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
+    /// Personal flavor / proximity narrative HUD (examine text, GameEvent displayMessage,
+    /// and HelpMessage tutorials). Must stay on the observing local player — never leak
+    /// to a peer who is elsewhere.
+    ///
+    /// Vanilla <c>GameEvents.fire</c> only <c>StartCoroutine</c>s delayed <c>GameEvent.fire</c>
+    /// work; a try/finally around <c>fire()</c> cannot cover <c>Type.displayMessage</c> /
+    /// HelpMessage after <c>delay</c>. Instead of a process-wide blacklist (which blanked
+    /// local examine/help for up to 60s), <see cref="GameEventFireFlavorSourcePatch"/>
+    /// pushes the GE <c>thisGO</c> while each delayed <c>MoveNext</c> runs, and
+    /// <see cref="ShouldShow"/> re-checks <see cref="NearRange"/> against that transform.
+    /// Local examine / non-GE HUD has no flavor source → unaffected. Chat / system tips
+    /// use <see cref="BeginBypass"/>. Hard <see cref="SuppressCount"/> is host examine
+    /// re-run (always hide). Reset clears on NetworkResetRegistry.
+    /// </summary>
+    internal static class PersonalFlavorHud
+    {
+        /// <summary>
+        /// XZ range: "standing at the spot". 250 covered an entire hideout + yard and
+        /// still leaked flavor across far peers; location volumes are much smaller.
+        /// </summary>
+        internal const float NearRange = 60f;
+
+        /// <summary>When &gt; 0, flavor HUD is a no-op (host examine re-run). Setter clamps below 0.</summary>
+        private static int _suppressCount;
+        internal static int SuppressCount
+        {
+            get => _suppressCount;
+            set => _suppressCount = value < 0 ? 0 : value;
+        }
+
+        private static int _bypassCount;
+        private static readonly System.Collections.Generic.List<UnityEngine.GameObject> _flavorSources =
+            new System.Collections.Generic.List<UnityEngine.GameObject>(8);
+
+        /// <summary>Chat / system tips: show even while a far GE flavor source is active.</summary>
+        internal static void BeginBypass() => _bypassCount++;
+        internal static void EndBypass()
+        {
+            if (_bypassCount > 0) _bypassCount--;
+        }
+
+        /// <summary>
+        /// Push the GameEvents GameObject for the duration of one <c>GameEvent.fire</c>
+        /// MoveNext (including the post-delay action that calls display/HelpMessage).
+        /// </summary>
+        internal static void PushFlavorSource(UnityEngine.GameObject geGo) => _flavorSources.Add(geGo);
+
+        internal static void PopFlavorSource()
+        {
+            if (_flavorSources.Count > 0)
+                _flavorSources.RemoveAt(_flavorSources.Count - 1);
+        }
+
+        internal static bool ShouldShow
+        {
+            get
+            {
+                if (_bypassCount > 0) return true;
+                if (_suppressCount > 0) return false;
+                if (_flavorSources.Count > 0)
+                {
+                    // Unity fake-null: destroyed GE after fire teardown — fail closed.
+                    UnityEngine.GameObject go = _flavorSources[_flavorSources.Count - 1];
+                    if (go == null) return false;
+                    return IsListenerNear(go.transform.position);
+                }
+                return true;
+            }
+        }
+
+        /// <summary>True when a real listen body exists and is within NearRange XZ of worldPos.</summary>
+        internal static bool IsListenerNear(UnityEngine.Vector3 worldPos)
+        {
+            if (Player.Instance == null && UnityEngine.Camera.main == null)
+                return false;
+            return DWMPHorde.Audio.LocalAudioService.IsNearListenerXz(worldPos, NearRange);
+        }
+
+        internal static void Reset()
+        {
+            SuppressCount = 0;
+            _bypassCount = 0;
+            _flavorSources.Clear();
+        }
+    }
+
+    /// <summary>
     /// Examinable / story onExamine:
     /// Client keeps local HUD (<c>displayMessage</c> + local <c>DescriptionPool</c> draw)
     /// but must not fire <c>EventTrigger.onExamine</c> — one-shot GE is host-auth via
@@ -21,7 +108,11 @@ namespace DWMPHorde.Patches
     internal static class ExaminableExamineSync
     {
         /// <summary>Host: suppress Player.displayMessage while applying a remote examine request.</summary>
-        internal static int SuppressHostExamineHud;
+        internal static int SuppressHostExamineHud
+        {
+            get => PersonalFlavorHud.SuppressCount;
+            set => PersonalFlavorHud.SuppressCount = value;
+        }
     }
 
     [HarmonyPatch(typeof(Examinable), "examine")]
@@ -125,14 +216,120 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Host must not show the client's examine flavor text when re-running examine.</summary>
+    /// <summary>
+    /// While a delayed <c>GameEvent.fire</c> MoveNext runs (post-delay displayMessage /
+    /// HelpMessage), expose that GE's <c>thisGO</c> so <see cref="PersonalFlavorHud.ShouldShow"/>
+    /// can re-check proximity — no process-wide HUD blacklist.
+    /// </summary>
+    [HarmonyPatch]
+    public static class GameEventFireFlavorSourcePatch
+    {
+        private static System.Reflection.FieldInfo _thisGoField;
+
+        private static bool Prepare() => TargetMethod() != null;
+
+        private static System.Reflection.MethodBase TargetMethod()
+        {
+            System.Type[] nested = typeof(GameEvent).GetNestedTypes(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            for (int i = 0; i < nested.Length; i++)
+            {
+                System.Type t = nested[i];
+                if (t.Name.IndexOf("fire", System.StringComparison.Ordinal) < 0)
+                    continue;
+                if (!typeof(System.Collections.IEnumerator).IsAssignableFrom(t))
+                    continue;
+                System.Reflection.MethodInfo m = AccessTools.Method(t, "MoveNext");
+                if (m != null)
+                    return m;
+            }
+            return null;
+        }
+
+        private static void Prefix(object __instance)
+        {
+            if (_thisGoField == null)
+                _thisGoField = AccessTools.Field(__instance.GetType(), "thisGO");
+            UnityEngine.GameObject go = _thisGoField != null
+                ? _thisGoField.GetValue(__instance) as UnityEngine.GameObject
+                : null;
+            PersonalFlavorHud.PushFlavorSource(go);
+        }
+
+        private static void Finalizer()
+        {
+            PersonalFlavorHud.PopFlavorSource();
+        }
+    }
+
+    /// <summary>
+    /// Suppress personal flavor HUD while a remote examine re-run or a far GameEvent
+    /// delayed action is displaying — location hints must not appear for a peer who
+    /// is not there. GE proximity is re-checked via <see cref="GameEventFireFlavorSourcePatch"/>.
+    /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.displayMessage),
         new[] { typeof(string), typeof(bool), typeof(bool) })]
     public static class ExaminableHostHudSuppressPatch
     {
         private static bool Prefix()
         {
-            return ExaminableExamineSync.SuppressHostExamineHud <= 0;
+            return PersonalFlavorHud.ShouldShow;
+        }
+    }
+
+    [HarmonyPatch(typeof(Core), nameof(Core.displayMessage),
+        new[] { typeof(string), typeof(UnityEngine.Vector3), typeof(float) })]
+    public static class CoreDisplayMessagePosSuppressPatch
+    {
+        private static bool Prefix()
+        {
+            return PersonalFlavorHud.ShouldShow;
+        }
+    }
+
+    [HarmonyPatch(typeof(Core), nameof(Core.displayMessage),
+        new[] { typeof(string), typeof(UnityEngine.Transform), typeof(float), typeof(bool) })]
+    public static class CoreDisplayMessageTransSuppressPatch
+    {
+        private static bool Prefix()
+        {
+            return PersonalFlavorHud.ShouldShow;
+        }
+    }
+
+
+    [HarmonyPatch(typeof(UI), nameof(UI.displayHelpMessage), new[] { typeof(string) })]
+    public static class UiDisplayHelpMessageSuppressPatch
+    {
+        /// <summary>
+        /// Never skip the original: vanilla <c>GameEvent.fire</c> MoveNext assigns
+        /// <c>helpMessage.actionToDisable</c> without a null check. Bool-Prefix false
+        /// left <c>__result</c> null → NRE (Hideout1_tutorial_02). Create always, then
+        /// hide for out-of-range peers so hints stay personal.
+        /// </summary>
+        private static void Postfix(HelpMessage __result)
+        {
+            if (PersonalFlavorHud.ShouldShow)
+                return;
+            if (__result == null)
+                return;
+            try
+            {
+                // Kill Awake fade-in immediately so far peers never flash the hint.
+                if (__result.textMesh != null)
+                    __result.textMesh.color = new UnityEngine.Color(1f, 1f, 1f, 0f);
+                if (__result.background != null)
+                    __result.background.color = new UnityEngine.Color(1f, 1f, 1f, 0f);
+                if (__result.radial != null)
+                    __result.radial.color = new UnityEngine.Color(1f, 1f, 1f, 0f);
+                __result.longevity = 0.01f;
+                __result.keyToHide = "";
+                __result.hide();
+            }
+            catch (System.Exception)
+            {
+                // Unity teardown / missing UI — GameEvent still holds a non-null ref.
+            }
         }
     }
 

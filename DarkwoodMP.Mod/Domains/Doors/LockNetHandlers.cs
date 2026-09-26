@@ -238,16 +238,36 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            bool wasLocked = best.locked;
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
-                // manually=false: set locked=false without UI / double triggers
+                // manually=false: set locked=false without UI / padlock Success HUD.
+                // Client combination unlock already ran unlock(true) locally (triggers
+                // blocked by GameEventsFiredPatch); host must synthesize the story
+                // triggers or onUnlockPadlock one-shots never run for anyone.
                 if (best.locked)
                     best.unlock(false);
             }
             finally
             {
                 LanNetworkManager.IsApplyingRemoteState = false;
+            }
+
+            // Host-only: mirror Padlock.unlock(manually:true) trigger fan-out.
+            // wasLocked gates late-join bulk / echo (already unlocked → no re-fire).
+            // Pending flush may have CurrentReceivePlayerId==0 — still synth on host.
+            if (wasLocked && _net.Role == NetworkRole.Host)
+            {
+                try
+                {
+                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onTryToOpenLocked);
+                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onUnlockPadlock);
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[PadlockSync] host trigger synth: " + ex.Message);
+                }
             }
         }
 
@@ -269,6 +289,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            bool wasLocked = best.locked;
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -278,6 +299,20 @@ namespace DWMPHorde.Networking
             finally
             {
                 LanNetworkManager.IsApplyingRemoteState = false;
+            }
+
+            // Host: client key/lockpick path sent onActivate locally (one-shot GE blocked).
+            // Without host synth, door/chest unlock story never runs for the session.
+            if (wasLocked && _net.Role == NetworkRole.Host)
+            {
+                try
+                {
+                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onActivate);
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[LockedSync] host onActivate synth: " + ex.Message);
+                }
             }
         }
 

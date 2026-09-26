@@ -1,3 +1,4 @@
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -174,7 +175,8 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Dreams), "prepareDream")]
     public static class DreamPreparePatch
     {
-        private static bool Prefix(Dreams __instance, string presetName)
+        // prepareDream is IEnumerator; StartCoroutine(null) if Prefix returns false without __result.
+        private static bool Prefix(Dreams __instance, string presetName, ref System.Collections.IEnumerator __result)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
@@ -190,6 +192,7 @@ namespace DWMPHorde.Patches
                 {
                     ModRuntime.LegacyInfo(
                         "[DreamSync] Client prepareDream('') aborted — waiting host DreamStarted/bulk");
+                    __result = HarmonyCoroutineUtil.Empty();
                     return false;
                 }
                 return true;
@@ -225,6 +228,7 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[DreamSync] Host prepareDream aborted — TryBegin rejected '{name}'"
                     + $" (session {DreamSession.Current})");
+                __result = HarmonyCoroutineUtil.Empty();
                 return false;
             }
 

@@ -83,13 +83,18 @@ namespace DWMPHorde.Patches
                 InvSlot s = inv.slots[i];
                 if (InvItemClass.isNull(s.invItem))
                     continue;
+                InvItemClass it = s.invItem;
+                bool isRecipe = it.isRecipe;
                 slots.Add(new SlotStateEntry
                 {
                     SlotIndex = (byte)i,
-                    ItemType = s.invItem.type,
-                    Amount = s.invItem.amount,
-                    Durability = s.invItem.durability,
-                    Ammo = s.invItem.ammo
+                    ItemType = isRecipe ? it.recipeFor : it.type,
+                    Amount = it.amount,
+                    Durability = it.durability,
+                    Ammo = it.ammo,
+                    IsRecipe = isRecipe,
+                    Upgrades = Sync.InvItemUpgradeWire.CollectNames(it),
+                    ShouldBeActive = it.shouldBeActive
                 });
             }
 

@@ -135,6 +135,12 @@ namespace DWMPHorde.Patches
             TraverseHack.IsInsideFastProjectileRaycast = false;
         }
 
+        // FixedUpdate can throw; stuck true makes HitscanImpactSyncPatch skip forever.
+        private static void Finalizer()
+        {
+            TraverseHack.IsInsideFastProjectileRaycast = false;
+        }
+
         private static void DespawnProjectile(FastProjectile fp)
         {
             if (fp == null) return;

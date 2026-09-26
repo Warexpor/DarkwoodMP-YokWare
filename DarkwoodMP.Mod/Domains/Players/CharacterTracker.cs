@@ -13,6 +13,13 @@ namespace DWMPHorde.Sync
         /// <summary>Reverse map for O(1) FindByStableId (client LateUpdate walks every driven id every frame).</summary>
         private static readonly Dictionary<short, Character> _byId = new Dictionary<short, Character>(64);
         private static readonly HashSet<short> _activeIds = new HashSet<short>();
+        /// <summary>
+        /// Host: ids freed by Remove stay unusable for a short grace so GetCollisionFreeId
+        /// cannot mint the same short while a client still has deferred Destroy + late
+        /// EntityState for the old body (same-name crow/rabbit wrong claim).
+        /// </summary>
+        private static readonly Dictionary<short, float> _recycleGraceUntil = new Dictionary<short, float>(32);
+        private const float RecycleGraceSec = 2.5f;
         private static readonly object _lock = new object();
         private static short _nextId = 1;
 
@@ -347,6 +354,7 @@ namespace DWMPHorde.Sync
 
         private static short GetCollisionFreeId()
         {
+            PurgeExpiredRecycleGrace();
             short id;
             int safety = 0;
             do
@@ -354,11 +362,34 @@ namespace DWMPHorde.Sync
                 id = _nextId++;
                 if (++safety > short.MaxValue)
                     return 0;
-            } while (id == 0 || _activeIds.Contains(id));
+            } while (id == 0 || _activeIds.Contains(id) || _recycleGraceUntil.ContainsKey(id));
             return id;
         }
 
-        /// <summary>Removes a character from tracking, freeing its stable ID for reuse.</summary>
+        private static void PurgeExpiredRecycleGrace()
+        {
+            if (_recycleGraceUntil.Count == 0) return;
+            float now = Time.unscaledTime;
+            // Copy keys — cannot mutate during foreach.
+            _recycleGraceScratch.Clear();
+            foreach (var kv in _recycleGraceUntil)
+            {
+                if (kv.Value <= now)
+                    _recycleGraceScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _recycleGraceScratch.Count; i++)
+                _recycleGraceUntil.Remove(_recycleGraceScratch[i]);
+        }
+
+        private static readonly List<short> _recycleGraceScratch = new List<short>(16);
+
+        private static void HoldRecycledId(short sid)
+        {
+            if (sid == 0) return;
+            _recycleGraceUntil[sid] = Time.unscaledTime + RecycleGraceSec;
+        }
+
+        /// <summary>Removes a character from tracking, freeing its stable ID for reuse after grace.</summary>
         public static void Remove(Character c)
         {
             if (c == null) return;
@@ -369,6 +400,7 @@ namespace DWMPHorde.Sync
                     _activeIds.Remove(sid);
                     if (_byId.TryGetValue(sid, out Character mapped) && mapped == c)
                         _byId.Remove(sid);
+                    HoldRecycledId(sid);
                 }
                 _characters.Remove(c);
                 _stableIdCache.Remove(c);
@@ -384,6 +416,7 @@ namespace DWMPHorde.Sync
                 _stableIdCache.Clear();
                 _byId.Clear();
                 _activeIds.Clear();
+                _recycleGraceUntil.Clear();
                 _nextId = 1;
             }
         }
@@ -405,6 +438,7 @@ namespace DWMPHorde.Sync
                 _stableIdCache.Clear();
                 _byId.Clear();
                 _activeIds.Clear();
+                _recycleGraceUntil.Clear();
                 _nextId = 1;
             }
 

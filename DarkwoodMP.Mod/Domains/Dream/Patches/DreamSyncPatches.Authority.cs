@@ -204,12 +204,12 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            var d = Dreams.Instance;
-            if (d == null) return;
+            if (Dreams.Instance == null) return;
 
-            // Snapshot may have arrived earlier; re-apply bunker completion → lvl2 gate.
-            if (DreamSession.IsPresetCompleted("dream_bunker_underground_01"))
-                d.hadDreamAtLvl2 = true;
+            // Union from DreamStarted/Ended/Bulk + bunker completion → all hadDreamAtLvl*.
+            // Prior build only forced bunker→lvl2; random lvl 3/5/6/7 could re-fire when
+            // Dreams.Instance flags lagged the session snapshot.
+            DreamSession.ReassertLocalLvlFlags();
         }
     }
 }

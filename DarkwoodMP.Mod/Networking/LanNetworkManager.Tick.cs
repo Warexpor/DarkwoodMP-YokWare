@@ -35,7 +35,11 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("flushPending");
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             FlagHandlers.TryFlushPendingFlags();
+            LocationHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
+            Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
+            BulkSyncHandlers?.TryFlushPendingHideoutState();
+            ContainerHandlers?.TryFlushPendingHideoutUpgrades();
             TradeHandlers.TryFlushPendingTradeInventories();
             LockHandlers.TryFlushPendingConstructibles();
             StationHandlers.TryFlushPendingSawStates();
@@ -224,9 +228,10 @@ namespace DWMPHorde.Networking
             // Both sides: send own position to the other side at ~30 Hz
             string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);
             string legsClip = PlayerAnimationSnapshot.ReadLegsClip(local);
-            // Night-dead + spectating: vanilla still plays get-up clips on the local body.
-            // Force death clips so host never "revives" our proxy mid-spectate.
-            if (DeathStateTracker.LocalNightDeath)
+            // Dead local body (night OR day spectate): vanilla still plays get-up clips.
+            // Force Death1 so peers never revive our proxy mid-spectate (day death used to
+            // send Idle → premature proxy.alive and AI re-aggro on a corpse).
+            if (DeathStateTracker.LocalNightDeath || (local != null && !local.alive))
             {
                 torsoClip = "Death1";
                 legsClip = "Death1";
@@ -243,7 +248,7 @@ namespace DWMPHorde.Networking
                 VelZ = vel.z,
                 LocomotionState = (byte)PlayerAnimationSnapshot.ReadLocomotion(local),
                 FlipX = false, // The game uses rotation for this pose.
-                Running = local.running && !DeathStateTracker.LocalNightDeath,
+                Running = local.running && !DeathStateTracker.LocalNightDeath && local.alive,
                 LegFacingY = PlayerAnimationSnapshot.ReadLegFacingY(local),
                 ReverseLegs = PlayerAnimationSnapshot.ReadReverseLegs(local),
                 TorsoFacingY = PlayerAnimationSnapshot.ReadTorsoFacingY(local),
@@ -310,7 +315,14 @@ namespace DWMPHorde.Networking
                     bool stayInDreamPad = Sync.DreamSyncManager.IsDreamActive
                         || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared))
                         || Core.EnteringDream;
-                    if (stayInDreamPad)
+                    // Soft-reconnect / mid OutsideLocations load: playerInOutsideLocation briefly
+                    // false while ol.loading — do not fan LocationExit (membership gap / thrash).
+                    // Do NOT key off pending ForceAnnounce alone: a real return-to-world must
+                    // still emit Exit (OnLocalReturnedToWorld clears the sticky queue).
+                    var olInst = Singleton<OutsideLocations>.Instance;
+                    bool stayForLoading = Core.loadingGame
+                        || (olInst != null && olInst.loading);
+                    if (stayInDreamPad || stayForLoading)
                     {
                         inOutsideLoc = true;
                         if (string.IsNullOrEmpty(locName) && !string.IsNullOrEmpty(_previousLocationName))

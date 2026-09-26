@@ -16,6 +16,11 @@ namespace DWMPHorde.Networking
         /// Client→host: unused (0).
         /// </summary>
         public short HostPlayerId;
+        /// <summary>
+        /// Client→host: install-scoped LAN StableClientKey (empty on host→client / old peers).
+        /// Optional trailing; AvailableBytes-safe.
+        /// </summary>
+        public string StableClientKey;
 
         public void Serialize(NetWriter writer)
         {
@@ -23,6 +28,7 @@ namespace DWMPHorde.Networking
             writer.Put(PlayerId);
             writer.Put(AlreadyInWorld);
             writer.Put(HostPlayerId);
+            writer.Put(StableClientKey ?? string.Empty);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -38,6 +44,9 @@ namespace DWMPHorde.Networking
                 msg.AlreadyInWorld = reader.GetBool();
             if (reader.AvailableBytes >= 2)
                 msg.HostPlayerId = reader.GetShort();
+            // Length-prefixed string needs at least 2 bytes for the ushort length.
+            if (reader.AvailableBytes >= 2)
+                msg.StableClientKey = reader.GetString();
             return msg;
         }
     }

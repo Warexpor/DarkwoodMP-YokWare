@@ -1,4 +1,6 @@
+using System.Collections;
 using DWMPHorde;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -15,7 +17,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "onDeath")]
     public static class HostDeathSendPatch
     {
-        private static bool Prefix(Player __instance)
+        private static bool Prefix(Player __instance, ref IEnumerator __result)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return true;
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
@@ -24,13 +26,18 @@ namespace DWMPHorde.Patches
                 return true;
 
             // Shared dream death: skip bag/respawn — but never steal epilogue crawl/cam path.
+            // onDeath is IEnumerator; StartCoroutine(null) if Prefix returns false without __result.
             if (FinalDreamsceneManager.IsActive
                 && (__instance == null || !__instance.inEpilogue))
             {
                 if (FinalDreamsceneManager.IsLocalDead)
+                {
+                    __result = HarmonyCoroutineUtil.Empty();
                     return false;
+                }
                 ModRuntime.LegacyInfo("[Death] Host died during dream session — handling dream death");
                 FinalDreamsceneManager.OnLocalDeathInDream();
+                __result = HarmonyCoroutineUtil.Empty();
                 return false;
             }
 

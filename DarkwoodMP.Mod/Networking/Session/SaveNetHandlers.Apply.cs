@@ -121,18 +121,36 @@ namespace DWMPHorde.Networking
                 return;
             try
             {
-                var data = ClientStateBackup.LoadBackupFileForPlayer(playerId);
+                ulong steamId = 0;
+                _net.TryGetSteamIdForPlayer(playerId, out steamId);
+                string stableKey = null;
+                _net.TryGetStableClientKeyForPlayer(playerId, out stableKey);
+                // Cold LAN rejoin reshuffles PlayerId — never push a pN file unless
+                // soft-reconnect kept the same id. Steam / StableClientKey are safe.
+                bool allowPlayerId = _net.IsCoopReconnectPeer(playerId);
+                if (steamId == 0 && string.IsNullOrEmpty(stableKey) && !allowPlayerId)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip push → p" + playerId
+                        + " — no SteamId/StableClientKey (cold LAN; peer uses local self)");
+                    return;
+                }
+                var data = ClientStateBackup.LoadBackupFileForPlayer(
+                    playerId, steamId, stableKey, allowPlayerIdFallback: allowPlayerId);
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] no stored backup for p" + playerId + " — peer may use local self");
+                        "[ClientBackup] no stored backup for p" + playerId
+                        + (steamId != 0 ? " s" + steamId : "")
+                        + (stableKey != null ? " k" + stableKey.Substring(0, System.Math.Min(8, stableKey.Length)) : "")
+                        + " — peer may use local self");
                     return;
                 }
                 if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
                 {
                     ModRuntime.LegacyInfo(
                         "[ClientBackup] skip push → p" + playerId
-                        + " — stale backup on fresh day-1 world");
+                        + " — stale/legacy-poison backup");
                     return;
                 }
                 string json = ClientStateBackup.SerializeToJson(data);
@@ -143,6 +161,8 @@ namespace DWMPHorde.Networking
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
                 ModRuntime.LegacyInfo(
                     "[ClientBackup] pushed stored backup → p" + playerId
+                    + (steamId != 0 ? " s" + steamId : "")
+                    + (stableKey != null ? " k" + stableKey.Substring(0, System.Math.Min(8, stableKey.Length)) : "")
                     + " (inv=" + (data.InventoryItems?.Count ?? 0)
                     + " skills=" + (data.Skills?.Count ?? 0) + ")");
             }
@@ -222,7 +242,9 @@ namespace DWMPHorde.Networking
                         ModRuntime.Log?.LogWarning("[ClientBackup] host push deserialize failed");
                         return;
                     }
-                    _receivedHostClientBackup = true;
+
+                    // Do NOT set _receivedHostClientBackup yet — only after a successful
+                    // apply. Rejected stale/mismatch pushes must leave local fallback free.
 
                     // Local self is source of truth on this box. Host push only fills a gap.
                     ClientStateBackupData hostData = data;
@@ -250,7 +272,7 @@ namespace DWMPHorde.Networking
                     {
                         ModRuntime.LegacyInfo(
                             "[ClientBackup] ignore host push — no usable backup for this campaign"
-                            + " — keeping loaded character");
+                            + " — keeping loaded character / local fallback");
                         WrongSaveWarning.Notify(
                             "character backup does not match this co-op campaign — kept loaded character");
                         return;
@@ -259,9 +281,10 @@ namespace DWMPHorde.Networking
                     if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
                     {
                         ModRuntime.LegacyInfo(
-                            "[ClientBackup] ignore host push — stale backup on fresh day-1 world");
+                            "[ClientBackup] ignore host push — stale/legacy-poison backup"
+                            + " — local fallback still allowed");
                         WrongSaveWarning.Notify(
-                            "stale character backup on a fresh day-1 world — kept loaded character");
+                            "stale character backup refused — kept loaded character");
                         return;
                     }
 
@@ -269,15 +292,21 @@ namespace DWMPHorde.Networking
                     ClientStateBackup.SaveLocalSelfBackupFile(chosenJson);
                     if (Player.Instance != null)
                     {
-                        ClientStateBackup.RestoreFromBackup(data);
-                        ModRuntime.LegacyInfo(
-                            "[ClientBackup] restored backup (inv="
-                            + (data.InventoryItems?.Count ?? 0)
-                            + " skills=" + (data.Skills?.Count ?? 0)
-                            + " src=" + (ReferenceEquals(data, local) ? "local-self" : "host-push") + ")");
+                        if (ClientStateBackup.RestoreFromBackup(data))
+                        {
+                            // Only after restore actually applied — refused stale/mismatch
+                            // must leave local fallback free.
+                            _receivedHostClientBackup = true;
+                            ModRuntime.LegacyInfo(
+                                "[ClientBackup] restored backup (inv="
+                                + (data.InventoryItems?.Count ?? 0)
+                                + " skills=" + (data.Skills?.Count ?? 0)
+                                + " src=" + (ReferenceEquals(data, local) ? "local-self" : "host-push") + ")");
+                        }
                     }
                     else
                     {
+                        // Saved to local self; allow wait routine / later apply path.
                         ModRuntime.Log?.LogWarning(
                             "[ClientBackup] host push arrived before Player — kept as local self for fallback");
                     }
@@ -293,29 +322,35 @@ namespace DWMPHorde.Networking
                 return;
 
             int playerId = _net.CurrentReceivePlayerId;
-            if (playerId <= 0)
+            ulong steamId = _net.CurrentReceiveSteamId64;
+            string stableKey = null;
+            _net.TryGetStableClientKeyForPlayer(playerId, out stableKey);
+            ClientStateBackupData parsed = null;
+            try { parsed = ClientStateBackup.DeserializeFromJson(msg.JsonData); }
+            catch (Exception ex)
             {
-                // Prefer id embedded in JSON if peer map was stale
-                try
-                {
-                    var parsed = ClientStateBackup.DeserializeFromJson(msg.JsonData);
-                    if (parsed != null && parsed.PlayerId > 0)
-                        playerId = parsed.PlayerId;
-                }
-                catch (Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[ClientBackup] could not parse PlayerId from json: " + ex.Message);
-                }
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[ClientBackup] could not parse backup json: " + ex.Message);
             }
 
-            if (playerId <= 0)
+            if (playerId <= 0 && parsed != null && parsed.PlayerId > 0)
+                playerId = parsed.PlayerId;
+            if (steamId == 0 && parsed != null)
+                steamId = ClientStateBackup.TryParseSteamId(parsed.SteamId);
+            if (string.IsNullOrEmpty(stableKey) && parsed != null)
+                stableKey = ClientStateBackup.SanitizeStableClientKey(parsed.StableClientKey);
+            if (playerId > 0 && !string.IsNullOrEmpty(stableKey))
+                _net.NoteStableClientKey(playerId, stableKey);
+
+            // Steam / StableClientKey store do not need PlayerId; bare LAN still does.
+            if (steamId == 0 && string.IsNullOrEmpty(stableKey) && playerId <= 0)
             {
-                ModRuntime.Log?.LogWarning("[ClientBackup] cannot key backup — unknown sender player id");
+                ModRuntime.Log?.LogWarning(
+                    "[ClientBackup] cannot key backup — unknown sender and no SteamId/StableClientKey");
                 return;
             }
 
-            ClientStateBackup.SaveBackupFile(msg.JsonData, playerId);
+            ClientStateBackup.SaveBackupFile(msg.JsonData, playerId, steamId, stableKey);
         }
     }
 }
