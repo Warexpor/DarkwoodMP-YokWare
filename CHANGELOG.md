@@ -12,6 +12,65 @@ tested in the game.
 
 ---
 
+## Batch 48 — NO-SHIP (non-Finalizer hunt; stay on 0.8.76)
+
+Batch 48 dig: Finalizer / Postfix-only sticky theme exhausted (Batch 47 = 0
+residuals). Non-Finalizer hunt only. Prefer NO-SHIP over inventing. Protocol
+**25** unchanged. Product stays **0.8.76**.
+
+- **Dig ranked:**
+  1. **Cecil / Harmony non-void Prefix `return false` without `__result` — 0
+     shipable NRE.** Re-scan vs Assembly-CSharp: void suppressors
+     (`CharacterSounds.play` / `playSingleInstance` / `playGetHitByAxe1`,
+     `Item.getDroppedItem`, `UniqueItemSpawner.spawn`) are fine. Non-void
+     suppressors already parked without NRE proof stay parked:
+     - `GasolineTrailSpawnPatch` / Object overload (`Core.AddPrefab` →
+       `GameObject`): client Prefix skip; vanilla pour uses
+       `Core.addToSaveable(...)` which null-guards; `Explodes.spawnObjects`
+       discards return.
+     - `ObjectPoolSpawnerSpawnObjectPatch` / `TryToSpawnPatch` (`GameObject`):
+       `ObjectPoolSpawnerController` null-checks `spawnObject(...) != null`.
+     - `DialogSuppressGiveItemPatch` (`InvItemClass`): dialog give discards
+       return; `Item.disarm` uses `InvItemClass.isNull` before use.
+     No caller path proved to NRE on default-null `__result`. Do not invent
+     defensive `__result = null` assigns without playtest NRE.
+  2. **Multi-session resume adversarial — skip (no new hole).** Soft reconnect
+     (`ConnectToHost` + `ClearMembershipForSoftReconnect` + Handshake
+     `SendCatchUpTo` / `ForceAnnounce`), ClientBackup key order (Steam →
+     StableClientKey LAN → PlayerId soft), prologue `HostIsPastPrologue` End
+     catch-up + healthy-peer `ApplyEnd` early-out already ship. No fresh
+     file:symbol regression beyond prior ships.
+  3. **Unique item softlocks (wiki + code, not SIGNALIS rings) — skip.** Keys /
+     notes / quest via `KeyReference` Prefix + `DestroyWorldJournalObject` +
+     late-join bulk (Batch 35). TeddyBear `UniqueItemSpawner` host-auth +
+     PlaceItem fan-out. `oxygentank_full` world-pick fan still parked (hotbar
+     PeerItemPresence already covers haveItem EventTriggers). No new party-ring
+     equivalent softlock with file:symbol.
+  4. **Story / tutorial / tank vs AGENTS TODOs — skip.** Tutorial
+     `displayMessage` Postfix-hide (0.8.73); compressor empty→full +
+     `OxygenTankStash` paths present. No regression evidence without fresh
+     playtest logs.
+  5. **N-peer location membership / anim sticky — skip.** Soft-reconnect
+     membership clear + ForceAnnounce sticky + `CoopWorldPresencePolicy`
+     already ship; `PlayerAnimationTriggerPatch` already sends only the
+     changed clip (avoids stale other-animator override). No new evidence.
+  6. **Trap `id=0` / ContainerTakeDenied — skip** (LogOutput still banners
+     **0.8.34** @ 16:02 MSK; plugins on disk already md5
+     `414cf699c00ab2c0ed9960595728a13f` / 0.8.76 — need relaunch).
+  7. Parked list — unchanged; no touch.
+- **Shipped:** none (ZERO → NO-SHIP).
+- **Player situations:** n/a (no code change).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE; trap id=0 until fresh
+  0.8.76 dual-box evidence.
+- **Rev / deploy:** stay **0.8.76** dual-rev md5 `414cf699c00ab2c0ed9960595728a13f`
+  (Steam + SecondDarkwood already match; no rebuild).
+- **Batch 48 residuals:** fresh 0.8.76 dual-box LogOutput (relaunch replaces
+  stale 0.8.34); trap id=0 / ContainerTakeDenied confirm; parked list unchanged.
+  **Finalizer+safe code dig saturated until fresh playtest logs.**
+
 ## Batch 47 — NO-SHIP (Postfix-only re-scan + non-Finalizer dig; stay on 0.8.76)
 
 Batch 47 dig: Finalizer sticky theme exhausted through Batch 46 (Begin/End,
