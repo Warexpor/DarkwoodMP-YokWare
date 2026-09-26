@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.74**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.75**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -11,6 +11,51 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.75 — SilentDisarmDepth + host forbidInputs Finalizers
+
+Batch 45 dig: Batch 44 closed DialogClientWorldDefer / pickup-guard depth Ends, but
+missed `ItemDisarmSilentTrapPatch` Prefix `SilentDisarmDepth++` + Postfix-only `--`,
+and `DialogHostStaleBoardGuardPatch` Postfix-only `Core.forbidInputs` clear.
+Harmony skips Postfix when the original throws → sticky silent-disarm routing /
+host input lock. Protocol **25** unchanged. Product bump **0.8.74 → 0.8.75**.
+
+- **Dig ranked:**
+  1. **`ItemDisarmSilentTrapPatch` sticky SilentDisarmDepth — SHIPPED.**
+     `TrapDisarmHarvestSync.cs` / `TrapDisarmHarvestTracker`: Prefix `++`; End only
+     in Postfix. Throw mid `Item.disarm` → `IsSilentDisarm` forever → boom TrapState
+     skipped (`DoorSyncPatches` / `ClientTrapTriggerPatch`) and every
+     `switchToTriggered` mis-sent as silent harvest.
+  2. **`DialogHostStaleBoardGuardPatch` sticky forbidInputs — SHIPPED.**
+     `DialogHostPresentationSuppressPatches.cs`: world-only host apply Postfix
+     clears `Core.forbidInputs` / `cantChangeForbidInputs` / `dw.forbidInputs` when
+     `ShouldSuppress`. Throw mid `displayNextBoard` → host unable to walk/look/inv
+     (changePortrait Invoke cancelled by silent-close).
+  3. Remaining Begin/End / Postfix-only restore scan — **0** further residuals
+     (`NightSpawnFlagPatch`, `GameEventFireFlavorSourcePatch`, pause UI, explosions,
+     sounds, getHit, pickup, DialogClientWorldDefer already Finalizer).
+  4. Trap `id=0` / ContainerTakeDenied — **skip** (no fresh 0.8.74 LogOutput; dual-box
+     still banners **0.8.34** @ 16:02 MSK).
+  5. Parked list — unchanged; no touch.
+- **Shipped:**
+  - `ItemDisarmSilentTrapPatch`: depth `--` moved to **Finalizer**; Postfix keeps
+    TrySendSilentTrapState.
+  - `DialogHostStaleBoardGuardPatch`: forbidInputs clear moved to **Finalizer**;
+    Postfix keeps HideSpeakerVisuals.
+- **Player situations:**
+  - Disarm/harvest a beartrap and vanilla `Item.disarm` throws: later stomps still
+    boom-sync; silent harvest wire no longer stuck on.
+  - Host applies a peer NPC dialogue board that throws mid-`displayNextBoard`: host
+    can walk/look/open inv again (forbidInputs not latched).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE; trap id=0 until fresh
+  0.8.75 dual-box evidence.
+- **Rev / deploy:** dual-rev md5 match `2ef178af83dd9054ad16e5896e16d77a` → Steam +
+  SecondDarkwood plugins. ProductInvariant assert Finalizer symbols.
+- **Batch 45 residuals:** fresh 0.8.75 dual-box LogOutput (replace stale 0.8.34);
+  trap id=0 / ContainerTakeDenied confirm; parked list unchanged.
 
 ## 0.8.74 — DialogClientWorldDefer + pickup-guard Finalizers
 

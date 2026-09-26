@@ -183,6 +183,20 @@ public class ProductInvariantTests
         Assert.Contains("private static void Finalizer(Item __instance, PrefixState __state)", pickup);
         Assert.Contains("TrapPickupGuard.End(__instance)", pickup);
         Assert.Contains("WorldPickupWireGuard.End()", pickup);
+
+        // Batch 45 / 0.8.75: SilentDisarmDepth + host forbidInputs — End/clear only in
+        // Postfix left sticky IsSilentDisarm / unable-to-walk on throw.
+        var disarm = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "Patches", "TrapDisarmHarvestSync.cs"));
+        Assert.Contains("ItemDisarmSilentTrapPatch", disarm);
+        Assert.Contains("[HarmonyFinalizer]", disarm);
+        Assert.Contains("private static void Finalizer()", disarm);
+        Assert.Contains("SilentDisarmDepth--", disarm);
+
+        var hostBoard = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dialogue", "Patches", "DialogHostPresentationSuppressPatches.cs"));
+        Assert.Contains("DialogHostStaleBoardGuardPatch", hostBoard);
+        Assert.Contains("[HarmonyFinalizer]", hostBoard);
+        Assert.Contains("private static void Finalizer(DialogueWindow __instance)", hostBoard);
+        Assert.Contains("Core.forbidInputs = false", hostBoard);
     }
 
     [Fact]

@@ -53,8 +53,22 @@ namespace DWMPHorde.Patches
         /// delayed Invoke to clear it. Silent-close / inactive DialogueWindow cancels that
         /// Invoke → host stuck unable to walk/look/inv. Clear immediately after each board.
         /// Also hide dialogue text / force-finish typewriter so host never sees peer lines.
+        /// forbidInputs clear is in Finalizer (Harmony skips Postfix on throw).
         /// </summary>
         private static void Postfix(DialogueWindow __instance)
+        {
+            if (!DialogHostPresentation.ShouldSuppress) return;
+            try
+            {
+                DialogHostPresentation.HideSpeakerVisuals(__instance);
+            }
+            catch { /* ignore */ }
+        }
+
+        // Finalizer (not Postfix): displayNextBoard throw after changePortrait armed
+        // forbidInputs leaves host unable to walk/look/inv for the rest of the session.
+        [HarmonyFinalizer]
+        private static void Finalizer(DialogueWindow __instance)
         {
             if (!DialogHostPresentation.ShouldSuppress) return;
             try
@@ -63,7 +77,6 @@ namespace DWMPHorde.Patches
                 Core.cantChangeForbidInputs = false;
                 if (__instance != null)
                     __instance.forbidInputs = false;
-                DialogHostPresentation.HideSpeakerVisuals(__instance);
             }
             catch { /* ignore */ }
         }

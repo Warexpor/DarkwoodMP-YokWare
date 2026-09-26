@@ -35,8 +35,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Item __instance)
         {
-            if (TrapDisarmHarvestTracker.SilentDisarmDepth > 0)
-                TrapDisarmHarvestTracker.SilentDisarmDepth--;
+            // SilentDisarmDepth cleared in Finalizer (covers throw before/during Postfix).
 
             // Destroy path: ObjectDestroyTrapPatch already SendWorldObjectRemoved.
             // Extra TrySendRemoved was a 2nd/3rd wire packet (debounce now drops them).
@@ -44,6 +43,16 @@ namespace DWMPHorde.Patches
                 return;
 
             TrySendSilentTrapState(__instance, "disarm-postfix");
+        }
+
+        // Finalizer (not Postfix): Item.disarm throw after Prefix ++ leaves
+        // SilentDisarmDepth sticky → IsSilentDisarm forever mis-routes
+        // switchToTriggered / Object.Destroy trap wire as silent harvest.
+        [HarmonyFinalizer]
+        private static void Finalizer()
+        {
+            if (TrapDisarmHarvestTracker.SilentDisarmDepth > 0)
+                TrapDisarmHarvestTracker.SilentDisarmDepth--;
         }
 
         internal static void TrySendRemoved(Item item, string nameHint, Vector3 posHint, string reason)
