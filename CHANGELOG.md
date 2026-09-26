@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.75**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.76**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -11,6 +11,60 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.76 — loot-share disarm arm + trap-place pending Finalizers
+
+Batch 46 dig: Postfix-only Begin/End / IsInside*/Suppress* re-scan reported **0**
+residuals (theme exhausted through Batch 45), but string/dict **arm flags** were
+outside that pattern. `ItemDoublePickupPatch` Prefix arms `_disarmType` +
+`_pendingShares`; clear/apply only in Postfix. `TrapPlacementPatch` Finalizer
+cleared `InsideTrapPlacement` but left `_pendingType` armed across a throw.
+Harmony skips Postfix on throw → sticky loot-share double / stale pending share.
+Protocol **25** unchanged. Product bump **0.8.75 → 0.8.76**.
+
+- **Dig ranked:**
+  1. **`ItemDoublePickupPatch` sticky `_disarmType` — SHIPPED.**
+     `ItemDoublePickupPatch.cs`: Prefix `OnDisarm` sets `_disarmType`; Postfix-only
+     clear. Throw mid `Item.disarm` → `LootPolicy.ShouldDoubleDisarm` matches the
+     next `Inventory.addItemTypeToPlayer` of that type → false party multiply
+     (hideout fuels / scaled loot). Move clear to **Finalizer** (Postfix keeps
+     clear for non-throw paths).
+  2. **`ItemDoublePickupPatch` sticky `_pendingShares` on throw — SHIPPED.**
+     Prefix arms personal-extra share on transferAll/grab/transferToPlayer;
+     Postfix applies. Throw mid-transfer left dict entry. **Finalizer** removes
+     on `__exception != null` only (failed `__result` still keeps pending for
+     Prefix overwrite — intentional).
+  3. **`TrapPlacementPatch` sticky `_pendingType` — SHIPPED.**
+     `DoorSyncPatches.cs`: Finalizer already cleared `InsideTrapPlacement`; also
+     null `_pendingType` after throw (Prefix nulls next call; hygiene + matches
+     arm-table Finalizer theme).
+  4. Remaining Begin/End / Postfix-only restore re-scan — **0** residuals
+     (SilentDisarmDepth, forbidInputs, DialogClientWorldDefer, pickup guards,
+     getHit, explosions, sounds, projectile, checkStuff, UI pause, displayMessage
+     already Finalizer).
+  5. Trap `id=0` / ContainerTakeDenied — **skip** (no fresh 0.8.75 LogOutput;
+     dual-box still banners **0.8.34** @ 16:02 MSK).
+  6. Parked list — unchanged; no touch.
+- **Shipped:**
+  - `ItemDoublePickupPatch`: `OnDisarmFinalizer` clears `_disarmType`; transfer
+    Finalizers drop `_pendingShares` on exception.
+  - `TrapPlacementPatch.Finalizer`: also `_pendingType = null`.
+- **Player situations:**
+  - Disarm a scaled-loot world item and vanilla `Item.disarm` throws: later
+    gasoline/plank/etc pickups of that type are not falsely party-multiplied.
+  - Grab/transfer a shared loot stack and the inv method throws: no orphan
+    personal-extra grant on a later touch of that slot.
+  - Place a trap/item and `progressBarCompleted` throws: no stale pending type
+    left in the placement arm table.
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE; trap id=0 until fresh
+  0.8.76 dual-box evidence.
+- **Rev / deploy:** dual-rev md5 match `414cf699c00ab2c0ed9960595728a13f` → Steam + SecondDarkwood
+  plugins. ProductInvariant assert Finalizer symbols.
+- **Batch 46 residuals:** fresh 0.8.76 dual-box LogOutput (replace stale 0.8.34);
+  trap id=0 / ContainerTakeDenied confirm; parked list unchanged.
 
 ## 0.8.75 — SilentDisarmDepth + host forbidInputs Finalizers
 

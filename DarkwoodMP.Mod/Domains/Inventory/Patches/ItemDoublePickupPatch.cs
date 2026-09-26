@@ -1,3 +1,4 @@
+using System;
 using DWMPHorde.Config;
 using System.Collections.Generic;
 using DWMPHorde.Players;
@@ -138,6 +139,17 @@ namespace DWMPHorde.Patches
             // armed type when it doubled. If it is still set here, disarm took a path
             // that never doubled (for example, an item went into an open inventory); drop the
             // stale type so the next unrelated pickup of the same type is not falsely doubled.
+            // Clear also lives in Finalizer (Harmony skips Postfix on throw).
+            _disarmType = null;
+        }
+
+        // Finalizer (not Postfix alone): Item.disarm throw after Prefix armed
+        // _disarmType leaves loot-share double sticky → next addItemTypeToPlayer of
+        // that type falsely party-multiplies (LootPolicy.ShouldDoubleDisarm).
+        [HarmonyPatch(typeof(Item), "disarm")]
+        [HarmonyFinalizer]
+        private static void OnDisarmFinalizer()
+        {
             _disarmType = null;
         }
 
@@ -251,6 +263,16 @@ namespace DWMPHorde.Patches
             ApplyPendingShareForSlot(__instance, "OnTransferAllToPlayerPostfix");
         }
 
+        [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
+        [HarmonyFinalizer]
+        private static void OnTransferAllToPlayerFinalizer(InvSlot __instance, Exception __exception)
+        {
+            // Throw mid-transfer: drop armed share (do not grant). Failed __result
+            // intentionally keeps pending for the next Prefix overwrite — not here.
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
+        }
+
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
         [HarmonyPrefix]
         private static void OnGrabItemPrefix(InvSlot __instance)
@@ -265,6 +287,14 @@ namespace DWMPHorde.Patches
         {
             // Cursor holds the real stack; add personal extras into player inv.
             ApplyPendingShareForSlot(__instance, "OnGrabItemPostfix");
+        }
+
+        [HarmonyPatch(typeof(InvSlot), "grabItem")]
+        [HarmonyFinalizer]
+        private static void OnGrabItemFinalizer(InvSlot __instance, Exception __exception)
+        {
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
         }
 
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
@@ -300,6 +330,14 @@ namespace DWMPHorde.Patches
         {
             // Capture the type before clearing pending; the slot may be empty after the last unit.
             ApplyPendingShareForSlot(__instance, "OnTransferToPlayerPostfix");
+        }
+
+        [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
+        [HarmonyFinalizer]
+        private static void OnTransferToPlayerFinalizer(InvSlot __instance, Exception __exception)
+        {
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
         }
 
         [HarmonyPatch(typeof(InvSlot), "placeItem")]

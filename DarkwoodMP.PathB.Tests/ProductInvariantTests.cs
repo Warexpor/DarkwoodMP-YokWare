@@ -197,6 +197,22 @@ public class ProductInvariantTests
         Assert.Contains("[HarmonyFinalizer]", hostBoard);
         Assert.Contains("private static void Finalizer(DialogueWindow __instance)", hostBoard);
         Assert.Contains("Core.forbidInputs = false", hostBoard);
+
+        // Batch 46 / 0.8.76: loot-share disarm arm + trap-place pending — clear only in
+        // Postfix left sticky _disarmType / _pendingShares / _pendingType on throw.
+        var lootShare = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "ItemDoublePickupPatch.cs"));
+        Assert.Contains("OnDisarmFinalizer", lootShare);
+        Assert.Contains("[HarmonyFinalizer]", lootShare);
+        Assert.Contains("_disarmType = null", lootShare);
+        Assert.Contains("OnTransferAllToPlayerFinalizer", lootShare);
+        Assert.Contains("OnGrabItemFinalizer", lootShare);
+        Assert.Contains("OnTransferToPlayerFinalizer", lootShare);
+        Assert.Contains("_pendingShares.Remove(__instance)", lootShare);
+
+        var trapPlace = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "DoorSyncPatches.cs"));
+        Assert.Contains("TrapPlacementPatch", trapPlace);
+        Assert.Contains("_pendingType = null", trapPlace);
+        Assert.Contains("InsideTrapPlacement = false", trapPlace);
     }
 
     [Fact]

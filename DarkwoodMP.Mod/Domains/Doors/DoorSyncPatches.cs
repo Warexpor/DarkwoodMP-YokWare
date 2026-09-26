@@ -161,9 +161,12 @@ namespace DWMPHorde.Sync
         }
 
         // progressBarCompleted can throw; stuck true suppresses WorldObject harvest/destroy forever.
+        // Also clear _pendingType: Prefix nulls it next call, but a throw after arm left a
+        // stale type until the next Prefix — Finalizer keeps the arm table tidy.
         private static void Finalizer()
         {
             InsideTrapPlacement = false;
+            _pendingType = null;
         }
     }
 
