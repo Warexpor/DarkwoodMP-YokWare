@@ -12,6 +12,49 @@ tested in the game.
 
 ---
 
+## Batch 47 — NO-SHIP (Postfix-only re-scan + non-Finalizer dig; stay on 0.8.76)
+
+Batch 47 dig: Finalizer sticky theme exhausted through Batch 46 (Begin/End,
+IsInside*/Suppress*, arm string/dict). One more Postfix-only stash/flag pass,
+then non-Finalizer holes with real evidence. Prefer NO-SHIP over inventing.
+Protocol **25** unchanged. Product stays **0.8.76**.
+
+- **Dig ranked:**
+  1. **Postfix-only stash/flag re-scan — 0 residuals.** Per-class Prefix-arm /
+     Postfix-clear without Finalizer: no sticky `IsInside*` / `Suppress*` /
+     depth / Begin-End / routing arm left. `ItemDoublePickup` / `TrapPlacement`
+     / SilentDisarm / forbidInputs / DialogClientWorldDefer / pickup guards /
+     getHit Door+Window / explosions / sounds / projectile / checkStuff / UI
+     pause / displayMessage already Finalizer.
+  2. **Dict/capture hygiene without sticky routing — skip (invent).**
+     `ItemGetHitPatch._prePosByItem`, `DoorBarricadePatch._wasDestroyed`,
+     `ThrowableSyncPatch._captures`, `TradeSyncAcceptPatch._buyTraySnapshot`,
+     `PlayerDisarmProgressTrapSyncPatch._trap/_name` — Prefix stash +
+     Postfix Remove/Clear; throw leaves orphan until next Prefix overwrite or
+     `ClearSessionState`/`Reset`. No `IsInside*` / depth / mis-route flag.
+     Door/Window getHit Finalizers shipped for `BeginGetHit` sticky suppress;
+     Item getHit never arms `BeginGetHit`. Prefer NO-SHIP over hygiene-only.
+  3. **`VaultStartPatch` / `VaultEndPatch` cross-method colliders — skip.**
+     Prefix on `jumpThroughWindow` disables colliders + `SendVaultState(true)`;
+     restore on `endJumpThroughWindow` Postfix. Vanilla `jumpThroughWindow` is
+     a flag-set stub (no throw surface after Prefix). Not same-method
+     Postfix-only. No playtest evidence.
+  4. **Trap `id=0` / ContainerTakeDenied — skip** (no fresh 0.8.76 LogOutput;
+     dual-box banners still **0.8.34** @ 16:02 MSK; plugins on disk already
+     md5 `414cf699c00ab2c0ed9960595728a13f` / 0.8.76 — need relaunch for logs).
+  5. Parked list — unchanged; no touch.
+- **Shipped:** none (ZERO → NO-SHIP).
+- **Player situations:** n/a (no code change).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE; trap id=0 until fresh
+  0.8.76 dual-box evidence.
+- **Rev / deploy:** stay **0.8.76** dual-rev md5 `414cf699c00ab2c0ed9960595728a13f`
+  (Steam + SecondDarkwood already match; no rebuild).
+- **Batch 47 residuals:** fresh 0.8.76 dual-box LogOutput (relaunch replaces
+  stale 0.8.34); trap id=0 / ContainerTakeDenied confirm; parked list unchanged.
+
 ## 0.8.76 — loot-share disarm arm + trap-place pending Finalizers
 
 Batch 46 dig: Postfix-only Begin/End / IsInside*/Suppress* re-scan reported **0**
