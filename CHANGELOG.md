@@ -12,6 +12,47 @@ tested in the game.
 
 ---
 
+## Batch 42 — NO-SHIP (trap id=0 + junk ContainerTakeDenied dig; stay on 0.8.73)
+
+Warexpor priority residual from Batch 41: client LogOutput spam
+`[Trap] client: player 1 trapped id=0` plus `ContainerTakeDenied` / junk refund
+after beartrap rescue. Protocol **25** unchanged. Product stays **0.8.73**.
+Dual-deploy untouched (md5 `a7abd68ab8a68db8b03ccb36c93087d5`).
+
+- **Dig ranked:**
+  1. **Trap `id=0` trapped spam (P0 residual) — NO safe CAN-fix.**
+     Dual-box LogOutput (mtime **26 Sep 16:02 MSK**, load banner **0.8.34**)
+     shows host TrapSync `beartrap id=1` at `(-11617.70,-10.40,12268.80)` while
+     host PlayerState reports `InBearTrap` + `TrapNetId=0` at
+     `(-11608.13,16.00,12233.10)` (~37m XZ). `TrapNetworkId.ResolveOccupyingTrapId`
+     (`LanNetworkManager.Tick` → `PlayerStateMessage.TrapNetId`) correctly returns
+     0 outside the 2.5m XZ occupancy window; stashing NetId on any Trigger fire
+     while `inBearTrap` would mis-attribute occupancy and block co-op rescue.
+     `GetComponentInParent<Trigger>` hardening vs `WorldQueryHelper` is speculative
+     for this 37m case — not shipped (beartrap preserve). Needs fresh **0.8.73**
+     dual-box repro with VerboseLogging + trap timeline.
+  2. **Junk `ContainerTakeDenied` after beartrap rescue — already fixed; skip.**
+     Same stale log: `[SendPickup] called for Scrap metal` → WOR `junk` → host
+     H6 deny take junk → client refund. Root cause was pre-**0.8.36** SendPickup
+     using slot type `junk`. Current symbols already correct:
+     `DroppedItemSyncHelpers.ResolveWorldPickupClaim` (trap GO name / scrap rewrite),
+     `TrapPickupGuard` + `ContainerSyncHelpers.IsContainer` (no RemoveItem on trap
+     inv), `WorldPhysicsSyncService.ShouldDestroyWorldPickup` (junk needle must not
+     eat trap GO). Live DLL is **0.8.73**; no re-ship.
+  3. Harmony Prefix sticky without Finalizer — scan **0** residual pairs
+     (theme exhausted 0.8.70–0.8.72).
+  4. Fresh other P0/P1 outside parked — none with file:symbol beyond above.
+- **Skipped / parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream
+  migrate; InvItem trailers; gasoline `__result` without NRE; trap id=0 until
+  fresh 0.8.73 dual-box evidence.
+- **Shipped:** none (ZERO safe CAN-fixes).
+- **Rev / deploy:** none. No product bump, no redeploy. Live remains **0.8.73**.
+- **Batch 43 residuals:** fresh 0.8.73 dual-box LogOutput (replace stale 0.8.34
+  banner at 16:02); repro host beartrap spring + peer rescue — confirm whether
+  `trapped id=0` / ContainerTakeDenied still appear; parked list unchanged.
+
+---
+
 ## 0.8.73 — displayMessage Postfix-hide (tutorial MoveNext NRE)
 
 Batch 41 dig: fresh dual-box LogOutput (16:02 MSK) showed

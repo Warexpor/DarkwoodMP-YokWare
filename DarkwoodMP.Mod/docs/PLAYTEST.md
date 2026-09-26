@@ -1,3 +1,9 @@
+## Batch 42 — NO-SHIP (stay on 0.8.73)
+
+- Trap `id=0` spam + junk ContainerTakeDenied: dig only; stale 0.8.34 logs;
+  junk path already fixed in 0.8.36; id=0 needs fresh 0.8.73 dual-box repro.
+- No code change / no redeploy. Live md5 `a7abd68ab8a68db8b03ccb36c93087d5`.
+
 ## 0.8.73 Batch 41 (code-only until dual-box)
 
 - Hideout tutorial / far-GE `displayMessage`: Prefix-null no longer NREs
