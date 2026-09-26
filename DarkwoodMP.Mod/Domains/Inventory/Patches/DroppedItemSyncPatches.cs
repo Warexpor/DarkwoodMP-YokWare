@@ -187,9 +187,8 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void Postfix(Item __instance, PrefixState __state)
         {
-            TrapPickupGuard.End(__instance);
-            if (__state.BeganWireGuard)
-                WorldPickupWireGuard.End();
+            // TrapPickupGuard / WorldPickupWireGuard cleared in Finalizer
+            // (covers throw before/during Postfix).
 
             // Vanilla only destroys when transferItemAllToPlayer succeeds.
             if (__instance != null)
@@ -209,6 +208,18 @@ namespace DWMPHorde.Patches
             DroppedItemSyncHelpers.FinishWorldPickupClaim(
                 __state.Pos, __state.SendName, __state.ItemType, __state.Amount,
                 __state.Durability, __state.Ammo, __state.PreCount);
+        }
+
+        // Finalizer (not Postfix): getDroppedItem throw after Prefix Begin leaves
+        // TrapPickupGuard / WorldPickupWireGuard sticky → RemoveItem suppress for that
+        // trap inv and WorldObjectRemoved mute forever.
+        [HarmonyFinalizer]
+        private static void Finalizer(Item __instance, PrefixState __state)
+        {
+            if (__state.BeganTrapGuard)
+                TrapPickupGuard.End(__instance);
+            if (__state.BeganWireGuard)
+                WorldPickupWireGuard.End();
         }
     }
 

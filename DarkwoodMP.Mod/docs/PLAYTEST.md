@@ -1,3 +1,26 @@
+## 0.8.74 Batch 44 (code-only until dual-box)
+
+- Client NPC `displayNextBoard` throw — DialogClientWorldDefer.Active no longer
+  sticky (flags / world events / location / map pins apply again).
+- World-drop / sprung-trap `getDroppedItem` throw — TrapPickupGuard /
+  WorldPickupWireGuard no longer sticky (container RemoveItem + WorldObjectRemoved OK).
+- Regression: 0.8.73 displayMessage Postfix-hide OK; 0.8.72 door/window getHit
+  Finalizer OK.
+
+# Dual-box playtest (0.8.74)
+
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.74** and protocol **25** on both boxes.
+3. Client talks through a multi-board NPC dialogue — map pins / story flags still
+   appear after any edge throw mid-board; no permanent “dialogue does nothing
+   to the world” on client.
+4. Optional: pick up world scrap / sprung beartrap — peer still sees remove; no
+   stuck ContainerTakeDenied storm from a sticky TrapPickupGuard.
+
+## Host-ready join (0.8.74)
+
+Unchanged from 0.8.73 — wait for HostWorldReady (139) before Enter World.
+
 ## Batch 42 — NO-SHIP (stay on 0.8.73)
 
 - Trap `id=0` spam + junk ContainerTakeDenied: dig only; stale 0.8.34 logs;

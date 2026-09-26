@@ -168,6 +168,21 @@ public class ProductInvariantTests
         Assert.Contains("ExaminableHostHudSuppressPatch", flavor);
         Assert.Contains("PersonalFlavorHud.HideCharacterMessage(__result)", flavor);
         Assert.Contains("private static void Postfix(CharacterMessage __result)", flavor);
+
+        // Batch 44 / 0.8.74: DialogClientWorldDefer + pickup guards — End only in
+        // Postfix left sticky Active / WireGuard / TrapPickupGuard on throw.
+        var defer = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dialogue", "Patches", "DialogClientWorldDeferPatches.cs"));
+        Assert.Contains("DialogClientWorldDeferBoardPatch", defer);
+        Assert.Contains("[HarmonyFinalizer]", defer);
+        Assert.Contains("DialogClientWorldDefer.End()", defer);
+        Assert.Contains("private static void Finalizer(bool __state)", defer);
+
+        var pickup = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "DroppedItemSyncPatches.cs"));
+        Assert.Contains("PlayerPickupDroppedItemPatch", pickup);
+        Assert.Contains("[HarmonyFinalizer]", pickup);
+        Assert.Contains("private static void Finalizer(Item __instance, PrefixState __state)", pickup);
+        Assert.Contains("TrapPickupGuard.End(__instance)", pickup);
+        Assert.Contains("WorldPickupWireGuard.End()", pickup);
     }
 
     [Fact]

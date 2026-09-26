@@ -37,25 +37,29 @@ namespace DWMPHorde.Patches
         {
             if (__state)
             {
-                try
+                // End moved to Finalizer (covers throw before/during Postfix).
+                if (__instance != null)
+                    __instance.dreamToStart = null;
+                var dreams = Dreams.Instance;
+                if (dreams != null && dreams.wantToDream && !dreams.dreaming && !dreams.dreamPrepared)
                 {
-                    if (__instance != null)
-                        __instance.dreamToStart = null;
-                    var dreams = Dreams.Instance;
-                    if (dreams != null && dreams.wantToDream && !dreams.dreaming && !dreams.dreamPrepared)
-                    {
-                        if (!DreamSession.IsActive)
-                            dreams.wantToDream = false;
-                    }
-                }
-                finally
-                {
-                    DialogClientWorldDefer.End();
+                    if (!DreamSession.IsActive)
+                        dreams.wantToDream = false;
                 }
             }
 
             TrySendBoardCommit(__instance);
             TrySuppressHostCook(__instance);
+        }
+
+        // Finalizer (not Postfix): displayNextBoard throw after Prefix Begin leaves
+        // DialogClientWorldDefer.Active sticky → Flags/world events/prepareLocation/
+        // returnToWorld/Map.showElement suppressed forever on the speaking client.
+        [HarmonyFinalizer]
+        private static void Finalizer(bool __state)
+        {
+            if (__state)
+                DialogClientWorldDefer.End();
         }
 
         private static void TrySendBoardCommit(DialogueWindow dw)

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.73**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.74**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -11,6 +11,55 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.74 — DialogClientWorldDefer + pickup-guard Finalizers
+
+Batch 44 dig: Batch 42 `IsInside*`/`Suppress*` Finalizer scan reported 0 residuals,
+but missed Begin/End **depth** guards. `DialogClientWorldDeferBoardPatch` Prefix
+`Begin` + Postfix-only `End`, and `PlayerPickupDroppedItemPatch` Prefix
+`TrapPickupGuard`/`WorldPickupWireGuard` Begin + Postfix-only End — Harmony skips
+Postfix when the original throws, leaving sticky defer/guards. Protocol **25**
+unchanged. Product bump **0.8.73 → 0.8.74**.
+
+- **Dig ranked:**
+  1. **`DialogClientWorldDeferBoardPatch` sticky Active — SHIPPED.**
+     `DialogClientWorldDeferPatches.cs` / `DialogClientWorldDefer`: client
+     `displayNextBoard` Prefix Begin; End only in Postfix finally. Throw →
+     `Active` forever → `Flags.setFlag` / `Events.fireWorldEvent` /
+     `OutsideLocations.prepareLocation` / `returnToWorld` / `Map.showElement`
+     suppressed on the speaking client (NPC dialogue softlock / missed map pins).
+  2. **`PlayerPickupDroppedItemPatch` sticky guards — SHIPPED.**
+     `DroppedItemSyncPatches.cs`: Prefix `TrapPickupGuard.Begin` /
+     `WorldPickupWireGuard.Begin`; End only in Postfix. Throw mid
+     `getDroppedItem` → RemoveItem suppress for that trap inv and
+     WorldObjectRemoved mute forever (pickup/container race residue).
+  3. Trap `id=0` / junk ContainerTakeDenied — **skip** (Batch 42 closed; no fresh
+     0.8.73 LogOutput; dual-box still banners **0.8.34** @ 16:02 MSK).
+  4. HostMigration promote / soft-reconnect / generator fuel / prologue /
+     map discoveries / dream party / audio forward / siege beyond getHit —
+     audited; no new file:symbol CAN-fix beyond (1)(2). Sibling forks Yokyy /
+     DarkwoodMod older than already-ported; RO skip.
+  5. Parked list — unchanged; no touch.
+- **Shipped:**
+  - `DialogClientWorldDeferBoardPatch`: End moved to **Finalizer**; Postfix keeps
+    dreamToStart scrub + board commit.
+  - `PlayerPickupDroppedItemPatch`: TrapPickupGuard / WorldPickupWireGuard End
+    moved to **Finalizer**; Postfix keeps deferred claim finish.
+- **Player situations:**
+  - Client talks to an NPC and a board/outcome throws mid-`displayNextBoard`:
+    next dialogue choices still apply flags/world events/map pins (no permanent
+    client world-defer lock).
+  - Pick up a world drop / sprung beartrap loot and vanilla transfer throws:
+    later container takes and world-object removes sync again (guards not stuck).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE; trap id=0 until fresh
+  0.8.74 dual-box evidence.
+- **Rev / deploy:** dual-rev md5 match `64cc6942cd76ca2555bea68a2358310b` → Steam +
+  SecondDarkwood plugins. ProductInvariant assert Finalizer symbols.
+- **Batch 44 residuals:** fresh 0.8.74 dual-box LogOutput (replace stale 0.8.34);
+  trap id=0 / ContainerTakeDenied confirm; parked list unchanged.
 
 ## Batch 42 — NO-SHIP (trap id=0 + junk ContainerTakeDenied dig; stay on 0.8.73)
 
