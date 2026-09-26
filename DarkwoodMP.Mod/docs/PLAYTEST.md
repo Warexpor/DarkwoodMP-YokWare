@@ -1,3 +1,23 @@
+## 0.8.73 Batch 41 (code-only until dual-box)
+
+- Hideout tutorial / far-GE `displayMessage`: Prefix-null no longer NREs
+  `GameEvent.fire` MoveNext (Postfix-hide like HelpMessage).
+- Regression: 0.8.72 door/window getHit Finalizer OK; HelpMessage Postfix-hide OK.
+
+# Dual-box playtest (0.8.73)
+
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.73** and protocol **25** on both boxes.
+3. Host stands away from Hideout1 tutorial volume; client walks in —
+   host LogOutput has **no** `GameEvent+<fire>d__77` NullReferenceException;
+   client near the volume still sees the tutorial tip.
+4. Optional: host examines object client already examined — host gets no
+   flavor flash (create-then-hide).
+
+## Host-ready join (0.8.73)
+
+Unchanged from 0.8.72 — wait for HostWorldReady (139) before Enter World.
+
 ## 0.8.72 Batch 41 (code-only until dual-box)
 
 - Door/window board smash: getHit throw no longer leaves IsInsideGetHit sticky

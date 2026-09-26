@@ -161,6 +161,13 @@ public class ProductInvariantTests
         Assert.Contains("[HarmonyFinalizer]", barr);
         Assert.Contains("private static void Finalizer(Door __instance)", barr);
         Assert.Contains("private static void Finalizer(Window __instance)", barr);
+
+        // Batch 41 / 0.8.73: Player/Core.displayMessage Postfix-hide (not Prefix-null).
+        var flavor = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "ExaminableSyncPatches.cs"));
+        Assert.Contains("HideCharacterMessage", flavor);
+        Assert.Contains("ExaminableHostHudSuppressPatch", flavor);
+        Assert.Contains("PersonalFlavorHud.HideCharacterMessage(__result)", flavor);
+        Assert.Contains("private static void Postfix(CharacterMessage __result)", flavor);
     }
 
     [Fact]

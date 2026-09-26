@@ -85,6 +85,36 @@ namespace DWMPHorde.Patches
             return DWMPHorde.Audio.LocalAudioService.IsNearListenerXz(worldPos, NearRange);
         }
 
+        /// <summary>
+        /// Instant-hide a <see cref="CharacterMessage"/> for a far peer / suppressed examine.
+        /// Must be used from Postfix (never Prefix-null): vanilla
+        /// <c>GameEvent.fire</c> MoveNext does <c>displayMessage(...).texts = ...</c> with no
+        /// null check — same class as HelpMessage / Hideout1_tutorial_02.
+        /// </summary>
+        internal static void HideCharacterMessage(CharacterMessage msg)
+        {
+            if (msg == null)
+                return;
+            try
+            {
+                if (msg.textMesh != null)
+                    msg.textMesh.color = new UnityEngine.Color(
+                        msg.textMesh.color.r, msg.textMesh.color.g, msg.textMesh.color.b, 0f);
+                msg.longevity = 0.01f;
+                msg.writing = false;
+                msg.isWritingText = false;
+                if (msg.waitAndDie != null)
+                    msg.waitAndDie.longevity = 0.01f;
+                // Destroy shortly — caller may still assign .texts / AssignDeathObjects
+                // on this non-null ref in the same MoveNext step.
+                UnityEngine.Object.Destroy(msg.gameObject, 0.05f);
+            }
+            catch (System.Exception)
+            {
+                // Unity teardown — GameEvent still holds a non-null ref.
+            }
+        }
+
         internal static void Reset()
         {
             SuppressCount = 0;
@@ -266,14 +296,19 @@ namespace DWMPHorde.Patches
     /// Suppress personal flavor HUD while a remote examine re-run or a far GameEvent
     /// delayed action is displaying — location hints must not appear for a peer who
     /// is not there. GE proximity is re-checked via <see cref="GameEventFireFlavorSourcePatch"/>.
+    /// Postfix-hide (not Prefix-null): vanilla assigns <c>.texts</c> on the return without
+    /// a null check (Batch 41 — remaining Hideout1_tutorial_02 MoveNext NRE after HelpMessage
+    /// Postfix-hide alone).
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.displayMessage),
         new[] { typeof(string), typeof(bool), typeof(bool) })]
     public static class ExaminableHostHudSuppressPatch
     {
-        private static bool Prefix()
+        private static void Postfix(CharacterMessage __result)
         {
-            return PersonalFlavorHud.ShouldShow;
+            if (PersonalFlavorHud.ShouldShow)
+                return;
+            PersonalFlavorHud.HideCharacterMessage(__result);
         }
     }
 
@@ -281,9 +316,11 @@ namespace DWMPHorde.Patches
         new[] { typeof(string), typeof(UnityEngine.Vector3), typeof(float) })]
     public static class CoreDisplayMessagePosSuppressPatch
     {
-        private static bool Prefix()
+        private static void Postfix(CharacterMessage __result)
         {
-            return PersonalFlavorHud.ShouldShow;
+            if (PersonalFlavorHud.ShouldShow)
+                return;
+            PersonalFlavorHud.HideCharacterMessage(__result);
         }
     }
 
@@ -291,9 +328,11 @@ namespace DWMPHorde.Patches
         new[] { typeof(string), typeof(UnityEngine.Transform), typeof(float), typeof(bool) })]
     public static class CoreDisplayMessageTransSuppressPatch
     {
-        private static bool Prefix()
+        private static void Postfix(CharacterMessage __result)
         {
-            return PersonalFlavorHud.ShouldShow;
+            if (PersonalFlavorHud.ShouldShow)
+                return;
+            PersonalFlavorHud.HideCharacterMessage(__result);
         }
     }
 

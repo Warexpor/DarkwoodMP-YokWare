@@ -3,12 +3,43 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.72**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.73**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.73 — displayMessage Postfix-hide (tutorial MoveNext NRE)
+
+Batch 41 dig: fresh dual-box LogOutput (16:02 MSK) showed
+`GameEvent+<fire>d__77.MoveNext` NullReferenceException on both host and client
+right after `Hideout1_tutorial_02` proxy enter / GameEventsSync apply.
+`UI.displayHelpMessage` already Postfix-hides (0.8.32), but
+`Player.displayMessage` / `Core.displayMessage` still used Bool-Prefix false when
+`PersonalFlavorHud.ShouldShow` was false — vanilla then does
+`displayMessage(...).texts = texts` / `AssignDeathObjects` with no null check.
+Protocol **25** unchanged. Product bump **0.8.72 → 0.8.73**.
+
+- **Shipped:**
+  - `PersonalFlavorHud.HideCharacterMessage` — alpha-0 + short longevity + deferred
+    Destroy so MoveNext still holds a non-null ref.
+  - `ExaminableHostHudSuppressPatch` + both `CoreDisplayMessage*SuppressPatch`:
+    Prefix-null → **Postfix-hide** (same class as HelpMessage).
+- **Player situations:**
+  - Peer walks into hideout tutorial volume while you are elsewhere (or host
+    proxy-fires GE for a remote body): no Unity NRE spam in `GameEvent.fire`;
+    far peer still gets no personal hint flash; near peer still sees the tip.
+  - Host examine re-run (SuppressCount): still no host flavor text for the
+    client's examine (create-then-hide, not skip-create).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE.
+- **Rev / deploy:** dual-rev md5 match `a7abd68ab8a68db8b03ccb36c93087d5` → Steam +
+  SecondDarkwood plugins. ProductInvariant 77/77 pass.
 
 ---
 
