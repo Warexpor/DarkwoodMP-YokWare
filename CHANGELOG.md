@@ -12,6 +12,59 @@ tested in the game.
 
 ---
 
+## Batch 50 — NO-SHIP (N-peer migrate backup handoff dig; stay on 0.8.77)
+
+Batch 49 residual dig: elect lacks old-host disk `client_backup_k*` / `s*` / `p*`
+after host migrate. Local-self fallback already covers dual-box (and any live peer's
+own restore). Sought a surgical CAN-SHIP so a 3rd peer's **host-stored** backup
+survives migrate. Prefer NO-SHIP over inventing. Protocol **25** unchanged. Product
+stays **0.8.77**.
+
+- **Dig ranked:**
+  1. **Gap confirmed — elect disk empty for remotes.** Host stores per-peer backups in
+     `ClientStateBackup.Paths.SaveBackupFile` (`client_backup_k{key}_{campaign}.json`
+     LAN / `s{SteamId}` / `p{id}`). `PromoteLocalToHost` /
+     `PromoteLocalToSteamHost` (`HostMigration.Handoff.Promote`) reclaim sim +
+     `BroadcastPeerRoster` + time sync only — **no** backup import. Late-join
+     `SendStoredClientBackupTo` (`SaveNetHandlers.Apply` ←
+     `SessionHandlers.LateJoin`) then finds nothing on elect → peers fall through
+     `ClientBackupRestoreWaitRoutine` → `LoadLocalSelfBackupFile`.
+  2. **Live 3rd-peer character already survives via local-self — skip ship.**
+     Each box writes `client_backup_self_*` in `PersistClientBackupSnapshot`
+     (`SaveNetHandlers`). Dual-box and N-peer soft/cold reconnect that still has
+     local self restore without host push. That is not the elect-disk hole.
+  3. **Re-seed elect via existing `SendClientStateBackup` on phase-3 reconnect —
+     skip (partial, not the residual).** Would only cover peers who reconnect in
+     that session; offline peer C's old-host `client_backup_k*` still never moves.
+     Not a true handoff; do not ship a partial as closing Batch 49 residual.
+  4. **True handoff = inventable mega-wire — NO-SHIP.** Options all invent:
+     - Piggyback `ClientStateBackup` host→elect during `TryGracefulHostLeave`:
+       client `HandleClientStateBackup` **applies as self restore**, not
+       `SaveBackupFile` — would overwrite elect inventory with peer C's JSON.
+       Needs new StoreOnly / key trailer semantics (invent).
+     - `HostHandoffMessage` (`SyncMessages`, today `ElectPlayerId`+`SessionPort`
+       only) bulk JSON trailer of N backups — mega payload + race vs elect
+       `TryBeginHostMigration` transport tear.
+     - New msg id above `HostWorldReady` 139 / `_Highest` — protocol surface invent
+       (additive types exist, but this is a new multi-blob host-authority transfer).
+     Crash migrate (`TryBeginHostMigration` from peer drop) has **no** old-host
+     send window at all — disk handoff impossible without prior replication invent.
+  5. Parked list — unchanged; no touch. No Finalizer rehash.
+- **Shipped:** none (ZERO → NO-SHIP).
+- **Player situations:** n/a (no code change). After host leave/crash, surviving
+  peers keep their own character via local-self when present; elect cannot yet
+  push week-later cold-rejoin backups that lived only on the old host's disk.
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy, PeerItemPresence resume fix from 0.8.77.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full world-pick fan;
+  mid-dream migrate; InvItem trailers; gasoline `__result` without NRE; trap id=0
+  until fresh dual-box LogOutput.
+- **Rev / deploy:** stay **0.8.77** dual-rev md5 `2741f635c5dba627e23d3a167a2f8ad7`
+  (Steam + SecondDarkwood already match; no rebuild).
+- **Batch 50 residuals:** N-peer migrate backup handoff remains optional future
+  (needs invent StoreOnly/bulk handoff); fresh 0.8.77 dual-box LogOutput; trap id=0
+  confirm; parked list unchanged.
+
 ## 0.8.77 — PeerItemPresence republish after resume / soft reconnect
 
 Batch 49 dig: multi-session resume adversarial (Warexpor-authorized, no Finalizer
