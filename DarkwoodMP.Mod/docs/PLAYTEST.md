@@ -1,3 +1,23 @@
+## 0.8.72 Batch 41 (code-only until dual-box)
+
+- Door/window board smash: getHit throw no longer leaves IsInsideGetHit sticky
+  (destroyBarricade sync works again on that board).
+- Nesting-aware BeginGetHit depth — outer board suppress survives nested hit.
+- Regression: 0.8.71 explosion/trap/pause Finalizers OK; 0.8.70 HostCheckStuff /
+  EntitySound / ClientProjectile Finalizers OK.
+
+# Dual-box playtest (0.8.72)
+
+1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
+2. Menu shows **0.8.72** and protocol **25** on both boxes.
+3. Enter world; board a door/window; smash boards on night — peer sees destroy;
+   no silent “boards gone on host only” after an edge throw mid-getHit.
+4. Optional: rapid multi-board smash — no stuck suppress on later boards.
+
+## Host-ready join (0.8.72)
+
+Unchanged from 0.8.71 — wait for HostWorldReady (139) before Enter World.
+
 ## 0.8.71 Batch 38 (code-only until dual-box)
 
 - Grenade/explosion onActivate throw — IsInsideSpawnObjects / ActivationDepth no

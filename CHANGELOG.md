@@ -3,12 +3,40 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.71**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.72**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.72 — Door/Window getHit Finalizer (BeginGetHit sticky)
+
+Batch 40/41 dig: `DoorGetHitPatch` / `WindowGetHitPatch` Prefix `BeginGetHit` +
+dict stash with End only in Postfix — Harmony skips Postfix when the original
+throws, leaving sticky `IsInsideGetHit` (suppresses `destroyBarricade` sync
+forever) and leaked Prefix stash. Same class as 0.8.70–0.8.71 Finalizer restores.
+Protocol **25** unchanged. Product bump **0.8.71 → 0.8.72**.
+
+- **Shipped:**
+  - `BarricadeSyncHelpers` nesting-aware `_getHitDepth` (door A getHit can nest
+    into door/window B; single id cleared A's suppress early).
+  - `DoorGetHitPatch` / `WindowGetHitPatch`: EndGetHit + stash Remove moved to
+    **Finalizer**; Postfix only sends BarricadeEvent.
+- **Player situations:**
+  - Night defense: smash a barricaded door or window — peer sees damage/destroy;
+    if vanilla `getHit` throws mid-hit, next smash still syncs (no silent stuck
+    suppress on that board).
+  - Nested hit (rare): hitting one board that cascades into another no longer
+    clears the outer suppress early (no double destroyBarricade fan).
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full; mid-dream migrate;
+  InvItem trailers; gasoline `__result` without NRE.
+- **Rev / deploy:** dual-rev md5 match `8c785589e177bd7074b8858d3aef1509` → Steam +
+  SecondDarkwood plugins. ProductInvariant 16/16 pass.
 
 ---
 

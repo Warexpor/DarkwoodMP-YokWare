@@ -14,7 +14,9 @@ namespace DWMPHorde.Patches
     {
         // B4: while getHit is running, destroyBarricade() is called inside vanilla
         // before GetHit Postfix — suppress destroy patch send; GetHit owns the event.
-        private static int _getHitInstanceId;
+        // Nesting-aware depth: door A getHit can nest into door/window B; a single id
+        // would clear A's suppress early and double-send destroyBarricade.
+        private static readonly Dictionary<int, int> _getHitDepth = new Dictionary<int, int>(8);
 
         /// <summary>
         /// Session latches for door/window boards removed mid-session. Late-join bulk
@@ -33,7 +35,7 @@ namespace DWMPHorde.Patches
             WindowGetHitPatch.ClearSessionState();
             ItemGetHitPatch.ClearSessionState();
             ClientWorldMeleeRedirectHelper.Reset();
-            _getHitInstanceId = 0;
+            _getHitDepth.Clear();
             ClearRemovedBoards();
         }
 
@@ -108,15 +110,22 @@ namespace DWMPHorde.Patches
             return sent;
         }
 
-        internal static void BeginGetHit(int instanceId) => _getHitInstanceId = instanceId;
+        internal static void BeginGetHit(int instanceId)
+        {
+            int d;
+            _getHitDepth.TryGetValue(instanceId, out d);
+            _getHitDepth[instanceId] = d + 1;
+        }
 
         internal static void EndGetHit(int instanceId)
         {
-            if (_getHitInstanceId == instanceId)
-                _getHitInstanceId = 0;
+            int d;
+            if (!_getHitDepth.TryGetValue(instanceId, out d)) return;
+            if (d <= 1) _getHitDepth.Remove(instanceId);
+            else _getHitDepth[instanceId] = d - 1;
         }
 
-        internal static bool IsInsideGetHit(int instanceId) => _getHitInstanceId == instanceId;
+        internal static bool IsInsideGetHit(int instanceId) => _getHitDepth.ContainsKey(instanceId);
 
         internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = -1, int damageAmount = -1, Vector3? attackerPos = null)
         {
@@ -278,10 +287,8 @@ namespace DWMPHorde.Patches
                 && !(__args.Length > 1 && __args[1] is Transform doorAtk
                     && Player.Instance != null
                     && (doorAtk == Player.Instance.transform || doorAtk.IsChildOf(Player.Instance.transform))))
-            {
-                BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
                 return;
-            }
+
             int id = __instance.GetInstanceID();
             bool wasBarricaded;
             int barricadeHealthBefore;
@@ -292,54 +299,58 @@ namespace DWMPHorde.Patches
                 barricadeHealthBefore = 0;
             if (!_playerBarricadeBefore.TryGetValue(id, out playerBarricadeBefore))
                 playerBarricadeBefore = false;
-            _wasBarricaded.Remove(id);
-            _barricadeHealthBefore.Remove(id);
-            _playerBarricadeBefore.Remove(id);
+            // Stash + EndGetHit cleared in Finalizer (covers throw before/during Postfix).
 
             int damage = (int)__args[0];
 
-            try
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+
+            // If the client redirected this hit (local player attacking a remote
+            // world object), the original getHit was skipped and barricadeHealth
+            // is stale. Don't send a barricade event — the MeleeWorldHit handler
+            // on the host will apply damage.
+            if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
+                return;
+
+            // Capture attacker position for door-swing physics sync.
+            // Vanilla Door.getHit applies bodyRB.AddForce when the door is open,
+            // not barricaded, and not destroyed. We relay the attacker position
+            // so HandleBarricadeEvent can apply the same force on the receiver.
+            Vector3? attackerPos = null;
+            if (__args.Length > 1 && __args[1] is Transform at && at != null)
+                attackerPos = at.position;
+
+            if (wasBarricaded)
             {
-                if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-
-                // If the client redirected this hit (local player attacking a remote
-                // world object), the original getHit was skipped and barricadeHealth
-                // is stale. Don't send a barricade event — the MeleeWorldHit handler
-                // on the host will apply damage.
-                if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
-                    return;
-
-                // Capture attacker position for door-swing physics sync.
-                // Vanilla Door.getHit applies bodyRB.AddForce when the door is open,
-                // not barricaded, and not destroyed. We relay the attacker position
-                // so HandleBarricadeEvent can apply the same force on the receiver.
-                Vector3? attackerPos = null;
-                if (__args.Length > 1 && __args[1] is Transform at && at != null)
-                    attackerPos = at.position;
-
-                if (wasBarricaded)
-                {
-                    // If health dropped to 0 (now not barricaded), it was destroyed
-                    bool wasDestroyed = barricadeHealthBefore > 0 && !__instance.barricaded;
-                    BarricadeSyncHelpers.SendBarricadeEvent(
-                        __instance.transform.position, 0,
-                        wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                        __instance.barricadeHealth, playerBarricadeBefore,
-                        __instance.destroyed ? -1 : __instance.health,
-                        damage, attackerPos);
-                }
-                else
-                {
-                    BarricadeSyncHelpers.SendBarricadeEvent(
-                        __instance.transform.position, 0,
-                        __instance.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                        0, false, __instance.health, damage, attackerPos);
-                }
+                // If health dropped to 0 (now not barricaded), it was destroyed
+                bool wasDestroyed = barricadeHealthBefore > 0 && !__instance.barricaded;
+                BarricadeSyncHelpers.SendBarricadeEvent(
+                    __instance.transform.position, 0,
+                    wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
+                    __instance.barricadeHealth, playerBarricadeBefore,
+                    __instance.destroyed ? -1 : __instance.health,
+                    damage, attackerPos);
             }
-            finally
+            else
             {
-                BarricadeSyncHelpers.EndGetHit(id);
+                BarricadeSyncHelpers.SendBarricadeEvent(
+                    __instance.transform.position, 0,
+                    __instance.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
+                    0, false, __instance.health, damage, attackerPos);
             }
+        }
+
+        // Finalizer (not Postfix): getHit throw after Prefix BeginGetHit leaves
+        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever + stash leak.
+        [HarmonyFinalizer]
+        private static void Finalizer(Door __instance)
+        {
+            if (__instance == null) return;
+            int id = __instance.GetInstanceID();
+            BarricadeSyncHelpers.EndGetHit(id);
+            _wasBarricaded.Remove(id);
+            _barricadeHealthBefore.Remove(id);
+            _playerBarricadeBefore.Remove(id);
         }
     }
 
@@ -382,10 +393,8 @@ namespace DWMPHorde.Patches
                 && !(__args.Length > 1 && __args[1] is Transform winAtk
                     && Player.Instance != null
                     && (winAtk == Player.Instance.transform || winAtk.IsChildOf(Player.Instance.transform))))
-            {
-                BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
                 return;
-            }
+
             int damage = (int)__args[0];
             int id = __instance.GetInstanceID();
 
@@ -398,36 +407,40 @@ namespace DWMPHorde.Patches
                 barricadeHealthBefore = 0;
             if (!_playerBarricadeBefore.TryGetValue(id, out playerBarricadeBefore))
                 playerBarricadeBefore = false;
+            // Stash + EndGetHit cleared in Finalizer (covers throw before/during Postfix).
+
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            if (!wasBarricaded)
+                return;
+
+            // If the client redirected this hit, original getHit was skipped
+            // and barricadeHealth is stale. Don't send a barricade event.
+            if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
+                return;
+
+            // If health dropped to 0 (now not barricaded), it was destroyed
+            bool wasDestroyed = barricadeHealthBefore > 0 && !__instance.barricaded;
+
+            if (ModRuntime.VerboseLogging)
+                ModRuntime.LegacyInfo($"[Barr_Win] SEND wasBarricaded={wasBarricaded} hpBefore={barricadeHealthBefore} hpNow={__instance.barricadeHealth} wasDestroyed={wasDestroyed}");
+            BarricadeSyncHelpers.SendBarricadeEvent(
+                __instance.transform.position, 1,
+                wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
+                __instance.barricadeHealth, playerBarricadeBefore, damageAmount: damage);
+        }
+
+        // Finalizer (not Postfix): getHit throw after Prefix BeginGetHit leaves
+        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever + stash leak.
+        [HarmonyFinalizer]
+        private static void Finalizer(Window __instance)
+        {
+            if (__instance == null) return;
+            int id = __instance.GetInstanceID();
+            BarricadeSyncHelpers.EndGetHit(id);
             _wasBarricaded.Remove(id);
             _barricadeHealthBefore.Remove(id);
             _playerBarricadeBefore.Remove(id);
-
-            try
-            {
-                if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                    return;
-                if (!wasBarricaded)
-                    return;
-
-                // If the client redirected this hit, original getHit was skipped
-                // and barricadeHealth is stale. Don't send a barricade event.
-                if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
-                    return;
-
-                // If health dropped to 0 (now not barricaded), it was destroyed
-                bool wasDestroyed = barricadeHealthBefore > 0 && !__instance.barricaded;
-
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[Barr_Win] SEND wasBarricaded={wasBarricaded} hpBefore={barricadeHealthBefore} hpNow={__instance.barricadeHealth} wasDestroyed={wasDestroyed}");
-                BarricadeSyncHelpers.SendBarricadeEvent(
-                    __instance.transform.position, 1,
-                    wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                    __instance.barricadeHealth, playerBarricadeBefore, damageAmount: damage);
-            }
-            finally
-            {
-                BarricadeSyncHelpers.EndGetHit(id);
-            }
         }
     }
 

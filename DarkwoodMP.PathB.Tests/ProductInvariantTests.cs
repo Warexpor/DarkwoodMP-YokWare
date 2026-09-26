@@ -150,6 +150,17 @@ public class ProductInvariantTests
         Assert.Contains("UiOpenNoPausePatches", pause);
         Assert.Contains("Finalizer() => PauseSuppression.EndNoPause()", pause);
         Assert.Contains("Finalizer() => PauseSuppression.EndNoUnpause()", pause);
+
+        // Batch 41 / 0.8.72: Door/Window getHit BeginGetHit + stash — End only in
+        // Postfix left sticky IsInsideGetHit (suppress destroyBarricade forever).
+        var barr = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "Patches", "BarricadeSyncPatches.cs"));
+        Assert.Contains("DoorGetHitPatch", barr);
+        Assert.Contains("WindowGetHitPatch", barr);
+        Assert.Contains("_getHitDepth", barr);
+        Assert.Contains("BarricadeSyncHelpers.EndGetHit(id)", barr);
+        Assert.Contains("[HarmonyFinalizer]", barr);
+        Assert.Contains("private static void Finalizer(Door __instance)", barr);
+        Assert.Contains("private static void Finalizer(Window __instance)", barr);
     }
 
     [Fact]
