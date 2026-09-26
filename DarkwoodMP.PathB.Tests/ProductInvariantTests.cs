@@ -378,4 +378,17 @@ public class ProductInvariantTests
         Assert.True(hits.Count == 0,
             "Retired Domains LanNetworkManager façades still present: " + string.Join(", ", hits));
     }
+
+    [Fact]
+    public void ClientBackupRestore_RepublishesPeerItemPresence()
+    {
+        // Batch 49: soft reconnect ClearPlayer + RestoreItems via createItem never hit
+        // addItemType* Harmony — haveItem EventTriggers softlock until republish.
+        var restore = File.ReadAllText(Path.Combine(ModDir, "Networking", "Services", "ClientStateBackup.Restore.cs"));
+        Assert.Contains("PeerItemPresence.SendFullLocalInventory", restore);
+
+        var handshake = File.ReadAllText(Path.Combine(ModDir, "Networking", "Session", "LanNetworkManager.SessionHandlers.cs"));
+        Assert.Contains("PeerItemPresence.SendFullLocalInventory", handshake);
+        Assert.Contains("phase3 reconnect", handshake);
+    }
 }

@@ -96,6 +96,11 @@ namespace DWMPHorde.Networking
                     // Host cleared our OutsideLocation membership on the brief disconnect;
                     // do not wait for the ~1 Hz sticky LocationEnter heartbeat.
                     LocationHandlers?.ForceAnnounceLocalOutsideLocationEnter("phase3 reconnect");
+                    // Host ClearPlayer'd PeerItemPresence on the brief disconnect; live inv
+                    // is still correct (soft reconnect keeps world). Republish before restore
+                    // wait so haveItem EventTriggers work even if backup push is skipped.
+                    try { Sync.PeerItemPresence.SendFullLocalInventory(); }
+                    catch { /* non-fatal */ }
                     BeginClientBackupRestoreWait();
                 }
                 else

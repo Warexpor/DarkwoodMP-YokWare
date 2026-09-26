@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.76**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.77**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -11,6 +11,55 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.77 — PeerItemPresence republish after resume / soft reconnect
+
+Batch 49 dig: multi-session resume adversarial (Warexpor-authorized, no Finalizer
+rehash). Soft reconnect / cold rejoin cleared host `PeerItemPresence` on disconnect
+(`OnHostPeerDisconnectedGameplay`) but never republished after
+`ClientStateBackup.RestoreFromBackup` (`InvSlot.createItem` skips `addItemType*`
+Harmony) or after phase-3 AlreadyInWorld handshake (live inv kept, presence empty).
+Host `EventTrigger haveItem` (keys / oxygentank_full on hotbar) softlocked until the
+next inventory mutation or NPC dialogue. Protocol **25** unchanged. Product bump
+**0.8.76 → 0.8.77**.
+
+- **Dig ranked:**
+  1. **PeerItemPresence empty after resume — SHIPPED.**
+     `ClientStateBackup.Restore.cs` / `RestoreFromBackup`: after pose restore call
+     `PeerItemPresence.SendFullLocalInventory`.
+     `LanNetworkManager.SessionHandlers` phase-3 AlreadyInWorld: republish before
+     `BeginClientBackupRestoreWait` (covers soft reconnect when backup push is
+     skipped / local preferred).
+  2. Soft reconnect / AlreadyInWorld / StableClientKey / legacy pN / prologue End
+     catch-up / HostMigration F3 tip / graceful leave checkpoint — already ship;
+     no new hole beyond presence republish.
+  3. Dream skill stamps / unconfirmed clear across sessions — `DreamSession` union +
+     `SkillsMenuDreamPartyOncePatch` + late-join `SendDreamSessionBulkTo` cover;
+     mid-dream migrate stays parked.
+  4. ClientStateBackup extras (mag/upgrades/recipes/pins/effects/craftedItems) —
+     already in collect/restore. Journal `locationsDict` is host-shared via
+     `JournalBulk` (not personal backup) — skip.
+  5. N-peer host-migrate backup handoff (old host disk `client_backup_k*` not on
+     elect) — local-self fallback covers dual-box; no surgical wire without invent.
+  6. Parked list — unchanged; no touch.
+- **Shipped:**
+  - `ClientStateBackup.RestoreFromBackup` → `PeerItemPresence.SendFullLocalInventory`
+  - Phase-3 handshake AlreadyInWorld → same republish before backup wait
+- **Player situations:**
+  - Soft-disconnect or quit mid-session with a key / oxygen tank on hotbar, then
+    reconnect same save: host door/compressor `haveItem` EventTriggers see the peer
+    again without needing to drop/pick or open dialogue.
+  - Cold rejoin where host pushes ClientStateBackup (or local-self fallback restores):
+    presence matches restored inv+hotbar immediately.
+- **Preserved:** protocol 25, HostWorldReady 139, beartrap, indoor reverb,
+  CoopWorldPresencePolicy.
+- **Parked (unchanged):** WorkbenchOpenLock; oxygentank_full world-pick fan;
+  mid-dream migrate; InvItem trailers; gasoline `__result` without NRE; trap id=0
+  until fresh dual-box LogOutput.
+- **Rev / deploy:** dual-rev md5 match `2741f635c5dba627e23d3a167a2f8ad7` → Steam + SecondDarkwood.
+  ProductInvariant `ClientBackupRestore_RepublishesPeerItemPresence`.
+- **Batch 49 residuals:** fresh 0.8.77 dual-box LogOutput; trap id=0 confirm;
+  N-peer migrate backup handoff (optional future); parked list unchanged.
 
 ## Batch 48 — NO-SHIP (non-Finalizer hunt; stay on 0.8.76)
 

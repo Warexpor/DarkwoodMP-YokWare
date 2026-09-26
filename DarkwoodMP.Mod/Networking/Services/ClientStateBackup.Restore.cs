@@ -91,6 +91,12 @@ namespace DWMPHorde.Networking
             // Position was always collected on Save; apply on restore so rejoin returns to exit spot.
             RestorePosition(data);
 
+            // RestoreItems uses InvSlot.createItem — never hits addItemType* Harmony that
+            // drives PeerItemPresence. Soft reconnect also ClearPlayer'd us on disconnect.
+            // Republish inv+hotbar so host EventTrigger haveItem (keys/tanks) works again.
+            try { Sync.PeerItemPresence.SendFullLocalInventory(); }
+            catch { /* offline / mid-teardown */ }
+
             ModRuntime.LegacyInfo(
                 "[ClientBackup] restored from backup — level=" + data.CurrentLevel +
                 " exp=" + data.Experience +
