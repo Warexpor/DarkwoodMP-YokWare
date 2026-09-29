@@ -95,6 +95,55 @@ namespace DWMPHorde
     }
 
     /// <summary>
+    /// Connected clients must not write DynamicSave / Flags to disk except during
+    /// host-coordinated SaveSync. Personal bag/skills go through ClientStateBackup;
+    /// the host owns the shared world save.
+    /// </summary>
+    public static class ClientWorldSavePolicy
+    {
+        public static bool ShouldBlockConnectedClientWorldSave(
+            bool connectedClient, bool hostCoordinatedSaveInProgress)
+            => connectedClient && !hostCoordinatedSaveInProgress;
+    }
+
+    /// <summary>
+    /// Dream end / cleanup classification. Failure paths must not MarkCompleted
+    /// or fall through to the preset default reward.
+    /// </summary>
+    public static class DreamOutcomePolicy
+    {
+        public static bool IsRejectedOutcome(string outcomeName)
+        {
+            if (string.IsNullOrEmpty(outcomeName)) return false;
+            return outcomeName.StartsWith("rejected", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsFailureCleanup(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return false;
+            if (IsRejectedOutcome(reason)) return true;
+            return reason == "storyEndTimeout"
+                || reason == "disconnected"
+                || reason == "hostLostMidDream"
+                || reason == "prepareLocationFailed"
+                || reason == "prepare_failed";
+        }
+
+        public static bool IsNonRewardOutcome(string outcomeName)
+        {
+            if (string.IsNullOrEmpty(outcomeName)) return true;
+            if (IsFailureCleanup(outcomeName)) return true;
+            return outcomeName == "playerDeath"
+                || outcomeName == "allDead"
+                || outcomeName.StartsWith("scene:", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Party-once latch only on real clears, not rejects / disconnect.</summary>
+        public static bool ShouldMarkCompletedOnEnd(string outcomeName)
+            => !IsFailureCleanup(outcomeName);
+    }
+
+    /// <summary>
     /// Dialog outcome buckets. Physical bag rewards stay speaker-personal.
     /// Journal identity and session mutations are host-authoritative.
     /// </summary>

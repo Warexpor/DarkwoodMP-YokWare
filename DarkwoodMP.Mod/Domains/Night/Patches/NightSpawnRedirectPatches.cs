@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using DWMPHorde;
 using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
@@ -224,6 +225,7 @@ namespace DWMPHorde.Patches
                 foreach (RemotePlayerProxy proxy in net.GetAllProxies())
                 {
                     if (proxy == null || proxy.RemoteHasShadowWard) continue;
+                    if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId)) continue;
                     CharBase cb = proxy.CachedCharBase;
                     if (cb != null && !cb.alive) continue;
                     choices.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
@@ -238,6 +240,7 @@ namespace DWMPHorde.Patches
         private static bool HostEligible(Player host)
         {
             if (host.ignoreNightSickness) return false;
+            if (DeathStateTracker.LocalNightDeath) return false;
             if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
                 return false;
             CharBase cb = host.GetComponent<CharBase>();

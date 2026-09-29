@@ -336,6 +336,9 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Shooter __instance)
         {
+            var net = ModRuntime.Network;
+            if (net != null && net.IsConnected && net.Role == NetworkRole.Client)
+                return false;
             if (!HostPlayerIdentity.HostWithRemotes())
                 return true;
             if (__instance == null || __instance.target == null)

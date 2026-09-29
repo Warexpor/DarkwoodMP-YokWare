@@ -150,4 +150,37 @@ namespace DWMPHorde.Patches
             return true;
         }
     }
+
+    /// <summary>
+    /// Host Flame / molotov secondaries (ExplosionSpawnObject) also spawn on clients.
+    /// CharBase contact there would stack with host proxy <c>DamagePlayer</c>.
+    /// World Item/Door/Window burn still runs locally for fire-spread visuals.
+    /// </summary>
+    [HarmonyPatch(typeof(Flame), "onCollideWith")]
+    public static class ClientFlameCharDamageMutePatch
+    {
+        private static bool Prefix(Flame __instance, Transform _transform, Collider _collider)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
+                return true;
+            if (__instance == null || !__instance.isActive)
+                return true;
+
+            CharBase body = null;
+            if (_collider != null)
+                body = _collider.transform.GetComponent<CharBase>();
+            if (body == null && _transform != null)
+                body = _transform.GetComponent<CharBase>();
+            if (body == null)
+                return true;
+
+            var hitList = Traverse.Create(__instance)
+                .Field("transformsAlreadyCollidedWith")
+                .GetValue<System.Collections.Generic.List<Transform>>();
+            if (hitList != null && _transform != null && !hitList.Contains(_transform))
+                hitList.Add(_transform);
+            return false;
+        }
+    }
 }

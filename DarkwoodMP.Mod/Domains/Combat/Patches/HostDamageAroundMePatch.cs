@@ -1,3 +1,4 @@
+using DWMPHorde;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -9,13 +10,22 @@ namespace DWMPHorde.Patches
     /// Vanilla <c>waitToDamageAroundMe</c> only damages <see cref="Player.Instance"/>.
     /// With remotes present this is an AoE aura: every living body in falloff range
     /// takes the same vanilla formula; proxy hits relay via <see cref="ProxyDamagePatch"/>.
+    /// Connected clients must not run the local presentation copy — that double-hits
+    /// with host <c>DamagePlayer</c> when both bodies share the same aura.
     /// </summary>
     [HarmonyPatch(typeof(Character), "waitToDamageAroundMe")]
     public static class HostDamageAroundMePatch
     {
         private static bool Prefix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            var netRole = ModRuntime.Network;
+            if (netRole == null || !netRole.IsConnected)
+                return true;
+            // Client presentation entities still start this routine in Character.Start;
+            // host owns the aura via DamagePlayer / ProxyDamagePatch.
+            if (netRole.Role == NetworkRole.Client)
+                return false;
+            if (netRole.Role != NetworkRole.Host)
                 return true;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
@@ -31,7 +41,7 @@ namespace DWMPHorde.Patches
 
             // Host body — same formula and shake/noise as vanilla.
             Player host = Player.Instance;
-            if (host != null && host._transform != null)
+            if (host != null && host.alive && host._transform != null)
             {
                 float hostDist = Core.trueDistance(host._transform.position, attacker.position);
                 if (hostDist <= range)

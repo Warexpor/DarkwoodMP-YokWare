@@ -3,12 +3,128 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.123**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.125**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.125 — Save-safety + story-softlock pass closed
+
+Code-proven save-brick and story-softlock holes for the whole class. Protocol
+**25** unchanged. Product **0.8.124 → 0.8.125**. Not 1.0.
+
+### Save brick — fixed this pass
+
+- **Connected client world Save.** Vanilla `SaveManager.Save` writes
+  `Flags.SaveState` (story flags, NPC dialogue/rep/dead) into DynamicSave. A
+  connected client's local Save could persist client-only mutations over the
+  host-shared copy. Clients now block disk Save except during host-coordinated
+  SaveSync (`_isRemoteSaveInProgress`). Personal bag/skills still go through
+  ClientStateBackup; Postfix still requests host SaveSync.
+- **Permadeath difficulty restore.** Shared-death rewrite arms the real
+  difficulty and restores it before Save (0.8.80). The yield loop now restores
+  in `finally` so a suppressed Save or mid-death throw cannot leave nightmare
+  forced to normal for a later Save. Host never rewrites difficulty.
+
+### Save brick — already covered
+
+| Row | Status |
+|-----|--------|
+| Client nightmare / last-life → shared death; Save sees real difficulty | covered (+ finally harden) |
+| Client `generateChapter` only reloads host's current chapter | covered |
+| Dream failure AbortStarting — no MarkCompleted / no default reward | covered (+ End/OnRemoteDreamEnded harden) |
+| UniqueObjects dream remap stash + removeObject keep overworld twin | covered |
+| Host-coordinated SaveSync client checkpoint still allowed | covered (exception to block) |
+| NPC portrait/anim/reputation/dead — host Flags only, no second format | covered |
+
+### Story softlock — fixed this pass
+
+- **Dream End MarkCompleted on failure names.** `DreamSession.End` and remote
+  `MarkDreamCompleted` skip failure cleanup outcomes (`rejected:*`, disconnect,
+  prepare fail, storyEndTimeout) so a stray path cannot party-lock the preset.
+
+### Story softlock — already covered
+
+| Row | Status |
+|-----|--------|
+| GameEventsFired one-shot host-auth; ActorPlayerId personal vs world | covered |
+| Padlock/Locked: failed open AttemptOnly; unlock clears both sides + first-enter | covered |
+| Dream bunker leave-door GE under pad; UniqueObjects pad prefer | covered |
+| Skill party-once + second peer still picks skills | covered |
+| All-dead grace 25s; chain keeps death roster | covered |
+| Epilogue pan/credits only for peers in ending | covered |
+| Dialogue lock release on speaker disconnect | covered |
+| World/GUID pickup claim deny refund | covered |
+
+Parked (untouched): multipleFire local; mid-dream host migration disconnect;
+workbench exclusive lock off; N-peer handoff; waitToSpawnShadow; night-trader
+rep per-player.
+
+---
+
+## 0.8.124 — Night + combat pipelines closed
+
+Code-proven holes across the whole night and the whole combat pipeline.
+Protocol **25** unchanged. Product **0.8.123 → 0.8.124**. Not 1.0.
+
+### Night — fixed this pass
+
+- **Client aura double-hit.** Presentation characters still start
+  `waitToDamageAroundMe` on clients; that stacked with host `DamagePlayer`
+  when both bodies shared an around-me aura. Connected clients now skip the
+  local aura; host still hits every living body in vanilla falloff.
+- **Proxy night shadows vs host death.** Vanilla `ShadowCreature.Start` hooks
+  `Player.Instance.onPlayerDeathDelegate`, so a client-owned perk wave died
+  when the host died. Proxy shadows unhook host death, die when their owner
+  is dead / night-dead, and still die on day / ward (immortal).
+- **Hard-night worms skip night-dead bodies.** Party worm pick already skipped
+  ward / `!alive`; it now also skips `LocalNightDeath` / `IsRemoteNightDead`.
+
+### Combat — fixed this pass
+
+- **Client Flame CharBase contact.** Host `ExplosionSpawnObject` Flame
+  secondaries on clients were still burning / damaging local bodies on top of
+  host proxy relay. Client Flame skips CharBase; world Item/Door/Window burn
+  visuals stay.
+- **Client Shooter.shoot belt.** `Shooter.Update` is already suppressed on
+  clients; `shoot()` now Prefix-skips on connected clients too so an animation
+  path cannot stack with host damage.
+
+### Night checklist (covered vs fixed)
+
+| Row | Status |
+|-----|--------|
+| Clock / TimeSync absolute / no client day-chain | covered |
+| useTimeSkip host-adopted; lie-down no time advance | covered |
+| Hunger `tryToActivateHunger` live-step; no false-hunger on jumps; `fedToday` clear | covered |
+| Hard-night worms 1/5s random living unwarded body; no `waitToSpawnShadow` | covered (+ night-dead skip fixed) |
+| Client shadows move (cruise before zero); immortal+ward dies; proxy targets | covered (+ host-death unhook fixed) |
+| Fliers dive actual target / damage that body | covered |
+| Area damage every body in falloff | covered (+ client double-hit fixed) |
+| Perception remotes (vision, hearing, furniture scrape, barricade hammer) | covered |
+| Morning: host `endAfterNight` / trader despawn mirrored; no client `startDay` | covered |
+| Both dead → morning; one dead does not end night | covered |
+| Client nightmare / last-life → shared respawn (0.8.80) | covered |
+| Night trader reputation per-player; stock shared | covered (parked: keep per-player) |
+
+### Combat checklist (covered vs fixed)
+
+| Row | Status |
+|-----|--------|
+| Melee / shooter / thrown (stick despawn no peer FX loot) | covered (+ shooter client belt fixed) |
+| Explosions (proxies + FF-off host rollback) | covered |
+| Traps / flame contact / ground DoT | covered (+ Flame CharBase mute fixed) |
+| Client smash destructible → BarricadeEvent (0.8.117) | covered |
+| Gas pour / ignite host (0.8.103–104); fire spread peers | covered |
+| Hit story trigger fan (0.8.88); examine with world-only guard (0.8.118) | covered |
+
+Parked (untouched): multipleFire local; mid-dream host migration; workbench
+exclusive lock off; N-peer handoff; waitToSpawnShadow; night-trader rep
+per-player; hunger method is `tryToActivateHunger`.
 
 ---
 

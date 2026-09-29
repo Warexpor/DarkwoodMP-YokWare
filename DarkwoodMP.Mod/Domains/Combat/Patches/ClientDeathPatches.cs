@@ -126,13 +126,20 @@ namespace DWMPHorde.Patches
                 _bypassPermadeathRewrite = false;
             }
 
-            if (inner != null)
+            try
             {
-                while (inner.MoveNext())
-                    yield return inner.Current;
+                if (inner != null)
+                {
+                    while (inner.MoveNext())
+                        yield return inner.Current;
+                }
             }
-
-            ClientPermadeathSaveGuard.RestoreIfArmed();
+            finally
+            {
+                // Save Prefix also restores; this covers suppress-Save / throw paths so
+                // nightmare cannot stay forced to normal across a later Save.
+                ClientPermadeathSaveGuard.RestoreIfArmed();
+            }
         }
     }
 

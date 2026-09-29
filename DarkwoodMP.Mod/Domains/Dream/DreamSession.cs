@@ -231,38 +231,21 @@ namespace DWMPHorde.Sync
 
         /// <summary>OutcomeName sentinel used when the host rejects story end.</summary>
         public static bool IsRejectedOutcome(string outcomeName)
-        {
-            if (string.IsNullOrEmpty(outcomeName)) return false;
-            return outcomeName.StartsWith("rejected", StringComparison.OrdinalIgnoreCase);
-        }
+            => DreamOutcomePolicy.IsRejectedOutcome(outcomeName);
 
         /// <summary>
         /// Cleanup reasons that are not a successful story end.
         /// Must not MarkCompleted or grant the default outcome.
         /// </summary>
         public static bool IsFailureCleanup(string reason)
-        {
-            if (string.IsNullOrEmpty(reason)) return false;
-            if (IsRejectedOutcome(reason)) return true;
-            return reason == "storyEndTimeout"
-                || reason == "disconnected"
-                || reason == "hostLostMidDream"
-                || reason == "prepareLocationFailed"
-                || reason == "prepare_failed";
-        }
+            => DreamOutcomePolicy.IsFailureCleanup(reason);
 
         /// <summary>
         /// Wire / cleanup outcomes that must not fall through to the preset's
         /// <c>default</c> reward when the named outcome is missing.
         /// </summary>
         public static bool IsNonRewardOutcome(string outcomeName)
-        {
-            if (string.IsNullOrEmpty(outcomeName)) return true;
-            if (IsFailureCleanup(outcomeName)) return true;
-            return outcomeName == "playerDeath"
-                || outcomeName == "allDead"
-                || outcomeName.StartsWith("scene:", StringComparison.OrdinalIgnoreCase);
-        }
+            => DreamOutcomePolicy.IsNonRewardOutcome(outcomeName);
 
         public static string BuildRejectedOutcome(string reason)
         {
@@ -304,7 +287,9 @@ namespace DWMPHorde.Sync
         {
             if (Current == State.Idle) return;
             Current = State.Ending;
-            MarkCompleted(PresetName);
+            // Reject / disconnect / prepare fail must not party-lock the preset.
+            if (DreamOutcomePolicy.ShouldMarkCompletedOnEnd(outcomeName))
+                MarkCompleted(PresetName);
             // Capture host/peer hadDreamAtLvl* set at confirmSkills before pad teardown.
             NoteLocalLvlFlags();
             ModLog.Event(LogCat.Dream,

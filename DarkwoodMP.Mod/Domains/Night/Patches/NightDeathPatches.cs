@@ -105,8 +105,9 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
-            // Night-dead clients skip Save; day clients allowed (SaveSync coordinates fan-out).
-            // ClientCoopSaveAllowLogPatch is a no-op gate (logging only).
+            // Night-dead clients skip Save. Other connected-client Saves are blocked by
+            // ClientConnectedWorldSaveBlockPatch (host owns Flags); host-coordinated
+            // SaveSync still writes when _isRemoteSaveInProgress.
             if (ModRuntime.Network.Role != NetworkRole.Host)
             {
                 if (DeathStateTracker.LocalNightDeath)

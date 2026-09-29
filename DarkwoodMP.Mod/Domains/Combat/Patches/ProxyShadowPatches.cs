@@ -1,4 +1,6 @@
-using System.Collections.Generic;
+using System;
+using System.Reflection;
+using DWMPHorde;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -39,16 +41,39 @@ namespace DWMPHorde.Patches
 
             _shadow = GetComponent<ShadowCreature>();
             _anim = GetComponent<tk2dSpriteAnimator>();
-            _curAngle = Random.Range(0f, 360f);
+            _curAngle = UnityEngine.Random.Range(0f, 360f);
 
             if (_shadow != null)
             {
                 _shadow.dead = false;
                 _speed = SpeedsOverridden ? CruiseSpeed : _shadow.speed;
+                // Vanilla Start hooked Player.Instance.onPlayerDeathDelegate → die.
+                // Proxy-owned waves must not die when the host dies while their owner lives.
+                UnhookHostPlayerDeath();
             }
 
             if (_anim != null && _anim.GetClipByName("Float") != null)
                 _anim.Play("Float");
+        }
+
+        private void UnhookHostPlayerDeath()
+        {
+            Player host = Player.Instance;
+            if (host == null || _shadow == null)
+                return;
+            MethodInfo die = AccessTools.Method(typeof(ShadowCreature), "die");
+            if (die == null)
+                return;
+            try
+            {
+                var del = (playerDelegate)Delegate.CreateDelegate(typeof(playerDelegate), _shadow, die);
+                host.onPlayerDeathDelegate = (playerDelegate)Delegate.Remove(host.onPlayerDeathDelegate, del);
+            }
+            catch (Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[ProxyShadow] unhook host death: " + ex.Message);
+            }
         }
 
         private void Update()
@@ -56,10 +81,21 @@ namespace DWMPHorde.Patches
             if (_proxyT == null || _shadow == null || _shadow.dead || _isDying)
                 return;
 
+            var owner = _proxyT.GetComponent<RemotePlayerProxy>();
+            if (owner != null)
+            {
+                CharBase ownerCb = owner.CachedCharBase;
+                if ((ownerCb != null && !ownerCb.alive)
+                    || DeathStateTracker.IsRemoteNightDead(owner.PlayerId))
+                {
+                    StartDying();
+                    return;
+                }
+            }
+
             var info = GetComponent<ShadowSyncInfo>();
             if (info != null && info.ShadowType == 1)
             {
-                var owner = _proxyT.GetComponent<RemotePlayerProxy>();
                 if (owner != null && owner.RemoteHasShadowWard)
                 {
                     StartDying();

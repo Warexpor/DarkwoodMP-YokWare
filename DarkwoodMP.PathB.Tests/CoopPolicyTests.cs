@@ -30,6 +30,15 @@ public class CoopPolicyTests
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 2));
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(false, PermadeathPolicy.Nightmare, 0));
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Normal, 0));
+        Assert.True(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(true, false));
+        Assert.False(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(true, true));
+        Assert.False(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(false, false));
+        Assert.True(DreamOutcomePolicy.IsFailureCleanup("rejected:prepare_failed"));
+        Assert.True(DreamOutcomePolicy.IsFailureCleanup("disconnected"));
+        Assert.False(DreamOutcomePolicy.ShouldMarkCompletedOnEnd("rejected:no_session"));
+        Assert.True(DreamOutcomePolicy.ShouldMarkCompletedOnEnd("allDead"));
+        Assert.True(DreamOutcomePolicy.IsNonRewardOutcome("allDead"));
+        Assert.False(DreamOutcomePolicy.IsFailureCleanup("allDead"));
     }
 
     [Theory]

@@ -27,7 +27,9 @@ namespace DWMPHorde.Sync
 
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
-            MarkDreamCompleted(playerId, presetName);
+            // Failure cleanup already AbortStarting; do not party-lock from a reject / disconnect.
+            if (!DreamSession.IsFailureCleanup(outcomeName))
+                MarkDreamCompleted(playerId, presetName);
 
             _remoteDreamActive[playerId] = false;
 
