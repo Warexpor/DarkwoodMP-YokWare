@@ -216,6 +216,8 @@ namespace DWMPHorde.Sync
                 $"UpdateActivePreset {PresetName} → {presetName} (session {SessionId})");
             PresetName = presetName;
             SetPendingHostPreset(presetName);
+            // Keep ResolveActivePresetName on the live pocket (prefers _localDreamPreset).
+            DreamSyncManager.NoteLocalDreamPreset(presetName);
         }
 
         /// <summary>Client adopts host SessionId from DreamStarted / bulk (no local mint).</summary>
@@ -245,7 +247,21 @@ namespace DWMPHorde.Sync
             return reason == "storyEndTimeout"
                 || reason == "disconnected"
                 || reason == "hostLostMidDream"
-                || reason == "prepareLocationFailed";
+                || reason == "prepareLocationFailed"
+                || reason == "prepare_failed";
+        }
+
+        /// <summary>
+        /// Wire / cleanup outcomes that must not fall through to the preset's
+        /// <c>default</c> reward when the named outcome is missing.
+        /// </summary>
+        public static bool IsNonRewardOutcome(string outcomeName)
+        {
+            if (string.IsNullOrEmpty(outcomeName)) return true;
+            if (IsFailureCleanup(outcomeName)) return true;
+            return outcomeName == "playerDeath"
+                || outcomeName == "allDead"
+                || outcomeName.StartsWith("scene:", StringComparison.OrdinalIgnoreCase);
         }
 
         public static string BuildRejectedOutcome(string reason)
@@ -274,6 +290,7 @@ namespace DWMPHorde.Sync
             // Same session: dead peers stay dead and spectating. Do not wipe the roster.
             FinalDreamsceneManager.OnDreamChained();
             DreamSyncManager.NoteLocalDreamPreset(nextPreset);
+            DreamSyncManager.ClearDreamEndBroadcastLatch();
             ModLog.Event(LogCat.Dream, $"Chained preset → {nextPreset} (session {SessionId})");
         }
 

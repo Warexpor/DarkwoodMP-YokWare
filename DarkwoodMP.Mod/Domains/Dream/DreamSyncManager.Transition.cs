@@ -163,8 +163,10 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Safety timeout: unfreezes remote proxies after <paramref name="delay"/> seconds
-        /// of real time. Drops optimistic NoteRemoteInDream stamps that never confirmed
-        /// (matches IsRemoteInDream post-deadline). DreamEntered after this still Confirm-s.
+        /// of real time so they do not stay kinematic if DreamEntered never arrives.
+        /// Does NOT clear NoteRemoteInDream — that grace is 25s (late join / slow pad load)
+        /// and IsRemoteInDream already returns false after each peer's deadline. Clearing
+        /// here at 10s made all-dead end the dream while a peer was still loading.
         /// </summary>
         private static System.Collections.IEnumerator UnfreezeProxiesAfterDelay(float delay)
         {
@@ -176,15 +178,6 @@ namespace DWMPHorde.Sync
             {
                 if (proxy == null) continue;
                 proxy.FreezePosition = false;
-                // N-peer: optimistic host stamp at dream start — clear if never entered.
-                if (!_dreamEntryConfirmed.Contains(proxy.PlayerId))
-                    ClearRemoteInDream(proxy.PlayerId);
-            }
-            foreach (int id in net.GetHandshakedPeerIds())
-            {
-                if (id <= 0 || id == net.LocalPlayerId) continue;
-                if (!_dreamEntryConfirmed.Contains(id))
-                    ClearRemoteInDream(id);
             }
         }
     }

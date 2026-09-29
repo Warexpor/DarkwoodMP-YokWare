@@ -157,8 +157,11 @@ namespace DWMPHorde.Networking
             if (_net.TryGetRemoteState(playerId, out peerState))
                 peerState.IsDeadInDream = false;
 
-            // Avoid double-end if we already Idle.
-            if (DreamSession.IsActive)
+            // Chain outcomes: keep the session Active so host-ordered wantToSwitchDream
+            // → SetChainedPreset keeps the death roster (End would Idle then TryBegin wipe).
+            bool chains = DreamSyncManager.OutcomeChainsToNextDream(
+                Dreams.Instance, msg.OutcomeName);
+            if (DreamSession.IsActive && !chains)
                 DreamSession.End(msg.OutcomeName);
             DreamSyncManager.OnRemoteDreamEnded(playerId, msg.OutcomeName);
         }

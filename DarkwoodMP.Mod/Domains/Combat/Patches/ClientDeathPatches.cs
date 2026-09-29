@@ -27,10 +27,18 @@ namespace DWMPHorde.Patches
             if (!ModRuntime.Network.IsConnected)
                 return true;
 
+            // Epilogue crawl / camera pan: vanilla only. Do not Send PlayerDied or
+            // DeathStateTracker — living peers outside the ending must not get day/night death.
+            if (__instance != null && __instance.inEpilogue)
+            {
+                ModRuntime.LegacyInfo(
+                    "[Death] Client epilogue death — vanilla crawl/cam (no PlayerDied fan-out)");
+                return true;
+            }
+
             // Shared dream death: skip bag/respawn — but never steal epilogue crawl/cam path.
             // onDeath is IEnumerator; StartCoroutine(null) if Prefix returns false without __result.
-            if (FinalDreamsceneManager.IsActive
-                && (__instance == null || !__instance.inEpilogue))
+            if (FinalDreamsceneManager.IsActive)
             {
                 // onDeath re-fires while spectating; manager is one-shot — stay silent.
                 if (FinalDreamsceneManager.IsLocalDead)

@@ -233,6 +233,23 @@ namespace DWMPHorde.Sync
                     break;
                 }
             }
+            // allDead / reject / disconnect must not grant the preset's default reward.
+            if (outcomePreset == null && DreamSession.IsNonRewardOutcome(outcomeName))
+            {
+                if (outcomeName == "allDead" || outcomeName == "playerDeath")
+                {
+                    foreach (var oc in dreams.preset.outcomes)
+                    {
+                        if (oc != null && oc.name == "playerDeath")
+                        {
+                            outcomePreset = oc;
+                            break;
+                        }
+                    }
+                }
+                if (outcomePreset == null)
+                    return;
+            }
             if (outcomePreset == null)
             {
                 foreach (var oc in dreams.preset.outcomes)

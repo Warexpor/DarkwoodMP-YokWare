@@ -3,12 +3,69 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.122**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.123**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.123 — Dream + ending systems closed (grace, chain, epilogue gate)
+
+Code-proven holes across the whole dream session and the ending crawl/credits.
+Protocol **25** unchanged. Product **0.8.122 → 0.8.123**. Not 1.0.
+
+### Dreams
+
+- **All-dead grace.** Host `UnfreezeProxiesAfterDelay` (10s) was calling
+  `ClearRemoteInDream`, which dropped peers still inside their 25s entry grace.
+  All-dead could end the pad while a joiner or slow loader was still entering.
+  Unfreeze now only clears proxy freeze; `IsRemoteInDream` owns the deadline.
+- **Chain death roster.** Host `NotifyPeersStoryEndBeginning` called
+  `DreamSession.End` before `transferToDream` / `wantToSwitchDream`, so the
+  follow-up `SetChainedPreset` hit Idle→`TryBegin` and wiped the death roster
+  via `OnDreamStarted`. Chain outcomes keep the session Active; clients skip
+  `End` the same way. Latch clears on `SetChainedPreset`.
+- **`allDead` default reward.** Remote cleanup for unrecognized outcomes fell
+  through to the preset `default` reward. Non-reward sentinels (`allDead`,
+  `playerDeath`, rejects, disconnect) no longer grant default; `allDead` maps
+  to `playerDeath` effects when present.
+- **Live preset name.** `UpdateActivePreset` now also notes `_localDreamPreset`
+  so `ResolveActivePresetName` stays on the live pocket after a random roll /
+  chain swap.
+- Already covered this pass (no code change): enter host/client/second/late-join,
+  skill party-once + second peer still picks skills, dream bunker leave-door GE
+  under pad (not overworld twin / UniqueObjects first-wins), failure cleanup
+  abort without MarkCompleted, exit clears `dreaming` before UniqueObject
+  restore, personal GE rewards via ActorPlayerId (0.8.99), client dream
+  one-shots via host proxy EventTriggers + GameEventsFired apply.
+
+### Ending
+
+- **Epilogue death fan-out.** Host/client `onDeath` in epilogue still broadcast
+  `PlayerDied` and ran `DeathStateTracker`, which could pull living peers into
+  day/night death paths. Epilogue deaths are vanilla crawl/cam only.
+- **Living peer gate.** Credits `SceneLoad` and `epilogue_cameraPanOverBurningForest`
+  apply only when the local peer is in the ending (`inEpilogue` / epilogue pad /
+  epilog session). A peer still in the forest is not dragged because someone
+  else finished the crawl. Client crawl still asks the host to fire the pan;
+  client/host `goToCredits` still pulls the party when they are in.
+- Permadeath / nightmare client death shared respawn path verified unchanged
+  (0.8.80).
+
+### World-grid houses (checked after dreams+ending)
+
+Vanilla `WorldGrid.Cullable.hide` / `show` use `SetActive` (and `Location.leave`
+/`enter` for large location cullables). World houses are **not destroyed** on
+cull — same class as OutsideLocations. No virgin-prefab replay invented.
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
 
 ---
 

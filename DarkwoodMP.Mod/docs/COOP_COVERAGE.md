@@ -51,7 +51,7 @@ state without changing existing players' state.
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
 | Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), client gasoline pour (`GasTrailSpawn` 0.8.103) + client torch/melee ignite (`GasIgnite` 0.8.104), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
-| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths | Code covered; runtime pending |
+| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered through 0.8.123 (grace, chain roster, epilogue gate); runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |
 

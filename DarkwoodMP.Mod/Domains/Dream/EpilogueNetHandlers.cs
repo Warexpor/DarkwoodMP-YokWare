@@ -21,6 +21,26 @@ namespace DWMPHorde.Networking
         /// <summary>World event fired when the burn-crawl camera pan finishes.</summary>
         internal const string EpilogueCameraPanEvent = "epilogue_cameraPanOverBurningForest";
 
+        /// <summary>
+        /// True when this peer is actually in the ending (crawl / outcomes), not
+        /// merely connected while someone else died in the forest.
+        /// </summary>
+        internal static bool IsLocalInEpilogue()
+        {
+            if (Player.Instance != null && Player.Instance.inEpilogue)
+                return true;
+            // Pad loaded but ApplyEpilogueMode not yet run (one frame), or mid-entry.
+            if (Dreams.Instance != null && Dreams.Instance.dreaming
+                && Dreams.Instance.dreamLocation != null
+                && Dreams.Instance.dreamLocation.isEpilogueLocation)
+                return true;
+            string preset = DreamSession.PresetName ?? "";
+            if (preset.IndexOf("epilog", System.StringComparison.OrdinalIgnoreCase) >= 0
+                && DreamSession.IsActive)
+                return true;
+            return false;
+        }
+
         internal void HandleSceneLoad(SceneLoadMessage msg)
         {
             if (string.IsNullOrEmpty(msg.SceneName)) return;
@@ -36,6 +56,14 @@ namespace DWMPHorde.Networking
                     // Apply on the host and let [Forwardable] reach the other peers.
                     if (string.Equals(msg.SceneName, CreditsSceneName, System.StringComparison.Ordinal))
                     {
+                        if (!IsLocalInEpilogue())
+                        {
+                            ModRuntime.LegacyInfo(
+                                "[Epilogue] Host ignored credits SceneLoad — not in epilogue "
+                                + "(living peer must not be dragged by a remote ending)");
+                            _net._suppressForwardThisMessage = true;
+                            return;
+                        }
                         ModRuntime.LegacyInfo(
                             $"[Epilogue] Client p{_net.CurrentReceivePlayerId} reached credits — pulling the party");
                         ApplySceneLoad(msg.SceneName, delaySeconds: 8f);
@@ -54,6 +82,14 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo(
                     $"[Epilogue] Rejected SceneLoad from non-host p{_net.CurrentReceivePlayerId}: {msg.SceneName}");
+                return;
+            }
+
+            if (string.Equals(msg.SceneName, CreditsSceneName, System.StringComparison.Ordinal)
+                && !IsLocalInEpilogue())
+            {
+                ModRuntime.LegacyInfo(
+                    "[Epilogue] Client ignored credits SceneLoad — not in epilogue");
                 return;
             }
 

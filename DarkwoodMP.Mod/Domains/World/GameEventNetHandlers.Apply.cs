@@ -25,6 +25,18 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
+            // Ending camera pan is personal to peers already in the epilogue.
+            // A living player outside must not start EpilogueOutcomes because
+            // someone else finished the crawl.
+            if (string.Equals(msg.EventName, EpilogueNetHandlers.EpilogueCameraPanEvent,
+                    StringComparison.Ordinal)
+                && !EpilogueNetHandlers.IsLocalInEpilogue())
+            {
+                ModRuntime.LegacyInfo(
+                    "[Epilogue] drop camera pan GE — local peer not in epilogue");
+                return true;
+            }
+
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             GameEvents best = null;
 

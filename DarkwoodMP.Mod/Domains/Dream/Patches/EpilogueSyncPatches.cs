@@ -24,6 +24,15 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null) return true;
 
+            // Only peers already in the ending may start credits. A living player
+            // still in the forest must not be pulled because someone else finished.
+            if (!EpilogueNetHandlers.IsLocalInEpilogue())
+            {
+                ModRuntime.LegacyInfo(
+                    "[Epilogue] goToCredits blocked — local peer not in epilogue");
+                return false;
+            }
+
             // Mirror vanilla fade/forbid before shared load.
             try
             {

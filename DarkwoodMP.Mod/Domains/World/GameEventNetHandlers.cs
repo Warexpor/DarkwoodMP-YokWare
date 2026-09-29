@@ -70,8 +70,7 @@ namespace DWMPHorde.Networking
             {
                 if (string.Equals(msg.EventName, EpilogueNetHandlers.EpilogueCameraPanEvent,
                         StringComparison.Ordinal)
-                    && Player.Instance != null
-                    && Player.Instance.inEpilogue)
+                    && EpilogueNetHandlers.IsLocalInEpilogue())
                 {
                     var events = Singleton<Events>.Instance;
                     if (events != null)
