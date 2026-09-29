@@ -304,6 +304,15 @@ transports. Unit tests cover the shared reader and policy helpers.
   Host also records one-shot `destroyOnFire` identities at live fire time
   (decompile `GameEvents.fire` destroys the GO after event delays) and merges
   them into the bulk so joiners still apply shells missing from the host scan.
+  **0.8.119–0.8.122 first-enter pad resync:** when a peer's first
+  `LocationEnter` resolves an outside pad, host
+  `ResyncOutsideLocationPadForPeer` re-sends barricades / opened doors /
+  unlocked padlocks / unlocked key Locked / pad-scoped fired GEs /
+  InteractiveItem isOn / constructed / traps / world Burn / chains /
+  ShadowArmor / saw·feeder·lure / ReputationBulk (ActorPlayerId=0; not a
+  second full join). Lights/gens already via `ResyncWorldLightsForPeer`.
+  Containers stay on-open request. Dreams still skip this path. Client settle
+  invalidates matching scene scans so SoftMatch sees virgin-pad children.
   Dual-box late-join still runtime-pending.
   (MapElement discoveries are no longer deferred — `MapStateSync` populates
   from host `isOnMap` elements; dual-box late-join still runtime-pending.)

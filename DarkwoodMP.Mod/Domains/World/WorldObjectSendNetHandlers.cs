@@ -222,11 +222,54 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host || playerId <= 0 || !_net.IsConnected)
                 return;
 
+            var list = BuildTrapBulkEntries(null, null, 0f, int.MaxValue);
+            var bulk = new TrapBulkMessage { Entries = list.ToArray() };
+            _net.SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session, "[BulkSync] Traps → p" + playerId + ": " + list.Count);
+        }
+
+        /// <summary>
+        /// Host→peer: triggered / occupied traps under/near the pad. Pending trap
+        /// applies age out at 30s — often before first <c>createLocation</c>.
+        /// </summary>
+        internal int SendTrapsNearLocationTo(int playerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || playerId <= 0 || !_net.IsConnected
+                || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+            var list = BuildTrapBulkEntries(root, anchor, maxDistSqr, 64);
+            if (list.Count == 0)
+                return 0;
+
+            var bulk = new TrapBulkMessage { Entries = list.ToArray() };
+            _net.SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session,
+                "[LocationSync] pad traps → p" + playerId + ": " + list.Count
+                + " loc=" + (loc.gameObject != null ? loc.gameObject.name : loc.name));
+            return list.Count;
+        }
+
+        private List<TrapBulkEntry> BuildTrapBulkEntries(
+            Transform root, Vector3? anchorOrNull, float maxDistSqr, int maxSend)
+        {
+            bool padScoped = root != null || anchorOrNull.HasValue;
+            Vector3 anchor = anchorOrNull ?? Vector3.zero;
             var list = new List<TrapBulkEntry>(32);
+
             foreach (var kv in Sync.TrapNetworkId.EnumerateRegistered())
             {
+                if (list.Count >= maxSend) break;
                 GameObject go = kv.Value;
                 if (go == null) continue;
+                if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
+                    continue;
                 Vector3 p = go.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(p.x * 10f) / 10f,
@@ -253,10 +296,12 @@ namespace DWMPHorde.Networking
                 });
             }
 
-            // Also include known traps that may lack registry (mint now)
             foreach (var go in WorldPhysicsSyncService.GetKnownTrapsSnapshot())
             {
+                if (list.Count >= maxSend) break;
                 if (go == null) continue;
+                if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
+                    continue;
                 int id = Sync.TrapNetworkId.GetOrMintHost(go);
                 bool already = false;
                 for (int i = 0; i < list.Count; i++)
@@ -278,9 +323,25 @@ namespace DWMPHorde.Networking
                 });
             }
 
-            var bulk = new TrapBulkMessage { Entries = list.ToArray() };
-            _net.SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
-            ModLog.Event(LogCat.Session, "[BulkSync] Traps → p" + playerId + ": " + list.Count);
+            return list;
+        }
+
+        private static bool IsTrapUnderOrNear(
+            Transform t, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (t == null) return false;
+            if (root != null && (t == root || t.IsChildOf(root)))
+                return true;
+            if (root != null)
+            {
+                float dxRoot = t.position.x - root.position.x;
+                float dzRoot = t.position.z - root.position.z;
+                if (dxRoot * dxRoot + dzRoot * dzRoot <= maxDistSqr)
+                    return true;
+            }
+            float dx = t.position.x - anchor.x;
+            float dz = t.position.z - anchor.z;
+            return dx * dx + dz * dz <= maxDistSqr;
         }
 
         private static bool ReadTrapTriggeredSafe(GameObject go)

@@ -116,17 +116,47 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
+            int sent = SendChainStatesFiltered(targetPlayerId, null, Vector3.zero, 0f, 256);
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} chain state(s) to player {targetPlayerId}"
+                : $"[BulkSync] Sent {sent} chain state(s) to all clients");
+        }
+
+        /// <summary>
+        /// Host→peer: damaged/detached chains under/near the pad. Pending chain
+        /// queue is FIFO-capped at 32 before virgin-pad flush.
+        /// </summary>
+        internal int SendChainStatesNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+            return SendChainStatesFiltered(targetPlayerId, root, anchor, maxDistSqr, 64);
+        }
+
+        private int SendChainStatesFiltered(
+            int targetPlayerId, Transform root, Vector3 anchor, float maxDistSqr, int maxSend)
+        {
+            bool padScoped = root != null;
+
             ChainParent[] all = WorldQueryHelper.GetCachedSceneComponents<ChainParent>();
             int sent = 0;
-            for (int i = 0; i < all.Length; i++)
+            for (int i = 0; i < all.Length && sent < maxSend; i++)
             {
                 ChainParent chain = all[i];
-                if (chain == null) continue;
+                if (chain == null || chain.transform == null) continue;
 
                 float maxHp = chain.maxHealth > 0f ? chain.maxHealth : chain.health;
                 bool damaged = maxHp > 0f && chain.health < maxHp;
                 bool detached = !chain.attached;
                 if (!damaged && !detached)
+                    continue;
+                if (padScoped && !IsUnderOrNearLocation(chain.transform, root, anchor, maxDistSqr))
                     continue;
 
                 var msg = ChainSyncHelpers.BuildMessage(chain);
@@ -134,9 +164,25 @@ namespace DWMPHorde.Networking
                 sent++;
             }
 
-            ModRuntime.LegacyInfo(targetPlayerId > 0
-                ? $"[BulkSync] Sent {sent} chain state(s) to player {targetPlayerId}"
-                : $"[BulkSync] Sent {sent} chain state(s) to all clients");
+            return sent;
+        }
+
+        private static bool IsUnderOrNearLocation(
+            Transform t, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (t == null) return false;
+            if (root != null && (t == root || t.IsChildOf(root)))
+                return true;
+            if (root != null)
+            {
+                float dxRoot = t.position.x - root.position.x;
+                float dzRoot = t.position.z - root.position.z;
+                if (dxRoot * dxRoot + dzRoot * dzRoot <= maxDistSqr)
+                    return true;
+            }
+            float dx = t.position.x - anchor.x;
+            float dz = t.position.z - anchor.z;
+            return dx * dx + dz * dz <= maxDistSqr;
         }
     }
 }

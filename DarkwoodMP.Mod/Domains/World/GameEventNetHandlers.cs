@@ -210,6 +210,165 @@ namespace DWMPHorde.Networking
                     + (fromDestroyed > 0 ? " (destroyOnFire+" + fromDestroyed + ")" : ""));
         }
 
+        /// <summary>
+        /// Host: first-enter pad resync — fired one-shot GEs under/near <paramref name="loc"/>
+        /// only (not a second full join). Client pending from late-join ages out at 60s and
+        /// misses virgin-prefab setActive/remove. ActorPlayerId stays 0 (world geometry;
+        /// no personal bag/teleport re-grant). Skips <c>multipleFire</c>. Dream-named GEs
+        /// omitted unless a dream is active; dream pads use dream-root SoftMatch on apply.
+        /// </summary>
+        /// <returns>Number of events packed into the bulk (0 = nothing sent).</returns>
+        internal int SendFiredGameEventsNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || !_net.IsConnected
+                || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+
+            bool dreamActive = DreamSyncManager.IsDreamActive
+                || (Dreams.Instance != null && Dreams.Instance.dreaming);
+            Transform dreamRoot = dreamActive
+                ? DreamSyncManager.GetDreamLocationTransform()
+                : null;
+
+            GameEvents[] all = null;
+            try
+            {
+                all = WorldQueryHelper.GetCachedSceneComponents<GameEvents>();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[LocationSync] pad GE scan failed: " + ex.Message);
+                return 0;
+            }
+
+            int scanCap = all != null ? all.Length : 0;
+            var list = new List<GameEventsFiredMessage>(
+                Mathf.Min(scanCap + _destroyedFiredGameEvents.Count, GameEventsBulkMessage.MaxEvents));
+
+            if (all != null)
+            {
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (list.Count >= GameEventsBulkMessage.MaxEvents)
+                        break;
+                    GameEvents ge = all[i];
+                    if (ge == null || ge.transform == null)
+                        continue;
+                    if (!ge.fired || ge.multipleFire)
+                        continue;
+                    if (ge.isSavedDelayedEvent)
+                        continue;
+                    if (!IsUnderOrNearLocation(ge.transform, root, anchor, maxDistSqr))
+                        continue;
+                    // Dream active: only pad children / near dream root (never overworld twin).
+                    if (dreamRoot != null
+                        && !ge.transform.IsChildOf(dreamRoot)
+                        && (ge.transform.position - dreamRoot.position).sqrMagnitude
+                            > 250f * 250f)
+                        continue;
+
+                    string eventName = ge.name ?? "";
+                    if (IsEphemeralDreamFxEvent(eventName))
+                        continue;
+                    if (!dreamActive
+                        && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        continue;
+
+                    Vector3 p = ge.transform.position;
+                    list.Add(new GameEventsFiredMessage
+                    {
+                        PosX = Mathf.Round(p.x * 10f) / 10f,
+                        PosY = Mathf.Round(p.y * 10f) / 10f,
+                        PosZ = Mathf.Round(p.z * 10f) / 10f,
+                        EventName = eventName,
+                        ActorPlayerId = 0
+                    });
+                }
+            }
+
+            int fromDestroyed = 0;
+            for (int i = 0; i < _destroyedFiredGameEvents.Count; i++)
+            {
+                if (list.Count >= GameEventsBulkMessage.MaxEvents)
+                    break;
+                var destroyed = _destroyedFiredGameEvents[i];
+                string eventName = destroyed.EventName ?? "";
+                if (IsEphemeralDreamFxEvent(eventName))
+                    continue;
+                if (!dreamActive
+                    && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                Vector3 dPos = new Vector3(destroyed.PosX, destroyed.PosY, destroyed.PosZ);
+                if (!IsNearLocationAnchor(dPos, root, anchor, maxDistSqr))
+                    continue;
+                if (dreamRoot != null
+                    && (dPos - dreamRoot.position).sqrMagnitude > 250f * 250f)
+                    continue;
+                if (BulkListContains(list, destroyed))
+                    continue;
+                destroyed.ActorPlayerId = 0;
+                list.Add(destroyed);
+                fromDestroyed++;
+            }
+
+            if (list.Count == 0)
+                return 0;
+
+            var msg = new GameEventsBulkMessage
+            {
+                EventCount = list.Count,
+                PosX = new float[list.Count],
+                PosY = new float[list.Count],
+                PosZ = new float[list.Count],
+                EventNames = new string[list.Count]
+            };
+            for (int i = 0; i < list.Count; i++)
+            {
+                msg.PosX[i] = list[i].PosX;
+                msg.PosY[i] = list[i].PosY;
+                msg.PosZ[i] = list[i].PosZ;
+                msg.EventNames[i] = list[i].EventName;
+            }
+
+            _net.SendBulkOrAll(NetMessageType.GameEventsBulk, w => msg.Serialize(w), targetPlayerId);
+            ModLog.Event(LogCat.Session,
+                "[LocationSync] pad fired GE → p" + targetPlayerId + ": " + list.Count
+                + (fromDestroyed > 0 ? " (destroyOnFire+" + fromDestroyed + ")" : "")
+                + " loc=" + (loc.gameObject != null ? loc.gameObject.name : loc.name));
+            return list.Count;
+        }
+
+        private static bool IsUnderOrNearLocation(
+            Transform t, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (t == null) return false;
+            if (root != null && (t == root || t.IsChildOf(root)))
+                return true;
+            return IsNearLocationAnchor(t.position, root, anchor, maxDistSqr);
+        }
+
+        private static bool IsNearLocationAnchor(
+            Vector3 pos, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (root != null)
+            {
+                float dxRoot = pos.x - root.position.x;
+                float dzRoot = pos.z - root.position.z;
+                if (dxRoot * dxRoot + dzRoot * dzRoot <= maxDistSqr)
+                    return true;
+            }
+            float dx = pos.x - anchor.x;
+            float dz = pos.z - anchor.z;
+            return dx * dx + dz * dz <= maxDistSqr;
+        }
+
         private static bool BulkListContains(List<GameEventsFiredMessage> list, GameEventsFiredMessage msg)
         {
             for (int i = 0; i < list.Count; i++)

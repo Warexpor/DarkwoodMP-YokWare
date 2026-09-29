@@ -126,24 +126,72 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
+            int sent = SendWorldBurnStatesFiltered(targetPlayerId, null, Vector3.zero, 0f, 256);
+            ModRuntime.LegacyInfo(targetPlayerId > 0
+                ? $"[BulkSync] Sent {sent} world-burn state(s) to player {targetPlayerId}"
+                : $"[BulkSync] Sent {sent} world-burn state(s) to all clients");
+        }
+
+        /// <summary>
+        /// Host→peer: burning Door/Window/Item under/near the pad. Pending burn
+        /// queue is FIFO-capped at 32 and misses virgin-pad targets.
+        /// </summary>
+        internal int SendWorldBurnStatesNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+            return SendWorldBurnStatesFiltered(targetPlayerId, root, anchor, maxDistSqr, 64);
+        }
+
+        private int SendWorldBurnStatesFiltered(
+            int targetPlayerId, Transform root, Vector3 anchor, float maxDistSqr, int maxSend)
+        {
+            bool padScoped = root != null || maxDistSqr > 0f;
+            // Late-join path passes maxDistSqr=0 with null root → unscoped.
+            if (root == null && maxDistSqr <= 0f)
+                padScoped = false;
+
             Burn[] all = WorldQueryHelper.GetCachedSceneComponents<Burn>();
             int sent = 0;
-            for (int i = 0; i < all.Length; i++)
+            for (int i = 0; i < all.Length && sent < maxSend; i++)
             {
                 Burn burn = all[i];
-                if (burn == null) continue;
+                if (burn == null || burn.transform == null) continue;
                 if (!WorldBurnSyncHelpers.TryResolveWorldTarget(burn, out _, out _))
                     continue;
-                if (sent >= 256) break;
+                if (padScoped && !IsUnderOrNearLocation(burn.transform, root, anchor, maxDistSqr))
+                    continue;
 
                 var msg = WorldBurnSyncHelpers.BuildMessage(burn, burning: true);
                 _net.SendBulkOrAll(NetMessageType.WorldBurnState, w => msg.Serialize(w), targetPlayerId);
                 sent++;
             }
 
-            ModRuntime.LegacyInfo(targetPlayerId > 0
-                ? $"[BulkSync] Sent {sent} world-burn state(s) to player {targetPlayerId}"
-                : $"[BulkSync] Sent {sent} world-burn state(s) to all clients");
+            return sent;
+        }
+
+        private static bool IsUnderOrNearLocation(
+            Transform t, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (t == null) return false;
+            if (root != null && (t == root || t.IsChildOf(root)))
+                return true;
+            if (root != null)
+            {
+                float dxRoot = t.position.x - root.position.x;
+                float dzRoot = t.position.z - root.position.z;
+                if (dxRoot * dxRoot + dzRoot * dzRoot <= maxDistSqr)
+                    return true;
+            }
+            float dx = t.position.x - anchor.x;
+            float dz = t.position.z - anchor.z;
+            return dx * dx + dz * dz <= maxDistSqr;
         }
 
         private static GameObject FindTarget(byte targetType, Vector3 pos)

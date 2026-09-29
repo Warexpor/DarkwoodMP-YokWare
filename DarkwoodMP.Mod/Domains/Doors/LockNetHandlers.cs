@@ -9,7 +9,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Constructible / padlock / locked / interactive bulk composed for 0.8.</summary>
-    internal sealed class LockNetHandlers
+    internal sealed partial class LockNetHandlers
     {
         private readonly LanNetworkManager _net;
 

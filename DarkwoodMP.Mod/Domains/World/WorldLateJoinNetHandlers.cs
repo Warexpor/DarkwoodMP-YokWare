@@ -122,9 +122,14 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host: peer's first local <c>spawnLocation</c> instantiates a virgin prefab.
         /// Late-join bulk often ran while that pad was absent (door/item find failed or
-        /// pending queue capped). Re-send the same idempotent barricade / opened-door /
-        /// NPC visual snapshots lights already get via <see cref="ResyncWorldLightsForPeer"/>.
+        /// pending queue capped / GE pending aged out). Re-send the same idempotent
+        /// barricade / opened-door / unlocked-padlock / unlocked-Locked / fired-GE /
+        /// InteractiveItem isOn / constructed / trap / burn / chain / shadow-armor /
+        /// station / NPC visual snapshots lights already get via
+        /// <see cref="ResyncWorldLightsForPeer"/>.
         /// Container loot stays on open <c>ContainerStateRequest</c> (no bulk here).
+        /// DoorState opened replay does not clear <see cref="Padlock.locked"/> or
+        /// <see cref="Locked.locked"/> (DoorOpen apply does; first-enter uses DoorState).
         /// </summary>
         internal void ResyncOutsideLocationPadForPeer(int targetPlayerId, Location loc)
         {
@@ -135,6 +140,24 @@ namespace DWMPHorde.Networking
             int barrWindows = _net.BarricadeHandlers.SendBarricadeWindowsTo(targetPlayerId);
             int barrItems = _net.BarricadeHandlers.SendBarricadeItemsTo(targetPlayerId);
             int opened = SendOpenedDoorStatesNearLocationTo(targetPlayerId, loc);
+            int padlocks = SendUnlockedPadlocksNearLocationTo(targetPlayerId, loc);
+            int lockeds = SendUnlockedLockedsNearLocationTo(targetPlayerId, loc);
+            int firedGe = _net.GameEventHandlers.SendFiredGameEventsNearLocationTo(
+                targetPlayerId, loc);
+            int interactives = _net.LockHandlers.SendInteractivesNearLocationTo(
+                targetPlayerId, loc);
+            int constructed = _net.LockHandlers.SendConstructedSitesNearLocationTo(
+                targetPlayerId, loc);
+            int traps = _net.WorldObjectSendHandlers.SendTrapsNearLocationTo(
+                targetPlayerId, loc);
+            int burns = _net.WorldBurnHandlers.SendWorldBurnStatesNearLocationTo(
+                targetPlayerId, loc);
+            int chains = _net.ChainHandlers.SendChainStatesNearLocationTo(
+                targetPlayerId, loc);
+            int shadowArmor = _net.ShadowArmorHandlers.SendShadowArmorStatesNearLocationTo(
+                targetPlayerId, loc);
+            int stations = _net.StationHandlers.SendStationsNearLocationTo(
+                targetPlayerId, loc);
             _net.BulkSyncHandlers.SendReputationBulkSyncTo(targetPlayerId);
 
             ModLog.Event(LogCat.Session,
@@ -143,6 +166,16 @@ namespace DWMPHorde.Networking
                 + " win=" + barrWindows
                 + " item=" + barrItems
                 + " opened=" + opened
+                + " padlock=" + padlocks
+                + " locked=" + lockeds
+                + " firedGe=" + firedGe
+                + " interactive=" + interactives
+                + " construct=" + constructed
+                + " trap=" + traps
+                + " burn=" + burns
+                + " chain=" + chains
+                + " shadowArmor=" + shadowArmor
+                + " station=" + stations
                 + " loc=" + (loc.gameObject != null ? loc.gameObject.name : loc.name));
         }
 
@@ -202,6 +235,100 @@ namespace DWMPHorde.Networking
                     new PhysicsStateMessage { Doors = new[] { ds } });
                 _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
                     w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+
+            return sent;
+        }
+
+        /// <summary>
+        /// Host→peer: PadlockUnlock for unlocked padlocks under/near the pad.
+        /// Late-join PadlockUnlock pending is FIFO-capped at 64 and is not age-refreshed
+        /// on first spawn — virgin prefab padlocks stay locked without this resync.
+        /// </summary>
+        private int SendUnlockedPadlocksNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+
+            Padlock[] pads = WorldQueryHelper.GetCachedSceneComponents<Padlock>();
+            int sent = 0;
+            const int maxSend = 64;
+            for (int i = 0; i < pads.Length && sent < maxSend; i++)
+            {
+                Padlock p = pads[i];
+                if (p == null || p.locked || p.transform == null) continue;
+                if (!p.gameObject.scene.IsValid()) continue;
+                if (!IsUnderOrNearLocation(p.transform, root, anchor, maxDistSqr))
+                    continue;
+
+                Vector3 pos = p.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(pos.x * 10f) / 10f,
+                    Mathf.Round(pos.y * 10f) / 10f,
+                    Mathf.Round(pos.z * 10f) / 10f);
+                _net.SendToPlayer(targetPlayerId, NetMessageType.PadlockUnlock,
+                    w => new PadlockUnlockMessage
+                    {
+                        PosX = key.x,
+                        PosY = key.y,
+                        PosZ = key.z
+                    }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+
+            return sent;
+        }
+
+        /// <summary>
+        /// Host→peer: LockedUnlock for unlocked key locks under/near the pad.
+        /// Same FIFO-capped pending as PadlockUnlock (shared MaxPendingLocks=64).
+        /// DoorState first-enter open does not clear <see cref="Locked.locked"/>;
+        /// covers unlocked-but-still-closed doors and non-door Locked (chests).
+        /// Apply is idempotent (<c>wasLocked</c> gates host onActivate synth).
+        /// </summary>
+        private int SendUnlockedLockedsNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+
+            Locked[] locks = WorldQueryHelper.GetCachedSceneComponents<Locked>();
+            int sent = 0;
+            const int maxSend = 64;
+            for (int i = 0; i < locks.Length && sent < maxSend; i++)
+            {
+                Locked l = locks[i];
+                if (l == null || l.locked || l.transform == null) continue;
+                if (!l.gameObject.scene.IsValid()) continue;
+                if (!IsUnderOrNearLocation(l.transform, root, anchor, maxDistSqr))
+                    continue;
+
+                Vector3 pos = l.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(pos.x * 10f) / 10f,
+                    Mathf.Round(pos.y * 10f) / 10f,
+                    Mathf.Round(pos.z * 10f) / 10f);
+                _net.SendToPlayer(targetPlayerId, NetMessageType.LockedUnlock,
+                    w => new LockedUnlockMessage
+                    {
+                        PosX = key.x,
+                        PosY = key.y,
+                        PosZ = key.z
+                    }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
                 sent++;
             }
 

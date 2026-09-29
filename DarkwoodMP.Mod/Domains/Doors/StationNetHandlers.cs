@@ -7,7 +7,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Saw / feeder / lure station sync handlers composed for 0.8.</summary>
-    internal sealed class StationNetHandlers
+    internal sealed partial class StationNetHandlers
     {
         private readonly LanNetworkManager _net;
 

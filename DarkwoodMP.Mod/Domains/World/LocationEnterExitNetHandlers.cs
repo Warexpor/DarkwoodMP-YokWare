@@ -103,8 +103,9 @@ namespace DWMPHorde.Networking
                 // Also on pendingPlace / proxyMissing (soft-reconnect re-place) — not on
                 // every localSameLoc heartbeat (that would thrash lights at ~1 Hz).
                 // Fresh OutsideLocations.spawnLocation is a virgin prefab — late-join
-                // barricade/door/NPC bulk often ran before the pad existed. Replay
-                // those snapshots (idempotent) the same way lights already do.
+                // barricade/door/padlock/Locked/fired-GE/interactive/construct/trap/
+                // burn/chain/NPC bulk often ran before the pad existed. Replay those
+                // snapshots (idempotent) the same way lights already do.
                 if (_net.Role == NetworkRole.Host && playerId != _net.LocalPlayerId
                     && (firstEnterThisLoc || pendingPlace || proxyMissing))
                 {

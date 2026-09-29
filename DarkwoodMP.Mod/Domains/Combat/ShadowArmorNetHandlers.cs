@@ -10,7 +10,7 @@ namespace DWMPHorde.Networking
     /// ShadowArmor mid-fight health sync (pos-keyed absolute state).
     /// Covers damageMe (melee + light), die, and late-join damaged armor.
     /// </summary>
-    internal sealed class ShadowArmorNetHandlers
+    internal sealed partial class ShadowArmorNetHandlers
     {
         private readonly LanNetworkManager _net;
 

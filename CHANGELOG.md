@@ -3,12 +3,91 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.119**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.122**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.122 — First-enter pad resync covers remaining virgin-prefab state
+
+0.8.119–0.8.121 replayed barricades, opened doors, destroyed items, NPC
+visuals, padlocks, fired one-shot GEs (`ActorPlayerId=0`), and key Locked
+unlocks when a client first-spawned an outside pad. Sticky lamp/generator
+state already re-pushed via `ResyncWorldLightsForPeer` on the same trigger.
+Still missing (late-join pending FIFO/age-out before virgin `createLocation`):
+InteractiveItem `isOn` (msg 62 — GE `switchItemOnOff` toggles `Item` only, not
+levers), constructed props, traps (30s pending age), world Burn, chains,
+ShadowArmor on pad props, and saw/feeder/lure stations on the pad. Protocol
+**25** unchanged. Product **0.8.121 → 0.8.122**.
+
+- Host `ResyncOutsideLocationPadForPeer`: also pad-scoped InteractiveItemSwitch
+  (isOn set-state, not toggle), ConstructibleConstruction, TrapBulk,
+  WorldBurnState, ChainState, ShadowArmorState, Saw/Feeder/Lure — dream path
+  still skipped. Client settle invalidates matching scene scans and flushes
+  pending for those types.
+- Containers stay on-open `ContainerStateRequest` (not first-enter bulk). Gas
+  trails are network-spawned at coords (not virgin prefab fields).
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
+
+---
+
+## 0.8.121 — First-enter pad also replays key Locked unlocks
+
+0.8.120 replayed unlocked Padlocks on host first-enter pad resync. Key
+`Locked` (not Padlock) had the same hole: late-join `LockedUnlock` shares the
+FIFO-capped pending list (64 with padlocks/interactives), and DoorState opened
+replay calls `Door.open` without clearing `Locked.locked` (DoorOpen apply does;
+first-enter uses DoorState). Unlocked-but-closed doors and non-door Locked
+(chests) were never covered by door-open replay. Protocol **25** unchanged.
+Product **0.8.120 → 0.8.121**.
+
+- Host `ResyncOutsideLocationPadForPeer`: also send unlocked `LockedUnlock`
+  near the pad (host `!locked` only; pad-scoped like padlocks; dreams still
+  skip this path). Client apply stays idempotent (`wasLocked` gates host
+  `onActivate` synth — directed SendToPlayer, client Role does not re-fire).
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
+
+---
+
+## 0.8.120 — First-enter pad also replays padlocks and fired GEs
+
+0.8.119 replayed barricades, opened doors, destroyed items, and NPC visuals
+when a client first-spawned an outside pad the host had already changed.
+Padlocks and fired GameEvents that mutated pad geometry (setActive / remove /
+moves) were still missing: late-join `PadlockUnlock` pending is FIFO-capped
+at 64, and `GameEventsBulk` pending ages out at 60s — often long before the
+client's first `spawnLocation`. DoorState opened replay does not clear
+`Padlock.locked`. Cache invalidate alone does not re-send expired events.
+Protocol **25** unchanged. Product **0.8.119 → 0.8.120**.
+
+- Host `ResyncOutsideLocationPadForPeer`: also send unlocked `PadlockUnlock`
+  and pad-scoped `GameEventsBulk` (fired `!multipleFire`, `ActorPlayerId=0`
+  world geometry only; destroyOnFire latch near the pad; dream-named skipped
+  unless dreaming; dream SoftMatch still pad-root filtered). Dreams still
+  skip this path (dream load owns the pad).
+- Client outside-location settle: invalidate Padlock / Locked / GameEvents
+  scene scans and flush pending locks/GEs so SoftMatch sees virgin-pad
+  children when the resync arrives.
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
 
 ---
 

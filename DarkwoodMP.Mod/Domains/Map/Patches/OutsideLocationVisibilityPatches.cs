@@ -21,7 +21,45 @@ namespace DWMPHorde.Patches
                 if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
                     return;
                 net.LocationHandlers.OnLocalOutsideLocationSettled(locationName);
+                // Virgin pad just registered — drop stale Padlock/Locked/GE/Interactive/
+                // Constructible/Chain/Burn/Trigger scans so pending flush and host
+                // first-enter SoftMatch see pad children (not a 3s TTL miss).
+                WorldQueryHelper.InvalidateSceneScanCache<Padlock>();
+                WorldQueryHelper.InvalidateSceneScanCache<Locked>();
+                WorldQueryHelper.InvalidateSceneScanCache<GameEvents>();
+                WorldQueryHelper.InvalidateSceneScanCache<InteractiveItem>();
+                WorldQueryHelper.InvalidateSceneScanCache<Constructible>();
+                WorldQueryHelper.InvalidateSceneScanCache<ChainParent>();
+                WorldQueryHelper.InvalidateSceneScanCache<Burn>();
+                WorldQueryHelper.InvalidateSceneScanCache<Trigger>();
+                WorldQueryHelper.InvalidateSceneScanCache<ShadowArmor>();
+                WorldQueryHelper.InvalidateSceneScanCache<Saw>();
+                WorldQueryHelper.InvalidateSceneScanCache<Feeder>();
+                WorldQueryHelper.InvalidateSceneScanCache<Lure>();
+                if (net.LockHandlers != null)
+                {
+                    net.LockHandlers.TryFlushPendingLocks();
+                    net.LockHandlers.TryFlushPendingConstructibles();
+                }
+                if (net.GameEventHandlers != null)
+                    net.GameEventHandlers.TryFlushPendingGameEvents();
+                if (net.ChainHandlers != null)
+                    net.ChainHandlers.TryFlushPendingChainStates();
+                if (net.WorldBurnHandlers != null)
+                    net.WorldBurnHandlers.TryFlushPending();
+                if (net.ShadowArmorHandlers != null)
+                    net.ShadowArmorHandlers.TryFlushPending();
+                if (net.StationHandlers != null)
+                {
+                    net.StationHandlers.TryFlushPendingSawStates();
+                    net.StationHandlers.TryFlushPendingFeederStates();
+                    net.StationHandlers.TryFlushPendingLureStates();
+                }
                 WorldPhysicsSyncService.TryFlushPendingLights();
+                Sync.TrapNetworkId.FlushPending(
+                    (p, n) => WorldPhysicsSyncService.FindTrapByPos(p, n),
+                    (go, trig, silent) =>
+                        WorldPhysicsSyncService.ApplyTrapState(go, trig, silentDisarm: silent));
             }
             catch (System.Exception ex)
             {
