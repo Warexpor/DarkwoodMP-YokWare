@@ -80,7 +80,8 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void SetDoorOpened(Door door, bool opened, Vector3 openerPos = default, float openForce = 0f, float bodyRotY = 0f, float angVelX = 0f, float angVelY = 0f, float angVelZ = 0f)
         {
-            InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce);
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+                InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce));
 
             var t = Traverse.Create(door);
             if (t.Field("opened").GetValue<bool>() != opened)

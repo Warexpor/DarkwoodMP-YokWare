@@ -36,17 +36,31 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Blocks client-side worm spawn (host-authoritative spawn).</summary>
+    /// <summary>Blocks client-side worm spawn. Host with peers uses a party-aware loop.</summary>
     [HarmonyPatch(typeof(CharacterSpawner), "waitToSpawnWorm")]
     public static class ClientDisableWormSpawnPatch
     {
         // IEnumerator — CharacterSpawner.init StartCoroutines this; null __result NREs.
-        private static bool Prefix(ref IEnumerator __result)
+        private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
         {
-            if (!ClientWorldHelper.IsClient)
-                return true;
-            __result = HarmonyCoroutineUtil.Empty();
-            return false;
+            if (ClientWorldHelper.IsClient)
+            {
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
+            // Vanilla only looks at Player.Instance. A warded host suppressed the
+            // worm for an unwarned client, and attackPlayer() always hit the host.
+            if (ModRuntime.Network != null
+                && ModRuntime.Network.Role == NetworkRole.Host
+                && ModRuntime.Network.IsConnected
+                && PlayerPositionManager.HasRemotePlayer)
+            {
+                __result = HardNightPartySpawn.WormLoop(__instance);
+                return false;
+            }
+
+            return true;
         }
     }
 

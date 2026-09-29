@@ -62,7 +62,12 @@ namespace DWMPHorde.Patches
             _nextFlushTime = 0f;
         }
 
-        /// <summary>Client: skip local trail spawn (prevents wild double scatter).</summary>
+        /// <summary>
+        /// Client ground pour (<c>Player.waitToSpillLiquid</c>): do not invent host-world
+        /// trails here. Ask the host via existing <see cref="NetMessageType.GasTrailSpawn"/>
+        /// (Forwardable), and place a local visual so the pourer sees puddles without waiting.
+        /// Host scatter / molotov secondaries stay host-owned (Object overload Prefix).
+        /// </summary>
         private static bool Prefix(object[] __args)
         {
             string prefab = __args != null && __args.Length > 0 ? __args[0] as string : null;
@@ -70,7 +75,22 @@ namespace DWMPHorde.Patches
                 return true;
             if (!GasSyncPolicy.ClientMustNotMutateWorld())
                 return true;
-            // Host will send GasTrailSpawn / ExplosionSpawnObject with authoritative positions.
+
+            Vector3 position = __args.Length > 1 ? (Vector3)__args[1] : Vector3.zero;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net != null && net.IsConnected)
+            {
+                net.SendGasTrailSpawn(new GasTrailSpawnMessage
+                {
+                    PosX = position.x,
+                    PosY = position.y,
+                    PosZ = position.z
+                });
+            }
+
+            // Local visual for the pourer (ExplicitFlag so this Prefix does not re-enter).
+            // Host + peers place the same trail from GasTrailSpawn / Forwardable.
+            Sync.WorldPhysicsSyncService.SpawnGasTrail(position);
             return false;
         }
 
@@ -173,8 +193,9 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host owns liquid fire. Client only starts burning when applying network ignite
-    /// (or bulk). Stops dual waitToBurnNeighbors sims fighting each other (stutter + wild cover).
+    /// Host owns liquid fire authority. Client must not run waitToBurnNeighbors as a
+    /// second sim, but a client torch / flaming melee / Burn trigger that would
+    /// startBurning locally must ask the host via existing GasIgnite (Forwardable).
     /// </summary>
     [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(Liquid), "startBurning")]
@@ -184,12 +205,27 @@ namespace DWMPHorde.Patches
         {
             __state = __instance != null && __instance.burning;
 
-            if (GasSyncPolicy.ClientMustNotMutateWorld())
-            {
-                // Drop local ignite — host GasIgnite / bulk will light the same puddle.
+            if (!GasSyncPolicy.ClientMustNotMutateWorld())
+                return true;
+            if (__instance == null || __instance.burning)
                 return false;
+
+            Vector3 pos = __instance.transform.position;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net != null && net.IsConnected)
+            {
+                net.SendGasIgnite(new GasIgniteMessage
+                {
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z
+                });
             }
-            return true;
+
+            // Local visual for the igniter (ExplicitFlag so this Prefix does not re-enter).
+            // Host + peers light the same puddle from GasIgnite / Forwardable.
+            Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos);
+            return false;
         }
 
         private static void Postfix(Liquid __instance, bool __state)

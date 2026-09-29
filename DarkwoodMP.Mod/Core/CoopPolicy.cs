@@ -18,6 +18,80 @@ namespace DWMPHorde
         /// call refreshTime() which fires startDay / startAfterNight / night setMe.
         /// </summary>
         public static bool ShouldUseRefreshTimeNoLogicOnClientSync => true;
+
+        public const int MinutesPerDay = 1440;
+
+        public static int WrapMinute(int time)
+        {
+            int m = time % MinutesPerDay;
+            if (m < 0) m += MinutesPerDay;
+            return m;
+        }
+
+        /// <summary>
+        /// True when a short forward clock step crosses <paramref name="targetMinute"/>.
+        /// Vanilla fires on exact equality; TimeSync can skip that minute.
+        /// Steps longer than <paramref name="maxStep"/> are late-join or dream jumps.
+        /// </summary>
+        public static bool LiveStepCrossedMinute(int prevTime, int newTime, int targetMinute, int maxStep = 8)
+        {
+            prevTime = WrapMinute(prevTime);
+            newTime = WrapMinute(newTime);
+            targetMinute = WrapMinute(targetMinute);
+            if (prevTime == newTime) return false;
+
+            int step = newTime > prevTime
+                ? newTime - prevTime
+                : (MinutesPerDay - prevTime) + newTime;
+            if (step <= 0 || step > maxStep) return false;
+
+            if (newTime > prevTime)
+                return targetMinute > prevTime && targetMinute <= newTime;
+            return targetMinute > prevTime || targetMinute <= newTime;
+        }
+
+        /// <summary>
+        /// Vanilla clears fedToday at midnight wrap and at dayTime+1, and on a new day.
+        /// </summary>
+        public static bool ShouldClearFedToday(int prevTime, int newTime, int prevDay, int newDay, int dayTime)
+        {
+            if (newDay > prevDay) return true;
+            if (LiveStepCrossedMinute(prevTime, newTime, 0)) return true;
+            int morning = dayTime + 1;
+            if (morning >= MinutesPerDay) morning -= MinutesPerDay;
+            if (morning < 0) morning += MinutesPerDay;
+            return LiveStepCrossedMinute(prevTime, newTime, morning);
+        }
+    }
+
+    /// <summary>
+    /// Party haveItem: same polarity as vanilla EventTriggerRequirement.
+    /// activeModifier false means the party must NOT be holding the item.
+    /// </summary>
+    public static class PartyRequirementPolicy
+    {
+        public static bool HaveItem(bool partyHas, bool activeModifier)
+            => partyHas ? activeModifier : !activeModifier;
+    }
+
+    /// <summary>
+    /// Personal permadeath is a single-player profile end. A connected client
+    /// dies on the shared night/day path instead of a local game-over the host
+    /// never sees. Lives are the value before vanilla decrements them.
+    /// </summary>
+    public static class PermadeathPolicy
+    {
+        public const int Normal = 0;
+        public const int Hard = 10;
+        public const int Nightmare = 20;
+
+        public static bool ClientUsesSharedDeath(bool connectedClient, int difficulty, int livesBeforeDeath)
+        {
+            if (!connectedClient) return false;
+            if (difficulty == Nightmare) return true;
+            if (difficulty == Hard && livesBeforeDeath <= 1) return true;
+            return false;
+        }
     }
 
     /// <summary>
@@ -155,4 +229,20 @@ namespace DWMPHorde
         public static bool ShouldSuppressCookOnHostRemoteApply(bool hostApplyingRemoteOutcome)
             => hostApplyingRemoteOutcome;
     }
+
+    /// <summary>
+    /// GameEvent types that mutate vanilla <c>Player.Instance</c> (bag, recipes,
+    /// teleport). World props / journal / flags stay shared. Actor id 0 = late-join
+    /// bulk or unknown → skip personal on apply so peers are not party-granted.
+    /// </summary>
+    public static class GameEventPersonalPolicy
+    {
+        /// <summary>
+        /// Live GameEventsFired: only the stamped actor re-runs personal Player.Instance
+        /// effects. ActorPlayerId &lt;= 0 (bulk / unset) never grants personal on apply.
+        /// </summary>
+        public static bool ShouldRunPersonalEffectsOnApply(int actorPlayerId, int localPlayerId)
+            => actorPlayerId > 0 && localPlayerId > 0 && actorPlayerId == localPlayerId;
+    }
 }
+

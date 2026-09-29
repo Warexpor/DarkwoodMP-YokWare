@@ -107,6 +107,9 @@ namespace DWMPHorde.Networking
             }
 
             ModRuntime.LegacyInfo($"[Container] HandleContainerStateRequest: responding with {count} items");
+            if (inv.invType == Inventory.InvType.itemInv || inv.invType == Inventory.InvType.deathDrop)
+                ContainerLootNetHandlers.FireRemoteContainerStoryTrigger(
+                    _net, inv, EventTrigger.Type.onOpenContainer, "", false);
 
             short entityHash = 0;
             Character ownerChar = inv.GetComponent<Character>();

@@ -220,19 +220,17 @@ namespace DWMPHorde.Sync
                 Item item = gen.GetComponent<Item>();
                 if (isOn)
                 {
-                    // Prefer Item.turnOn (playStart + particles + Generator.turnOn).
-                    // Generator.turnOn alone does not start ItemSounds.
                     if (item != null)
-                        item.turnOn();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
                     else
-                        gen.turnOn();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOn());
                 }
                 else
                 {
                     if (item != null)
-                        item.turnOff();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
                     else
-                        gen.turnOff();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOff());
                 }
 
                 // Belt: if item.turnOn early-out (fuel/disabled) left isOn wrong, force gen + SFX.

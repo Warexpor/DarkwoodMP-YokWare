@@ -1,13 +1,18 @@
+using System;
+
 namespace DWMPHorde.Sync
 {
     /// <summary>
     /// While host applies a remote peer's dialog outcome, suppress personal
     /// bag mutations on host Player.Instance. Journal is shared world
     /// identity. Apply and fan out; do not snapshot-restore.
+    /// When the inbound packet has a player id and no GeFireActorContext is
+    /// already pushed, stamps that peer as the GameEventsFired actor.
     /// </summary>
     public static class DialogHostApplyGuard
     {
         private static int _depth;
+        private static bool _autoPushedActor;
 
         /// <summary>Allow exactly one displayNextBoard, then block chained/delayed calls.</summary>
         public static bool OneShotBoardActive { get; set; }
@@ -27,6 +32,22 @@ namespace DWMPHorde.Sync
             _depth++;
             if (_depth == 1)
             {
+                _autoPushedActor = false;
+                // Prefer an explicit GeFireActorContext.Push (proxy volume, cursor).
+                // Otherwise stamp the inbound packet peer as the GE actor.
+                if (GeFireActorContext.Depth == 0)
+                {
+                    try
+                    {
+                        var net = ModRuntime.Network as Networking.LanNetworkManager;
+                        if (net != null && net.IsConnected && net.CurrentReceivePlayerId > 0)
+                        {
+                            GeFireActorContext.Push(net.CurrentReceivePlayerId);
+                            _autoPushedActor = true;
+                        }
+                    }
+                    catch { /* ignore */ }
+                }
                 try { DWMPHorde.Patches.JournalSyncHelpers.BeginWorldApplyDiff(); }
                 catch { /* journal UI may be missing */ }
             }
@@ -38,6 +59,11 @@ namespace DWMPHorde.Sync
             {
                 try { DWMPHorde.Patches.JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
                 catch { /* ignore */ }
+                if (_autoPushedActor)
+                {
+                    GeFireActorContext.Pop();
+                    _autoPushedActor = false;
+                }
             }
             if (_depth > 0)
                 _depth--;
@@ -49,13 +75,44 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Host apply of a remote world action runs inside NetworkApplyGuard, which
+        /// swallows GameEventsFired. This lets the one-shot fan out, including back
+        /// to the peer who performed the action.
+        /// </summary>
+        public static void RunHostWorldFanout(Action body)
+        {
+            if (body == null) return;
+            bool host = ModRuntime.Network is Networking.LanNetworkManager net
+                && net.IsConnected
+                && net.Role == Networking.NetworkRole.Host;
+            if (host) BeginWorldOnly();
+            try { body(); }
+            finally { if (host) EndWorldOnly(); }
+        }
+
+        /// <summary>
+        /// Same as <see cref="RunHostWorldFanout"/> but stamps <paramref name="actorPlayerId"/>
+        /// as the GameEventsFired actor (proxy enter / cursor when receive id is unset).
+        /// </summary>
+        public static void RunHostWorldFanoutForPlayer(int actorPlayerId, Action body)
+        {
+            if (body == null) return;
+            bool pushed = actorPlayerId > 0;
+            if (pushed) GeFireActorContext.Push(actorPlayerId);
+            try { RunHostWorldFanout(body); }
+            finally { if (pushed) GeFireActorContext.Pop(); }
+        }
+
         public static void Reset()
         {
             _depth = 0;
+            _autoPushedActor = false;
             OneShotBoardActive = false;
             DestDrainActive = false;
             _oneShotConsumed = false;
             _blockChainedDisplayUntilMs = 0;
+            GeFireActorContext.Reset();
         }
 
         /// <summary>

@@ -353,6 +353,67 @@ namespace DWMPHorde.Patches
                 }
             }
         }
+
+        /// <summary>
+        /// Full before/after sync for craft (and similar) mutations that both
+        /// remove ingredients from and optionally stack products into a shared
+        /// pile. Place-only <see cref="SendDiff"/> misses ingredient consume.
+        /// </summary>
+        internal static void SendFullDiff(Inventory inv, Dictionary<int, SlotSnapshot> before)
+        {
+            if (before == null || inv == null) return;
+            var after = TakeSnapshot(inv);
+            Vector3 pos = inv.transform.position;
+
+            foreach (var kv in before)
+            {
+                if (!after.TryGetValue(kv.Key, out var now))
+                {
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.RemoveItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount,
+                        kv.Value.Durability, kv.Value.Ammo, isRecipe: kv.Value.IsRecipe,
+                        upgrades: kv.Value.Upgrades, shouldBeActive: kv.Value.ShouldBeActive);
+                    continue;
+                }
+
+                if (kv.Value.Type != now.Type || kv.Value.IsRecipe != now.IsRecipe)
+                {
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.RemoveItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount,
+                        kv.Value.Durability, kv.Value.Ammo, isRecipe: kv.Value.IsRecipe,
+                        upgrades: kv.Value.Upgrades, shouldBeActive: kv.Value.ShouldBeActive);
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.PlaceItem, pos, kv.Key, now.Type, now.Amount,
+                        now.Durability, now.Ammo, isPlayerPlaced: true, isRecipe: now.IsRecipe,
+                        upgrades: now.Upgrades, shouldBeActive: now.ShouldBeActive);
+                    continue;
+                }
+
+                if (now.Amount < kv.Value.Amount)
+                {
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.RemoveItem, pos, kv.Key, kv.Value.Type,
+                        kv.Value.Amount - now.Amount, kv.Value.Durability, kv.Value.Ammo,
+                        isRecipe: kv.Value.IsRecipe, upgrades: kv.Value.Upgrades,
+                        shouldBeActive: kv.Value.ShouldBeActive);
+                }
+                else if (now.Amount == kv.Value.Amount
+                    && System.Math.Abs(now.Durability - kv.Value.Durability) > 0.001f)
+                {
+                    // Durability-only drain (recipe durabilityAmount): rewrite slot.
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.RemoveItem, pos, kv.Key, kv.Value.Type, kv.Value.Amount,
+                        kv.Value.Durability, kv.Value.Ammo, isRecipe: kv.Value.IsRecipe,
+                        upgrades: kv.Value.Upgrades, shouldBeActive: kv.Value.ShouldBeActive);
+                    ContainerSyncHelpers.SendContainerAction(
+                        ContainerAction.PlaceItem, pos, kv.Key, now.Type, now.Amount,
+                        now.Durability, now.Ammo, isPlayerPlaced: true, isRecipe: now.IsRecipe,
+                        upgrades: now.Upgrades, shouldBeActive: now.ShouldBeActive);
+                }
+            }
+
+            SendDiff(inv, before);
+        }
     }
 
     /// <summary>Per-invocation snapshot state for transfer-to-opened-inventory patches.</summary>

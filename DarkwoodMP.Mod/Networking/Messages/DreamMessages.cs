@@ -1,4 +1,5 @@
 using DWMPHorde.Sync;
+using UnityEngine;
 
 namespace DWMPHorde.Networking
 {
@@ -141,6 +142,9 @@ namespace DWMPHorde.Networking
         public bool SessionActive;
         public string ActivePreset;
         public int SessionId;
+        /// <summary>0.8.79 trailer: live pad position so a joiner can enter the dream.</summary>
+        public bool HasPadPosition;
+        public float PadX, PadY, PadZ;
 
         public void Serialize(NetWriter w)
         {
@@ -152,6 +156,13 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
             w.Put(SessionId);
+            w.Put(HasPadPosition);
+            if (HasPadPosition)
+            {
+                w.Put(PadX);
+                w.Put(PadY);
+                w.Put(PadZ);
+            }
         }
 
         public static DreamSessionBulkMessage Deserialize(NetReader r)
@@ -172,17 +183,46 @@ namespace DWMPHorde.Networking
             // Older payloads may omit the trailing session ID.
             if (r.AvailableBytes >= 4)
                 msg.SessionId = r.GetInt();
+            if (r.AvailableBytes >= 1)
+            {
+                msg.HasPadPosition = r.GetBool();
+                if (msg.HasPadPosition && r.AvailableBytes >= 12)
+                {
+                    msg.PadX = r.GetFloat();
+                    msg.PadY = r.GetFloat();
+                    msg.PadZ = r.GetFloat();
+                }
+                else
+                {
+                    msg.HasPadPosition = false;
+                }
+            }
             return msg;
         }
 
-        public static DreamSessionBulkMessage FromLocal() => new DreamSessionBulkMessage
+        public static DreamSessionBulkMessage FromLocal()
         {
-            LvlFlags = DreamSession.ReadUnionLvlFlags(),
-            SessionActive = DreamSession.IsActive,
-            ActivePreset = DreamSession.PresetName ?? "",
-            CompletedPresets = DreamSession.GetCompletedPresets(),
-            SessionId = DreamSession.SessionId
-        };
+            var msg = new DreamSessionBulkMessage
+            {
+                LvlFlags = DreamSession.ReadUnionLvlFlags(),
+                SessionActive = DreamSession.IsActive,
+                ActivePreset = DreamSession.PresetName ?? "",
+                CompletedPresets = DreamSession.GetCompletedPresets(),
+                SessionId = DreamSession.SessionId
+            };
+            var loc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+            // Only a live dream. prepareDream's early roll bulk must not ship a
+            // leftover pad and pull peers in before DreamStarted.
+            if (msg.SessionActive && Dreams.Instance != null && Dreams.Instance.dreaming && loc != null)
+            {
+                Vector3 p = loc.transform.position;
+                msg.HasPadPosition = true;
+                msg.PadX = p.x;
+                msg.PadY = p.y;
+                msg.PadZ = p.z;
+            }
+            return msg;
+        }
     }
 
     public struct DreamChainStartMessage

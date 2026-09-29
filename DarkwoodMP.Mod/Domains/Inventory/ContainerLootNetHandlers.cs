@@ -98,11 +98,22 @@ namespace DWMPHorde.Networking
                 ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: no inventory at {pos} for {msg.Action} slot={msg.SlotIndex} type={msg.ItemType}");
                         // Host: peer took from a missing inventory; refund the optimistic loot.
                 if (_net.Role == NetworkRole.Host
+                    && msg.Action != ContainerAction.CloseContainer
                     && (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
                     && _net.CurrentReceivePlayerId > 0)
                 {
                     DenyContainerTake(_net.CurrentReceivePlayerId, msg, "no inventory");
                 }
+                if (msg.Action == ContainerAction.CloseContainer && _net.Role == NetworkRole.Host)
+                    _net._suppressForwardThisMessage = true;
+                return;
+            }
+
+            if (msg.Action == ContainerAction.CloseContainer)
+            {
+                if (_net.Role == NetworkRole.Host)
+                    _net._suppressForwardThisMessage = true;
+                FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onCloseContainer, msg);
                 return;
             }
 
@@ -151,6 +162,7 @@ namespace DWMPHorde.Networking
                             ModRuntime.LegacyInfo($"[Container] HandleContainerItem: removing {msg.Amount} from {slot.invItem.type} (had {slot.invItem.amount})");
                             slot.invItem.removeAmount(msg.Amount);
                         }
+                        FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onTakeInvItem, msg);
 
                         // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
                         // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.
@@ -221,6 +233,7 @@ namespace DWMPHorde.Networking
                                 created, msg.Durability, msg.Ammo, msg.ShouldBeActive);
                             Sync.InvItemUpgradeWire.Apply(created, msg.Upgrades);
                         }
+                        FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onPlaceItem, msg);
                         // Only arm after a successful place (deny must not mark).
                         if (msg.IsPlayerPlaced)
                             Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
@@ -247,6 +260,7 @@ namespace DWMPHorde.Networking
                         }
                         slot.invItem.amount += msg.Amount;
                         slot.invItem.refresh();
+                        FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onPlaceItem, msg);
                         if (msg.IsPlayerPlaced)
                             Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
                     }
@@ -322,36 +336,104 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Apply shared NPC reputation. Host and clients both apply;
-        /// night-trader names are ignored (per-player). Writes Flags.npcStates
+        /// Apply shared NPC reputation (and optional attackedID / dead trailers). Host and
+        /// clients both apply; night-trader reputation is ignored (per-player) but
+        /// attackedID / dead / deadID still apply — world story state. Writes Flags.npcStates
         /// directly so it works if the NPC GameObject is not loaded yet.
         /// </summary>
         internal void HandleReputationSync(ReputationSyncMessage msg)
         {
             if (string.IsNullOrEmpty(msg.NpcName)) return;
-            if (Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(msg.NpcName))
+
+            bool perPlayerRep = Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(msg.NpcName);
+            if (perPlayerRep && !msg.HasAttackedId && !msg.HasDead
+                && !msg.HasPortrait && !msg.HasAnimLibrary)
+                return;
+
+            // Portrait / anim-library trailers can arrive without needing Flags; apply first.
+            if (msg.HasPortrait)
+                Patches.NpcAttackedIdSync.ApplyPortrait(msg);
+            if (msg.HasAnimLibrary)
+                Patches.NpcAttackedIdSync.ApplyAnimLibrary(msg);
+
+            // Night-trader visual fan: do not create/overwrite Flags standing.
+            if (perPlayerRep && !msg.HasAttackedId && !msg.HasDead)
                 return;
 
             var flags = Singleton<Flags>.Instance;
             if (flags == null) return;
 
             var state = flags.getNPCState(msg.NpcName);
-            if (state != null)
-            {
-                state.reputation = msg.Reputation;
-            }
-            else
+            if (state == null)
             {
                 state = new Flags.NPCState
                 {
                     name = msg.NpcName,
-                    reputation = msg.Reputation,
+                    // Never seed night-trader standing from a host attackedID/dead fan-out.
+                    reputation = perPlayerRep ? 0 : msg.Reputation,
                     wantsToTalk = true
                 };
                 flags.npcStates.Add(state);
             }
+            else if (!perPlayerRep)
+            {
+                state.reputation = msg.Reputation;
+            }
 
-            ModRuntime.LegacyInfo($"[RepSync] applied shared rep '{msg.NpcName}': {msg.Reputation}");
+            if (msg.HasAttackedId)
+                Patches.NpcAttackedIdSync.ApplyAttackedId(state, msg.NpcName, msg.AttackedId);
+            if (msg.HasDead)
+                Patches.NpcAttackedIdSync.ApplyDead(state, msg.NpcName, msg.Dead, msg.DeadId);
+
+            if (!perPlayerRep)
+                ModRuntime.LegacyInfo($"[RepSync] applied shared rep '{msg.NpcName}': {msg.Reputation}");
+            else if (msg.HasAttackedId || msg.HasDead)
+                ModRuntime.LegacyInfo(
+                    $"[RepSync] applied story marks '{msg.NpcName}' attackedID={state.attackedID} dead={state.dead} (rep left per-player)");
+        }
+
+        private void FireRemoteContainerStoryTrigger(Inventory inv, EventTrigger.Type triggerType, ContainerItemMessage msg)
+        {
+            FireRemoteContainerStoryTrigger(_net, inv, triggerType, msg.ItemType, msg.IsRecipe);
+        }
+
+        /// <summary>
+        /// Client container open/take/place runs <c>sendTriggerInfo</c> only on that
+        /// machine, and client one-shots are blocked. Replay on the host so the
+        /// GameEvent fans out. Host's own open/take already fired locally.
+        /// </summary>
+        internal static void FireRemoteContainerStoryTrigger(
+            LanNetworkManager net, Inventory inv, EventTrigger.Type triggerType, string itemType, bool isRecipe)
+        {
+            if (net == null || net.Role != NetworkRole.Host || net.CurrentReceivePlayerId <= 0)
+                return;
+            if (inv == null) return;
+
+            string value = "";
+            if (triggerType != EventTrigger.Type.onOpenContainer
+                && triggerType != EventTrigger.Type.onCloseContainer)
+                value = isRecipe ? "recipe" : (itemType ?? "");
+
+            DialogHostApplyGuard.BeginWorldOnly();
+            try
+            {
+            if (triggerType == EventTrigger.Type.onOpenContainer
+                || triggerType == EventTrigger.Type.onCloseContainer)
+                Core.sendTriggerInfo(inv.gameObject, triggerType);
+                else
+                    Core.sendTriggerInfo(inv.gameObject, triggerType, value);
+                ModRuntime.LegacyInfo(
+                    "[Container] host story trigger " + triggerType + " on " + inv.name
+                    + (string.IsNullOrEmpty(value) ? "" : " value=" + value));
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[Container] story trigger: " + ex.Message);
+            }
+            finally
+            {
+                DialogHostApplyGuard.EndWorldOnly();
+            }
         }
     }
 }

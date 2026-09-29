@@ -118,5 +118,105 @@ namespace DWMPHorde.Networking
             SyncExistingGeneratorsTo(targetPlayerId);
             SyncExistingWorldLightsTo(targetPlayerId);
         }
+
+        /// <summary>
+        /// Host: peer's first local <c>spawnLocation</c> instantiates a virgin prefab.
+        /// Late-join bulk often ran while that pad was absent (door/item find failed or
+        /// pending queue capped). Re-send the same idempotent barricade / opened-door /
+        /// NPC visual snapshots lights already get via <see cref="ResyncWorldLightsForPeer"/>.
+        /// Container loot stays on open <c>ContainerStateRequest</c> (no bulk here).
+        /// </summary>
+        internal void ResyncOutsideLocationPadForPeer(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return;
+
+            int barrDoors = _net.BarricadeHandlers.SendBarricadeDoorsTo(targetPlayerId);
+            int barrWindows = _net.BarricadeHandlers.SendBarricadeWindowsTo(targetPlayerId);
+            int barrItems = _net.BarricadeHandlers.SendBarricadeItemsTo(targetPlayerId);
+            int opened = SendOpenedDoorStatesNearLocationTo(targetPlayerId, loc);
+            _net.BulkSyncHandlers.SendReputationBulkSyncTo(targetPlayerId);
+
+            ModLog.Event(LogCat.Session,
+                "[LocationSync] pad resync → p" + targetPlayerId
+                + " barrDoor=" + barrDoors
+                + " win=" + barrWindows
+                + " item=" + barrItems
+                + " opened=" + opened
+                + " loc=" + (loc.gameObject != null ? loc.gameObject.name : loc.name));
+        }
+
+        /// <summary>
+        /// Host→peer: DoorState for opened doors under/near the pad. Continuous
+        /// PhysicsState only re-sends on change, so sticky opens from before the
+        /// peer spawned the pad never arrive otherwise.
+        /// </summary>
+        private int SendOpenedDoorStatesNearLocationTo(int targetPlayerId, Location loc)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return 0;
+
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            const float maxDistSqr = 2500f * 2500f;
+
+            Door[] doors = WorldQueryHelper.GetCachedSceneComponents<Door>();
+            int sent = 0;
+            const int maxSend = 128;
+            for (int i = 0; i < doors.Length && sent < maxSend; i++)
+            {
+                Door door = doors[i];
+                if (door == null || door.transform == null) continue;
+                if (!IsUnderOrNearLocation(door.transform, root, anchor, maxDistSqr))
+                    continue;
+                if (!TraverseHack.ReadDoorOpened(door))
+                    continue;
+
+                Vector3 p = door.transform.position;
+                Vector3 key = new Vector3(
+                    Mathf.Round(p.x * 10f) / 10f,
+                    Mathf.Round(p.y * 10f) / 10f,
+                    Mathf.Round(p.z * 10f) / 10f);
+                float bodyRotY = door.body != null ? door.body.eulerAngles.y : 0f;
+                Vector3 angVel = Vector3.zero;
+                if (door.body != null)
+                {
+                    Rigidbody rb = door.body.GetComponent<Rigidbody>();
+                    if (rb != null) angVel = rb.angularVelocity;
+                }
+
+                var ds = new DoorState
+                {
+                    PosX = key.x,
+                    PosY = key.y,
+                    PosZ = key.z,
+                    Opened = true,
+                    BodyRotY = bodyRotY,
+                    AngVelX = angVel.x,
+                    AngVelY = angVel.y,
+                    AngVelZ = angVel.z
+                };
+                var msg = WorldPhysicsSyncService.StampSnapshot(
+                    new PhysicsStateMessage { Doors = new[] { ds } });
+                _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
+                    w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+
+            return sent;
+        }
+
+        private static bool IsUnderOrNearLocation(
+            Transform t, Transform root, Vector3 anchor, float maxDistSqr)
+        {
+            if (t == null) return false;
+            if (root != null && (t == root || t.IsChildOf(root)))
+                return true;
+            float dx = t.position.x - anchor.x;
+            float dz = t.position.z - anchor.z;
+            return dx * dx + dz * dz <= maxDistSqr;
+        }
     }
 }

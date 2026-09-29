@@ -76,9 +76,18 @@ namespace DWMPHorde.Sync
             catch { /* ignore */ }
 
             if (DreamSession.IsActive)
-                DreamSession.End(reason);
+            {
+                // Rejection / timeout / disconnect is not a clear. MarkCompleted
+                // would party-lock the preset while the host may still be inside.
+                if (DreamSession.IsFailureCleanup(reason))
+                    DreamSession.AbortStarting(reason);
+                else
+                    DreamSession.End(reason);
+            }
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
-                ApplyRemoteDreamCleanup(reason);
+            {
+                ApplyRemoteDreamCleanup(DreamSession.IsFailureCleanup(reason) ? "" : reason);
+            }
             else
             {
                 try
@@ -120,18 +129,28 @@ namespace DWMPHorde.Sync
 
         public static bool IsLocalDreamActive => _localDreamActive;
 
+        /// <summary>True while this peer is already in the dream-entry video.</summary>
+        public static bool HasPendingEntryTransition =>
+            _earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying;
+
         /// <summary>True when that remote peer is inside the shared dream.</summary>
         private static readonly System.Collections.Generic.HashSet<int> _dreamEntryConfirmed =
             new System.Collections.Generic.HashSet<int>();
+        private static readonly System.Collections.Generic.Dictionary<int, float> _peerEntryDeadline =
+            new System.Collections.Generic.Dictionary<int, float>();
         private static float _dreamEntryDeadline;
 
         public static bool IsRemoteInDream(int playerId)
         {
             if (playerId <= 0 || !_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
                 return false;
-            if (UnityEngine.Time.unscaledTime < _dreamEntryDeadline)
+            if (_dreamEntryConfirmed.Contains(playerId))
                 return true;
-            return _dreamEntryConfirmed.Contains(playerId);
+            // Per peer: a joiner noted after the original 10s window still counts
+            // until they confirm or their own grace ends.
+            if (_peerEntryDeadline.TryGetValue(playerId, out float peerDeadline))
+                return UnityEngine.Time.unscaledTime < peerDeadline;
+            return UnityEngine.Time.unscaledTime < _dreamEntryDeadline;
         }
 
         public static void NoteRemoteInDream(int playerId)
@@ -139,6 +158,8 @@ namespace DWMPHorde.Sync
             if (playerId <= 0)
                 return;
             _remoteDreamActive[playerId] = true;
+            if (!_dreamEntryConfirmed.Contains(playerId))
+                _peerEntryDeadline[playerId] = UnityEngine.Time.unscaledTime + 25f;
             if (_dreamEntryDeadline <= 0f)
                 _dreamEntryDeadline = UnityEngine.Time.unscaledTime + 10f;
         }
@@ -155,6 +176,7 @@ namespace DWMPHorde.Sync
         {
             _remoteDreamActive.Clear();
             _dreamEntryConfirmed.Clear();
+            _peerEntryDeadline.Clear();
             _dreamEntryDeadline = 0f;
         }
 
@@ -165,6 +187,7 @@ namespace DWMPHorde.Sync
             if (_remoteDreamActive.ContainsKey(playerId))
                 _remoteDreamActive[playerId] = false;
             _dreamEntryConfirmed.Remove(playerId);
+            _peerEntryDeadline.Remove(playerId);
         }
 
         /// <summary>Returns the dream Location's transform during an active dream, or null.</summary>
@@ -186,6 +209,13 @@ namespace DWMPHorde.Sync
         public static bool IsDreamCompleted(string presetName)
         {
             return DreamSession.IsPresetCompleted(presetName);
+        }
+
+        /// <summary>Host chain keeps ResolveActivePresetName on the live pocket.</summary>
+        public static void NoteLocalDreamPreset(string presetName)
+        {
+            if (!string.IsNullOrEmpty(presetName))
+                _localDreamPreset = presetName;
         }
 
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)

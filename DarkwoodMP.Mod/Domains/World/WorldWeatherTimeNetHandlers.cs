@@ -225,8 +225,32 @@ namespace DWMPHorde.Networking
 
             // Host startDay full-heals + skill recharge is world-authority-side only.
             // Client must still get personal morning benefits when day rolls.
+            bool dreamClock = Core.EnteringDream
+                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
+                || Sync.DreamSyncManager.IsDreamActive;
+
             if (msg.Day > prevDay)
                 ApplyClientPersonalNewDay(prevDay, msg.Day);
+
+            // refreshTime() is suppressed on clients, so fedToday never clears and
+            // onFeedStart / tryToActivateHunger never runs. Personal only — no world chain.
+            if (!dreamClock && Player.Instance != null)
+            {
+                if (CoopTimePolicy.ShouldClearFedToday(
+                        (int)prevTime, msg.CurrentTime, prevDay, msg.Day, (int)ctrl.dayTime))
+                    Player.Instance.fedToday = false;
+
+                int feedAt = (int)ctrl.nightTime - 30;
+                if (CoopTimePolicy.LiveStepCrossedMinute((int)prevTime, msg.CurrentTime, feedAt))
+                {
+                    try { ctrl.tryToActivateHunger(); }
+                    catch (System.Exception ex)
+                    {
+                        if (ModRuntime.VerboseLogging)
+                            ModRuntime.Log?.LogWarning("[TimeSync] tryToActivateHunger: " + ex.Message);
+                    }
+                }
+            }
 
             // Clear soft invuln from suppressed startBeforeDay if still set.
             if (Player.Instance != null && Player.Instance.invulnerable
@@ -255,9 +279,6 @@ namespace DWMPHorde.Networking
             bool afterNightFlip = msg.IsAfterNight != wasAfterNight;
             // Dream start sets Controller.CurrentTime = preset.time (often +hundreds).
             // Use ASCII "->" so log files never glue "1→1" into "11" / "417→800" into "417800".
-            bool dreamClock = Core.EnteringDream
-                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
-                || Sync.DreamSyncManager.IsDreamActive;
             if (dayChange || afterNightFlip || Mathf.Abs(delta) >= 2f)
             {
                 string tag = dreamClock ? "[TimeSync/dream] " : "[TimeSync] ";

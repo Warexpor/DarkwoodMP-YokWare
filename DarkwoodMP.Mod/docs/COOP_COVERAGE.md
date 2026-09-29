@@ -49,7 +49,7 @@ state without changing existing players' state.
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
 | Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
-| Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
+| Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), client gasoline pour (`GasTrailSpawn` 0.8.103) + client torch/melee ignite (`GasIgnite` 0.8.104), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
 | Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths | Code covered; runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
@@ -104,11 +104,15 @@ Host owns Porter NPC spawn (`PorterSpawner.Start` / `waitToSpawn`). Clients
 Prefix-skip both so independent out-of-sight timers cannot place a second
 Porter. Host `InSightOfPlayer.checkSight` uses `HostPlayerIdentity.AnyInSight`
 (local `Player.isInSight` OR each remote proxy as viewer via the same method).
-Observation: entity snapshots. No dedicated message.
+Observation: entity snapshots.
+
+Client bike-bell (`porterWhistle` → `Location.spawnPorter`): defers to host via
+existing `ItemSpawn` type sentinel `porterWhistle` (0.8.102). Host places
+`Events/porterSpawner`; personal consume stays on the caller. No new message id.
 
 Runtime checks still needed: client alone near the volume (host treats proxy
 FOV as in/out of sight), host-only Porter appear on peers, host near volume
-cancels client-driven spawn path.
+cancels client-driven spawn path, client rings bike bell by day at hideout.
 
 ### Dream and world scoping
 
@@ -269,8 +273,11 @@ transports. Unit tests cover the shared reader and policy helpers.
     craft more items of this type.").
   - Shared craft progression that *is* world state is
     `Controller.workbenchLevel` (already live + late-join via `WorkbenchLevel` /
-    `WorkbenchLevelSync`); the mod `doCraft` Harmony only emits on workbench
-    upgrades (`JournalSyncPatches.WorkbenchUpgradePatch`).
+    `WorkbenchLevelSync`); the mod `doCraft` Harmony emits workbench
+    upgrades (`JournalSyncPatches.WorkbenchUpgradePatch`) and shared-pile
+    ContainerItem diffs (`CraftSharedPileSyncPatch` / repair / upgrade /
+    `ConstructSharedPileSyncPatch` / `HammerWorkSharedPileSyncPatch`,
+    0.8.110–0.8.113).
   - `removeOnCraft` is a serialized field with **no C# readers** in the
     decompile; the live limit path is timesCraftedLimit → craftedItems.
   Host-gated craft-count sync would wrongly lock peer B out of B's personal
@@ -441,11 +448,24 @@ transports. Unit tests cover the shared reader and policy helpers.
 - **`Broadcaster` — parked (serializer interest util).** Decompile static
   reflection helper for LevelSerializer interests — not gameplay mutation.
   Protocol **25** unchanged.
-- **`UpgradeItemMenu` / `UpgradeItemBtn` — parked (personal item upgrades).**
-  Decompile: `tryToCraft` → `Player.startUpgrading(invItem, itemUpgrade)` on the
-  local player's workbench item UI; consumes personal inventory materials /
-  writes personal `InvItemClass` upgrades. Shared bench world state remains
+- **`UpgradeItemMenu` / `UpgradeItemBtn` — personal upgrade result; pile
+  materials synced (0.8.111).** Decompile: progress bar →
+  `ItemUpgrade.removeIngredients` + `addUpgrade` on the local inv item.
+  Materials use `includeAdditionalInventory: true` (can drain
+  `openedItemInventory2`); `UpgradeSharedPileSyncPatch` fans ContainerItem
+  diffs. Upgrade stays personal. Shared bench world state remains
   `workbenchLevel` (synced). No upgrade-craft msg. Protocol **25** unchanged.
+- **`Constructible.construct` — world prop already synced; pile drain
+  (0.8.112).** Live+bulk `ConstructibleConstruction` (61). Manual place drains
+  via `ConstructionRequirement.removeIngredients` (`includeAdditionalInventory:
+  true`); `ConstructSharedPileSyncPatch` fans ContainerItem diffs. Remote apply
+  uses `manual: false` (no drain). Protocol **25** unchanged.
+- **`Player` HammerWork barricade finish — plank world already synced; pile
+  drain (0.8.113).** `BarricadeEvent` fans built/destroyed. Finish
+  (`doneBuilding`) drains via `removeItemAmountFromPlayer(...,
+  includeAdditionalInventory: true)`; `HammerWorkSharedPileSyncPatch` fans
+  ContainerItem diffs. Mid-swing hammers do not drain. 0.8.109 remote AI
+  alert stays on BarricadeEvent apply. Protocol **25** unchanged.
 - **`WhereAmI` `player_in*Hideout` flags — already local-only (code).** Decompile
   clears/sets `player_inFirstHideout` / Second / Third each 1.5s tick from local
   `Player` position. `FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag` skips any

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using HarmonyLib;
 using PathologicalGames;
 using UnityEngine;
@@ -16,6 +17,12 @@ namespace DWMPHorde.Patches
     {
         /// <summary>Set before Start() by the spawning code.</summary>
         public Transform TargetProxy { get; set; }
+
+        /// <summary>Prefab cruise speed captured before vanilla motion is zeroed.</summary>
+        public float CruiseSpeed;
+        /// <summary>Prefab aggro speed captured before vanilla motion is zeroed.</summary>
+        public float AggroSpeed;
+        public bool SpeedsOverridden;
 
         private Transform _proxyT;
         private ShadowCreature _shadow;
@@ -37,7 +44,7 @@ namespace DWMPHorde.Patches
             if (_shadow != null)
             {
                 _shadow.dead = false;
-                _speed = _shadow.speed;
+                _speed = SpeedsOverridden ? CruiseSpeed : _shadow.speed;
             }
 
             if (_anim != null && _anim.GetClipByName("Float") != null)
@@ -48,6 +55,17 @@ namespace DWMPHorde.Patches
         {
             if (_proxyT == null || _shadow == null || _shadow.dead || _isDying)
                 return;
+
+            var info = GetComponent<ShadowSyncInfo>();
+            if (info != null && info.ShadowType == 1)
+            {
+                var owner = _proxyT.GetComponent<RemotePlayerProxy>();
+                if (owner != null && owner.RemoteHasShadowWard)
+                {
+                    StartDying();
+                    return;
+                }
+            }
 
             if (Core.isDay())
             {
@@ -60,7 +78,7 @@ namespace DWMPHorde.Patches
 
             _aggroTimer += Time.deltaTime;
             if (_aggroTimer >= _shadow.timeToSwitchToAggressive)
-                _speed = _shadow.speedAggressive;
+                _speed = SpeedsOverridden ? AggroSpeed : _shadow.speedAggressive;
 
             _curAngle += 30f * Time.deltaTime;
             if (_curAngle > 360f) _curAngle -= 360f;

@@ -43,18 +43,59 @@ namespace DWMPHorde.Patches
             }
 
             net.Broadcast(NetMessageType.SceneLoad,
-                w => new SceneLoadMessage { SceneName = "credits" }.Serialize(w),
+                w => new SceneLoadMessage { SceneName = EpilogueNetHandlers.CreditsSceneName }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
             // Host applies immediately (broadcast already out). Client applies after host
             // rebroadcasts via Forwardable, but also apply locally so the originator is not stuck
             // if host is slow. ApplySceneLoad is idempotent via _sceneLoadPending.
-            EpilogueNetHandlers.ApplySceneLoad("credits", delaySeconds: 8f);
+            EpilogueNetHandlers.ApplySceneLoad(EpilogueNetHandlers.CreditsSceneName, delaySeconds: 8f);
 
             // Credits ends co-op permanently under ChapterSessionPolicy; do not CaptureForResume.
             // Documented residual: post-credits is single-player epilogue, not a co-op chapter.
             ModRuntime.LegacyInfo($"[Epilogue] goToCredits multiplayer path role={net.Role} (network stops — no resume)");
             return false; // skip vanilla (would LoadScene alone at 10s)
+        }
+    }
+
+    /// <summary>
+    /// Burn-crawl death fires <c>epilogue_cameraPanOverBurningForest</c> on the dying body.
+    /// Client one-shot GameEvents are blocked, so the client asks the host to fire it.
+    /// Host Postfix then fans GameEventsFired out to every peer.
+    /// </summary>
+    [HarmonyPatch(typeof(Events), "fireWorldEvent")]
+    public static class EpilogueClientCameraPanRelay
+    {
+        private static void Prefix(string type)
+        {
+            if (!string.Equals(type, EpilogueNetHandlers.EpilogueCameraPanEvent, System.StringComparison.Ordinal))
+                return;
+            if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
+                return;
+
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
+                return;
+            if (Player.Instance == null || !Player.Instance.inEpilogue)
+                return;
+
+            var events = Singleton<Events>.Instance;
+            if (events == null || events.worldEvents == null || !events.worldEvents.ContainsKey(type))
+                return;
+
+            GameEvents ge = events.worldEvents[type];
+            Vector3 p = ge != null ? ge.transform.position : Vector3.zero;
+            var msg = new GameEventsFiredMessage
+            {
+                PosX = p.x,
+                PosY = p.y,
+                PosZ = p.z,
+                EventName = type
+            };
+            net.Send(NetMessageType.GameEventsFired,
+                w => msg.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[Epilogue] Client crawl pan — asking host to fire " + type);
         }
     }
 }

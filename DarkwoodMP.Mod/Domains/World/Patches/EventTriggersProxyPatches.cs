@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -55,6 +56,22 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(etName)) return false;
             return etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
                 || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// A one-shot in this volume has not fired yet. The first body may have
+        /// entered before requirements were met (no key). A later peer must retry.
+        /// </summary>
+        internal static bool HasPendingOneShot(EventTriggers triggers)
+        {
+            if (triggers == null || triggers.eventTriggers == null) return false;
+            for (int i = 0; i < triggers.eventTriggers.Count; i++)
+            {
+                EventTrigger t = triggers.eventTriggers[i];
+                if (t == null || t.disabled || t.multipleFire) continue;
+                if (!t.fired) return true;
+            }
+            return false;
         }
     }
 
@@ -162,14 +179,26 @@ namespace DWMPHorde.Patches
 
             bool volumeWasEmpty = __instance.entered <= __instance.exited;
             __instance.entered++;
-            // First body into an empty volume fires. A second peer joining while someone
-            // is already inside must not re-blast one-shots (delay-coroutine race) — their
-            // own machine still gets vanilla local enter for multipleFire ambients.
-            if (volumeWasEmpty)
+            // First body into an empty volume fires. A later peer still fires when a
+            // one-shot never latched (first body failed requirements). Already-fired
+            // one-shots and multipleFire ambients are not blasted again.
+            if (volumeWasEmpty || EventTriggersAuth.HasPendingOneShot(__instance))
             {
-                __instance.fireEventTrigger(EventTrigger.Type.area);
+                // Host: stamp proxy as GE actor and suppress host Player.Instance
+                // personal grants/teleports. Client: still fire multipleFire locally;
+                // one-shots are blocked by GameEventsFiredPatch until host apply.
+                if (EventTriggersAuth.IsHost())
+                {
+                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(proxy.PlayerId, () =>
+                        __instance.fireEventTrigger(EventTrigger.Type.area));
+                }
+                else
+                {
+                    __instance.fireEventTrigger(EventTrigger.Type.area);
+                }
                 ModRuntime.LegacyInfo(
-                    $"[EventTriggers] proxy enter area p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}");
+                    $"[EventTriggers] proxy enter area p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}"
+                    + (volumeWasEmpty ? "" : " retry"));
             }
             else
             {
@@ -220,7 +249,15 @@ namespace DWMPHorde.Patches
                     return;
                 }
                 // Flavor HUD gated at delayed GameEvent.fire MoveNext (proximity), not here.
-                __instance.fireEventTriggerExit(EventTrigger.Type.area);
+                if (EventTriggersAuth.IsHost())
+                {
+                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(proxy.PlayerId, () =>
+                        __instance.fireEventTriggerExit(EventTrigger.Type.area));
+                }
+                else
+                {
+                    __instance.fireEventTriggerExit(EventTrigger.Type.area);
+                }
                 ModRuntime.LegacyInfo(
                     $"[EventTriggers] proxy exit area p{proxy.PlayerId} on {__instance.name} exited={__instance.exited}");
             }

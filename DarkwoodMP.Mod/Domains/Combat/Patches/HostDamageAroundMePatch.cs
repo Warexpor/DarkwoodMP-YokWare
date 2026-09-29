@@ -7,8 +7,8 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Vanilla <c>waitToDamageAroundMe</c> only damages <see cref="Player.Instance"/>.
-    /// When the entity is chasing a remote proxy (or the proxy is nearer), apply the
-    /// same falloff hit via HostMeleeSensor / DamagePlayer path (CharBase.getHit on proxy).
+    /// With remotes present this is an AoE aura: every living body in falloff range
+    /// takes the same vanilla formula; proxy hits relay via <see cref="ProxyDamagePatch"/>.
     /// </summary>
     [HarmonyPatch(typeof(Character), "waitToDamageAroundMe")]
     public static class HostDamageAroundMePatch
@@ -22,65 +22,70 @@ namespace DWMPHorde.Patches
             if (__instance == null || !__instance.damagesAroundMe)
                 return true;
 
-            Transform victimT = null;
-            float victimDist = float.MaxValue;
+            float range = __instance.aroundMeDamageRange;
+            if (range <= 0f)
+                return false;
 
-            if (__instance.target != null)
-            {
-                var proxyTarget = __instance.target.GetComponent<RemotePlayerProxy>()
-                    ?? __instance.target.GetComponentInParent<RemotePlayerProxy>();
-                if (proxyTarget != null)
-                {
-                    victimT = proxyTarget.transform;
-                    victimDist = Core.trueDistance(__instance.transform.position, victimT.position);
-                }
-            }
+            Transform attacker = __instance.transform;
+            int aroundDmg = __instance.aroundMeDamage;
 
-            if (victimT == null)
+            // Host body — same formula and shake/noise as vanilla.
+            Player host = Player.Instance;
+            if (host != null && host._transform != null)
             {
-                var net = LanNetworkManager.Instance;
-                if (net != null)
+                float hostDist = Core.trueDistance(host._transform.position, attacker.position);
+                if (hostDist <= range)
                 {
-                    foreach (var proxy in net.GetAllProxies())
+                    float hostFalloff = (range / 2f - hostDist) / range;
+                    if (hostFalloff > 0f)
                     {
-                        if (proxy == null) continue;
-                        float d = Core.trueDistance(__instance.transform.position, proxy.transform.position);
-                        if (d < victimDist)
-                        {
-                            victimDist = d;
-                            victimT = proxy.transform;
-                        }
+                        host.getHit(
+                            (float)aroundDmg * hostFalloff,
+                            attacker,
+                            CanCutInHalf: false,
+                            byPlayer: false,
+                            canInterrupt: false,
+                            normalHit: false);
                     }
+                    Singleton<CamMain>.Instance.shake(0.3f, (float)aroundDmg * hostFalloff);
+                    Singleton<UI>.Instance.tweenNoise(
+                        Mathf.Clamp(range / 4f / hostDist, 0.2f, 0.6f));
                 }
             }
 
-            float hostDist = float.MaxValue;
-            if (Player.Instance != null)
-                hostDist = Core.trueDistance(__instance.transform.position, Player.Instance._transform.position);
-
-            // Host nearer (or only host in range) — vanilla path.
-            if (victimT == null || hostDist <= victimDist)
-                return true;
-
-            if (victimDist > __instance.aroundMeDamageRange)
-                return false; // suppress vanilla host-only tick this cycle
-
-            float num2 = (__instance.aroundMeDamageRange / 2f - victimDist) / __instance.aroundMeDamageRange;
-            if (num2 <= 0f)
+            // Every remote in falloff range (explosion-style multi-body), not just nearest.
+            var net = LanNetworkManager.Instance;
+            if (net == null)
                 return false;
 
-            CharBase cb = victimT.GetComponent<CharBase>();
-            if (cb == null || !cb.alive)
-                return false;
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null)
+                    continue;
+                CharBase cb = proxy.CachedCharBase;
+                if (cb == null || !cb.alive)
+                    continue;
+                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    continue;
 
-            // ProxyDamagePatch forwards CharBase.getHit → DamagePlayer to the peer.
-            cb.getHit(
-                (float)__instance.aroundMeDamage * num2,
-                __instance.transform,
-                CanCutInHalf: false,
-                byPlayer: false,
-                canInterrupt: false,
-                normalHit: false);
+                float dist = Core.trueDistance(attacker.position, proxy.transform.position);
+                if (dist > range)
+                    continue;
+
+                float falloff = (range / 2f - dist) / range;
+                if (falloff <= 0f)
+                    continue;
+
+                // ProxyDamagePatch forwards CharBase.getHit → DamagePlayer to the peer.
+                cb.getHit(
+                    (float)aroundDmg * falloff,
+                    attacker,
+                    CanCutInHalf: false,
+                    byPlayer: false,
+                    canInterrupt: false,
+                    normalHit: false);
+            }
+
             return false;
         }
     }

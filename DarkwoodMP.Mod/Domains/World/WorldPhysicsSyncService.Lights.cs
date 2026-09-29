@@ -131,9 +131,9 @@ namespace DWMPHorde.Sync
                     sounds.playSwitch();
 
                 if (ls.IsOn)
-                    item.turnOn();
+                    DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
                 else
-                    item.turnOff();
+                    DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
 
                 // turnOff only calls playStop when hasPower. Unpowered lamps still need
                 // the end one-shot if switchSound was empty and endSound is set.

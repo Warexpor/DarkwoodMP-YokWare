@@ -5,7 +5,9 @@ namespace DWMPHorde.Networking
         TakeItem = 0,
         PlaceItem = 1,
         RemoveItem = 2,
-        Searched = 3
+        Searched = 3,
+        /// <summary>0.8.86: client closed a world container. Host replays onCloseContainer.</summary>
+        CloseContainer = 4
     }
 
     public struct ContainerItemMessage

@@ -13,7 +13,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Barricade + item-damage handlers composed for 0.8.</summary>
-    internal sealed class BarricadeNetHandlers
+    internal sealed partial class BarricadeNetHandlers
     {
         private readonly LanNetworkManager _net;
 
@@ -58,6 +58,17 @@ namespace DWMPHorde.Networking
 
                 if (msg.IsWindow == 2)
                 {
+                    // Match door/window: queue until the pad/chunk wakes (fresh
+                    // OutsideLocations.spawnLocation). HandleItemDamageEvent alone
+                    // dropped Destroyed crates when the Item was not spawned yet.
+                    if (WorldQueryHelper.FindDestructibleItemXz(pos, 25f) == null)
+                    {
+                        if (queueIfMissing)
+                            QueuePendingBarricade(msg);
+                        else if (ModRuntime.VerboseLogging)
+                            ModRuntime.LegacyInfo($"[Barr] item not found at {pos}");
+                        return;
+                    }
                     HandleItemDamageEvent(pos, msg);
                     return;
                 }
@@ -95,6 +106,7 @@ namespace DWMPHorde.Networking
                                 door.setToBarricaded();
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door barricade applied (destroyed={door.destroyed} barricaded={door.barricaded})");
                         }
+                        MaybeAlertHostRemoteHammer(msg, door.transform.position);
                     }
                     else
                     {
@@ -111,6 +123,7 @@ namespace DWMPHorde.Networking
                             if (playCombatFx)
                                 AudioController.Play("woodenObject_destroy", door.body?.position ?? pos);
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door destroyed");
+                            MaybeAlertHostRemoteHammer(msg, door.transform.position);
                         }
                         else if (msg.Action == BarricadeAction.Damaged)
                         {
@@ -188,12 +201,14 @@ namespace DWMPHorde.Networking
                         window.setBarricadeState(destHp, byPlayer: false);
                         window.playerBarricade = msg.PlayerBarricade;
                         if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] window barricade via setBarricadeState hp={destHp}");
+                        MaybeAlertHostRemoteHammer(msg, window.transform.position);
                     }
                     else if (msg.Action == BarricadeAction.Destroyed)
                     {
                         if (window.barricaded)
                             window.destroyBarricade(silent: true);
                         if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] window destroyBarricade");
+                        MaybeAlertHostRemoteHammer(msg, window.transform.position);
                     }
                     else if (msg.Action == BarricadeAction.Damaged)
                     {
@@ -211,6 +226,29 @@ namespace DWMPHorde.Networking
                 }
             }
             finally { LanNetworkManager._processingBarricadeEvent = false; }
+        }
+
+        /// <summary>
+        /// Host: mirror vanilla HammerWork <c>alertInArea(player, 500f)</c> when
+        /// remote barricade apply skips the anim. Prefer sender proxy; else object.
+        /// </summary>
+        private void MaybeAlertHostRemoteHammer(BarricadeEventMessage msg, Vector3 fallbackPos)
+        {
+            if (_net.Role != NetworkRole.Host || msg.IsWindow > 1) return;
+            // Built+byPlayer = plank; Destroyed+DamageAmount&lt;0 = dismantle (not combat).
+            bool hammerNoise = (msg.Action == BarricadeAction.Built && msg.PlayerBarricade)
+                || (msg.Action == BarricadeAction.Destroyed && msg.DamageAmount < 0);
+            if (!hammerNoise) return;
+
+            Vector3 alertPos = fallbackPos;
+            int sender = _net.CurrentReceivePlayerId;
+            if (sender > 0)
+            {
+                RemotePlayerProxy proxy = _net.GetProxy(sender);
+                if (proxy != null && proxy.transform != null)
+                    alertPos = proxy.transform.position;
+            }
+            Character.alertInArea(alertPos, 500f, dangerousSound: false, 1f);
         }
 
         internal void QueuePendingBarricade(BarricadeEventMessage msg)
@@ -241,223 +279,14 @@ namespace DWMPHorde.Networking
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 bool found = msg.IsWindow == 0
                     ? WorldQueryHelper.FindDoorByPos(pos) != null
-                    : msg.IsWindow == 1 && WorldQueryHelper.FindWindowByPos(pos) != null;
+                    : msg.IsWindow == 1
+                        ? WorldQueryHelper.FindWindowByPos(pos) != null
+                        : msg.IsWindow == 2
+                            && WorldQueryHelper.FindDestructibleItemXz(pos, 25f) != null;
                 if (!found) continue;
                 _pendingBarricadeEvents.RemoveAt(i);
                 ApplyBarricadeEvent(msg, queueIfMissing: false);
             }
         }
-
-        /// <summary>
-        /// Host: push barricade / door / furniture state so late joiners match
-        /// host fortifications. Prefer staggered SendBarricadeDoors/Windows/ItemsTo.
-        /// </summary>
-        internal void SendBarricadeStateTo(int targetPlayerId)
-        {
-            if (_net.Role != NetworkRole.Host) return;
-            int sent = 0;
-            sent += SendBarricadeDoorsTo(targetPlayerId, maxSend: 512);
-            sent += SendBarricadeWindowsTo(targetPlayerId, maxSend: 512 - sent);
-            int itemSent = SendBarricadeItemsTo(targetPlayerId, maxSend: 512 - sent, maxItems: 256);
-            sent += itemSent;
-            ModRuntime.LegacyInfo(targetPlayerId > 0
-                ? $"[BulkSync] Sent {sent} barricade/door/item states to player {targetPlayerId} (items={itemSent})"
-                : $"[BulkSync] Sent {sent} barricade/door/item states to all clients (items={itemSent})");
-        }
-
-        /// <summary>Host join bulk: Door barricade and health state.</summary>
-        internal int SendBarricadeDoorsTo(int targetPlayerId, int maxSend = 512)
-        {
-            if (_net.Role != NetworkRole.Host) return 0;
-            int sent = 0;
-            Door[] doors = WorldQueryHelper.GetCachedSceneComponents<Door>();
-            for (int i = 0; i < doors.Length && sent < maxSend; i++)
-            {
-                Door door = doors[i];
-                if (door == null) continue;
-
-                Vector3 p = door.transform.position;
-                Vector3 key = new Vector3(
-                    (float)System.Math.Round(p.x, 1),
-                    (float)System.Math.Round(p.y, 1),
-                    (float)System.Math.Round(p.z, 1));
-
-                if (door.destroyed)
-                {
-                    var msg = new BarricadeEventMessage
-                    {
-                        PosX = key.x, PosY = key.y, PosZ = key.z,
-                        IsWindow = 0,
-                        Action = BarricadeAction.Destroyed,
-                        Health = 0,
-                        PlayerBarricade = false,
-                        MainHealth = 0,
-                        DamageAmount = -1
-                    };
-                    _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
-                    sent++;
-                }
-                else if (door.barricaded)
-                {
-                    var msg = new BarricadeEventMessage
-                    {
-                        PosX = key.x, PosY = key.y, PosZ = key.z,
-                        IsWindow = 0,
-                        Action = BarricadeAction.Built,
-                        Health = door.barricadeHealth,
-                        PlayerBarricade = door.playerBarricade,
-                        MainHealth = door.health,
-                        DamageAmount = -1
-                    };
-                    _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
-                    sent++;
-                }
-                else if (door.baseHealth > 0 && door.health < door.baseHealth)
-                {
-                    var msg = new BarricadeEventMessage
-                    {
-                        PosX = key.x, PosY = key.y, PosZ = key.z,
-                        IsWindow = 0,
-                        Action = BarricadeAction.Damaged,
-                        Health = 0,
-                        PlayerBarricade = false,
-                        MainHealth = door.health,
-                        DamageAmount = -1
-                    };
-                    _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
-                    sent++;
-                }
-            }
-            if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade doors → p" + targetPlayerId + ": " + sent);
-            // Mid-session board removals (door.destroyed stays false) — not in scan above.
-            sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 0, maxSend: maxSend - sent);
-            return sent;
-        }
-
-        /// <summary>Host join bulk: Window barricade state.</summary>
-        internal int SendBarricadeWindowsTo(int targetPlayerId, int maxSend = 512)
-        {
-            if (_net.Role != NetworkRole.Host) return 0;
-            int sent = 0;
-            Window[] windows = WorldQueryHelper.GetCachedSceneComponents<Window>();
-            for (int i = 0; i < windows.Length && sent < maxSend; i++)
-            {
-                Window window = windows[i];
-                if (window == null || !window.barricaded) continue;
-
-                Vector3 p = window.transform.position;
-                Vector3 key = new Vector3(
-                    (float)System.Math.Round(p.x, 1),
-                    (float)System.Math.Round(p.y, 1),
-                    (float)System.Math.Round(p.z, 1));
-
-                var msg = new BarricadeEventMessage
-                {
-                    PosX = key.x, PosY = key.y, PosZ = key.z,
-                    IsWindow = 1,
-                    Action = BarricadeAction.Built,
-                    Health = window.barricadeHealth,
-                    PlayerBarricade = window.playerBarricade,
-                    MainHealth = -1,
-                    DamageAmount = -1
-                };
-                _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
-                sent++;
-            }
-            if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade windows → p" + targetPlayerId + ": " + sent);
-            // Soft-reconnect / late-join: torn window boards (scan only sends Built).
-            sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 1, maxSend: maxSend - sent);
-            return sent;
-        }
-
-        /// <summary>Host join bulk: destructible Item state.</summary>
-        internal int SendBarricadeItemsTo(int targetPlayerId, int maxSend = 512, int maxItems = 256)
-        {
-            if (_net.Role != NetworkRole.Host) return 0;
-            int sent = 0;
-            int itemSent = 0;
-            Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
-            for (int i = 0; i < items.Length && itemSent < maxItems && sent < maxSend; i++)
-            {
-                Item item = items[i];
-                if (item == null || item.gameObject == null || !item.gameObject.scene.IsValid())
-                    continue;
-                if (!item.destructible)
-                    continue;
-
-                bool needSync = item.destroyed
-                    || (item.maxHealth > 0 && item.health < item.maxHealth);
-                if (!needSync)
-                    continue;
-
-                Vector3 p = item.transform.position;
-                Vector3 key = new Vector3(
-                    (float)System.Math.Round(p.x, 1),
-                    (float)System.Math.Round(p.y, 1),
-                    (float)System.Math.Round(p.z, 1));
-
-                var msg = new BarricadeEventMessage
-                {
-                    PosX = key.x, PosY = key.y, PosZ = key.z,
-                    IsWindow = 2,
-                    Action = item.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                    Health = item.destroyed ? 0 : item.health,
-                    PlayerBarricade = false,
-                    MainHealth = -1,
-                    DamageAmount = -1
-                };
-                _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
-                sent++;
-                itemSent++;
-            }
-            if (itemSent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade items → p" + targetPlayerId + ": " + itemSent);
-            return itemSent;
-        }
-
-        internal void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
-        {
-            // Prefer XZ matching; client wardrobe Y often drifts after body-push or layer offset.
-            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
-
-            if (item == null)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo($"[ItemDmgEvent] no item found at {pos}");
-                return;
-            }
-
-            if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[ItemDmgEvent] found {item.name} health={item.health} destructible={item.destructible} destroyed={item.destroyed}");
-            if (!item.destructible) return;
-
-            bool playFx = msg.DamageAmount >= 0
-                && !DWMPHorde.Patches.ClientWorldMeleeRedirectHelper.ShouldSuppressApplyFx(2, pos);
-
-            if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ItemDmgEvent] destroying " + item.name);
-                if (!item.destroyed)
-                    item.die();
-            }
-            else
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ItemDmgEvent] setting " + item.name + " health to " + msg.Health);
-                Traverse.Create(item).Field("health").SetValue(msg.Health);
-                if (playFx && item.hitParticlePrefabObject != null)
-                {
-                    Core.AddPrefab(item.hitParticlePrefabObject, item.transform.position,
-                        Quaternion.Euler(90f, 0f, 0f), null);
-                }
-                if (!string.IsNullOrEmpty(item.hitSound))
-                    AudioController.Play(item.hitSound, item.transform.position);
-            }
-        }
-
-    
     }
 }

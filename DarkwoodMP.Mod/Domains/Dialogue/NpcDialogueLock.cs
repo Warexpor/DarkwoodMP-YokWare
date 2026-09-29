@@ -138,11 +138,67 @@ namespace DWMPHorde.Sync
             bool ok = TryAcquire(npcName, ownerPlayerId);
             BroadcastState(net, npcName, ownerPlayerId, granted: ok, release: false);
             if (ok)
+            {
                 ModLog.Event(LogCat.Session, $"[DialogLock] granted NPC={npcName} owner={ownerPlayerId}");
+                // Host talkTo already fired onEnterDialogue. A client talk only runs it
+                // locally, and client one-shot GameEvents are blocked.
+                if (ownerPlayerId != net.LocalPlayerId)
+                    FireRemoteEnterDialogue(npcName, ownerPlayerId);
+            }
             else
                 ModLog.Event(LogCat.Session,
                     $"[DialogLock] denied NPC={npcName} owner={ownerPlayerId} heldBy={GetOwner(npcName)}");
             return ok;
+        }
+
+        /// <summary>
+        /// Client opened talk. Replay vanilla NPC.talkTo's onEnterDialogue on the host
+        /// so one-shot GameEvents fan out. Wrapped in the host apply guard so the
+        /// inbound lock packet does not swallow the broadcast.
+        /// </summary>
+        private static void FireRemoteEnterDialogue(string npcName, int ownerPlayerId)
+        {
+            bool dream = DreamSyncManager.IsDreamActive;
+            NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName, dream);
+            if (npc == null || npc.gameObject == null)
+            {
+                ModRuntime.Log?.LogWarning(
+                    "[DialogLock] onEnterDialogue skip — NPC '" + npcName + "' not found");
+                return;
+            }
+
+            ModRuntime.LegacyInfo("[DialogLock] host onEnterDialogue for " + npcName);
+            // Stamp dialogue owner before BeginWorldOnly so GameEventsFired carries the speaker.
+            bool pushed = ownerPlayerId > 0;
+            if (pushed) GeFireActorContext.Push(ownerPlayerId);
+            DialogHostApplyGuard.BeginWorldOnly();
+            try
+            {
+                if (!npc.gameObject.activeInHierarchy)
+                {
+                    try { npc.gameObject.SetActive(true); }
+                    catch { /* ignore */ }
+                }
+
+                Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onEnterDialogue);
+                EventTriggers[] ets = npc.GetComponentsInChildren<EventTriggers>(true);
+                for (int i = 0; i < ets.Length; i++)
+                {
+                    EventTriggers et = ets[i];
+                    if (et == null || et.gameObject == npc.gameObject) continue;
+                    try { et.fireEventTrigger(EventTrigger.Type.onEnterDialogue); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DialogLock] onEnterDialogue: " + ex.Message);
+            }
+            finally
+            {
+                DialogHostApplyGuard.EndWorldOnly();
+                if (pushed) GeFireActorContext.Pop();
+            }
         }
 
         public static void HostRelease(LanNetworkManager net, string npcName, int ownerPlayerId)

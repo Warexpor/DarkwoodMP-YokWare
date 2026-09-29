@@ -97,14 +97,22 @@ namespace DWMPHorde.Patches
                     {
                         scProxy.distanceToPlayer = Vector3.Distance(
                             __result.transform.position, proxy.transform.position);
-                        scProxy.speed = 0f;
-                        scProxy.speedAggressive = 0f;
                     }
 
                     if (__result.GetComponent<ProxyShadowController>() == null)
                     {
                         var ctrl = __result.AddComponent<ProxyShadowController>();
                         ctrl.TargetProxy = proxy.transform;
+                        if (scProxy != null)
+                        {
+                            // Vanilla Update must not cruise toward the host. The
+                            // controller still needs the prefab speeds to close.
+                            ctrl.CruiseSpeed = scProxy.speed;
+                            ctrl.AggroSpeed = scProxy.speedAggressive;
+                            ctrl.SpeedsOverridden = true;
+                            scProxy.speed = 0f;
+                            scProxy.speedAggressive = 0f;
+                        }
                     }
                 }
             }

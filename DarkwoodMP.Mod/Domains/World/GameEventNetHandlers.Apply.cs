@@ -80,21 +80,19 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
-            // Dream bunker dialogue events sit at location origin far from door body;
-            // use wide name search first, then position.
-            float nameR = DreamSyncManager.IsDreamActive ? 80f : 8f;
-            float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
+            // Named events: SoftMatch only. A prior FindNearestByName (exact, no Clone
+            // strip) often missed, then nameless FindNearest stole a nearby already-fired
+            // GE and returned "success" — setActive / renderer / remove never ran on the
+            // peer. SoftMatch strips (Clone), prefers the dream pad, and prefers unfired.
+            float softMax = (DreamSyncManager.IsDreamActive || padCoords) ? 250f : 8f;
             if (!string.IsNullOrEmpty(msg.EventName))
-                best = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
-            if (best == null)
-                best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
-
-            // Soft name matching handles Clone and suffix drift, with a strict
-            // distance cap to avoid selecting an overworld copy.
-            if (best == null && !string.IsNullOrEmpty(msg.EventName))
             {
-                best = SoftMatchGameEvents(msg.EventName, pos, dreamRoot,
-                    DreamSyncManager.IsDreamActive ? 250f : nameR);
+                best = SoftMatchGameEvents(msg.EventName, pos, dreamRoot, softMax);
+            }
+            else
+            {
+                float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
+                best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
             }
 
             if (best == null)
@@ -142,9 +140,23 @@ namespace DWMPHorde.Networking
             // process-wide HUD blacklist here (blanks local examine/help). Delayed
             // text re-checks NearRange against the GE transform when MoveNext runs
             // (PersonalFlavorHud + GameEventFireFlavorSourcePatch).
-            using (new NetworkApplyGuard())
+            // Personal Player.Instance effects (bag / recipes / transport) only for
+            // the stamped actor; late-join bulk uses ActorPlayerId=0 → world only.
+            bool runPersonal = GameEventPersonalPolicy.ShouldRunPersonalEffectsOnApply(
+                msg.ActorPlayerId, _net.LocalPlayerId);
+            bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
+            if (!runPersonal)
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            try
             {
-                best.fire();
+                using (new NetworkApplyGuard())
+                {
+                    best.fire();
+                }
+            }
+            finally
+            {
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
             }
             if (!best.fired && !best.multipleFire)
             {
@@ -205,6 +217,9 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Soft GE resolve: exact/normalized name index first, full IndexOf walk only on miss.
         /// Index rebuilds when the WorldQueryHelper GameEvents cache array identity changes.
+        /// When <paramref name="dreamRoot"/> is set, only pad children (or within 250 of the
+        /// pad) are eligible — never the overworld bunker twin. Prefer an unfired copy so an
+        /// already-latched twin cannot swallow setActive / renderer / remove.
         /// </summary>
         private GameEvents SoftMatchGameEvents(
             string want, Vector3 pos, Transform dreamRoot, float softMax)
@@ -215,25 +230,45 @@ namespace DWMPHorde.Networking
             string wantNorm = NormalizeGeName(want);
             GameEvents best = null;
             float bestD = float.MaxValue;
+            bool bestLatched = false;
+            float softMaxSq = softMax * softMax;
+            float rootMaxSq = 250f * 250f;
 
             void Consider(GameEvents ge)
             {
-                if (ge == null) return;
+                if (ge == null || ge.transform == null) return;
                 if (dreamRoot != null)
                 {
-                    float rootMax = 250f;
-                    float rootMaxSq = rootMax * rootMax;
                     if (!ge.transform.IsChildOf(dreamRoot)
                         && (ge.transform.position - dreamRoot.position).sqrMagnitude > rootMaxSq)
                         return;
                 }
                 float dSq = (ge.transform.position - pos).sqrMagnitude;
-                float softMaxSq = softMax * softMax;
                 if (dSq > softMaxSq) return;
+
+                // One-shot already latched — keep searching for an unfired twin first.
+                bool latched = ge.fired && !ge.multipleFire;
+                if (best == null)
+                {
+                    best = ge;
+                    bestD = dSq;
+                    bestLatched = latched;
+                    return;
+                }
+                if (bestLatched && !latched)
+                {
+                    best = ge;
+                    bestD = dSq;
+                    bestLatched = false;
+                    return;
+                }
+                if (!bestLatched && latched)
+                    return;
                 if (dSq < bestD)
                 {
-                    bestD = dSq;
                     best = ge;
+                    bestD = dSq;
+                    bestLatched = latched;
                 }
             }
 
@@ -249,13 +284,15 @@ namespace DWMPHorde.Networking
             // Rare: Clone/suffix drift that NormalizeGeName did not collapse.
             // The object name must contain the full wanted name. A shorter name
             // that merely sits inside the wanted name is a different event.
+            string wantForContains = wantNorm.Length > 0 ? wantNorm : want;
             for (int i = 0; i < all.Length; i++)
             {
                 GameEvents ge = all[i];
                 if (ge == null) continue;
-                string n = ge.name ?? "";
-                if (!n.Equals(want, System.StringComparison.OrdinalIgnoreCase)
-                    && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
+                string n = NormalizeGeName(ge.name);
+                if (n.Length == 0) continue;
+                if (!n.Equals(wantForContains, System.StringComparison.OrdinalIgnoreCase)
+                    && n.IndexOf(wantForContains, System.StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 Consider(ge);
             }
@@ -323,6 +360,12 @@ namespace DWMPHorde.Networking
         /// <summary>After remote dream pad spawn, apply queued entry events.</summary>
         internal void TryFlushPendingGameEventsAfterDreamLoad()
         {
+            // Pad spawn after dream-start Invalidate can leave a 3s TTL GameEvents scan
+            // without pad children; SoftMatch would miss leave-door / setActive shells.
+            WorldQueryHelper.InvalidateSceneScanCache<GameEvents>();
+            WorldQueryHelper.InvalidateSceneScanCache<UniqueObject>();
+            _geSoftIndexSource = null;
+            _geSoftByNormName.Clear();
             _nextPendingGameEventsFlushTime = 0f;
             TryFlushPendingGameEvents();
         }

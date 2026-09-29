@@ -12,10 +12,24 @@ public class CoopPolicyTests
     [Fact]
     public void TimePolicy_ClientConnected_SuppressesClock()
     {
+        // Also gates Controller.useTimeSkip on connected clients (beds / wait-until-evening).
         Assert.True(CoopTimePolicy.ShouldSuppressClientClock(isConnected: true, isClient: true));
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: true, isClient: false));
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: false, isClient: true));
         Assert.True(CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync);
+        Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1068, 1071, 1070));
+        Assert.False(CoopTimePolicy.LiveStepCrossedMinute(100, 500, 1070));
+        Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1438, 2, 0));
+        Assert.True(CoopTimePolicy.ShouldClearFedToday(100, 102, 1, 2, 480));
+        Assert.False(CoopTimePolicy.ShouldClearFedToday(100, 102, 2, 2, 480));
+        Assert.False(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: false));
+        Assert.True(PartyRequirementPolicy.HaveItem(partyHas: false, activeModifier: false));
+        Assert.True(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: true));
+        Assert.True(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Nightmare, 3));
+        Assert.True(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 1));
+        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 2));
+        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(false, PermadeathPolicy.Nightmare, 0));
+        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Normal, 0));
     }
 
     [Theory]
@@ -77,6 +91,16 @@ public class CoopPolicyTests
         Assert.False(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: true));
         Assert.True(DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(true));
         Assert.False(DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(false));
+    }
+
+    [Theory]
+    [InlineData(2, 2, true)]
+    [InlineData(2, 3, false)]
+    [InlineData(0, 2, false)]
+    [InlineData(-1, 2, false)]
+    public void GameEventPersonalPolicy_ActorOnlyOnApply(int actorId, int localId, bool run)
+    {
+        Assert.Equal(run, GameEventPersonalPolicy.ShouldRunPersonalEffectsOnApply(actorId, localId));
     }
 
     [Fact]

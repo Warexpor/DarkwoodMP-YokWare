@@ -29,11 +29,21 @@ namespace DWMPHorde.Patches
             var net = LanNetworkManager.Instance;
             if (net == null) return true;
 
-            // Clients never start chapter loads; host story GameEvents own this.
+            // Clients never start a new chapter. A permadeath "start over" reload
+            // of the current chapter is a request the host runs for the whole party.
             if (net.Role == NetworkRole.Client)
             {
+                int chapter = _chapterId < 1 ? 1 : _chapterId;
+                net.Send(NetMessageType.ChapterTransition,
+                    w => new ChapterTransitionMessage
+                    {
+                        ChapterId = chapter,
+                        LoadChapterSave = loadChapterSave,
+                        ExpectWorldShare = generateSave
+                    }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
                 ModLog.Event(LogCat.Session,
-                    $"[Chapter] Client blocked local generateChapter({_chapterId}) — wait for host");
+                    $"[Chapter] Client requested generateChapter({chapter}) — host decides");
                 return false;
             }
 
@@ -41,66 +51,7 @@ namespace DWMPHorde.Patches
             if (_chapterId < 1)
                 _chapterId = 1;
 
-            if (generateSave)
-            {
-                if (Singleton<WorldGenerator>.Instance != null)
-                    Singleton<WorldGenerator>.Instance.chapterID = _chapterId;
-                if (Core.currentProfile != null)
-                    Core.currentProfile.chapter = _chapterId;
-
-                try
-                {
-                    if (Singleton<SaveManager>.Instance != null)
-                        Singleton<SaveManager>.Instance.saveEmptyChapterSave();
-                }
-                catch (System.Exception ex)
-                {
-                    ModLog.Error(LogCat.Save, "saveEmptyChapterSave failed", ex);
-                }
-
-                // Tell clients a chapter transition is coming (share will load them).
-                net.Broadcast(NetMessageType.ChapterTransition,
-                    w => new ChapterTransitionMessage
-                    {
-                        ChapterId = _chapterId,
-                        LoadChapterSave = loadChapterSave,
-                        ExpectWorldShare = true
-                    }.Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
-
-                int chapterId = _chapterId;
-                bool loadSave = loadChapterSave;
-                ModLog.Event(LogCat.Session,
-                    $"[Chapter] Host ch{chapterId} generateSave — share world then load + resume");
-
-                // Push empty-chapter save to clients (they LoadScene in ClientApply), then host loads.
-                if (net.WorldSaveShare != null)
-                {
-                    net.WorldSaveShare.ScheduleHostShareThen(
-                        () => ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, resumeAfter: true),
-                        waitForGameSave: false);
-                }
-                else
-                {
-                    ChapterTransitionHelpers.ApplyChapterLoad(chapterId, loadSave, resumeAfter: true);
-                }
-
-                return false;
-            }
-
-            // No empty save; this is a pure scene swap where all peers load the same scene.
-            net.Broadcast(NetMessageType.ChapterTransition,
-                w => new ChapterTransitionMessage
-                {
-                    ChapterId = _chapterId,
-                    LoadChapterSave = loadChapterSave,
-                    ExpectWorldShare = false
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
-
-            ChapterTransitionHelpers.ApplyChapterLoad(_chapterId, loadChapterSave, resumeAfter: true);
-            ModLog.Event(LogCat.Session,
-                $"[Chapter] Host generateChapter({_chapterId}) coordinated scene load + resume");
+            ChapterTransitionHelpers.HostCoordinatedChapter(_chapterId, generateSave, loadChapterSave);
             return false;
         }
     }
@@ -119,6 +70,72 @@ namespace DWMPHorde.Patches
             ChapterShareExpected = false;
             _shareFallbackWaits = 0;
             _shareFallbackGen++;
+        }
+
+        /// <summary>
+        /// Host story path and accepted client reload. Broadcasts one transition,
+        /// then loads. Does not call generateChapter (that patch is the caller).
+        /// </summary>
+        internal static void HostCoordinatedChapter(int chapterId, bool generateSave, bool loadChapterSave)
+        {
+            if (chapterId < 1) chapterId = 1;
+            var net = LanNetworkManager.Instance;
+            if (net == null) return;
+
+            if (generateSave)
+            {
+                if (Singleton<WorldGenerator>.Instance != null)
+                    Singleton<WorldGenerator>.Instance.chapterID = chapterId;
+                if (Core.currentProfile != null)
+                    Core.currentProfile.chapter = chapterId;
+
+                try
+                {
+                    if (Singleton<SaveManager>.Instance != null)
+                        Singleton<SaveManager>.Instance.saveEmptyChapterSave();
+                }
+                catch (System.Exception ex)
+                {
+                    ModLog.Error(LogCat.Save, "saveEmptyChapterSave failed", ex);
+                }
+
+                net.Broadcast(NetMessageType.ChapterTransition,
+                    w => new ChapterTransitionMessage
+                    {
+                        ChapterId = chapterId,
+                        LoadChapterSave = loadChapterSave,
+                        ExpectWorldShare = true
+                    }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+
+                ModLog.Event(LogCat.Session,
+                    $"[Chapter] Host ch{chapterId} generateSave — share world then load + resume");
+
+                if (net.WorldSaveShare != null)
+                {
+                    net.WorldSaveShare.ScheduleHostShareThen(
+                        () => ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true),
+                        waitForGameSave: false);
+                }
+                else
+                {
+                    ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
+                }
+                return;
+            }
+
+            net.Broadcast(NetMessageType.ChapterTransition,
+                w => new ChapterTransitionMessage
+                {
+                    ChapterId = chapterId,
+                    LoadChapterSave = loadChapterSave,
+                    ExpectWorldShare = false
+                }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+
+            ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
+            ModLog.Event(LogCat.Session,
+                $"[Chapter] Host generateChapter({chapterId}) coordinated scene load + resume");
         }
 
         /// <summary>
@@ -199,9 +216,33 @@ namespace DWMPHorde.Patches
         {
             if (msg.ChapterId < 1) return;
 
-            // Host already applied via generateChapter Prefix.
-            if (ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host)
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net != null && net.Role == NetworkRole.Host)
+            {
+                if (net.CurrentReceivePlayerId <= 0)
+                    return;
+                // The client's packet is Forwardable. Do not also fan that copy out;
+                // the host reload below broadcasts one coordinated transition.
+                net._suppressForwardThisMessage = true;
+
+                int hostChapter = 1;
+                if (Singleton<WorldGenerator>.Instance != null && Singleton<WorldGenerator>.Instance.chapterID > 0)
+                    hostChapter = Singleton<WorldGenerator>.Instance.chapterID;
+                // New chapters stay host GameEvents. A peer may only reload the chapter
+                // the party is already in (permadeath start-over).
+                if (msg.ExpectWorldShare || !msg.LoadChapterSave || msg.ChapterId != hostChapter)
+                {
+                    ModLog.Event(LogCat.Session,
+                        $"[Chapter] Rejected client chapter request ch{msg.ChapterId} "
+                        + $"share={msg.ExpectWorldShare} loadSave={msg.LoadChapterSave} hostCh={hostChapter}");
+                    return;
+                }
+
+                ModLog.Event(LogCat.Session,
+                    $"[Chapter] Client p{net.CurrentReceivePlayerId} reload chapter{hostChapter}");
+                HostCoordinatedChapter(hostChapter, generateSave: false, loadChapterSave: true);
                 return;
+            }
 
             // ExpectWorldShare: ClientApplyCoroutine will LoadScene after files land.
             // Still set profile chapter so UI/session match; avoid double LoadScene race

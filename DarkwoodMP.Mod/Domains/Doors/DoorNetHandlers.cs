@@ -86,6 +86,19 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            if (msg.AttemptOnly)
+            {
+                if (_net.Role == NetworkRole.Host)
+                {
+                    _net._suppressForwardThisMessage = true;
+                    DialogHostApplyGuard.RunHostWorldFanout(() =>
+                        Core.sendTriggerInfo(door.gameObject, EventTrigger.Type.onTryToOpenLocked));
+                    ModRuntime.LegacyInfo(
+                        "[DoorSync] locked attempt trigger '" + door.name + "' at " + pos);
+                }
+                return;
+            }
+
             // Suppress re-Broadcast (dream doors are bidirectional).
             bool prev = LanNetworkManager.IsApplyingRemoteState;
             LanNetworkManager.IsApplyingRemoteState = true;
@@ -134,10 +147,14 @@ namespace DWMPHorde.Networking
                 }
                 try
                 {
+                    if (_net.Role == NetworkRole.Host)
+                        DialogHostApplyGuard.BeginWorldOnly();
                     door.open(openerPos, null, force);
                 }
                 finally
                 {
+                    if (_net.Role == NetworkRole.Host)
+                        DialogHostApplyGuard.EndWorldOnly();
                     if (mute)
                         door.openSound = prevSound;
                 }

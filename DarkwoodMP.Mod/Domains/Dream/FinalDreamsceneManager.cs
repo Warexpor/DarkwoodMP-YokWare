@@ -96,6 +96,17 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// Next pocket in the same session. Door/spirit presentation resets.
+        /// Death and spectator state stay so a dead peer is not marked alive.
+        /// </summary>
+        public static void OnDreamChained()
+        {
+            DWMPHorde.Patches.DialogueDoorAftermath.Reset();
+            DreamForestSpiritAggro.Reset();
+            ModRuntime.LegacyInfo("[FinalDreamscene] Dream chained — death roster kept");
+        }
+
+        /// <summary>
         /// Rebuild the remote participant set from live proxies and handshaked peers.
         /// Proxies may spawn after session start; peers table is more complete.
         /// </summary>

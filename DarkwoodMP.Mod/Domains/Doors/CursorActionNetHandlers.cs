@@ -27,8 +27,10 @@ namespace DWMPHorde.Networking
             CustomCursorAction best = FindCustomCursorAction(pos, msg.ObjectName);
             if (best == null)
             {
+                if (TryFirePlainItemActivate(pos, msg.ObjectName))
+                    return;
                 ModRuntime.Log?.LogWarning(
-                    $"[CursorActionSync] host: no CustomCursorAction near {pos} name={msg.ObjectName}");
+                    $"[CursorActionSync] host: no activate target near {pos} name={msg.ObjectName}");
                 return;
             }
 
@@ -83,7 +85,57 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo(
                 $"[CursorActionSync] host activate {best.name} at {best.transform.position}");
-            best.activate();
+            DialogHostApplyGuard.RunHostWorldFanoutForPlayer(requesterId, () => best.activate());
+        }
+
+        /// <summary>
+        /// Item.activate sends onActivate on the using client, where one-shots are blocked.
+        /// Replay only the trigger. Do not call activate() or the host opens the chest UI.
+        /// </summary>
+        private static bool TryFirePlainItemActivate(Vector3 pos, string name)
+        {
+            Item item = null;
+            if (!string.IsNullOrEmpty(name))
+                item = WorldQueryHelper.FindNearestByName<Item>(pos, name, 3f);
+            if (item == null)
+                item = WorldQueryHelper.FindNearest<Item>(pos, 2.5f);
+            if (item == null) return false;
+
+            if (DreamSyncManager.IsDreamActive)
+            {
+                Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
+                if (dreamRoot != null
+                    && !item.transform.IsChildOf(dreamRoot)
+                    && Vector3.Distance(item.transform.position, dreamRoot.position) > 250f)
+                    return false;
+            }
+
+            ModRuntime.LegacyInfo("[CursorActionSync] host onActivate " + item.name + " at " + pos);
+            Item target = item;
+            int actorId = (ModRuntime.Network as LanNetworkManager)?.CurrentReceivePlayerId ?? 0;
+            DialogHostApplyGuard.RunHostWorldFanoutForPlayer(actorId, () =>
+                Core.sendTriggerInfo(target.gameObject, EventTrigger.Type.onActivate));
+
+            // Vanilla Item.activate also calls useTimeSkip for beds / wait-until-evening.
+            // Do not call activate() here (opens chest UI on host). Adopt the clock only.
+            if (item.GetComponent<TimeSkip>() != null)
+            {
+                Controller ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && !ctrl.isHardNight)
+                {
+                    int before = ctrl.CurrentTime;
+                    ctrl.useTimeSkip();
+                    if (ctrl.CurrentTime != before)
+                    {
+                        var lan = ModRuntime.Network as LanNetworkManager;
+                        lan?.SendTimeSyncTo(-1);
+                        ModRuntime.LegacyInfo(
+                            "[CursorActionSync] host TimeSkip " + item.name
+                            + " time " + before + "→" + ctrl.CurrentTime);
+                    }
+                }
+            }
+            return true;
         }
 
         internal void HandleLocationTransport(LocationTransportMessage msg)

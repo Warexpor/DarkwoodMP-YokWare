@@ -55,4 +55,40 @@ namespace DWMPHorde.Patches
                 __instance.objects[type] = best;
         }
     }
+
+    /// <summary>
+    /// Vanilla removeObject drops the type key even when a different instance
+    /// owns it. Pad destroy would erase the overworld bunker twin after remap.
+    /// </summary>
+    [HarmonyPatch(typeof(UniqueObjects), "removeObject")]
+    public static class UniqueObjectsRemoveKeepOtherPatch
+    {
+        private static void Prefix(UniqueObjects __instance, UniqueObject obj, out UniqueObject __state)
+        {
+            __state = null;
+            if (obj == null || __instance == null || __instance.objects == null
+                || string.IsNullOrEmpty(obj.type))
+                return;
+            if (__instance.objects.TryGetValue(obj.type, out UniqueObject cur)
+                && cur != null && cur != obj)
+                __state = cur;
+        }
+
+        private static void Postfix(UniqueObjects __instance, UniqueObject obj, UniqueObject __state)
+        {
+            if (obj == null || __instance == null || __instance.objects == null
+                || string.IsNullOrEmpty(obj.type))
+                return;
+
+            UniqueObject keep = __state;
+            if (keep == null
+                && DreamSyncManager.TryGetStashedOverworldUnique(obj.type, out UniqueObject stashed)
+                && stashed != obj)
+                keep = stashed;
+            if (keep == null) return;
+
+            if (!__instance.objects.TryGetValue(obj.type, out UniqueObject now) || now == null || now == obj)
+                __instance.objects[obj.type] = keep;
+        }
+    }
 }

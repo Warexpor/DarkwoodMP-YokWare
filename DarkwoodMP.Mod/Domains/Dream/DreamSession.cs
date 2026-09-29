@@ -234,6 +234,20 @@ namespace DWMPHorde.Sync
             return outcomeName.StartsWith("rejected", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Cleanup reasons that are not a successful story end.
+        /// Must not MarkCompleted or grant the default outcome.
+        /// </summary>
+        public static bool IsFailureCleanup(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return false;
+            if (IsRejectedOutcome(reason)) return true;
+            return reason == "storyEndTimeout"
+                || reason == "disconnected"
+                || reason == "hostLostMidDream"
+                || reason == "prepareLocationFailed";
+        }
+
         public static string BuildRejectedOutcome(string reason)
         {
             if (string.IsNullOrEmpty(reason)) return "rejected";
@@ -257,9 +271,9 @@ namespace DWMPHorde.Sync
             PresetName = nextPreset;
             Current = State.Starting;
             SetPendingHostPreset(nextPreset);
-            // Refresh death tracking for the new pocket (clear mid-dream death for survivors).
-            FinalDreamsceneManager.OnDreamEnded();
-            FinalDreamsceneManager.OnDreamStarted();
+            // Same session: dead peers stay dead and spectating. Do not wipe the roster.
+            FinalDreamsceneManager.OnDreamChained();
+            DreamSyncManager.NoteLocalDreamPreset(nextPreset);
             ModLog.Event(LogCat.Dream, $"Chained preset → {nextPreset} (session {SessionId})");
         }
 

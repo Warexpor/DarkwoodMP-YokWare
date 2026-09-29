@@ -131,7 +131,8 @@ namespace DWMPHorde.Networking
             Transform attackerT = attackingProxy.transform;
 
             float hpBefore = target.Health;
-            target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true));
 
             EntitySyncLog.Damage(
                 "[Attack] p" + playerId + " → " + target.name

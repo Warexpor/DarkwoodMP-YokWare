@@ -93,7 +93,8 @@ namespace DWMPHorde.Patches
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
-                EventName = eventName
+                EventName = eventName,
+                ActorPlayerId = GeFireActorContext.PeekOr(net.LocalPlayerId)
             };
             net.SendGameEventsFired(firedMsg);
             // destroyOnFire schedules Destroy(gameObject) after event delays — gone

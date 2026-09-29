@@ -95,13 +95,23 @@ namespace DWMPHorde.Networking
                 if (_net.Role == NetworkRole.Host)
                     TryEnterLocationGridNearRemotes(locName);
 
+                if (_net.Role == NetworkRole.Host && firstEnterThisLoc)
+                    TryFireRemoteLocationEnterEvents(ol, loc, locName, playerId);
+
                 // Peer just got location geometry; re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
                 // Also on pendingPlace / proxyMissing (soft-reconnect re-place) — not on
                 // every localSameLoc heartbeat (that would thrash lights at ~1 Hz).
+                // Fresh OutsideLocations.spawnLocation is a virgin prefab — late-join
+                // barricade/door/NPC bulk often ran before the pad existed. Replay
+                // those snapshots (idempotent) the same way lights already do.
                 if (_net.Role == NetworkRole.Host && playerId != _net.LocalPlayerId
                     && (firstEnterThisLoc || pendingPlace || proxyMissing))
+                {
                     _net.ResyncWorldLightsForPeer(playerId);
+                    if (!dreamLoc)
+                        _net.ResyncOutsideLocationPadForPeer(playerId, loc);
+                }
             }
             else
             {
@@ -476,7 +486,7 @@ namespace DWMPHorde.Networking
             Location loc = ResolveOutsideLocation(ol, locName);
             if (loc != null && loc.entered)
             {
-                loc.leave();
+                DialogHostApplyGuard.RunHostWorldFanout(() => loc.leave());
                 ModRuntime.LegacyInfo(
                     "[LocationSync] last remote left '" + locName + "' — host left location");
             }

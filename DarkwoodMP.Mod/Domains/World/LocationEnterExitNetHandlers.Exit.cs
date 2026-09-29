@@ -176,5 +176,36 @@ namespace DWMPHorde.Networking
             if (sent > 0)
                 ModLog.Event(LogCat.Session, $"[BulkSync] LocationEnter x{sent} → p{targetPlayerId}");
         }
+
+        /// <summary>
+        /// Vanilla enter events run in Location.OnActivated, which only the local
+        /// visitor calls. A client visit never reached the host. Fire once, when
+        /// the first party member enters and the host is not already inside.
+        /// </summary>
+        private void TryFireRemoteLocationEnterEvents(OutsideLocations ol, Location loc, string locName, int playerId)
+        {
+            if (loc == null || ol == null) return;
+            if (Core.loadingGame) return;
+            if (ol.playerInOutsideLocation
+                && CoopWorldPresencePolicy.LocationNamesMatch(ol.currentLocationName ?? "", locName))
+                return;
+            foreach (var kvp in _net.RemoteOutsideLocation)
+            {
+                if (kvp.Key == playerId) continue;
+                if (CoopWorldPresencePolicy.LocationNamesMatch(kvp.Value ?? "", locName))
+                    return;
+            }
+            if (loc.events == null || loc.events.Count == 0) return;
+
+            ModRuntime.LegacyInfo("[LocationSync] host onEnterLocation for '" + locName + "'");
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+            {
+                for (int i = 0; i < loc.events.Count; i++)
+                {
+                    if (loc.events[i] != null)
+                        Core.sendTriggerInfo(loc.events[i].gameObject, EventTrigger.Type.onEnterLocation);
+                }
+            });
+        }
     }
 }

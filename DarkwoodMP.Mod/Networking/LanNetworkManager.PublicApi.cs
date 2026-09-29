@@ -265,5 +265,13 @@ namespace DWMPHorde.Networking
 
         internal void ResyncWorldLightsForPeer(int targetPlayerId) =>
             WorldLateJoinHandlers.ResyncWorldLightsForPeer(targetPlayerId);
+
+        /// <summary>
+        /// Host: after a peer first enters (or soft-reconnects into) an outside pad,
+        /// re-push barricade / opened-door / destroyed-item / NPC visual state that
+        /// late-join bulk may have missed while the pad was not spawned yet.
+        /// </summary>
+        internal void ResyncOutsideLocationPadForPeer(int targetPlayerId, Location loc) =>
+            WorldLateJoinHandlers.ResyncOutsideLocationPadForPeer(targetPlayerId, loc);
     }
 }

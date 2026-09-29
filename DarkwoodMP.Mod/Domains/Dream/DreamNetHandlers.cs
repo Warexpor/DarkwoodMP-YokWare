@@ -293,7 +293,30 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[DreamSync] Session bulk: completed={msg.CompletedPresets?.Length ?? 0} "
-                + $"active={msg.SessionActive} preset={msg.ActivePreset} session={msg.SessionId}");
+                + $"active={msg.SessionActive} preset={msg.ActivePreset} session={msg.SessionId}"
+                + (msg.HasPadPosition ? " pad" : ""));
+
+            // Late join (or a missed DreamStarted): the snapshot alone left the peer
+            // in the overworld while the party was on the pad.
+            if (_net.Role == NetworkRole.Client
+                && msg.SessionActive
+                && msg.HasPadPosition
+                && !string.IsNullOrEmpty(msg.ActivePreset)
+                && (Dreams.Instance == null || !Dreams.Instance.dreaming)
+                && !DreamSyncManager.IsLocalDreamActive
+                && !DreamSyncManager.HasPendingEntryTransition)
+            {
+                DreamSession.BeginFromHost(msg.ActivePreset, msg.SessionId);
+                int hostId = _net.CurrentReceivePlayerId > 0
+                    ? _net.CurrentReceivePlayerId
+                    : (_net.HostPlayerId > 0 ? _net.HostPlayerId : 1);
+                // They missed the entry movie. Load the live pad instead of replaying it.
+                DreamSyncManager.MarkLocalEntryTransitionPlayed();
+                DreamSyncManager.OnRemoteDreamStarted(
+                    hostId,
+                    msg.ActivePreset,
+                    new Vector3(msg.PadX, msg.PadY, msg.PadZ));
+            }
         }
 
         internal void HandleDreamChainStart(DreamChainStartMessage msg)
@@ -378,6 +401,13 @@ namespace DWMPHorde.Networking
             var bulk = DreamSessionBulkMessage.FromLocal();
             _net.SendToPlayer(playerId, NetMessageType.DreamSessionBulk,
                 w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            if (bulk.SessionActive && bulk.HasPadPosition)
+            {
+                DreamSyncManager.NoteRemoteInDream(playerId);
+                var proxy = _net.GetProxy(playerId);
+                if (proxy != null)
+                    proxy.FreezePosition = true;
+            }
         }
     }
 }

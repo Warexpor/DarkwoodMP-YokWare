@@ -64,8 +64,9 @@ namespace DWMPHorde.Patches
 
             if (!string.IsNullOrEmpty(dreamName))
             {
+                // Do not burn the local pool until the host accepts (DreamStarted).
+                // A reject would otherwise skip a dream the host can still roll.
                 DreamSession.SetPendingHostPreset(dreamName);
-                DreamSession.MirrorPoolRemove(dreamName);
             }
 
             DreamSyncManager.FreezeWorld();

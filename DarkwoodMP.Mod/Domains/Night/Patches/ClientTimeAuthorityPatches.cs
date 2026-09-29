@@ -66,4 +66,21 @@ namespace DWMPHorde.Patches
             return false;
         }
     }
+
+    /// <summary>
+    /// Item.activate still continues after client defers onActivate, so the client
+    /// would call useTimeSkip locally. Host adopts via ActivateCursorAction + TimeSync.
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), "useTimeSkip")]
+    public static class ClientUseTimeSkipSuppressPatch
+    {
+        private static bool Prefix()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected)
+                return true;
+            return !CoopTimePolicy.ShouldSuppressClientClock(
+                net.IsConnected, net.Role == NetworkRole.Client);
+        }
+    }
 }

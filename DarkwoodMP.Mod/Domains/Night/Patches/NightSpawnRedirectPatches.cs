@@ -127,6 +127,8 @@ namespace DWMPHorde.Patches
         {
             if (__result == null || prefab != "characters/fakechars/NightWorms_01")
                 return;
+            if (HardNightPartySpawn.Placing)
+                return;
             if (ModRuntime.Network?.Role != NetworkRole.Host)
                 return;
             if (!PlayerPositionManager.HasRemotePlayer)
@@ -148,6 +150,98 @@ namespace DWMPHorde.Patches
             __result.transform.position = newPos;
 
             ModRuntime.LegacyInfo($"[NightWormRedirect] moved worm to proxy area ({newPos.x:F0},{newPos.z:F0})");
+        }
+    }
+
+    /// <summary>
+    /// Hard-night worm: vanilla gates on the host body only. Pick one living
+    /// player without shadow ward (host or proxy) and attack that body.
+    /// </summary>
+    public static class HardNightPartySpawn
+    {
+        public static bool Placing { get; private set; }
+
+        private struct Body
+        {
+            public Vector3 Pos;
+            public Transform Attack;
+        }
+
+        public static IEnumerator WormLoop(CharacterSpawner spawner)
+        {
+            var wait = new WaitForSeconds(5f);
+            while (spawner != null)
+            {
+                yield return wait;
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl == null || !ctrl.isHardNight || Core.isDay())
+                    continue;
+                if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
+                    continue;
+                if (!TryPickUnwardedBody(out Body body))
+                    continue;
+
+                Vector3 position = Core.randomPosAround(body.Pos, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
+                GameObject go;
+                Placing = true;
+                try
+                {
+                    go = Core.AddPrefab(
+                        "characters/fakechars/NightWorms_01",
+                        position,
+                        Quaternion.Euler(90f, Random.Range(0, 360), 0f),
+                        null);
+                }
+                finally
+                {
+                    Placing = false;
+                }
+
+                if (go == null) continue;
+                Character component = go.GetComponent<Character>();
+                if (component != null && body.Attack != null)
+                    component.attackCharacter(body.Attack);
+                if (spawner.nocturnalCharacters != null)
+                    spawner.nocturnalCharacters.Add(go);
+            }
+        }
+
+        private static bool TryPickUnwardedBody(out Body picked)
+        {
+            picked = default;
+            var choices = new List<Body>();
+
+            Player host = Player.Instance;
+            if (host != null && HostEligible(host))
+            {
+                Transform t = host._transform != null ? host._transform : host.transform;
+                choices.Add(new Body { Pos = t.position, Attack = t });
+            }
+
+            var net = LanNetworkManager.Instance;
+            if (net != null)
+            {
+                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || proxy.RemoteHasShadowWard) continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if (cb != null && !cb.alive) continue;
+                    choices.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
+                }
+            }
+
+            if (choices.Count == 0) return false;
+            picked = choices[Random.Range(0, choices.Count)];
+            return true;
+        }
+
+        private static bool HostEligible(Player host)
+        {
+            if (host.ignoreNightSickness) return false;
+            if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
+                return false;
+            CharBase cb = host.GetComponent<CharBase>();
+            return cb == null || cb.alive;
         }
     }
 }

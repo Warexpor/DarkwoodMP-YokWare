@@ -470,8 +470,9 @@ namespace DWMPHorde.Patches
             int itemId = __instance.GetInstanceID();
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            // Match Door/Window: allow host MeleeWorldHit apply (IsApplyingRemoteState)
+            // to fan BarricadeEvent. Loop stop is _processingBarricadeEvent only.
             if (LanNetworkManager._processingBarricadeEvent) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
             if (!__instance.destructible) return;
 
             // If the client redirected this hit, original getHit was skipped

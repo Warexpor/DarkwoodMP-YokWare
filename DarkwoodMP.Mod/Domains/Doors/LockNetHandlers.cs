@@ -196,6 +196,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Vanilla switchOn/Off force-fires EventTriggers (area) → GameEvents.
+            // Client local fire is blocked; host apply sits under NetworkApplyGuard and
+            // would swallow GameEventsFired unless wrapped in RunHostWorldFanout.
+            // switchOn/Off do not open the InteractiveItem UI (that is switchMe/open).
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -204,14 +208,14 @@ namespace DWMPHorde.Networking
                     if (best.onTrigger == null)
                         best.isOn = true;
                     else
-                        best.switchOn();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => best.switchOn());
                 }
                 else if (!msg.IsOn && best.isOn)
                 {
                     if (best.offTrigger == null)
                         best.isOn = false;
                     else
-                        best.switchOff();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => best.switchOff());
                 }
             }
             finally
@@ -256,13 +260,19 @@ namespace DWMPHorde.Networking
 
             // Host-only: mirror Padlock.unlock(manually:true) trigger fan-out.
             // wasLocked gates late-join bulk / echo (already unlocked → no re-fire).
-            // Pending flush may have CurrentReceivePlayerId==0 — still synth on host.
+            // ProcessInboundMessage holds NetworkApplyGuard — bare sendTriggerInfo would
+            // swallow GameEventsFired unless wrapped in RunHostWorldFanout (same as
+            // InteractiveItem / examine). Auto-stamps CurrentReceivePlayerId so personal
+            // GE grants land on the unlocking peer, not host Player.Instance.
             if (wasLocked && _net.Role == NetworkRole.Host)
             {
                 try
                 {
-                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onTryToOpenLocked);
-                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onUnlockPadlock);
+                    DialogHostApplyGuard.RunHostWorldFanout(() =>
+                    {
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onTryToOpenLocked);
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onUnlockPadlock);
+                    });
                 }
                 catch (System.Exception ex)
                 {
@@ -302,12 +312,15 @@ namespace DWMPHorde.Networking
             }
 
             // Host: client key/lockpick path sent onActivate locally (one-shot GE blocked).
-            // Without host synth, door/chest unlock story never runs for the session.
+            // Without host synth under RunHostWorldFanout, door/chest unlock story never
+            // fans (outer NetworkApplyGuard swallows GameEventsFired) and personal grants
+            // would hit host Player.Instance.
             if (wasLocked && _net.Role == NetworkRole.Host)
             {
                 try
                 {
-                    Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onActivate);
+                    DialogHostApplyGuard.RunHostWorldFanout(() =>
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onActivate));
                 }
                 catch (System.Exception ex)
                 {

@@ -43,13 +43,17 @@ namespace DWMPHorde.Patches
         {
             if (destGO == null) return true;
             if (triggerType != EventTrigger.Type.onActivate) return true;
-            if (destGO.GetComponent<CustomCursorAction>() == null) return true;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
 
             var net = LanNetworkManager.Instance;
             if (net == null || net.Role != NetworkRole.Client) return true;
+
+            bool cursor = destGO.GetComponent<CustomCursorAction>() != null;
+            bool worldUse = destGO.GetComponent<Item>() != null
+                || destGO.GetComponent<EventTriggers>() != null;
+            if (!cursor && !worldUse) return true;
 
             Vector3 p = destGO.transform.position;
             net.Send(NetMessageType.ActivateCursorAction,
@@ -63,6 +67,8 @@ namespace DWMPHorde.Patches
                 DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
                 $"[CursorActionSync] client request {destGO.name} at {p}");
+            // Do not latch the one-shot locally. CustomCursorAction stops here.
+            // A plain Item still continues activate() after this call (chest UI, switch).
             return false;
         }
 

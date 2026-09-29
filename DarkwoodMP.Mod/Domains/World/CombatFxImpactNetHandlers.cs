@@ -153,7 +153,8 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo("[MeleeWorldHit] door not found at " + pos);
                     return;
                 }
-                door.getHit(damage, attackerT, !suppressed, false);
+                DialogHostApplyGuard.RunHostWorldFanout(() =>
+                    door.getHit(damage, attackerT, !suppressed, false));
                 return;
             }
 
@@ -167,7 +168,8 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo("[MeleeWorldHit] window not found at " + pos);
                     return;
                 }
-                window.getHit(damage, attackerT, !suppressed);
+                DialogHostApplyGuard.RunHostWorldFanout(() =>
+                    window.getHit(damage, attackerT, !suppressed));
                 return;
             }
 
@@ -185,7 +187,8 @@ namespace DWMPHorde.Networking
         {
             Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius);
             if (best == null) return false;
-            best.getHit(damage, attackerT, true);
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+                best.getHit(damage, attackerT, true));
             return true;
         }
 

@@ -1,4 +1,5 @@
 using System;
+using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
 
@@ -106,6 +107,18 @@ namespace DWMPHorde.Sync
                 }
                 // Disarm while occupied: vanilla interrupt clears inBearTrap (BeartrapStop).
                 ReleaseLocalBearTrapIfNear(go.transform.position);
+                // Client Item.disarm fired onDisarmed locally, where one-shots are blocked.
+                // Host apply used switchToTriggered and skipped that trigger.
+                if (ModRuntime.Network is LanNetworkManager trapNet && trapNet.Role == NetworkRole.Host)
+                {
+                    DialogHostApplyGuard.BeginWorldOnly();
+                    try { Core.sendTriggerInfo(go, EventTrigger.Type.onDisarmed); }
+                    catch (Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[TrapApply] onDisarmed: " + ex.Message);
+                    }
+                    finally { DialogHostApplyGuard.EndWorldOnly(); }
+                }
                 ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
                 return;
             }

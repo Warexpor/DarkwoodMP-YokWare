@@ -4,6 +4,7 @@ using DWMPHorde;
 using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
+using LiteNetLib;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -63,6 +64,31 @@ namespace DWMPHorde.Networking
 
         internal void HandleGameEventsFired(GameEventsFiredMessage msg)
         {
+            // Client burn-crawl cannot run the one-shot locally. Fire it here so the
+            // host Postfix broadcasts EpilogueOutcomes to every peer.
+            if (_net.Role == NetworkRole.Host)
+            {
+                if (string.Equals(msg.EventName, EpilogueNetHandlers.EpilogueCameraPanEvent,
+                        StringComparison.Ordinal)
+                    && Player.Instance != null
+                    && Player.Instance.inEpilogue)
+                {
+                    var events = Singleton<Events>.Instance;
+                    if (events != null)
+                    {
+                        ModRuntime.LegacyInfo(
+                            "[Epilogue] Host firing crawl pan from p" + _net.CurrentReceivePlayerId);
+                        events.fireWorldEvent(EpilogueNetHandlers.EpilogueCameraPanEvent);
+                        // Inbound dispatch holds NetworkApplyGuard, so the fire Postfix
+                        // and SendGameEventsFired both skip. Fan out explicitly.
+                        _net.Broadcast(NetMessageType.GameEventsFired,
+                            w => msg.Serialize(w),
+                            DeliveryMethod.ReliableOrdered);
+                    }
+                }
+                return;
+            }
+
             if (_net.Role != NetworkRole.Client)
                 return;
             ApplyGameEventsFired(msg, queueIfMissing: true);
@@ -126,7 +152,8 @@ namespace DWMPHorde.Networking
                         PosX = Mathf.Round(p.x * 10f) / 10f,
                         PosY = Mathf.Round(p.y * 10f) / 10f,
                         PosZ = Mathf.Round(p.z * 10f) / 10f,
-                        EventName = eventName
+                        EventName = eventName,
+                        ActorPlayerId = 0
                     });
                 }
             }
@@ -145,6 +172,8 @@ namespace DWMPHorde.Networking
                     continue;
                 if (BulkListContains(list, destroyed))
                     continue;
+                // Late-join: world latch only — never re-grant personal bag/teleport.
+                destroyed.ActorPlayerId = 0;
                 list.Add(destroyed);
                 fromDestroyed++;
             }

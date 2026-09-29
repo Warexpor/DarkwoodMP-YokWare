@@ -471,8 +471,123 @@ namespace DWMPHorde.Networking
     {
         public string NpcName;
         public int Reputation;
-        public void Serialize(NetWriter w) { w.Put(NpcName ?? ""); w.Put(Reputation); }
-        public static ReputationSyncMessage Deserialize(NetReader r) => new ReputationSyncMessage { NpcName = r.GetString(), Reputation = r.GetInt() };
+        /// <summary>0.8.93: host Flags.NPCState.attackedID. Absent = legacy rep-only packet.</summary>
+        public bool HasAttackedId;
+        public int AttackedId;
+        /// <summary>0.8.94: host Flags.NPCState.dead + deadID. Absent = do not touch death fields.</summary>
+        public bool HasDead;
+        public bool Dead;
+        public int DeadId;
+        /// <summary>0.8.96: NPC.portraitType after GameEvent CharacterModify. Absent = leave portrait.</summary>
+        public bool HasPortrait;
+        public int PortraitType;
+        /// <summary>Vanilla activeModifier: also write characterDialogue.portraitType.</summary>
+        public bool ApplyDialoguePortrait;
+        public float PosX, PosY, PosZ;
+        /// <summary>
+        /// 0.8.97: Character.animationLibraryOverride after GameEvent CharacterModify.
+        /// Absent = leave library. String is the Resources path vanilla's setter loads.
+        /// </summary>
+        public bool HasAnimLibrary;
+        public string AnimLibraryName;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(Reputation);
+            // Trailer: hasAttackedId + int. Pre-0.8.93 peers stop after Reputation.
+            w.Put(HasAttackedId);
+            if (HasAttackedId)
+                w.Put(AttackedId);
+            // 0.8.94: hasDead + dead + deadID. Pre-0.8.94 peers stop after attacked trailer.
+            w.Put(HasDead);
+            if (HasDead)
+            {
+                w.Put(Dead);
+                w.Put(DeadId);
+            }
+            // 0.8.96: hasPortrait + portrait int + applyDialogue + pos. Pre-0.8.96 stop after dead.
+            w.Put(HasPortrait);
+            if (HasPortrait)
+            {
+                w.Put(PortraitType);
+                w.Put(ApplyDialoguePortrait);
+                w.Put(PosX);
+                w.Put(PosY);
+                w.Put(PosZ);
+            }
+            // 0.8.97: hasAnimLibrary + library string + pos. Pre-0.8.97 stop after portrait.
+            w.Put(HasAnimLibrary);
+            if (HasAnimLibrary)
+            {
+                w.Put(AnimLibraryName ?? "");
+                w.Put(PosX);
+                w.Put(PosY);
+                w.Put(PosZ);
+            }
+        }
+
+        public static ReputationSyncMessage Deserialize(NetReader r)
+        {
+            var msg = new ReputationSyncMessage
+            {
+                NpcName = r.GetString(),
+                Reputation = r.GetInt()
+            };
+            if (r.AvailableBytes >= 1)
+            {
+                msg.HasAttackedId = r.GetBool();
+                if (msg.HasAttackedId && r.AvailableBytes >= 4)
+                    msg.AttackedId = r.GetInt();
+                else
+                    msg.HasAttackedId = false;
+            }
+            // 0.8.94+: hasDead + bool + int. Pre-0.8.94: no trailer.
+            if (r.AvailableBytes >= 1)
+            {
+                msg.HasDead = r.GetBool();
+                if (msg.HasDead && r.AvailableBytes >= 5)
+                {
+                    msg.Dead = r.GetBool();
+                    msg.DeadId = r.GetInt();
+                }
+                else
+                    msg.HasDead = false;
+            }
+            // 0.8.96+: hasPortrait + int + bool + 3 floats (18 bytes after flag).
+            if (r.AvailableBytes >= 1)
+            {
+                msg.HasPortrait = r.GetBool();
+                if (msg.HasPortrait && r.AvailableBytes >= 17)
+                {
+                    msg.PortraitType = r.GetInt();
+                    msg.ApplyDialoguePortrait = r.GetBool();
+                    msg.PosX = r.GetFloat();
+                    msg.PosY = r.GetFloat();
+                    msg.PosZ = r.GetFloat();
+                }
+                else
+                    msg.HasPortrait = false;
+            }
+            // 0.8.97+: hasAnimLibrary + string + 3 floats.
+            if (r.AvailableBytes >= 1)
+            {
+                msg.HasAnimLibrary = r.GetBool();
+                if (msg.HasAnimLibrary)
+                {
+                    msg.AnimLibraryName = r.GetString();
+                    if (r.AvailableBytes >= 12)
+                    {
+                        msg.PosX = r.GetFloat();
+                        msg.PosY = r.GetFloat();
+                        msg.PosZ = r.GetFloat();
+                    }
+                    else
+                        msg.HasAnimLibrary = false;
+                }
+            }
+            return msg;
+        }
     }
 
     public struct ScenarioSyncMessage
@@ -715,6 +830,24 @@ namespace DWMPHorde.Networking
         public bool[] Dead;
         /// <summary>Host Flags.NPCState.wantsToTalk (0.8.55). End-of-message trailer; AvailableBytes-safe.</summary>
         public bool[] WantsToTalk;
+        /// <summary>Host Flags.NPCState.attackedID (0.8.93). Trailer after wantsToTalk.</summary>
+        public int[] AttackedIds;
+        /// <summary>Host Flags.NPCState.deadID (0.8.94). Trailer after attackedID; Dead bool is legacy.</summary>
+        public int[] DeadIds;
+        /// <summary>
+        /// 0.8.115: sparse NPC.portraitType after GameEvent CharacterModify (live had this
+        /// on ReputationSync 0.8.96; bulk did not). Per-slot HasPortrait + payload.
+        /// </summary>
+        public bool[] HasPortrait;
+        public int[] PortraitTypes;
+        public bool[] ApplyDialoguePortrait;
+        public float[] PortraitPosX, PortraitPosY, PortraitPosZ;
+        /// <summary>
+        /// 0.8.115: sparse Character.animationLibraryOverride (live 0.8.97).
+        /// </summary>
+        public bool[] HasAnimLibrary;
+        public string[] AnimLibraryNames;
+        public float[] AnimPosX, AnimPosY, AnimPosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -729,6 +862,41 @@ namespace DWMPHorde.Networking
             w.Put(true); // hasWantsToTalkTrailer
             for (int i = 0; i < NpcCount; i++)
                 w.Put(WantsToTalk == null || i >= WantsToTalk.Length || WantsToTalk[i]);
+            // 0.8.93: attackedID per NPC. Pre-0.8.93 peers stop after wantsToTalk.
+            w.Put(true); // hasAttackedIdTrailer
+            for (int i = 0; i < NpcCount; i++)
+                w.Put(AttackedIds != null && i < AttackedIds.Length ? AttackedIds[i] : 0);
+            // 0.8.94: deadID per NPC. Pre-0.8.94 peers stop after attackedID.
+            w.Put(true); // hasDeadIdTrailer
+            for (int i = 0; i < NpcCount; i++)
+                w.Put(DeadIds != null && i < DeadIds.Length ? DeadIds[i] : 0);
+            // 0.8.115: sparse portrait trailer. Pre-0.8.115 peers stop after deadID.
+            w.Put(true); // hasPortraitTrailer
+            for (int i = 0; i < NpcCount; i++)
+            {
+                bool has = HasPortrait != null && i < HasPortrait.Length && HasPortrait[i];
+                w.Put(has);
+                if (!has) continue;
+                w.Put(PortraitTypes != null && i < PortraitTypes.Length ? PortraitTypes[i] : 0);
+                w.Put(ApplyDialoguePortrait != null && i < ApplyDialoguePortrait.Length
+                    && ApplyDialoguePortrait[i]);
+                w.Put(PortraitPosX != null && i < PortraitPosX.Length ? PortraitPosX[i] : 0f);
+                w.Put(PortraitPosY != null && i < PortraitPosY.Length ? PortraitPosY[i] : 0f);
+                w.Put(PortraitPosZ != null && i < PortraitPosZ.Length ? PortraitPosZ[i] : 0f);
+            }
+            // 0.8.115: sparse anim-library trailer. Pre-0.8.115 peers stop after portrait.
+            w.Put(true); // hasAnimLibraryTrailer
+            for (int i = 0; i < NpcCount; i++)
+            {
+                bool has = HasAnimLibrary != null && i < HasAnimLibrary.Length && HasAnimLibrary[i];
+                w.Put(has);
+                if (!has) continue;
+                w.Put(AnimLibraryNames != null && i < AnimLibraryNames.Length
+                    ? (AnimLibraryNames[i] ?? "") : "");
+                w.Put(AnimPosX != null && i < AnimPosX.Length ? AnimPosX[i] : 0f);
+                w.Put(AnimPosY != null && i < AnimPosY.Length ? AnimPosY[i] : 0f);
+                w.Put(AnimPosZ != null && i < AnimPosZ.Length ? AnimPosZ[i] : 0f);
+            }
         }
 
         public static ReputationBulkSyncMessage Deserialize(NetReader r)
@@ -739,6 +907,19 @@ namespace DWMPHorde.Networking
             msg.Reputations = new int[msg.NpcCount];
             msg.Dead = new bool[msg.NpcCount];
             msg.WantsToTalk = new bool[msg.NpcCount];
+            msg.AttackedIds = new int[msg.NpcCount];
+            msg.DeadIds = new int[msg.NpcCount];
+            msg.HasPortrait = new bool[msg.NpcCount];
+            msg.PortraitTypes = new int[msg.NpcCount];
+            msg.ApplyDialoguePortrait = new bool[msg.NpcCount];
+            msg.PortraitPosX = new float[msg.NpcCount];
+            msg.PortraitPosY = new float[msg.NpcCount];
+            msg.PortraitPosZ = new float[msg.NpcCount];
+            msg.HasAnimLibrary = new bool[msg.NpcCount];
+            msg.AnimLibraryNames = new string[msg.NpcCount];
+            msg.AnimPosX = new float[msg.NpcCount];
+            msg.AnimPosY = new float[msg.NpcCount];
+            msg.AnimPosZ = new float[msg.NpcCount];
             for (int i = 0; i < msg.NpcCount; i++)
             {
                 msg.NpcNames[i] = r.GetString();
@@ -754,6 +935,75 @@ namespace DWMPHorde.Networking
                 {
                     for (int i = 0; i < msg.NpcCount; i++)
                         msg.WantsToTalk[i] = r.GetBool();
+                }
+            }
+            // 0.8.93+: bool hasTrailer + NpcCount ints. Pre-0.8.93: no trailer.
+            if (r.AvailableBytes >= 1 + 4 * msg.NpcCount)
+            {
+                bool hasAttacked = r.GetBool();
+                if (hasAttacked)
+                {
+                    for (int i = 0; i < msg.NpcCount; i++)
+                        msg.AttackedIds[i] = r.GetInt();
+                }
+            }
+            // 0.8.94+: bool hasTrailer + NpcCount ints. Pre-0.8.94: no trailer.
+            if (r.AvailableBytes >= 1 + 4 * msg.NpcCount)
+            {
+                bool hasDeadId = r.GetBool();
+                if (hasDeadId)
+                {
+                    for (int i = 0; i < msg.NpcCount; i++)
+                        msg.DeadIds[i] = r.GetInt();
+                }
+            }
+            // 0.8.115+: sparse portrait. Variable length — stop if bytes run out.
+            if (r.AvailableBytes >= 1)
+            {
+                bool hasPortraitTrailer = r.GetBool();
+                if (hasPortraitTrailer)
+                {
+                    for (int i = 0; i < msg.NpcCount; i++)
+                    {
+                        if (r.AvailableBytes < 1) break;
+                        bool has = r.GetBool();
+                        msg.HasPortrait[i] = has;
+                        if (!has) continue;
+                        if (r.AvailableBytes < 17)
+                        {
+                            msg.HasPortrait[i] = false;
+                            break;
+                        }
+                        msg.PortraitTypes[i] = r.GetInt();
+                        msg.ApplyDialoguePortrait[i] = r.GetBool();
+                        msg.PortraitPosX[i] = r.GetFloat();
+                        msg.PortraitPosY[i] = r.GetFloat();
+                        msg.PortraitPosZ[i] = r.GetFloat();
+                    }
+                }
+            }
+            // 0.8.115+: sparse anim library.
+            if (r.AvailableBytes >= 1)
+            {
+                bool hasAnimTrailer = r.GetBool();
+                if (hasAnimTrailer)
+                {
+                    for (int i = 0; i < msg.NpcCount; i++)
+                    {
+                        if (r.AvailableBytes < 1) break;
+                        bool has = r.GetBool();
+                        msg.HasAnimLibrary[i] = has;
+                        if (!has) continue;
+                        msg.AnimLibraryNames[i] = r.GetString();
+                        if (r.AvailableBytes < 12)
+                        {
+                            msg.HasAnimLibrary[i] = false;
+                            break;
+                        }
+                        msg.AnimPosX[i] = r.GetFloat();
+                        msg.AnimPosY[i] = r.GetFloat();
+                        msg.AnimPosZ[i] = r.GetFloat();
+                    }
                 }
             }
             return msg;

@@ -15,11 +15,12 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix(EventTriggerRequirement __instance, ref bool __result)
         {
-            if (__result || __instance == null) return;
+            if (__instance == null) return;
             if (!EventTriggersAuth.IsMultiplayerConnected()) return;
 
             if (__instance.type == EventTriggerRequirement.Type.locationState)
             {
+                if (__result) return;
                 if (AnyPeerLocationMatches(__instance.locationState))
                     __result = true;
                 return;
@@ -34,13 +35,14 @@ namespace DWMPHorde.Patches
             if (__instance.type == EventTriggerRequirement.Type.playerState
                 && __instance.playerState == Player.State.haveItem)
             {
+                // Vanilla: has ? activeModifier : !activeModifier.
+                // The old postfix only ORed peers when the host check already failed,
+                // so "must not have X" stayed true while a peer held X.
                 string key = ItemTypeKey(__instance);
                 if (string.IsNullOrEmpty(key)) return;
-                bool has = PeerItemPresence.AnyPeerHas(key, __instance.amount > 0 ? __instance.amount : 1);
-                if (!has)
-                    has = JournalHas(key);
-                if (has && __instance.activeModifier)
-                    __result = true;
+                int need = __instance.amount > 0 ? __instance.amount : 1;
+                bool has = PeerItemPresence.AnyPeerHas(key, need) || JournalHas(key);
+                __result = PartyRequirementPolicy.HaveItem(has, __instance.activeModifier);
             }
         }
 

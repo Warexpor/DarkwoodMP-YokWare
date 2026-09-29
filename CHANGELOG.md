@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.77**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
+**0.8.119**. The current Horde wire protocol is **25** (unchanged from 0.7.81;
 this line is an architecture rewrite, not a wire bump).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -11,6 +11,770 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.119 — Fresh outside-pad spawn gets host world state
+
+A client's first `OutsideLocations.prepareLocation` /
+`createLocation` for a pad not yet in `spawnedLocations` instantiates a
+virgin prefab. The host may already have opened doors, torn boards,
+smashed crates, and changed NPC portraits/anims. Late-join bulk often
+ran while that pad did not exist (find-miss / pending cap). Lights
+already re-pushed on first remote enter (`ResyncWorldLightsForPeer`);
+doors / barricades / destroyed items / NPC visuals did not. Protocol
+**25** unchanged. Product **0.8.118 → 0.8.119**.
+
+- Host `HandleLocationEnter` (first enter / soft-reconnect place): after
+  light resync, `ResyncOutsideLocationPadForPeer` re-sends existing
+  barricade door/window/item snapshots, opened `DoorState` near the pad,
+  and `ReputationBulkSync` (portrait/anim trailers). Idempotent apply —
+  already-destroyed crates stay destroyed; no container bulk (open still
+  uses `ContainerStateRequest`). Dreams skipped (pad owned by dream load).
+- Client barricade pending queue now covers destructible `Item` (IsWindow=2)
+  the same as doors/windows, so late-join Destroyed crates can flush after
+  the pad wakes even before enter resync.
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
+
+---
+
+## 0.8.118 — Client examine fans examined flags
+
+Host applied a client `ExamineObject` ActionRequest via
+`DialogHostApplyGuard.RunHostWorldFanout(examine)`, so triggers and story GE
+ran, but `ExaminableExaminePatch` Postfix returned early on
+`IsApplyingRemoteState` and never Broadcast `ActionState`. Peers kept
+`examined` / `displayedDescriptionPool` unset (re-examine / pool one-shots
+desync). Same class as pre-0.8.117 ItemGetHit swallow. Protocol **25**
+unchanged. Product **0.8.117 → 0.8.118**.
+
+- `ExaminableExaminePatch.Postfix`: allow fan when `DialogHostApplyGuard.Active`
+  (match DoorOpen / GameEventsFired / Journal). Prefix still blocks Request
+  re-send under apply. ActionState apply sets fields only; host ignores
+  inbound ActionState.
+- Sweep of other `IsApplyingRemoteState` / `NetworkApplyGuard` Prefix/Postfix
+  send gates: Door/Window getHit already fan; ItemGetHit stays on
+  `_processingBarricadeEvent` only (0.8.117); remaining matches are loop
+  stops, client host-sim blocks, or visual-only.
+
+### Parked (unchanged)
+
+- multipleFire local; mid-dream host migration; workbench exclusive lock stub;
+  N-peer handoff; no waitToSpawnShadow; night-trader rep per-player; hunger is
+  tryToActivateHunger.
+
+---
+
+## 0.8.117 — Client smash fans destructible Item mesh
+
+Host applied a client `MeleeWorldHit` on a destructible `Item` (wardrobe /
+furniture) inside the inbound receive guard, so `getHit` / `die` ran locally
+but `ItemGetHitPatch` returned early on `IsApplyingRemoteState` and never
+sent `BarricadeEvent`. Peers kept the intact mesh. Door and Window getHit
+patches already fan under that guard; item was the odd one out. Protocol
+**25** unchanged. Product **0.8.116 → 0.8.117**.
+
+- `ItemGetHitPatch`: drop the `IsApplyingRemoteState` swallow. Loop stop stays
+  `_processingBarricadeEvent` (BarricadeEvent apply). Host local smash still
+  fans once (`die` has no second send). Position in the existing message
+  still names the pad twin when relevant.
+- Workbench pile snapshot depth (0.8.116) and window/radio paths untouched.
+
+---
+
+## 0.8.116 — Workbench pile choke no longer double-sends
+
+0.8.114 added a choke on `removeItemAmountFromPlayer` /
+`removeItemDurabilityFromPlayer` so GameEvent pile drains sync. Craft / repair /
+upgrade / construct / HammerWork already wrap the same pile with
+`WorkbenchSharedPileSync`, so a real pile consume nested the choke and
+`SendFullDiff` ran twice with the same before-snapshot — duplicate
+`ContainerItem` RemoveItem. On a client craft that second remove hits an empty
+slot on the host → deny + take-refund / "Already taken…". Protocol **25**
+unchanged. Product **0.8.115 → 0.8.116**. Late-join portrait/anim bulk (0.8.115)
+untouched.
+
+- `WorkbenchSharedPileSync`: outermost snapshot depth — nested choke Prefix is
+  a no-op; only the outer Postfix diffs once (still covers GE-only drains with
+  no outer wrap).
+- Bag-only / workbench-closed / `includeAdditionalInventory: false` still send
+  nothing (`SendFullDiff` is a true slot diff; Prefix gates unchanged).
+
+---
+
+## 0.8.115 — Late join gets NPC portrait and body sprites
+
+Live `ReputationSync` already carried GameEvent portrait (0.8.96) and
+anim-library (0.8.97) trailers for peers already in the session. Late-join
+`ReputationBulkSync` still stopped at `attackedID` / `deadID`, so a joiner (or
+a peer whose chunk woke after the live packet) kept the vanilla face/body
+while the host had the story result — especially when GameEventsBulk soft-
+match missed the local copy. Protocol **25** unchanged. Product
+**0.8.114 → 0.8.115**.
+
+- `ReputationBulkSync` AvailableBytes trailers: sparse portrait + anim-library
+  (same fields as live), filled from host NPC bodies on send.
+- Clients apply via existing `ApplyPortrait` / `ApplyAnimLibrary`; queue until
+  `NPC.OnEnable` when the body is not loaded yet (late join / other room).
+- No new `NetMessageType`. Night-trader standing stay per-player.
+
+### Candidates checked (already in bulk — no ship)
+
+- Generators on/off + fuel: `SyncExistingGeneratorsTo`
+- Barricades / constructed sites / dropped items / map / journal / world burn:
+  late-join light + heavy phases already cover them
+- Reputation standing + dead/attackedID: ReputationBulk since 0.8.93–0.8.95
+- Doors: physics door snapshot scan
+
+---
+
+## 0.8.114 — GameEvent pile drain reaches the host
+
+0.8.110–0.8.113 covered craft / repair / upgrade / construct / HammerWork
+finish. Vanilla `GameEvent.addOrRemoveInvItem` (and durability drains) still
+call `removeItemAmountFromPlayer` /
+`removeItemDurabilityFromPlayer(..., includeAdditionalInventory: true)` —
+the open workbench pile can be consumed. On the 0.8.99 actor path the remove
+runs after `WaitForSeconds` (NetworkApplyGuard already gone) while the
+workbench can still be open (e.g. host-replayed container story triggers), so
+the client drained a local pile view with no `ContainerItem` diff. Protocol
+**25** unchanged. Product **0.8.113 → 0.8.114**.
+
+- Choke-point snapshot/diff on
+  `Inventory.removeItemAmountFromPlayer` /
+  `removeItemDurabilityFromPlayer` when `includeAdditionalInventory` is true,
+  reusing `WorkbenchSharedPileSync` / `SendFullDiff`. Existing entry patches
+  kept (no regression).
+- No-op when the workbench pile is not open (bag-only). Workbench exclusive
+  lock stays off. Hammer alert (0.8.109) untouched.
+
+### Sibling check (rejected — no ship)
+
+- `ExperienceMachine.tryToCook` / LevelingMenu — opens the personal leveling
+  UI against the player's own bag only; no shared oven inventory in the
+  decompile (generator fuel stays FuelDelta).
+
+---
+
+## 0.8.113 — Barricade finish drains the shared pile on the host
+
+0.8.112 synced construction-place pile drains. Vanilla
+`Player.checkFrameTrigger("HammerWork")` when `doneBuilding` loops
+`currentConstruction.requirements` through
+`removeItemAmountFromPlayer(..., includeAdditionalInventory: true)` against
+`openedItemInventory2` — same hole, not covered by construct or
+grab/transfer/place patches. Barricade plank world state already fans via
+`BarricadeEvent`; 0.8.109 remote-hammer AI alert stays on that path (this
+patch does not alert). Protocol **25** unchanged. Product **0.8.112 → 0.8.113**.
+
+- Snapshot/diff the workbench pile on HammerWork finish only
+  (`doneBuilding`), reusing `WorkbenchSharedPileSync` /
+  `ContainerSnapshotHelper.SendFullDiff` (no second diff path; mid-swing
+  hammers send nothing).
+- Personal-only plank spend still sends nothing. Host local path fans like
+  craft (Broadcast; no self-apply double). Workbench exclusive lock stays off.
+
+### Sibling check (rejected — no ship)
+
+- GameEvent `addOrRemoveInvItem` → `removeItemAmountFromPlayer(...,
+  includeAdditionalInventory: true)` — can touch the pile if a workbench is
+  open, but unproven that any GE drains the pile (not the bag) with no
+  container diff; 0.8.99 actor routing for bag items stays. Left named.
+
+---
+
+## 0.8.112 — Construction place drains the shared pile on the host
+
+0.8.110–0.8.111 synced craft/repair/upgrade pile drains.
+`Constructible.construct(manual: true)` still calls
+`ConstructionRequirement.removeIngredients`, which uses
+`removeItemAmountFromPlayer` / durability drains with
+`includeAdditionalInventory: true` against `openedItemInventory2` — invisible
+to grab/transfer/place patches. Protocol **25** unchanged. Product
+**0.8.111 → 0.8.112**.
+
+- Snapshot/diff the workbench pile on `Constructible.construct`, reusing
+  `WorkbenchSharedPileSync` / `ContainerSnapshotHelper.SendFullDiff` (no second
+  diff path; one snapshot for the whole requirement loop).
+- Placed prop was already synced via `ConstructibleConstructPatch` →
+  `ConstructibleConstruction` (remote apply uses `manual: false`, no local
+  drain). Only the ingredient consume was missing.
+- Personal-only material spend still sends nothing. Host local path fans like
+  craft (Broadcast; no self-apply double). Workbench exclusive lock stays off.
+
+### Sibling check (rejected — no ship)
+
+- `Player` HammerWork barricade finish drain — shipped in **0.8.113**.
+- GameEvent `removeItemAmountFromPlayer(..., includeAdditionalInventory:
+  true)` — personal GE path is 0.8.99 actor-routed; unproven that a GE drains
+  the workbench pile (not the bag) with no container diff. Left named.
+
+---
+
+## 0.8.111 — Workbench repair/upgrade drain the shared pile on the host
+
+0.8.110 synced craft pile drains via `CraftSharedPileSyncPatch`. Repair and
+upgrade use other entry points that still call
+`removeItemAmountFromPlayer` / durability drains with
+`includeAdditionalInventory: true` against `openedItemInventory2`, invisible
+to grab/transfer/place patches. Protocol **25** unchanged. Product
+**0.8.110 → 0.8.111**.
+
+- Snapshot/diff the workbench pile on `InvItemClass.repair` and
+  `ItemUpgrade.removeIngredients`, reusing the same
+  `ContainerSnapshotHelper.SendFullDiff` helper as craft (no second diff
+  implementation).
+- Repaired/upgraded item stays on the crafter's personal inventory (vanilla).
+  Personal-only material spend still sends nothing. Host local path fans like
+  craft (Broadcast to peers; no self-apply double). Workbench exclusive lock
+  stays off.
+
+### Sibling check (rejected — no ship)
+
+- ConstructionRequirement / Constructible place drain — shipped in **0.8.112**.
+- GameEvent `removeItemAmountFromPlayer(..., includeAdditionalInventory:
+  true)` — GE fan-out path, not workbench UI (still parked; see 0.8.112).
+- Repair-kit world-object `InputScript` → `repair()` without an open workbench
+  pile — gate skips (no `openedItemInventory2` container).
+
+---
+
+## 0.8.110 — Workbench craft consumes the shared pile on the host
+
+Vanilla `CraftingRecipes.doCraft` pulls ingredients via
+`removeItemAmountFromPlayer(..., includeAdditionalInventory: true)`, which
+can drain the open workbench storage pile (`openedItemInventory2`). That path
+uses `Inventory.removeItemAmount` / `InvItemClass.removeAmount`, not the
+grab/transfer/place hooks container sync already patches — so a client craft
+could keep materials on the host pile (or leave a peer's pile stale). Protocol
+**25** unchanged. Product **0.8.109 → 0.8.110**.
+
+- On `doCraft`, snapshot the workbench pile when `openedItemInventory.isWorkbench`.
+- After craft, fan existing `ContainerItem` Remove/Place diffs so the host
+  applies the consume; product still goes to the crafter's personal inventory
+  unless vanilla stacked it into the pile (then PlaceItem carries it).
+- Personal-only craft (no pile touch) sends nothing. Workbench exclusive lock
+  stays a stub.
+
+### Sibling check (rejected — no ship)
+
+- Rideable bicycle: vanilla has only `porterWhistle` / bike-bell audio (0.8.102);
+  no mount/ride path in the decompile.
+- Repair/upgrade ingredient drain from the same pile — shipped in **0.8.111**.
+
+---
+
+## 0.8.109 — Client barricade hammer alerts host AI
+
+Vanilla `Player.checkFrameTrigger("HammerWork")` calls
+`Character.alertInArea(playerPos, 500f)` each swing while boarding or
+dismantling. Co-op `BarricadeEvent` apply only sets plank state on the host, so
+remote hammering was silent to host enemies. Protocol **25** unchanged. Product
+**0.8.108 → 0.8.109**.
+
+- Host: on remote `Built` (`PlayerBarricade`) or dismantle `Destroyed`
+  (`DamageAmount < 0`), fire the same `alertInArea` at 500f — prefer the sender
+  proxy position (vanilla uses the player), else the door/window.
+- Host local hammer still plays the anim; host does not re-apply its own
+  `BarricadeEvent`, so no double alert.
+- Dream: no dream-specific barricade block found; if construction runs on a pad,
+  alert uses the live object/proxy position (not a stale overworld twin).
+
+### Sibling check (rejected — no ship)
+
+- Other `checkFrameTrigger` noise: footsteps and gunshots already forwarded;
+  no repair/chop/shovel `alertInArea` in vanilla anim events.
+- Furniture scrape host alert shipped in **0.8.108** — left alone.
+- Melee barricade hit `MeleeSensor` 600f is a separate combat path — not this
+  pass.
+
+---
+
+## 0.8.108 — Client furniture scrape alerts host AI
+
+Vanilla `ItemSounds.alertCharactersInArea` only fires when `Player.Instance` is
+touching or dragging the object. Co-op remote scrape uses MOS and suppresses
+`ItemSounds.Update`, so `checkIfMoving` never runs — client push/drag noise was
+silent to host enemies. Protocol **25** unchanged. Product **0.8.107 → 0.8.108**.
+
+- Host: while a remote scrape is active, fire `Character.alertInArea` on the
+  vanilla 0.5s cadence using `movingAlertDistance` / `movingAlertVolume`.
+- Host: widen `ItemSounds.alertCharactersInArea` so remote scrape / remote drag
+  names count like a local player body.
+
+### Checked this pass (already covered / no ship)
+
+- Sight acquire: `HostCanSeeEnemyPatch`, `HostCheckForCloserEnemyPatch`,
+  `HostSnifferUpdatePatch`, `HostAttackPlayerNearestPatch`.
+- Hearing already forwarded: footsteps (`HandleProxyFootstep`), gunshots
+  (`ClientFireWeaponSoundPatch`), melee hit noise (`ClientCombatPatches`),
+  aim-scare (`ClientAimScarePatch`).
+- Banshee / InSightOfPlayer / Shooter retarget / growl / shadow ward / flee
+  (`HostDetectionGapPatches`, `HostAIPatches.Targeting`).
+- `constantlyAttackPlayer`: field only in DLL; no prefab/asset hit — left alone.
+- `AIPath.rotateTowardsPlayerWhenPlayingCustomAni`: faces host during custom
+  ani only — not acquisition.
+
+---
+
+## 0.8.107 — Enemy around-me aura hits every body in range
+
+Vanilla `Character.waitToDamageAroundMe` only calls `Player.Instance.getHit`.
+The co-op patch retargeted to the *nearest* living body, so when host and a
+client were both inside the falloff radius only one took damage. Protocol
+**25** unchanged. Product **0.8.106 → 0.8.107**.
+
+- Host applies the vanilla falloff formula to the host body (plus shake/noise)
+  and to every living remote proxy in range; proxy `CharBase.getHit` still
+  relays via `DamagePlayer` / `ProxyDamagePatch`.
+
+### Checked this pass (no ship)
+
+- `Player.Instance.getHit` sites: `Flier.Update` (`HostFlierDivePatch`),
+  `Shooter.shoot` (`HostShooterShootPatch`), `InputScript` cheat kill (skip).
+- `Character.attackPlayer` → `HostAttackPlayerNearestPatch` (BirdArea,
+  CharacterSpawner, GameEvent, Sniffer, ShadowArmor, self-calls).
+- `Explodes.explode` → `ExplosionFriendlyFirePatch` (area + FF-off host restore).
+- Traps (`Trigger.checkCollision`): damages the entering `Player` on that peer;
+  client stomp already `TrapTriggered` + local getHit.
+- `MeleeSensor` → `HostMeleeSensorPatch` / `ProxyDamagePatch`; shadows via
+  `ProxyShadowController` / owner skip.
+- `Flame` contact uses `CharBase.getHit` → proxy relay; ground DoT is local
+  `Player` Update per body.
+- Hard-night worm aim / sniffer retarget already shipped.
+
+---
+
+## 0.8.106 — Host combat throw despawn clears peer FX loot
+
+Thrown knives / rocks / flares already fan `ThrowableSpawn` (host combat copy,
+client/peer `MuteThrownCombat` FX). When the host combat copy sticks into a
+character (or otherwise `DestroyMe`s on land), peer FX copies stayed pickable
+while the real item lived in the NPC inventory — `DestroyObjectByPos` cannot
+find it, so a world-pickup claim still granted a second copy. Protocol **25**
+unchanged. Product **0.8.105 → 0.8.106**.
+
+- `MuteThrownCombat` marks FX copies and clears `stickOnCollide` / land-spawn
+  prefab so FX never invents a peer-only stick-into-char grant.
+- Host combat `ThrownItem.onCollide` that leaves the world fans
+  `WorldObjectRemoved` (consume + ModeRemove) so peer FX ghosts clear or refund
+  pending claims. Ground land still uses the existing FX→claim path.
+
+### Checked this pass (no ship)
+
+- Shared world / GUID pickup claim-grant-deny — host-auth solid (optimistic +
+  deny/remove refund; Prefix blocks already-consumed). No dual-keep path.
+- Window/door barricade place-remove — already `BarricadeEvent`.
+- Prologue cutscene catch-up — already `PrologueSync` / `CutsceneSync`.
+
+---
+
+## 0.8.105 — Client burning infection clears it on the host world
+
+A client swinging a flaming torch / melee into an infection splat runs vanilla
+`Infection.disappear` locally (`MeleeSensor` non-Character hits are not
+redirected), but the disappear Postfix only broadcast when Role was Host — so
+the client's splat faded and the host world kept it. Protocol **25** unchanged
+(reuses `WorldObjectRemoved`). Product **0.8.104 → 0.8.105**.
+
+- Either peer's `Infection.disappear` sends `WorldObjectRemoved` (`infection_splat`);
+  host destroy + N-peer fan-out already existed on that message.
+
+---
+
+## 0.8.104 — Client lighting gasoline reaches the host world
+
+After 0.8.103 pour sync, a client swinging a flaming torch / melee into a puddle
+(or a Burn trigger touching Liquid) still called `Liquid.startBurning` only
+locally — and that path was Prefix-dropped so dual fire sims would not fight.
+Nothing told the host, so the puddles never burned for anyone. Protocol **25**
+unchanged (reuses `GasIgnite`). Product **0.8.103 → 0.8.104**.
+
+- Client ignite sends `GasIgnite` and lights a local visual; host validates near
+  the actor's proxy, ignites on the host world, Forwardable fans peers.
+- Host torch / molotov / neighbor-spread ignite Postfix path unchanged.
+
+### Checked this pass (no ship)
+
+- Dropped items / barricade place-remove / throwable spawn / map discovery /
+  journal notes / prologue — already wired (coverage rows stale).
+- Digging — no Darkwood dig mechanic in decompile.
+- Skill-tree / personal heal/feed/recipes — personal by design.
+- **`oxygentank_full` world-pick fan — rejected as silent-skip hole.** Vanilla
+  world pick is `Item.getDroppedItem` → already host-auth
+  `FinishWorldPickupClaim` / `WorldObjectRemoved` (and GUID
+  `DroppedItemPickup`). Empty-tank peer copy stays `OxygenTankStash`;
+  `haveItem` softlock is `PeerItemPresence`, not a missing destroy fan.
+- **Silent client Prefix sweep (ClientMustNotMutateWorld / Role.Client return
+  false / "client skipped"):** remaining NOSEND skips are host-owned worldgen
+  spawners, night/shadow AI, bird volumes (host sees proxy), cutscene init
+  (host `CutsceneSync` Begin), trader randomize, infection spread, GameEvents
+  one-shots (player paths already defer via ActivateCursorAction / Examine /
+  DoorOpen / DialogOutcome), gas Object-path molotov scatter (host owns). No
+  proven player-action vanish sibling left for 0.8.105.
+
+---
+
+## 0.8.103 — Client gasoline pour reaches the host world
+
+Client ground pour (`Player.waitToSpillLiquid` → `Items/GasolineTrail`) was
+Prefix-skipped so clients never invented wild dual scatter, but nothing told
+the host to place trails either — the can drained and no puddles appeared for
+anyone. Protocol **25** unchanged (reuses `GasTrailSpawn`). Product
+**0.8.102 → 0.8.103**.
+
+- Client pour sends `GasTrailSpawn` and places a local visual; host validates
+  near the pourer's proxy, spawns on the host world, Forwardable fans peers.
+- Generator / saw pour via `FuelDelta` unchanged. Molotov / Explodes trail
+  scatter stays host-owned (Object AddPrefab Prefix).
+
+### Checked this pass (no ship)
+
+- Lie-down / `onEndSleep` — vanity wake anim only; does not set `CurrentTime`
+  or call `startDay` / `endAfterNight` / `skipDay`. Host and client both end
+  sleep without advancing the shared clock. Night→morning is natural time /
+  death `skipDay` / `useTimeSkip` (0.8.91). `SleepEndRequest` only
+  forward-adopts a clock the sleep anim never changed — not a morning-chain
+  hole; no speculative sleep change.
+- Window/door barricade place/destroy — already `BarricadeEvent`.
+- Hitscan destroying doors/items — already `MeleeWorldHit` redirect.
+- Map item `markLocationsOnMap` → `showElement` — already `MapElementDiscovered`.
+- Recipe learn / personal heals — intentional local.
+
+---
+
+## 0.8.102 — Client bike bell summons Porter on the host world
+
+Using the bike bell (`porterWhistle`) calls `Location.spawnPorter`, which places
+`Events/porterSpawner`. Clients already Prefix-skip `PorterSpawner.Start` /
+`waitToSpawn` (host owns the NPC), so a client ring consumed the item and never
+placed a spawner the host would run — no Porter for anyone. Protocol **25**
+unchanged (reuses `ItemSpawn` with type sentinel `porterWhistle`). Product
+**0.8.101 → 0.8.102**.
+
+- Client `Location.spawnPorter` defers to host via existing `ItemSpawn` (not a
+  trap prefab path); local “something happened” toast kept.
+- Host applies `Events/porterSpawner` at the matching hideout pad (day /
+  `porter_inTransit` / `porter_killed` / already-present gates). Peers see
+  Porter via entity snapshots — no ItemSpawn fan-out.
+
+### Checked this pass (no ship)
+
+- Eat/drink/medicine/bandage/`InvItemClass.use` personal effects (health,
+  `fedToday`, upgrades, recipes, maps) — personal; intentional local.
+- `placeOnUse` — code path exists; no shipped asset with the flag enabled.
+- Trap `canBePlaced` — already `ItemSpawn` via `TrapPlacementPatch`.
+- Host ringing the bell — already host-local `spawnPorter`; no hole.
+
+---
+
+## 0.8.101 — Client padlock / key unlock story events reach every player
+
+A client who cracked a padlock or unlocked a keyed lock already synced the
+unlocked state, but the host’s story-trigger replay ran inside the inbound
+`NetworkApplyGuard`. That swallowed `GameEventsFired`, so peers never got the
+one-shot, and any personal grant hit host `Player.Instance`. Protocol **25**
+unchanged. Product **0.8.100 → 0.8.101**.
+
+- Host synth of `onTryToOpenLocked` / `onUnlockPadlock` (padlock) and
+  `onActivate` (Locked) now uses `RunHostWorldFanout` (fan-out + actor stamp).
+- Does not open the padlock UI on the host (`unlock(false)` unchanged).
+
+### Checked this pass (no ship)
+
+- `onSelectObject` — `Player.selectObject*` only fires it when the target has
+  an `OnSelected` marker; that component is registered in the assembly but not
+  attached to any shipped scene/prefab/resources asset. Dead path; no message.
+- Examine-object story triggers — already host-apply via `ExamineObject` +
+  `RunHostWorldFanout` (0.8.x).
+- Barricade place/remove — no `EventTrigger` on barricade build/destroy.
+- Eat/consume (`InvItemClass.use`) — personal effects only; no `sendTriggerInfo`.
+- Projectile impact on world objects — `Bullet`/`ThrownItem` hit `CharBase`
+  only; door/item melee already fans via `MeleeWorldHit` + `RunHostWorldFanout`.
+
+---
+
+## 0.8.100 — Client lever / switch story events reach every player
+
+Vanilla `InteractiveItem.switchOn` / `switchOff` force-fire their `EventTriggers`
+(area) into `GameEvents`. A client flipping a lever ran that only locally, where
+one-shot GameEvents are blocked. The host applied the toggle inside the network
+receive, which swallowed the broadcast, so the player who flipped it never got
+the story result. Protocol **25** unchanged. Product **0.8.99 → 0.8.100**.
+
+- Host apply of a remote InteractiveItem toggle now fans the GameEvent out the
+  same way door / trap / activate fixes do (`RunHostWorldFanout`).
+- Does not open the InteractiveItem UI on the host (`switchOn`/`switchOff` only).
+
+### Checked this pass (no ship)
+
+- `onPlayAttackAnimation` — NPC `chooseAttack` on host sim only; client does not cause it.
+- `onWakeup` — enum only; `Character.wakeup()` never calls `sendTriggerInfo`.
+- `onSpawned` / `onGameObjectActivated` — `EventTriggers` Start/OnEnable lifecycle, not a client-action receive path.
+- `onDeath` (Character/Item) — killing blow from client hits already inside getHit `RunHostWorldFanout` (0.8.88).
+- `onBurn` — `Burn.Start` schedules a delayed Invoke; `onBurn` runs after `NetworkApplyGuard` ends, so host fire already broadcasts. Client one-shots stay blocked until that fan-out.
+- `onSelectObject` — marker + select path exists, but no existing message to host-apply without a new NetMessageType; skipped.
+- Barricade place/remove, map discovery, skills confirm, hunger — no matching EventTrigger swallow hole proven this pass (barricade has no triggers; map/skills already have their own sync).
+
+---
+
+## 0.8.99 — Personal GameEvent rewards land on the actor, not every peer
+
+Vanilla `GameEvent` types `addOrRemoveInvItem`, `addRecipes`,
+`transportPlayerToObject` / `transportToOutsideLocation` / `returnToWorld`, and
+player-targeted `setTimeFreeze` / `player_tweenShadow` all mutate
+`Player.Instance`. After 0.8.98 soft-match re-fire, a client-triggered one-shot
+could grant the host (host `Player.Instance` while replaying the trigger) and
+then grant every peer on GameEventsFired apply. Dialogue bag give/remove and
+location-enter `LocationTransport` already avoided that; cursor activate, examine,
+proxy EventTriggers volumes, and container story triggers did not fully.
+Protocol **25** unchanged (same DLL on both boxes — `GameEventsFired` gains
+`ActorPlayerId`). Product **0.8.98 → 0.8.99**.
+
+- `GameEventsFiredMessage.ActorPlayerId` stamps who triggered the one-shot.
+- Client apply runs personal Player.Instance effects only for that actor;
+  late-join bulk uses actor 0 (world latch only).
+- Host remote fire (cursor / examine / proxy volume / dialog world-only) skips
+  personal types on the host and fans world effects to everyone.
+- No dedicated heal/damage/experience GameEvent types in vanilla — N/A.
+- Dream-pad SoftMatch targeting from 0.8.98 unchanged.
+
+---
+
+## 0.8.98 — Story events that show, hide, or remove an object reach every player
+
+A story GameEvent can show, hide, or destroy a prop
+(`GameObjectModify.setActive` / `renderer` / `remove`). The host ran that inside
+`GameEvents.fire`, and GameEventsFired was supposed to re-fire the same shell on
+peers. Soft-match often never reached the right copy: after an exact-name miss
+(Clone suffix), a nameless nearby GameEvents stole the apply and an already-fired
+neighbor was treated as success, so the other player still saw the old object.
+Dream pad loads could also keep a stale GameEvents scene scan that omitted pad
+children. Protocol **25** unchanged. Product **0.8.97 → 0.8.98**.
+
+- Named GameEventsFired applies go through SoftMatch only (Clone strip, dream-pad
+  filter, prefer unfired twin). No nameless FindNearest steal.
+- Invalidate GameEvents / UniqueObject scene caches after dream UniqueObject remap
+  and before flushing queued dream GEs.
+- Re-firing the matched GE covers setActive, renderer, and remove together — no
+  new message type and no per-field trailer.
+
+## 0.8.97 — Story events that change an NPC’s body sprites reach every player
+
+A story GameEvent can swap which sprite animation library an NPC uses
+(`CharacterModify.animationLibraryOverride` writes `Character.animationLibraryOverride`,
+which loads the library into `animator.Library`). Every peer draws that NPC body from
+their local animator. When GameEventsFired soft-match missed the local copy, the other
+player still had the old body while dialogue/portrait could already be new. Same class
+as the 0.8.96 portrait trailer. Protocol **25** unchanged. Product **0.8.96 → 0.8.97**.
+
+- Host fans existing `ReputationSync` with an AvailableBytes anim-library trailer
+  (Resources path + position) after a GameEvent library write.
+- Clients apply via the vanilla Character setter onto the dream-pad NPC when a dream
+  is active, not the overworld twin.
+- No re-broadcast while applying remote GameEventsFired; does not re-fire the event.
+- CharacterModify sweep: shipped client-visible `portraitType` (0.8.96) and
+  `animationLibraryOverride` (this). Skipped aggressiveness / wakeup / behaviour /
+  addActivity / removeActivities (host AI; clients present from entity sync).
+  Skipped reputation (0.8.95). Skipped `player_tweenShadow` (local Player shadow FX,
+  not an NPC name / ReputationSync target).
+
+## 0.8.96 — Story events that change an NPC’s face reach every player
+
+A story GameEvent can swap which portrait an NPC uses (`CharacterModify.portraitType`
+writes `NPC.portraitType`, and optionally `characterDialogue.portraitType`). Dialogue
+option requirements and the portrait video both read that field on each machine. When
+GameEventsFired soft-match missed the local copy, the other player still saw the old
+face and the wrong lines. Protocol **25** unchanged. Product **0.8.95 → 0.8.96**.
+
+- Host fans existing `ReputationSync` with an AvailableBytes portrait trailer (type +
+  dialogue flag + position) after a GameEvent portrait write.
+- Clients apply onto the dream-pad NPC when a dream is active, not the overworld twin.
+- No re-broadcast while applying remote GameEventsFired; does not re-fire the event.
+
+## 0.8.95 — Story events that change NPC standing reach every player
+
+A story GameEvent can change an NPC’s standing by writing
+`Flags.NPCState.reputation` directly. That bypasses `NPC.set_reputation`, so the
+live ReputationSync never ran. The other player still had the old standing in
+trade UI (`acceptTrade` / reputation text) when GameEventsFired soft-match missed
+their local copy. Protocol **25** unchanged. Product **0.8.94 → 0.8.95**.
+
+- Host fans existing `ReputationSync` after a GameEvent reputation write (with
+  `attackedID` / `dead` / `deadID` trailers so those marks are not wiped).
+- Night-trader standing stays per-player (no fan). Clients applying remote
+  GameEventsFired do not re-broadcast.
+
+## 0.8.94 — Story NPC deaths reach every player’s Flags
+
+Killing Wolfman (or any story NPC) on the host writes `Flags.NPCState.dead` and
+`deadID` in `Character.die2`. Clients never run that path for NPCs (death is
+presentation-only), and late-join bulk carried `dead` but never `deadID`. Mid-
+session clients kept a stale alive mark: Player death still tried to despawn an
+already-dead Wolfman, `onlyOneInstance` could not keep the corpse vs duplicates,
+and `npcStateIsDead` event gates stayed wrong. Protocol **25** unchanged.
+Product **0.8.93 → 0.8.94**.
+
+- Live `ReputationSync` optional trailers: `dead` + `deadID` (keeps `attackedID`).
+- Late-join `ReputationBulkSync` adds `deadID` after the attackedID trailer.
+- Clients remap host `deadID` onto the local `SaveableObject` the same way as
+  `attackedID`. Host fans once when die2 first sets dead/deadID.
+
+## 0.8.93 — Who hit a story NPC is known to every player
+
+Hitting a story NPC (Wolfman, Doctor, …) writes `Flags.NPCState.attackedID` on
+the host only. Clients never ran that `getHit` path, and join bulk only carried
+name/reputation/dead/wantsToTalk. Dying in a hideout with an angered Wolfman
+never despawned him for the client, and a late joiner could keep a duplicate
+`onlyOneInstance` body. Protocol **25** unchanged. Product **0.8.92 → 0.8.93**.
+
+- Live `ReputationSync` and late-join `ReputationBulkSync` carry optional
+  `attackedID` trailers (AvailableBytes-safe).
+- Clients remap the host id onto the local `SaveableObject` so instance dedup
+  still works across independent SaveManager counters.
+
+## 0.8.92 — Client rattling a key-locked door reaches the host
+
+`Player.openCloseDoor` fires `onTryToOpenLocked` and returns for a key
+`Locked` door (and for Padlock UI) without calling `Door.open`. Client
+one-shots are blocked, so the host never saw the attempt. The 0.8.90
+`AttemptOnly` path only covered `Door.open` early-outs with a Padlock.
+Protocol **25** unchanged. Product **0.8.91 → 0.8.92**.
+
+- Client `openCloseDoor` that leaves the door still locked sends DoorOpen
+  AttemptOnly; host fires `onTryToOpenLocked` and leaves the door shut.
+- The same helper now covers both key `Locked` and Padlock.
+
+## 0.8.91 — Client bed / wait-until-evening actually moves the party clock
+
+A client using a TimeSkip object (bed or wait-until-evening) still ran
+`Controller.useTimeSkip` locally after deferring `onActivate`. Host
+`TryFirePlainItemActivate` only fanned out the trigger, so the next host
+TimeSync snapped the client's jumped clock back. Protocol **25** unchanged.
+Product **0.8.90 → 0.8.91**.
+
+- Host adopts `useTimeSkip` after the onActivate fan-out (not during hard night)
+  and pushes TimeSync immediately when the clock changes.
+- Connected clients no longer set the clock themselves via `useTimeSkip`.
+
+## 0.8.90 — Rattling a padlocked door no longer opens it
+
+`Door.open` returns immediately when the player's padlock is still locked, but the close-of-call sync still broadcast a DoorOpen. The host then cleared the padlock and opened the door. Protocol **25** unchanged. `DoorOpen` gained an end-of-message attempt flag. Product **0.8.89 → 0.8.90**.
+
+- A failed open is not broadcast as an open.
+- The client tells the host it was only an attempt. The host fires `onTryToOpenLocked` and leaves the door shut.
+
+## 0.8.89 — Entering a location runs its story events for the party
+
+Vanilla fires `onEnterLocation` only in `Location.OnActivated`, which is the local visitor. A client walking into a house ran that only on their machine, where one-shot GameEvents are blocked. The host's remote-enter path only woke the building. Leaving was the same: `onExitLocation` ran inside the network receive and the broadcast was dropped. Protocol **25** unchanged. Product **0.8.88 → 0.8.89**.
+
+- The first party member to enter a place the host is not already in fires those enter events on the host, and they fan out.
+- When the last remote leaves and the host is outside, the location leave fans out the exit events.
+
+## 0.8.88 — Hitting a door, window, object, or creature keeps the story trigger
+
+A client's hit is applied on the host inside the network receive, which swallowed `onGetAttacked` / `onGetAttackedByPlayer`. The player who landed the blow never got the story result. Protocol **25** unchanged. Product **0.8.87 → 0.8.88**.
+
+- Host apply of a remote melee hit on a door, window, destructible, or creature now fans that GameEvent out, including back to the attacker.
+
+## 0.8.87 — Using an object runs its activate story trigger
+
+Vanilla `Item.activate` fires `onActivate` before the switch, chest, or workbench opens. A client did that only locally, where one-shot GameEvents are blocked, so the use never started the event. Custom cursor actions were already sent to the host. Protocol **25** unchanged. Product **0.8.86 → 0.8.87**.
+
+- A client use of a plain object now asks the host to fire `onActivate` and fan the GameEvent out.
+- The host does not call `activate()` for that request, so it does not open the chest or workbench on the host.
+
+## 0.8.86 — Closing a container runs the story trigger
+
+Vanilla fires `onCloseContainer` when a chest, body, shop, or workbench UI closes. A client did that only locally, where one-shot GameEvents are blocked, so closing never started the event for the party. Protocol **25** unchanged. `ContainerAction.CloseContainer` is an extra value on the existing container message. Product **0.8.85 → 0.8.86**.
+
+- The client tells the host it closed that container. The host replays `onCloseContainer` and fans the GameEvent out.
+- The host's own close still fires once, from the local `Inventory.hide`.
+
+## 0.8.85 — Door close, lamps, and generators keep their story triggers
+
+Closing a door or switching a lamp or generator as a client ran `onCloseDoor` / `onTurnOn` / `onTurnOff` inside the network apply, which swallowed the one-shot broadcast. The player who did it never got the story result. Protocol **25** unchanged. Product **0.8.84 → 0.8.85**.
+
+- Host apply of a remote door close, light switch, or generator switch now fans those GameEvents out, including back to the peer who did it.
+
+## 0.8.84 — Door open and trap disarm keep their story triggers
+
+A client opening a door or disarming a trap ran `onOpenDoor` / `onDisarmed` only on their machine, where one-shot GameEvents are blocked. The host applied the door or the disarmed trap without broadcasting that event, so the player who did it never got the story result. Protocol **25** unchanged. Product **0.8.83 → 0.8.84**.
+
+- Host `door.open` during a remote open now fans the resulting GameEvents out, including back to the opener.
+- Host silent trap disarm fires `onDisarmed` the same way vanilla `Item.disarm` does.
+
+## 0.8.83 — Client container open and take run the story trigger
+
+Vanilla fires `onOpenContainer` when a chest or body is opened, and `onTakeInvItem` / `onPlaceItem` when a slot changes. A client did that only on their own machine, where one-shot GameEvents are blocked, so the host never started the event. Protocol **25** unchanged. Product **0.8.82 → 0.8.83**.
+
+- Host replays open when a client requests the container, and take/place when it applies that client's slot change.
+- The host's own open and take still fire once, from the local inventory call.
+
+## 0.8.82 — Client talking to an NPC starts the same story triggers as the host
+
+Vanilla `NPC.talkTo` fires `onEnterDialogue` before the conversation. On a client that one-shot never reached the host, so talk-triggered events only ran if the host was the one who spoke. Close already replayed `onCloseDialogue`. Protocol **25** unchanged. Product **0.8.81 → 0.8.82**.
+
+- When the host grants a remote player the talk lock, it fires `onEnterDialogue` on that NPC (dream-pad copy when a dream is active) and fans the resulting GameEvents out.
+- The host's own conversations still fire once, from `talkTo`, not a second time from the lock.
+
+## 0.8.81 — Second player can trip a story volume the first one failed
+
+If one player was already standing in an area trigger when its requirements failed (no key yet), the next player walking in did not fire it. The volume was treated as occupied, so the one-shot never ran even after the party had the item. Protocol **25** unchanged. Product **0.8.80 → 0.8.81**.
+
+- A later peer retries the area trigger when a one-shot in that volume has not fired.
+- One-shots that already fired, and repeating ambient triggers, are not fired again.
+
+## 0.8.80 — Client nightmare death stays in the shared world
+
+A connected client on nightmare, or on hard with their last life, ran the single-player permadeath video and then `yield break`. "Start over" called `generateChapter` locally, and the client patch dropped that call, so the button did nothing and the player never respawned. The host world kept going. Protocol **25** unchanged. Product **0.8.79 → 0.8.80**.
+
+- That client death now follows the same shared night/day death as a normal life. Their profile difficulty is unchanged (it is restored before Save).
+- If they still hit start-over, the host reloads the chapter the party is already in and brings everyone. A client cannot start a new chapter or skip ahead; that stays a host story event.
+- The host's own nightmare death is unchanged: their game-over screen still reloads the chapter for the party.
+
+## 0.8.79 — Join during a dream enters the pad
+
+`AllowJoinDuringDream` only pushed a session snapshot. The joiner stayed in the overworld while everyone else was on the dream pad, and an all-dead check ignored them because the entry grace had already expired at dream start. Protocol **25** unchanged (pad position is an end-of-message trailer). Product **0.8.78 → 0.8.79**.
+
+- Late-join `DreamSessionBulk` includes the live pad position when a dream is actually running. The joiner runs the same remote entry as `DreamStarted` and skips the entry movie they missed.
+- The host counts that peer as in the dream for 25s or until `DreamEntered`, and freezes their proxy so they do not drift in the overworld during the load.
+- An early random-roll bulk still has no pad, so peers already waiting on the entry video are not pulled into a leftover location.
+
+## 0.8.78 — Client plays the host's world (ending, dream exit, night, hunger)
+
+Code-proven holes where a client was not a real body in the host simulation.
+No live session this pass. Protocol **25** unchanged. Product **0.8.77 → 0.8.78**.
+Not 1.0.
+
+- **Ending.** A client who finished the burn crawl never started
+  `epilogue_cameraPanOverBurningForest` because one-shot GameEvents are host-only.
+  The client now asks the host to fire that event, and the host fans it out.
+  A client who reached `goToCredits` first no longer left the host behind:
+  inbound `credits` SceneLoad applies on the host and forwards to the other peers.
+- **Dream exit.** Remote cleanup looked up `uniqueObjectToTransportToAfterDreamEnd`
+  while `dreaming` was still true, so the pad twin won and the peer landed in the
+  void. `dreaming` is cleared first, and the overworld UniqueObject is stashed
+  across the pad remap so pad destroy does not drop the bunker key.
+- **Failed dream end.** Host reject, story-end timeout, disconnect, and mid-dream
+  host loss called `DreamSession.End`, which marked the preset completed and could
+  grant the default outcome. Those paths abort without completion or rewards.
+  Client dream entry no longer removes the preset from the local pool before the
+  host accepts. A dream chain keeps the death roster (a dead peer stays spectating
+  instead of being marked alive) and updates the host's live preset name.
+- **Fairness / client-is-here.** `haveItem` with `activeModifier` false now fails
+  when any peer holds the item. A sniffer that finished on the host attacks the
+  host, not whoever is nearest. A flier diving a client damages that client.
+  Hard-night worms pick one living body without shadow ward instead of only the
+  host. Client-owned night shadows keep prefab speed so they close and strike.
+  An immortal shadow on a warded client dies. Clients clear `fedToday` and run
+  `tryToActivateHunger` when the host clock crosses the feed minute.
+- **Still not a live-verified campaign.** Mid-dream host migration still refuses
+  and disconnects (needs a real handoff, not a small patch). Workbench exclusive
+  lock stays off by the earlier product decision (both players may use the bench).
 
 ## Batch 50 — NO-SHIP (N-peer migrate backup handoff dig; stay on 0.8.77)
 

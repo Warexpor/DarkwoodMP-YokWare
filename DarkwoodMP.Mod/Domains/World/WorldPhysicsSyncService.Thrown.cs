@@ -20,6 +20,15 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// Marks a thrown GO as FX-only (client own throw + peer visualOnly copies).
+        /// Host combat copy from <see cref="SpawnThrownItem"/> is never muted.
+        /// </summary>
+        public static bool IsMutedThrownFx(GameObject go)
+        {
+            return go != null && go.GetComponent<MutedThrownFxMarker>() != null;
+        }
+
+        /// <summary>
         /// Strips combat + world-mutation secondaries from a thrown projectile so it can still
         /// fly and play the main explosion VFX while the host alone applies damage, gas-trail
         /// scatter, and fire. Used for client remote copies and the client's own throw.
@@ -29,14 +38,28 @@ namespace DWMPHorde.Sync
         /// Nulling <c>spawnObject</c> lets host <c>ExplosionSpawnObject</c> / GasTrail apply
         /// the authoritative puddle positions (see ExplosionSpawnRecv skip when local still
         /// has spawnObject).
+        ///
+        /// Also disables FX stick-into-char / land-spawn so only the host combat
+        /// copy can invent inventory grants; host onCollide despawn fans WOR to
+        /// clear pickable peer FX ghosts (see ThrownItemCombatDespawnSyncPatch).
         /// </summary>
         public static void MuteThrownCombat(GameObject go)
         {
             if (go == null) return;
 
+            if (go.GetComponent<MutedThrownFxMarker>() == null)
+                go.AddComponent<MutedThrownFxMarker>();
+
             ThrownItem ti = go.GetComponent<ThrownItem>();
             if (ti != null)
+            {
                 ti.damage = 0;
+                // Stick-into-CharBase.addItem would invent a peer-only inventory copy.
+                // Wall-stick parenting is also host-owned (combat SpawnThrownItem).
+                ti.stickOnCollide = false;
+                ti.prefabToSpawnOnLand = null;
+                ti.dontSaveSpawnedPrefab = true;
+            }
 
             Explodes expl = go.GetComponent<Explodes>();
             if (expl != null)

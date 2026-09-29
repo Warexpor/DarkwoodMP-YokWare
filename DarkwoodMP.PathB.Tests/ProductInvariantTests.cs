@@ -96,6 +96,157 @@ public class ProductInvariantTests
     }
 
     [Fact]
+    public void PorterWhistle_UsesItemSpawnSentinel_NoNewMessageType()
+    {
+        // 0.8.102: client Location.spawnPorter → ItemSpawn "porterWhistle" → host
+        // Events/porterSpawner. Must not add a NetMessageType (protocol 25).
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "PorterSpawnerSyncPatches.cs"));
+        Assert.Contains("PorterWhistleItemSpawnType", patch);
+        Assert.Contains("LocationSpawnPorterClientPatch", patch);
+        Assert.Contains("TryApplyPorterWhistleOnHost", patch);
+        Assert.Contains("SendItemSpawn", patch);
+
+        var handlers = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "WorldPhysicsNetHandlers.cs"));
+        Assert.Contains("PorterWhistleItemSpawnType", handlers);
+        Assert.Contains("TryApplyPorterWhistleOnHost", handlers);
+
+        var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
+        Assert.DoesNotContain("PorterWhistle", netTypes);
+        Assert.Contains("_Highest = 139", netTypes);
+    }
+
+    [Fact]
+    public void ClientGasIgnite_ReusesGasIgnite_NoNewMessageType()
+    {
+        // 0.8.104: client Liquid.startBurning → GasIgnite → host IgniteGasAtPos.
+        // Must not add a NetMessageType (protocol 25).
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "Patches", "GasolineSyncPatches.cs"));
+        Assert.Contains("GasIgnitePatch", patch);
+        Assert.Contains("SendGasIgnite", patch);
+        Assert.Contains("IgniteGasAtPos", patch);
+        Assert.Contains("ClientMustNotMutateWorld", patch);
+
+        var handlers = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "CombatFxGasBurnNetHandlers.cs"));
+        Assert.Contains("host adopted client ignite", handlers);
+        Assert.Contains("MaxPlayerAttackRange", handlers);
+
+        var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
+        Assert.Contains("GasIgnite = 29", netTypes);
+        Assert.Contains("_Highest = 139", netTypes);
+    }
+
+    [Fact]
+    public void ClientInfectionDisappear_ReusesWorldObjectRemoved_NoNewMessageType()
+    {
+        // 0.8.105: client Infection.disappear → WorldObjectRemoved infection_splat.
+        // Disappear must not Host-gate (client flaming melee clears locally otherwise).
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "Players", "Patches", "InfectionStatusSyncPatches.cs"));
+        Assert.Contains("InfectionDisappearPatch", patch);
+        Assert.Contains("SendWorldObjectRemoved", patch);
+        Assert.Contains("infection_splat", patch);
+        Assert.Contains("client→host", patch);
+
+        int disappearIdx = patch.IndexOf("InfectionDisappearPatch", StringComparison.Ordinal);
+        Assert.True(disappearIdx >= 0);
+        string disappearBody = patch.Substring(disappearIdx);
+        int nextClass = disappearBody.IndexOf("public static class ", 1, StringComparison.Ordinal);
+        if (nextClass > 0)
+            disappearBody = disappearBody.Substring(0, nextClass);
+        Assert.DoesNotContain("Role != NetworkRole.Host) return", disappearBody);
+
+        var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
+        Assert.Contains("WorldObjectRemoved = 23", netTypes);
+        Assert.Contains("_Highest = 139", netTypes);
+    }
+
+    [Fact]
+    public void ReputationSync_CarriesAttackedIdTrailer()
+    {
+        // 0.8.93: host NPCState.attackedID on live + bulk (wolfman death / onlyOneInstance).
+        var msg = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "SyncMessages.cs"));
+        Assert.Contains("HasAttackedId", msg);
+        Assert.Contains("AttackedIds", msg);
+        Assert.Contains("hasAttackedIdTrailer", msg);
+
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "NpcAttackedIdSync.cs"));
+        Assert.Contains("BroadcastFromHost", patch);
+        Assert.Contains("RemapAttackedIdIfNeeded", patch);
+    }
+
+    [Fact]
+    public void ReputationSync_CarriesDeadIdTrailer()
+    {
+        // 0.8.94: host NPCState.dead + deadID on live + bulk (wolfman / onlyOneInstance / npcStateIsDead).
+        var msg = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "SyncMessages.cs"));
+        Assert.Contains("HasDead", msg);
+        Assert.Contains("DeadIds", msg);
+        Assert.Contains("hasDeadIdTrailer", msg);
+
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "NpcAttackedIdSync.cs"));
+        Assert.Contains("ApplyDead", patch);
+        Assert.Contains("RemapDeadIdIfNeeded", patch);
+        Assert.Contains("NpcDeadStateHostFanPatch", patch);
+    }
+
+    [Fact]
+    public void GameEventReputation_FansReputationSyncFromHost()
+    {
+        // 0.8.95: CharacterModify.reputation writes Flags directly (bypasses set_reputation).
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "ReputationSyncPatch.cs"));
+        Assert.Contains("GameEventReputationHostFanPatch", patch);
+        Assert.Contains("CharacterModify.reputation", patch);
+        Assert.Contains("BroadcastFromHost", patch);
+        Assert.Contains("hasDead: true", patch);
+    }
+
+    [Fact]
+    public void ReputationSync_CarriesPortraitTrailer()
+    {
+        // 0.8.96: GameEvent CharacterModify.portraitType → live ReputationSync trailer.
+        // 0.8.115: same fields on late-join ReputationBulkSync.
+        var msg = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "SyncMessages.cs"));
+        Assert.Contains("HasPortrait", msg);
+        Assert.Contains("ApplyDialoguePortrait", msg);
+        Assert.Contains("PortraitType", msg);
+        Assert.Contains("hasPortraitTrailer", msg);
+
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "GameEventPortraitHostFanPatch.cs"));
+        Assert.Contains("GameEventPortraitHostFanPatch", patch);
+        Assert.Contains("CharacterModify.portraitType", patch);
+        Assert.Contains("hasPortrait: true", patch);
+
+        var apply = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "NpcAttackedIdSync.cs"));
+        var visuals = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "NpcAttackedIdSync.Visuals.cs"));
+        Assert.Contains("ApplyPortrait", visuals);
+        Assert.Contains("FindNpcByNameNear", visuals);
+        Assert.Contains("FillBulkVisualTrailers", visuals);
+        Assert.Contains("FlushPendingVisualsIfNeeded", visuals);
+        Assert.Contains("BroadcastFromHost", apply);
+    }
+
+    [Fact]
+    public void ReputationSync_CarriesAnimLibraryTrailer()
+    {
+        // 0.8.97: GameEvent CharacterModify.animationLibraryOverride → live ReputationSync trailer.
+        // 0.8.115: same fields on late-join ReputationBulkSync.
+        var msg = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "SyncMessages.cs"));
+        Assert.Contains("HasAnimLibrary", msg);
+        Assert.Contains("AnimLibraryName", msg);
+        Assert.Contains("hasAnimLibraryTrailer", msg);
+
+        var patch = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "GameEventAnimLibraryHostFanPatch.cs"));
+        Assert.Contains("GameEventAnimLibraryHostFanPatch", patch);
+        Assert.Contains("CharacterModify.animationLibraryOverride", patch);
+        Assert.Contains("hasAnimLibrary: true", patch);
+
+        var visuals = File.ReadAllText(Path.Combine(ModDir, "Domains", "World", "Patches", "NpcAttackedIdSync.Visuals.cs"));
+        Assert.Contains("ApplyAnimLibrary", visuals);
+        Assert.Contains("animationLibraryOverride", visuals);
+        Assert.Contains("FindNpcByNameNear", visuals);
+        Assert.Contains("ApplyBulkVisualTrailers", visuals);
+    }
+
+    [Fact]
     public void PluginInfo_IsYokWarePathB_Protocol25()
     {
         var text = File.ReadAllText(Path.Combine(ModDir, "Bootstrap", "PluginInfo.cs"));

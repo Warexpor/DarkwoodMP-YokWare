@@ -23,12 +23,80 @@ namespace DWMPHorde.Networking
         internal void HandleGasTrailSpawn(GasTrailSpawnMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+
+            // Host: client ground pour. Validate near the pourer's proxy, then spawn on
+            // the host world. Forwardable fans the same payload to other peers (pourer
+            // already spawned a local visual in GasolineTrailSpawnPatch).
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+            {
+                int playerId = _net.CurrentReceivePlayerId;
+                if (!CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
+                {
+                    _net._suppressForwardThisMessage = true;
+                    return;
+                }
+
+                RemotePlayerProxy proxy = _net.GetProxy(playerId);
+                if (proxy == null
+                    || !CombatAuthorityPolicy.IsWithinRange(
+                        proxy.transform.position.x,
+                        proxy.transform.position.y,
+                        proxy.transform.position.z,
+                        pos.x, pos.y, pos.z,
+                        GameplayConstants.MaxPlayerAttackRange))
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[GasTrail] rejected client pour from p" + playerId + " at " + pos);
+                    _net._suppressForwardThisMessage = true;
+                    return;
+                }
+
+                Sync.WorldPhysicsSyncService.SpawnGasTrail(pos);
+                ModRuntime.LegacyInfo(
+                    "[GasTrail] host adopted client pour from p" + playerId + " at " + pos);
+                return;
+            }
+
             Sync.WorldPhysicsSyncService.SpawnGasTrail(pos);
         }
 
         internal void HandleGasIgnite(GasIgniteMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+
+            // Host: client torch / flaming melee / Burn-trigger ignite. Validate near
+            // the actor's proxy, then light on the host world. Forwardable fans peers
+            // (igniter already lit a local visual in GasIgnitePatch).
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+            {
+                int playerId = _net.CurrentReceivePlayerId;
+                if (!CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
+                {
+                    _net._suppressForwardThisMessage = true;
+                    return;
+                }
+
+                RemotePlayerProxy proxy = _net.GetProxy(playerId);
+                if (proxy == null
+                    || !CombatAuthorityPolicy.IsWithinRange(
+                        proxy.transform.position.x,
+                        proxy.transform.position.y,
+                        proxy.transform.position.z,
+                        pos.x, pos.y, pos.z,
+                        GameplayConstants.MaxPlayerAttackRange))
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[GasIgnite] rejected client ignite from p" + playerId + " at " + pos);
+                    _net._suppressForwardThisMessage = true;
+                    return;
+                }
+
+                Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos);
+                ModRuntime.LegacyInfo(
+                    "[GasIgnite] host adopted client ignite from p" + playerId + " at " + pos);
+                return;
+            }
+
             Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos);
         }
 

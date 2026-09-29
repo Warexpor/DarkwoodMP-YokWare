@@ -119,6 +119,21 @@ namespace DWMPHorde.Networking
             string fromPeer = (_net.Role == NetworkRole.Host) ? "client" : "host";
             ModRuntime.LegacyInfo("[ItemSpawn] received " + msg.ItemType + " at " + msg.PosX + "," + msg.PosY + "," + msg.PosZ + " from " + fromPeer);
 
+            // Bike-bell (porterWhistle): world spawn of Events/porterSpawner, not the InvItem
+            // trap prefab. ItemsDatabase.hasItem("porterWhistle") is true — must branch first.
+            if (string.Equals(
+                    msg.ItemType,
+                    Patches.PorterSpawnerAuth.PorterWhistleItemSpawnType,
+                    System.StringComparison.Ordinal))
+            {
+                if (_net.Role != NetworkRole.Host)
+                    return;
+                Vector3 porterPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                Patches.PorterSpawnerAuth.TryApplyPorterWhistleOnHost(porterPos);
+                // Do not fan ItemSpawn — Porter NPC reaches peers via entity snapshots.
+                return;
+            }
+
             if (Singleton<ItemsDatabase>.Instance == null)
             {
                 ModRuntime.Log?.LogWarning("[ItemSpawn] ItemsDatabase not available");

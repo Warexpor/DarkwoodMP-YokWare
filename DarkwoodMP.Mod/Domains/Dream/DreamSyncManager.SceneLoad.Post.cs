@@ -28,10 +28,14 @@ namespace DWMPHorde.Sync
             catch { /* ignore */ }
         }
 
+        private static readonly Dictionary<string, UniqueObject> _overworldUniqueStash
+            = new Dictionary<string, UniqueObject>();
+
         /// <summary>
         /// UniqueObjects keeps the first registrant. Overworld bunker wins before the pad
         /// exists; leave-door / setActive GEs then mutate the wrong twin. Force-map pad
-        /// UniqueObjects into the registry after spawn.
+        /// UniqueObjects into the registry after spawn. Stash the overworld twin so
+        /// dream end can put it back (pad OnDestroy removes by type key).
         /// </summary>
         internal static void RemapDreamUniqueObjects(Transform dreamRoot)
         {
@@ -51,6 +55,8 @@ namespace DWMPHorde.Sync
 
                     if (!uo.objects.TryGetValue(u.type, out UniqueObject cur) || cur != u)
                     {
+                        if (cur != null && cur != u && !cur.transform.IsChildOf(dreamRoot))
+                            _overworldUniqueStash[u.type] = cur;
                         uo.objects[u.type] = u;
                         remapped++;
                     }
@@ -58,11 +64,42 @@ namespace DWMPHorde.Sync
                 if (remapped > 0)
                     ModRuntime.LegacyInfo(
                         "[DreamSync] Remapped " + remapped + " UniqueObject(s) onto dream pad");
+
+                // Pad GameEvents / UniqueObjects were not in the scene when dream-start
+                // Invalidate ran; drop the TTL cache so GameEventsFired SoftMatch sees them.
+                WorldQueryHelper.InvalidateSceneScanCache<GameEvents>();
+                WorldQueryHelper.InvalidateSceneScanCache<UniqueObject>();
+                WorldQueryHelper.InvalidateSceneScanCache<Door>();
+                WorldQueryHelper.InvalidateSceneScanCache<NPC>();
             }
             catch (Exception ex)
             {
                 ModRuntime.Log?.LogWarning("[DreamSync] RemapDreamUniqueObjects: " + ex.Message);
             }
+        }
+
+        /// <summary>Put stashed overworld twins back before post-dream getObject.</summary>
+        internal static void RestoreStashedOverworldUniqueObjects()
+        {
+            var uo = Singleton<UniqueObjects>.Instance;
+            if (uo == null || uo.objects == null) return;
+            foreach (var kv in _overworldUniqueStash)
+            {
+                if (kv.Value == null || string.IsNullOrEmpty(kv.Key)) continue;
+                uo.objects[kv.Key] = kv.Value;
+            }
+        }
+
+        internal static void ClearOverworldUniqueStash()
+        {
+            _overworldUniqueStash.Clear();
+        }
+
+        internal static bool TryGetStashedOverworldUnique(string type, out UniqueObject overworld)
+        {
+            overworld = null;
+            if (string.IsNullOrEmpty(type)) return false;
+            return _overworldUniqueStash.TryGetValue(type, out overworld) && overworld != null;
         }
 
         /// <summary>

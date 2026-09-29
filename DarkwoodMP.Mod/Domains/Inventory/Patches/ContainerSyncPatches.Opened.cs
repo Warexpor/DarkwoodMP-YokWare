@@ -8,6 +8,196 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
 
+    /// <summary>
+    /// Shared before/after for workbench pile drains that bypass grab/transfer/
+    /// place patches (<c>removeItemAmountFromPlayer(..., includeAdditionalInventory:
+    /// true)</c> and durability drains on pile slots). Reuses
+    /// <see cref="ContainerSnapshotHelper.SendFullDiff"/> — no second diff path.
+    /// </summary>
+    internal static class WorkbenchSharedPileSync
+    {
+        /// <summary>
+        /// Outermost wrap only. Craft/repair/upgrade/construct/HammerWork already
+        /// snapshot around the whole action (including product stack into the pile);
+        /// the 0.8.114 choke on <c>removeItemAmountFromPlayer</c> nests inside those
+        /// and must not SendFullDiff again (duplicate RemoveItem → host deny/refund).
+        /// </summary>
+        private static int _snapshotDepth;
+
+        internal static void PrefixSnapshot(ref ContainerSnapshotState state)
+        {
+            state = default;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+
+            Player player = Player.Instance;
+            if (player?.openedItemInventory == null || !player.openedItemInventory.isWorkbench)
+                return;
+            Inventory pile = player.openedItemInventory2;
+            if (!ContainerSyncHelpers.IsContainer(pile)) return;
+
+            // Nested under an outer wrap — outer Postfix owns the single diff.
+            if (_snapshotDepth > 0)
+                return;
+
+            state.Active = true;
+            state.Snapshot = ContainerSnapshotHelper.TakeSnapshot(pile);
+            _snapshotDepth++;
+        }
+
+        internal static void PostfixSendFullDiff(ContainerSnapshotState state)
+        {
+            if (!state.Active) return;
+            try
+            {
+                Inventory pile = Player.Instance?.openedItemInventory2;
+                if (pile == null) return;
+                // SendFullDiff is a true slot diff: identical before/after (bag-only
+                // remove with workbench still open) sends nothing.
+                ContainerSnapshotHelper.SendFullDiff(pile, state.Snapshot);
+            }
+            finally
+            {
+                if (_snapshotDepth > 0)
+                    _snapshotDepth--;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Workbench shared pile craft: vanilla <c>doCraft</c> →
+    /// <c>removeItemAmountFromPlayer(..., includeAdditionalInventory: true)</c>
+    /// mutates <c>openedItemInventory2</c> via <c>removeItemAmount</c> /
+    /// <c>removeAmount</c>, which never hit grab/transfer/place container
+    /// patches. Snapshot the pile and fan ContainerItem Remove/Place so the
+    /// host applies the consume (and any product stacked into the pile).
+    /// Personal bag product/ingredients stay local.
+    /// </summary>
+    [HarmonyPatch(typeof(CraftingRecipes), "doCraft")]
+    public static class CraftSharedPileSyncPatch
+    {
+        private static void Prefix(ref ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Workbench repair: <c>InvItemClass.repair</c> →
+    /// <c>RepairRequirements.removeIngredients</c> drains the shared pile the
+    /// same way craft does. Repaired item stays on the crafter's slot.
+    /// </summary>
+    [HarmonyPatch(typeof(InvItemClass), "repair")]
+    public static class RepairSharedPileSyncPatch
+    {
+        private static void Prefix(ref ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Workbench item upgrade: <c>ItemUpgrade.removeIngredients</c> (from
+    /// <c>Player.progressBarCompleted</c>) drains pile materials via
+    /// <c>CraftingRequirement.removeIngredients</c>. Upgrade stays on the
+    /// personal <c>InvItemClass</c>.
+    /// </summary>
+    [HarmonyPatch(typeof(ItemUpgrade), "removeIngredients")]
+    public static class UpgradeSharedPileSyncPatch
+    {
+        private static void Prefix(ref ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Construction menu place: <c>Constructible.construct(manual: true)</c>
+    /// loops <c>ConstructionRequirement.removeIngredients</c>, which drains the
+    /// open workbench pile the same way craft does. World prop spawn is already
+    /// fanned by <c>ConstructibleConstructPatch</c> (<c>ConstructibleConstruction</c>);
+    /// this only syncs the ingredient consume. Remote apply uses
+    /// <c>manual: false</c> (no drain). Snapshot once around construct — do not
+    /// patch each requirement (would multi-send).
+    /// </summary>
+    [HarmonyPatch(typeof(Constructible), "construct", new[] { typeof(bool), typeof(int) })]
+    public static class ConstructSharedPileSyncPatch
+    {
+        private static void Prefix(ref ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Barricade finish: vanilla <c>Player.checkFrameTrigger("HammerWork")</c>
+    /// when <c>doneBuilding</c> loops <c>currentConstruction.requirements</c>
+    /// through <c>removeItemAmountFromPlayer(..., includeAdditionalInventory:
+    /// true)</c> — same shared-pile hole as construct. World plank state already
+    /// fans via <c>BarricadeEvent</c> (0.8.109 alert stays there; this patch
+    /// does not alert). Gate on finish only so mid-swing hammers send nothing.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "checkFrameTrigger")]
+    public static class HammerWorkSharedPileSyncPatch
+    {
+        private static void Prefix(Player __instance, string eventInfo, ref ContainerSnapshotState __state)
+        {
+            __state = default;
+            if (eventInfo != "HammerWork" || __instance == null || !__instance.doneBuilding)
+                return;
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+        }
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Choke-point for every vanilla
+    /// <c>removeItemAmountFromPlayer(..., includeAdditionalInventory: true)</c>
+    /// drain — including GameEvent <c>addOrRemoveInvItem</c>. Entry patches
+    /// (craft/repair/upgrade/construct/HammerWork) still snapshot the outer
+    /// action; nested choke Prefix is skipped via snapshot depth (0.8.116).
+    /// Covers GE actor apply (0.8.99) where the remove runs after
+    /// <c>WaitForSeconds</c> (NetworkApplyGuard already gone) while the
+    /// workbench pile can still be open (e.g. container story triggers).
+    /// </summary>
+    [HarmonyPatch(typeof(Inventory), "removeItemAmountFromPlayer")]
+    public static class RemoveAmountSharedPileSyncPatch
+    {
+        private static void Prefix(bool includeAdditionalInventory, ref ContainerSnapshotState __state)
+        {
+            __state = default;
+            if (!includeAdditionalInventory) return;
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+        }
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
+    /// <summary>
+    /// Same choke for durability drains
+    /// (<c>removeItemDurabilityFromPlayer(..., includeAdditionalInventory: true)</c>).
+    /// </summary>
+    [HarmonyPatch(typeof(Inventory), "removeItemDurabilityFromPlayer")]
+    public static class RemoveDurabilitySharedPileSyncPatch
+    {
+        private static void Prefix(bool includeAdditionalInventory, ref ContainerSnapshotState __state)
+        {
+            __state = default;
+            if (!includeAdditionalInventory) return;
+            WorkbenchSharedPileSync.PrefixSnapshot(ref __state);
+        }
+
+        private static void Postfix(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+    }
+
     /// <summary>Syncs transferring 1 item from player inventory to the opened container.</summary>
     [HarmonyPatch(typeof(InvSlot), "transferItemToOpenedInv")]
     public static class ContainerTransferToOpenedInvPatch

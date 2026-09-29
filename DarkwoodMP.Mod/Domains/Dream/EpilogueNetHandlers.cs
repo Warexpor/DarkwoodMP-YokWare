@@ -15,17 +15,33 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>Only coordinated scene a peer may pull the party into.</summary>
+        internal const string CreditsSceneName = "credits";
+
+        /// <summary>World event fired when the burn-crawl camera pan finishes.</summary>
+        internal const string EpilogueCameraPanEvent = "epilogue_cameraPanOverBurningForest";
+
         internal void HandleSceneLoad(SceneLoadMessage msg)
         {
             if (string.IsNullOrEmpty(msg.SceneName)) return;
 
             int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
 
-            // Host already applied via goToCredits Broadcast + ApplySceneLoad.
             if (_net.Role == NetworkRole.Host)
             {
                 if (_net.CurrentReceivePlayerId > 0)
                 {
+                    // Host goToCredits already applied locally and broadcast.
+                    // A client who finishes outcomes first only Sends here.
+                    // Apply on the host and let [Forwardable] reach the other peers.
+                    if (string.Equals(msg.SceneName, CreditsSceneName, System.StringComparison.Ordinal))
+                    {
+                        ModRuntime.LegacyInfo(
+                            $"[Epilogue] Client p{_net.CurrentReceivePlayerId} reached credits — pulling the party");
+                        ApplySceneLoad(msg.SceneName, delaySeconds: 8f);
+                        return;
+                    }
+
                     _net._suppressForwardThisMessage = true;
                     ModRuntime.LegacyInfo(
                         $"[Epilogue] Rejected inbound SceneLoad from p{_net.CurrentReceivePlayerId}: {msg.SceneName}");

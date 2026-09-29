@@ -183,7 +183,13 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            // Host Apply of client ActionRequest runs examine() under RunHostWorldFanout
+            // (IsApplyingRemoteState still held by ProcessInboundMessage). Must fan
+            // ActionState so peers latch examined / displayedDescriptionPool. Prefix
+            // still blocks Request re-send under apply. ActionState apply sets fields
+            // only (no examine()), and host ignores inbound ActionState — no echo.
+            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+                return;
 
             var net = LanNetworkManager.Instance;
             if (net == null || net.Role != NetworkRole.Host) return;

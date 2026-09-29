@@ -149,7 +149,9 @@ namespace DWMPHorde.Patches
                 if (host == null || host.invisible || host.ignoreMe)
                     return;
 
-                charComponent.attackPlayer();
+                // Attack the sniffed body. attackPlayer() retargets to the nearest
+                // peer and would drop the host the sniffer just finished on.
+                charComponent.attackCharacter(host._transform != null ? host._transform : host.transform);
             }
         }
     }

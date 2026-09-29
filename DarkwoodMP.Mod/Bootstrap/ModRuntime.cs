@@ -98,6 +98,7 @@ namespace DWMPHorde
                 NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
                 NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);
                 NetworkResetRegistry.Register(Audio.ItemMovingSoundHelper.ResetSuppress);
+                NetworkResetRegistry.Register(ItemSoundsUpdateSuppressPatch.Reset);
                 NetworkResetRegistry.Register(Audio.LocalAudioService.ResetRateLimits);
                 NetworkResetRegistry.Register(Audio.LocalAudioService.ResetClipCache);
                 NetworkResetRegistry.Register(Audio.LocalAudioService.ResetPeerHearGates);

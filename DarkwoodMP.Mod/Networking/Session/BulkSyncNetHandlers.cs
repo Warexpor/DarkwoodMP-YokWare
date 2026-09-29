@@ -36,7 +36,9 @@ namespace DWMPHorde.Networking
                 NpcNames = new string[count],
                 Reputations = new int[count],
                 Dead = new bool[count],
-                WantsToTalk = new bool[count]
+                WantsToTalk = new bool[count],
+                AttackedIds = new int[count],
+                DeadIds = new int[count]
             };
             for (int i = 0; i < count; i++)
             {
@@ -44,7 +46,11 @@ namespace DWMPHorde.Networking
                 msg.Reputations[i] = flags.npcStates[i].reputation;
                 msg.Dead[i] = flags.npcStates[i].dead;
                 msg.WantsToTalk[i] = flags.npcStates[i].wantsToTalk;
+                msg.AttackedIds[i] = flags.npcStates[i].attackedID;
+                msg.DeadIds[i] = flags.npcStates[i].deadID;
             }
+            // 0.8.115: same portrait / anim trailers live ReputationSync already fans.
+            Patches.NpcAttackedIdSync.FillBulkVisualTrailers(ref msg);
             _net.SendBulkOrAll(NetMessageType.ReputationBulkSync, w => msg.Serialize(w), targetPlayerId);
         }
 
@@ -55,6 +61,7 @@ namespace DWMPHorde.Networking
             if (flags == null) return;
             if (msg.NpcNames == null) return;
 
+            int visuals = 0;
             for (int i = 0; i < msg.NpcCount && i < msg.NpcNames.Length; i++)
             {
                 string name = msg.NpcNames[i];
@@ -72,14 +79,21 @@ namespace DWMPHorde.Networking
                     flags.npcStates.Add(state);
                 }
 
-                // Dead is world and story state; apply it for all NPCs.
-                if (msg.Dead != null && i < msg.Dead.Length)
-                    state.dead = msg.Dead[i];
+                // Dead / deadID are world and story state; apply for all NPCs (remap local uid).
+                bool dead = msg.Dead != null && i < msg.Dead.Length && msg.Dead[i];
+                int deadId = msg.DeadIds != null && i < msg.DeadIds.Length ? msg.DeadIds[i] : 0;
+                Patches.NpcAttackedIdSync.ApplyDead(state, name, dead, deadId);
 
                 // wantsToTalk gates NPC.talkTo() — host truth on late-join / soft reconnect
                 // (peer SP save can keep false while host re-enabled Doctor/Wolf story talk).
                 if (msg.WantsToTalk != null && i < msg.WantsToTalk.Length)
                     state.wantsToTalk = msg.WantsToTalk[i];
+
+                // attackedID: wolfman despawn-on-death + onlyOneInstance dedup (remap local uid).
+                if (msg.AttackedIds != null && i < msg.AttackedIds.Length)
+                    Patches.NpcAttackedIdSync.ApplyAttackedId(state, name, msg.AttackedIds[i]);
+
+                visuals += Patches.NpcAttackedIdSync.ApplyBulkVisualTrailers(msg, i, name);
 
                 // Never overwrite morning-trader standing with host bulk.
                 if (Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(name))
@@ -88,7 +102,9 @@ namespace DWMPHorde.Networking
                 if (msg.Reputations != null && i < msg.Reputations.Length)
                     state.reputation = msg.Reputations[i];
             }
-            ModLog.Event(LogCat.Session, $"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, wantsToTalk+dead, night-traders skipped for rep)");
+            ModLog.Event(LogCat.Session,
+                $"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, " +
+                $"wantsToTalk+dead+deadID+attackedID+visuals={visuals}, night-traders skipped for rep)");
         }
 
         /// <summary>

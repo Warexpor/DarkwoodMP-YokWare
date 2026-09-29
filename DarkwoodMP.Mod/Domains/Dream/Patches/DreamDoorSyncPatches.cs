@@ -26,6 +26,13 @@ namespace DWMPHorde.Patches
         {
             // Already open before this call; skip rebroadcast to avoid client spam.
             if (__state) return;
+            // Padlock (and any other early return) leaves the door shut. Broadcasting
+            // anyway made the host unlock and open it.
+            if (__instance == null || !TraverseHack.ReadDoorOpened(__instance))
+            {
+                SendLockedDoorAttempt(__instance);
+                return;
+            }
             float openForce = __args != null && __args.Length > 2 ? (float)__args[2] : 0f;
             // Vanilla open(openerPosition, openerTransform, OpenForce): transform wins when set
             // (openThump / openClose). Prefer that over local Player so AI kicks aim correctly.
@@ -43,6 +50,36 @@ namespace DWMPHorde.Patches
                 haveOpener = true;
             }
             BroadcastDoorOpened(__instance, openForce, haveOpener ? opener : (Vector3?)null);
+        }
+
+        /// <summary>
+        /// Client rattled a locked door (key <see cref="Locked"/> or <see cref="Padlock"/>).
+        /// Host runs onTryToOpenLocked only — does not unlock or open.
+        /// </summary>
+        internal static void SendLockedDoorAttempt(Door door)
+        {
+            if (door == null) return;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client) return;
+            if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
+            Padlock pad = door.GetComponent<Padlock>();
+            Locked locked = door.GetComponent<Locked>();
+            bool stillLocked = (pad != null && pad.locked) || (locked != null && locked.locked);
+            if (!stillLocked) return;
+
+            Vector3 pos = door.transform.position;
+            net.Send(NetMessageType.DoorOpen,
+                w => new DoorOpenMessage
+                {
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    DoorName = door.name ?? "",
+                    HasOpenForceTrailer = true,
+                    AttemptOnly = true
+                }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[DoorSync] locked attempt " + door.name + " at " + pos);
         }
 
         internal static void BroadcastDoorOpened(Door door, float openForce = 0f)
@@ -134,6 +171,20 @@ namespace DWMPHorde.Patches
             ModRuntime.LegacyInfo(
                 $"[DoorSync] sent door open: {name} at ({pos.x:F1}, {pos.y:F1}, {pos.z:F1}) " +
                 $"force={openForce} role={net.Role} dream={DreamSyncManager.IsDreamActive}");
+        }
+    }
+
+    /// <summary>
+    /// Vanilla <c>Player.openCloseDoor</c> fires onTryToOpenLocked and returns for key-Locked
+    /// (and Padlock UI) without calling <c>Door.open</c>. Client one-shots are blocked, so
+    /// the host never saw the attempt. Reuse DoorOpen AttemptOnly.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "openCloseDoor")]
+    public static class DoorOpenCloseLockedAttemptPatch
+    {
+        private static void Postfix(Door door)
+        {
+            DoorOpenSyncPatch.SendLockedDoorAttempt(door);
         }
     }
 

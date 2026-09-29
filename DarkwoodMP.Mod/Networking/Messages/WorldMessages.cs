@@ -541,6 +541,8 @@ namespace DWMPHorde.Networking
         public float OpenerPosX, OpenerPosY, OpenerPosZ;
         /// <summary>True when OpenForce/Opener trailer was present on the wire.</summary>
         public bool HasOpenForceTrailer;
+        /// <summary>0.8.90: client tried a padlocked door. Host fires the story trigger and does not open.</summary>
+        public bool AttemptOnly;
 
         public void Serialize(NetWriter w)
         {
@@ -549,6 +551,8 @@ namespace DWMPHorde.Networking
             // Trailer: OpenForce + OpenerPos (16 bytes). Pre-0.8.64 peers stop after DoorName.
             w.Put(OpenForce);
             w.Put(OpenerPosX); w.Put(OpenerPosY); w.Put(OpenerPosZ);
+            // 0.8.90: true = rattle a locked door, do not open it.
+            w.Put(AttemptOnly);
         }
 
         public static DoorOpenMessage Deserialize(NetReader r)
@@ -570,6 +574,8 @@ namespace DWMPHorde.Networking
                 msg.OpenerPosY = r.GetFloat();
                 msg.OpenerPosZ = r.GetFloat();
                 msg.HasOpenForceTrailer = true;
+                if (r.AvailableBytes >= 1)
+                    msg.AttemptOnly = r.GetBool();
             }
             return msg;
         }
@@ -644,18 +650,26 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         /// <summary>GameObject name for reliable lookup when several events sit nearby.</summary>
         public string EventName;
+        /// <summary>
+        /// Player who triggered the one-shot. Personal Player.Instance effects
+        /// (addOrRemoveInvItem, addRecipes, transport*) apply only for this id.
+        /// 0 = late-join bulk / unknown → world effects only.
+        /// </summary>
+        public int ActorPlayerId;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(EventName ?? "");
+            w.Put(ActorPlayerId);
         }
         public static GameEventsFiredMessage Deserialize(NetReader r) => new GameEventsFiredMessage
         {
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
-            EventName = r.GetString()
+            EventName = r.GetString(),
+            ActorPlayerId = r.GetInt()
         };
     }
 

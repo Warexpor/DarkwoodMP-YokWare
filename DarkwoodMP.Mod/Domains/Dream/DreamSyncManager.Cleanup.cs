@@ -53,6 +53,11 @@ namespace DWMPHorde.Sync
                 Vector3 restorePos = dreams.positionCopy;
                 if (dreams.preset != null)
                 {
+                    // Vanilla endDreaming clears dreaming before UniqueObjects.getObject.
+                    // Leaving it true makes the dream getObject patch return the pad twin.
+                    dreams.dreaming = false;
+                    RestoreStashedOverworldUniqueObjects();
+
                     string trueName = Core.getTrueLocationName(dreams.preset.name);
                     if (trueName == "dream_tutorial_01")
                     {
@@ -112,6 +117,7 @@ namespace DWMPHorde.Sync
 
                 bool endDiving = dreams.preset != null && dreams.preset.endDivingOut;
                 dreams.destroyDream();
+                ClearOverworldUniqueStash();
                 dreams.dreaming = false;
                 dreams.dreamPrepared = false;
                 dreams.wantToDream = false;
