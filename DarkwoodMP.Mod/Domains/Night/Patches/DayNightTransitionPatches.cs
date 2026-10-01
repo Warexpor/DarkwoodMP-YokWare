@@ -17,7 +17,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Controller __instance, bool byKillingTrader)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
@@ -42,7 +42,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Controller __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
@@ -66,7 +66,7 @@ namespace DWMPHorde.Patches
 
         internal static void FlushHostTime(string reason)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
@@ -105,7 +105,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return true;
 
@@ -175,7 +175,7 @@ namespace DWMPHorde.Patches
             if (HostStillInside())
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return false;
 
@@ -199,7 +199,7 @@ namespace DWMPHorde.Patches
             // Role only, not IsConnected: the disconnect cleanup calls this after the leaver is
             // already out of the roster, and when it was the last peer the host is no longer
             // "connected" — the morning would then never end for a host already outside.
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             Controller ctrl = Singleton<Controller>.Instance;
@@ -253,7 +253,7 @@ namespace DWMPHorde.Patches
             Player host = Player.Instance;
             if (host == null)
                 return false;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             int hostId = net != null ? net.LocalPlayerId : 0;
             Vector3 pos = host._transform != null ? host._transform.position : host.transform.position;
             return CountsAsInside(hostId, pos, host.alive);
@@ -281,7 +281,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Location __instance, Collider _collider)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return true;
             if (__instance == null || __instance.isSubLocation || !__instance.playerBase)

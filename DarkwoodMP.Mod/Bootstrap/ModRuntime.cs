@@ -20,7 +20,10 @@ namespace DWMPHorde
         public static IModLogger Log;
 
         /// <summary>The LAN network manager singleton (host or client).</summary>
+        /// <summary>The one network manager (null outside a running mod). The manager registers itself in Awake.</summary>
         public static LanNetworkManager Network { get; private set; }
+
+        internal static void AttachNetwork(LanNetworkManager net) => Network = net;
 
         /// <summary>When true, high-frequency debug logs are emitted (per-frame state, etc.).</summary>
         public static bool VerboseLogging { get; set; }
@@ -185,7 +188,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
             NetworkResetRegistry.Register(PlayerPositionManager.Clear);
             NetworkResetRegistry.Register(() =>
-                LanNetworkManager.Instance?.PlayerFXHandlers?.ResetConsumedDropGuids());
+                ModRuntime.Network?.PlayerFXHandlers?.ResetConsumedDropGuids());
             NetworkResetRegistry.Register(EntityStateBroadcastService.Stop);
             NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
             NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
@@ -251,7 +254,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ClientAIConditionalHelper.Reset);
             NetworkResetRegistry.Register(NetLogThrottle.Reset);
             NetworkResetRegistry.Register(() =>
-                (Network as LanNetworkManager)?.DialogOutcomeApplyHandlers?.ClearPendingApply());
+                Network?.DialogOutcomeApplyHandlers?.ClearPendingApply());
 
             // Session caches / pending state in patch classes (StaticStateResetTests guards these).
             NetworkResetRegistry.Register(CanSeeComponentCache.Reset);

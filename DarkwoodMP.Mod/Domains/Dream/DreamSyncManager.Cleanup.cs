@@ -165,7 +165,7 @@ namespace DWMPHorde.Sync
                     ModRuntime.Log?.LogWarning("[DreamSync] effectsCopy restore: " + ex.Message);
                 }
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.IsConnected)
                     net.TeleportRemoteProxyTo(player._transform.position, 0f);
 

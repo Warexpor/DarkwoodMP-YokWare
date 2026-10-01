@@ -21,7 +21,7 @@ namespace DWMPHorde.Patches
 
             try
             {
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null || net.Role != NetworkRole.Client)
                     return true;
 

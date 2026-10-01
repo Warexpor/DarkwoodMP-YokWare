@@ -253,7 +253,7 @@ namespace DWMPHorde.Sync
 
             // Teleport the remote proxy (other player's character) to the dream
             // position so both players see each other immediately.
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 Vector3 proxyPos = Player.Instance != null
@@ -381,7 +381,7 @@ namespace DWMPHorde.Sync
 
             FinalDreamsceneManager.OnDreamEnded();
             ClearRemoteDreamRoster();
-            (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
+            ModRuntime.Network?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
             _localDreamActive = false;
             bool hostOrdered = _hostOrderedDreamEnd;
@@ -389,7 +389,7 @@ namespace DWMPHorde.Sync
 
             string outcomeName = (Dreams.Instance != null) ? (Dreams.Instance.outcome ?? "") : "";
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 // Host already fan-out at initiateEndDreaming; host-ordered clients never send.

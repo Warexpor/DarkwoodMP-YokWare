@@ -12,7 +12,7 @@ namespace DWMPHorde.Patches
     {
         internal static bool ProxyIsFar(Character c)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !PlayerPositionManager.HasRemotePlayer)
                 return true;
             float range = (float)c.farViewDistance * c.aniSightRangeModifier;
@@ -77,7 +77,7 @@ namespace DWMPHorde.Patches
             if (player != null && player.isInSight(dest, canBeFarAway, radius))
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || player == null)
                 return false;
 
@@ -109,7 +109,7 @@ namespace DWMPHorde.Patches
             if (Player.Instance != null && !Player.Instance.isInside)
                 return false;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return Player.Instance != null && Player.Instance.isInside;
 

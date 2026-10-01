@@ -24,7 +24,7 @@ namespace DWMPHorde.Networking
         /// Reliable stop still uses <see cref="NotifyBodyPushStopped"/>.</summary>
         internal void NotifyBodyPushStarted(GameObject go)
         {
-            if (LanNetworkManager.Instance == null || go == null) return;
+            if (ModRuntime.Network == null || go == null) return;
             // After ForceStop, ignore late residual restarts (5.2).
             if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(go.name))
                 return;
@@ -47,7 +47,7 @@ namespace DWMPHorde.Networking
         /// already fade via PhysicsState quiet / DragSync STOP.</summary>
         internal void NotifyBodyPushStopped(string objectName)
         {
-            if (LanNetworkManager.Instance == null) return;
+            if (ModRuntime.Network == null) return;
             if (string.IsNullOrEmpty(objectName)) return;
 
             DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(objectName);

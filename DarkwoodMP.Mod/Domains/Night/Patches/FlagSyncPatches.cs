@@ -46,7 +46,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingBoolFlags.Count == 0) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
@@ -96,7 +96,7 @@ namespace DWMPHorde.Patches
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             // Host broadcasts; clients send changes to the host.
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
@@ -160,7 +160,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingIntFlags.Count == 0) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
@@ -203,7 +203,7 @@ namespace DWMPHorde.Patches
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 

@@ -27,7 +27,7 @@ namespace DWMPHorde.Sync
         /// </param>
         public static void TryBroadcast(CharacterDialogue cd, NPC npc = null, bool force = false)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             // Same class as door GE / FlagSync: world-only dialog apply must fan out.
             if (!force

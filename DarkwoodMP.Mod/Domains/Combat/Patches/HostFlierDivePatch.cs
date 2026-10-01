@@ -14,7 +14,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Flier __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return true;
 

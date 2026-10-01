@@ -30,7 +30,7 @@ namespace DWMPHorde
             {
                 if (alsoSetShareProgress)
                 {
-                    var net = ModRuntime.Network as LanNetworkManager;
+                    var net = ModRuntime.Network;
                     if (net?.WorldSaveShare != null)
                         net.WorldSaveShare.SetWrongSaveProgress(msg);
                 }

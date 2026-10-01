@@ -151,7 +151,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             foreach (var proxy in net.GetAllProxies())

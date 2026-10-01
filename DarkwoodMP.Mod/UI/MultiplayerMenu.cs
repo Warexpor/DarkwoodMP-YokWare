@@ -363,7 +363,7 @@ namespace DWMPHorde
                 return false;
             }
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Host)
             {
                 reason = "Host uses sav.dat — restore self is client-only (would overwrite host).";

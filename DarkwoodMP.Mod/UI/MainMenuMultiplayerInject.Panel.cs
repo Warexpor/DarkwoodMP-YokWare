@@ -118,7 +118,7 @@ namespace DWMPHorde
             SetActiveSafe(_joinSteamBtn, join);
             SetActiveSafe(_backSubBtn, host || join);
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             bool online = net != null && net.Role != NetworkRole.Offline;
             SetActiveSafe(_disconnectButton, root && online);
 
@@ -203,7 +203,7 @@ namespace DWMPHorde
 
         private static void OnDisconnectClicked()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null)
                 return;
             _joinPending = false;
@@ -226,7 +226,7 @@ namespace DWMPHorde
         {
             ExpireFailureLabel();
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             bool online = net != null && net.Role != NetworkRole.Offline;
 
             if (_panelView == PanelView.Root)

@@ -59,7 +59,7 @@ namespace DWMPHorde.Patches
         internal static void SendLockedDoorAttempt(Door door)
         {
             if (door == null) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
             Padlock pad = door.GetComponent<Padlock>();
@@ -99,7 +99,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = door.transform.position;
@@ -223,7 +223,7 @@ namespace DWMPHorde.Patches
 
             // Re-use DoorOpen with name prefix so client applies unblock+open attempt.
             // Dedicated message would need protocol bump; open handler also unblocks.
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = __instance.transform.position;

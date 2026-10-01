@@ -12,7 +12,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected && net.Role == NetworkRole.Client)
                 return false;
             return true;
@@ -25,7 +25,7 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.Last)]
         private static void Postfix(NightScenarios __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)

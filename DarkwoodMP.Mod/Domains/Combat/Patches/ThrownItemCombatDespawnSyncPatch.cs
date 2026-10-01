@@ -38,7 +38,7 @@ namespace DWMPHorde.Patches
                 return;
             if (TraverseHack.ApplyingFromNetwork)
                 return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             // Only in-flight → land transitions. Saved / already-grounded skips.
@@ -94,7 +94,7 @@ namespace DWMPHorde.Patches
             if (__exception != null || !destroyQueued)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (string.IsNullOrEmpty(__state.ObjectName))

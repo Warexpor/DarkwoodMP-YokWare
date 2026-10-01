@@ -209,7 +209,7 @@ namespace DWMPHorde.Patches
                 Upgrades = upgrades,
                 ShouldBeActive = shouldBeActive
             };
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             // Host → all; client → host (Forwardable rebroadcasts to other clients).
             net.Broadcast(NetMessageType.ContainerItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
                     return true;
                 }
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.Role == NetworkRole.Client)
                 {
                     // Fix 2: If onFinishedVideo prefix already sent the request (entry transition

@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
                     return;
             }
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Broadcast: host → all clients; client → host (3+ peer fan-out on host receive).

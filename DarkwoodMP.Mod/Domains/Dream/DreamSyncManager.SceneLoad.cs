@@ -157,7 +157,7 @@ namespace DWMPHorde.Sync
             }
             try
             {
-                var netFlush = ModRuntime.Network as LanNetworkManager;
+                var netFlush = ModRuntime.Network;
                 netFlush?.GameEventHandlers?.TryFlushPendingGameEventsAfterDreamLoad();
             }
             catch { /* non-fatal */ }
@@ -165,7 +165,7 @@ namespace DWMPHorde.Sync
             // Snap host/peer proxies from PlayerPositionManager (true network pos), not
             // local player feet. The old code stacked everyone on the client spawn and then
             // LocationEnter overwrote with a bad playerSpawn Y.
-            var network = ModRuntime.Network as LanNetworkManager;
+            var network = ModRuntime.Network;
             if (network != null && network.IsConnected)
             {
                 network.ResyncDreamProxiesAfterLocalLoad(locationName);

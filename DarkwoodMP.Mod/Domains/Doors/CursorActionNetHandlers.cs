@@ -113,7 +113,7 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo("[CursorActionSync] host onActivate " + item.name + " at " + pos);
             Item target = item;
-            int actorId = (ModRuntime.Network as LanNetworkManager)?.CurrentReceivePlayerId ?? 0;
+            int actorId = ModRuntime.Network?.CurrentReceivePlayerId ?? 0;
             DialogHostApplyGuard.RunHostWorldFanoutForPlayer(actorId, () =>
                 Core.sendTriggerInfo(target.gameObject, EventTrigger.Type.onActivate));
 
@@ -128,7 +128,7 @@ namespace DWMPHorde.Networking
                     ctrl.useTimeSkip();
                     if (ctrl.CurrentTime != before)
                     {
-                        var lan = ModRuntime.Network as LanNetworkManager;
+                        var lan = ModRuntime.Network;
                         lan?.SendTimeSyncTo(-1);
                         ModRuntime.LegacyInfo(
                             "[CursorActionSync] host TimeSkip " + item.name

@@ -29,7 +29,7 @@ namespace DWMPHorde.Patches
             if (Sync.FinalDreamsceneManager.IsActive)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             DeathDrop deathDrop = FindDeathDropAt(destPos);

@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
 
@@ -68,7 +68,7 @@ namespace DWMPHorde.Patches
             if (prefab != "characters/fakechars/shadow" && prefab != "characters/fakechars/shadow_immortal")
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             if (!net.IsConnected)
@@ -144,7 +144,7 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.Last)]
         private static void Prefix(ShadowCreature __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
 

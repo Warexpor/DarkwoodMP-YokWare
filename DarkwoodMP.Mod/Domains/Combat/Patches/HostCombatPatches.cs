@@ -138,7 +138,7 @@ namespace DWMPHorde.Patches
             try { Core.AddPrefab(bloodPrefab, hitPoint, Quaternion.Euler(90f, rotY + rotVariance, 0f), null); }
             finally { TraverseHack.SetExplicitFlag(prevHack); }
 
-            LanNetworkManager.Instance?.Broadcast(NetMessageType.BulletImpact, w => new BulletImpactMessage
+            ModRuntime.Network?.Broadcast(NetMessageType.BulletImpact, w => new BulletImpactMessage
             {
                 PrefabName = bloodPrefab,
                 PoolName = "",
@@ -163,7 +163,7 @@ namespace DWMPHorde.Patches
                 // The victim's own client activates these (vanilla applies sensor effects after getHit).
                 Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
-            LanNetworkManager.Instance?.SendToPlayer(proxy.PlayerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.SendToPlayer(proxy.PlayerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             ModRuntime.LegacyInfo(
                 "[ProxyMelee] sensor hit p" + pid + " dmg=" + dmg

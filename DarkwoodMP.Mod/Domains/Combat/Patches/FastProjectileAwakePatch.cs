@@ -87,7 +87,7 @@ namespace DWMPHorde.Patches
             if (__instance == null || !__instance.active)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
 

@@ -22,8 +22,6 @@ namespace DWMPHorde.Networking
     {
         public const float SendInterval = 0.033f;
 
-        public static LanNetworkManager Instance { get; private set; }
-
         private NetManager _net;
         private readonly Dictionary<int, NetPeer> _peers = new Dictionary<int, NetPeer>();
         private NetworkRole _role = NetworkRole.Offline;
@@ -319,7 +317,7 @@ namespace DWMPHorde.Networking
 
         private void Awake()
         {
-            Instance = this;
+            ModRuntime.AttachNetwork(this);
             _worldSync = new WorldSyncService();
             _worldSaveShare = new WorldSaveShareService(this);
             CombatDeathBagHandlers = new CombatDeathBagNetHandlers(this);

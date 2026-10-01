@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client) return true;
 
             bool cursor = destGO.GetComponent<CustomCursorAction>() != null;

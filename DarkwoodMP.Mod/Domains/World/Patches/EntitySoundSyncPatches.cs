@@ -40,7 +40,7 @@ namespace DWMPHorde.Patches
                 return;
 
             var msg = new EntitySoundMessage { HostId = hostId, SoundType = type };
-            LanNetworkManager.Instance?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal static void BroadcastIdleLoop(CharacterSounds sounds, string loopName)
@@ -62,7 +62,7 @@ namespace DWMPHorde.Patches
                 return;
 
             var msg = new EntitySoundMessage { HostId = hostId, SoundType = EntitySoundType.Idle, LoopName = loopName ?? "" };
-            LanNetworkManager.Instance?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal static void BroadcastIdleStop(CharacterSounds sounds)

@@ -20,7 +20,7 @@ namespace DWMPHorde.Patches
         static void Prefix(Player __instance)
         {
             // Mod loaded without a co-op session must stay vanilla.
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             // A previous vault that never reached endJumpThroughWindow must not leak.
@@ -87,7 +87,7 @@ namespace DWMPHorde.Patches
         /// disable/enable this player's proxy colliders during window vault.</summary>
         internal static void SendVaultState(bool isVaulting)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             var msg = new VaultStateMessage

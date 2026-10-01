@@ -64,7 +64,7 @@ namespace DWMPHorde.Patches
             if (ProxyDistanceHelper.ProxyIsFar(charComponent))
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return false;
 
             // --- Sniff lifecycle ---
@@ -439,7 +439,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             float minHp = Player.Instance != null ? Player.Instance.health : float.MaxValue;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 foreach (var proxy in net.GetAllProxies())

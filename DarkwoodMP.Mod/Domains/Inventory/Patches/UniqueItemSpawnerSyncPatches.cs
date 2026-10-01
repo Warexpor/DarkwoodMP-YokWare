@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(UniqueItemSpawner __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)

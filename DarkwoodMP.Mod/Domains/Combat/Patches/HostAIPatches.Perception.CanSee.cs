@@ -88,7 +88,7 @@ namespace DWMPHorde.Patches
             if (__instance.dummy || __instance.blind || !__instance.alive)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             CanSeeComponentCache.Get(__instance, out Sniffer entitySniffer, out Collider myCollider);
 

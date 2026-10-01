@@ -252,7 +252,7 @@ namespace DWMPHorde.Sync
 
                     // Role, not IsConnected: a host talking alone (peers come and go) still owns the
                     // lock, and a joiner must not get a second speaker when the lease lapses.
-                    var net = ModRuntime.Network as LanNetworkManager;
+                    var net = ModRuntime.Network;
                     if (net == null || net.Role == NetworkRole.Offline)
                         yield break;
                     var dw = Singleton<UI>.Instance?.dialogueWindow;

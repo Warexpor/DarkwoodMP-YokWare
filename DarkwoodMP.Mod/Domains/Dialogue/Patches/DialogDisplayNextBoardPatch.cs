@@ -76,7 +76,7 @@ namespace DWMPHorde.Patches
         private static void TryBeginClientDefer(DialogueWindow dw, ref BoardState state)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
             if (!DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false))
@@ -164,7 +164,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
             if (DialogHostApplyGuard.DialogueApplyActive) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
 

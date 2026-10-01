@@ -88,7 +88,7 @@ namespace DWMPHorde.Patches
         {
             RegisterLocalFx(targetType, pos);
             Vector3 atkPos = Player.Instance.transform.position;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             net?.SendMeleeWorldHit(new MeleeWorldHitMessage
             {
                 TargetType = targetType,

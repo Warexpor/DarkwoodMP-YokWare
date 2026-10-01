@@ -59,14 +59,14 @@ namespace DWMPHorde.Networking
 
         public static void NotifyBodyPushStarted(GameObject go)
         {
-            var net = Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             net.PlayerInteractHandlers.NotifyBodyPushStarted(go);
         }
 
         public static void NotifyBodyPushStopped(string objectName)
         {
-            var net = Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             net.PlayerInteractHandlers.NotifyBodyPushStopped(objectName);
         }

@@ -60,15 +60,15 @@ namespace DWMPHorde.Sync
                 }
                 RestorePreDreamState(playerId);
                 UnfreezeWorld();
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.IsConnected && Player.Instance != null)
                     net.TeleportRemoteProxyTo(Player.Instance._transform.position, 0f);
             }
 
             FinalDreamsceneManager.OnDreamEnded();
-            (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
+            ModRuntime.Network?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
-            var unfreezeNet = ModRuntime.Network as LanNetworkManager;
+            var unfreezeNet = ModRuntime.Network;
             if (unfreezeNet != null)
             {
                 foreach (var proxy in unfreezeNet.GetAllProxies())
@@ -107,7 +107,7 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnDisconnected();
 
             // Unfreeze any frozen proxies
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 foreach (var proxy in net.GetAllProxies())

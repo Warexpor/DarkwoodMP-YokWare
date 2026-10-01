@@ -396,7 +396,7 @@ namespace DWMPHorde.Sync
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             var msg = new MapElementDiscoveredMessage { ElementName = element.elementName };
@@ -413,7 +413,7 @@ namespace DWMPHorde.Sync
 
         private static void SendMarkerMessage(Vector3 worldPos)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             var msg = new MapMarkerMessage
@@ -429,7 +429,7 @@ namespace DWMPHorde.Sync
 
         private static void SendMarkerRemoveMessage(Vector3 worldPos)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             var msg = new MapMarkerRemoveMessage

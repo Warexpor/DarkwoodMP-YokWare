@@ -34,7 +34,7 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static void Tick()
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (_paused) return;

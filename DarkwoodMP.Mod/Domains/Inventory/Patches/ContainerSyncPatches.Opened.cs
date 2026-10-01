@@ -393,7 +393,7 @@ namespace DWMPHorde.Patches
                     Ammo = 0,
                     IsPlayerPlaced = false
                 };
-                var netInst = LanNetworkManager.Instance;
+                var netInst = ModRuntime.Network;
                 if (netInst != null)
                     netInst.Broadcast(NetMessageType.ContainerItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             }
@@ -416,7 +416,7 @@ namespace DWMPHorde.Patches
                     PosZ = pos.z,
                     TargetEntityHash = entityHash
                 };
-                var netInst = LanNetworkManager.Instance;
+                var netInst = ModRuntime.Network;
                 if (netInst != null)
                     netInst.Send(NetMessageType.ContainerStateRequest, w => req.Serialize(w), DeliveryMethod.ReliableOrdered);
             }

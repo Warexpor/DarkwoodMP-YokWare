@@ -53,7 +53,7 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             Vector3 pos = __instance._transform.position;

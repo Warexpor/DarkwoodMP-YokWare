@@ -150,7 +150,7 @@ namespace DWMPHorde.Patches
                 NoteBoardRemoved(key, targetType);
             else if (action == BarricadeAction.Built && targetType <= 1)
                 NoteBoardBuilt(key, targetType);
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null)
                 net.Broadcast(NetMessageType.BarricadeEvent, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

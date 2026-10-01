@@ -13,7 +13,7 @@ namespace DWMPHorde.Patches
         internal static void SendDrop(Transform spawned, InvItemClass item, string prefabPath)
         {
             if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) { ModRuntime.LegacyInfo("[SendDrop] net not connected"); return; }
             if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
 
@@ -60,7 +60,7 @@ namespace DWMPHorde.Patches
         {
             ModRuntime.LegacyInfo("[SendPickup] called for " + (worldItem != null ? worldItem.name : "null"));
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
@@ -98,7 +98,7 @@ namespace DWMPHorde.Patches
             string guid, string itemType, int amount, float durability, int ammo, int preCount,
             string recipeFor = null)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             if (string.IsNullOrEmpty(guid)) return;
@@ -153,7 +153,7 @@ namespace DWMPHorde.Patches
             Vector3 pos, string sendName, string itemType, int amount, float durability, int ammo, int preCount,
             string recipeFor = null)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             if (string.IsNullOrEmpty(sendName)) return;

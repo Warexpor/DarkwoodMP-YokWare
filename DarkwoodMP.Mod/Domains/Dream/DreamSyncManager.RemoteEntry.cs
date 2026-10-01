@@ -208,7 +208,7 @@ namespace DWMPHorde.Sync
             if (Player.Instance != null)
             {
                 int pid = 0;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null)
                     pid = net.LocalPlayerId;
                 _currentDreamPreset[pid] = nextPreset;

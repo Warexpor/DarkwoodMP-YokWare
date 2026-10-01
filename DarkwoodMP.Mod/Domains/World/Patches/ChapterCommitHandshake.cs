@@ -179,7 +179,7 @@ namespace DWMPHorde.Patches
         /// <summary>Host: a client reported the outcome of its chapter world share.</summary>
         internal static void HandleChapterShareAck(ChapterShareAckMessage msg)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             int pid = net.CurrentReceivePlayerId;
@@ -237,7 +237,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static bool ClientChapterVerified(int chapterId)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (!_clientAckRequired || net == null || !net.IsConnected)
                 return false;
 
@@ -270,7 +270,7 @@ namespace DWMPHorde.Patches
         {
             if (!_clientAckRequired || !ChapterShareExpected)
                 return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return;
             float now = Time.unscaledTime;
@@ -288,7 +288,7 @@ namespace DWMPHorde.Patches
         {
             if (!ChapterShareExpected)
                 return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             ModLog.Error(LogCat.Save, "[Chapter] Client chapter world failed: " + reason);
             if (net == null || !net.IsConnected)
                 return;
@@ -298,7 +298,7 @@ namespace DWMPHorde.Patches
         /// <summary>Host → client go / refusal for the chapter load.</summary>
         internal static void HandleChapterLoadGo(ChapterLoadGoMessage msg)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client)
                 return;
 
@@ -366,7 +366,7 @@ namespace DWMPHorde.Patches
         {
             ModLog.Error(LogCat.Session, "[Chapter] Leaving session: " + message);
             ChapterSessionResume.Reset();
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             // Abort / timeout / refusal: the buffered package is dropped and the save slot stays as it was.
             net?.WorldSaveShare?.DiscardPendingChapterPackage();
             if (net != null)
@@ -406,7 +406,7 @@ namespace DWMPHorde.Patches
                 // Title clients take the normal download / slot pick / ENTER WORLD flow; no timeout applies.
                 if (Core.mainMenu || Player.Instance == null) return;
 
-                var shareNet = ModRuntime.Network as LanNetworkManager;
+                var shareNet = ModRuntime.Network;
                 bool busy = shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy;
                 if (busy)
                 {

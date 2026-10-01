@@ -37,7 +37,7 @@ namespace DWMPHorde.Patches
             if (__instance.switchingDream || DreamSession.IsActive)
             {
                 DreamSession.SetChainedPreset(name);
-                var net = LanNetworkManager.Instance;
+                var net = ModRuntime.Network;
                 net?.Broadcast(NetMessageType.DreamChainStart,
                     w => new DreamChainStartMessage
                     {
@@ -121,7 +121,7 @@ namespace DWMPHorde.Patches
                     return false;
                 }
                 ModRuntime.LegacyInfo($"[DreamSession] Client story end '{outcome}' — deferring to host");
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 string preset = DreamSyncManager.ResolveActivePresetName();
                 if (string.IsNullOrEmpty(preset) && __instance.preset != null)
                     preset = __instance.preset.name;

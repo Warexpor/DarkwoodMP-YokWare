@@ -385,7 +385,7 @@ namespace DWMPHorde.Sync
 
         internal static void RegisterConstructed(Vector3 key, int optionIndex)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             net?.LockHandlers?.RegisterConstructedSite(key, optionIndex);
         }
 

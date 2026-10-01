@@ -82,7 +82,7 @@ namespace DWMPHorde.Patches
                     return true;
             }
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return false;
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {

@@ -97,7 +97,7 @@ namespace DWMPHorde.Patches
                 return;
 
             // Renew dialog lock so host auth check survives long trade sessions (>90s lease).
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             string npcName = __instance.npc.name;
@@ -126,7 +126,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             // Clients must not independently restock — host assortment is shared.
@@ -143,7 +143,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             if (__instance == null || !__instance.trader)
@@ -234,7 +234,7 @@ namespace DWMPHorde.Patches
         public static void BroadcastNpcInventory(NPC npc)
         {
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host) return;
 
             var msg = BuildMessage(npc);
@@ -248,7 +248,7 @@ namespace DWMPHorde.Patches
         public static void SendNpcInventoryToHost(NPC npc)
         {
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role == NetworkRole.Host) return;
 
             var msg = BuildMessage(npc);
@@ -266,7 +266,7 @@ namespace DWMPHorde.Patches
             if (npc == null)
             {
                 // NPC may not be streamed yet — queue for flush.
-                LanNetworkManager.Instance?.TradeHandlers?.QueuePendingTradeInventory(msg);
+                ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }
 

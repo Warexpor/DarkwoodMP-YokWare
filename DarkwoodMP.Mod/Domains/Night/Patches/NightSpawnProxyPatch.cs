@@ -35,7 +35,7 @@ namespace DWMPHorde.Patches
 
             if (Player.Instance == null) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -58,9 +58,9 @@ namespace DWMPHorde.Patches
         private static void Prefix()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = true;
-            if (ModRuntime.VerboseLogging && Player.Instance != null && LanNetworkManager.Instance != null)
+            if (ModRuntime.VerboseLogging && Player.Instance != null && ModRuntime.Network != null)
             {
-                var net = LanNetworkManager.Instance;
+                var net = ModRuntime.Network;
                 int proxyCount = NightSpawnFarProxies.CountAll(net);
                 int farCount = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position).Count;
                 ModRuntime.LegacyInfo($"[NightSpawn] spawnNightChar started; proxies={proxyCount} far(>1000f)={farCount}");
