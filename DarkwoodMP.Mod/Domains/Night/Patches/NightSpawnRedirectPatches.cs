@@ -120,11 +120,10 @@ namespace DWMPHorde.Patches
 
     // ─── NightWorm redirect (post-spawn reposition) ───────────────────
 
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class NightWormPostSpawnPatch
     {
-        [HarmonyPriority(Priority.Last)]
-        private static void Postfix(GameObject __result, string prefab)
+        internal static void OnAddPrefab(GameObject __result, string prefab)
         {
             if (__result == null || prefab != "characters/fakechars/NightWorms_01")
                 return;

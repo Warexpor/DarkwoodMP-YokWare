@@ -21,7 +21,7 @@ namespace DWMPHorde.Networking
         private const int MaxEntitiesPerPacket = 256;
         /// <summary>Near-player band filled first so far wildlife cannot starve combat NPCs.</summary>
         private const float PriorityDistance = 1400f;
-        private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket];
+        private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
         /// <summary>Stable stripped name / prefab path — avoid Unity <c>name</c> + Substring + GetComponent every 10 Hz.</summary>
         private static readonly Dictionary<short, string> _cachedEntityNames = new Dictionary<short, string>(128);
@@ -52,11 +52,11 @@ namespace DWMPHorde.Networking
         /// and sends to all connected peers (unreliable, ~10 Hz).
         /// </summary>
         private static readonly NetWriter _snapWriter = new NetWriter();
-        private static byte[] _snapSendBuf = Array.Empty<byte>();
+        private static byte[] _snapSendBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
         private static readonly NetWriter _bodyWriter = new NetWriter();
-        private static byte[] _bodyBuf = Array.Empty<byte>();
+        private static byte[] _bodyBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
         /// <summary>End offset of entry i inside the serialized body (chunk boundaries).</summary>
-        private static int[] _entryEnd = new int[MaxEntitiesPerPacket];
+        private static int[] _entryEnd = new int[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
         /// <summary>Framed bytes besides entries: type + Sequence + count.</summary>
         private const int FrameBytes = 1 + 4 + 4;
 
@@ -353,7 +353,7 @@ namespace DWMPHorde.Networking
             return true;
         }
 
-        private static int _sendCount;
+        private static int _sendCount; // process-scoped: monotonic send counter
         private static int _fullResyncCounter;
         private static bool _paused;
         private static readonly Dictionary<short, string> _prevClip = new Dictionary<short, string>(128);

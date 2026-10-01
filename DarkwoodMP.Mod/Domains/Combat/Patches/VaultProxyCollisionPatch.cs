@@ -14,8 +14,8 @@ namespace DWMPHorde.Patches
     {
         // Colliders THIS patch disabled for the running vault (proxies + the player's own), so the
         // restore re-enables exactly those and nothing that was already off for another reason.
-        private static readonly List<Collider> _disabled = new List<Collider>(32);
-        private static bool _active;
+        private static readonly List<Collider> _disabled = new List<Collider>(32); // process-scoped: vault-scoped, released by Restore()
+        private static bool _active; // process-scoped: vault-scoped, released by Restore()
 
         static void Prefix(Player __instance)
         {

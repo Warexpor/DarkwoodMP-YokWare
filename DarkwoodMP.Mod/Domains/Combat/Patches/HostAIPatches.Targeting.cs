@@ -291,7 +291,7 @@ namespace DWMPHorde.Patches
             PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 0f, Vector3.zero);
         }
 
-        internal static bool SuppressHostScreamForward;
+        internal static bool SuppressHostScreamForward; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         private static bool Prefix(Character __instance)
         {

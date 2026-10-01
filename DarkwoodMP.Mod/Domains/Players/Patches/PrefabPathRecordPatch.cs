@@ -1,17 +1,22 @@
-using HarmonyLib;
+using DWMPHorde.Networking;
 using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
-    /// <summary>Records the original prefab path on dynamically spawned objects.</summary>
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    /// <summary>
+    /// Records the original prefab path on dynamically spawned objects (host entity
+    /// broadcast + dream NPC scaling read it). Applied from <see cref="DWMPHorde.Patches.CoreAddPrefabStringPatch"/>.
+    /// </summary>
     public static class AddPrefabRecordPathPatch
     {
-        private static void Postfix(GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, string prefab)
         {
-            string prefab = (string)__args[0];
-
             if (__result == null || string.IsNullOrEmpty(prefab))
+                return;
+            // Single-player never reads the path. Chapter resume re-hosts after the new
+            // scene spawned its characters, so keep recording while that is pending.
+            var net = ModRuntime.Network;
+            if ((net == null || net.Role == NetworkRole.Offline) && !ChapterSessionResume.IsPending)
                 return;
             var comp = __result.GetComponent<PrefabPathComponent>();
             if (comp == null)

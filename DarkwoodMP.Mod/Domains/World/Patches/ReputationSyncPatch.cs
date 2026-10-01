@@ -4,6 +4,7 @@ using HarmonyLib;
 using LiteNetLib;
 using DWMPHorde.Sync;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -68,7 +69,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch]
     public static class GameEventReputationHostFanPatch
     {
-        private static FieldInfo _gameEventField;
+        private static FieldInfo _gameEventField; // process-scoped: reflection cache
 
         // Per-MoveNext state travels in __state: a GameEvent step can start another GameEvent
         // coroutine whose MoveNext runs inside this one, and statics would be overwritten.
@@ -81,40 +82,14 @@ namespace DWMPHorde.Patches
 
         private static bool Prepare() => TargetMethod() != null;
 
-        private static MethodBase TargetMethod()
-        {
-            System.Type[] nested = typeof(GameEvent).GetNestedTypes(
-                BindingFlags.Public | BindingFlags.NonPublic);
-            for (int i = 0; i < nested.Length; i++)
-            {
-                System.Type t = nested[i];
-                if (t.Name.IndexOf("fire", System.StringComparison.Ordinal) < 0)
-                    continue;
-                if (!typeof(System.Collections.IEnumerator).IsAssignableFrom(t))
-                    continue;
-                MethodInfo m = AccessTools.Method(t, "MoveNext");
-                if (m != null)
-                    return m;
-            }
-            return null;
-        }
+        private static MethodBase TargetMethod() =>
+            HarmonyCoroutineUtil.FindMoveNext(typeof(GameEvent), "fire", new[] { typeof(GameObject) });
 
         private static GameEvent GetGameEvent(object stateMachine)
         {
             if (stateMachine == null) return null;
             if (_gameEventField == null)
-            {
-                FieldInfo[] fields = stateMachine.GetType().GetFields(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                for (int i = 0; i < fields.Length; i++)
-                {
-                    if (fields[i].FieldType == typeof(GameEvent))
-                    {
-                        _gameEventField = fields[i];
-                        break;
-                    }
-                }
-            }
+                _gameEventField = HarmonyCoroutineUtil.FindThisField(stateMachine.GetType(), typeof(GameEvent));
             return _gameEventField != null
                 ? _gameEventField.GetValue(stateMachine) as GameEvent
                 : null;

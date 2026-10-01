@@ -90,7 +90,13 @@ namespace DWMPHorde.Patches
         // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
         private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
 
-        private static IEnumerable<MethodBase> TargetMethods()
+        // Prepare and the patcher both call TargetMethods; resolve (and log misses) once.
+        private static List<MethodBase> _targets; // process-scoped: immutable reflection result
+
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            _targets ??= new List<MethodBase>(ResolveTargets());
+
+        private static IEnumerable<MethodBase> ResolveTargets()
         {
             Type t = typeof(Character);
             return PatchTargets.Resolve(
@@ -120,7 +126,13 @@ namespace DWMPHorde.Patches
         // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
         private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
 
-        private static IEnumerable<MethodBase> TargetMethods()
+        // Prepare and the patcher both call TargetMethods; resolve (and log misses) once.
+        private static List<MethodBase> _targets; // process-scoped: immutable reflection result
+
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            _targets ??= new List<MethodBase>(ResolveTargets());
+
+        private static IEnumerable<MethodBase> ResolveTargets()
         {
             return PatchTargets.Resolve(
                 PatchTargets.Find(typeof(AILerp), "Update", Type.EmptyTypes),
@@ -148,7 +160,13 @@ namespace DWMPHorde.Patches
         // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
         private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
 
-        private static IEnumerable<MethodBase> TargetMethods()
+        // Prepare and the patcher both call TargetMethods; resolve (and log misses) once.
+        private static List<MethodBase> _targets; // process-scoped: immutable reflection result
+
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            _targets ??= new List<MethodBase>(ResolveTargets());
+
+        private static IEnumerable<MethodBase> ResolveTargets()
         {
             Type t = typeof(ShadowCreature);
             return PatchTargets.Resolve(

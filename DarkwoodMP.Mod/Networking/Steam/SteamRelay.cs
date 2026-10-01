@@ -10,7 +10,7 @@ namespace DWMPHorde.Networking.Steam
     /// </summary>
     public static class SteamRelay
     {
-        private static bool _warmed;
+        private static bool _warmed; // process-scoped: Steam relay warm-up is per process
 
         public static void WarmRelay()
         {

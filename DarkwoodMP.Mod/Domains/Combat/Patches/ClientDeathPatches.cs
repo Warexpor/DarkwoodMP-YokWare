@@ -113,6 +113,15 @@ namespace DWMPHorde.Patches
             _armed = true;
         }
 
+        /// <summary>Session end: put the real difficulty back and disarm.</summary>
+        internal static void Reset()
+        {
+            if (!_armed) return;
+            _armed = false;
+            if (Core.currentProfile != null)
+                Core.currentProfile.difficulty = _saved;
+        }
+
         internal static void RestoreIfArmed()
         {
             if (!_armed) return;

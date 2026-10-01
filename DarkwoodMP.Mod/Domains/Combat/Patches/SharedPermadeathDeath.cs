@@ -26,7 +26,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         private static int _generation;
 
-        private static bool _sceneHooked;
+        private static bool _sceneHooked; // process-scoped: one-time sceneLoaded hook
 
         /// <summary>A rewritten death body is still respawning this peer.</summary>
         internal static bool BodyRunning => _bodiesRunning > 0;
@@ -51,19 +51,19 @@ namespace DWMPHorde.Patches
         /// <summary>Forget every in-flight rewritten death body and any pending party-wipe outcome.</summary>
         internal static void Reset()
         {
-            DropBodies();
+            ResetBodies();
             PartyWipeOutcome.Reset();
         }
 
         /// <summary>Forget every in-flight rewritten death body (and put the real difficulty back).</summary>
-        internal static void DropBodies()
+        internal static void ResetBodies()
         {
             if (_bodiesRunning > 0)
                 ModRuntime.LegacyInfo($"[Death] Dropped {_bodiesRunning} in-flight shared death body(ies)");
             _generation++;
             _bodiesRunning = 0;
             Bypass = false;
-            ClientPermadeathSaveGuard.RestoreIfArmed();
+            ClientPermadeathSaveGuard.Reset();
         }
 
         /// <summary>Vanilla would end the run for this death (lives before the decrement).</summary>
@@ -185,7 +185,7 @@ namespace DWMPHorde.Patches
                         ModRuntime.LegacyInfo(
                             "[Death] Party wipe outcome: shared death body still flagged running after "
                             + BodyWaitTimeoutSec + "s — continuing");
-                        SharedPermadeathDeath.DropBodies();
+                        SharedPermadeathDeath.ResetBodies();
                         break;
                     }
                     yield return null;
