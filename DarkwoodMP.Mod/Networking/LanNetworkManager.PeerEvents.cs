@@ -134,7 +134,6 @@ namespace DWMPHorde.Networking
             string leftLoc = null;
             _remoteOutsideLocation.TryGetValue(playerId, out leftLoc);
 
-            Sync.WorkbenchOpenLock.HostReleaseAllForPlayer(this, playerId);
             Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
             Sync.PeerItemPresence.ClearPlayer(playerId);

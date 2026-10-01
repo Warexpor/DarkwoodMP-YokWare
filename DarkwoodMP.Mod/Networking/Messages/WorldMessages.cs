@@ -290,6 +290,15 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>Saw message kind: host absolute snapshot, or a client stock-change request.</summary>
+    public enum SawStateKind : byte
+    {
+        /// <summary>Host-authoritative absolute fuel / log / wood stock.</summary>
+        Absolute = 0,
+        /// <summary>Client request: apply these deltas (addFuel / convert) to the host's stock.</summary>
+        Delta = 1
+    }
+
     public struct SawStateMessage
     {
         public float PosX, PosY, PosZ;
@@ -297,10 +306,15 @@ namespace DWMPHorde.Networking
         public int WoodLogAmount;
         public int WoodAmount;
         /// <summary>
-        /// Client addFuel delta for host-auth accumulation. 0 = absolute Fuel.
+        /// Client addFuel / convert fuel change for host-auth accumulation (Delta kind only).
         /// Always on the wire (same-DLL dual deploy).
         /// </summary>
         public float FuelDelta;
+        public SawStateKind Kind;
+        /// <summary>Delta kind: wood logs consumed by a client convert (&lt;= 0).</summary>
+        public int WoodLogDelta;
+        /// <summary>Delta kind: planks produced by a client convert (&gt;= 0).</summary>
+        public int WoodDelta;
 
         public void Serialize(NetWriter w)
         {
@@ -309,6 +323,9 @@ namespace DWMPHorde.Networking
             w.Put(WoodLogAmount);
             w.Put(WoodAmount);
             w.Put(FuelDelta);
+            w.Put((byte)Kind);
+            w.Put(WoodLogDelta);
+            w.Put(WoodDelta);
         }
 
         public static SawStateMessage Deserialize(NetReader r) => new SawStateMessage
@@ -319,7 +336,10 @@ namespace DWMPHorde.Networking
             Fuel = r.GetFloat(),
             WoodLogAmount = r.GetInt(),
             WoodAmount = r.GetInt(),
-            FuelDelta = r.GetFloat()
+            FuelDelta = r.GetFloat(),
+            Kind = (SawStateKind)r.GetByte(),
+            WoodLogDelta = r.GetInt(),
+            WoodDelta = r.GetInt()
         };
     }
 

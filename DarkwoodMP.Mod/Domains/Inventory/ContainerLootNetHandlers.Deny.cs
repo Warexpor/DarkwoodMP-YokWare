@@ -144,10 +144,9 @@ namespace DWMPHorde.Networking
                 int toRemove;
                 if (take.PreCount >= 0)
                 {
-                    // Precise refund: calculate what the take actually added.
-                    // If the player already had some of this type, only
-                    // remove the surplus, not the pre-existing items.
-                    toRemove = Math.Max(0, totalNow - take.PreCount);
+                    // Precise refund: only the surplus since the take, never more than the
+                    // denied amount (items of this type gained elsewhere meanwhile stay).
+                    toRemove = Math.Min(msg.Amount, Math.Max(0, totalNow - take.PreCount));
                 }
                 else if (cursorCancelled)
                 {

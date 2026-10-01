@@ -218,6 +218,7 @@ namespace DWMPHorde.Networking
             try
             {
                 Sync.WorldPhysicsSyncService.ResetForPromote();
+                Sync.TrapNetworkId.OnPromotedToHost();
             }
             catch (Exception ex)
             {

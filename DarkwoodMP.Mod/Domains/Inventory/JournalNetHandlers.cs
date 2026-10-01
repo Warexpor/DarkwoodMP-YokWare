@@ -29,19 +29,20 @@ namespace DWMPHorde.Networking
             _needsJournalWorldCleanup = false;
         }
 
-        internal void HandleWorkbenchLock(WorkbenchLockMessage msg)
-        {
-            // The exclusive workbench feature is disabled; ignore its wire traffic.
-            // Keep the handler so older WorkbenchLock packets are ignored cleanly.
-            // No grant, deny, or release action is performed.
-            _ = msg;
-        }
         internal void HandleWorkbenchLevel(WorkbenchLevelMessage msg)
         {
             if (_net.Role == NetworkRole.Client)
                 return;
 
-            ApplyWorkbenchLevel(msg.Level);
+            // Host rebroadcasts the authoritative level below; never relay the raw client value.
+            _net._suppressForwardThisMessage = true;
+
+            // Levels only go up: a stale or lower client value must not downgrade the host.
+            int current = Singleton<Controller>.Instance != null
+                ? Singleton<Controller>.Instance.workbenchLevel : 0;
+            int level = Math.Max(current, msg.Level);
+            if (level != current)
+                ApplyWorkbenchLevel(level);
             _net.BulkSyncHandlers.SendWorkbenchLevelSync();
         }
 

@@ -19,7 +19,7 @@ namespace DWMPHorde.Networking
             Vector3 anchor = loc.playerSpawn != null
                 ? loc.playerSpawn.transform.position
                 : (root != null ? root.position : Vector3.zero);
-            const float maxDistSqr = 2500f * 2500f;
+            const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
             int sent = 0;
 
             Saw[] saws = WorldQueryHelper.GetCachedSceneComponents<Saw>();

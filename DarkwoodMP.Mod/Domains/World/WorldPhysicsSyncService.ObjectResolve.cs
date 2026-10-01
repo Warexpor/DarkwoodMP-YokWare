@@ -266,7 +266,9 @@ namespace DWMPHorde.Sync
             return targetOnPad == candOnPad;
         }
 
-        private static GameObject FindOrSpawnObject(WorldObjectState obj)
+        /// <param name="allowSpawn">False for client-origin snapshots: the host owns item existence
+        /// and must never mint a prefab because a client still reports an object the host removed.</param>
+        private static GameObject FindOrSpawnObject(WorldObjectState obj, bool allowSpawn)
         {
             if (string.IsNullOrEmpty(obj.Name))
                 return null;
@@ -350,6 +352,9 @@ namespace DWMPHorde.Sync
             }
 
             // Strategy 3: spawn from ItemsDatabase (cross-world-chunk support)
+            if (!allowSpawn)
+                return null;
+
             // Do not spawn a duplicate inside the active dream pad.
             // (client solid lamp / ghost bell) while the real prop already exists.
             if (DreamSyncManager.IsDreamActive

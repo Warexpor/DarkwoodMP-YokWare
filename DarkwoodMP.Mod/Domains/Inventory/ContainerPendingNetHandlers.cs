@@ -35,10 +35,18 @@ namespace DWMPHorde.Networking
             /// <summary>&lt; 0 when unknown.</summary>
             public float Durability;
             public int Ammo;
+            /// <summary>Time.realtimeSinceStartup when the take was sent.</summary>
+            public float RecordedAt;
         }
 
         private readonly Dictionary<string, PendingTake> _pendingTakePreCounts =
             new Dictionary<string, PendingTake>();
+        private readonly List<string> _preCountScratch = new List<string>();
+
+        /// <summary>A take whose deny could still be in flight keeps its record through a state sync.</summary>
+        private const float PendingTakeInFlightSeconds = 5f;
+        /// <summary>Unanswered take records are dropped after this long.</summary>
+        private const float PendingTakeMaxAgeSeconds = 60f;
 
         internal ContainerPendingNetHandlers(LanNetworkManager net)
         {
@@ -88,14 +96,37 @@ namespace DWMPHorde.Networking
             bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0)
         {
             string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
+            float now = Time.realtimeSinceStartup;
+            PrunePendingTakes(null, now, PendingTakeMaxAgeSeconds);
             _pendingTakePreCounts[key] = new PendingTake
             {
                 PreCount = preCount,
                 IsRecipe = isRecipe,
                 ItemType = itemType,
                 Durability = durability,
-                Ammo = ammo
+                Ammo = ammo,
+                RecordedAt = now
             };
+        }
+
+        /// <summary>
+        /// Drops take records at least <paramref name="minAge"/> old; with a container key prefix
+        /// only that container's slots are considered.
+        /// </summary>
+        private void PrunePendingTakes(string containerPrefix, float now, float minAge)
+        {
+            if (_pendingTakePreCounts.Count == 0) return;
+            _preCountScratch.Clear();
+            foreach (var kv in _pendingTakePreCounts)
+            {
+                if (containerPrefix != null && !kv.Key.StartsWith(containerPrefix, StringComparison.Ordinal))
+                    continue;
+                if (now - kv.Value.RecordedAt >= minAge)
+                    _preCountScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _preCountScratch.Count; i++)
+                _pendingTakePreCounts.Remove(_preCountScratch[i]);
+            _preCountScratch.Clear();
         }
 
         /// <summary>Removes a pending take pre-count entry after it's consumed or stale.</summary>
@@ -224,9 +255,9 @@ namespace DWMPHorde.Networking
             if (pendingSlots != null)
                 _pendingContainerRemoves.Remove(containerKey);
 
-            // Clear pending take pre-counts because the state sync is now
-            // authoritative.
-            _pendingTakePreCounts.Clear();
+            // Drop this container's settled take records only. Other containers' takes, and a
+            // take here whose deny may still be in flight, keep theirs so the refund stays exact.
+            PrunePendingTakes(containerKey + "_", Time.realtimeSinceStartup, PendingTakeInFlightSeconds);
 
             // Do not play open_drawer here. Local Item.openInventory already
             // played it, and state sync is silent.

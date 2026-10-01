@@ -74,9 +74,10 @@ namespace DWMPHorde.Sync
         private static readonly HashSet<string> _bodyPushSoundActive =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Position-based debounce for DestroyObjectByPos / outbound WorldObjectRemoved.
-        private static readonly Dictionary<int, float> _destroyDebounce = new Dictionary<int, float>();
-        private static readonly Dictionary<int, float> _outboundRemoveDebounce = new Dictionary<int, float>();
-        private static readonly List<int> _outboundRemoveStaleKeys = new List<int>(8);
+        private static readonly Dictionary<PosNameKey, float> _destroyDebounce = new Dictionary<PosNameKey, float>();
+        private static readonly List<PosNameKey> _destroyDebounceStaleKeys = new List<PosNameKey>(8);
+        private static readonly Dictionary<PosNameKey, float> _outboundRemoveDebounce = new Dictionary<PosNameKey, float>();
+        private static readonly List<PosNameKey> _outboundRemoveStaleKeys = new List<PosNameKey>(8);
         private const float DestroyDebounceTime = 0.5f;
         private const float OutboundRemoveDebounceTime = 0.75f;
         /// <summary>
@@ -84,7 +85,7 @@ namespace DWMPHorde.Sync
         /// DroppedItemIdentifier). Mirrors ConsumedDropGuids so the second peer
         /// cannot grant after the first remove is claimed locally or on the wire.
         /// </summary>
-        private static readonly HashSet<int> _consumedWorldPickups = new HashSet<int>();
+        private static readonly HashSet<PosNameKey> _consumedWorldPickups = new HashSet<PosNameKey>();
 
         /// <summary>
         /// Claim a one-shot outbound WorldObjectRemoved for this pose+name.
@@ -92,7 +93,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static bool TryClaimOutboundObjectRemove(float x, float y, float z, string objectName)
         {
-            int key = MakePosNameKey(x, y, z, objectName);
+            PosNameKey key = MakePosNameKey(x, y, z, objectName);
             float now = Time.unscaledTime;
             if (_outboundRemoveDebounce.TryGetValue(key, out float last)
                 && (now - last) < OutboundRemoveDebounceTime)
@@ -116,7 +117,7 @@ namespace DWMPHorde.Sync
         /// <summary>True if first claim wins (local pickup or inbound WorldObjectRemoved).</summary>
         public static bool TryConsumeWorldPickup(float x, float y, float z, string objectName)
         {
-            int key = MakePosNameKey(x, y, z, objectName);
+            PosNameKey key = MakePosNameKey(x, y, z, objectName);
             return _consumedWorldPickups.Add(key);
         }
 
@@ -130,12 +131,40 @@ namespace DWMPHorde.Sync
             _consumedWorldPickups.Clear();
         }
 
-        internal static int MakePosNameKey(float x, float y, float z, string objectName)
+        /// <summary>Position quantized to 0.1 u and packed without overlap, plus the normalized name.</summary>
+        internal readonly struct PosNameKey : IEquatable<PosNameKey>
         {
-            int posKey = (int)(x * 10f) ^ ((int)(y * 10f) << 10) ^ ((int)(z * 10f) << 20);
-            if (!string.IsNullOrEmpty(objectName))
-                posKey ^= objectName.GetHashCode();
-            return posKey;
+            private readonly long _pos;
+            private readonly string _name;
+
+            internal PosNameKey(long pos, string name)
+            {
+                _pos = pos;
+                _name = name ?? "";
+            }
+
+            public bool Equals(PosNameKey other) =>
+                _pos == other._pos && string.Equals(_name, other._name, StringComparison.Ordinal);
+
+            public override bool Equals(object obj) => obj is PosNameKey k && Equals(k);
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (_pos.GetHashCode() * 397) ^ StringComparer.Ordinal.GetHashCode(_name ?? "");
+                }
+            }
+        }
+
+        internal static PosNameKey MakePosNameKey(float x, float y, float z, string objectName)
+        {
+            // x/z: 24 bits each (+-838 km at 0.1 u), y: 16 bits (+-3.2 km); fields never overlap.
+            long qx = (long)Mathf.Round(x * 10f) & 0xFFFFFF;
+            long qz = (long)Mathf.Round(z * 10f) & 0xFFFFFF;
+            long qy = (long)Mathf.Round(y * 10f) & 0xFFFF;
+            long packed = (qx << 40) | (qz << 16) | qy;
+            return new PosNameKey(packed, NormalizeObjectName(objectName));
         }
 
         // Cooldown tracker for host body-push sound in ApplySnapshot.
@@ -162,7 +191,31 @@ namespace DWMPHorde.Sync
         /// </summary>
         private const float QuietConfirmWindow = 0.15f;
         private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>();
-        private static readonly Dictionary<int, bool> _trapResultCache = new Dictionary<int, bool>();
+        /// <summary>Trap classification per collider root instance id, with last time the scan saw it.</summary>
+        private static readonly Dictionary<int, TrapClassification> _trapResultCache = new Dictionary<int, TrapClassification>();
+        private const float TrapResultForgetSeconds = 60f;
+
+        private struct TrapClassification
+        {
+            public bool IsTrap;
+            public float LastSeen;
+        }
+
+        /// <summary>When a door / trap / generator state key was last scanned and last sent.</summary>
+        private struct StateKeyAge
+        {
+            public float LastSeen;
+            public float LastSent;
+        }
+        private static readonly Dictionary<Vector3, StateKeyAge> _doorKeyAge = new Dictionary<Vector3, StateKeyAge>();
+        private static readonly Dictionary<Vector3, StateKeyAge> _trapKeyAge = new Dictionary<Vector3, StateKeyAge>();
+        private static readonly Dictionary<Vector3, StateKeyAge> _generatorKeyAge = new Dictionary<Vector3, StateKeyAge>();
+        private static readonly List<Vector3> _stateKeyScratch = new List<Vector3>(16);
+        /// <summary>Keys not scanned for this long (destroyed / out of range) are forgotten.</summary>
+        private const float StateKeyForgetSeconds = 30f;
+        /// <summary>A still-scanned key is re-sent once its last send is this old, a few per pass.</summary>
+        private const float StateKeyResyncSeconds = 10f;
+        private const int StateKeyResyncPerPass = 4;
 
         private struct ThrownLightTrack
         {
