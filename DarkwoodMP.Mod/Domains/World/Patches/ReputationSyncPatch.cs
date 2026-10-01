@@ -30,7 +30,7 @@ namespace DWMPHorde.Patches
                 return false;
 
             if (LanNetworkManager.IsApplyingRemoteState
-                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                && !DWMPHorde.Sync.HostApplyGuard.Active)
                 return true;
 
             if (!NetGuard.Connected(out var net))

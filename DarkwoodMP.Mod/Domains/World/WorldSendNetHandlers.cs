@@ -194,14 +194,14 @@ namespace DWMPHorde.Networking
         internal void SendPadlockUnlock(PadlockUnlockMessage msg)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.PadlockUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal void SendLockedUnlock(LockedUnlockMessage msg)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.LockedUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -212,7 +212,7 @@ namespace DWMPHorde.Networking
             // HostFireNpcCloseDialogue runs under DialogHostApplyGuard and MUST fan out
             // Leave-door GEs must not return early after logging "fired"; the client door
             // otherwise remains stuck.
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.GameEventsFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 

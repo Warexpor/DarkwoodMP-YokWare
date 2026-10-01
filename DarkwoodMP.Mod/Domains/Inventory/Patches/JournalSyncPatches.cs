@@ -14,7 +14,7 @@ namespace DWMPHorde.Patches
     {
         internal static void SendJournalItem(JournalItemKind kind, string type)
         {
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (string.IsNullOrEmpty(type)) return;

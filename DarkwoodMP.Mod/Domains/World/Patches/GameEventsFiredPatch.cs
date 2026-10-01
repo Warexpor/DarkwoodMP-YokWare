@@ -54,7 +54,7 @@ namespace DWMPHorde.Patches
             // Skip echo while applying a received GameEventsFired. Exception: host
             // DialogOutcome world-only apply runs under ProcessInboundMessage's guard
             // but must still fan out door / story GEs to peers.
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
             // One-shot: skip if already fired before this call.
