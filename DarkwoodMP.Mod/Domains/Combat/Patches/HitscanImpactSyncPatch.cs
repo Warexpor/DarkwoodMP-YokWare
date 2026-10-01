@@ -14,8 +14,28 @@ using UnityEngine;
 /// </summary>
 namespace DWMPHorde.Patches
 {
+    /// <summary>
+    /// Marks the window of the local player's vanilla Player.spawnBullet. The hitscan Raycast
+    /// postfix below is global (Physics.Raycast, 5-arg overload, hitscan mask) and the host's own
+    /// predator proxy-aggro scan uses the same overload+mask, so it only acts inside this scope.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "spawnBullet", typeof(float))]
+    internal static class HitscanSpawnBulletScopePatch
+    {
+        [System.ThreadStatic] private static int _depth;
+        internal static bool Active => _depth > 0;
+
+        private static void Prefix() => _depth++;
+        // Finalizer (not Postfix): spawnBullet can throw and must not leave the scope open.
+        private static void Finalizer()
+        {
+            if (_depth > 0) _depth--;
+        }
+    }
+
     // Parked: do not retarget global Physics.Raycast to spawnBullet — that would fan out
-    // to every raycast in the game. Proxy hitscan FF stays in this Postfix on the hitscan mask.
+    // to every raycast in the game. Proxy hitscan FF stays in this Postfix on the hitscan mask,
+    // gated on HitscanSpawnBulletScopePatch.Active so only the local player's shot counts.
     [HarmonyPatch]
     public static class HitscanImpactSyncPatch
     {
@@ -24,10 +44,11 @@ namespace DWMPHorde.Patches
         private static void Postfix(bool __result, RaycastHit hitInfo, int layerMask)
         {
             if (!__result) return;
+            if (!HitscanSpawnBulletScopePatch.Active) return;
             if (layerMask != GameplayConstants.HitscanLayerMask) return;
 
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role == NetworkRole.Offline) return;
+            if (net == null || !net.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Projectile sweep (incl. stalled pellets) uses the same layer mask —
             // damage for those is Bullet.onCollide → ProxyDamagePatch, never HitscanFF.
@@ -55,7 +76,7 @@ namespace DWMPHorde.Patches
                 // Vanilla spawnBullet hitscan only damages Character components.
                 // Remote proxies are CharBase-only (no Character), so getHit never runs
                 // and ProxyDamagePatch never fires. Send FF damage here instead.
-                if (!Config.ModConfig.FriendlyFireEnabled.Value)
+                if (!SessionSettings.FriendlyFireEnabled)
                     return;
 
                 CharBase proxyCB = proxy.CachedCharBase;

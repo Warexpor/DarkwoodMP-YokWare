@@ -41,10 +41,13 @@ namespace DWMPHorde
 
         private static bool _running;
         private static HarmonyLib.Harmony _harmony;
+        private static GameObject _runtimeRoot;
 
         /// <summary>
         /// Called by loader entry once on plugin load.
-        /// Binds config, applies all Harmony patches, and boots the runtime GameObject.
+        /// Binds config, registers the session resets, applies all Harmony patches, and boots
+        /// the runtime GameObject. Each stage is guarded separately: a failed patch pass must
+        /// not leave the reset registry half-filled, and a read-only cfg must not stop patching.
         /// </summary>
         public static void Start(IModLogger log, ModConfigStore config)
         {
@@ -57,78 +60,40 @@ namespace DWMPHorde
                 PersistentDataPathPatch.ResetCache();
 
                 ModLog.Init(Log);
-                NetworkResetRegistry.Register(ModLog.ResetRateLimits);
+            }
+            catch (System.Exception ex)
+            {
+                Log?.LogError("FATAL: ModRuntime.Start config/log init failed — mod not started: " + ex);
+                return;
+            }
 
+            // Resets first: patches may fire the moment PatchAll returns (InputScript.Update),
+            // and a network stop must clear every static even if a later stage throws.
+            try
+            {
+                RegisterNetworkResets();
+            }
+            catch (System.Exception ex)
+            {
+                Log?.LogError("ModRuntime.Start reset registration failed: " + ex);
+                ModLog.Error(LogCat.Core, "ModRuntime.Start reset registration failed", ex);
+            }
+
+            try
+            {
                 _harmony = new HarmonyLib.Harmony(PluginInfo.Guid);
                 _harmony.PatchAll();
+            }
+            catch (System.Exception ex)
+            {
+                string msg = "FATAL: Harmony PatchAll failed — co-op sync patches are incomplete, "
+                    + "do not host or join with this install: " + ex;
+                Log?.LogError(msg);
+                ModLog.Error(LogCat.Core, "FATAL: Harmony PatchAll failed", ex);
+            }
 
-                // Register all static network resets so they fire when the
-                // network stops, regardless of where StopNetwork is called.
-                NetworkResetRegistry.Register(FlagSyncBoolPatch.Reset);
-                NetworkResetRegistry.Register(FlagSyncIntPatch.Reset);
-                NetworkResetRegistry.Register(DeathStateTracker.Reset);
-                NetworkResetRegistry.Register(ClientEntityInterpolationService.Reset);
-                NetworkResetRegistry.Register(WorldPhysicsSyncService.Reset);
-                NetworkResetRegistry.Register(WorldQueryHelper.InvalidateCommonSceneScanCaches);
-                NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
-                NetworkResetRegistry.Register(PlayerPositionManager.Clear);
-                NetworkResetRegistry.Register(() =>
-                    LanNetworkManager.Instance?.PlayerFXHandlers?.ResetConsumedDropGuids());
-                NetworkResetRegistry.Register(EntityStateBroadcastService.Stop);
-                NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
-                NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
-                NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
-                NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
-                NetworkResetRegistry.Register(MorningHideoutHold.Reset);
-                NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
-                NetworkResetRegistry.Register(ClientMeleeSensorPatch.Reset);
-                NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
-                NetworkResetRegistry.Register(WorldPickupClaimPending.Reset);
-                NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
-                NetworkResetRegistry.Register(FreezeTracker.Reset);
-                NetworkResetRegistry.Register(FinalDreamsceneManager.OnDisconnected);
-                NetworkResetRegistry.Register(NetworkApplyGuard.ResetDepth);
-                NetworkResetRegistry.Register(PersonalFlavorHud.Reset);
-                NetworkResetRegistry.Register(MultiplayerMapManager.Reset);
-                NetworkResetRegistry.Register(CharacterTracker.ResetForNetworkStop);
-                NetworkResetRegistry.Register(DreamSession.ResetIncludingCompletions);
-                NetworkResetRegistry.Register(EpilogueNetHandlers.ResetSceneLoadState);
-                NetworkResetRegistry.Register(CutsceneSyncHelpers.Reset);
-                NetworkResetRegistry.Register(PrologueSync.Reset);
-                NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
-                NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);
-                NetworkResetRegistry.Register(Audio.ItemMovingSoundHelper.ResetSuppress);
-                NetworkResetRegistry.Register(ItemSoundsUpdateSuppressPatch.Reset);
-                NetworkResetRegistry.Register(Audio.LocalAudioService.ResetRateLimits);
-                NetworkResetRegistry.Register(Audio.LocalAudioService.ResetClipCache);
-                NetworkResetRegistry.Register(Audio.LocalAudioService.ResetPeerHearGates);
-                NetworkResetRegistry.Register(Audio.VoiceChatService.Reset);
-                NetworkResetRegistry.Register(DreamAudioPlayer.Cleanup);
-                NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
-                NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
-                NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
-                // Clear session maps so they cannot leak across reconnects.
-                NetworkResetRegistry.Register(ListTracker<Door>.Clear);
-                NetworkResetRegistry.Register(ListTracker<Generator>.Clear);
-                NetworkResetRegistry.Register(HostCheckStuffPatch.Reset);
-                NetworkResetRegistry.Register(GasolineTrailSpawnPatch.Reset);
-                NetworkResetRegistry.Register(ThrowableSyncPatch.Reset);
-                NetworkResetRegistry.Register(FastProjectileSweepPatch.Reset);
-                NetworkResetRegistry.Register(TradeSyncAcceptPatch.Reset);
-                NetworkResetRegistry.Register(ClientSaveBridge.Reset);
-                NetworkResetRegistry.Register(DroppedItemIdentifier.ClearRegistry);
-                NetworkResetRegistry.Register(DialogOutcomeIndexPatch.ResetCounter);
-                NetworkResetRegistry.Register(PauseSuppression.Reset);
-                NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
-                NetworkResetRegistry.Register(DialogHostPresentation.Reset);
-                NetworkResetRegistry.Register(DialogClientWorldDefer.Reset);
-                NetworkResetRegistry.Register(NpcDialogueLock.Reset);
-                NetworkResetRegistry.Register(PeerItemPresence.Reset);
-                NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);
-                NetworkResetRegistry.Register(StationSyncHelpers.Reset);
-                // Chapter resume pending must survive StopNetwork during chapter tear;
-                // do NOT register ChapterSessionResume.Reset on network stop.
-
+            try
+            {
                 ChapterSessionResume.EnsureSceneHook();
 
                 ModLog.BannerSessionStart();
@@ -137,9 +102,96 @@ namespace DWMPHorde
             }
             catch (System.Exception ex)
             {
-                Log?.LogError("ModRuntime.Start failed: " + ex);
-                ModLog.Error(LogCat.Core, "ModRuntime.Start failed", ex);
+                Log?.LogError("ModRuntime.Start boot failed: " + ex);
+                ModLog.Error(LogCat.Core, "ModRuntime.Start boot failed", ex);
             }
+        }
+
+        private static void RegisterNetworkResets()
+        {
+            NetworkResetRegistry.Register(ModLog.ResetRateLimits);
+
+            // Register all static network resets so they fire when the
+            // network stops, regardless of where StopNetwork is called.
+            NetworkResetRegistry.Register(FlagSyncBoolPatch.Reset);
+            NetworkResetRegistry.Register(FlagSyncIntPatch.Reset);
+            NetworkResetRegistry.Register(DeathStateTracker.ResetSession);
+            NetworkResetRegistry.Register(SharedPermadeathDeath.Reset);
+            SharedPermadeathDeath.Install();
+            NetworkResetRegistry.Register(ClientEntityInterpolationService.Reset);
+            NetworkResetRegistry.Register(WorldPhysicsSyncService.Reset);
+            NetworkResetRegistry.Register(WorldQueryHelper.InvalidateCommonSceneScanCaches);
+            NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
+            NetworkResetRegistry.Register(PlayerPositionManager.Clear);
+            NetworkResetRegistry.Register(() =>
+                LanNetworkManager.Instance?.PlayerFXHandlers?.ResetConsumedDropGuids());
+            NetworkResetRegistry.Register(EntityStateBroadcastService.Stop);
+            NetworkResetRegistry.Register(MeleeSensorDeduplicatePatch.Reset);
+            NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
+            NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
+            NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
+            NetworkResetRegistry.Register(MorningHideoutHold.Reset);
+            NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
+            NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
+            NetworkResetRegistry.Register(WorldPickupClaimPending.Reset);
+            NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
+            NetworkResetRegistry.Register(FinalDreamsceneManager.OnDisconnected);
+            NetworkResetRegistry.Register(NetworkApplyGuard.ResetDepth);
+            NetworkResetRegistry.Register(PersonalFlavorHud.Reset);
+            NetworkResetRegistry.Register(MultiplayerMapManager.Reset);
+            NetworkResetRegistry.Register(CharacterTracker.ResetForNetworkStop);
+            NetworkResetRegistry.Register(DreamSession.ResetIncludingCompletions);
+            NetworkResetRegistry.Register(EpilogueNetHandlers.ResetSceneLoadState);
+            NetworkResetRegistry.Register(CutsceneSyncHelpers.Reset);
+            NetworkResetRegistry.Register(PrologueSync.Reset);
+            NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
+            NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);
+            NetworkResetRegistry.Register(Audio.ItemMovingSoundHelper.ResetSuppress);
+            NetworkResetRegistry.Register(ItemSoundsUpdateSuppressPatch.Reset);
+            NetworkResetRegistry.Register(Audio.LocalAudioService.ResetRateLimits);
+            NetworkResetRegistry.Register(Audio.LocalAudioService.ResetClipCache);
+            NetworkResetRegistry.Register(Audio.LocalAudioService.ResetPeerHearGates);
+            NetworkResetRegistry.Register(Audio.VoiceChatService.Reset);
+            NetworkResetRegistry.Register(DreamAudioPlayer.Cleanup);
+            NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
+            NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
+            NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
+            // Clear session maps so they cannot leak across reconnects.
+            NetworkResetRegistry.Register(ListTracker<Door>.Clear);
+            NetworkResetRegistry.Register(ListTracker<Generator>.Clear);
+            NetworkResetRegistry.Register(HostCheckStuffPatch.Reset);
+            NetworkResetRegistry.Register(GasolineTrailSpawnPatch.Reset);
+            NetworkResetRegistry.Register(FastProjectileSweepPatch.Reset);
+            NetworkResetRegistry.Register(TradeSyncAcceptPatch.Reset);
+            NetworkResetRegistry.Register(ClientSaveBridge.Reset);
+            NetworkResetRegistry.Register(DroppedItemIdentifier.ClearRegistry);
+            NetworkResetRegistry.Register(DialogOutcomeIndexPatch.ResetCounter);
+            NetworkResetRegistry.Register(PauseSuppression.Reset);
+            NetworkResetRegistry.Register(DialogHostApplyGuard.Reset);
+            NetworkResetRegistry.Register(DialogHostPresentation.Reset);
+            NetworkResetRegistry.Register(DialogClientWorldDefer.Reset);
+            NetworkResetRegistry.Register(NpcDialogueLock.Reset);
+            NetworkResetRegistry.Register(PeerItemPresence.Reset);
+            NetworkResetRegistry.Register(WorkbenchOpenLock.Reset);
+            NetworkResetRegistry.Register(StationSyncHelpers.Reset);
+            // Chapter resume pending must survive StopNetwork during chapter tear;
+            // do NOT register ChapterSessionResume.Reset on network stop.
+
+            // --- Reset registrations added in 0.8.127 ---
+            NetworkResetRegistry.Register(ChatHud.Reset);
+            NetworkResetRegistry.Register(HostCheckFrequenciesPostfix.Reset);
+            NetworkResetRegistry.Register(NightShadowsRateLimit.Reset);
+            NetworkResetRegistry.Register(NightShadowsThresholdPatch.Reset);
+            NetworkResetRegistry.Register(SessionSettings.ResetToLocal);
+            NetworkResetRegistry.Register(PlayerAnimLibraryPatch.Reset);
+            NetworkResetRegistry.Register(ClientRandomEventGate.Reset);
+            NetworkResetRegistry.Register(HostBansheeAgitatedPatch.Reset);
+            NetworkResetRegistry.Register(BirdAreaPresence.Reset);
+            NetworkResetRegistry.Register(LocationEnterExitNetHandlers.Reset);
+            NetworkResetRegistry.Register(ClientAIConditionalHelper.Reset);
+            NetworkResetRegistry.Register(NetLogThrottle.Reset);
+            NetworkResetRegistry.Register(() =>
+                (Network as LanNetworkManager)?.DialogOutcomeApplyHandlers?.ClearPendingApply());
         }
 
         /// <summary>
@@ -155,6 +207,7 @@ namespace DWMPHorde
 
             GameObject root = new GameObject("DWMPHorde_Runtime");
             Object.DontDestroyOnLoad(root);
+            _runtimeRoot = root;
 
             Network = root.AddComponent<LanNetworkManager>();
             // Entity spawner is a separate plugin: YokWare.EntitySpawner (F5).
@@ -167,11 +220,19 @@ namespace DWMPHorde
             JoinWorldSlotPicker.EnsureExists();
         }
 
-        /// <summary>Stop the network and unpatch Harmony (called on mod unload).</summary>
+        /// <summary>
+        /// Stop the network, unpatch Harmony and destroy the runtime GameObject (called on mod
+        /// unload). Without the destroy a re-start would leave a second LanNetworkManager ticking.
+        /// </summary>
         public static void Stop()
         {
             Network?.StopNetwork();
+            UiInputLock.ReleaseAll();
             _harmony?.UnpatchSelf();
+            if (_runtimeRoot != null)
+                Object.Destroy(_runtimeRoot);
+            _runtimeRoot = null;
+            Network = null;
             _running = false;
         }
     }

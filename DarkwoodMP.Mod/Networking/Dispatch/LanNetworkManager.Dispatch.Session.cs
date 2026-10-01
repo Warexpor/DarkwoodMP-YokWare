@@ -19,6 +19,9 @@ namespace DWMPHorde.Networking
                         case NetMessageType.Handshake:
                             HandleHandshake(HandshakeMessage.Deserialize(new NetReader(payload)));
                             return true;
+                        case NetMessageType.SessionSettings:
+                            HandleSessionSettings(SessionSettingsMessage.Deserialize(new NetReader(payload)));
+                            return true;
                         case NetMessageType.WorldSession:
                             HandleWorldSession(WorldSessionMessage.Deserialize(new NetReader(payload)));
                             return true;
@@ -151,12 +154,25 @@ namespace DWMPHorde.Networking
                                     chat.SenderName = chat.SenderName.Substring(0, 32);
                                 // Skip echo of our own send (we already drew locally)
                                 if (chat.SenderId != _localPlayerId)
-                                    ChatHud.OnRemote(chat);
+                                {
+                                    // A HUD failure must not cost the other peers the relay below.
+                                    try { ChatHud.OnRemote(chat); }
+                                    catch (System.Exception ex)
+                                    {
+                                        ModLog.Warn(LogCat.Network, "ChatHud.OnRemote failed: " + ex.Message);
+                                    }
+                                }
                                 if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
                                 {
+                                    // Relay the sanitised, host-stamped body ourselves. The generic Forwardable
+                                    // relay re-sends the raw inbound payload (client-claimed SenderId, no
+                                    // length clamp), so it is suppressed (same pattern as VoiceData).
                                     var chatWriter = new NetWriter();
                                     chat.Serialize(chatWriter);
-                                    payload = chatWriter.CopyData();
+                                    byte[] chatBody = chatWriter.CopyData();
+                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.ChatMessage,
+                                        w => w.PutRaw(chatBody), DeliveryMethod.ReliableOrdered);
+                                    _suppressForwardThisMessage = true;
                                 }
                                 return true;
                             }

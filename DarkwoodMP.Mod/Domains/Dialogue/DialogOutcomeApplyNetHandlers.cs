@@ -1,5 +1,6 @@
 using System;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -11,13 +12,39 @@ namespace DWMPHorde.Networking
     /// <summary>
     /// Dialog outcome apply / world-only drain (host displayDialogue + one-shot boards).
     /// </summary>
-    internal sealed class DialogOutcomeApplyNetHandlers
+    internal sealed partial class DialogOutcomeApplyNetHandlers
     {
         private readonly LanNetworkManager _net;
         private DialogOutcomeCloseNetHandlers _close;
 
         private Coroutine _dialogWorldDrainCo;
         private string _pendingCloseDialogueNpc;
+        // Whose drain is running, so another peer's Release / apply cannot abort it.
+        private string _drainNpcName;
+        private int _drainOwnerId;
+
+        // Outcomes that arrived while the host's dialogue window was busy with another NPC.
+        private sealed class DeferredApply
+        {
+            public DialogOutcomeSyncMessage Msg;
+            public int From;
+            public float QueuedAt;
+        }
+
+        /// <summary>A queued outcome for this NPC is still waiting (its close must wait too).</summary>
+        internal bool HasDeferredApplyFor(string npcName)
+        {
+            for (int i = 0; i < _deferredApplies.Count; i++)
+                if (string.Equals(_deferredApplies[i].Msg.NpcName, npcName, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+        private readonly System.Collections.Generic.List<DeferredApply> _deferredApplies =
+            new System.Collections.Generic.List<DeferredApply>();
+        private Coroutine _deferredApplyCo;
+        // Drain start / finish counters (see the StartCoroutine site).
+        private int _drainGeneration;
+        private int _drainDoneGeneration;
 
         internal DialogOutcomeApplyNetHandlers(LanNetworkManager net)
         {
@@ -35,6 +62,129 @@ namespace DWMPHorde.Networking
         internal void DeferCloseUntilDrainDone(string npcName)
         {
             _pendingCloseDialogueNpc = npcName;
+        }
+
+        /// <summary>
+        /// The one shared DialogueWindow cannot replay a peer's node while the host is mid-talk
+        /// with a different NPC (rebinding dw.npc / displayDialogue wiped the host's own window and
+        /// the silent close then swallowed its real close), nor preempt another peer's pending drain.
+        /// </summary>
+        private bool ApplyBusyFor(DialogueWindow dw, NPC npc, string npcName)
+        {
+            if (dw == null) return false;
+            if (Player.Instance != null && Player.Instance.inDialogue && dw.opened
+                && dw.npc != null && (npc == null || dw.npc != npc))
+                return true;
+            if (_dialogWorldDrainCo != null && !string.IsNullOrEmpty(_drainNpcName)
+                && !string.Equals(_drainNpcName, npcName, StringComparison.Ordinal))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Session end: drop queued outcomes, stop the drain / replay coroutines and forget the pending
+        /// close, so nothing from this session replays into (or closes a dialogue of) the next one.
+        /// </summary>
+        internal void ClearPendingApply()
+        {
+            if (_deferredApplyCo != null)
+            {
+                try { _net.StopCoroutine(_deferredApplyCo); } catch { /* ignore */ }
+                _deferredApplyCo = null;
+            }
+            _deferredApplies.Clear();
+            if (_dialogWorldDrainCo != null)
+            {
+                try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
+                _dialogWorldDrainCo = null;
+            }
+            _drainNpcName = null;
+            _drainOwnerId = 0;
+            _pendingCloseDialogueNpc = null;
+        }
+
+        /// <summary>A dropped queued outcome may have been holding back that NPC's close: run it now.</summary>
+        private void ReplayDeferredCloseIfIdle(string npcName)
+        {
+            if (_dialogWorldDrainCo != null || HasDeferredApplyFor(npcName))
+                return;
+            if (!string.Equals(_pendingCloseDialogueNpc, npcName, StringComparison.Ordinal))
+                return;
+            _pendingCloseDialogueNpc = null;
+            _close.HostFireNpcCloseDialogue(npcName);
+        }
+
+        /// <summary>A queued outcome older than this is stale (the conversation has moved on).</summary>
+        private const float DeferredApplyMaxAgeSec = 15f;
+
+        private void DeferApply(DialogOutcomeSyncMessage msg)
+        {
+            _deferredApplies.Add(new DeferredApply
+            {
+                Msg = msg,
+                From = GeFireActorContext.PeekOr(_net.CurrentReceivePlayerId),
+                QueuedAt = Time.realtimeSinceStartup
+            });
+            ModRuntime.LegacyInfo(
+                $"[DialogOutcome] host window busy — deferring apply NPC={msg.NpcName} "
+                + $"dialogue={msg.DialogueName} target={msg.TargetDialogueName}");
+            if (_deferredApplyCo == null)
+                _deferredApplyCo = _net.StartCoroutine(DrainDeferredApplies());
+        }
+
+        private System.Collections.IEnumerator DrainDeferredApplies()
+        {
+            float deadline = Time.realtimeSinceStartup + 120f;
+            try
+            {
+                while (_deferredApplies.Count > 0 && Time.realtimeSinceStartup < deadline)
+                {
+                    DeferredApply next = _deferredApplies[0];
+                    var dw = Singleton<UI>.Instance?.dialogueWindow;
+                    NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(next.Msg.NpcName);
+                    // Stale: too old, or the host has since opened its own talk with that NPC (replaying
+                    // now would display a node over the host's live window).
+                    bool hostTalkingToIt = dw != null && npc != null && Player.Instance != null
+                        && Player.Instance.inDialogue && dw.opened && dw.npc == npc;
+                    if (Time.realtimeSinceStartup - next.QueuedAt > DeferredApplyMaxAgeSec || hostTalkingToIt)
+                    {
+                        _deferredApplies.RemoveAt(0);
+                        ModRuntime.Log?.LogWarning(
+                            "[DialogOutcome] dropped stale deferred outcome NPC=" + next.Msg.NpcName
+                            + (hostTalkingToIt ? " (host now talking to it)" : " (too old)"));
+                        ReplayDeferredCloseIfIdle(next.Msg.NpcName);
+                        continue;
+                    }
+                    if (dw != null && ApplyBusyFor(dw, npc, next.Msg.NpcName))
+                    {
+                        yield return new WaitForSecondsRealtime(0.25f);
+                        continue;
+                    }
+
+                    _deferredApplies.RemoveAt(0);
+                    // Outside the inbound packet: stamp the sender as the GE actor explicitly.
+                    bool pushed = next.From > 0 && GeFireActorContext.Depth == 0;
+                    if (pushed) GeFireActorContext.Push(next.From);
+                    try { HandleDialogOutcomeSync(next.Msg); }
+                    catch (Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[DialogOutcome] deferred apply failed: " + ex.Message);
+                    }
+                    finally { if (pushed) GeFireActorContext.Pop(); }
+                }
+
+                if (_deferredApplies.Count > 0)
+                {
+                    ModRuntime.Log?.LogWarning(
+                        "[DialogOutcome] dropped " + _deferredApplies.Count
+                        + " deferred outcome(s) — host window stayed busy");
+                    _deferredApplies.Clear();
+                }
+            }
+            finally
+            {
+                _deferredApplyCo = null;
+            }
         }
 
         internal void HandleDialogOutcomeSync(DialogOutcomeSyncMessage msg)
@@ -57,15 +207,23 @@ namespace DWMPHorde.Networking
                 NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName);
                 if (npc == null)
                 {
-                    ModRuntime.Log?.LogWarning($"[DialogOutcome] NPC '{msg.NpcName}' not found for target={msg.TargetDialogueName}");
+                    ModLog.WarnRate(LogCat.World, "dlg-apply-npc-miss:" + msg.NpcName,
+                        $"[DialogOutcome] NPC '{msg.NpcName}' not found for target={msg.TargetDialogueName}");
                     return;
                 }
 
+                if (ApplyBusyFor(dw, npc, msg.NpcName))
+                {
+                    DeferApply(msg);
+                    return;
+                }
+
+                // Decided on instance identity BEFORE any rebind: a name compare after
+                // `dw.npc = npc` is always true, and two NPCs can share a name across worlds.
                 bool hostWasInThisTalk = Player.Instance != null
                     && Player.Instance.inDialogue
                     && dw.opened
-                    && dw.npc != null
-                    && dw.npc.name == msg.NpcName;
+                    && dw.npc == npc;
 
                 // Vanilla onPress marks source node alreadyShown before switching.
                 if (!string.IsNullOrEmpty(msg.DialogueName) && npc.characterDialogue != null)
@@ -98,6 +256,8 @@ namespace DWMPHorde.Networking
                 {
                     try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
                     _dialogWorldDrainCo = null;
+                    _drainNpcName = null;
+                    DialogHostApplyGuard.EndDrain();
                     while (DialogHostApplyGuard.Active)
                         DialogHostApplyGuard.EndWorldOnly();
                     // Scrub leftover oven/keyhole backdrop before the next world-only apply.
@@ -123,12 +283,14 @@ namespace DWMPHorde.Networking
                 }
 
                 DialogHostApplyGuard.BeginWorldOnly();
-                DialogHostApplyGuard.ClearChainedDisplayBlock();
-                DialogHostApplyGuard.DestDrainActive = true;
-                if (!hostWasInThisTalk)
-                    DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
                 try
                 {
+                    // Inside the try: a throw here must still reach the catch's EndWorldOnly.
+                    DialogHostApplyGuard.ClearChainedDisplayBlock();
+                    DialogHostApplyGuard.DestDrainActive = true;
+                    if (!hostWasInThisTalk)
+                        DWMPHorde.Patches.DialogHostPresentation.ArmStickySuppress();
+
                     // World-only apply needs an active DialogueWindow (lookKeyhole boards
                     // StartCoroutine setPortrait on an inactive object can leave
                     // Core.forbidInputs set.
@@ -144,9 +306,19 @@ namespace DWMPHorde.Networking
                     else if (Core.forbidInputs || (dw.displayingDialogue && dw.currentDialogue != null
                              && dw.currentDialogue.boards != null && dw.currentDialogue.boards.Count > 1))
                     {
-                        // Multi-board / portrait chain: keep guard up until drain finishes.
-                        _dialogWorldDrainCo = _net.StartCoroutine(
-                            HostDrainWorldOnlyDialogue(dw, npc));
+                        // Multi-board / portrait chain: delayed boards finish over the next
+                        // frames. The guard is not held across the wait; each board advance and
+                        // the final close re-enter it for just their synchronous body.
+                        _drainNpcName = msg.NpcName;
+                        _drainOwnerId = GeFireActorContext.PeekOr(_net.CurrentReceivePlayerId);
+                        DialogHostApplyGuard.BeginDrain(_drainOwnerId);
+                        // The drain can finish inside StartCoroutine (first slice exits the loop);
+                        // its finally already ran, so a finished handle must not be stored as live.
+                        int drainGen = ++_drainGeneration;
+                        Coroutine co = _net.StartCoroutine(HostDrainWorldOnlyDialogue(dw, npc));
+                        if (_drainDoneGeneration != drainGen)
+                            _dialogWorldDrainCo = co;
+                        DialogHostApplyGuard.EndWorldOnly();
                         return;
                     }
                     else
@@ -221,7 +393,8 @@ namespace DWMPHorde.Networking
             NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName);
             if (npc == null || npc.characterDialogue == null)
             {
-                ModRuntime.Log?.LogWarning($"[DialogOutcome] NPC '{msg.NpcName}' not found for board apply");
+                ModLog.WarnRate(LogCat.World, "dlg-board-npc-miss:" + msg.NpcName,
+                    $"[DialogOutcome] NPC '{msg.NpcName}' not found for board apply");
                 return;
             }
 
@@ -233,20 +406,27 @@ namespace DWMPHorde.Networking
             catch { dialogue = null; }
             if (dialogue == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "dlg-board-dialogue-miss:" + msg.NpcName + ":" + msg.DialogueName,
                     $"[DialogOutcome] dialogue '{msg.DialogueName}' not found on {msg.NpcName}");
                 return;
             }
 
-            dw.npc = npc;
-            if (Player.Instance != null)
-                Player.Instance.talkedToNPC = npc;
+            if (ApplyBusyFor(dw, npc, msg.NpcName))
+            {
+                DeferApply(msg);
+                return;
+            }
 
+            // Identity check first; only then bind. Rebinding first made this always true and the
+            // silent close that follows tore down the host's own conversation.
             bool hostWasInThisTalk = Player.Instance != null
                 && Player.Instance.inDialogue
                 && dw.opened
-                && dw.npc != null
-                && dw.npc.name == msg.NpcName;
+                && dw.npc == npc;
+
+            dw.npc = npc;
+            if (Player.Instance != null)
+                Player.Instance.talkedToNPC = npc;
 
             DialogHostApplyGuard.BeginWorldOnly();
             DialogHostApplyGuard.BeginOneShotBoard();
@@ -279,139 +459,6 @@ namespace DWMPHorde.Networking
             HostFinishDialogWorldApply(npc);
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] one-shot board NPC={msg.NpcName} dialogue={msg.DialogueName} board={msg.BoardIndex}");
-        }
-
-        internal void HostFinishDialogWorldApply(NPC npc)
-        {
-            try { DWMPHorde.Patches.DialogueDoorAftermath.OnHostDialogWorldApplied(); }
-            catch (Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[DialogOutcome] door poll: " + ex.Message);
-            }
-
-            // force: still under ProcessInboundMessage NetworkApplyGuard after world-only End.
-            try { DWMPHorde.Sync.DialogTreeSync.TryBroadcastFromNpc(npc, force: true); }
-            catch (Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[DialogOutcome] tree flush: " + ex.Message);
-            }
-
-            // Client often exits while lookKeyhole drain is still running; replay close afterward.
-            if (!string.IsNullOrEmpty(_pendingCloseDialogueNpc))
-            {
-                string pending = _pendingCloseDialogueNpc;
-                _pendingCloseDialogueNpc = null;
-                _close.HostFireNpcCloseDialogue(pending);
-            }
-        }
-
-        /// <summary>
-        /// Keep DialogHostApplyGuard up while changePortrait / multi-board chains finish,
-        /// force-advancing stalled WritingText boards, then silent-close.
-        /// </summary>
-        internal System.Collections.IEnumerator HostDrainWorldOnlyDialogue(DialogueWindow dw, NPC npc)
-        {
-            float deadline = Time.realtimeSinceStartup + 8f;
-            int lastBoard = int.MinValue;
-            int stallTicks = 0;
-            try
-            {
-                while (dw != null
-                    && DialogHostApplyGuard.Active
-                    && dw.displayingDialogue
-                    && dw.currentDialogue != null
-                    && Time.realtimeSinceStartup < deadline)
-                {
-                    int board = -1;
-                    try { board = Traverse.Create(dw).Field("currentBoard").GetValue<int>(); }
-                    catch { board = -1; }
-
-                    if (board == lastBoard)
-                    {
-                        stallTicks++;
-                        // changePortrait waits ~1.5s + setPortrait; WritingText can stall forever
-                        // with no host UI clicks. Force advance after a short stall on the same board.
-                        if (stallTicks >= 25)
-                        {
-                            try
-                            {
-                                Core.forbidInputs = false;
-                                if (dw.currentDialogue == null || dw.npc == null)
-                                    break;
-                                // displayNextBoard is private, so use Traverse only while dialogue is live
-                                // (bypassing guard on null caused listen_dream NRE + stuck inputs).
-                                Traverse.Create(dw).Method("displayNextBoard").GetValue();
-                            }
-                            catch (Exception ex)
-                            {
-                                if (ModRuntime.VerboseLogging)
-                                    ModRuntime.Log?.LogWarning("[DialogOutcome] drain advance: " + ex.Message);
-                                break;
-                            }
-                            stallTicks = 0;
-                            lastBoard = int.MinValue;
-                        }
-                    }
-                    else
-                    {
-                        lastBoard = board;
-                        stallTicks = 0;
-                    }
-
-                    yield return new WaitForSecondsRealtime(0.1f);
-                }
-
-                if (dw != null && DialogHostApplyGuard.Active)
-                {
-                    if (dw.displayingDialogue || dw.npc != null)
-                        dw.close();
-                    else
-                        DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
-                }
-            }
-            finally
-            {
-                _dialogWorldDrainCo = null;
-                while (DialogHostApplyGuard.Active)
-                    DialogHostApplyGuard.EndWorldOnly();
-                try
-                {
-                    Core.forbidInputs = false;
-                    Core.cantChangeForbidInputs = false;
-                    if (dw != null)
-                        dw.forbidInputs = false;
-                }
-                catch { /* ignore */ }
-                HostFinishDialogWorldApply(npc);
-                ModRuntime.LegacyInfo("[DialogOutcome] world-only drain finished");
-            }
-        }
-
-        /// <summary>
-        /// Abort lookKeyhole world-only drain on dialog Release so leave-door GE runs now.
-        /// </summary>
-        internal void AbortWorldOnlyDrainForRelease()
-        {
-            if (_dialogWorldDrainCo == null) return;
-
-            try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
-            _dialogWorldDrainCo = null;
-            while (DialogHostApplyGuard.Active)
-                DialogHostApplyGuard.EndWorldOnly();
-            try
-            {
-                var dw = Singleton<UI>.Instance?.dialogueWindow;
-                if (dw != null && (dw.displayingDialogue || dw.npc != null))
-                    DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
-                else
-                    DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
-            }
-            catch { /* ignore */ }
-            _pendingCloseDialogueNpc = null;
-            ModRuntime.LegacyInfo(
-                "[DialogOutcome] aborted world-only drain on dialog Release (open door now)");
         }
 
         internal void HandleDialogTreeState(DialogTreeStateMessage msg)

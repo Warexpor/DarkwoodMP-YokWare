@@ -45,6 +45,24 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // The host re-ran a chapter share (a broadcast queued behind a running share): the
+            // package being verified or held for the go is the older one. Supersede it; the apply
+            // coroutine of the old package quits on the generation bump.
+            if (Patches.ChapterTransitionHelpers.ChapterShareExpected && !_clientEntering
+                && !_clientReceiving && (_clientApplying || _awaitingChapterGo))
+            {
+                ModLog.Event(LogCat.Save,
+                    "World share begin supersedes the " + (_awaitingChapterGo ? "held" : "verifying")
+                    + " chapter package (host re-ran the share)");
+                _shareGeneration++;
+                _clientApplying = false;
+                _awaitingChapterGo = false;
+                _verifiedPackage = null;
+                _chunkBuffers = null;
+                // The go-wait armed for the superseded package must not accept a go meant for this one.
+                Patches.ChapterTransitionHelpers.ClientShareSuperseded();
+            }
+
             // Overlapping Begin (auto-share + WorldRequest chain) used to allocate a fresh
             // null _chunkBuffers while apply still verified the prior package → Missing chunk 0:0.
             if (_clientReceiving || _clientApplying)
@@ -61,6 +79,7 @@ namespace DWMPHorde.Networking
             _awaitingSlotPick = false;
             _awaitingEnterWorld = false;
             _pendingBegin = msg;
+            Patches.ChapterTransitionHelpers.ClientNoteSharePass(msg.SharePass);
             // Host profile ID is metadata only; the client picks a permanent local slot after download.
             _hostSourceProfileId = msg.ProfileId;
             if (_hostSourceProfileId < MinProfileId || _hostSourceProfileId > MaxProfileId)
@@ -79,6 +98,7 @@ namespace DWMPHorde.Networking
 
             ProgressText = "Receiving host world…";
             _net.StatusText = ProgressText;
+            Patches.ChapterTransitionHelpers.ClientShareProgress(force: true);
             ModLog.Event(LogCat.Save,
                 "Receiving host world (host slot " + _hostSourceProfileId
                 + "): " + msg.FileCount + " files, " + _chunksExpected + " chunks, ch"
@@ -108,6 +128,9 @@ namespace DWMPHorde.Networking
                     + (int)(100f * _chunksReceived / _chunksExpected) + "%";
                 _net.StatusText = ProgressText;
             }
+            // Chapter share: tell the host this peer is still receiving so its confirmation
+            // deadline follows the transfer instead of the moment the host finished sending.
+            Patches.ChapterTransitionHelpers.ClientShareProgress(force: false);
         }
 
         public void HandleEnd(WorldSaveEndMessage msg)
@@ -123,18 +146,21 @@ namespace DWMPHorde.Networking
                 ProgressText = loud;
                 _net.StatusText = loud;
                 ModLog.Error(LogCat.Save, "Host reported world share failure");
+                Patches.ChapterTransitionHelpers.ClientChapterShareFailed("host reported failure");
                 return;
             }
 
-            _net.StartCoroutine(ClientApplyCoroutine());
+            _net.StartCoroutine(ClientApplyCoroutine(_shareGeneration));
         }
 
-        private IEnumerator ClientApplyCoroutine()
+        private IEnumerator ClientApplyCoroutine(int gen)
         {
             _clientApplying = true;
             ProgressText = "Verifying host world package…";
             _net.StatusText = ProgressText;
             yield return null;
+            // Link dropped (Reset) or a newer package took over while this one waited a frame.
+            if (gen != _shareGeneration || _chunkBuffers == null) yield break;
 
             // Verify chunks, then hold them in RAM until the user picks a permanent local profile slot.
             for (int i = 0; i < _pendingBegin.FileCount; i++)
@@ -160,6 +186,7 @@ namespace DWMPHorde.Networking
             if (_net != null)
                 _net.StatusText = ProgressText;
             yield return null;
+            if (gen != _shareGeneration || _chunkBuffers == null) yield break;
 
             string packageFp = null;
             try { packageFp = ComputeUncompressedPackageFingerprint(); }
@@ -231,21 +258,51 @@ namespace DWMPHorde.Networking
                 yield break;
             }
 
-            string commitError = null;
-            bool wroteCurrentProfile = false;
+            // Chapter share while in a world: write straight into the current profile. There is no
+            // slot picker mid-game, so a failed write is reported to the host (it re-sends) instead
+            // of falling through to the title-screen slot pick.
             if (Patches.ChapterTransitionHelpers.ChapterShareExpected && Core.currentProfile != null)
             {
-                _awaitingSlotPick = true;
-                wroteCurrentProfile = TryCommitPermanentSlot(
-                    Core.currentProfile.id, overwriteConfirmed: true, out commitError);
-            }
-            if (wroteCurrentProfile)
-            {
-                TryBeginEnterWorld(allowInGame: true);
+                // Verify and inflate into memory only. The slot is NOT written here: this client is
+                // still playing the old chapter and may wait minutes for the host's go (or be told to
+                // leave), so the commit happens at the go (HandleChapterLoadGo) and never otherwise.
+                string verifyError;
+                List<VerifiedFile> verified;
+                try
+                {
+                    if (!TryInflatePackage(out verified, out verifyError))
+                        verified = null;
+                }
+                catch (Exception ex)
+                {
+                    verified = null;
+                    verifyError = ex.Message;
+                    ModLog.Error(LogCat.Save, "Chapter package inflate failed", ex);
+                }
+                if (verified == null)
+                {
+                    FailClientApply("chapter world could not be verified: " + (verifyError ?? "unknown"));
+                    yield break;
+                }
+
+                _verifiedPackage = verified;
+                _chunkBuffers = null;
+                _clientApplying = false;
+                _awaitingChapterGo = true;
+                int verifiedChapter = _pendingBegin.ChapterId;
+                ProgressText = "Chapter world received — waiting for the host";
+                if (_net != null)
+                    _net.StatusText = ProgressText;
+
+                // Host is coordinating: ack, then wait for its go before touching the slot.
+                if (Patches.ChapterTransitionHelpers.ClientChapterVerified(verifiedChapter))
+                    yield break;
+
+                // Single-peer resync (no go coming): commit and enter now.
+                if (!TryCommitBufferedChapterAndEnter(out string commitError))
+                    FailClientApply("chapter world could not be written: " + (commitError ?? "no profile"));
                 yield break;
             }
-            if (Patches.ChapterTransitionHelpers.ChapterShareExpected)
-                ModLog.Warn(LogCat.Save, "Chapter share could not write the current profile: " + (commitError ?? "no profile"));
 
             _clientApplying = false;
             _awaitingSlotPick = true;
@@ -268,10 +325,14 @@ namespace DWMPHorde.Networking
             if (_net != null)
                 _net.StatusText = loud;
             _chunkBuffers = null;
+            _verifiedPackage = null;
+            _awaitingChapterGo = false;
             _clientApplying = false;
             _clientReceiving = false;
             _awaitingSlotPick = false;
             _awaitingEnterWorld = false;
+            // Mid-game chapter share: tell the host so it can re-send (no-op outside a chapter share).
+            Patches.ChapterTransitionHelpers.ClientChapterShareFailed(reason);
         }
     }
 }

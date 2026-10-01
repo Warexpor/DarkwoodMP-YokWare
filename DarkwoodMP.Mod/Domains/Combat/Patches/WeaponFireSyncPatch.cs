@@ -9,10 +9,10 @@ using UnityEngine;
 /// </summary>
 namespace DWMPHorde.Patches
 {
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Player), "fireWeapon")]
     public static class WeaponFireSyncPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(Player __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;

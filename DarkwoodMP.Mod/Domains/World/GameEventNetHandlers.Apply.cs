@@ -127,7 +127,7 @@ namespace DWMPHorde.Networking
                     QueuePendingGameEvent(msg);
                     return false;
                 }
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
                     $"[GameEventsSync] no GameEvents near {pos} name='{msg.EventName}'");
                 return false;
             }
@@ -178,6 +178,21 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} firedNow={best.fired} at {best.transform.position}");
+
+            // Keep the destroyOnFire identity here too (host does it at fire time) so a client
+            // promoted to host can still send these shells to late joiners.
+            if (best.destroyOnFire)
+            {
+                Vector3 bp = best.transform.position;
+                RecordDestroyedOnFireGameEvent(new GameEventsFiredMessage
+                {
+                    PosX = Mathf.Round(bp.x * 10f) / 10f,
+                    PosY = Mathf.Round(bp.y * 10f) / 10f,
+                    PosZ = Mathf.Round(bp.z * 10f) / 10f,
+                    EventName = geName,
+                    ActorPlayerId = 0
+                });
+            }
 
             // After GE (which owns openSound): mute late DoorOpen / skip ForceOpen.
             if (!leaveDoor)
@@ -425,7 +440,20 @@ namespace DWMPHorde.Networking
                 }
 
                 // Always go through Apply (soft name search); pre-find skipped def_glow.
-                if (ApplyGameEventsFired(msg, queueIfMissing: false))
+                // A throwing event is dropped instead of aborting the flush (and retried
+                // forever behind everything after it).
+                bool resolved;
+                try
+                {
+                    resolved = ApplyGameEventsFired(msg, queueIfMissing: false);
+                }
+                catch (Exception ex)
+                {
+                    ModLog.WarnRate(LogCat.Session, "ge-flush-item-throw",
+                        "[GameEventsSync] pending GE '" + msg.EventName + "' apply threw: " + ex.Message);
+                    resolved = true;
+                }
+                if (resolved)
                 {
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);

@@ -176,29 +176,53 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Hit-and-run flee after attacking used host position even when the victim was the proxy.
+    /// Vanilla <c>attacking = false</c> rolls runAwayChance and runs away from Player.Instance.
+    /// With remotes the flee is done here from the real victim instead, so vanilla's own roll is
+    /// switched off for exactly this call (<c>currentAttack</c> is the character's shared
+    /// attacks[] entry, so the flag must be handed back afterwards or the attack would never
+    /// flee again). Set before runAway: runAway itself sets <c>attacking = false</c> again and
+    /// would otherwise re-enter this prefix.
     /// </summary>
     [HarmonyPatch(typeof(Character), "set_attacking", new[] { typeof(bool) })]
     public static class HostAttackingFleePatch
     {
-        private static void Prefix(Character __instance, object[] __args)
+        private struct State
         {
-            bool value = (bool)__args[0];
+            public Character.Attack Attack;
+        }
+
+        private static void Prefix(Character __instance, bool value, ref State __state)
+        {
+            __state = default;
             if (value)
                 return;
             if (!HostPlayerIdentity.HostWithRemotes())
                 return;
             if (__instance == null || __instance.currentAttack == null)
                 return;
-            if (!__instance.currentAttack.runAwayAfterAttacking)
+            Character.Attack attack = __instance.currentAttack;
+            if (!attack.runAwayAfterAttacking)
                 return;
-            if (UnityEngine.Random.Range(0f, 1f) <= __instance.currentAttack.runAwayChance)
+
+            __state.Attack = attack;
+            attack.runAwayAfterAttacking = false;
+
+            // Same roll vanilla would make (flee when Random > runAwayChance), made once.
+            if (UnityEngine.Random.Range(0f, 1f) <= attack.runAwayChance)
                 return;
 
             Vector3 from = __instance.target != null
                 ? __instance.target.position
                 : PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
             __instance.runAway(from);
-            __instance.currentAttack.runAwayAfterAttacking = false;
+        }
+
+        // Finalizer (not Postfix): the shared Attack must get its vanilla flag back even if the
+        // setter or runAway throws.
+        private static void Finalizer(State __state)
+        {
+            if (__state.Attack != null)
+                __state.Attack.runAwayAfterAttacking = true;
         }
     }
 
@@ -247,13 +271,23 @@ namespace DWMPHorde.Patches
     {
         private static AudioObject _victimScream;
 
+        /// <summary>Registered with NetworkResetRegistry so a recycled audio object is never kept across sessions.</summary>
+        public static void Reset()
+        {
+            _victimScream = null;
+        }
+
         internal static void StopVictimScream()
         {
-            if (_victimScream != null)
+            // AudioObjects are pooled: once the scream finished the object is recycled for other
+            // sounds, so only stop it while it is still ours and still playing this clip.
+            if (_victimScream != null
+                && _victimScream.IsPlaying()
+                && _victimScream.audioID == "banshee_agitated_player")
             {
                 _victimScream.Stop(0.2f);
-                _victimScream = null;
             }
+            _victimScream = null;
             PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 0f, Vector3.zero);
         }
 

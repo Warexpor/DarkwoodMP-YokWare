@@ -4,10 +4,10 @@ using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(CharacterEffect), "initialize", typeof(InvItemEffect))]
     public static class ProxyStatusEffectSuppressionPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(CharacterEffect __instance)
         {
             if (__instance.GetComponent<RemotePlayerProxy>() != null)

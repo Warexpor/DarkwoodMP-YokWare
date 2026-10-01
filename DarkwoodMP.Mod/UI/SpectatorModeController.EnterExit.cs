@@ -262,6 +262,8 @@ namespace DWMPHorde.Spectator
 
                 RestorePlayerPosition(player);
                 RestoreAudioListener(player);
+                // EnterSpectate muted the local body; every other exit path unmutes it.
+                MuteLocalPlayerAudio(player, mute: false);
             }
 
             if (_proxyVision != null)
@@ -275,14 +277,14 @@ namespace DWMPHorde.Spectator
 
             if (holdNightDeath)
             {
-                // Keep SkipMorningRepBonus / LocalNightDeath for host morning resolution.
+                // Keep LocalNightDeath: the host morning release (startDay) frees this peer.
                 DeathStateTracker.PreventSpectator = false;
                 ModRuntime.LegacyInfo("[Spectate] Force exited but holding night-death state");
                 return;
             }
 
+            DeathStateTracker.ResetLocal();
             DeathStateTracker.PreventSpectator = true;
-            DeathStateTracker.Reset();
 
             ModRuntime.LegacyInfo("[Spectate] Force exited (follow target lost)");
         }

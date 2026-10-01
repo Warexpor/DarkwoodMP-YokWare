@@ -245,6 +245,8 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void Postfix(Player __instance)
         {
+            // Vanilla plays nothing for the personal bag; the mod adds it only in a live session.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (__instance == null) return;
             // Container / corpse open sets openedItemInventory before openInventory().

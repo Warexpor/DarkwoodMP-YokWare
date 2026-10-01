@@ -26,8 +26,19 @@ namespace DWMPHorde.Networking
 
         private readonly Dictionary<string, HashSet<int>> _pendingContainerRemoves =
             new Dictionary<string, HashSet<int>>();
-        private readonly Dictionary<string, int> _pendingTakePreCounts =
-            new Dictionary<string, int>();
+        /// <summary>What an optimistic client take granted, for a precise deny refund.</summary>
+        internal struct PendingTake
+        {
+            public int PreCount;
+            public bool IsRecipe;
+            public string ItemType;
+            /// <summary>&lt; 0 when unknown.</summary>
+            public float Durability;
+            public int Ammo;
+        }
+
+        private readonly Dictionary<string, PendingTake> _pendingTakePreCounts =
+            new Dictionary<string, PendingTake>();
 
         internal ContainerPendingNetHandlers(LanNetworkManager net)
         {
@@ -56,13 +67,35 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Drops the pending local-remove mark for one slot. A host deny means the host still
+        /// holds (or never lost) that slot, so the snapshot that follows must show it.
+        /// </summary>
+        internal void ClearPendingContainerRemove(Vector3 pos, int slotIdx)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}";
+            if (!_pendingContainerRemoves.TryGetValue(key, out var set))
+                return;
+            set.Remove(slotIdx);
+            if (set.Count == 0)
+                _pendingContainerRemoves.Remove(key);
+        }
+
+        /// <summary>
         /// Records the player inventory count of an item type before a container take
         /// was sent. Used by HandleContainerTakeDenied for a precise refund.
         /// </summary>
-        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount)
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount,
+            bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0)
         {
             string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
-            _pendingTakePreCounts[key] = preCount;
+            _pendingTakePreCounts[key] = new PendingTake
+            {
+                PreCount = preCount,
+                IsRecipe = isRecipe,
+                ItemType = itemType,
+                Durability = durability,
+                Ammo = ammo
+            };
         }
 
         /// <summary>Removes a pending take pre-count entry after it's consumed or stale.</summary>
@@ -73,11 +106,14 @@ namespace DWMPHorde.Networking
         }
 
 
-        /// <summary>Consume a pending take pre-count (same semantics as the former inline dict access).</summary>
-        internal void ConsumePendingTakePreCount(string preKey, out int preTakeCount)
+        /// <summary>Consume the pending take for a denied claim; false when none was recorded.</summary>
+        internal bool ConsumePendingTake(string preKey, out PendingTake take)
         {
-            _pendingTakePreCounts.TryGetValue(preKey, out preTakeCount);
+            bool found = _pendingTakePreCounts.TryGetValue(preKey, out take);
             _pendingTakePreCounts.Remove(preKey);
+            if (!found)
+                take = new PendingTake { PreCount = -1, Durability = -1f };
+            return found;
         }
 
         /// <summary>

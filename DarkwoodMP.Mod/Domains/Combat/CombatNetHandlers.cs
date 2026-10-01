@@ -67,6 +67,12 @@ namespace DWMPHorde.Networking
         internal void HandlePlayerDied(PlayerDiedMessage msg) =>
             _deathState.HandlePlayerDied(msg);
 
+        internal void HandleNightDeathRelease(NightDeathReleaseMessage msg) =>
+            _deathState.HandleNightDeathRelease(msg);
+
+        internal void HandleMorningReward(MorningRewardMessage msg) =>
+            _deathState.HandleMorningReward(msg);
+
         internal void HandleNightDeathState(NightDeathStateMessage msg) =>
             _deathState.HandleNightDeathState(msg);
 

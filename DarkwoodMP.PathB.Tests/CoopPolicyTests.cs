@@ -30,6 +30,12 @@ public class CoopPolicyTests
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 2));
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(false, PermadeathPolicy.Nightmare, 0));
         Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Normal, 0));
+        Assert.True(PermadeathPolicy.UsesSharedDeath(true, PermadeathPolicy.Nightmare, 3));
+        Assert.False(PermadeathPolicy.UsesSharedDeath(false, PermadeathPolicy.Nightmare, 3));
+        Assert.True(PermadeathPolicy.PartyWipeEndsRun(true, 2, 2));
+        Assert.False(PermadeathPolicy.PartyWipeEndsRun(true, 2, 1));
+        Assert.False(PermadeathPolicy.PartyWipeEndsRun(false, 1, 1));
+        Assert.True(PermadeathPolicy.PartyWipeEndsRun(true, 0, 0));
         Assert.True(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(true, false));
         Assert.False(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(true, true));
         Assert.False(ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(false, false));

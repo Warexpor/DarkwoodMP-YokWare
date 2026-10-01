@@ -19,10 +19,10 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(NightScenarios), "setCurrentScenario")]
     public static class HostScenarioSyncPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(NightScenarios __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;

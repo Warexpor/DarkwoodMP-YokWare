@@ -16,9 +16,23 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchMe")]
     public static class InteractiveItemSwitchPatch
     {
+        /// <summary>
+        /// True while vanilla switchMe runs: it calls switchOn/switchOff itself, and those patches
+        /// must not send a second (duplicate, well-heal-ignoring) message for the same toggle.
+        /// </summary>
+        [ThreadStatic] private static int _insideSwitchMe;
+        internal static bool InsideSwitchMe => _insideSwitchMe > 0;
+
         private static void Prefix(InteractiveItem __instance, out bool __state)
         {
             __state = __instance.isOn;
+            _insideSwitchMe++;
+        }
+
+        // Finalizer (not Postfix): switchMe's event triggers can throw; the scope must close.
+        private static void Finalizer()
+        {
+            if (_insideSwitchMe > 0) _insideSwitchMe--;
         }
 
         private static void Postfix(InteractiveItem __instance, bool __state)
@@ -52,7 +66,7 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo("[InteractiveItemSync] switchMe at " + key + " isOn=" + __instance.isOn);
         }
 
-        private static bool IsWellInteractiveItem(InteractiveItem ii)
+        internal static bool IsWellInteractiveItem(InteractiveItem ii)
         {
             Transform t = ii.transform;
             while (t != null)
@@ -71,10 +85,18 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchOn")]
     public static class InteractiveItemSwitchOnPatch
     {
-        private static void Postfix(InteractiveItem __instance)
+        private static void Prefix(InteractiveItem __instance, out bool __state)
+        {
+            __state = __instance.isOn;
+        }
+
+        private static void Postfix(InteractiveItem __instance, bool __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            // switchMe (player toggle) is reported by InteractiveItemSwitchPatch, once.
+            if (InteractiveItemSwitchPatch.InsideSwitchMe) return;
+            if (__state == __instance.isOn) return; // no actual change
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -93,10 +115,20 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchOff")]
     public static class InteractiveItemSwitchOffPatch
     {
-        private static void Postfix(InteractiveItem __instance)
+        private static void Prefix(InteractiveItem __instance, out bool __state)
+        {
+            __state = __instance.isOn;
+        }
+
+        private static void Postfix(InteractiveItem __instance, bool __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            // switchMe (player toggle) is reported by InteractiveItemSwitchPatch, once.
+            if (InteractiveItemSwitchPatch.InsideSwitchMe) return;
+            if (__state == __instance.isOn) return; // no actual change
+            // A well's use/heal is per-player: only the fix/repair (off→on) is shared.
+            if (InteractiveItemSwitchPatch.IsWellInteractiveItem(__instance)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);

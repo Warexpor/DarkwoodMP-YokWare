@@ -27,12 +27,11 @@ namespace DWMPHorde.Patches
             internal GameObject HeldItem;
         }
 
-        private static readonly Dictionary<int, ThrowCapture> _captures = new Dictionary<int, ThrowCapture>(4);
-
-        public static void Reset() => _captures.Clear();
-
-        private static bool Prefix(Player __instance)
+        // The capture travels in __state (not a static map): a nested throw cannot overwrite it
+        // and an exception between Prefix and Postfix cannot leave a stale entry behind.
+        private static bool Prefix(Player __instance, out ThrowCapture __state)
         {
+            __state = null;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
             if (ModRuntime.Network.Role == NetworkRole.Offline) return true;
             if (TraverseHack.ApplyingFromNetwork) return true;
@@ -52,16 +51,15 @@ namespace DWMPHorde.Patches
                 return true;
             }
 
-            _captures[__instance.GetInstanceID()] = capture;
+            __state = capture;
             return true;
         }
 
-        private static void Postfix(Player __instance)
+        private static void Postfix(Player __instance, ThrowCapture __state)
         {
-            int playerId = __instance.GetInstanceID();
-            if (!_captures.TryGetValue(playerId, out ThrowCapture capture))
+            ThrowCapture capture = __state;
+            if (capture == null)
                 return;
-            _captures.Remove(playerId);
 
             if (string.IsNullOrEmpty(capture.ItemType)) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;

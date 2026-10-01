@@ -206,6 +206,19 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// CampaignId already stamped on the active profile, or null. Never mints or writes
+        /// (handshake identity check must not invent an id for a foreign save).
+        /// </summary>
+        public static string TryGetCampaignIdForCurrentProfile()
+        {
+            if (Core.currentProfile == null) return null;
+            int pid = Core.currentProfile.id;
+            if (pid < 1 || pid > 5) return null;
+            string id = TryLoad(pid)?.CampaignId;
+            return string.IsNullOrEmpty(id) ? null : id;
+        }
+
+        /// <summary>
         /// Ensure active profile has a CampaignId (mint if missing). Host + client use this
         /// before writing client backups / sharing world.
         /// </summary>

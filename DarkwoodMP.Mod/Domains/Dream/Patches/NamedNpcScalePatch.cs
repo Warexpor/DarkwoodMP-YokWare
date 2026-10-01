@@ -129,10 +129,10 @@ namespace DWMPHorde.Patches
 
         // ─── Core.AddPrefab only: event / spawn-point / spawner dream NPCs ───
 
-        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
         public static class DreamNpcAddPrefabScalePatch
         {
+            [HarmonyPriority(Priority.Last)]
             private static void Postfix(GameObject __result, object[] __args)
             {
                 if (__result == null || _spawningExtra)

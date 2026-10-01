@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
                 }
                 else
                 {
-                    ModRuntime.Log?.LogWarning("[ConstructibleSync] no Constructible found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "constructible-miss", "[ConstructibleSync] no Constructible found near " + pos);
                 }
                 return;
             }
@@ -192,7 +192,7 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingInteractive, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[InteractiveItemSync] no InteractiveItem found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "interactive-miss", "[InteractiveItemSync] no InteractiveItem found near " + pos);
                 return;
             }
 
@@ -238,7 +238,7 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingPadlocks, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[PadlockSync] no Padlock found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "padlock-miss", "[PadlockSync] no Padlock found near " + pos);
                 return;
             }
 
@@ -295,7 +295,7 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingLocked, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[LockedSync] no Locked found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "locked-miss", "[LockedSync] no Locked found near " + pos);
                 return;
             }
 
@@ -456,17 +456,6 @@ namespace DWMPHorde.Networking
             }
             if (interactive > 0)
                 ModRuntime.LegacyInfo("[BulkSync] Interactives → p" + targetPlayerId + ": " + interactive);
-        }
-
-        /// <summary>
-        /// Host join bulk: unlocked padlocks, doors, and interactive isOn.
-        /// Prefer staggered TickHeavyLateJoinBulk phases; kept for any direct callers.
-        /// </summary>
-        internal void SyncExistingLocksAndInteractives(int targetPlayerId)
-        {
-            SyncExistingPadlocksTo(targetPlayerId);
-            SyncExistingLockedsTo(targetPlayerId);
-            SyncExistingInteractivesTo(targetPlayerId);
         }
     }
 }

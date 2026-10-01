@@ -67,6 +67,14 @@ namespace DWMPHorde.Networking
                             ChapterHandlers.HandleChapterTransition(
                                 ChapterTransitionMessage.Deserialize(new NetReader(payload)));
                             return true;
+                        case NetMessageType.ChapterShareAck:
+                            ChapterHandlers.HandleChapterShareAck(
+                                ChapterShareAckMessage.Deserialize(new NetReader(payload)));
+                            return true;
+                        case NetMessageType.ChapterLoadGo:
+                            ChapterHandlers.HandleChapterLoadGo(
+                                ChapterLoadGoMessage.Deserialize(new NetReader(payload)));
+                            return true;
                         case NetMessageType.GameEventsFired:
                             GameEventHandlers.HandleGameEventsFired(
                                 GameEventsFiredMessage.Deserialize(new NetReader(payload)));

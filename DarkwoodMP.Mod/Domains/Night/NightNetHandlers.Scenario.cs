@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Config;
 using DWMPHorde.Patches;
 using DWMPHorde.Players;
@@ -38,7 +39,8 @@ namespace DWMPHorde.Networking
             NightScenario scenario = ns.getScenario(msg.ScenarioName);
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioSync] unknown scenario '{msg.ScenarioName}'");
+                ModLog.WarnRate(LogCat.World, "scenario-sync-unknown",
+                    $"[ScenarioSync] unknown scenario '{msg.ScenarioName}'");
                 return;
             }
 
@@ -67,7 +69,8 @@ namespace DWMPHorde.Networking
             NightScenario scenario = ns.getScenario(msg.ScenarioName);
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioStateBulk] unknown scenario '{msg.ScenarioName}'");
+                ModLog.WarnRate(LogCat.World, "scenario-bulk-unknown",
+                    $"[ScenarioStateBulk] unknown scenario '{msg.ScenarioName}'");
                 return;
             }
 
@@ -181,19 +184,22 @@ namespace DWMPHorde.Networking
 
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] unknown nightId {msg.NightId}");
+                ModLog.WarnRate(LogCat.World, "scenario-event-night",
+                    $"[ScenarioEventFired] unknown nightId {msg.NightId}");
                 return;
             }
 
             if (msg.EventIndex >= scenario.customEventAndInts.Count)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] index {msg.EventIndex} out of range (count={scenario.customEventAndInts.Count})");
+                ModLog.WarnRate(LogCat.World, "scenario-event-index",
+                    $"[ScenarioEventFired] index {msg.EventIndex} out of range (count={scenario.customEventAndInts.Count})");
                 return;
             }
 
             if (scenario.customEventAndInts[msg.EventIndex].customEvent == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] null CustomEvent at index {msg.EventIndex}");
+                ModLog.WarnRate(LogCat.World, "scenario-event-null",
+                    $"[ScenarioEventFired] null CustomEvent at index {msg.EventIndex}");
                 return;
             }
 

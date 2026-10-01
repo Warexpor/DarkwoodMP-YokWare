@@ -15,6 +15,7 @@ namespace DWMPHorde.Sync
     {
         public static void OnRemoteDreamEnded(int playerId, string outcomeName = "")
         {
+            CancelPendingEntries();
             if (!_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
             {
                 // Host-ordered story end may arrive while we only track via DreamSession /
@@ -78,10 +79,15 @@ namespace DWMPHorde.Sync
             _preDreamPosition.Remove(playerId);
             _preDreamGridName.Remove(playerId);
             _remoteDreamActive.Remove(playerId);
+            // A chain that ends by death / all-dead never reaches OnLocalDreamEnded, and the local
+            // pocket-id entry OnDreamChain sets stays true: IsDreamActive (and with it every
+            // dream-scoped resolver) would stay on after the party is back in the overworld.
+            ClearRemoteDreamRoster();
         }
 
         public static void OnDisconnected()
         {
+            CancelPendingEntries();
             FinalDreamsceneManager.OnDisconnected();
 
             // Unfreeze any frozen proxies
@@ -112,9 +118,18 @@ namespace DWMPHorde.Sync
                 CleanupDreamScene(kvp.Value);
                 RemoveDreamCameraEffects(kvp.Value);
             }
-            foreach (var kvp in _preDreamPosition)
+            // The saved pose is only a restore target for a player actually stranded on the pad;
+            // a stale entry from an earlier, finished dream used to teleport the client back to
+            // that dream's start on any disconnect.
+            var localPlayer = Player.Instance;
+            if (localPlayer != null && _preDreamPosition.Count > 0
+                && ClientStateBackup.IsDreamPadCoordinate(localPlayer._transform.position))
             {
-                RestorePreDreamState(kvp.Key);
+                foreach (var kvp in _preDreamPosition)
+                {
+                    RestorePreDreamState(kvp.Key);
+                    break;
+                }
             }
 
             _localDreamActive = false;
@@ -129,13 +144,13 @@ namespace DWMPHorde.Sync
             _currentDreamPreset.Clear();
             _preDreamPosition.Clear();
             _preDreamGridName.Clear();
-            FreezeTracker.Reset();
             DreamSession.Reset();
         }
 
         /// <summary>Pad spawn failed after FreezeWorld; clear the session and unfreeze peers.</summary>
         private static void AbortFailedRemoteDreamLoad(int playerId, string reason)
         {
+            CancelPendingEntries();
             if (_remoteDreamActive.ContainsKey(playerId))
                 _remoteDreamActive[playerId] = false;
             _remoteDreamActive.Remove(playerId);

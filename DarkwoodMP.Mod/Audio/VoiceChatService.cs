@@ -122,7 +122,7 @@ namespace DWMPHorde.Audio
         private static uint _sampleRate;
         private static bool _localWalkie;
         private static float _nextWalkieCheck;
-        private static bool _steamChecked;
+        private static float _nextSteamCheck;
         private static bool _steamOk;
         private static bool _steamWarned;
         private static bool _walkieTx;
@@ -142,6 +142,19 @@ namespace DWMPHorde.Audio
             }
             _speakers.Clear();
             _keyParsed = false;
+        }
+
+        /// <summary>
+        /// Drop one peer's playback speaker right away (peer left). Without this the speaker and
+        /// its looping AudioSource linger until the idle reap.
+        /// </summary>
+        public static void RemoveSpeaker(int playerId)
+        {
+            if (!_speakers.TryGetValue(playerId, out Speaker s))
+                return;
+            if (s.Go != null)
+                UnityEngine.Object.Destroy(s.Go);
+            _speakers.Remove(playerId);
         }
 
         public static void Tick()
@@ -182,8 +195,8 @@ namespace DWMPHorde.Audio
                 }
             }
 
-            bool chatOpen = ChatHud.IsInputOpen;
-            bool ptt = Input.GetKey(_pttKey) && !chatOpen;
+            // Typing in chat / F2 / F3 / the slot picker must not key the mic.
+            bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
                 StringComparison.OrdinalIgnoreCase);
             _walkieTx = false;
@@ -194,7 +207,7 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = Input.GetMouseButton(1);
+                        _walkieTx = Input.GetMouseButton(1) && WalkieTxAllowed();
                 }
             }
             catch { /* ignore */ }
@@ -217,6 +230,31 @@ namespace DWMPHorde.Audio
 
             if (_recording || _stopLinger > Time.unscaledTime)
                 PumpCapture(net);
+        }
+
+        /// <summary>
+        /// RMB is also vanilla aim / context click, so it only keys the radio while the player is
+        /// actually playing: no inventory, container, dialogue, map, journal or other menu; no
+        /// pause menu; not dead; and no overlay of ours holding input (chat, F2, F3).
+        /// </summary>
+        private static bool WalkieTxAllowed()
+        {
+            if (UiInputLock.IsHeld || Core.mainMenu || Core.loadingGame || Core.forbidInputs)
+                return false;
+
+            Player p = Player.Instance;
+            if (p == null || !p.alive || p.dying)
+                return false;
+            if (p.Inventory != null && p.Inventory.open)
+                return false;
+            if (p.openedItemInventory != null || p.openedItemInventory2 != null)
+                return false;
+            // dialogue, item menu, construction, leveling, map, journal, skills, padlock, controller menu
+            if (p.inMenu())
+                return false;
+
+            MainMenu pause = Singleton<MainMenu>.Instance;
+            return pause == null || !pause.gameObject.activeInHierarchy;
         }
 
         public static void OnVoiceData(VoiceDataMessage msg)

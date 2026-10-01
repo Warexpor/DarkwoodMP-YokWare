@@ -168,19 +168,19 @@ namespace DWMPHorde.Patches
     })]
     public static class NpcAttackedIdHostFanPatch
     {
-        private static int _attackedIdBefore;
-
-        private static void Prefix(Character __instance)
+        // attackedID before the hit travels in __state: getHit can chain into another getHit
+        // (hit reactions, explosions) and a static would be overwritten before this Postfix.
+        private static void Prefix(Character __instance, out int __state)
         {
-            _attackedIdBefore = 0;
+            __state = 0;
             if (__instance == null || __instance.npc == null) return;
             var flags = Singleton<Flags>.Instance;
             if (flags == null) return;
             Flags.NPCState st = flags.getNPCState(__instance.npc.name);
-            if (st != null) _attackedIdBefore = st.attackedID;
+            if (st != null) __state = st.attackedID;
         }
 
-        private static void Postfix(Character __instance)
+        private static void Postfix(Character __instance, int __state)
         {
             if (__instance == null || __instance.npc == null) return;
             var net = LanNetworkManager.Instance;
@@ -191,7 +191,7 @@ namespace DWMPHorde.Patches
             if (flags == null) return;
             string npcName = __instance.npc.name;
             Flags.NPCState st = flags.getNPCState(npcName);
-            if (st == null || st.attackedID == 0 || st.attackedID == _attackedIdBefore)
+            if (st == null || st.attackedID == 0 || st.attackedID == __state)
                 return;
 
             NpcAttackedIdSync.BroadcastFromHost(npcName, st.reputation, st.attackedID);
@@ -207,23 +207,27 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Character), "die2")]
     public static class NpcDeadStateHostFanPatch
     {
-        private static bool _deadBefore;
-        private static int _deadIdBefore;
-
-        private static void Prefix(Character __instance)
+        // Pre-die2 NPCState travels in __state: die2 can chain into another die2 and statics
+        // would be overwritten before this Postfix.
+        private struct State
         {
-            _deadBefore = false;
-            _deadIdBefore = 0;
+            public bool DeadBefore;
+            public int DeadIdBefore;
+        }
+
+        private static void Prefix(Character __instance, out State __state)
+        {
+            __state = default;
             if (__instance == null || __instance.npc == null) return;
             var flags = Singleton<Flags>.Instance;
             if (flags == null) return;
             Flags.NPCState st = flags.getNPCState(__instance.npc.name);
             if (st == null) return;
-            _deadBefore = st.dead;
-            _deadIdBefore = st.deadID;
+            __state.DeadBefore = st.dead;
+            __state.DeadIdBefore = st.deadID;
         }
 
-        private static void Postfix(Character __instance)
+        private static void Postfix(Character __instance, State __state)
         {
             if (__instance == null || __instance.npc == null) return;
             var net = LanNetworkManager.Instance;
@@ -235,7 +239,7 @@ namespace DWMPHorde.Patches
             string npcName = __instance.npc.name;
             Flags.NPCState st = flags.getNPCState(npcName);
             if (st == null || !st.dead) return;
-            if (_deadBefore && st.deadID == _deadIdBefore) return;
+            if (__state.DeadBefore && st.deadID == __state.DeadIdBefore) return;
 
             NpcAttackedIdSync.BroadcastFromHost(
                 npcName, st.reputation, st.attackedID,

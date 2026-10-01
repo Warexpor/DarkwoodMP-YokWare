@@ -61,7 +61,7 @@ namespace DWMPHorde.Networking
 
             if (_net.Role != NetworkRole.Client)
             {
-                ModRuntime.Log?.LogWarning("[FlagSync] unexpected role for flag sync");
+                ModLog.WarnRate(LogCat.Network, "flagsync-role", "[FlagSync] unexpected role for flag sync");
                 return;
             }
 

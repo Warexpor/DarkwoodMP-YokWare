@@ -7,6 +7,8 @@ namespace DWMPHorde.Networking
         public bool CanCutInHalf;
         public int AttackerPlayerId;
         public int VictimPlayerId;
+        /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the victim. Trailing count + effects; null = none.</summary>
+        public SensorEffectWire[] Effects;
 
         public void Serialize(NetWriter w)
         {
@@ -15,18 +17,24 @@ namespace DWMPHorde.Networking
             w.Put(CanCutInHalf);
             w.Put(AttackerPlayerId);
             w.Put(VictimPlayerId);
+            SensorEffectWire.WriteList(w, Effects);
         }
 
-        public static FriendlyFireMessage Deserialize(NetReader r) => new FriendlyFireMessage
+        public static FriendlyFireMessage Deserialize(NetReader r)
         {
-            Damage = r.GetInt(),
-            AttackerPosX = r.GetFloat(),
-            AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat(),
-            CanCutInHalf = r.GetBool(),
-            AttackerPlayerId = r.GetInt(),
-            VictimPlayerId = r.GetInt()
-        };
+            var msg = new FriendlyFireMessage
+            {
+                Damage = r.GetInt(),
+                AttackerPosX = r.GetFloat(),
+                AttackerPosY = r.GetFloat(),
+                AttackerPosZ = r.GetFloat(),
+                CanCutInHalf = r.GetBool(),
+                AttackerPlayerId = r.GetInt(),
+                VictimPlayerId = r.GetInt()
+            };
+            msg.Effects = SensorEffectWire.ReadList(r);
+            return msg;
+        }
     }
 
     public struct BulletImpactMessage
@@ -85,6 +93,9 @@ namespace DWMPHorde.Networking
             w.Put(VelX); w.Put(VelY); w.Put(VelZ);
             w.Put(ThrowId);
             w.Put(LongevitySec);
+            // Explicit flag: the receiver used to infer it from "trailer present", which is always
+            // true, so a throw with no land target applied landTarget (0,0,0).
+            w.Put(HasLandTarget);
             w.Put(LandX); w.Put(LandY); w.Put(LandZ);
         }
 
@@ -107,13 +118,13 @@ namespace DWMPHorde.Networking
                 msg.ThrowId = r.GetInt();
                 msg.LongevitySec = r.GetFloat();
             }
-            // landTarget trailer (12 bytes); older peers omit this.
-            if (r.AvailableBytes >= 12)
+            // landTarget trailer: flag + 12 bytes; older peers omit this.
+            if (r.AvailableBytes >= 13)
             {
+                msg.HasLandTarget = r.GetBool();
                 msg.LandX = r.GetFloat();
                 msg.LandY = r.GetFloat();
                 msg.LandZ = r.GetFloat();
-                msg.HasLandTarget = true;
             }
             return msg;
         }

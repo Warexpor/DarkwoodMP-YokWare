@@ -33,7 +33,8 @@ namespace DWMPHorde.Networking
 
                     // Abort lookKeyhole world-only drain. Waiting for portrait boards caused a
                     // multi-second pause before leave-door GE (door finally opens late).
-                    _net.DialogOutcomeHandlers.AbortWorldOnlyDrainForRelease();
+                    _net.DialogOutcomeHandlers.AbortWorldOnlyDrainForRelease(
+                        msg.NpcName, msg.OwnerPlayerId);
 
                     if (prevOwner < 0 || prevOwner == msg.OwnerPlayerId)
                         _net.DialogOutcomeHandlers.HostFireNpcCloseDialogue(msg.NpcName);
@@ -42,6 +43,13 @@ namespace DWMPHorde.Networking
                 if (msg.IsRequest || !msg.Granted)
                 {
                     int owner = msg.OwnerPlayerId > 0 ? msg.OwnerPlayerId : _net.CurrentReceivePlayerId;
+                    // Lease renewal from the current holder (still talking): extend and refresh
+                    // mirrors only. A fresh grant would replay onEnterDialogue every 30s.
+                    if (msg.IsRequest && owner > 0 && NpcDialogueLock.GetOwner(msg.NpcName) == owner)
+                    {
+                        NpcDialogueLock.HostRenewHeld(_net, msg.NpcName, owner);
+                        return;
+                    }
                     NpcDialogueLock.HostTryGrant(_net, msg.NpcName, owner);
                 }
                 return;

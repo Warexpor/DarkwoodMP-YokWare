@@ -23,11 +23,11 @@ namespace DWMPHorde.Patches
 
     // ─── Forest Spirit redirect ────────────────────────────────────────
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
     public static class ForestSpiritRedirectPatch
     {
         // spawnForestSpirit is IEnumerator; return false without __result → StartCoroutine(null).
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
         {
             if (!ShouldRedirect())
@@ -120,10 +120,10 @@ namespace DWMPHorde.Patches
 
     // ─── NightWorm redirect (post-spawn reposition) ───────────────────
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
     public static class NightWormPostSpawnPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(GameObject __result, string prefab)
         {
             if (__result == null || prefab != "characters/fakechars/NightWorms_01")

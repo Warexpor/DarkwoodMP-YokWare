@@ -266,8 +266,9 @@ namespace DWMPHorde.Networking
         internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx) =>
             ContainerHandlers.RecordPendingContainerRemove(pos, slotIdx);
 
-        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount) =>
-            ContainerHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount);
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount,
+            bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0) =>
+            ContainerHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount, isRecipe, itemType, durability, ammo);
 
         internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx) =>
             ContainerHandlers.ClearPendingTakePreCount(pos, slotIdx);

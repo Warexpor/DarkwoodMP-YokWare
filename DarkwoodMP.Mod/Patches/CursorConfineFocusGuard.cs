@@ -10,7 +10,8 @@ namespace DWMPHorde.Patches
     /// Win32 ClipCursor. Focus-based release is unreliable under XWayland (the
     /// game often keeps <see cref="Application.isFocused"/> true), and toggling
     /// ClipCursor on blur can hard-freeze the Wine window. Dual-box needs a free
-    /// pointer always — rewrite Confined/Locked to None and never re-engage.
+    /// pointer always — rewrite Confined/Locked to None and never re-engage. Acts only when the
+    /// <c>FreeCursorForDualBox</c> config is true; otherwise the cursor stays vanilla.
     /// </summary>
     /// <remarks>
     /// Must use <c>UnityEngine.Cursor</c> — Assembly-CSharp also defines a
@@ -42,8 +43,9 @@ namespace DWMPHorde.Patches
 
         private static bool IsFreeCursorEnabled()
         {
-            // Unbound → free (safe before ModConfig.Bind finishes).
-            return ModConfig.FreeCursorForDualBox == null || ModConfig.FreeCursorForDualBox.Value;
+            // Opt-in only: vanilla cursor handling stays untouched unless the setting is bound and true
+            // (unbound = config not loaded yet → vanilla).
+            return ModConfig.FreeCursorForDualBox != null && ModConfig.FreeCursorForDualBox.Value;
         }
 
         internal static void ForceFreeIfEnabled()
@@ -61,7 +63,7 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(ref CursorLockMode value)
         {
-            if (ModConfig.FreeCursorForDualBox != null && !ModConfig.FreeCursorForDualBox.Value)
+            if (ModConfig.FreeCursorForDualBox == null || !ModConfig.FreeCursorForDualBox.Value)
                 return;
             if (value != CursorLockMode.None)
                 value = CursorLockMode.None;

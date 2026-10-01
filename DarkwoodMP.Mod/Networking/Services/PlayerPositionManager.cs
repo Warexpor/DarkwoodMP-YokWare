@@ -137,6 +137,7 @@ namespace DWMPHorde.Networking
         public static void RemovePlayer(int playerId)
         {
             _remotePlayers.Remove(playerId);
+            Audio.VoiceChatService.RemoveSpeaker(playerId);
         }
 
         public static void Clear()

@@ -258,7 +258,8 @@ namespace DWMPHorde.Networking
 
         public static string SerializeToJson(ClientStateBackupData data)
         {
-            return JsonConvert.SerializeObject(data, Formatting.Indented);
+            // Compact: this string is also the wire payload, and indentation roughly doubled it.
+            return JsonConvert.SerializeObject(data, Formatting.None);
         }
 
         public static ClientStateBackupData DeserializeFromJson(string json)

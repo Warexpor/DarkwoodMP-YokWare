@@ -99,6 +99,16 @@ namespace DWMPHorde.Networking
                     // Already tearing or intentional; do not nest StopNetwork.
                     return;
                 }
+                // A running migration reconnect retries from TickHostMigrationRetry.
+                if (_migrationInProgress)
+                    return;
+                // Connect-failure reasons only mean "never got in" before the handshake; after it
+                // (e.g. PeerNotFound on a host that crashed) the loss is real and migration applies.
+                if (!_handshakeComplete && IsConnectFailureReason(disconnectInfo.Reason))
+                {
+                    OnClientLinkFailed(disconnectInfo.Reason.ToString());
+                    return;
+                }
                 TryBeginHostMigration(disconnectInfo.Reason.ToString());
             }
         }
@@ -120,12 +130,18 @@ namespace DWMPHorde.Networking
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
             Sync.PeerItemPresence.ClearPlayer(playerId);
             ClearStableClientKey(playerId);
+            ClearStickyPlayerPayloads(playerId);
 
             if (removeLanSlot)
                 _peers.Remove(playerId);
             // Steam path already called RemovePeerSlot before this.
 
             _handshakedPeers.Remove(playerId);
+            // A peer that rebinds to this id later counts from a low sequence again; the old
+            // high-water marks would drop its unreliable packets until it overtook them.
+            _lastPlayerStateSequence.Remove(playerId);
+            _lastPhysicsStateSequence.Remove(playerId);
+            _lastReliablePhysicsStateSequence.Remove(playerId);
             bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
                 && !_peersCoopReconnect.Contains(playerId)
                 && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
@@ -174,6 +190,8 @@ namespace DWMPHorde.Networking
             }
             else
             {
+                // A joiner that detached before entering still took a night-participant id.
+                DeathStateTracker.OnRemotePeerGone(playerId);
                 ModLog.Event(LogCat.Session,
                     "Peer " + playerId + " detached during join pipeline (expected — offline load or pre-ready)");
             }

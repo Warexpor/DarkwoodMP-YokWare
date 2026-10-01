@@ -11,11 +11,11 @@ namespace DWMPHorde
         /// <summary>
         /// BepInEx plugin version. The supported product line is 0.8.x.
         /// </summary>
-        public const string Version = "0.8.125";
-        /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.8.125 Path B (architecture rewrite)";
-        /// <summary>Horde wire protocol. 25 includes ordered state snapshots.</summary>
-        public const int ProtocolVersion = 25;
+        public const string Version = "0.8.127";
+        /// <summary>Full product label shown in UI banners, the multiplayer menu and log banners (already includes the product name).</summary>
+        public const string DisplayVersion = "YokWare Branch 0.8.127 / Path B";
+        /// <summary>Horde wire protocol. Bumped whenever a wire format changes or a message id is added.</summary>
+        public const int ProtocolVersion = 27;
         public const int DefaultPort = 7788;
         public const string Authors = "Warexpor & Yokyy";
         public const string Description = "Darkwood co-op — Horde host-authoritative sync (Path B)";

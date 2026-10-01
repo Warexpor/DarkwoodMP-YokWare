@@ -35,6 +35,12 @@ namespace DWMPHorde.Networking
                     _nextPlayerId = pid + 1;
             }
 
+            // The new host owns the session settings: drop the old host's applied values so this
+            // install's own config (and the roster-derived party size) applies, and announce them
+            // to the survivors on the next roster tick / handshake.
+            SessionSettings.ResetToLocal();
+            _sessionSettingsBroadcastOnce = false;
+
             // Reclaim sim: release client host-sync freeze so AI/entities run under us.
             ReclaimSimulationAuthorityAfterPromote();
 
@@ -44,7 +50,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             int port = _sessionPort > 0 ? _sessionPort : PluginInfo.DefaultPort;
             if (!_net.Start(port))
             {
@@ -176,9 +182,9 @@ namespace DWMPHorde.Networking
             if (!Steam.ConnectP2PDirect(hostSid))
             {
                 ModLog.Error(LogCat.Network, "Steam migration ConnectP2P failed");
-                _backend = ConnectionBackend.None;
-                _role = NetworkRole.Offline;
-                // Leave _migrationInProgress so TickHostMigrationRetry can try again.
+                // Stay a migrating Client on the Steam backend: TickHostMigrationRetry only runs
+                // for Role==Client, so dropping to Offline here stranded the session with no retry
+                // and no teardown. It retries up to MigrationMaxRetries, then StopNetwork.
                 StatusText = "Migrating — Steam connect failed, retrying…";
                 return;
             }
@@ -211,7 +217,7 @@ namespace DWMPHorde.Networking
 
             try
             {
-                Sync.WorldPhysicsSyncService.Reset();
+                Sync.WorldPhysicsSyncService.ResetForPromote();
             }
             catch (Exception ex)
             {
@@ -269,7 +275,7 @@ namespace DWMPHorde.Networking
             _role = NetworkRole.Client;
             _localPlayerId = keepId;
             _hostPlayerId = electHostId > 0 ? electHostId : _hostPlayerId;
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             _net.Start();
             string key = Config.ModConfig.GetConnectionKey();
             NetPeer peer = _net.Connect(address, port, key);

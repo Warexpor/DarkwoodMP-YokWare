@@ -64,6 +64,9 @@ namespace DWMPHorde.Patches
         {
             get
             {
+                // Singleplayer: every flavor message is the player's own.
+                bool connected = ModRuntime.Network != null && ModRuntime.Network.IsConnected;
+                if (!connected) return true;
                 if (_bypassCount > 0) return true;
                 if (_suppressCount > 0) return false;
                 if (_flavorSources.Count > 0)
@@ -282,19 +285,26 @@ namespace DWMPHorde.Patches
             return null;
         }
 
-        private static void Prefix(object __instance)
+        // __state: whether this call pushed a source, so the Finalizer pops exactly what it pushed
+        // even if the session connected or dropped while the MoveNext was suspended.
+        private static void Prefix(object __instance, out bool __state)
         {
+            __state = false;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             if (_thisGoField == null)
                 _thisGoField = AccessTools.Field(__instance.GetType(), "thisGO");
             UnityEngine.GameObject go = _thisGoField != null
                 ? _thisGoField.GetValue(__instance) as UnityEngine.GameObject
                 : null;
             PersonalFlavorHud.PushFlavorSource(go);
+            __state = true;
         }
 
-        private static void Finalizer()
+        private static void Finalizer(bool __state)
         {
-            PersonalFlavorHud.PopFlavorSource();
+            if (__state)
+                PersonalFlavorHud.PopFlavorSource();
         }
     }
 

@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
@@ -28,8 +28,47 @@ namespace DWMPHorde.Patches
             public Transform Target;
         }
 
-        private static readonly ConditionalWeakTable<BirdArea, State> States =
-            new ConditionalWeakTable<BirdArea, State>();
+        private static readonly Dictionary<BirdArea, State> States =
+            new Dictionary<BirdArea, State>(16);
+
+        /// <summary>
+        /// Registered with NetworkResetRegistry. Presence counts are session state: when the
+        /// session ends an area a remote was inside must not keep playerIsInside / its attack
+        /// routine running with no one left to clear it (vanilla would only clear it on a Player
+        /// trigger exit).
+        /// </summary>
+        internal static void Reset()
+        {
+            foreach (KeyValuePair<BirdArea, State> kv in States)
+            {
+                BirdArea area = kv.Key;
+                if (area == null || kv.Value == null || kv.Value.Count <= 0)
+                    continue;
+                // Only the remote presence is dropped; the local player standing in the area keeps
+                // vanilla's own playerIsInside and the attack routine.
+                if (area.playerIsInside && !LocalPlayerInside(area))
+                {
+                    area.playerIsInside = false;
+                    area.stopRoutine(area.sendBirdToAttackPlayer);
+                }
+            }
+            States.Clear();
+        }
+
+        /// <summary>The local player is standing inside the area's trigger volume.</summary>
+        private static bool LocalPlayerInside(BirdArea area)
+        {
+            try
+            {
+                Player p = Player.Instance;
+                if (p == null) return false;
+                Collider col = area.GetComponent<Collider>();
+                if (col == null) return false;
+                Vector3 pos = p._transform != null ? p._transform.position : p.transform.position;
+                return col.bounds.Contains(new Vector3(pos.x, col.bounds.center.y, pos.z));
+            }
+            catch { return false; }
+        }
 
         internal static bool IsClientConnected()
         {
@@ -62,7 +101,15 @@ namespace DWMPHorde.Patches
             return null;
         }
 
-        private static State Get(BirdArea area) => States.GetOrCreateValue(area);
+        private static State Get(BirdArea area)
+        {
+            if (!States.TryGetValue(area, out State s) || s == null)
+            {
+                s = new State();
+                States[area] = s;
+            }
+            return s;
+        }
 
         internal static void NoteEnter(BirdArea area, Transform presence)
         {

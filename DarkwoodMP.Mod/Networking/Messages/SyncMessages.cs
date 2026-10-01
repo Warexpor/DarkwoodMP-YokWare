@@ -227,10 +227,10 @@ namespace DWMPHorde.Networking
     {
         public string Payload;
 
-        public void Serialize(NetWriter w) => w.Put(Payload ?? "");
+        public void Serialize(NetWriter w) => w.PutLongString(Payload);
         public static DialogTreeStateMessage Deserialize(NetReader r) => new DialogTreeStateMessage
         {
-            Payload = r.GetString()
+            Payload = r.GetLongString()
         };
     }
 
@@ -463,8 +463,10 @@ namespace DWMPHorde.Networking
     public struct ClientStateBackupMessage
     {
         public string JsonData;
-        public void Serialize(NetWriter w) { w.Put(JsonData ?? ""); }
-        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetString() };
+        // Long-string framing: a full inventory/skills/journal backup can pass the 65535-byte limit of
+        // Put(string), which wrapped the length and corrupted the packet.
+        public void Serialize(NetWriter w) { w.PutLongString(JsonData); }
+        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString() };
     }
 
     public struct ReputationSyncMessage

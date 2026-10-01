@@ -17,7 +17,9 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostPresentation.ShouldSuppress) return true;
+            // Only inside the synchronous apply scope. The sticky flag outlives it for the whole
+            // drain and swallowed the host's own fades (sleep, death) during that window.
+            if (!DialogHostApplyGuard.Active) return true;
             // Allow clearing; block fade-to-black from changePortrait / journal note.
             return _color.a < 0.01f;
         }
@@ -28,8 +30,36 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostPresentation.ShouldSuppress) return true;
+            if (!DialogHostApplyGuard.Active) return true;
             return _color.a < 0.01f;
+        }
+    }
+
+    /// <summary>
+    /// A pending world-only drain's delayed boards (changePortrait Invoke → setPortrait →
+    /// displayNextBoard) run frames after the apply scope ended. Re-enter the guard for exactly
+    /// that call so its suppressors apply to it and to nothing else. Prefix/Finalizer pair keeps
+    /// the depth balanced if displayNextBoard throws or another prefix skips the original.
+    /// </summary>
+    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
+    public static class DialogHostDrainBoardScopePatch
+    {
+        // 0 = no scope, 1 = scope, 2 = scope + pushed GameEventsFired actor.
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(ref int __state)
+        {
+            __state = 0;
+            if (!DialogHostApplyGuard.DrainPending || DialogHostApplyGuard.Active) return;
+            // A real host conversation is not part of the drain.
+            if (Player.Instance != null && Player.Instance.inDialogue) return;
+            __state = DialogHostApplyGuard.BeginDrainScope() ? 2 : 1;
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer(int __state)
+        {
+            if (__state != 0)
+                DialogHostApplyGuard.EndDrainScope(__state == 2);
         }
     }
 

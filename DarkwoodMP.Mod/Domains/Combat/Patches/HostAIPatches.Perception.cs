@@ -47,7 +47,6 @@ namespace DWMPHorde.Patches
     /// method (old Prefix return false) froze lure/activities/retarget while the client
     /// was still next to the NPC. Stash only the host-only cull flags so the rest runs.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Character), "checkStuff")]
     public static class HostCheckStuffPatch
     {
@@ -66,6 +65,7 @@ namespace DWMPHorde.Patches
 
         public static void Reset() => _stash.Clear();
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(Character __instance)
         {
             if (!HostPlayerIdentity.HostWithRemotes())
@@ -119,6 +119,7 @@ namespace DWMPHorde.Patches
         // temporarySpawned / wantToDespawn / forestSpirit, Postfix never runs and
         // those flags stay permanently wrong (never-despawn / spirit idle). Same class
         // as NightSpawnFlagPatch / HostGridOccupancy Finalizer clears.
+        [HarmonyPriority(Priority.Last)]
         private static void Finalizer(Character __instance)
         {
             if (__instance == null)
@@ -328,7 +329,6 @@ namespace DWMPHorde.Patches
     /// Uses nameHash + Time debounce instead of MeleeSensor.GetInstanceID() to avoid
     /// Unity object-pooling reuse issues. Based on ClientCombatPatches pattern.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class MeleeSensorDeduplicatePatch
     {
@@ -340,6 +340,7 @@ namespace DWMPHorde.Patches
         internal static readonly Dictionary<long, float> _lastCharHitTime = new Dictionary<long, float>();
         private static readonly List<long> _staleHitKeys = new List<long>(8);
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
             Collider _collider = (Collider)__args[0];

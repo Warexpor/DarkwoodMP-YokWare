@@ -55,6 +55,11 @@ namespace DWMPHorde.Sync
         public static void ForceLocalDreamCleanup(string reason)
         {
             ClearStoryEndDefer();
+            CancelPendingEntries();
+            // A rejected / failed start leaves the host-resolved pick the client stored when it sent
+            // DreamStartRequest; getPreset("") would keep returning it for the next random dream.
+            if (DreamSession.IsFailureCleanup(reason))
+                DreamSession.ClearPendingHostPreset();
             ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
             ClearRemoteDreamRoster();
             FadeOutDreamTransition();
@@ -102,10 +107,12 @@ namespace DWMPHorde.Sync
                 UnfreezeWorld(restoreTime: false);
                 FinalDreamsceneManager.OnDreamEnded();
                 ClearRemoteDreamRoster();
+                ClearPreDreamState();
                 WorldQueryHelper.InvalidateCommonSceneScanCaches();
             }
             _localDreamActive = false;
             _localDreamPreset = null;
+            _hostOrderedDreamEnd = false;
         }
 
         /// <summary>
@@ -225,6 +232,7 @@ namespace DWMPHorde.Sync
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
+            CloseOpenUiForDreamEntry();
             WorldQueryHelper.InvalidateCommonSceneScanCaches();
             FreezeWorld();
 

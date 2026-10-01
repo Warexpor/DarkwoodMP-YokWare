@@ -53,6 +53,13 @@ namespace DWMPHorde.Networking
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
 
+                    // Relay to the other clients first: the host has no proxy for this peer while it
+                    // loads a location, but the peers that do must keep seeing it.
+                    // PlayerId is the transport peer (authoritative), never the embedded one.
+                    state.PlayerId = playerId;
+                    _net.BroadcastHot(NetMessageType.PlayerState, w => state.Serialize(w),
+                        excludePlayerId: playerId);
+
                     _net.EnsureRemoteProxy(playerId);
                     RemotePlayerProxy proxy = _net.GetProxy(playerId);
                     if (proxy == null) return;
@@ -122,14 +129,6 @@ namespace DWMPHorde.Networking
                     proxy.RemoteLocomotion = (SecondPlayerAnimController.LocomotionState)state.LocomotionState;
                     proxy.ApplyNetworkState(netState);
                     _net.PlayerHeldLightHandlers.HandleRemoteContinuousLights(state, playerId);
-
-                    // Forward this client's state to all other connected clients (3+ support)
-                    if (playerId > 0)
-                    {
-                        state.PlayerId = playerId;
-                        _net.BroadcastHot(NetMessageType.PlayerState, w => state.Serialize(w),
-                            excludePlayerId: playerId);
-                    }
 
                     // DISABLED on join path: removeAfterNightEffect() is a full-screen native
                     // morning/event sequence. A joining client's AfterNightActive=false packet

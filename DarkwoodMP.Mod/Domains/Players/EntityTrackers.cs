@@ -64,8 +64,20 @@ namespace DWMPHorde.Sync
             _items.RemoveAll(item => item == null);
         }
 
-        /// <summary>Clears all tracked instances.</summary>
-        public static void Clear() { _items.Clear(); }
+        /// <summary>
+        /// Network-stop reset (registered with NetworkResetRegistry): drops the list, then
+        /// rescans the scene including inactive instances. Doors / generators in the live world
+        /// already ran Awake / Start, so nothing would re-register them — a re-host in the same
+        /// world would otherwise iterate empty lists (same rescan as
+        /// <c>CharacterTracker.ResetForNetworkStop</c>).
+        /// </summary>
+        public static void Clear()
+        {
+            _items.Clear();
+            T[] scene = Object.FindObjectsOfType<T>(true);
+            for (int i = 0; i < scene.Length; i++)
+                Add(scene[i]);
+        }
     }
 
     /// <summary>Harmony patch: registers doors with the tracker on Awake.</summary>

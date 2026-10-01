@@ -4,8 +4,8 @@ Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.31** |
-| Wire | Horde protocol **25** |
+| Product | YokWare Branch **0.8.127** |
+| Wire | Horde protocol **27** |
 | Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
 | Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
 | License | GPLv3, see [LICENSE](LICENSE) |
@@ -29,7 +29,7 @@ All peers in a session must use the same mod version and protocol.
 - Clients present host state and suppress the local systems that would create
   duplicate world simulation.
 
-The highest assigned message ID is 133 (`PeerHasItem`). Voice data uses message
+The highest assigned message ID is 146 (`SessionSettings`). Voice data uses message
 129 when Steam voice is enabled.
 
 ---
@@ -51,8 +51,8 @@ game installation.
 3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
    `DarkwoodMP.Mod/bin/Release/BepInEx/` to
    `Darkwood/BepInEx/plugins/`.
-4. Launch Darkwood. The menu should show YokWare Branch 0.8.31 and protocol
-   25.
+4. Launch Darkwood. The F2 window title should read YokWare Branch 0.8.127 / Path B
+   and its footer protocol 27.
 
 The project can also copy these files to the configured local Steam and
 SecondDarkwood plugin directories after a BepInEx build. Treat that as a local
@@ -83,12 +83,30 @@ Configuration uses the same INI key shape on both loaders:
 - BepInEx: `Darkwood/BepInEx/config/com.yokware.branch.cfg`
 - Melon: Melon `UserData/YokWare/com.yokware.branch.cfg`
 
+Every key, its default and what it does is listed in
+[DarkwoodMP.Mod/docs/CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md).
+
+### Entity spawner (optional)
+
+`DarkwoodMP.EntitySpawner` is a separate debug plugin (**F5** opens its
+window). It is not part of the co-op mod and is not needed to play; build it
+with `dotnet build DarkwoodMP.EntitySpawner -c Release` and copy its DLL next to
+the mod only when you want to spawn entities while testing.
+
 ### Dual-box testing
 
-SecondDarkwood is the GOG installation at
-`C:\MyProjects\SecondDarkwood\Darkwood`. Use LAN for Steam to GOG testing.
-Steam lobby sessions require two Steam clients. The second installation uses
-an isolated `Darkwood_Second` save root when the normal local setup is used.
+SecondDarkwood is the second (GOG) installation used as the client box. Use LAN
+for Steam to GOG testing. Steam lobby sessions require two Steam clients. The
+second installation uses an isolated `Darkwood_Second` save root when the normal
+local setup is used.
+
+| | Linux (Steam host + Wine/Proton client) | Windows |
+|--|--|--|
+| Host game | `~/.local/share/Steam/steamapps/common/Darkwood` | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood` |
+| Client game | `~/Work/MyProjects/SecondDarkwood/Darkwood` | `C:\MyProjects\SecondDarkwood\Darkwood` |
+
+On Linux dual-box (Wayland + Wine), set `FreeCursorForDualBox = true` in both
+installs' `com.yokware.branch.cfg`; it defaults to off.
 
 ---
 
@@ -97,7 +115,8 @@ an isolated `Darkwood_Second` save root when the normal local setup is used.
 - **F2**: multiplayer settings
 - **F3**: manual save
 - **F4**: spectator mode
-- **Ctrl+C**: chat, when enabled
+- **Ctrl+C**: chat (`ChatEnabled`, on by default). Enter sends, Esc closes;
+  gameplay input is held while the input box is open.
 
 The title menu provides HOST, JOIN, SETTINGS, and recovery actions. The host
 must enter a chapter before a client can join its world.
@@ -106,16 +125,33 @@ must enter a chapter before a client can join its world.
 
 ## Build and test
 
-Create `DarkwoodMP.Mod/GamePath.local.props` locally when the default game
-path is not correct:
+Create `DarkwoodMP.Mod/GamePath.local.props` locally (gitignored). On Linux it
+is required, because the built-in default is a Windows path. `SecondPlugins` is
+optional and only used by the post-build deploy to the second install.
+
+Linux:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <GameDir>/home/you/.local/share/Steam/steamapps/common/Darkwood</GameDir>
+    <SecondPlugins>/home/you/Work/MyProjects/SecondDarkwood/Darkwood/BepInEx/plugins</SecondPlugins>
+  </PropertyGroup>
+</Project>
+```
+
+Windows:
 
 ```xml
 <Project>
   <PropertyGroup>
     <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
+    <SecondPlugins>C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
   </PropertyGroup>
 </Project>
 ```
+
+`-p:SkipDeploy=true` builds without copying into any game directory.
 
 Build the solution:
 
@@ -156,6 +192,8 @@ deferred — see
 [CHANGELOG.md](CHANGELOG.md) and
 [DarkwoodMP.Mod/docs/COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
 For support logs, use [DarkwoodMP.Mod/docs/LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
+The manual playtest checklist is
+[DarkwoodMP.Mod/docs/PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md).
 
 ---
 
@@ -167,5 +205,5 @@ Warexpor and Yokyy co-author the YokWare Branch. See
 GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
 [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Current ship: **0.8.31**, protocol **25**. See
+Current ship: **0.8.127**, protocol **27**. See
 [CHANGELOG.md](CHANGELOG.md).

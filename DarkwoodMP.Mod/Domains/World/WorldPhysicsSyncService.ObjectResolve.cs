@@ -249,6 +249,23 @@ namespace DWMPHorde.Sync
             return go;
         }
 
+        /// <summary>Largest distance a full-scene scan match may sit from the reported pose.</summary>
+        private const float FullScanMaxDist = 50f;
+
+        /// <summary>
+        /// While a dream is active, a pad-side target may only resolve to a pad body and an
+        /// overworld-side target never to one (the pad is a clone of overworld locations).
+        /// </summary>
+        private static bool IsSameWorldAsTarget(Transform candidate, Vector3 targetPos)
+        {
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            if (pad == null) return true;
+            bool targetOnPad = Vector3.Distance(targetPos, pad.position) <= 250f;
+            bool candOnPad = candidate.IsChildOf(pad)
+                || Vector3.Distance(candidate.position, pad.position) <= 250f;
+            return targetOnPad == candOnPad;
+        }
+
         private static GameObject FindOrSpawnObject(WorldObjectState obj)
         {
             if (string.IsNullOrEmpty(obj.Name))
@@ -313,7 +330,10 @@ namespace DWMPHorde.Sync
                     Rigidbody rb = allRbs[i];
                     if (rb == null) continue;
                     GameObject candidate = rb.gameObject;
-                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, float.MaxValue)) continue;
+                    // Bounded: an unbounded name match found the overworld twin of a dream-pad
+                    // crate (≈70k units away) and the hard snap then dragged it to -75000.
+                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, FullScanMaxDist)) continue;
+                    if (!IsSameWorldAsTarget(candidate.transform, targetPos)) continue;
                     float d = Vector3.Distance(candidate.transform.position, targetPos);
                     if (d < bestDist)
                     {

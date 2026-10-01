@@ -69,9 +69,15 @@ namespace DWMPHorde.Patches
     public static class GameEventReputationHostFanPatch
     {
         private static FieldInfo _gameEventField;
-        private static string _npcName;
-        private static int _repBefore;
-        private static bool _track;
+
+        // Per-MoveNext state travels in __state: a GameEvent step can start another GameEvent
+        // coroutine whose MoveNext runs inside this one, and statics would be overwritten.
+        private struct State
+        {
+            public bool Track;
+            public string NpcName;
+            public int RepBefore;
+        }
 
         private static bool Prepare() => TargetMethod() != null;
 
@@ -114,10 +120,13 @@ namespace DWMPHorde.Patches
                 : null;
         }
 
-        private static void Prefix(object __instance)
+        private static void Prefix(object __instance, out State __state)
         {
-            _track = false;
-            _npcName = null;
+            __state = default;
+            // Host-only fan-out: nothing to track offline / as a client.
+            var net = LanNetworkManager.Instance;
+            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+                return;
             GameEvent ge = GetGameEvent(__instance);
             if (ge == null) return;
             if (ge.type != GameEvent.Type.modifyCharacter) return;
@@ -131,18 +140,16 @@ namespace DWMPHorde.Patches
             // Vanilla only writes when the NPCState already exists.
             if (st == null) return;
 
-            _npcName = ge.Value;
-            _repBefore = st.reputation;
-            _track = true;
+            __state.NpcName = ge.Value;
+            __state.RepBefore = st.reputation;
+            __state.Track = true;
         }
 
-        private static void Postfix(object __instance)
+        private static void Postfix(object __instance, State __state)
         {
-            if (!_track) return;
-            _track = false;
-            string npcName = _npcName;
-            int before = _repBefore;
-            _npcName = null;
+            if (!__state.Track) return;
+            string npcName = __state.NpcName;
+            int before = __state.RepBefore;
 
             var net = LanNetworkManager.Instance;
             // Host-only. Clients applying GameEventsFired write Flags locally under

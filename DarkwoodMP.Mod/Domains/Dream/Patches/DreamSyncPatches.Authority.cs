@@ -51,57 +51,6 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Track the next dream before prepareDream when wantToSwitchDream skips
-    /// endDreaming. DreamPrepareChainPatch owns the wire message.
-    /// </summary>
-    [HarmonyPatch(typeof(Dreams), "wantToSwitchDream")]
-    public static class DreamWantToSwitchPatch
-    {
-        private static void Postfix(Dreams __instance, bool __result)
-        {
-            if (!__result) return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                return;
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
-            if (ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!DreamSession.IsActive)
-                return;
-
-            string next = null;
-            try
-            {
-                var traverse = Traverse.Create(__instance);
-                var outcomePreset = traverse.Field("outcomePreset").GetValue<DreamPreset.Outcome>();
-                if (outcomePreset?.effects == null) return;
-                for (int i = 0; i < outcomePreset.effects.Count; i++)
-                {
-                    var e = outcomePreset.effects[i];
-                    if (e == null || e.type != DreamPreset.Outcome.Effect.Type.transferToDream)
-                        continue;
-                    if (e.destPrefab == null) continue;
-                    var go = e.destPrefab as GameObject;
-                    if (go != null && !string.IsNullOrEmpty(go.name))
-                    {
-                        next = go.name;
-                        break;
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[DreamSync] wantToSwitchDream postfix: " + ex.Message);
-                return;
-            }
-
-            if (string.IsNullOrEmpty(next)) return;
-            DreamSession.SetChainedPreset(next);
-            ModRuntime.LegacyInfo("[DreamSync] wantToSwitchDream → chained " + next);
-        }
-    }
-
-    /// <summary>
     /// Single Prefix for Dreams.initiateEndDreaming (merged death + client-authority logic).
     /// Branch order: offline → applying remote → not in session → death spectate →
     /// client story defer to host → host/vanilla continues.

@@ -18,7 +18,26 @@ namespace DWMPHorde.Networking
         private readonly LanNetworkManager _net;
 
         internal const int MaxPendingBarricadeEvents = 64;
-        private readonly List<BarricadeEventMessage> _pendingBarricadeEvents = new List<BarricadeEventMessage>();
+
+        /// <summary>
+        /// A destructible Item is matched this close (XZ) to the event position. The message
+        /// carries no name or type, so a wide radius adopted any other destructible within 25 m
+        /// (the wrong crate was destroyed / damaged); a tight one plus the destructible flag is the
+        /// strongest identity available.
+        /// </summary>
+        internal const float ItemMatchRadius = 2f;
+
+        private const float PendingFlushIntervalSec = 1f;
+        private const float PendingMaxAgeSec = 30f;
+
+        private struct PendingBarricade
+        {
+            public BarricadeEventMessage Msg;
+            public float QueuedAt;
+        }
+
+        private readonly List<PendingBarricade> _pendingBarricadeEvents = new List<PendingBarricade>();
+        private float _nextPendingFlushAt;
 
         internal BarricadeNetHandlers(LanNetworkManager net)
         {
@@ -61,7 +80,7 @@ namespace DWMPHorde.Networking
                     // Match door/window: queue until the pad/chunk wakes (fresh
                     // OutsideLocations.spawnLocation). HandleItemDamageEvent alone
                     // dropped Destroyed crates when the Item was not spawned yet.
-                    if (WorldQueryHelper.FindDestructibleItemXz(pos, 25f) == null)
+                    if (WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) == null)
                     {
                         if (queueIfMissing)
                             QueuePendingBarricade(msg);
@@ -256,7 +275,7 @@ namespace DWMPHorde.Networking
             // Replace same rounded position + type
             for (int i = _pendingBarricadeEvents.Count - 1; i >= 0; i--)
             {
-                var p = _pendingBarricadeEvents[i];
+                var p = _pendingBarricadeEvents[i].Msg;
                 if (p.IsWindow == msg.IsWindow
                     && Mathf.Abs(p.PosX - msg.PosX) < 0.15f
                     && Mathf.Abs(p.PosY - msg.PosY) < 0.15f
@@ -265,24 +284,46 @@ namespace DWMPHorde.Networking
             }
             if (_pendingBarricadeEvents.Count >= MaxPendingBarricadeEvents)
                 _pendingBarricadeEvents.RemoveAt(0);
-            _pendingBarricadeEvents.Add(msg);
+            _pendingBarricadeEvents.Add(new PendingBarricade
+            {
+                Msg = msg,
+                QueuedAt = Time.unscaledTime
+            });
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[Barr] queued event type={msg.IsWindow} act={msg.Action}");
         }
 
+        /// <summary>
+        /// Called every frame from LanNetworkManager.Tick. Each pending entry costs an
+        /// OverlapSphere (and a cached scene scan on a miss), up to 64 of them, so the work is gated
+        /// here to once per second, and entries whose object never loaded expire after 30s.
+        /// </summary>
         internal void TryFlushPendingBarricadeEvents()
         {
             if (_pendingBarricadeEvents.Count == 0) return;
+            float now = Time.unscaledTime;
+            if (now < _nextPendingFlushAt) return;
+            _nextPendingFlushAt = now + PendingFlushIntervalSec;
+
             for (int i = _pendingBarricadeEvents.Count - 1; i >= 0; i--)
             {
-                var msg = _pendingBarricadeEvents[i];
+                if (i >= _pendingBarricadeEvents.Count) continue;
+                var entry = _pendingBarricadeEvents[i];
+                if (now - entry.QueuedAt > PendingMaxAgeSec)
+                {
+                    _pendingBarricadeEvents.RemoveAt(i);
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[Barr] pending event expired type={entry.Msg.IsWindow}");
+                    continue;
+                }
+                var msg = entry.Msg;
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 bool found = msg.IsWindow == 0
                     ? WorldQueryHelper.FindDoorByPos(pos) != null
                     : msg.IsWindow == 1
                         ? WorldQueryHelper.FindWindowByPos(pos) != null
                         : msg.IsWindow == 2
-                            && WorldQueryHelper.FindDestructibleItemXz(pos, 25f) != null;
+                            && WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) != null;
                 if (!found) continue;
                 _pendingBarricadeEvents.RemoveAt(i);
                 ApplyBarricadeEvent(msg, queueIfMissing: false);

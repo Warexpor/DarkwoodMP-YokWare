@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
@@ -53,7 +54,12 @@ namespace DWMPHorde.Networking
                             _pending.RemoveAt(i);
                     }
                     if (_pending.Count >= MaxPendingShadowArmorStates)
+                    {
+                        ModLog.WarnRate(LogCat.Combat, "shadowarmor-pending-overflow",
+                            "[ShadowArmorSync] pending queue full (" + MaxPendingShadowArmorStates
+                            + ") — dropped oldest unmatched armor state");
                         _pending.RemoveAt(0);
+                    }
                     _pending.Add(msg);
                     ModRuntime.LegacyInfo("[ShadowArmorSync] queued (armor not loaded) at " + pos);
                 }
@@ -145,13 +151,22 @@ namespace DWMPHorde.Networking
                 : $"[BulkSync] Sent {sent} shadow-armor state(s) to all clients");
         }
 
+        /// <summary>Wire positions are rounded to 0.1 m; a moving Character-owned armor drifts a little more.</summary>
+        private const float ArmorMatchRadius = 2.5f;
+
         /// <summary>
-        /// Prefer Item at pos (world chests); fall back to nearest ShadowArmor
-        /// (covers Character-owned armor without taking entity combat authority).
+        /// The message carries the armor's own position, so match on position only: the
+        /// nearest ShadowArmor within <see cref="ArmorMatchRadius"/>, else the armor of a
+        /// destructible Item standing there (world chests). No wider fallback: an armor
+        /// that is not here yet stays queued rather than damaging an unrelated neighbour.
         /// </summary>
         private static ShadowArmor FindShadowArmor(Vector3 pos)
         {
-            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
+            ShadowArmor near = WorldQueryHelper.FindNearest<ShadowArmor>(pos, ArmorMatchRadius);
+            if (near != null)
+                return near;
+
+            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, ArmorMatchRadius);
             if (item != null)
             {
                 ShadowArmor onItem = item.shadowArmor;
@@ -160,11 +175,7 @@ namespace DWMPHorde.Networking
                 if (onItem != null)
                     return onItem;
             }
-
-            ShadowArmor near = WorldQueryHelper.FindNearest<ShadowArmor>(pos, 2.5f);
-            if (near != null)
-                return near;
-            return WorldQueryHelper.FindNearest<ShadowArmor>(pos, 8f);
+            return null;
         }
     }
 }

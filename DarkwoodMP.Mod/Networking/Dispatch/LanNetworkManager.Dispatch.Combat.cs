@@ -34,6 +34,12 @@ namespace DWMPHorde.Networking
                         case NetMessageType.NightDeathState:
                             CombatHandlers.HandleNightDeathState(NightDeathStateMessage.Deserialize(new NetReader(payload)));
                             return true;
+                        case NetMessageType.NightDeathRelease:
+                            CombatHandlers.HandleNightDeathRelease(NightDeathReleaseMessage.Deserialize(new NetReader(payload)));
+                            return true;
+                        case NetMessageType.MorningReward:
+                            CombatHandlers.HandleMorningReward(MorningRewardMessage.Deserialize(new NetReader(payload)));
+                            return true;
                         case NetMessageType.FriendlyFire:
                             CombatHandlers.HandleFriendlyFire(FriendlyFireMessage.Deserialize(new NetReader(payload)));
                             return true;

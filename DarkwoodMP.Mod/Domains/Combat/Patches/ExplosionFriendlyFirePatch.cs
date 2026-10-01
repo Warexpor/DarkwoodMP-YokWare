@@ -19,25 +19,56 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Explodes), "explode")]
     public static class ExplosionFriendlyFirePatch
     {
-        // Host player health snapshot so an FF-off remote teammate blast can be rolled back
-        // Vanilla explode() damages Player.Instance directly; the proxy loop below cannot spare it.
-        private static float _hostHealthBefore;
-        private static bool _hostAliveBefore;
-
-        private static void Prefix(Explodes __instance)
+        // Per-call state (not statics): chained explosions nest explode() inside explode().
+        private struct State
         {
-            Player host = Player.Instance;
-            _hostAliveBefore = host != null && host.alive;
-            _hostHealthBefore = host != null ? host.health : -1f;
+            public bool Host;
+            public bool OrigAffectsPlayer;
         }
 
-        private static void Postfix(Explodes __instance)
+        // Vanilla explode() hurts Player.Instance directly (getHit, status effect, possible death),
+        // and the proxy loop below cannot spare it. For an FF-off blast thrown by a remote
+        // teammate the host player must not be hit at all, so vanilla is told not to affect the
+        // player for this call instead of rolling back health afterwards (which could not undo the
+        // hit reaction, the effect, or a death).
+        private static void Prefix(Explodes __instance, ref State __state)
         {
+            __state = default;
+            if (__instance == null) return;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
+
+            __state.Host = true;
+            __state.OrigAffectsPlayer = __instance.affectsPlayer;
+            if (!__instance.affectsPlayer) return;
+
+            Transform source = ResolveSpawnSource(__instance);
+            if (!IsPlayerSourced(source, net)) return;
+            bool ffEnabled = SessionSettings.FriendlyFireEnabled;
+            if (ffEnabled) return;
+            int throwerPlayerId = ResolveSourcePlayerId(source, net);
+            if (throwerPlayerId > 0 && throwerPlayerId != net.LocalPlayerId)
+            {
+                __instance.affectsPlayer = false;
+                ModRuntime.LegacyInfo("[ExplosionFF] FF-off remote throw: host player spared from blast");
+            }
+        }
+
+        // Finalizer (not Postfix): affectsPlayer must be handed back even if explode throws.
+        private static void Finalizer(Explodes __instance, State __state)
+        {
+            if (__state.Host && __instance != null)
+                __instance.affectsPlayer = __state.OrigAffectsPlayer;
+        }
+
+        private static void Postfix(Explodes __instance, State __state)
+        {
+            if (!__state.Host) return;
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role != NetworkRole.Host) return;
             if (!net.IsConnected) return;
             if (__instance == null) return;
-            if (!__instance.affectsPlayer) return;
+            if (!__state.OrigAffectsPlayer) return;
             if (__instance.radius <= 0f || __instance.damage <= 0f) return;
 
             try
@@ -53,7 +84,7 @@ namespace DWMPHorde.Patches
             Transform source = ResolveSpawnSource(__instance);
             bool playerSourced = IsPlayerSourced(source, net);
             int throwerPlayerId = playerSourced ? ResolveSourcePlayerId(source, net) : 0;
-            bool ffEnabled = ModConfig.FriendlyFireEnabled == null || ModConfig.FriendlyFireEnabled.Value;
+            bool ffEnabled = SessionSettings.FriendlyFireEnabled;
 
             Vector3 blastPos = __instance.transform.position;
             float radius = __instance.radius;
@@ -103,20 +134,6 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[ExplosionFF] blast at {blastPos} → player {proxy.PlayerId} dmg={damage} " +
                     $"(playerSourced={playerSourced} ff={ffEnabled} thrower={throwerPlayerId})");
-            }
-
-            // FF-off: a remote player's blast must not damage the host's own player either.
-            // Vanilla explode() already applied its blast to Player.Instance; roll it back
-            // when the thrower is a teammate (never for the thrower's own blast or env blasts).
-            if (playerSourced && !ffEnabled && throwerPlayerId > 0 && throwerPlayerId != net.LocalPlayerId)
-            {
-                Player host = Player.Instance;
-                if (host != null && _hostHealthBefore >= 0f && host.health < _hostHealthBefore)
-                {
-                    host.health = _hostHealthBefore;
-                    ModRuntime.LegacyInfo(
-                        "[ExplosionFF] FF-off remote throw: restored host health to " + _hostHealthBefore);
-                }
             }
         }
 

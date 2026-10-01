@@ -1,4 +1,5 @@
 using DWMPHorde.Audio;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using UnityEngine;
 
@@ -43,7 +44,8 @@ namespace DWMPHorde.Sync
             AudioClip clip = LocalAudioService.ResolveClip(msg.AudioID);
             if (clip == null)
             {
-                ModRuntime.Log?.LogWarning("[DreamAudioPlayer] Could not resolve clip for: " + msg.AudioID);
+                ModLog.WarnRate(LogCat.Audio, "dream-audio-unresolved:" + msg.AudioID,
+                    "[DreamAudioPlayer] Could not resolve clip for: " + msg.AudioID, 30f);
                 return;
             }
 

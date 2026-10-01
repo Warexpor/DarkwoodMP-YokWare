@@ -338,10 +338,48 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host→clients: host is fully in-world (past load). Title clients may
         /// start waiting for WorldSaveBegin / should not treat mid-load as ready.
-        /// Additive on protocol 25; older peers ignore unknown types.
+        /// Added in protocol 25; peers on the same protocol always know every id listed here.
         /// </summary>
         HostWorldReady = 139,
+        /// <summary>
+        /// Client→host: chapter world share outcome (Committed / Failed / NotInWorld).
+        /// Host waits for these before tearing the network for the chapter scene load.
+        /// </summary>
+        ChapterShareAck = 140,
+        /// <summary>
+        /// Host→client: proceed with the chapter load (Proceed=true) or leave the session
+        /// with a reason (Proceed=false: share failed, or the client's world does not match).
+        /// </summary>
+        ChapterLoadGo = 141,
+        /// <summary>
+        /// Host→all clients on the morning edge (Controller.startDay): every peer
+        /// that is still night-dead leaves spectator and is sent home; all peers
+        /// clear night-death bookkeeping. Idempotent.
+        /// </summary>
+        NightDeathRelease = 144,
+        /// <summary>
+        /// Host→one surviving peer at Controller.startAfterNight: that peer's own
+        /// morning survival reward (night-trader reputation + saturation).
+        /// </summary>
+        MorningReward = 145,
+        /// <summary>
+        /// Client→host: this peer is about to spawn an outside-location pad the host has
+        /// not assigned it a slot for yet. Host replies with <see cref="LocationPadSlotSync"/>.
+        /// </summary>
+        LocationPadSlotRequest = 142,
+        /// <summary>
+        /// Host→peers: host-owned outside-location pad slot + yaw assignments (request
+        /// reply, new-allocation broadcast, late-join snapshot). Every peer spawns a
+        /// location at the host's slot so absolute-position sync agrees across machines.
+        /// </summary>
+        LocationPadSlotSync = 143,
+        /// <summary>
+        /// Host→client: gameplay settings every peer must agree on (friendly fire, loot-share
+        /// mode, double items, party multiplier). Sent after the handshake, on roster changes
+        /// and when the host changes them in the F2 menu.
+        /// </summary>
+        SessionSettings = 146,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 139
+        _Highest = 146
     }
 }

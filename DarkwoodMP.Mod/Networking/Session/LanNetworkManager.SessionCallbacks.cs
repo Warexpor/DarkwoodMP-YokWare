@@ -69,6 +69,7 @@ namespace DWMPHorde.Networking
         /// <summary>Clear host session maps that are not covered by NetworkResetRegistry.</summary>
         internal void ResetSessionNetworkState()
         {
+            _stickyPlayerPayloads.Clear();
             _shadowTracked.Clear();
             _nextShadowId = 0;
             NightHandlers?.ClearShadowLookups();

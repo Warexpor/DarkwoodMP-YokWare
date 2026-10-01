@@ -15,7 +15,12 @@ namespace DWMPHorde.Sync
     {
         private static IEnumerator LoadDreamSceneCoroutine(string locationName, Vector3 position, bool _, int playerId = 0)
         {
+            int gen = _entryGeneration;
+            int sid = DreamSession.SessionId;
             yield return null;
+
+            if (EntryStale(gen, sid))
+                yield break;
 
             if (IsDreamCompleted(playerId, locationName))
             {
@@ -26,6 +31,15 @@ namespace DWMPHorde.Sync
 
             Location component = null;
             yield return StartLoadDreamScene(locationName, position, result => component = result);
+
+            // The spawn spans many frames. If the session ended meanwhile, drop the pad that just
+            // appeared; the teardown that cancelled us already restored the world and UI, and
+            // AbortFailedRemoteDreamLoad would abort whatever session is current now.
+            if (EntryStale(gen, sid))
+            {
+                DiscardStaleDreamPad(component, locationName);
+                yield break;
+            }
 
             if (component == null)
             {
@@ -138,6 +152,8 @@ namespace DWMPHorde.Sync
             {
                 waitLoad += Time.unscaledDeltaTime;
                 yield return null;
+                if (EntryStale(gen, sid))
+                    yield break;
             }
             try
             {
@@ -184,6 +200,33 @@ namespace DWMPHorde.Sync
             catch { /* non-fatal */ }
 
             ModRuntime.LegacyInfo($"[DreamSync] Player positioned at dream location: {locationName}");
+        }
+
+        private static void DiscardStaleDreamPad(Location component, string locationName)
+        {
+            try
+            {
+                if (component != null)
+                {
+                    var dreams = Dreams.Instance;
+                    if (dreams != null && dreams.dreamLocation == null)
+                        dreams.dreamLocation = component;
+                    if (dreams != null && dreams.dreamLocation == component)
+                        CleanupDreamScene(locationName);
+                    else if (component.gameObject != null)
+                        UnityEngine.Object.Destroy(component.gameObject);
+                    RestoreStashedOverworldUniqueObjects();
+                    ClearOverworldUniqueStash();
+                }
+                RemoveDreamCameraEffects(locationName);
+                if (Dreams.Instance != null && !Dreams.Instance.dreaming)
+                    Dreams.Instance.dreamPrepared = false;
+                ModRuntime.LegacyInfo("[DreamSync] Discarded stale dream pad: " + locationName);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] DiscardStaleDreamPad: " + ex.Message);
+            }
         }
 
         /// <summary>

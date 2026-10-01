@@ -302,17 +302,71 @@ namespace DWMPHorde.Networking
     {
         public bool IsDead;
         public bool AllDeadTrigger;
+        /// <summary>
+        /// Host→clients: the whole party is down and every night death was a
+        /// permadeath-eligible one (nightmare, or hard with lives spent). Every
+        /// peer runs the real permadeath outcome instead of a morning respawn.
+        /// </summary>
+        public bool PartyWipe;
 
         public void Serialize(NetWriter w)
         {
             w.Put(IsDead);
             w.Put(AllDeadTrigger);
+            w.Put(PartyWipe);
         }
 
         public static NightDeathStateMessage Deserialize(NetReader r) => new NightDeathStateMessage
         {
             IsDead = r.GetBool(),
-            AllDeadTrigger = r.GetBool()
+            AllDeadTrigger = r.GetBool(),
+            PartyWipe = r.GetBool()
+        };
+    }
+
+    /// <summary>
+    /// Host→all clients on the morning edge. Peers that are still night-dead are
+    /// released (spectator off, sent home); everyone drops night-death bookkeeping.
+    /// </summary>
+    public struct NightDeathReleaseMessage
+    {
+        public int Day;
+
+        public void Serialize(NetWriter w) { w.Put(Day); }
+        public static NightDeathReleaseMessage Deserialize(NetReader r) => new NightDeathReleaseMessage
+        {
+            Day = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Host→one surviving peer: its own copy of the vanilla startAfterNight reward.
+    /// Trader standing is per-player in this mod, so each peer applies it locally.
+    /// </summary>
+    public struct MorningRewardMessage
+    {
+        public int Day;
+        public string TraderName;
+        public int Reputation;
+        public float Saturation;
+        public bool ShowTraderHelp;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Day);
+            w.Put(TraderName);
+            w.Put(Reputation);
+            w.Put(Saturation);
+            w.Put(ShowTraderHelp);
+        }
+
+        public static MorningRewardMessage Deserialize(NetReader r) => new MorningRewardMessage
+        {
+            Day = r.GetInt(),
+            TraderName = r.GetString(),
+            Reputation = r.GetInt(),
+            Saturation = r.GetFloat(),
+            ShowTraderHelp = r.GetBool()
         };
     }
 
@@ -346,19 +400,101 @@ namespace DWMPHorde.Networking
         public bool LoadChapterSave;
         /// <summary>Host wrote empty chapter save / clients should expect world share first when true.</summary>
         public bool ExpectWorldShare;
+        /// <summary>
+        /// Host is collecting <see cref="ChapterShareAckMessage"/> and will answer with
+        /// <see cref="ChapterLoadGoMessage"/>; the client must wait for that go before it
+        /// drops the link. False for a single-peer world resync (client loads on its own).
+        /// Optional trailing byte.
+        /// </summary>
+        public bool AckRequired;
 
         public void Serialize(NetWriter w)
         {
             w.Put(ChapterId);
             w.Put(LoadChapterSave);
             w.Put(ExpectWorldShare);
+            w.Put(AckRequired);
         }
 
         public static ChapterTransitionMessage Deserialize(NetReader r) => new ChapterTransitionMessage
         {
             ChapterId = r.GetInt(),
             LoadChapterSave = r.GetBool(),
-            ExpectWorldShare = r.GetBool()
+            ExpectWorldShare = r.GetBool(),
+            AckRequired = r.AvailableBytes >= 1 && r.GetBool()
+        };
+    }
+
+    /// <summary>Client→host: outcome of a chapter world share (see <see cref="Status"/>).</summary>
+    public struct ChapterShareAckMessage
+    {
+        /// <summary>
+        /// World package received, verified and inflated in memory; ready to commit. The client's
+        /// save slot is untouched until the host's go (see <see cref="ChapterLoadGoMessage"/>).
+        /// </summary>
+        public const byte StatusCommitted = 0;
+        /// <summary>Package missing, corrupt, or could not be written. Host may re-share.</summary>
+        public const byte StatusFailed = 1;
+        /// <summary>Client is on the title screen; it does not take part in the transition.</summary>
+        public const byte StatusNotInWorld = 2;
+        /// <summary>
+        /// Progress heartbeat while the package is still arriving. Carries no verdict; the host only
+        /// uses it to push this peer's confirmation deadline out so a slow link is not refused.
+        /// </summary>
+        public const byte StatusReceiving = 3;
+
+        public int ChapterId;
+        public byte Status;
+        public string Reason;
+        /// <summary>
+        /// The <see cref="WorldSaveBeginMessage.SharePass"/> this verdict is about. The host ignores a
+        /// Committed / Failed ack from an older pass (0 = not carried; NotInWorld needs none).
+        /// </summary>
+        public int SharePass;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ChapterId);
+            w.Put(Status);
+            w.Put(Reason ?? string.Empty);
+            w.Put(SharePass);
+        }
+
+        public static ChapterShareAckMessage Deserialize(NetReader r)
+        {
+            var msg = new ChapterShareAckMessage
+            {
+                ChapterId = r.GetInt(),
+                Status = r.GetByte(),
+                Reason = r.GetString()
+            };
+            msg.SharePass = r.AvailableBytes >= 4 ? r.GetInt() : 0;
+            return msg;
+        }
+    }
+
+    /// <summary>
+    /// Host→client: all acks are in (Proceed=true → load the chapter now), or the client
+    /// must leave without loading (Proceed=false, <see cref="Reason"/> is player-visible).
+    /// </summary>
+    public struct ChapterLoadGoMessage
+    {
+        public int ChapterId;
+        public bool Proceed;
+        public string Reason;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ChapterId);
+            w.Put(Proceed);
+            w.Put(Reason ?? string.Empty);
+        }
+
+        public static ChapterLoadGoMessage Deserialize(NetReader r) => new ChapterLoadGoMessage
+        {
+            ChapterId = r.GetInt(),
+            Proceed = r.GetBool(),
+            Reason = r.GetString()
         };
     }
 

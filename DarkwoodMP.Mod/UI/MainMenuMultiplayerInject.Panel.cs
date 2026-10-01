@@ -224,6 +224,8 @@ namespace DWMPHorde
 
         private static void RefreshSessionButtons()
         {
+            ExpireFailureLabel();
+
             var net = ModRuntime.Network as LanNetworkManager;
             bool online = net != null && net.Role != NetworkRole.Offline;
 
@@ -247,6 +249,10 @@ namespace DWMPHorde
                 _hostingHint = false;
                 SetLabel(_hostDoorBtn, "HOST");
             }
+
+            // A HOST/JOIN failure label owns its button until it expires (see ExpireFailureLabel).
+            if (FailureLabelActive)
+                return;
 
             if (_joinPending)
                 return;

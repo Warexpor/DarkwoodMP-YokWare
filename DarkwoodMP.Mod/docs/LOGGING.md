@@ -6,14 +6,19 @@
 |---------|---------|---------|
 | `LogPreset` | **Support** | Session/join/combat Events + Core `[Perf]` without Legacy flood |
 | `LogMinLevel` | Event | Drop Info/Trace under Support |
-| `LogRedactIPs` | false (local dual-box) | Mask IPv4 in log lines when sharing packs |
+| `LogRedactIPs` | **true** | Mask IPv4 in log lines (privacy-safe for shared packs; set false to see full IPs on your own LAN) |
 | `LogRedactPaths` | false (local dual-box) | Absolute paths → filename only |
 | `LogIncludeStacks` | true | Full stacks on Error |
 | `VerboseLogging` | false | Deprecated compatibility switch; forces Trace when the preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
-| `VerboseEntitySync` | **true** | Deep entity anim/interp/reaction/damage Trace+Event (rate-limited). Dual-box diagnosis default; set false for quiet play |
+| `VerboseEntitySync` | false | Deep entity anim/interp/reaction/damage Trace+Event (rate-limited). Turn on for dual-box diagnosis |
 
-Config: `BepInEx/config/com.yokware.branch.cfg` (or `com.darkwood.horde.cfg`) section **`[Logging]`**.  
+Config file (section **`[Logging]`**, plus **`[Debug]`** for the `Verbose*` switches):
+
+- BepInEx: `BepInEx/config/com.yokware.branch.cfg`
+- MelonLoader: `UserData/YokWare/com.yokware.branch.cfg`
+
+Every key is listed in [`CONFIG.md`](CONFIG.md).  
 **Restart the game after changing LogPreset.**
 
 ## Presets
@@ -72,10 +77,12 @@ Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 3. Quit cleanly.  
 4. Attach both LogOutput.log files + steps.
 
-| Install | Typical path |
-|---------|----------------|
-| Host (Steam) | `…\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log` |
-| Client (second) | `…\SecondDarkwood\Darkwood\BepInEx\LogOutput.log` |
+| Install | Linux | Windows |
+|---------|-------|---------|
+| Host (Steam) | `~/.local/share/Steam/steamapps/common/Darkwood/BepInEx/LogOutput.log` | `...\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log` |
+| Client (second) | `.../SecondDarkwood/Darkwood/BepInEx/LogOutput.log` | `...\SecondDarkwood\Darkwood\BepInEx\LogOutput.log` |
+
+MelonLoader installs write `MelonLoader/Latest.log` in the game folder instead.
 
 ## Tags
 

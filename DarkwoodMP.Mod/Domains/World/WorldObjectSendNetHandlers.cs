@@ -86,7 +86,8 @@ namespace DWMPHorde.Networking
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             ModRuntime.LegacyInfo("[ItemSpawn] sending " + msg.ItemType + " at " + msg.PosX + "," + msg.PosY + "," + msg.PosZ);
-            _net.Broadcast(NetMessageType.ItemSpawn, w => msg.Serialize(w));
+            // One-shot spawn: a lost Unreliable packet means the item never exists on that peer.
+            _net.Broadcast(NetMessageType.ItemSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal void SendThrowableSpawn(ThrowableSpawnMessage msg)
@@ -223,8 +224,14 @@ namespace DWMPHorde.Networking
                 return;
 
             var list = BuildTrapBulkEntries(null, null, 0f, int.MaxValue);
-            var bulk = new TrapBulkMessage { Entries = list.ToArray() };
-            _net.SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // The reader rejects more than MaxEntries per message (it used to silently drop them all),
+            // so a big table goes out in chunks; the receiver applies each message independently.
+            for (int offset = 0; offset < list.Count; offset += TrapBulkMessage.MaxEntries)
+            {
+                int n = System.Math.Min(TrapBulkMessage.MaxEntries, list.Count - offset);
+                var bulk = new TrapBulkMessage { Entries = list.GetRange(offset, n).ToArray() };
+                _net.SendToPlayer(playerId, NetMessageType.TrapBulk, w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
             ModLog.Event(LogCat.Session, "[BulkSync] Traps → p" + playerId + ": " + list.Count);
         }
 

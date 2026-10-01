@@ -45,13 +45,19 @@ namespace DWMPHorde.Patches
             // Vanilla: talkedToNPC.GetComponent<Inventory>().hide() with no null check.
             // Host world-only dialog / dangling oven NPC → NRE aborts prepareDream mid
             // prepareLocation, so DreamStarted never fans out (black void for peers).
-            try
+            // Co-op only: singleplayer keeps vanilla behaviour.
+            // Role, not IsConnected: the null talkedToNPC comes from the mod's own world-only dialog
+            // apply, which can still be in flight after the last peer dropped.
+            if (ModRuntime.Network != null && ModRuntime.Network.Role != DWMPHorde.Networking.NetworkRole.Offline)
             {
-                var npc = __instance.talkedToNPC;
-                if (npc != null && npc.GetComponent<Inventory>() == null)
-                    __instance.talkedToNPC = null;
+                try
+                {
+                    var npc = __instance.talkedToNPC;
+                    if (npc != null && npc.GetComponent<Inventory>() == null)
+                        __instance.talkedToNPC = null;
+                }
+                catch { /* ignore */ }
             }
-            catch { /* ignore */ }
 
             if (!PlayerControlRouter.HasSecond)
                 return;
@@ -62,12 +68,26 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Swallow closeInventory NREs so OutsideLocations.prepareLocation (dream entry)
-        /// can continue. Log + clear stuck dreamPrepared if we were mid-prepare.
+        /// Co-op only: swallow a closeInventory NRE raised while a dream is being prepared so
+        /// OutsideLocations.prepareLocation (dream entry) can continue. Any other exception, and
+        /// every exception outside a connected dream prepare, propagates as in vanilla.
         /// </summary>
         private static Exception Finalizer(Player __instance, Exception __exception)
         {
             if (__exception == null) return null;
+            if (!(__exception is NullReferenceException)
+                || ModRuntime.Network == null || ModRuntime.Network.Role == DWMPHorde.Networking.NetworkRole.Offline)
+                return __exception;
+
+            bool preparingDream = false;
+            try
+            {
+                preparingDream = Dreams.Instance != null && Dreams.Instance.dreamPrepared
+                    && !Dreams.Instance.dreaming;
+            }
+            catch { /* ignore */ }
+            if (!preparingDream)
+                return __exception;
 
             ModRuntime.Log?.LogWarning(
                 "[DreamSync] closeInventory NRE swallowed (dream/location prepare): "
@@ -98,6 +118,10 @@ namespace DWMPHorde.Patches
         private static Exception Finalizer(Exception __exception)
         {
             if (__exception == null) return __exception;
+            // Co-op dream prepare only: a non-NRE failure, or any failure offline, is vanilla's.
+            if (!(__exception is NullReferenceException)
+                || ModRuntime.Network == null || ModRuntime.Network.Role == DWMPHorde.Networking.NetworkRole.Offline)
+                return __exception;
 
             bool preparingDream = false;
             try

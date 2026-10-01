@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
@@ -56,11 +58,51 @@ namespace DWMPHorde.Patches
         }
     }
 
-    internal static class ChapterTransitionHelpers
+    internal static partial class ChapterTransitionHelpers
     {
+        /// <summary>Host: longest wait for every client to confirm the chapter world is written.</summary>
+        private const float HostAckTimeoutSec = 90f;
+        /// <summary>Host: how many times a failed client gets the world re-sent.</summary>
+        private const int HostShareRetryMax = 2;
+        /// <summary>Host: longest wait for clients to drop the link after their go, before the scene tear.</summary>
+        private const float HostPeerDrainTimeoutSec = 5f;
+        /// <summary>Client: longest wait for the host's go after acking a committed world.</summary>
+        // Must outlast the host's retry-extended ack wait, or a committed client leaves early.
+        private const float ClientGoTimeoutSec = HostAckTimeoutSec * (1 + HostShareRetryMax) + 30f;
+        /// <summary>
+        /// Host: hard ceiling on the whole commit wait, however much progress peers report. Kept below
+        /// the client's go timeout (which only starts when that client acks) so the host always sends
+        /// an explicit go or refusal before any client gives up on its own.
+        /// </summary>
+        private const float HostMaxTotalWaitSec = ClientGoTimeoutSec - 30f;
+        private const float ShareFallbackIntervalSec = 12f;
+        /// <summary>Client: idle checks (nothing received) before it asks the host to send again.</summary>
+        private const int ShareFallbackAskAfter = 2;
+        /// <summary>Client: idle checks before it gives up (a resync can wait on the host's own load).</summary>
+        private const int ShareFallbackMaxWaits = 15;
+
         private static bool _chapterLoadPending;
         private static int _shareFallbackWaits;
         private static int _shareFallbackGen;
+
+        // Host: ack collection for a coordinated chapter world share.
+        private static bool _hostAckCollecting;
+        private static bool _hostCommitWaitRunning;
+        private static readonly HashSet<int> _hostExpectedAcks = new HashSet<int>();
+        private static readonly Dictionary<int, byte> _hostAcks = new Dictionary<int, byte>();
+        private static readonly Dictionary<int, int> _hostShareRetries = new Dictionary<int, int>();
+        /// <summary>Host: per-peer ack deadline (unscaled time), pushed out by each sign of progress.</summary>
+        private static readonly Dictionary<int, float> _hostPeerDeadline = new Dictionary<int, float>();
+
+        // Client: coordinated load gate.
+        private static bool _clientAckRequired;
+        private static bool _clientAwaitingGo;
+        private static int _clientGoGen;
+        private static int _clientChapterId;
+        private static float _clientProgressAckAt;
+        /// <summary>Client: seconds between receiving heartbeats while a chapter package streams in.</summary>
+        private const float ClientProgressAckIntervalSec = 3f;
+
         /// <summary>Client is in a chapter and waiting for the host's new save before LoadScene.</summary>
         internal static bool ChapterShareExpected { get; private set; }
 
@@ -70,6 +112,17 @@ namespace DWMPHorde.Patches
             ChapterShareExpected = false;
             _shareFallbackWaits = 0;
             _shareFallbackGen++;
+            _hostAckCollecting = false;
+            _hostCommitWaitRunning = false;
+            _hostExpectedAcks.Clear();
+            _hostAcks.Clear();
+            _hostShareRetries.Clear();
+            _hostPeerDeadline.Clear();
+            _clientProgressAckAt = 0f;
+            _clientAckRequired = false;
+            _clientAwaitingGo = false;
+            _clientGoGen++;
+            _clientChapterId = 0;
         }
 
         /// <summary>
@@ -99,26 +152,36 @@ namespace DWMPHorde.Patches
                     ModLog.Error(LogCat.Save, "saveEmptyChapterSave failed", ex);
                 }
 
+                // Every client present now must confirm the new world before the network is torn down.
+                _hostAckCollecting = true;
+                _hostAcks.Clear();
+                _hostShareRetries.Clear();
+                _hostExpectedAcks.Clear();
+                foreach (int id in net.GetHandshakedPeerIds())
+                    _hostExpectedAcks.Add(id);
+
                 net.Broadcast(NetMessageType.ChapterTransition,
                     w => new ChapterTransitionMessage
                     {
                         ChapterId = chapterId,
                         LoadChapterSave = loadChapterSave,
-                        ExpectWorldShare = true
+                        ExpectWorldShare = true,
+                        AckRequired = true
                     }.Serialize(w),
                     DeliveryMethod.ReliableOrdered);
 
                 ModLog.Event(LogCat.Session,
-                    $"[Chapter] Host ch{chapterId} generateSave — share world then load + resume");
+                    $"[Chapter] Host ch{chapterId} generateSave — share world, wait for {_hostExpectedAcks.Count} client ack(s), then load + resume");
 
                 if (net.WorldSaveShare != null)
                 {
                     net.WorldSaveShare.ScheduleHostShareThen(
-                        () => ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true),
+                        () => BeginHostCommitWait(net, chapterId, loadChapterSave),
                         waitForGameSave: false);
                 }
                 else
                 {
+                    _hostAckCollecting = false;
                     ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
                 }
                 return;
@@ -141,6 +204,8 @@ namespace DWMPHorde.Patches
         /// <summary>
         /// Set Core flags and LoadScene("chapterN"). Stops multiplayer for the scene tear,
         /// then schedules auto rehost/reconnect via <see cref="ChapterSessionResume"/>.
+        /// Host: waits for clients to drop the link (their go was sent) before the tear
+        /// instead of a fixed delay.
         /// </summary>
         internal static void ApplyChapterLoad(int chapterId, bool loadChapterSave, bool resumeAfter)
         {
@@ -152,6 +217,13 @@ namespace DWMPHorde.Patches
             string scene = "chapter" + chapterId;
             ModLog.Event(LogCat.Session,
                 $"[Chapter] ApplyChapterLoad {scene} loadChapterSave={loadChapterSave} resumeAfter={resumeAfter}");
+
+            // Capture while peers are still connected: the host roster (stable key -> PlayerId)
+            // and the transport identity are gone once they drop the link.
+            var netNow = ModRuntime.Network as LanNetworkManager;
+            if (resumeAfter && ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter
+                && netNow != null && netNow.IsConnected && !ChapterSessionResume.IsPending)
+                ChapterSessionResume.CaptureForResume(netNow);
 
             try
             {
@@ -169,20 +241,23 @@ namespace DWMPHorde.Patches
             Core.loadingGame = false;
             if (loadChapterSave)
                 Core.doLoadChapterSave = true;
+            // New world: a night death from the old one must not skip this world's morning
+            // reward even when no network session was up to run the registry reset.
+            DeathStateTracker.ResetSession();
 
             System.Action load = () =>
             {
                 try
                 {
                     var net = ModRuntime.Network as LanNetworkManager;
-                    if (net != null && net.IsConnected)
-                    {
-                        if (resumeAfter && ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter)
-                            ChapterSessionResume.CaptureForResume(net);
-                        net.StopNetwork();
-                    }
+                    if (net != null && net.Role != NetworkRole.Offline
+                        && (net.IsConnected || ChapterSessionResume.IsPending))
+                        net.StopNetwork(keepSteamLobby: ChapterSessionResume.KeepSteamLobbyOnStop);
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex)
+                {
+                    ModLog.Error(LogCat.Session, "[Chapter] StopNetwork before LoadScene failed", ex);
+                }
 
                 try
                 {
@@ -204,12 +279,25 @@ namespace DWMPHorde.Patches
                 }
             };
 
-            // Brief delay so ChapterTransition packets can leave the host.
-            var ctrl = Singleton<Controller>.Instance;
-            if (ctrl != null)
-                ctrl.Invoke(delegate { load(); }, 0.4f, timeScaleDependent: false);
+            if (netNow != null && netNow.Role == NetworkRole.Host && netNow.PeerCount > 0)
+                netNow.StartCoroutine(DrainPeersThenLoad(netNow, load));
             else
                 load();
+        }
+
+        /// <summary>
+        /// Host: clients drop the link when they get the transition / go. Wait for that (bounded)
+        /// so queued reliable packets have actually been delivered before the network is torn down.
+        /// </summary>
+        private static IEnumerator DrainPeersThenLoad(LanNetworkManager net, System.Action load)
+        {
+            float until = Time.unscaledTime + HostPeerDrainTimeoutSec;
+            while (net != null && net.PeerCount > 0 && Time.unscaledTime < until)
+                yield return null;
+            if (net != null && net.PeerCount > 0)
+                ModLog.Warn(LogCat.Session,
+                    $"[Chapter] {net.PeerCount} client(s) still connected {HostPeerDrainTimeoutSec:F0}s after the chapter go — tearing down anyway");
+            load();
         }
 
         internal static void HandleChapterTransition(ChapterTransitionMessage msg)
@@ -245,17 +333,26 @@ namespace DWMPHorde.Patches
             }
 
             // ExpectWorldShare: ClientApplyCoroutine will LoadScene after files land.
-            // Still set profile chapter so UI/session match; avoid double LoadScene race
-            // unless share never arrives (timeout fallback).
+            // The local chapter id is NOT advanced here: until the new save is written the
+            // world in memory is still the old chapter, and the handshake identity must say so.
             if (msg.ExpectWorldShare)
             {
                 ChapterShareExpected = true;
-                if (Core.currentProfile != null)
-                    Core.currentProfile.chapter = msg.ChapterId;
-                if (Singleton<WorldGenerator>.Instance != null)
-                    Singleton<WorldGenerator>.Instance.chapterID = msg.ChapterId;
+                _clientChapterId = msg.ChapterId;
+                bool inGame = !Core.mainMenu && Player.Instance != null;
+                _clientAckRequired = msg.AckRequired && inGame;
+                _clientAwaitingGo = false;
+                _clientGoGen++;
                 ModLog.Event(LogCat.Session,
-                    $"[Chapter] Client expect world share for ch{msg.ChapterId} — defer LoadScene to share apply");
+                    $"[Chapter] Client expect world share for ch{msg.ChapterId} — defer LoadScene to share apply"
+                    + (_clientAckRequired ? " (ack + wait for host go)" : ""));
+
+                if (msg.AckRequired && !inGame)
+                {
+                    // Title client: joins through the normal download / ENTER WORLD flow.
+                    if (net != null && net.IsConnected)
+                        SendAck(net, msg.ChapterId, ChapterShareAckMessage.StatusNotInWorld, "on title screen");
+                }
 
                 // Capture resume early so share-apply LoadScene still rebinds.
                 var netEarly = ModRuntime.Network as LanNetworkManager;
@@ -266,40 +363,11 @@ namespace DWMPHorde.Patches
                 _shareFallbackGen++;
                 var ctrl = Singleton<Controller>.Instance;
                 if (ctrl != null)
-                    ScheduleChapterShareFallback(ctrl, msg.ChapterId, msg.LoadChapterSave, _shareFallbackGen);
+                    ScheduleChapterShareFallback(ctrl, _shareFallbackGen);
                 return;
             }
 
             ApplyChapterLoad(msg.ChapterId, msg.LoadChapterSave, resumeAfter: true);
-        }
-
-        /// <summary>
-        /// If the chapter save is still transferring, wait and check again.
-        /// After three waits, load anyway so a stuck transfer cannot leave the party behind.
-        /// </summary>
-        private static void ScheduleChapterShareFallback(Controller ctrl, int chapterId, bool loadChapterSave, int generation)
-        {
-            if (ctrl == null) return;
-            ctrl.Invoke(delegate
-            {
-                if (generation != _shareFallbackGen) return;
-                if (_chapterLoadPending) return;
-                if (Core.loadingGame) return;
-                if (!ChapterShareExpected) return;
-                var shareNet = ModRuntime.Network as LanNetworkManager;
-                bool busy = shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy;
-                if (busy && _shareFallbackWaits < 2)
-                {
-                    _shareFallbackWaits++;
-                    ModLog.Event(LogCat.Session,
-                        $"[Chapter] World share still moving — wait again ({_shareFallbackWaits}) for chapter{chapterId}");
-                    ScheduleChapterShareFallback(ctrl, chapterId, loadChapterSave, generation);
-                    return;
-                }
-                ModLog.Warn(LogCat.Session,
-                    $"[Chapter] World share timeout — fallback LoadScene chapter{chapterId}");
-                ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
-            }, 12f, timeScaleDependent: false);
         }
     }
 }

@@ -14,10 +14,22 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>
+        /// The host takes the socket-derived sender: the embedded id is client-written, so a peer
+        /// could place or delete markers as someone else. A client trusts the host's relayed id
+        /// (the host stamps the original sender into forwarded packets).
+        /// </summary>
+        private int ResolveSender(int embeddedPlayerId)
+        {
+            if (_net.Role == NetworkRole.Host)
+                return _net.CurrentReceivePlayerId;
+            return embeddedPlayerId > 0 ? embeddedPlayerId : _net.CurrentReceivePlayerId;
+        }
+
         internal void HandleMapMarker(MapMarkerMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            int playerId = ResolveSender(msg.PlayerId);
             if (playerId <= 0) return;
             if (playerId == _net.LocalPlayerId) return; // never treat own marker as remote
             MultiplayerMapManager.AddRemoteMarker(playerId, pos);
@@ -27,7 +39,7 @@ namespace DWMPHorde.Networking
         internal void HandleMapMarkerRemove(MapMarkerRemoveMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            int playerId = ResolveSender(msg.PlayerId);
             if (playerId <= 0) return;
             if (playerId == _net.LocalPlayerId) return;
             MultiplayerMapManager.RemoveRemoteMarker(playerId, pos);

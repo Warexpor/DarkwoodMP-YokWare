@@ -11,33 +11,34 @@ namespace DWMPHorde.Players
 
         public static Player MainPlayer => _main;
 
-        public static bool HasSecond => _proxies.Count > 0;
-
-        public static void EnsureMainRegistered()
+        /// <summary>
+        /// True while at least one registered proxy / second player still exists. Destroyed
+        /// entries (Unity-null) are pruned first so a torn-down proxy cannot keep this true.
+        /// </summary>
+        public static bool HasSecond
         {
-            if (_main != null)
-                return;
-
-            Player scenePlayer = ResolveSceneMainPlayer();
-            if (scenePlayer != null)
-                RegisterMain(scenePlayer);
+            get
+            {
+                PruneDestroyed();
+                return _proxies.Count > 0;
+            }
         }
 
-        private static Player ResolveSceneMainPlayer()
+        private static void PruneDestroyed()
         {
-            GameObject tagged = GameObject.FindGameObjectWithTag("Player");
-            if (tagged != null)
+            if (_proxies.Count == 0) return;
+            List<int> dead = null;
+            foreach (var kv in _proxies)
             {
-                Player taggedPlayer = tagged.GetComponent<Player>();
-                if (taggedPlayer != null && taggedPlayer.GetComponent<CoopPlayerMarker>() == null)
-                    return taggedPlayer;
+                if (kv.Value == null)
+                {
+                    if (dead == null) dead = new List<int>();
+                    dead.Add(kv.Key);
+                }
             }
-
-            Player instance = Player.Instance;
-            if (instance != null && instance.GetComponent<CoopPlayerMarker>() == null)
-                return instance;
-
-            return null;
+            if (dead == null) return;
+            for (int i = 0; i < dead.Count; i++)
+                _proxies.Remove(dead[i]);
         }
 
         public static void RegisterMain(Player player)
@@ -58,26 +59,9 @@ namespace DWMPHorde.Players
             _proxies[_nextAutoId--] = player;
         }
 
-        public static void RegisterProxy(int playerId, Player player)
-        {
-            if (player == null)
-                return;
-            _proxies[playerId] = player;
-        }
-
-        public static void UnregisterProxy(int playerId)
-        {
-            _proxies.Remove(playerId);
-        }
-
-        public static Player GetProxy(int playerId)
-        {
-            _proxies.TryGetValue(playerId, out var player);
-            return player;
-        }
-
         public static IEnumerable<Player> GetAllProxies()
         {
+            PruneDestroyed();
             return _proxies.Values;
         }
 
@@ -91,11 +75,6 @@ namespace DWMPHorde.Players
                     return p;
             }
             return null;
-        }
-
-        public static void ClearAllProxies()
-        {
-            _proxies.Clear();
         }
     }
 }

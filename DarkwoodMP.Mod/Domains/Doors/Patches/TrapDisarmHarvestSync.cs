@@ -20,20 +20,24 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Item), "disarm")]
     public static class ItemDisarmSilentTrapPatch
     {
-        private static Vector3 _posBefore;
-        private static string _nameBefore;
-
-        private static void Prefix(Item __instance)
+        // Pre-disarm identity travels in __state: disarm can destroy the trap and chain into
+        // another disarm, and statics would be overwritten before the Postfix reads them.
+        private struct State
         {
-            TrapDisarmHarvestTracker.SilentDisarmDepth++;
-            _posBefore = Vector3.zero;
-            _nameBefore = null;
-            if (__instance == null || __instance.gameObject == null) return;
-            _posBefore = __instance.transform.position;
-            _nameBefore = __instance.gameObject.name;
+            public Vector3 Pos;
+            public string Name;
         }
 
-        private static void Postfix(Item __instance)
+        private static void Prefix(Item __instance, out State __state)
+        {
+            TrapDisarmHarvestTracker.SilentDisarmDepth++;
+            __state = default;
+            if (__instance == null || __instance.gameObject == null) return;
+            __state.Pos = __instance.transform.position;
+            __state.Name = __instance.gameObject.name;
+        }
+
+        private static void Postfix(Item __instance, State __state)
         {
             // SilentDisarmDepth cleared in Finalizer (covers throw before/during Postfix).
 
@@ -42,7 +46,7 @@ namespace DWMPHorde.Patches
             if (__instance != null && __instance.disabled)
                 return;
 
-            TrySendSilentTrapState(__instance, "disarm-postfix");
+            TrySendSilentTrapState(__instance, "disarm-postfix", __state.Name, __state.Pos);
         }
 
         // Finalizer (not Postfix): Item.disarm throw after Prefix ++ leaves
@@ -86,7 +90,7 @@ namespace DWMPHorde.Patches
                 + "\" at " + key + " role=" + net.Role);
         }
 
-        internal static void TrySendSilentTrapState(Item item, string reason)
+        internal static void TrySendSilentTrapState(Item item, string reason, string nameHint = null, Vector3 posHint = default(Vector3))
         {
             if (item == null) return;
             if (TraverseHack.ApplyingFromNetwork) return;
@@ -96,7 +100,7 @@ namespace DWMPHorde.Patches
             // Destroyed mid-frame: treat as removal.
             if (item.gameObject == null || item.disabled)
             {
-                TrySendRemoved(item, _nameBefore, _posBefore, reason + "-gone");
+                TrySendRemoved(item, nameHint, posHint, reason + "-gone");
                 return;
             }
 
@@ -180,29 +184,30 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "progressBarCompleted")]
     public static class PlayerDisarmProgressTrapSyncPatch
     {
-        private static Item _trap;
-        private static Vector3 _pos;
-        private static string _name;
-
-        private static void Prefix(Player __instance)
+        // Captured before progressBarCompleted resets trapBeingDisarmed; travels in __state.
+        private struct State
         {
-            _trap = null;
-            _name = null;
-            _pos = Vector3.zero;
-            if (__instance == null || !__instance.disarmingTrap) return;
-            _trap = Traverse.Create(__instance).Field("trapBeingDisarmed").GetValue<Item>();
-            if (_trap == null || _trap.gameObject == null) return;
-            _pos = _trap.transform.position;
-            _name = _trap.gameObject.name;
+            public Item Trap;
+            public Vector3 Pos;
+            public string Name;
         }
 
-        private static void Postfix()
+        private static void Prefix(Player __instance, out State __state)
         {
-            Item trap = _trap;
-            string name = _name;
-            Vector3 pos = _pos;
-            _trap = null;
-            _name = null;
+            __state = default;
+            if (__instance == null || !__instance.disarmingTrap) return;
+            Item trap = Traverse.Create(__instance).Field("trapBeingDisarmed").GetValue<Item>();
+            if (trap == null || trap.gameObject == null) return;
+            __state.Trap = trap;
+            __state.Pos = trap.transform.position;
+            __state.Name = trap.gameObject.name;
+        }
+
+        private static void Postfix(State __state)
+        {
+            Item trap = __state.Trap;
+            string name = __state.Name;
+            Vector3 pos = __state.Pos;
             if (trap == null && string.IsNullOrEmpty(name)) return;
 
             // Destroy path: ObjectDestroyTrapPatch owns the wire send. Only belt-send

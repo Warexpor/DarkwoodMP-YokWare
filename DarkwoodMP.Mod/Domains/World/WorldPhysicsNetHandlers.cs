@@ -22,7 +22,7 @@ namespace DWMPHorde.Networking
                 return;
 
             if (Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var msg))
-                _net.Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w));
+                _net.SendPhysicsStateStream(msg);
         }
 
         internal void HandlePhysicsState(PhysicsStateMessage state)
@@ -41,29 +41,28 @@ namespace DWMPHorde.Networking
             // only carry those arrays and must be applied + fan-out so co-op peers stay
             // in sync. Bulk free-body snapshots from a client may still include stale
             // door, trap, and generator copies; strip them so they cannot fight host ownership.
+            // The arrays are recycled receive buffers: only the Effective*Count prefix is live.
             bool isClientOrigin = _net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0;
-            int ocPre = state.Objects?.Length ?? 0;
-            bool isEventStyle = isClientOrigin && ocPre == 0
-                && ((state.Doors != null && state.Doors.Length > 0)
-                    || (state.Traps != null && state.Traps.Length > 0)
-                    || (state.Generators != null && state.Generators.Length > 0));
+            int oc = state.EffectiveObjectCount;
+            int dc = state.EffectiveDoorCount;
+            int tc = state.EffectiveTrapCount;
+            int gc = state.EffectiveGeneratorCount;
+            bool isEventStyle = isClientOrigin && oc == 0 && (dc > 0 || tc > 0 || gc > 0);
 
-            if (isClientOrigin && !isEventStyle)
+            if (isClientOrigin && !isEventStyle && (dc > 0 || tc > 0 || gc > 0))
             {
-                if ((state.Doors != null && state.Doors.Length > 0)
-                    || (state.Traps != null && state.Traps.Length > 0)
-                    || (state.Generators != null && state.Generators.Length > 0))
-                {
-                    state.Doors = System.Array.Empty<DoorState>();
-                    state.Traps = System.Array.Empty<TrapState>();
-                    state.Generators = System.Array.Empty<GeneratorState>();
-                }
+                // Drop the stale copies completely (arrays AND counts: Serialize/Apply read the counts).
+                state.Doors = null;
+                state.DoorCount = 0;
+                state.Traps = null;
+                state.TrapCount = 0;
+                state.Generators = null;
+                state.GeneratorCount = 0;
+                dc = 0;
+                tc = 0;
+                gc = 0;
             }
 
-            int oc = state.Objects?.Length ?? 0;
-            int dc = state.Doors?.Length ?? 0;
-            int tc = state.Traps?.Length ?? 0;
-            int gc = state.Generators?.Length ?? 0;
             if ((oc > 0 || dc > 0 || tc > 0 || gc > 0) && ++_net.PhysicsRecvLogCounter % 30 == 0 && ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo("[Physics] objects=" + oc + " doors=" + dc + " traps=" + tc + " gens=" + gc + " from " + fromPeer);
 
@@ -83,10 +82,9 @@ namespace DWMPHorde.Networking
             // snapshots to other clients (3+ support). Host already applied above.
             // For silent trap disarm from client: also ensure host re-broadcasts with minted id
             // when the inbound packet had TrapNetId=0 (so late flush / logs stay consistent).
-            if (isClientOrigin && isEventStyle && tc > 0 && _net.Role == NetworkRole.Host
-                && state.Traps != null)
+            if (isClientOrigin && isEventStyle && tc > 0 && state.Traps != null)
             {
-                for (int i = 0; i < state.Traps.Length; i++)
+                for (int i = 0; i < tc; i++)
                 {
                     TrapState entry = state.Traps[i];
                     if (entry.TrapNetId > 0) continue;
@@ -100,18 +98,35 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (isClientOrigin && isEventStyle && gc > 0 && oc == 0 && dc == 0 && tc == 0)
+            if (!isClientOrigin || (oc == 0 && !isEventStyle))
+                return;
+
+            // Receivers key the sequence by the immediate sender (this host), so a forward must carry
+            // the HOST's own counter. Forwarding the client's Sequence made the third player compare
+            // it against the host's stream and reject it (or advance the host's high-water mark).
+            if (isEventStyle)
             {
-                // Pure generator event: include pourer so host-auth abs (clamp / concurrent
-                // sum) converges on the originator. Reliable like SendGeneratorState.
-                _net.Broadcast(NetMessageType.PhysicsState, w => state.Serialize(w),
-                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                // Door / trap / generator events are one-shot: always the reliable stream, host-stamped
+                // (Sequence 0 makes StampSnapshot take the next number from the host's counter).
+                state.Sequence = 0;
+                state = Sync.WorldPhysicsSyncService.StampSnapshot(state);
+                if (gc > 0 && oc == 0 && dc == 0 && tc == 0)
+                {
+                    // Pure generator event: include pourer so host-auth abs (clamp / concurrent
+                    // sum) converges on the originator.
+                    _net.Broadcast(NetMessageType.PhysicsState, w => state.Serialize(w),
+                        LiteNetLib.DeliveryMethod.ReliableOrdered);
+                }
+                else
+                {
+                    _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.PhysicsState,
+                        w => state.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+                }
+                return;
             }
-            else if (isClientOrigin && (oc > 0 || isEventStyle))
-            {
-                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.PhysicsState,
-                    w => state.Serialize(w));
-            }
+
+            // Client free bodies: unreliable stream, re-stamped and split to the MTU by the host.
+            _net.SendPhysicsStateStream(state, excludePlayerId: _net.CurrentReceivePlayerId);
         }
 
         internal void HandleItemSpawn(ItemSpawnMessage msg)
@@ -169,7 +184,8 @@ namespace DWMPHorde.Networking
 
             // Forward client-placed items to other clients (3+ support)
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
-                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.ItemSpawn, w => msg.Serialize(w));
+                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.ItemSpawn, w => msg.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
         internal void HandleLightState(LightStateMessage ls)

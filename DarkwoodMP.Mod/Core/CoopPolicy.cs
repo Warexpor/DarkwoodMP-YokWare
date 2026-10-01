@@ -86,12 +86,30 @@ namespace DWMPHorde
         public const int Nightmare = 20;
 
         public static bool ClientUsesSharedDeath(bool connectedClient, int difficulty, int livesBeforeDeath)
+            => connectedClient && IsPermadeathDeath(difficulty, livesBeforeDeath);
+
+        /// <summary>
+        /// Connected host and clients share one death model: a death that vanilla
+        /// would turn into permadeath is rewritten to the normal night/day death.
+        /// </summary>
+        public static bool UsesSharedDeath(bool connected, int difficulty, int livesBeforeDeath)
+            => connected && IsPermadeathDeath(difficulty, livesBeforeDeath);
+
+        /// <summary>Vanilla <c>Player.onDeath</c> permadeath branch (lives before the decrement).</summary>
+        public static bool IsPermadeathDeath(int difficulty, int livesBeforeDeath)
         {
-            if (!connectedClient) return false;
             if (difficulty == Nightmare) return true;
             if (difficulty == Hard && livesBeforeDeath <= 1) return true;
             return false;
         }
+
+        /// <summary>
+        /// A night party wipe ends the run for everyone only when every dead peer's
+        /// death was permadeath-eligible. Anyone with a life left makes it a normal
+        /// all-dead morning.
+        /// </summary>
+        public static bool PartyWipeEndsRun(bool localDeathEligible, int remoteDeaths, int remoteEligibleDeaths)
+            => localDeathEligible && remoteEligibleDeaths >= remoteDeaths;
     }
 
     /// <summary>
@@ -223,27 +241,6 @@ namespace DWMPHorde
                 case TypeEnableDialogue:
                 case TypeAddSpecialOption:
                 case TypeSetDontWantToTalk:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        /// <summary>Speaker UI, cooking, and closing. Do not open the cook menu during host remote apply.</summary>
-        public static bool IsSpeakerPresentationOutcomeType(string outcomeType)
-        {
-            if (string.IsNullOrEmpty(outcomeType)) return false;
-            switch (outcomeType)
-            {
-                case TypeCook:
-                case TypeExitDialogue:
-                case TypeExitDialogueLong:
-                case TypeDisplayMainOptions:
-                case TypeDontSaveAfterExit:
-                case TypeDontTweenBlack:
-                case TypeSwitchToDialogue:
-                case TypeChangePortrait:
-                case TypeChangePortraitOverlay:
                     return true;
                 default:
                     return false;

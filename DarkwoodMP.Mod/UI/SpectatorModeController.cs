@@ -54,15 +54,26 @@ namespace DWMPHorde.Spectator
             _spectateTargetIndex = 0;
         }
 
-        /// <summary>Exit spectator mode and restore the local player to active state.</summary>
-        public void ExitAndRespawn()
+        /// <summary>
+        /// Exit spectator mode and restore the local player to active state.
+        /// <paramref name="restorePosition"/> false: keep the body where it is (caller
+        /// sends it home, as vanilla <c>onDeath</c> does) but still restore the
+        /// invisible / ignoreMe flags saved on entry.
+        /// </summary>
+        public void ExitAndRespawn(bool restorePosition = true)
         {
             if (_spectateTargetIndex < 0) return;
 
             var player = Player.Instance;
             if (player != null)
             {
-                RestorePlayerPosition(player);
+                if (restorePosition)
+                    RestorePlayerPosition(player);
+                else
+                {
+                    player.invisible = _savedPlayerInvisible;
+                    player.ignoreMe = _savedPlayerIgnoreMe;
+                }
                 player.switchVisibilty(true);
                 ShowLocalExtraVision(player);
                 if (player.immobilised)
@@ -93,8 +104,10 @@ namespace DWMPHorde.Spectator
             _followTarget = null;
             _spectateTargetIndex = -1;
 
+            // Local flags only: leaving spectate must not wipe the other peers' death
+            // bookkeeping. Set PreventSpectator after the reset (the reset clears it).
+            DeathStateTracker.ResetLocal();
             DeathStateTracker.PreventSpectator = true;
-            DeathStateTracker.Reset();
 
             ModRuntime.LegacyInfo("[Spectate] ExitAndRespawn — player restored");
         }
@@ -136,8 +149,10 @@ namespace DWMPHorde.Spectator
             if (Singleton<UI>.Instance != null)
                 Singleton<UI>.Instance.showVisibleUI();
 
+            // Local flags only: leaving spectate must not wipe the other peers' death
+            // bookkeeping. Set PreventSpectator after the reset (the reset clears it).
+            DeathStateTracker.ResetLocal();
             DeathStateTracker.PreventSpectator = true;
-            DeathStateTracker.Reset();
 
             ModRuntime.LegacyInfo("[Spectate] ExitWithoutPositionRestore");
         }
@@ -183,6 +198,9 @@ namespace DWMPHorde.Spectator
             if (!Input.GetKeyDown(KeyCode.F4))
                 return;
 
+            if (!CanUseSpectateKey())
+                return;
+
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected)
                 return;
@@ -224,6 +242,34 @@ namespace DWMPHorde.Spectator
                 }
                 SwitchToTarget(targets[_spectateTargetIndex].transform);
             }
+        }
+
+        /// <summary>
+        /// F4 is a menu-less hotkey, so it needs the same state guards as the F3 manual-save
+        /// window plus the states where moving the body under a peer would corrupt a
+        /// transition: dialogue, dream entry/switch, cutscene.
+        /// </summary>
+        private static bool CanUseSpectateKey()
+        {
+            if (Core.mainMenu || Core.loadingGame || Core.forbidInputs || Core.EnteringDream)
+                return false;
+            // F4 typed into chat / the F2 menu must not start spectating.
+            if (UiInputLock.IsHeld)
+                return false;
+
+            Player player = Player.Instance;
+            if (player == null || player.inDialogue)
+                return false;
+
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null && ctrl.playingCutscene)
+                return false;
+
+            Dreams dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && (dreams.switchingDream || dreams.wantToDream || dreams.dreamPrepared))
+                return false;
+
+            return true;
         }
 
         private void SyncProxyVision()

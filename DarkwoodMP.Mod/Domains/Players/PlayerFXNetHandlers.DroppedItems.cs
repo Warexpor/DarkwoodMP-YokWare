@@ -177,13 +177,17 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
             if (Patches.WorldPickupClaimPending.TryTakeGuid(msg.Guid,
-                out string type, out int amt, out int pre))
+                out string type, out int amt, out int pre, out string recipeFor))
             {
-                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "guid claim deny");
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "guid claim deny", recipeFor);
                 return;
             }
-            if (!string.IsNullOrEmpty(msg.ItemType) && msg.Amount > 0)
-                Patches.WorldPickupClaimPending.Refund(msg.ItemType, msg.Amount, -1, "guid claim deny fallback");
+
+            // No pending entry: the host-won Remove (ClaimedBy != us) already refunded and consumed
+            // it, or nothing was granted. A blind Refund(..., preCount -1) here would remove the
+            // claimed amount a second time out of the player's own stock.
+            ModRuntime.LegacyInfo("[GuidPickup] claim deny guid=" + msg.Guid
+                + ": no pending grant (already refunded by Remove) — nothing to undo");
         }
     }
 }

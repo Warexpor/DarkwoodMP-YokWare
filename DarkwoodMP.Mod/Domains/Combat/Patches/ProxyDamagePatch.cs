@@ -60,7 +60,7 @@ namespace DWMPHorde.Patches
                 && attackerTransform.GetComponentInParent<RemotePlayerProxy>() != null;
             bool isPlayerSourced = byPlayer || isPlayerProjectile || isPlayerRoot || isProxyAttacker;
 
-            if (isPlayerSourced && !Config.ModConfig.FriendlyFireEnabled.Value)
+            if (isPlayerSourced && !SessionSettings.FriendlyFireEnabled)
             {
                 EntitySyncLog.Damage(
                     "[ProxyDmg] FF off — block " + damage + " on proxy p" + proxy.PlayerId);

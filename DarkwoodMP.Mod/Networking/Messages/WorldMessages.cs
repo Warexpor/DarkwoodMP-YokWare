@@ -458,6 +458,9 @@ namespace DWMPHorde.Networking
     /// <summary>Host→peer late-join: full trap table (id + pos + triggered + occupant).</summary>
     public struct TrapBulkMessage
     {
+        /// <summary>Most entries one message may carry; senders chunk above this, the reader rejects above it.</summary>
+        public const int MaxEntries = 512;
+
         public TrapBulkEntry[] Entries;
 
         public void Serialize(NetWriter w)
@@ -471,7 +474,9 @@ namespace DWMPHorde.Networking
         public static TrapBulkMessage Deserialize(NetReader r)
         {
             int n = r.GetInt();
-            if (n < 0 || n > 512) n = 0;
+            // Zeroing an oversize count used to drop the whole trap table without a trace.
+            if (n < 0 || n > MaxEntries)
+                throw new System.IO.InvalidDataException("Trap bulk entry count is out of range: " + n);
             var entries = new TrapBulkEntry[n];
             for (int i = 0; i < n; i++)
                 entries[i] = TrapBulkEntry.Deserialize(r);

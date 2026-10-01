@@ -55,19 +55,6 @@ namespace DWMPHorde
             return CanAcquireNpcSlot(lockedOwnerId, lockExpireAt, requestOwnerId, now);
         }
 
-        public static bool IsHeldBy(
-            string lockedNpc,
-            int lockedOwnerId,
-            float lockExpireAt,
-            string npcName,
-            int ownerId,
-            float now)
-        {
-            if (string.IsNullOrEmpty(lockedNpc) || string.IsNullOrEmpty(npcName)) return false;
-            if (!string.Equals(lockedNpc, npcName, System.StringComparison.Ordinal)) return false;
-            return IsNpcSlotHeldBy(lockedOwnerId, lockExpireAt, ownerId, now);
-        }
-
         /// <summary>
         /// Multi-NPC map simulation: holding one NPC must not overwrite another
         /// NPC's lock.

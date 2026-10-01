@@ -116,57 +116,59 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static bool InsideTrapPlacement;
 
-        private static string _pendingType;
-        private static Vector3 _pendingPos;
-        private static Quaternion _pendingRot;
-
-        private static void Prefix(Player __instance)
+        // Placement capture travels in __state (not statics) so a re-entrant progressBarCompleted
+        // cannot overwrite it; the previous InsideTrapPlacement value is restored, not zeroed.
+        private struct State
         {
+            public bool PrevInside;
+            public string Type;
+            public Vector3 Pos;
+            public Quaternion Rot;
+        }
+
+        private static void Prefix(Player __instance, out State __state)
+        {
+            __state = default;
+            __state.PrevInside = InsideTrapPlacement;
             // Only while placing. The previous condition also matched disarm and craft,
             // ObjectDestroyTrapPatch when beartraps Destroy() on successful disarm.
             InsideTrapPlacement = __instance != null && __instance.placingItem;
-            _pendingType = null;
             if (!InsideTrapPlacement) return;
             if (InvItemClass.isNull(__instance.currentItem)) return;
             ProxyItem proxy = __instance.proxyItem;
             if (proxy == null) return;
 
             // Capture the item type and placement transform before the placement completes
-            _pendingType = __instance.currentItem.type;
-            _pendingPos = proxy.transform.localPosition;
-            _pendingRot = proxy.transform.rotation;
+            __state.Type = __instance.currentItem.type;
+            __state.Pos = proxy.transform.localPosition;
+            __state.Rot = proxy.transform.rotation;
         }
 
-        private static void Postfix(Player __instance)
+        private static void Postfix(Player __instance, State __state)
         {
-            InsideTrapPlacement = false;
-
-            if (string.IsNullOrEmpty(_pendingType))
+            if (string.IsNullOrEmpty(__state.Type))
                 return;
-            if (ModRuntime.Network == null)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            Vector3 euler = _pendingRot.eulerAngles;
+            Vector3 euler = __state.Rot.eulerAngles;
             ModRuntime.Network.SendItemSpawn(new ItemSpawnMessage
             {
-                ItemType = _pendingType,
-                PosX = _pendingPos.x,
-                PosY = _pendingPos.y,
-                PosZ = _pendingPos.z,
+                ItemType = __state.Type,
+                PosX = __state.Pos.x,
+                PosY = __state.Pos.y,
+                PosZ = __state.Pos.z,
                 RotX = euler.x,
                 RotY = euler.y,
                 RotZ = euler.z
             });
-            ModRuntime.LegacyInfo("[ItemSpawn] sent " + _pendingType + " at " + _pendingPos);
+            ModRuntime.LegacyInfo("[ItemSpawn] sent " + __state.Type + " at " + __state.Pos);
         }
 
         // progressBarCompleted can throw; stuck true suppresses WorldObject harvest/destroy forever.
-        // Also clear _pendingType: Prefix nulls it next call, but a throw after arm left a
-        // stale type until the next Prefix — Finalizer keeps the arm table tidy.
-        private static void Finalizer()
+        private static void Finalizer(State __state)
         {
-            InsideTrapPlacement = false;
-            _pendingType = null;
+            InsideTrapPlacement = __state.PrevInside;
         }
     }
 

@@ -11,9 +11,9 @@ namespace DWMPHorde.Patches
     /// Actual weapon audio is forwarded separately (PlayerAudio / fire FX paths).
     /// </summary>
     [HarmonyPatch(typeof(Player), "fireWeapon")]
-    [HarmonyPriority(Priority.Last)]
     public static class ClientFireWeaponSoundPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(Player __instance)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client)

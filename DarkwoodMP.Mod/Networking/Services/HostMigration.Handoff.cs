@@ -133,6 +133,14 @@ namespace DWMPHorde.Networking
             if (_migrationInProgress)
                 return;
 
+            // A link that never completed its handshake is a failed connect, not a host loss:
+            // electing here would promote a client that was never part of the session.
+            if (!_handshakeComplete)
+            {
+                OnClientLinkFailed(reason);
+                return;
+            }
+
                 // Refuse a mid-dream authority flip; tear down dream state, then disconnect.
             if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
             {

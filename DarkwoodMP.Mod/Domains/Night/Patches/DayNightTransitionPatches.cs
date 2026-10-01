@@ -196,8 +196,11 @@ namespace DWMPHorde.Patches
         /// </summary>
         public static void TryEndIfHideoutEmpty()
         {
+            // Role only, not IsConnected: the disconnect cleanup calls this after the leaver is
+            // already out of the roster, and when it was the last peer the host is no longer
+            // "connected" — the morning would then never end for a host already outside.
             var net = LanNetworkManager.Instance;
-            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+            if (net == null || net.Role != NetworkRole.Host)
                 return;
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null || !ctrl.isAfterNight)

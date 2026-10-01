@@ -4,12 +4,12 @@ using Xunit;
 namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
-/// Wire ID contract for protocol 25, checked against the compiled enum.
+/// Wire ID contract for the current protocol, checked against the compiled enum.
 /// </summary>
 public class NetMessageContractTests
 {
     [Fact]
-    public void Protocol25_StableMessageIds()
+    public void StableMessageIds()
     {
         Assert.Equal(111, (byte)NetMessageType.ChatMessage);
         Assert.Equal(112, (byte)NetMessageType.DialogNpcLock);
@@ -40,7 +40,17 @@ public class NetMessageContractTests
         Assert.Equal(137, (byte)NetMessageType.WorldBurnState);
         Assert.Equal(138, (byte)NetMessageType.ScenarioStateBulk);
         Assert.Equal(139, (byte)NetMessageType.HostWorldReady);
-        Assert.Equal(139, (byte)NetMessageType._Highest);
+        Assert.Equal(140, (byte)NetMessageType.ChapterShareAck);
+        Assert.Equal(141, (byte)NetMessageType.ChapterLoadGo);
+        Assert.Equal(142, (byte)NetMessageType.LocationPadSlotRequest);
+        Assert.Equal(143, (byte)NetMessageType.LocationPadSlotSync);
+        Assert.Equal(144, (byte)NetMessageType.NightDeathRelease);
+        Assert.Equal(145, (byte)NetMessageType.MorningReward);
+        // 146 (SessionSettings) is the highest id; resolved by name so a rename fails with a clear message.
+        Assert.True(Enum.TryParse("SessionSettings", out NetMessageType sessionSettings),
+            "NetMessageType.SessionSettings (146) is missing");
+        Assert.Equal(146, (byte)sessionSettings);
+        Assert.Equal(146, (byte)NetMessageType._Highest);
     }
 
     [Fact]

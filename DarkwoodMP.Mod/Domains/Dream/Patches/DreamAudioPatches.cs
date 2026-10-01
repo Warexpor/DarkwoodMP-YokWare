@@ -62,11 +62,11 @@ namespace DWMPHorde.Patches
     /// Host-only dream world one-shot forward (not ambience/music/UI).
     /// Priority Last so distance/suppression prefixes run first.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(AudioController))]
     [HarmonyPatch("_PlayAsSound")]
     public static class DreamAudioPlayPrefix
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Prefix(string audioID, float volume, Vector3 worldPosition)
         {
             if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition)) return;

@@ -68,6 +68,13 @@ namespace DWMPHorde.Patches
         private static int _lastSentNightId = int.MinValue;
         private static int _lastSentEventIndex = int.MinValue;
 
+        /// <summary>Session boundary: a new world's first event must not match the old world's last one.</summary>
+        public static void Reset()
+        {
+            _lastSentNightId = int.MinValue;
+            _lastSentEventIndex = int.MinValue;
+        }
+
         private static void Postfix(NightScenario __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;
@@ -75,7 +82,11 @@ namespace DWMPHorde.Patches
                 return;
 
             if (__instance.currentEvent == null)
+            {
+                // The event ended: a later repeat of the same (night, event) is a new firing.
+                Reset();
                 return;
+            }
 
             for (int i = 0; i < __instance.customEventAndInts.Count; i++)
             {

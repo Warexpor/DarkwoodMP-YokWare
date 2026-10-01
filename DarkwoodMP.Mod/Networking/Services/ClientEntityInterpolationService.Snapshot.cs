@@ -189,6 +189,18 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Forget the last accepted EntityState sequence. A new sender (host migration, soft
+        /// reconnect) counts from 1 again; keeping the old host's high-water mark made survivors
+        /// drop every snapshot from the promoted host until it overtook that number.
+        /// Entity maps stay intact — only the ordering gate resets.
+        /// </summary>
+        public static void ResetSnapshotSequence()
+        {
+            _lastSnapshotSequence = 0;
+            _hasSnapshotSequence = false;
+        }
+
         private static bool _AcceptSnapshotSequence(uint sequence)
         {
             if (!SnapshotSequencePolicy.IsNewer(sequence, _lastSnapshotSequence, _hasSnapshotSequence))

@@ -21,6 +21,20 @@ namespace DWMPHorde.Networking
     public sealed partial class LanNetworkManager : MonoBehaviour, INetEventListener
     {
 
+        /// <summary>
+        /// One place for LiteNetLib settings so host, join, and migration sockets behave the same.
+        /// AutoRecycle: every receive path copies the payload (<c>GetRemainingBytes</c>) and never keeps
+        /// the reader, so LiteNetLib can return it to its pool instead of leaving one garbage reader per
+        /// packet. MTU discovery stays off (LiteNetLib default 1024): hot senders split to each peer's
+        /// <c>GetMaxSinglePacketSize</c>, and discovery is known to confuse some routers / VPNs.
+        /// </summary>
+        private NetManager CreateNetManager() => new NetManager(this)
+        {
+            UnconnectedMessagesEnabled = false,
+            DisconnectTimeout = 30000,
+            AutoRecycle = true
+        };
+
         public void StartHost(int port)
         {
             StopNetwork();
@@ -29,7 +43,7 @@ namespace DWMPHorde.Networking
             _hostPlayerId = 1;
             _backend = ConnectionBackend.Lan;
             NoteSessionPort(port);
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             if (!_net.Start(port))
             {
                 StatusText = "Failed to bind port " + port;
@@ -44,12 +58,13 @@ namespace DWMPHorde.Networking
                 ? "open LAN"
                 : "password protected";
             ModLog.Event(LogCat.Network, "Hosting on port " + port + " (" + keyHint + ")"
-                + " | v" + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
+                + " | " + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
                 + " maxPlayers=" + (Config.ModConfig.MaxPlayers?.Value ?? 8));
         }
 
         public void ConnectToHost(string address, int port)
         {
+            LastClientSteamLobbyId = 0;
             // Phase-3 / migration: already in chapter with a live Player. Full StopNetwork
             // runs NetworkResetRegistry (entity interp reset + CharacterTracker scene scan)
             // then first snapshot re-purges ~60 chars → client FPS crater right after enter.
@@ -83,6 +98,7 @@ namespace DWMPHorde.Networking
                 _hostWasShareableForWaitingClients = false;
                 _hostWorldReadyEmitted = false;
                 _clientHostWorldReady = false;
+                NoteSoftReconnectAttempt(address, port, 0);
             }
             else
             {
@@ -93,19 +109,23 @@ namespace DWMPHorde.Networking
             _hostPlayerId = 1;
             _backend = ConnectionBackend.Lan;
             NoteSessionPort(port);
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             _net.Start();
             string key = Config.ModConfig.GetConnectionKey();
             _peers[1] = _net.Connect(address, port, key);
             StatusText = "Connecting to " + address + ":" + port;
             // Event line is IP-redacted under Public; Trace keeps detail for Dev/Trace only.
             ModLog.Event(LogCat.Network, "Connecting to " + address + ":" + port
-                + " | v" + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
+                + " | " + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
                 + (softReconnect ? " (soft)" : ""));
             ModLog.Trace(LogCat.Network, () => "Connect target detail: " + address + ":" + port);
         }
 
-        public void StopNetwork()
+        /// <param name="keepSteamLobby">
+        /// Chapter resume, Steam host only: stay a member of the lobby through the scene load so
+        /// returning clients can rejoin the same lobby id. Everything else leaves the lobby.
+        /// </param>
+        public void StopNetwork(bool keepSteamLobby = false)
         {
             // This is an intentional teardown, not a host-crash migration.
             _suppressHostMigration = true;
@@ -146,14 +166,14 @@ namespace DWMPHorde.Networking
                     DestroyRemoteItemLight(state.PlayerId);
             }
             _remotePlayers.Clear();
-            ShutdownSteamBackend();
+            ShutdownSteamBackend(leaveLobby: !keepSteamLobby);
             ClearAllPeerSlots();
             ClearAllStableClientKeys();
+            ResetWorldIdentityState();
             _sendTimer = 0f;
             _nextPlayerStateSequence = 0;
-            _lastPlayerStateSequence.Clear();
-            _lastPhysicsStateSequence.Clear();
-            _lastReliablePhysicsStateSequence.Clear();
+            _nextPhysicsStateSequence = 0;
+            ResetInboundSequenceState();
             _physicsSendTimer = 0f;
             _timeSyncTimer = 0f;
             _shadowBroadcastTimer = 0f;

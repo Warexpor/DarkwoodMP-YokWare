@@ -20,10 +20,16 @@ namespace DWMPHorde.Patches
     public static class GameEventAnimLibraryHostFanPatch
     {
         private static FieldInfo _gameEventField;
-        private static bool _track;
-        private static string _expected;
-        private static readonly List<int> _ids = new List<int>(64);
-        private static readonly List<string> _before = new List<string>(64);
+
+        // Per-MoveNext state travels in __state (null = not tracked): a GameEvent step can start
+        // another GameEvent coroutine whose MoveNext runs inside this one, and statics would be
+        // overwritten.
+        private sealed class State
+        {
+            public string Expected;
+            public readonly List<int> Ids = new List<int>(64);
+            public readonly List<string> Before = new List<string>(64);
+        }
 
         private static bool Prepare() => TargetMethod() != null;
 
@@ -66,12 +72,13 @@ namespace DWMPHorde.Patches
                 : null;
         }
 
-        private static void Prefix(object __instance)
+        private static void Prefix(object __instance, out State __state)
         {
-            _track = false;
-            _ids.Clear();
-            _before.Clear();
-            _expected = null;
+            __state = null;
+            // Host-only fan-out: nothing to track offline / as a client.
+            var hostNet = LanNetworkManager.Instance;
+            if (hostNet == null || hostNet.Role != NetworkRole.Host || !hostNet.IsConnected)
+                return;
             GameEvent ge = GetGameEvent(__instance);
             if (ge == null) return;
             if (ge.type != GameEvent.Type.modifyCharacter) return;
@@ -79,8 +86,8 @@ namespace DWMPHorde.Patches
                 return;
 
             // Vanilla assigns GameEvent.Value into the property setter.
-            _expected = ge.Value ?? "";
-            _track = true;
+            var st = new State { Expected = ge.Value ?? "" };
+            __state = st;
 
             // trueTargets is a MoveNext local (no yield cross) — snapshot scene
             // Characters and detect which libraries the write changed.
@@ -89,15 +96,14 @@ namespace DWMPHorde.Patches
             {
                 Character c = all[i];
                 if (c == null) continue;
-                _ids.Add(c.GetInstanceID());
-                _before.Add(c.animationLibraryOverride ?? "");
+                st.Ids.Add(c.GetInstanceID());
+                st.Before.Add(c.animationLibraryOverride ?? "");
             }
         }
 
-        private static void Postfix(object __instance)
+        private static void Postfix(object __instance, State __state)
         {
-            if (!_track) return;
-            _track = false;
+            if (__state == null) return;
 
             var net = LanNetworkManager.Instance;
             // Host-only. Clients applying GameEventsFired write libraries under
@@ -107,16 +113,16 @@ namespace DWMPHorde.Patches
 
             Character[] all = WorldQueryHelper.GetCachedSceneComponents<Character>();
             var flags = Singleton<Flags>.Instance;
-            string expected = _expected ?? "";
+            string expected = __state.Expected ?? "";
 
             for (int i = 0; i < all.Length; i++)
             {
                 Character c = all[i];
                 if (c == null) continue;
                 int id = c.GetInstanceID();
-                int idx = _ids.IndexOf(id);
+                int idx = __state.Ids.IndexOf(id);
                 if (idx < 0) continue;
-                string was = _before[idx] ?? "";
+                string was = __state.Before[idx] ?? "";
                 string now = c.animationLibraryOverride ?? "";
                 if (now == was) continue;
                 if (now != expected) continue;
@@ -151,10 +157,6 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[RepSync] GameEvent animLibrary host fan '{npcName}': '{was}' → '{expected}'");
             }
-
-            _ids.Clear();
-            _before.Clear();
-            _expected = null;
         }
     }
 }

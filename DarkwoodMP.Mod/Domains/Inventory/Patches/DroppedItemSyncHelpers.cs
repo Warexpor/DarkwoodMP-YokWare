@@ -95,7 +95,8 @@ namespace DWMPHorde.Patches
         /// Host TryConsume + fan Remove; client optimistic + ClaimRequest (deny refunds).
         /// </summary>
         internal static void FinishGuidPickupClaim(
-            string guid, string itemType, int amount, float durability, int ammo, int preCount)
+            string guid, string itemType, int amount, float durability, int ammo, int preCount,
+            string recipeFor = null)
         {
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected) return;
@@ -105,7 +106,7 @@ namespace DWMPHorde.Patches
             // Lost to an inbound claim/remove that already consumed on this machine.
             if (!WorldObjectSendNetHandlers.TryConsumeDropGuid(guid))
             {
-                WorldPickupClaimPending.Refund(itemType, amount, preCount, "guid local consume lost");
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "guid local consume lost", recipeFor);
                 return;
             }
 
@@ -126,7 +127,7 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            WorldPickupClaimPending.RecordGuid(guid, itemType, amount, preCount);
+            WorldPickupClaimPending.RecordGuid(guid, itemType, amount, preCount, recipeFor);
             var claim = new DroppedItemPickupMessage
             {
                 Guid = guid,
@@ -149,7 +150,8 @@ namespace DWMPHorde.Patches
         /// Host TryConsume + fan Remove; client optimistic + ClaimRequest (deny refunds).
         /// </summary>
         internal static void FinishWorldPickupClaim(
-            Vector3 pos, string sendName, string itemType, int amount, float durability, int ammo, int preCount)
+            Vector3 pos, string sendName, string itemType, int amount, float durability, int ammo, int preCount,
+            string recipeFor = null)
         {
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected) return;
@@ -159,7 +161,7 @@ namespace DWMPHorde.Patches
             // Lost to an inbound claim/remove that already consumed on this machine.
             if (!WorldPhysicsSyncService.TryConsumeWorldPickup(pos.x, pos.y, pos.z, sendName))
             {
-                WorldPickupClaimPending.Refund(itemType, amount, preCount, "local consume lost");
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "local consume lost", recipeFor);
                 return;
             }
 
@@ -183,7 +185,7 @@ namespace DWMPHorde.Patches
             }
 
             // Client: keep optimistic grant; host decides. Pending enables deny refund.
-            WorldPickupClaimPending.Record(pos.x, pos.y, pos.z, sendName, itemType, amount, preCount);
+            WorldPickupClaimPending.Record(pos.x, pos.y, pos.z, sendName, itemType, amount, preCount, recipeFor);
             var claim = new WorldObjectRemovedMessage
             {
                 PosX = pos.x,
@@ -209,11 +211,21 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static void CaptureWorldPickupItemMeta(Item worldItem,
             out string itemType, out int amount, out float durability, out int ammo)
+            => CaptureWorldPickupItemMeta(worldItem, out itemType, out amount, out durability,
+                out ammo, out _);
+
+        /// <param name="recipeFor">
+        /// Recipe taught when the item is a recipe (its live <c>type</c> is "recipe"); empty otherwise.
+        /// </param>
+        internal static void CaptureWorldPickupItemMeta(Item worldItem,
+            out string itemType, out int amount, out float durability, out int ammo,
+            out string recipeFor)
         {
             itemType = "";
             amount = 0;
             durability = 0f;
             ammo = 0;
+            recipeFor = "";
             if (worldItem == null) return;
 
             Inventory bag = worldItem.GetComponent<Inventory>();
@@ -223,6 +235,8 @@ namespace DWMPHorde.Patches
             if (InvItemClass.isNull(inv))
                 return;
             itemType = inv.type ?? "";
+            if (inv.isRecipe && !string.IsNullOrEmpty(inv.recipeFor))
+                recipeFor = inv.recipeFor;
             amount = inv.amount > 0 ? inv.amount : 1;
             durability = inv.durability;
             if (inv.baseClass != null && inv.baseClass.hasAmmo)

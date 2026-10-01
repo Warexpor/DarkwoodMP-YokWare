@@ -115,51 +115,55 @@ namespace DWMPHorde.Patches
     {
         private static float _until;
 
-        public static bool PlayingHostLocationEvent => UnityEngine.Time.unscaledTime < _until;
+        /// <summary>Client in a live session only: a stale window must never touch singleplayer or a host.</summary>
+        public static bool PlayingHostLocationEvent =>
+            _until > 0f
+            && ClientWorldHelper.IsClient
+            && ModRuntime.Network.IsConnected
+            && UnityEngine.Time.unscaledTime < _until;
 
         public static void Arm(float seconds)
         {
+            if (!ClientWorldHelper.IsClient)
+                return;
             float until = UnityEngine.Time.unscaledTime + seconds;
             if (until > _until)
                 _until = until;
         }
+
+        /// <summary>Registered with NetworkResetRegistry so a replay window cannot outlive its session.</summary>
+        public static void Reset() => _until = 0f;
     }
 
     /// <summary>
-    /// The location event's own prefab may try to spawn a creature. The host
-    /// already did that and will send the body. Skip a second one here.
+    /// While a client replays a host night location event, the event's own spawnCharacter /
+    /// replaceCharacter steps must not create a second creature: the host already did and sends the
+    /// body. Skip the whole GameEvent coroutine instead of nulling Core.AddPrefab /
+    /// spawnCharacterAround results (vanilla callers dereference those unconditionally:
+    /// GameEvent.fire .GetComponent&lt;Character&gt;(), Location trader spawn, Character gibs).
     /// </summary>
-    [HarmonyPatch(typeof(CharacterSpawner), "spawnCharacterAround")]
-    [HarmonyPriority(Priority.First)]
-    public static class ClientScenarioEventNoDuplicateSpawnPatch
+    [HarmonyPatch(typeof(GameEvent), "fire", typeof(GameObject))]
+    public static class ClientScenarioEventNoCharacterSpawnPatch
     {
-        private static bool Prefix()
-        {
-            return !ClientRandomEventGate.PlayingHostLocationEvent;
-        }
-    }
-
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
-    [HarmonyPriority(Priority.First)]
-    public static class ClientScenarioEventNoCharacterPrefabPatch
-    {
-        private static bool Prefix(string prefab, ref GameObject __result)
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix(GameEvent __instance, ref IEnumerator __result)
         {
             if (!ClientRandomEventGate.PlayingHostLocationEvent)
                 return true;
-            if (string.IsNullOrEmpty(prefab))
+            if (__instance == null
+                || (__instance.type != GameEvent.Type.spawnCharacter
+                    && __instance.type != GameEvent.Type.replaceCharacter))
                 return true;
-            if (prefab.IndexOf("characters/", System.StringComparison.OrdinalIgnoreCase) < 0)
-                return true;
-            __result = null;
+            // IEnumerator — assign empty when skipping so StartCoroutine is never null.
+            __result = HarmonyCoroutineUtil.Empty();
             return false;
         }
     }
 
     [HarmonyPatch(typeof(Door), "getHit")]
-    [HarmonyPriority(Priority.First)]
     public static class ClientScenarioEventNoDoorHitPatch
     {
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(Transform attackerTransform)
         {
             if (!ClientRandomEventGate.PlayingHostLocationEvent)
@@ -173,9 +177,9 @@ namespace DWMPHorde.Patches
     }
 
     [HarmonyPatch(typeof(Window), "getHit")]
-    [HarmonyPriority(Priority.First)]
     public static class ClientScenarioEventNoWindowHitPatch
     {
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(Transform attackerTransform)
         {
             if (!ClientRandomEventGate.PlayingHostLocationEvent)

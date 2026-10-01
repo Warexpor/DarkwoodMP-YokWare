@@ -16,7 +16,8 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(UnityEngine.Object obj)
         {
-            if (ModRuntime.Network == null) return;
+            // Offline (mod loaded, no session) must stay vanilla; Network is non-null there.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Suppress during trap placement (the inventory item destruction should not trigger removal)
             if (Sync.TrapPlacementPatch.InsideTrapPlacement) return;

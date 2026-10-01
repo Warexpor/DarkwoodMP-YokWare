@@ -49,6 +49,8 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvItemClass __instance, ref InvSlot __result)
         {
             if (__result != null || __instance == null) return;
+            // Co-op only: singleplayer keeps vanilla's null slot.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
 
             InventorySafety.HealSlot(__instance);
             __result = Traverse.Create(__instance).Field("_slot").GetValue<InvSlot>();

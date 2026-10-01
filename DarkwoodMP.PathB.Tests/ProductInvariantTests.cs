@@ -112,7 +112,7 @@ public class ProductInvariantTests
 
         var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
         Assert.DoesNotContain("PorterWhistle", netTypes);
-        Assert.Contains("_Highest = 139", netTypes);
+        Assert.Contains("_Highest = 146", netTypes);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class ProductInvariantTests
 
         var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
         Assert.Contains("GasIgnite = 29", netTypes);
-        Assert.Contains("_Highest = 139", netTypes);
+        Assert.Contains("_Highest = 146", netTypes);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class ProductInvariantTests
 
         var netTypes = File.ReadAllText(Path.Combine(ModDir, "Networking", "Messages", "NetMessageType.cs"));
         Assert.Contains("WorldObjectRemoved = 23", netTypes);
-        Assert.Contains("_Highest = 139", netTypes);
+        Assert.Contains("_Highest = 146", netTypes);
     }
 
     [Fact]
@@ -247,12 +247,12 @@ public class ProductInvariantTests
     }
 
     [Fact]
-    public void PluginInfo_IsYokWarePathB_Protocol25()
+    public void PluginInfo_IsYokWarePathB()
     {
         var text = File.ReadAllText(Path.Combine(ModDir, "Bootstrap", "PluginInfo.cs"));
         Assert.Contains("com.yokware.branch", text);
         Assert.Contains("YokWare Branch", text);
-        Assert.Contains("ProtocolVersion = 25", text);
+        Assert.Contains("ProtocolVersion = 27", text);
         Assert.Contains("Horde", text);
 
         var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.8\.[^""]+)""");
@@ -294,8 +294,8 @@ public class ProductInvariantTests
         Assert.Contains("private static void Finalizer()", banshee);
 
         var trap = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "DoorSyncPatches.cs"));
-        Assert.Contains("InsideTrapPlacement = false", trap);
-        Assert.Contains("private static void Finalizer()", trap);
+        // The Finalizer restores InsideTrapPlacement (to false, or to the nested caller's prior value).
+        Assert.Matches(@"static void Finalizer\([^)]*\)\s*\{\s*InsideTrapPlacement = ", trap);
 
         var pause = File.ReadAllText(Path.Combine(ModDir, "Patches", "NoWorldPausePatch.cs"));
         Assert.Contains("UiOpenNoPausePatches", pause);
@@ -308,7 +308,7 @@ public class ProductInvariantTests
         Assert.Contains("DoorGetHitPatch", barr);
         Assert.Contains("WindowGetHitPatch", barr);
         Assert.Contains("_getHitDepth", barr);
-        Assert.Contains("BarricadeSyncHelpers.EndGetHit(id)", barr);
+        Assert.Contains("BarricadeSyncHelpers.EndGetHit(", barr);
         Assert.Contains("[HarmonyFinalizer]", barr);
         Assert.Contains("private static void Finalizer(Door __instance)", barr);
         Assert.Contains("private static void Finalizer(Window __instance)", barr);
@@ -326,7 +326,7 @@ public class ProductInvariantTests
         Assert.Contains("DialogClientWorldDeferBoardPatch", defer);
         Assert.Contains("[HarmonyFinalizer]", defer);
         Assert.Contains("DialogClientWorldDefer.End()", defer);
-        Assert.Contains("private static void Finalizer(bool __state)", defer);
+        Assert.Matches(@"static void Finalizer\([^)]*\)", defer);
 
         var pickup = File.ReadAllText(Path.Combine(ModDir, "Domains", "Inventory", "Patches", "DroppedItemSyncPatches.cs"));
         Assert.Contains("PlayerPickupDroppedItemPatch", pickup);
@@ -362,8 +362,10 @@ public class ProductInvariantTests
 
         var trapPlace = File.ReadAllText(Path.Combine(ModDir, "Domains", "Doors", "DoorSyncPatches.cs"));
         Assert.Contains("TrapPlacementPatch", trapPlace);
-        Assert.Contains("_pendingType = null", trapPlace);
-        Assert.Contains("InsideTrapPlacement = false", trapPlace);
+        // Placement capture is cleared in the Finalizer (statics) or travels in __state (re-entrancy-safe).
+        Assert.True(trapPlace.Contains("_pendingType = null") || trapPlace.Contains("PrevInside"),
+            "TrapPlacementPatch must not leave placement state behind when progressBarCompleted throws");
+        Assert.Matches(@"static void Finalizer\([^)]*\)\s*\{\s*InsideTrapPlacement = ", trapPlace);
     }
 
     [Fact]

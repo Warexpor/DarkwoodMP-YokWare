@@ -23,7 +23,16 @@ namespace DWMPHorde.Networking
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 
-            _net?.PollEvents();
+            // Message handlers are isolated in ProcessInboundMessage; this catches what is left (a
+            // peer connect/disconnect callback). LiteNetLib drops the remaining queued events of the
+            // poll when one throws, but the rest of this frame (sends, Steam poll) must still run.
+            try { _net?.PollEvents(); }
+            catch (Exception ex)
+            {
+                if (NetLogThrottle.ShouldLog("pollevents-ex", 5f, out int dropped))
+                    ModLog.Error(LogCat.Network,
+                        "LiteNetLib PollEvents threw" + NetLogThrottle.SuppressedSuffix(dropped), ex);
+            }
             PollSteamBackend();
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
@@ -77,6 +86,8 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
             TickPeerRosterGossip();
             TickHostMigrationRetry();
+            TickSoftReconnectRetry();
+            TickSteamUnauthTimeout();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("gameEvents");
@@ -163,13 +174,7 @@ namespace DWMPHorde.Networking
                     bool built = Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap);
                     if (perf) ClientPerfProbe.MarkPhysBuild();
                     if (built)
-                    {
-                        if (_role == NetworkRole.Host)
-                            BroadcastHot(NetMessageType.PhysicsState, w => snap.Serialize(w),
-                                skipLoadingPeers: true);
-                        else
-                            BroadcastHot(NetMessageType.PhysicsState, w => snap.Serialize(w));
-                    }
+                        SendPhysicsStateStream(snap, skipLoadingPeers: _role == NetworkRole.Host);
                 }
                 else if (perf)
                 {

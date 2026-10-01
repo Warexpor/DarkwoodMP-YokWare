@@ -320,16 +320,6 @@ namespace DWMPHorde.Networking
                     // we do not re-run eater/gore path every 1s (log spam + apply cost).
                     if (msg.Health <= 0)
                     {
-                        try
-                        {
-                            var ctrl = Singleton<Controller>.Instance;
-                            int day = ctrl != null ? ctrl.day : 0;
-                            UnityEngine.Random.InitState(day
-                                ^ ((int)Mathf.Round(pos.x) * 73856093)
-                                ^ ((int)Mathf.Round(pos.z) * 19349663)
-                                ^ lure.health);
-                        }
-                        catch { /* ignore */ }
                         lure.removeHealth(lure.health + 1, null);
                     }
                     else

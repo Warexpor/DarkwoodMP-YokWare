@@ -110,13 +110,25 @@ namespace DWMPHorde.Networking
                                 LockedUnlockMessage.Deserialize(new NetReader(payload)));
                             return true;
                         case NetMessageType.MapMarker:
-                            MapHandlers.HandleMapMarker(
-                                MapMarkerMessage.Deserialize(new NetReader(payload)));
-                            return true;
+                            {
+                                // Host stamps the real sender and relays that body; the generic
+                                // Forwardable relay would pass a client-claimed PlayerId to the others.
+                                var marker = MapMarkerMessage.Deserialize(new NetReader(payload));
+                                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                                if (stamp) marker.PlayerId = _currentReceivePlayerId;
+                                MapHandlers.HandleMapMarker(marker);
+                                if (stamp) RelayStamped(NetMessageType.MapMarker, w => marker.Serialize(w));
+                                return true;
+                            }
                         case NetMessageType.MapMarkerRemove:
-                            MapHandlers.HandleMapMarkerRemove(
-                                MapMarkerRemoveMessage.Deserialize(new NetReader(payload)));
-                            return true;
+                            {
+                                var marker = MapMarkerRemoveMessage.Deserialize(new NetReader(payload));
+                                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                                if (stamp) marker.PlayerId = _currentReceivePlayerId;
+                                MapHandlers.HandleMapMarkerRemove(marker);
+                                if (stamp) RelayStamped(NetMessageType.MapMarkerRemove, w => marker.Serialize(w));
+                                return true;
+                            }
                         case NetMessageType.MapElementDiscovered:
                             MapHandlers.HandleMapElementDiscovered(
                                 MapElementDiscoveredMessage.Deserialize(new NetReader(payload)));
@@ -134,13 +146,23 @@ namespace DWMPHorde.Networking
                                 DoorOpenMessage.Deserialize(new NetReader(payload)));
                             return true;
                         case NetMessageType.LocationEnter:
-                            LocationHandlers.HandleLocationEnter(
-                                LocationEnterMessage.Deserialize(new NetReader(payload)));
-                            return true;
+                            {
+                                var enter = LocationEnterMessage.Deserialize(new NetReader(payload));
+                                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                                if (stamp) enter.PlayerId = _currentReceivePlayerId;
+                                LocationHandlers.HandleLocationEnter(enter);
+                                if (stamp) RelayStamped(NetMessageType.LocationEnter, w => enter.Serialize(w));
+                                return true;
+                            }
                         case NetMessageType.LocationExit:
-                            LocationHandlers.HandleLocationExit(
-                                LocationExitMessage.Deserialize(new NetReader(payload)));
-                            return true;
+                            {
+                                var exit = LocationExitMessage.Deserialize(new NetReader(payload));
+                                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                                if (stamp) exit.PlayerId = _currentReceivePlayerId;
+                                LocationHandlers.HandleLocationExit(exit);
+                                if (stamp) RelayStamped(NetMessageType.LocationExit, w => exit.Serialize(w));
+                                return true;
+                            }
                         case NetMessageType.EntitySpawn:
                             LocationHandlers.HandleEntitySpawn(
                                 EntitySpawnMessage.Deserialize(new NetReader(payload)));
@@ -148,6 +170,14 @@ namespace DWMPHorde.Networking
                         case NetMessageType.TrapTriggered:
                             LocationHandlers.HandleTrapTriggered(
                                 TrapTriggeredMessage.Deserialize(new NetReader(payload)));
+                            return true;
+                        case NetMessageType.LocationPadSlotRequest:
+                            OutsidePadSlots.HandleRequest(this, _currentReceivePlayerId,
+                                LocationPadSlotRequestMessage.Deserialize(new NetReader(payload)));
+                            return true;
+                        case NetMessageType.LocationPadSlotSync:
+                            OutsidePadSlots.HandleSync(this,
+                                LocationPadSlotSyncMessage.Deserialize(new NetReader(payload)));
                             return true;
                         case NetMessageType.TrapBulk:
                             WorldObjectSendHandlers.HandleTrapBulk(TrapBulkMessage.Deserialize(new NetReader(payload)));

@@ -140,9 +140,6 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo($"[WeatherSync] rain={msg.Raining} fog={msg.FogIsActive} today={msg.RainToday}");
         }
 
-        /// <summary>Host→all clients: current day/time/after-night (periodic).</summary>
-        internal void SendTimeSync() => SendTimeSyncTo(-1);
-
         /// <summary>
         /// Host→one peer (targetPlayerId &gt; 0) or all (≤ 0).
         /// Join path uses this so a new client does not wait up to TimeSyncInterval.

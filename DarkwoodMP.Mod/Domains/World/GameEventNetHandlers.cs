@@ -41,12 +41,14 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host: remember a one-shot that will (or did) destroy its shell so late
-        /// joiners still receive it in GameEventsBulk (136).
+        /// Remember a one-shot that will (or did) destroy its shell so late joiners still receive
+        /// it in GameEventsBulk (136). Recorded on the host at fire time and on clients from the
+        /// events they apply: only the host used to keep this list, so a promoted host (migration)
+        /// had none and late joiners saw those shells as never fired.
         /// </summary>
         internal void RecordDestroyedOnFireGameEvent(GameEventsFiredMessage msg)
         {
-            if (_net.Role != NetworkRole.Host)
+            if (_net.Role != NetworkRole.Host && _net.Role != NetworkRole.Client)
                 return;
             for (int i = 0; i < _destroyedFiredGameEvents.Count; i++)
             {
@@ -401,10 +403,21 @@ namespace DWMPHorde.Networking
                     EventName = msg.EventNames[i]
                 };
                 // Same apply path as live GameEventsFired (NetworkApplyGuard + pending queue).
-                if (ApplyGameEventsFired(one, queueIfMissing: true))
-                    applied++;
-                else
+                // One throwing event must not abort the rest of the bulk (or the pending flush
+                // that follows it), so each item is isolated.
+                try
+                {
+                    if (ApplyGameEventsFired(one, queueIfMissing: true))
+                        applied++;
+                    else
+                        queuedOrSkipped++;
+                }
+                catch (Exception ex)
+                {
                     queuedOrSkipped++;
+                    ModLog.WarnRate(LogCat.Session, "ge-bulk-item-throw",
+                        "[BulkSync] GameEvent '" + one.EventName + "' apply threw: " + ex.Message);
+                }
             }
             ModLog.Event(LogCat.Session,
                 "[BulkSync] GameEvents bulk applied=" + applied

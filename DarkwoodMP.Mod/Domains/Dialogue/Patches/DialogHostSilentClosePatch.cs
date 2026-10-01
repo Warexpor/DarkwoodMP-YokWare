@@ -75,14 +75,25 @@ namespace DWMPHorde.Patches
             dw.tweening = false;
 
             // changePortrait sets forbidInputs + schedules black fade; clear both so the
-            // non-speaker host is not left locked/black after world-only apply.
+            // non-speaker host is not left locked/black after world-only apply. Not while the host
+            // is in a real conversation of its own: that dialogue owns the input lock.
+            bool hostTalking = false;
             try
             {
-                Core.forbidInputs = false;
-                Core.cantChangeForbidInputs = false;
-                dw.forbidInputs = false;
+                hostTalking = Player.Instance != null && Player.Instance.inDialogue
+                    && dw.opened && dw.npc != null;
             }
             catch { /* non-fatal */ }
+            if (!hostTalking)
+            {
+                try
+                {
+                    Core.forbidInputs = false;
+                    Core.cantChangeForbidInputs = false;
+                    dw.forbidInputs = false;
+                }
+                catch { /* non-fatal */ }
+            }
 
             try
             {

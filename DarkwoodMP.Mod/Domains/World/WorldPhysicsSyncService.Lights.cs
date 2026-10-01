@@ -280,7 +280,16 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Resets all cached state, tracked objects, and interpolation tables (used on scene change or disconnect).</summary>
-        public static void Reset()
+        public static void Reset() => ResetCore(keepThrownLights: false);
+
+        /// <summary>
+        /// Host promotion (HostMigration promote handoff): same reset, but the thrown-light tables
+        /// survive. Reset() cleared them, so a flare already burning in the world was no longer
+        /// tracked by the new host and never faded or expired.
+        /// </summary>
+        public static void ResetForPromote() => ResetCore(keepThrownLights: true);
+
+        private static void ResetCore(bool keepThrownLights)
         {
             _lastPos.Clear();
             _lastMoveTime.Clear();
@@ -288,10 +297,13 @@ namespace DWMPHorde.Sync
             _lastTrapTriggered.Clear();
             _knownTraps.Clear();
             _trapResultCache.Clear();
-            _thrownLights.Clear();
-            _thrownById.Clear();
-            _flareBurnStarts.Clear();
-            _thrownLightFades.Clear();
+            if (!keepThrownLights)
+            {
+                _thrownLights.Clear();
+                _thrownById.Clear();
+                _flareBurnStarts.Clear();
+                _thrownLightFades.Clear();
+            }
             TrapNetworkId.ResetSession();
             _lastGeneratorOn.Clear();
             _scanCenters.Clear();
@@ -322,6 +334,7 @@ namespace DWMPHorde.Sync
             _lastClientUpdateTime.Clear();
             _nextSnapshotSequence = 0;
             _destroyDebounce.Clear();
+            _outboundRemoveDebounce.Clear();
             ResetConsumedWorldPickups();
             _pendingLights.Clear();
             MovingObjectSoundService.Reset();

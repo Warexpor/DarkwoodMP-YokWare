@@ -1,157 +1,112 @@
-## 0.8.74 Batch 44 (code-only until dual-box)
+# Playtest checklist — 0.8.127 / protocol 27
 
-- Client NPC `displayNextBoard` throw — DialogClientWorldDefer.Active no longer
-  sticky (flags / world events / location / map pins apply again).
-- World-drop / sprung-trap `getDroppedItem` throw — TrapPickupGuard /
-  WorldPickupWireGuard no longer sticky (container RemoveItem + WorldObjectRemoved OK).
-- Regression: 0.8.73 displayMessage Postfix-hide OK; 0.8.72 door/window getHit
-  Finalizer OK.
+Dual-box (Steam host + SecondDarkwood client) first, then a 3-player run
+(host + two clients). Tick a section only after you saw it in the game; code-only
+status lives in `CHANGELOG.md` and `COOP_COVERAGE.md`. Attach **both** loader logs
+to any failure (`LOGGING.md`).
 
-# Dual-box playtest (0.8.74)
+Setup for every run: `LogPreset=Support` (or `Trace` for a bug pack) on every box,
+same DLL everywhere.
 
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.74** and protocol **25** on both boxes.
-3. Client talks through a multi-board NPC dialogue — map pins / story flags still
-   appear after any edge throw mid-board; no permanent “dialogue does nothing
-   to the world” on client.
-4. Optional: pick up world scrap / sprung beartrap — peer still sees remove; no
-   stuck ContainerTakeDenied storm from a sticky TrapPickupGuard.
+## 1. Deploy and version check
 
-## Host-ready join (0.8.74)
+- [ ] `md5sum` of `DarkwoodMP.Mod.dll` (and `LiteNetLib.dll`) matches on every box.
+- [ ] F2 window title reads **YokWare Branch 0.8.127 / Path B** and the footer shows
+      `proto=27` on every box. Log banner shows `Protocol=27`.
+- [ ] Linux dual-box only: `FreeCursorForDualBox = true` in both cfgs (default is
+      false); mouse is not trapped and the Wine window does not freeze on blur.
+- [ ] A client on a different DLL is refused with a protocol mismatch, not half-joined.
 
-Unchanged from 0.8.73 — wait for HostWorldReady (139) before Enter World.
+## 2. Join and handshake
 
-## Batch 42 — NO-SHIP (stay on 0.8.73)
+- [ ] Host loads a save, enters the chapter; client JOIN LAN shows CONNECTING, then
+      WAIT HOST, DOWNLOADING, CHOOSE SLOT, ENTER WORLD.
+- [ ] Slot picker: an occupied slot asks to confirm; Cancel clears the confirm; a
+      second connect does not show an old confirm.
+- [ ] Host start failure (second host on the same port) shows PORT IN USE on the
+      button, not only in the log. JOIN with an empty Steam lobby id shows SET LOBBY ID.
+- [ ] Third player joins an active session; all three see each other's proxies.
+- [ ] Wrong campaign slot shows WRONG SAVE and refuses.
+- [ ] F2 fields: typing a port does not save per keystroke; Apply/close saves; a
+      Steam lobby id the host just created is not overwritten by stale text.
+- [ ] Chat: Ctrl+C opens, typing does not move the character or switch hotbar,
+      Enter sends, Esc closes without opening the pause menu; remote lines and
+      speech bubbles appear; `ChatEnabled=false` disables it.
+- [ ] F3 on a connected **client** refuses ("only the host can save"). On the host a
+      save reports success only when `sav.dat` changed. F3 Load asks to confirm and
+      refuses during a session.
 
-- Trap `id=0` spam + junk ContainerTakeDenied: dig only; stale 0.8.34 logs;
-  junk path already fixed in 0.8.36; id=0 needs fresh 0.8.73 dual-box repro.
-- No code change / no redeploy. Live md5 `a7abd68ab8a68db8b03ccb36c93087d5`.
+## 3. Chapter 1 to 2 transition
 
-## 0.8.73 Batch 41 (code-only until dual-box)
+- [ ] Host walks the chapter-jump trigger; every client gets the world share,
+      acknowledges (`ChapterShareAck` 140), then loads on `ChapterLoadGo` 141.
+- [ ] Walking the trigger **as a client** also moves everyone (host runs it).
+- [ ] Slow or throttled client still lands in chapter 2 (host waits, re-sends).
+- [ ] PlayerIds and names are unchanged after the reload; Steam sessions resume on
+      the same lobby.
+- [ ] First entry of an outside location: all peers' pads sit at the same place
+      (`LocationPadSlotRequest` 142 / `LocationPadSlotSync` 143); a late joiner too.
 
-- Hideout tutorial / far-GE `displayMessage`: Prefix-null no longer NREs
-  `GameEvent.fire` MoveNext (Postfix-hide like HelpMessage).
-- Regression: 0.8.72 door/window getHit Finalizer OK; HelpMessage Postfix-hide OK.
+## 4. Night with one dead peer
 
-# Dual-box playtest (0.8.73)
+- [ ] One client dies at night, others survive: dead peer spectates, then at dawn is
+      released and sent home (`NightDeathRelease` 144).
+- [ ] Each surviving peer in the hideout gets exactly one morning reward
+      (`MorningReward` 145): reputation and saturation.
+- [ ] Everyone dead: one all-dead morning, no hang. On hard/nightmare the run ends
+      only when every death was permadeath-eligible.
+- [ ] Host or client disconnects at night: morning still resolves.
 
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.73** and protocol **25** on both boxes.
-3. Host stands away from Hideout1 tutorial volume; client walks in —
-   host LogOutput has **no** `GameEvent+<fire>d__77` NullReferenceException;
-   client near the volume still sees the tutorial tip.
-4. Optional: host examines object client already examined — host gets no
-   flavor flash (create-then-hide).
+## 5. Container deny / refund
 
-## Host-ready join (0.8.73)
+- [ ] Two peers take from the same container: the loser is denied and the item is
+      refunded (no dupe, no loss), including durability/ammo items and recipes.
+- [ ] Take more than a slot holds (modified request) is denied.
+- [ ] Known gap: a denied `grabItem` take with the item on the cursor has nothing to
+      refund (parked).
 
-Unchanged from 0.8.72 — wait for HostWorldReady (139) before Enter World.
+## 6. Pickup race
 
-## 0.8.72 Batch 41 (code-only until dual-box)
+- [ ] Two peers press pickup on the same dropped item in the same moment: exactly one
+      gets it, the other sees it vanish, no duplicate on the ground.
+- [ ] Items dropped by a peer appear for the others; picking up your own dropped
+      item back works.
 
-- Door/window board smash: getHit throw no longer leaves IsInsideGetHit sticky
-  (destroyBarricade sync works again on that board).
-- Nesting-aware BeginGetHit depth — outer board suppress survives nested hit.
-- Regression: 0.8.71 explosion/trap/pause Finalizers OK; 0.8.70 HostCheckStuff /
-  EntitySound / ClientProjectile Finalizers OK.
+## 7. Host migration
 
-# Dual-box playtest (0.8.72)
+- [ ] Kill the host process mid-session: survivors elect the lowest player id, the
+      new host's world carries on, clients reconnect (LAN and Steam).
+- [ ] Graceful DISCONNECT on the host hands off instead of dropping everyone.
+- [ ] Known gap: host migration during a dream is unsupported.
 
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.72** and protocol **25** on both boxes.
-3. Enter world; board a door/window; smash boards on night — peer sees destroy;
-   no silent “boards gone on host only” after an edge throw mid-getHit.
-4. Optional: rapid multi-board smash — no stuck suppress on later boards.
+## 8. Dreams, including a chain
 
-## Host-ready join (0.8.72)
+- [ ] Sleep / dialogue dream: the dreamer enters, peers see the dream state; dream end
+      rewards apply once.
+- [ ] Chain dream (dream into dream): death roster and the all-dead grace behave; only
+      players actually in that dream see its epilogue/credits.
+- [ ] Dream failure does not mark it completed.
+- [ ] Join during a dream is refused while `AllowJoinDuringDream=false`.
 
-Unchanged from 0.8.71 — wait for HostWorldReady (139) before Enter World.
+## 9. Spectator (F4)
 
-## 0.8.71 Batch 38 (code-only until dual-box)
+- [ ] Dead player: F4 cycles living peers; camera, audio listener and position follow.
+- [ ] Wrapping the cycle does not release a night-dead player early.
+- [ ] Walkie: RMB with the radio only transmits while playing (not in inventory,
+      container, dialogue, map, journal, pause, dead, or while chat is open).
 
-- Grenade/explosion onActivate throw — IsInsideSpawnObjects / ActivationDepth no
-  longer sticky (host AddPrefab not permanently treated as explosion FX).
-- Local explode / FastProjectile FixedUpdate throw — IsInsideLocalExplosion /
-  IsInsideFastProjectileRaycast no longer stuck (peer damage + impact sync OK).
-- Banshee agitated throw — SuppressHostScreamForward no longer stuck off.
-- Trap place progressBar throw — InsideTrapPlacement no longer suppresses harvest.
-- Map/journal/dialogue open throw — SuppressPause no longer stuck (co-op pause OK).
-- Regression: 0.8.70 HostCheckStuff / EntitySound / ClientProjectile Finalizers OK;
-  0.8.69 EmptyRoutine OK; trade upgrades from 0.8.68 still OK.
+## 10. Steam invite join
 
-# Dual-box playtest (0.8.71)
+(Needs two real Steam accounts; SecondDarkwood is GOG and cannot do Steam.)
 
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.71** and protocol **25** on both boxes.
-3. Enter world; throw molotov/grenade + shoot + place beartrap + open map — no
-   stuck explosion FX spam / damage misroute / pause lock.
-4. Optional: banshee near remote peer — scream still forwards after any edge throw.
+- [ ] HOST STEAM creates a lobby; the lobby id shows in F2. Friend accepts the invite
+      from the overlay: join starts, shows STEAM, the join timeout (35 s) applies,
+      and the world-request nudges fire at 10 s and 25 s on the title screen.
+- [ ] Launching the game with a pending invite (`+connect_lobby`) joins the same way.
+- [ ] Failed join (bad lobby id, Steam not ready) shows a button label, then reverts.
+- [ ] Steam voice: proximity voice works; a peer who leaves stops being audible at once.
 
-## Host-ready join (0.8.71)
+## Log checks after each run
 
-Unchanged from 0.8.70 — wait for HostWorldReady (139) before Enter World.
-
-## 0.8.70 Batch 37 (code-only until dual-box)
-
-- NPC near remote peer: checkStuff throw no longer leaves temporarySpawned /
-  wantToDespawn / forestSpirit permanently wrong.
-- Creature growl/idle/escape sound throw — InsideCharacterSounds no longer stuck
-  (peer audio forward works again).
-- Client bullet onCollide throw — IsInsidePlayerBulletCollision no longer stuck
-  (peer projectile damage routing OK).
-- Regression: 0.8.69 EmptyRoutine prepareDream/onDeath/waitToSpawn* still OK;
-  trade upgrades from 0.8.68 still OK.
-
-# Dual-box playtest (0.8.70)
-
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.70** and protocol **25** on both boxes.
-3. Enter world; night spawn + shoot + hear enemy growl — no stuck audio/damage.
-4. Optional: force an NPC checkStuff edge near a remote — despawn still happens later.
-
-## Host-ready join (0.8.70)
-
-Unchanged from 0.8.69 — wait for HostWorldReady (139) before Enter World.
-
-## 0.8.69 Batch 36 (code-only until dual-box)
-
-- Client waits for host DreamStarted with empty prepareDream — no Unity
-  "routine is null" / StartCoroutine NRE.
-- Shared-dream death (host or client) — onDeath Prefix skip no longer NREs.
-- Client connected: CharacterSpawner worm wait + CharacterSpawnPoint wait
-  coroutines skip cleanly (no StartCoroutine null).
-- Regression: door scrape / beartrap / HelpMessage proximity / trade upgrades
-  from 0.8.68 still OK.
-
-# Dual-box playtest (0.8.69)
-
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.69** and protocol **25** on both boxes.
-3. Enter world; client near hideout tutorial GE; no GameEvent/prepareDream
-   StartCoroutine null spam in either log.
-4. Optional: shared dream death once — both sides stay up without routine-null.
-
-## Host-ready join (0.8.69)
-
-Unchanged from 0.8.68 — wait for HostWorldReady (139) before Enter World.
-
-## 0.8.68 Batch 33 (code-only until dual-box)
-
-- Sell workbench-upgraded melee / gun to NightTrader → peer opens trade → stock
-  shows same upgrade names (getModdedDamage / SaveState.upgrades parity).
-- Sell flashlight with light ON (`shouldBeActive`) → peer trader stock keeps ON
-  flag; buy-back restores active light.
-- Regression: empty-mag + 0-dur sold guns from 0.8.67 still OK; recipe stock from
-  0.8.62 still OK.
-
-# Dual-box playtest (0.8.68)
-
-1. Deploy same DLL to Steam host + SecondDarkwood client (md5 match).
-2. Menu shows **0.8.68** and protocol **25** on both boxes.
-3. Host upgrades axe → sells to trader → client opens same trader → upgrades
-   present. Repeat with flashlight ON.
-4. Buy-back on either peer restores upgrades / active flag.
-
-## Host-ready join (0.8.68)
-
-Unchanged from 0.8.67 — wait for HostWorldReady (139) before Enter World.
+- No `FATAL`, no unhandled exception stacks, no `Patch target missing`.
+- `[Perf]` lines on both roles; no `[PerfCliff]` (`scripts/check-dualbox-perf.sh`).

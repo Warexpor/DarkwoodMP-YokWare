@@ -208,8 +208,6 @@ namespace DWMPHorde.Networking
             _needsJournalWorldCleanup = false;
         }
 
-        internal void SendJournalBulkSync() => SendJournalBulkSyncTo(-1);
-
         internal void SendJournalBulkSyncTo(int targetPlayerId)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
@@ -275,7 +273,9 @@ namespace DWMPHorde.Networking
 
         internal void HandleVaultState(VaultStateMessage msg)
         {
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            int playerId = _net.Role == NetworkRole.Host
+                ? _net.CurrentReceivePlayerId
+                : (msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId);
             if (playerId <= 0)
                 return;
 

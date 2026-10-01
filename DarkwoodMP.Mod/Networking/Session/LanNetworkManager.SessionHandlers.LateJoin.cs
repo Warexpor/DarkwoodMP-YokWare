@@ -55,43 +55,75 @@ namespace DWMPHorde.Networking
 
             // Prologue catch-up (mid/post intro). Soft-reconnect also calls this at
             // handshake; ApplyEnd no-ops when the peer is already past intro.
-            PrologueSync.SendCatchUpTo(playerId);
+            // Each step is isolated: one failing sender used to abort every step after it (and the
+            // heavy phases below were never queued), leaving the joiner with half a world.
+            LateJoinStep(playerId, "prologue", () => PrologueSync.SendCatchUpTo(playerId));
+            LateJoinStep(playerId, "nightDeathSnapshot",
+                () => DeathStateTracker.HostSendNightDeathSnapshotTo(this, playerId));
 
             // Light / already-capped / no full-scene bag thrash.
-            JournalHandlers.SendJournalBulkSyncTo(playerId);
-            FlagHandlers.SendFlagBulkSyncTo(playerId);
-            DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId);
-            BulkSyncHandlers.SendReputationBulkSyncTo(playerId);
-            BulkSyncHandlers.SendHideoutStateSyncTo(playerId);
-            BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId);
-            BulkSyncHandlers.SendMapStateSyncTo(playerId);
-            SendTimeSyncTo(playerId);
-            StationHandlers.SendSawStatesTo(playerId);
-            StationHandlers.SendFeederStatesTo(playerId);
-            StationHandlers.SendLureStatesTo(playerId);
-            ChainHandlers.SendChainStatesTo(playerId);
-            ShadowArmorHandlers.SendShadowArmorStatesTo(playerId);
-            WorldBurnHandlers.SendWorldBurnStatesTo(playerId);
-            DreamHandlers.SendDreamSessionBulkTo(playerId);
-            SendStoredClientBackupTo(playerId);
-            SyncCurrentLightState();
-            SyncCurrentAnimLibrary();
-            WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId);
-            WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId);
-            SendTrapBulkTo(playerId);
-            Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId);
+            LateJoinStep(playerId, "journal", () => JournalHandlers.SendJournalBulkSyncTo(playerId));
+            LateJoinStep(playerId, "flags", () => FlagHandlers.SendFlagBulkSyncTo(playerId));
+            LateJoinStep(playerId, "dialogTrees", () => DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId));
+            LateJoinStep(playerId, "reputation", () => BulkSyncHandlers.SendReputationBulkSyncTo(playerId));
+            LateJoinStep(playerId, "hideoutState", () => BulkSyncHandlers.SendHideoutStateSyncTo(playerId));
+            LateJoinStep(playerId, "workbenchLevel", () => BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId));
+            LateJoinStep(playerId, "mapState", () => BulkSyncHandlers.SendMapStateSyncTo(playerId));
+            LateJoinStep(playerId, "timeSync", () => SendTimeSyncTo(playerId));
+            LateJoinStep(playerId, "sawStates", () => StationHandlers.SendSawStatesTo(playerId));
+            LateJoinStep(playerId, "feederStates", () => StationHandlers.SendFeederStatesTo(playerId));
+            LateJoinStep(playerId, "lureStates", () => StationHandlers.SendLureStatesTo(playerId));
+            LateJoinStep(playerId, "chainStates", () => ChainHandlers.SendChainStatesTo(playerId));
+            LateJoinStep(playerId, "shadowArmor", () => ShadowArmorHandlers.SendShadowArmorStatesTo(playerId));
+            LateJoinStep(playerId, "worldBurn", () => WorldBurnHandlers.SendWorldBurnStatesTo(playerId));
+            LateJoinStep(playerId, "dreamSession", () => DreamHandlers.SendDreamSessionBulkTo(playerId));
+            LateJoinStep(playerId, "clientBackup", () => SendStoredClientBackupTo(playerId));
+            LateJoinStep(playerId, "hostLight", () => SyncCurrentLightState());
+            LateJoinStep(playerId, "hostAnimLibrary", () => SyncCurrentAnimLibrary());
+            // Other clients' light state / anim library (the host's own went out just above).
+            LateJoinStep(playerId, "clientLightAnim", () => ReplayStickyPlayerStateTo(playerId));
+            LateJoinStep(playerId, "worldLights", () => WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId));
+            LateJoinStep(playerId, "generators", () => WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId));
+            LateJoinStep(playerId, "traps", () => SendTrapBulkTo(playerId));
+            LateJoinStep(playerId, "thrownLights", () => Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId));
             // Registry-cheap (no FindObjectsOfType scene thrash).
-            LocationHandlers.SyncExistingLocationsTo(playerId);
-            SendShadowsTo(playerId);
-            WorldObjectSendHandlers.SyncExistingDroppedItems(playerId);
+            LateJoinStep(playerId, "locations", () => LocationHandlers.SyncExistingLocationsTo(playerId));
+            LateJoinStep(playerId, "shadows", () => SendShadowsTo(playerId));
+            LateJoinStep(playerId, "droppedItems", () => WorldObjectSendHandlers.SyncExistingDroppedItems(playerId));
             // Night scenario name + fired latch flags (no CustomEvent/RandomEvent.fire).
-            BulkSyncHandlers.SendScenarioBulkSyncTo(playerId);
+            LateJoinStep(playerId, "scenario", () => BulkSyncHandlers.SendScenarioBulkSyncTo(playerId));
             // Fired GameEvents: heavy phase 11 (conservative fired && !multipleFire).
             // Proxy from live PlayerState once CanSpawnRemoteProxies.
 
             // Heavy sticky world: weather/trade/construct/locks/barricades/gas/deathbags/GE.
             _pendingHeavyLateJoinBulk[playerId] = 0;
+            _heavyPhaseFailures.Remove(playerId);
         }
+
+        /// <summary>Run one light late-join step; a throw is logged by name and does not stop the rest.</summary>
+        private void LateJoinStep(int playerId, string name, Action step)
+        {
+            try { step(); }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Session,
+                    "[BulkSync] late-join step '" + name + "' failed for p" + playerId
+                    + " — joiner may be missing this state", ex);
+            }
+        }
+
+        /// <summary>Heavy phase failures per peer for the phase currently being retried.</summary>
+        private readonly Dictionary<int, int> _heavyPhaseFailures = new Dictionary<int, int>();
+        private const int HeavyPhaseMaxAttempts = 3;
+
+        private static readonly string[] HeavyPhaseNames =
+        {
+            "weather", "tradeInventories", "constructedSites", "padlocks", "lockeds", "interactives",
+            "barricadeDoors", "barricadeWindows", "barricadeItems", "gas+infection", "deathBags", "gameEvents"
+        };
+
+        private static string HeavyPhaseName(int phase)
+            => phase >= 0 && phase < HeavyPhaseNames.Length ? HeavyPhaseNames[phase] : ("phase" + phase);
 
         /// <summary>
         /// Host: one heavy late-join phase per frame total (not one per peer).
@@ -109,6 +141,7 @@ namespace DWMPHorde.Networking
                 if (!HasPeer(playerId))
                 {
                     _pendingHeavyLateJoinBulk.Remove(playerId);
+                    _heavyPhaseFailures.Remove(playerId);
                     continue;
                 }
                 if (!_pendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
@@ -167,10 +200,26 @@ namespace DWMPHorde.Networking
                 }
                 catch (System.Exception ex)
                 {
-                    ModRuntime.Log?.LogWarning(
-                        "[BulkSync] heavy phase " + phase + " p" + playerId + ": " + ex.Message);
+                    // Retry the same phase on the next frames; only give up (loudly, naming the phase)
+                    // after a bounded number of attempts. Skipping on the first throw silently left the
+                    // joiner without e.g. every lock / barricade state.
+                    _heavyPhaseFailures.TryGetValue(playerId, out int failures);
+                    failures++;
+                    if (failures < HeavyPhaseMaxAttempts)
+                    {
+                        _heavyPhaseFailures[playerId] = failures;
+                        ModLog.Warn(LogCat.Session,
+                            "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
+                            + " failed (attempt " + failures + "/" + HeavyPhaseMaxAttempts + "), retrying: " + ex.Message);
+                        return;
+                    }
+                    _heavyPhaseFailures.Remove(playerId);
+                    ModLog.Error(LogCat.Session,
+                        "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
+                        + " failed " + HeavyPhaseMaxAttempts + " times — SKIPPING; the joiner is missing this state", ex);
                 }
 
+                _heavyPhaseFailures.Remove(playerId);
                 phase++;
                 if (phase >= HeavyLateJoinPhaseCount)
                 {

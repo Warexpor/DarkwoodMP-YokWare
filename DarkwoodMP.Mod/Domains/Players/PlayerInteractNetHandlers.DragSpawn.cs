@@ -172,6 +172,8 @@ namespace DWMPHorde.Networking
                 DragClaims.Remove(key);
                 LastDragSyncPos.Remove(key);
                 DragEndedAt[key] = Time.unscaledTime;
+                // The dragger never sends its STOP: free the proxy copy spawned for its drag.
+                CleanupSpawnedDragProxy(key);
                 ReleaseRemoteDragKinematic(key);
                 RemoveRemoteDragIds(key);
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);

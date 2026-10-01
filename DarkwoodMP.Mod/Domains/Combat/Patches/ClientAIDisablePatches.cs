@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -13,6 +17,24 @@ namespace DWMPHorde.Patches
     /// <summary>Determines whether a character or component should skip its AI update.</summary>
     internal static class ClientAIConditionalHelper
     {
+        // These prefixes run per frame for every AI component on a client: Object.name allocates a
+        // new string on each read, so the "is this a remote player proxy" answer is cached per object.
+        private static readonly Dictionary<int, bool> _remotePlayerByInstance = new Dictionary<int, bool>(256);
+
+        internal static void Reset() => _remotePlayerByInstance.Clear();
+
+        private static bool IsRemotePlayerObject(UnityEngine.Object o)
+        {
+            int id = o.GetInstanceID();
+            if (_remotePlayerByInstance.TryGetValue(id, out bool v))
+                return v;
+            if (_remotePlayerByInstance.Count > 4096)
+                _remotePlayerByInstance.Clear();
+            v = o.name.Contains("RemotePlayer");
+            _remotePlayerByInstance[id] = v;
+            return v;
+        }
+
         internal static bool ShouldSkipAI(Character c)
         {
             if (ModRuntime.Network == null)
@@ -24,7 +46,7 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.Network.Role != NetworkRole.Client)
                 return false;
-            if (c == null || c.name.Contains("RemotePlayer"))
+            if (c == null || IsRemotePlayerObject(c))
                 return false;
 
             // The host broadcasts entity state for the client to present.
@@ -46,7 +68,7 @@ namespace DWMPHorde.Patches
                 return false;
             if (comp == null)
                 return false;
-            bool isRemotePlayer = comp.name.Contains("RemotePlayer");
+            bool isRemotePlayer = IsRemotePlayerObject(comp);
             bool isLocalPlayer = Player.Instance != null
                 && comp.gameObject == Player.Instance.gameObject;
             return AiSuppressionPolicy.ShouldSuppressClientComponent(
@@ -58,18 +80,30 @@ namespace DWMPHorde.Patches
     // Character methods share the Character overload and prefix.
     // -----------------------------------------------------------------------
 
-    [HarmonyPatch(typeof(Character), "Update")]
-    [HarmonyPatch(typeof(Character), "canSeeEnemy")]
-    [HarmonyPatch(typeof(Character), "checkStuff")]
-    [HarmonyPatch(typeof(Character), "checkForCharactersInViewRange")]
-    [HarmonyPatch(typeof(Character), "alertInArea")]
-    [HarmonyPatch(typeof(Character), "scareInArea")]
-    [HarmonyPatch(typeof(Character), "heardSound")]
-    [HarmonyPatch(typeof(Character), "alertCharactersInArea")]
-    [HarmonyPatch(typeof(Character), "beAlerted")]
-    [HarmonyPatch(typeof(Character), "runAway")]
+    // Stacked class-level [HarmonyPatch(typeof, name)] attributes merge into one target, so each
+    // group below resolves its targets explicitly. Character.alertInArea / scareInArea are static
+    // (no instance to gate on); their per-character effects run through the patched instance
+    // methods (heardSound).
+    [HarmonyPatch]
     public static class ClientAIDisableCharacterPatches
     {
+        // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
+        private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
+
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            Type t = typeof(Character);
+            return PatchTargets.Resolve(
+                PatchTargets.Find(t, "Update", Type.EmptyTypes),
+                PatchTargets.Find(t, "canSeeEnemy", Type.EmptyTypes),
+                PatchTargets.Find(t, "checkStuff", Type.EmptyTypes),
+                PatchTargets.Find(t, "checkForCharactersInViewRange", Type.EmptyTypes),
+                PatchTargets.Find(t, "heardSound", new[] { typeof(Vector3), typeof(float), typeof(bool), typeof(float), typeof(bool) }),
+                PatchTargets.Find(t, "alertCharactersInArea", new[] { typeof(float), typeof(bool) }),
+                PatchTargets.Find(t, "beAlerted", new[] { typeof(Transform), typeof(bool) }),
+                PatchTargets.Find(t, "runAway", new[] { typeof(Vector3) }));
+        }
+
         private static bool Prefix(Character __instance)
         {
             return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
@@ -80,15 +114,24 @@ namespace DWMPHorde.Patches
     // Component methods use the Component overload so Character is optional.
     // -----------------------------------------------------------------------
 
-    [HarmonyPatch(typeof(AILerp), "Update")]
-    [HarmonyPatch(typeof(Flier), "Update")]
-    [HarmonyPatch(typeof(Shooter), "Update")]
-    [HarmonyPatch(typeof(InSightOfPlayer), "Update")]
-    [HarmonyPatch(typeof(RandomMovement), "Update")]
-    [HarmonyPatch(typeof(Pathfinding.RVO.RVOController), "Update")]
-    [HarmonyPatch(typeof(Pathfinding.RichAI), "Update")]
+    [HarmonyPatch]
     public static class ClientAIDisableComponentPatches
     {
+        // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
+        private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
+
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            return PatchTargets.Resolve(
+                PatchTargets.Find(typeof(AILerp), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Flier), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Shooter), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(InSightOfPlayer), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(RandomMovement), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Pathfinding.RVO.RVOController), "Update", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Pathfinding.RichAI), "Update", Type.EmptyTypes));
+        }
+
         private static bool Prefix(Component __instance)
         {
             return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
@@ -99,13 +142,23 @@ namespace DWMPHorde.Patches
     // ShadowCreature is driven by host state on clients.
     // -----------------------------------------------------------------------
 
-    [HarmonyPatch(typeof(ShadowCreature), "Start")]
-    [HarmonyPatch(typeof(ShadowCreature), "OnEnable")]
-    [HarmonyPatch(typeof(ShadowCreature), "appear")]
-    [HarmonyPatch(typeof(ShadowCreature), "die")]
-    [HarmonyPatch(typeof(ShadowCreature), "Update")]
+    [HarmonyPatch]
     public static class ClientShadowCreaturePatches
     {
+        // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
+        private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
+
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            Type t = typeof(ShadowCreature);
+            return PatchTargets.Resolve(
+                PatchTargets.Find(t, "Start", Type.EmptyTypes),
+                PatchTargets.Find(t, "OnEnable", Type.EmptyTypes),
+                PatchTargets.Find(t, "appear", Type.EmptyTypes),
+                PatchTargets.Find(t, "die", Type.EmptyTypes),
+                PatchTargets.Find(t, "Update", Type.EmptyTypes));
+        }
+
         private static bool Prefix(ShadowCreature __instance)
         {
             // Host shadows run normally; clients only present host state.

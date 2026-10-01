@@ -67,14 +67,15 @@ namespace DWMPHorde.Networking
                     msg.TargetPosX, msg.TargetPosY, msg.TargetPosZ)
                 || string.IsNullOrEmpty(msg.TargetName))
             {
-                ModRuntime.Log?.LogWarning("[HandlePlayerAttack] rejected malformed position/target");
+                ModLog.WarnRate(LogCat.Combat, "atk-malformed",
+                    "[HandlePlayerAttack] rejected malformed position/target");
                 return;
             }
 
             RemotePlayerProxy attackingProxy = _net.GetProxy(playerId);
             if (attackingProxy == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "atk-noproxy:" + playerId,
                     "[HandlePlayerAttack] rejected: no authoritative proxy for player " + playerId);
                 return;
             }
@@ -88,7 +89,7 @@ namespace DWMPHorde.Networking
                     attackPos.x, attackPos.y, attackPos.z,
                     GameplayConstants.MaxPlayerAttackRange))
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "atk-range:" + playerId,
                     "[HandlePlayerAttack] rejected attacker position outside authoritative range for p"
                     + playerId);
                 return;
@@ -132,7 +133,11 @@ namespace DWMPHorde.Networking
 
             float hpBefore = target.Health;
             DialogHostApplyGuard.RunHostWorldFanout(() =>
-                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true));
+            {
+                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+                // Vanilla MeleeSensor: after getHit, each weapon effect goes to character.effects.activate.
+                SensorEffectCodec.Apply(target.effects, msg.Effects, "HandlePlayerAttack");
+            });
 
             EntitySyncLog.Damage(
                 "[Attack] p" + playerId + " → " + target.name
@@ -225,18 +230,20 @@ namespace DWMPHorde.Networking
                 canInterrupt: msg.CanInterrupt,
                 normalHit: msg.NormalHit,
                 showRedScreen: msg.ShowRedScreen);
+            // Vanilla MeleeSensor: after getHit, each sensor effect goes to Player.effects.activate.
+            SensorEffectCodec.Apply(local.effects, msg.Effects, "DamagePlayer");
         }
 
         internal void HandleFriendlyFire(FriendlyFireMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-            if (!Config.ModConfig.FriendlyFireEnabled.Value) return;
+            if (!SessionSettings.FriendlyFireEnabled) return;
 
             int atkPlayerId = _net.CurrentReceivePlayerId;
             if (!CombatAuthorityPolicy.IsValidPlayerId(atkPlayerId)
                 || (msg.AttackerPlayerId > 0 && msg.AttackerPlayerId != atkPlayerId))
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "ff-spoof:" + atkPlayerId,
                     "[FriendlyFire] rejected spoofed attacker id claimed="
                     + msg.AttackerPlayerId + " received=" + atkPlayerId);
                 return;
@@ -247,14 +254,15 @@ namespace DWMPHorde.Networking
                 || !CombatAuthorityPolicy.IsFinitePosition(
                     msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ))
             {
-                ModRuntime.Log?.LogWarning("[FriendlyFire] rejected malformed victim/position");
+                ModLog.WarnRate(LogCat.Combat, "ff-malformed:" + atkPlayerId,
+                    "[FriendlyFire] rejected malformed victim/position");
                 return;
             }
 
             RemotePlayerProxy attackingProxy = _net.GetProxy(atkPlayerId);
             if (attackingProxy == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "ff-noproxy:" + atkPlayerId,
                     "[FriendlyFire] rejected: no authoritative attacker proxy for p" + atkPlayerId);
                 return;
             }
@@ -267,7 +275,7 @@ namespace DWMPHorde.Networking
                     atkPos.x, atkPos.y, atkPos.z,
                     GameplayConstants.MaxPlayerAttackRange))
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "ff-range:" + atkPlayerId,
                     "[FriendlyFire] rejected attacker position outside authoritative range for p"
                     + atkPlayerId);
                 return;
@@ -276,7 +284,7 @@ namespace DWMPHorde.Networking
             bool victimIsHost = victimPlayerId == _net.LocalPlayerId;
             if (!victimIsHost && _net.GetProxy(victimPlayerId) == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Combat, "ff-victim:" + victimPlayerId,
                     "[FriendlyFire] rejected unknown victim player " + victimPlayerId);
                 return;
             }
@@ -313,6 +321,7 @@ namespace DWMPHorde.Networking
                 Player host = Player.Instance;
                 if (host == null) return;
                 host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+                SensorEffectCodec.Apply(host.effects, msg.Effects, "FriendlyFire");
                 EntitySyncLog.Damage(
                     "[FriendlyFire] host took " + damage + " from p" + atkPlayerId);
 
@@ -340,7 +349,8 @@ namespace DWMPHorde.Networking
                         CanCutInHalf = msg.CanCutInHalf,
                         ShowRedScreen = true,
                         NormalHit = true,
-                        CanInterrupt = true
+                        CanInterrupt = true,
+                        Effects = msg.Effects
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 

@@ -17,6 +17,7 @@ namespace DWMPHorde.Sync
         {
             if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
             // Host already refused completed presets in TryBegin / HandleDreamStarted.
+            CloseOpenUiForDreamEntry();
             _remoteDreamActive[playerId] = true;
             _currentDreamPreset[playerId] = presetName;
 
@@ -50,6 +51,7 @@ namespace DWMPHorde.Sync
             if (_remoteEntryTransitionPlaying) return;
 
             _earlyEntryTransitionPlayed = true;
+            CloseOpenUiForDreamEntry();
             FreezeWorld();
 
             float wait = StartRemoteDreamTransition();
@@ -66,6 +68,44 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
         }
 
+        /// <summary>
+        /// Pull-in closes whatever the player has open the way a vanilla dream start does
+        /// (trade, container/workbench, journal, then the dialogue itself). Nothing closed them
+        /// on a pulled-in peer, so the NPC dialogue lock stayed held until its lease expired
+        /// and the window sat over the pad.
+        /// </summary>
+        internal static void CloseOpenUiForDreamEntry()
+        {
+            try
+            {
+                var player = Player.Instance;
+                var ui = Singleton<UI>.Instance;
+                if (player == null || ui == null) return;
+
+                if (ui.journal != null && ui.journal.opened)
+                    ui.journal.close(doUnpause: true);
+
+                var dw = ui.dialogueWindow;
+                if (dw != null && dw.npc != null && player.inShop && !dw.tweening)
+                    dw.closeTrade();
+
+                if (player.openedItemInventory != null || player.openedItemInventory2 != null)
+                    player.closeInventory();
+
+                if (dw != null && dw.npc != null && !dw.tweening)
+                {
+                    dw.close();
+                    // An exit dialogue is shown instead of closing on the first call.
+                    if (dw.npc != null && !dw.tweening)
+                        dw.close();
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] CloseOpenUiForDreamEntry: " + ex.Message);
+            }
+        }
+
         /// <summary>Skip / cancel early entry wait so DreamStarted load is not blocked.</summary>
         public static void OnEntryTransitionSkipped()
         {
@@ -78,6 +118,8 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
+            int gen = _entryGeneration;
+            int sid = DreamSession.SessionId;
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
             // Keep the snapshot aligned with host prepareDream.
@@ -127,6 +169,14 @@ namespace DWMPHorde.Sync
                 }
             }
 
+            // Disconnect / reject / cleanup during the video: that teardown already unfroze and
+            // cleared the overlay; loading the pad now would strand us in a sessionless dream.
+            if (EntryStale(gen, sid))
+            {
+                ModRuntime.LegacyInfo("[DreamSync] Remote entry cancelled during transition — not loading pad");
+                yield break;
+            }
+
             // 2. Clean up the video overlay (fade out)
             FadeOutDreamTransition();
             _earlyEntryTransitionPlayed = false;
@@ -150,6 +200,9 @@ namespace DWMPHorde.Sync
         public static void OnDreamChain(string nextPreset)
         {
             if (string.IsNullOrEmpty(nextPreset)) return;
+            // Pocket 1's host-ordered exit is done; leaving the flag would let the initiateEndDreaming
+            // authority patch end pocket 2 locally.
+            _hostOrderedDreamEnd = false;
             _localDreamPreset = nextPreset;
             _localDreamActive = true;
             if (Player.Instance != null)
@@ -170,6 +223,8 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessChainCoroutine(string presetName, Vector3 locationPosition)
         {
+            int gen = _entryGeneration;
+            int sid = DreamSession.SessionId;
             // Keep world frozen; tear previous dream location if still present.
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
             {
@@ -191,6 +246,8 @@ namespace DWMPHorde.Sync
                 Dreams.Instance.switchingDream = true;
 
             yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
+            if (EntryStale(gen, sid))
+                yield break;
             DreamSession.MarkActive();
         }
 

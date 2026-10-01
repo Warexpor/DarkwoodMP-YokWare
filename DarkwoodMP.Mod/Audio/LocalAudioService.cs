@@ -140,9 +140,6 @@ namespace DWMPHorde.Audio
             return IsNearListener(targetComponent.transform.position, maxDistance);
         }
 
-        /// <summary>Legacy name — distance to listen position (spectator-aware).</summary>
-        public static float DistanceToLocalPlayer(Vector3 worldPosition) => DistanceToListener(worldPosition);
-
         /// <summary>Legacy name — near listen position (spectator-aware).</summary>
         public static bool IsNearLocalPlayer(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
             => IsNearListener(worldPosition, maxDistance);
@@ -172,10 +169,7 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>Drop resolved clip cache on session end (frees stale AudioClip refs).</summary>
-        public static void ResetClipCache()
-        {
-            _clipCache.Clear();
-        }
+        public static void ResetClipCache() => ClearClipCache();
 
         /// <summary>
         /// Vanilla <c>Player.getHit</c> plays these parentless (2D SP feedback).

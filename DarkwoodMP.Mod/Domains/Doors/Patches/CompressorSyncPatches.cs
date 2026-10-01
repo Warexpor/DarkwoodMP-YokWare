@@ -174,10 +174,10 @@ namespace DWMPHorde.Patches
     /// Any peer that fires a compressor-related GameEvents notifies the rest
     /// so their empty tanks convert (host-only detection missed client use).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(GameEvents), "fire")]
     internal static class CompressorConvertDetectPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(GameEvents __instance)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;

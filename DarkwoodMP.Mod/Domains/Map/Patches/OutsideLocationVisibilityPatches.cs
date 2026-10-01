@@ -154,13 +154,16 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Belt: after transportToHome teleport, force World refresh when MP connected
     /// (covers stale grid even when playerInOutsideLocation was already false).
-    /// Night-death suppress path skips transportToHome, so this Postfix does not run.
+    /// Night-death suppress path skips transportToHome (a Prefix returned false): Postfixes
+    /// still run then, so this one checks <c>__runOriginal</c> and does nothing for it.
     /// </summary>
     [HarmonyPatch(typeof(Player), "transportToHome")]
     public static class DayDeathTransportHomeGridPatch
     {
-        private static void Postfix()
+        private static void Postfix(bool __runOriginal)
         {
+            if (!__runOriginal)
+                return;
             try
             {
                 if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)

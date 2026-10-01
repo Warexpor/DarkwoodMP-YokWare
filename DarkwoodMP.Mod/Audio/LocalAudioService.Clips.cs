@@ -9,6 +9,16 @@ namespace DWMPHorde.Audio
         private static readonly Dictionary<string, AudioClip> _clipCache =
             new Dictionary<string, AudioClip>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Ids that resolved to nothing, with the time to retry. A miss falls back to
+        /// <c>Resources.FindObjectsOfTypeAll</c> (full asset scan), so repeated misses for the
+        /// same id must not rescan every call; the short TTL lets late-loaded clips still resolve.
+        /// </summary>
+        private static readonly Dictionary<string, float> _missUntil =
+            new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+        private const float MissRetrySec = 10f;
+
         /// <summary>Resolve an AudioToolkit id (or clip name) to a single AudioClip.</summary>
         public static AudioClip ResolveClip(string audioID, int depth = 0)
         {
@@ -17,6 +27,13 @@ namespace DWMPHorde.Audio
 
             if (_clipCache.TryGetValue(audioID, out AudioClip cached) && cached != null)
                 return cached;
+
+            if (depth == 0 && _missUntil.TryGetValue(audioID, out float retryAt))
+            {
+                if (Time.unscaledTime < retryAt)
+                    return null;
+                _missUntil.Remove(audioID);
+            }
 
             AudioClip found = null;
             AudioItem item = AudioController.GetAudioItem(audioID);
@@ -57,7 +74,14 @@ namespace DWMPHorde.Audio
             }
 
             if (found != null)
+            {
                 _clipCache[audioID] = found;
+                _missUntil.Remove(audioID);
+            }
+            else if (depth == 0)
+            {
+                _missUntil[audioID] = Time.unscaledTime + MissRetrySec;
+            }
 
             return found;
         }
@@ -78,6 +102,7 @@ namespace DWMPHorde.Audio
         public static void ClearClipCache()
         {
             _clipCache.Clear();
+            _missUntil.Clear();
         }
     }
 }

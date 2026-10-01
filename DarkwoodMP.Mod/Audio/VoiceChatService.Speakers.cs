@@ -15,6 +15,12 @@ namespace DWMPHorde.Audio
     /// </summary>
     public static partial class VoiceChatService
     {
+        /// <summary>
+        /// A speaker that has had no voice data this long and an empty buffer is reaped (it is
+        /// re-created on the next packet). Peer leave is handled sooner by <see cref="RemoveSpeaker"/>.
+        /// </summary>
+        private const float IdleReapSec = 30f;
+
         private static Speaker EnsureSpeaker(int id)
         {
             if (_speakers.TryGetValue(id, out Speaker existing) && existing.Go != null)
@@ -81,7 +87,7 @@ namespace DWMPHorde.Audio
             _reap.Clear();
             foreach (Speaker s in _speakers.Values)
             {
-                if (s.Go == null || (Time.unscaledTime - s.LastData > 300f && s.Buffered == 0))
+                if (s.Go == null || (Time.unscaledTime - s.LastData > IdleReapSec && s.Buffered == 0))
                 {
                     _reap.Add(s.Id);
                     continue;
@@ -190,24 +196,34 @@ namespace DWMPHorde.Audio
             catch { /* ignore */ }
         }
 
+        /// <summary>Steam may initialise or log on after the mod loads: retry a negative result.</summary>
+        private const float SteamRecheckSec = 5f;
+
         private static bool SteamAvailable()
         {
-            if (!_steamChecked)
+            // A positive result is cached; a negative one is re-probed every few seconds.
+            if (_steamOk || Time.unscaledTime < _nextSteamCheck)
+                return _steamOk;
+
+            _nextSteamCheck = Time.unscaledTime + SteamRecheckSec;
+            try
             {
-                try
-                {
-                    _steamOk = SteamManager.Initialized && SteamUser.BLoggedOn();
-                }
-                catch
-                {
-                    _steamOk = false;
-                }
-                _steamChecked = true;
-                if (!_steamOk && !_steamWarned)
-                {
-                    _steamWarned = true;
-                    ModLog.Event(LogCat.Audio, "Steam unavailable — voice chat disabled");
-                }
+                _steamOk = SteamManager.Initialized && SteamUser.BLoggedOn();
+            }
+            catch
+            {
+                _steamOk = false;
+            }
+
+            if (!_steamOk && !_steamWarned)
+            {
+                _steamWarned = true;
+                ModLog.Event(LogCat.Audio, "Steam unavailable — voice chat disabled (will retry)");
+            }
+            else if (_steamOk && _steamWarned)
+            {
+                _steamWarned = false;
+                ModLog.Event(LogCat.Audio, "Steam available — voice chat enabled");
             }
             return _steamOk;
         }

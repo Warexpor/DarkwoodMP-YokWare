@@ -77,6 +77,7 @@ namespace DWMPHorde
             try
             {
                 TryConsumeSteamLaunchLobby();
+                TrackExternalJoin();
                 if (_joinPending)
                     PollJoinState();
                 else

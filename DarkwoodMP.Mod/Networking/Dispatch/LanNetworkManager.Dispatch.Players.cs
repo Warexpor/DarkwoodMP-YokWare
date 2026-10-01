@@ -29,8 +29,27 @@ namespace DWMPHorde.Networking
                             WorldProxyHandlers.HandlePlayerEffectSync(PlayerEffectSyncMessage.Deserialize(new NetReader(payload)));
                             return true;
                         case NetMessageType.DragSync:
-                            PlayerInteractHandlers.HandleDragSync(DragSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
+                            {
+                                var drag = DragSyncMessage.Deserialize(new NetReader(payload));
+                                bool hostStamps = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                                if (hostStamps)
+                                    drag.ClaimedByPlayerId = _currentReceivePlayerId;
+                                PlayerInteractHandlers.HandleDragSync(drag);
+                                if (hostStamps)
+                                {
+                                    // Relay the host-stamped body ourselves: the generic Forwardable relay
+                                    // re-sends the raw inbound payload, so a client-claimed
+                                    // ClaimedByPlayerId would reach the other clients unchanged and let
+                                    // one player claim, steal or release another's drag.
+                                    var dragWriter = new NetWriter();
+                                    drag.Serialize(dragWriter);
+                                    byte[] dragBody = dragWriter.CopyData();
+                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.DragSync,
+                                        w => w.PutRaw(dragBody), DeliveryMethod.ReliableOrdered);
+                                    _suppressForwardThisMessage = true;
+                                }
+                                return true;
+                            }
                         case NetMessageType.PlayerLightState:
                             PlayerLightFxHandlers.HandlePlayerLightState(PlayerLightStateMessage.Deserialize(new NetReader(payload)));
                             return true;

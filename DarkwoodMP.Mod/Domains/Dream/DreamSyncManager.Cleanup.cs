@@ -193,6 +193,19 @@ namespace DWMPHorde.Sync
                 LanNetworkManager.IsApplyingRemoteState = false;
             }
 
+            // positionCopy can be a pad coordinate on a remote-entry path; the saved overworld pose
+            // is the fallback before it is dropped.
+            if (_preDreamPosition.Count > 0
+                && ClientStateBackup.IsDreamPadCoordinate(player._transform.position))
+            {
+                foreach (var kvp in _preDreamPosition)
+                {
+                    RestorePreDreamState(kvp.Key);
+                    break;
+                }
+            }
+            ClearPreDreamState();
+            ClearRemoteDreamRoster();
             UnfreezeWorld();
 
             var spec = SpectatorModeController.Instance;
@@ -371,6 +384,17 @@ namespace DWMPHorde.Sync
             _preDreamGridName[playerId] = Singleton<WorldGrid>.Instance != null && Singleton<WorldGrid>.Instance.currentGrid != null
                 ? Singleton<WorldGrid>.Instance.currentGrid.name
                 : "World";
+        }
+
+        /// <summary>
+        /// Drop the saved overworld pose once the dream is over. It is keyed by peer but always
+        /// holds the local player's pose at pad entry, and TryGetPreDreamOverworldPosition feeds
+        /// ClientStateBackup; stale it points at the last dream start.
+        /// </summary>
+        public static void ClearPreDreamState()
+        {
+            _preDreamPosition.Clear();
+            _preDreamGridName.Clear();
         }
 
         private static void RestorePreDreamState(int playerId)

@@ -6,45 +6,44 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// On client, re-evaluates SoundArea volume from the local listen position
-    /// (spectator-aware) so ambient loops stay audible when the listener moves.
+    /// On client, adds the SoundArea volume as heard from the local listen position
+    /// (spectator-aware) so ambient loops stay audible when the listener is not the body.
+    /// Vanilla's rule is kept: an onlyOneInstance AudioObject is shared by every SoundArea that
+    /// plays it and the LOUDEST candidate of the frame wins (thisFrameVolume is reset in
+    /// LateUpdate). Same formula as vanilla Update, so with the listener on the body this is a no-op.
     /// </summary>
     [HarmonyPatch(typeof(SoundArea), "Update")]
     public static class SoundAreaUpdatePatch
     {
+        private static readonly AccessTools.FieldRef<SoundArea, float> ItemVolume =
+            AccessTools.FieldRefAccess<SoundArea, float>("itemVolume");
+
         static void Postfix(SoundArea __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected
+                || ModRuntime.Network.Role != NetworkRole.Client)
                 return;
             if (__instance.soundAO == null) return;
             if (!__instance.onlyOneInstance) return;
-
-            Transform src = __instance.source;
-            if (src == null) src = __instance.transform;
+            // Vanilla Update returns early without a source.
+            if (!__instance.hasSource || __instance.source == null) return;
 
             Vector3 listen = LocalAudioService.GetListenPosition();
-            float dist = Vector3.Distance(listen, src.position);
-            float maxDist = __instance.maxSourceDistance > 0f
-                ? __instance.maxSourceDistance
-                : LocalAudioService.DefaultMaxAudioDistance;
+            float dist = Core.trueDistance(listen, __instance.source.position);
             float minDist = __instance.minSourceDistance;
+            float maxDist = __instance.maxSourceDistance;
 
-            float targetVol;
-            if (dist > maxDist)
-                targetVol = 0.001f;
-            else if (dist < minDist)
-                targetVol = __instance.volumeModifier;
-            else
-            {
-                float t = (dist - minDist) / (maxDist - minDist);
-                targetVol = Mathf.Max(Mathf.Lerp(__instance.volumeModifier, 0.001f, t), 0.001f);
-            }
+            float itemVolume = ItemVolume(__instance);
+            float full = itemVolume * __instance.volumeModifier;
+            float candidate = dist < minDist
+                ? full
+                : Mathf.Clamp(itemVolume * (maxDist - dist) / (maxDist - minDist) * __instance.volumeModifier, 0.001f, 1f);
 
-            float currentVol = __instance.soundAO.volume;
-            if (Mathf.Abs(currentVol - targetVol) > 0.001f)
+            // Loudest wins, exactly like vanilla's per-frame arbitration.
+            if (candidate > __instance.soundAO.thisFrameVolume)
             {
-                __instance.soundAO.volume = targetVol;
-                __instance.soundAO.thisFrameVolume = targetVol;
+                __instance.soundAO.volume = candidate;
+                __instance.soundAO.thisFrameVolume = candidate;
             }
         }
     }

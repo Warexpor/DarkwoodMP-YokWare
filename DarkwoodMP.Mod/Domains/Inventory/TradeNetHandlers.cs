@@ -138,9 +138,9 @@ namespace DWMPHorde.Networking
         internal void HandlePeerHasItem(PeerHasItemMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-            int id = msg.PlayerId;
-            if (id <= 0 && _net.CurrentReceivePlayerId > 0)
-                id = _net.CurrentReceivePlayerId;
+            // Transport peer is the only trustworthy sender id; an embedded id could rewrite
+            // another player's item presence.
+            int id = _net.CurrentReceivePlayerId > 0 ? _net.CurrentReceivePlayerId : msg.PlayerId;
             PeerItemPresence.Apply(id, msg.ItemType, msg.Amount);
         }
     }

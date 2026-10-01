@@ -10,23 +10,6 @@ namespace DWMPHorde.Networking
     /// <summary>Late-join / first-pad-enter barricade and destructible-item snapshots.</summary>
     internal sealed partial class BarricadeNetHandlers
     {
-        /// <summary>
-        /// Host: push barricade / door / furniture state so late joiners match
-        /// host fortifications. Prefer staggered SendBarricadeDoors/Windows/ItemsTo.
-        /// </summary>
-        internal void SendBarricadeStateTo(int targetPlayerId)
-        {
-            if (_net.Role != NetworkRole.Host) return;
-            int sent = 0;
-            sent += SendBarricadeDoorsTo(targetPlayerId, maxSend: 512);
-            sent += SendBarricadeWindowsTo(targetPlayerId, maxSend: 512 - sent);
-            int itemSent = SendBarricadeItemsTo(targetPlayerId, maxSend: 512 - sent, maxItems: 256);
-            sent += itemSent;
-            ModRuntime.LegacyInfo(targetPlayerId > 0
-                ? $"[BulkSync] Sent {sent} barricade/door/item states to player {targetPlayerId} (items={itemSent})"
-                : $"[BulkSync] Sent {sent} barricade/door/item states to all clients (items={itemSent})");
-        }
-
         /// <summary>Host join bulk: Door barricade and health state.</summary>
         internal int SendBarricadeDoorsTo(int targetPlayerId, int maxSend = 512)
         {
@@ -182,7 +165,7 @@ namespace DWMPHorde.Networking
         internal void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
         {
             // Prefer XZ matching; client wardrobe Y often drifts after body-push or layer offset.
-            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
+            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius);
 
             if (item == null)
             {

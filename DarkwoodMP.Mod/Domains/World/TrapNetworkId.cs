@@ -29,9 +29,13 @@ namespace DWMPHorde.Sync
             public float QueuedAt;
         }
 
+        /// <summary>
+        /// Session boundary. The id counter is deliberately NOT rewound: trap components
+        /// (and the ids on them) survive a re-host / host promotion, so restarting at 1
+        /// would mint ids that collide with traps that already carry them.
+        /// </summary>
         public static void ResetSession()
         {
-            _nextHostId = 1;
             ById.Clear();
             Pending.Clear();
         }
@@ -67,9 +71,19 @@ namespace DWMPHorde.Sync
             return trig != null && trig.isBearTrap;
         }
 
+        /// <summary>Keep the host mint counter above every id this peer has seen on a trap.</summary>
+        private static void NoteSeenId(int netId)
+        {
+            // Ignore absurd wire values: a counter near int.MaxValue would wrap back into live ids.
+            if (netId <= 0 || netId >= 1 << 30) return;
+            if (netId >= _nextHostId)
+                _nextHostId = netId + 1;
+        }
+
         public static void Ensure(GameObject go, int netId)
         {
             if (go == null || netId <= 0) return;
+            NoteSeenId(netId);
             var c = go.GetComponent<TrapNetworkId>();
             if (c == null)
                 c = go.AddComponent<TrapNetworkId>();
@@ -86,6 +100,7 @@ namespace DWMPHorde.Sync
             int existing = GetId(go);
             if (existing > 0)
             {
+                NoteSeenId(existing);
                 ById[existing] = go;
                 return existing;
             }
@@ -109,7 +124,10 @@ namespace DWMPHorde.Sync
             if (go == null) return;
             int id = GetId(go);
             if (id > 0)
+            {
+                NoteSeenId(id);
                 ById[id] = go;
+            }
         }
 
         /// <summary>

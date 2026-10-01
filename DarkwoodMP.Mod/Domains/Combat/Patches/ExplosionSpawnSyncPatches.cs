@@ -39,10 +39,10 @@ namespace DWMPHorde.Patches
     /// spawnObjects() runs, so ExplosionObjectSpawnSyncPatch can intercept the
     /// Core.AddPrefab calls.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Explodes), "onActivate", new System.Type[0])]
     public static class ExplosionOnActivatePrefix
     {
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
         private static void Prefix(Explodes __instance)
         {
@@ -87,6 +87,7 @@ namespace DWMPHorde.Patches
         // Finalizer (not Postfix): onActivate can throw after Prefix bumped
         // ActivationDepth / IsInsideSpawnObjects; Postfix would leave depth sticky
         // and host would keep treating AddPrefab as explosion secondaries forever.
+        [HarmonyPriority(Priority.Last)]
         [HarmonyFinalizer]
         private static void Finalizer()
         {
@@ -101,10 +102,10 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Explodes), "explode")]
     public static class ExplosionDamageSkipPatch
     {
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
         private static void Prefix()
         {
@@ -115,6 +116,7 @@ namespace DWMPHorde.Patches
             TraverseHack.IsInsideLocalExplosion = true;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPostfix]
         private static void Postfix()
         {
@@ -123,6 +125,7 @@ namespace DWMPHorde.Patches
         }
 
         // explode can throw; stuck true mis-routes client hitscan as explosion AOE forever.
+        [HarmonyPriority(Priority.Last)]
         [HarmonyFinalizer]
         private static void Finalizer()
         {

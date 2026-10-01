@@ -243,7 +243,14 @@ namespace DWMPHorde.Sync
         public static void Reset()
         {
             ClearMarkerObjects();
-            LocalMarkers.Clear();
+            // The registry runs this on every StopNetwork, including the one StartHost / a re-host
+            // does first, and the role is still the pre-stop one here. A host's (or offline
+            // player's) blue pins are theirs and belong to the world they keep, so only a client
+            // drops them (a client's are per host world and come back from ClientStateBackup).
+            var net = ModRuntime.Network;
+            bool wasClient = net != null && net.Role == NetworkRole.Client;
+            if (wasClient)
+                LocalMarkers.Clear();
             RemoteMarkers.Clear();
             _remoteMarkerObjects.Clear();
             ClearPendingDiscoveries();
@@ -466,18 +473,25 @@ namespace DWMPHorde.Sync
         [HarmonyPostfix, HarmonyPatch("open")]
         internal static void OnOpen(Map __instance)
         {
+            // Shared markers / click plane are co-op only; offline the vanilla map is untouched.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             MultiplayerMapManager.OnMapOpen(__instance);
         }
 
         [HarmonyPostfix, HarmonyPatch("close")]
         internal static void OnClose()
         {
+            // Not gated: close is idempotent cleanup, so a click plane / markers made while connected
+            // are removed even if the session ended while the map was open.
             MultiplayerMapManager.OnMapClose();
         }
 
         [HarmonyPostfix, HarmonyPatch("Update")]
         internal static void OnUpdate(Map __instance)
         {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             MultiplayerMapManager.OnMapUpdate(__instance);
         }
     }

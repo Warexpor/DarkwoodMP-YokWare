@@ -17,7 +17,7 @@ namespace DWMPHorde.Networking
         private static uint _nextSnapshotSequence;
         private const float SendInterval = 0.1f;
 
-        /// <summary>Keep the batch large enough that dense night scenes do not starve later entities.</summary>
+        /// <summary>Per-tick entity cap (split across packets by <see cref="SendChunked"/>); keeps dense night scenes from starving later entities.</summary>
         private const int MaxEntitiesPerPacket = 256;
         /// <summary>Near-player band filled first so far wildlife cannot starve combat NPCs.</summary>
         private const float PriorityDistance = 1400f;
@@ -53,6 +53,54 @@ namespace DWMPHorde.Networking
         /// </summary>
         private static readonly NetWriter _snapWriter = new NetWriter();
         private static byte[] _snapSendBuf = Array.Empty<byte>();
+        private static readonly NetWriter _bodyWriter = new NetWriter();
+        private static byte[] _bodyBuf = Array.Empty<byte>();
+        /// <summary>End offset of entry i inside the serialized body (chunk boundaries).</summary>
+        private static int[] _entryEnd = new int[MaxEntitiesPerPacket];
+        /// <summary>Framed bytes besides entries: type + Sequence + count.</summary>
+        private const int FrameBytes = 1 + 4 + 4;
+
+        /// <summary>
+        /// Serialize the dirty entities once, then cut them into packets that each fit the smallest
+        /// ready peer's single-datagram limit. Every packet carries its own newer sequence, so the
+        /// receiver's stale-snapshot gate accepts all of them; a 256-entity scene no longer builds
+        /// one multi-KB unreliable packet that LiteNetLib refuses.
+        /// </summary>
+        private static void SendChunked(LanNetworkManager net, int entityCount)
+        {
+            _bodyWriter.Reset();
+            for (int i = 0; i < entityCount; i++)
+            {
+                _buffer[i].Serialize(_bodyWriter);
+                _entryEnd[i] = _bodyWriter.Length;
+            }
+            _bodyWriter.CopyDataInto(ref _bodyBuf, out _);
+
+            int cap = Math.Max(net.MinUnreliablePacketBytes(gameplayReadyOnly: true) - FrameBytes, 128);
+            int start = 0;
+            int startOff = 0;
+            while (start < entityCount)
+            {
+                // At least one entity per packet; an entity that alone exceeds the limit is
+                // promoted to ReliableOrdered by the transport.
+                int end = start + 1;
+                while (end < entityCount && _entryEnd[end] - startOff <= cap)
+                    end++;
+                int endOff = _entryEnd[end - 1];
+
+                _snapWriter.Reset();
+                _snapWriter.Put((byte)NetMessageType.EntityState);
+                _snapWriter.Put(++_nextSnapshotSequence);
+                _snapWriter.Put(end - start);
+                _snapWriter.PutRaw(_bodyBuf, startOff, endOff - startOff);
+                _snapWriter.CopyDataInto(ref _snapSendBuf, out int sendLen);
+                // Walk the connected peers directly; ConnectedPlayerIds allocated a List every tick.
+                net.SendRawToReadyPeers(_snapSendBuf, sendLen, DeliveryMethod.Unreliable);
+
+                start = end;
+                startOff = endOff;
+            }
+        }
 
         private static void SendSnapshot(LanNetworkManager net)
         {
@@ -131,18 +179,8 @@ namespace DWMPHorde.Networking
             if (count == 0)
                 return;
 
-            _snapWriter.Reset();
-            _snapWriter.Put((byte)NetMessageType.EntityState);
-
             int entityCount = count;
-            _snapWriter.Put(++_nextSnapshotSequence);
-            _snapWriter.Put(entityCount);
-            for (int i = 0; i < entityCount; i++)
-                _buffer[i].Serialize(_snapWriter);
-
-            _snapWriter.CopyDataInto(ref _snapSendBuf, out int sendLen);
-            // Walk the connected peers directly; ConnectedPlayerIds allocated a List every tick.
-            net.SendRawToReadyPeers(_snapSendBuf, sendLen, DeliveryMethod.Unreliable);
+            SendChunked(net, entityCount);
             DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
             _sendCount++;

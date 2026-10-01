@@ -14,9 +14,9 @@ namespace DWMPHorde.Patches
     /// backup + host SaveSync via <see cref="SaveSyncPatch"/> Postfix.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
-    [HarmonyPriority(Priority.High)]
     public static class ClientConnectedWorldSaveBlockPatch
     {
+        [HarmonyPriority(Priority.High)]
         private static bool Prefix()
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
@@ -52,6 +52,12 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (ModRuntime.Network.Role == NetworkRole.Offline)
+                return;
+
+            // NightDeathSavePatch skipped the real Save (first night death / party wipe), but a
+            // Harmony Prefix returning false does not stop this Postfix: no backup, no SaveSync
+            // fan-out, or peers would persist the death the host deliberately held back.
+            if (NightDeathSavePatch.IsHeld())
                 return;
 
             // Vanilla prepareDream force-Saves mid entry. Connected clients block the

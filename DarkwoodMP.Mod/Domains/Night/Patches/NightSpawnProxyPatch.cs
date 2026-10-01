@@ -51,10 +51,10 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(CharacterSpawner), "spawnNightChar")]
     public static class NightSpawnFlagPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Prefix()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = true;
@@ -67,11 +67,13 @@ namespace DWMPHorde.Patches
             }
         }
 
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = false;
         }
 
+        [HarmonyPriority(Priority.Last)]
         private static void Finalizer()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = false;

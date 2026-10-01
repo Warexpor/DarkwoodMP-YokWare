@@ -83,6 +83,8 @@ namespace DWMPHorde.Networking
 
                 _migrationInProgress = false;
                 _migrationRetryCount = 0;
+                _softReconnectTries = 0;
+                _softReconnectRetryAt = 0f;
 
                 if (ClientReportsAlreadyInWorld())
                 {
@@ -118,14 +120,36 @@ namespace DWMPHorde.Networking
             else
             {
                 int playerId = _currentReceivePlayerId;
+                // Steam join: the host password is verified here, not in lobby data (which anyone who
+                // can see the lobby could read). LAN already proved it in the connection request.
+                if (IsSteamSession && HostRequiresPassword())
+                {
+                    ulong sid = _currentReceiveSteamId.m_SteamID;
+                    if (!string.Equals(handshake.ConnectionKey ?? string.Empty,
+                            Config.ModConfig.GetConnectionKey(), StringComparison.Ordinal))
+                    {
+                        ModLog.Warn(LogCat.Network,
+                            "Steam peer " + playerId + " refused — wrong host password");
+                        RejectPeerWorld(playerId, 0, "Wrong host password. Ask the host for the password and set it in your settings.");
+                        return;
+                    }
+                    _steamPasswordOk.Add(sid);
+                    // The accept path only sent the host Handshake; the rest of the join follows now.
+                    if (_steamUnauthSince.Remove(playerId))
+                        CompleteHostPeerJoin(playerId, sendHandshake: false);
+                }
                 // Migration reconnect: client put preferred id in Handshake.PlayerId.
-                if (handshake.AlreadyInWorld && handshake.PlayerId > 0)
+                // Chapter resume: the host remembers each client's previous id by stable key.
+                int preferredId = handshake.AlreadyInWorld && handshake.PlayerId > 0 ? handshake.PlayerId : 0;
+                if (TryTakeResumePlayerId(handshake.StableClientKey, playerId, out int resumeId))
+                    preferredId = resumeId;
+                if (preferredId > 0)
                 {
                     int rebound = playerId;
                     if (_currentReceivePeer != null)
-                        rebound = TryRebindPreferredPlayerId(playerId, handshake.PlayerId, _currentReceivePeer);
+                        rebound = TryRebindPreferredPlayerId(playerId, preferredId, _currentReceivePeer);
                     else if (IsSteamSession && _currentReceiveSteamId.IsValid())
-                        rebound = TryRebindPreferredSteamPlayerId(playerId, handshake.PlayerId, _currentReceiveSteamId);
+                        rebound = TryRebindPreferredSteamPlayerId(playerId, preferredId, _currentReceiveSteamId);
 
                     if (rebound != playerId)
                     {
@@ -144,6 +168,28 @@ namespace DWMPHorde.Networking
                     }
                 }
 
+                // AlreadyInWorld is only a claim: compare campaign + chapter before skipping the
+                // share. Refused peers never join the handshaked set.
+                bool trustedInWorld = handshake.AlreadyInWorld;
+                if (playerId > 0 && trustedInWorld)
+                {
+                    PeerWorldVerdict verdict = VerifyPeerWorldIdentity(
+                        playerId, handshake, out string verdictReason, out int verdictHostChapter);
+                    if (verdict == PeerWorldVerdict.Reject)
+                    {
+                        RejectPeerWorld(playerId, verdictHostChapter, verdictReason);
+                        return;
+                    }
+                    if (verdict == PeerWorldVerdict.ResyncChapter)
+                    {
+                        ModLog.Warn(LogCat.Session,
+                            "Join pipeline phase 3: peer " + playerId + " claims AlreadyInWorld but "
+                            + verdictReason + " — re-sharing host world instead of trusting it");
+                        trustedInWorld = false;
+                        SendPeerWorldResync(playerId, verdictHostChapter);
+                    }
+                }
+
                 if (playerId > 0)
                 {
                     _handshakedPeers.Add(playerId);
@@ -159,13 +205,16 @@ namespace DWMPHorde.Networking
                 // Roster ASAP so survivors can migrate if *this* host later dies.
                 BroadcastPeerRoster();
                 _peerRosterTimer = 0f;
+                // The joiner adopts the host's friendly-fire / loot-share / party settings before
+                // any gameplay message can depend on them.
+                SendSessionSettingsTo(playerId);
 
                 // Join pipeline:
                 //   phase 1 title join  → share world (client offline-loads, disconnects)
                 //   phase 3 reconnect   → AlreadyInWorld: skip share, late-join bulk only
                 if (playerId > 0)
                 {
-                    if (handshake.AlreadyInWorld)
+                    if (trustedInWorld)
                     {
                         ModLog.Event(LogCat.Session,
                             "Join pipeline phase 3: peer " + playerId

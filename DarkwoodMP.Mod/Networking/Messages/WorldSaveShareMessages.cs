@@ -16,6 +16,11 @@ namespace DWMPHorde.Networking
         public int[] ChunkCounts;
         /// <summary>Stable campaign ID in the optional trailer; keys client backups.</summary>
         public string CampaignId;
+        /// <summary>
+        /// Host share pass this package belongs to. A chapter ack echoes it so a Committed ack for a
+        /// package the host has since re-sent (broadcast re-run) cannot vouch for the new files.
+        /// </summary>
+        public int SharePass;
 
         public void Serialize(NetWriter w)
         {
@@ -31,6 +36,7 @@ namespace DWMPHorde.Networking
                 w.Put(ChunkCounts != null && i < ChunkCounts.Length ? ChunkCounts[i] : 0);
             }
             w.Put(CampaignId ?? "");
+            w.Put(SharePass);
         }
 
         public static WorldSaveBeginMessage Deserialize(NetReader r)
@@ -57,6 +63,7 @@ namespace DWMPHorde.Networking
                 msg.ChunkCounts[i] = r.GetInt();
             }
             msg.CampaignId = r.AvailableBytes > 0 ? r.GetString() : null;
+            msg.SharePass = r.AvailableBytes >= 4 ? r.GetInt() : 0;
             return msg;
         }
     }

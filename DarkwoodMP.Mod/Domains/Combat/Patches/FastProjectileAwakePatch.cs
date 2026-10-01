@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using PathologicalGames;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
@@ -52,7 +53,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role == NetworkRole.Offline)
+            if (net == null || !net.IsConnected)
                 return true;
 
             int id = __instance.GetInstanceID();
@@ -147,19 +148,38 @@ namespace DWMPHorde.Patches
             int id = fp.GetInstanceID();
             _spawnedAt.Remove(id);
             _stallSince.Remove(id);
-            fp.active = false;
 
-            try
-            {
-                Core.RemovePooledPrefab(fp.transform);
-            }
-            catch
-            {
-                // Non-pooled AddPrefab path; RemovePooledPrefab may already have destroyed it.
-            }
+            // Only an instance vanilla is about to Destroy needs `active` cleared (Destroy is
+            // deferred, FixedUpdate could still sweep once). A pooled instance keeps its serialized
+            // active=true: nothing re-arms it on the next spawn, so clearing it would make every
+            // reused bullet permanently harmless.
+            Transform t = fp.transform;
+            bool pooled = PoolManager.Pools["FX"].IsSpawned(t) || PoolManager.Pools["UI"].IsSpawned(t);
+            if (!pooled)
+                fp.active = false;
 
-            if (fp != null && fp.gameObject != null)
-                Object.Destroy(fp.gameObject);
+            // Vanilla RemovePooledPrefab returns a pooled instance to its pool and Destroys only an
+            // instance no pool owns. Destroying a pooled one afterwards would leave a dead entry in
+            // the PrefabPool (MissingReferenceException on the next SpawnInstance).
+            Core.RemovePooledPrefab(fp.transform);
+        }
+    }
+
+    /// <summary>
+    /// Pooled projectiles are reused under the same instance id: vanilla Bullet.WaitForDeath
+    /// despawns them without passing through FastProjectile.onCollide, so a stale spawn time /
+    /// stall timer would age the NEXT bullet out on its first tick. OnSpawned is the pool's spawn
+    /// callback; start every spawn with clean sweep state.
+    /// </summary>
+    [HarmonyPatch(typeof(Bullet), "OnSpawned")]
+    public static class FastProjectileSpawnResetPatch
+    {
+        private static void Prefix(Bullet __instance)
+        {
+            if (__instance == null) return;
+            FastProjectile fp = __instance.GetComponent<FastProjectile>();
+            if (fp != null)
+                FastProjectileSweepPatch.ResetEntry(fp.GetInstanceID());
         }
     }
 

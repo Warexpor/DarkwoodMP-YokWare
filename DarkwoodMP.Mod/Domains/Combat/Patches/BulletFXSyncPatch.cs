@@ -43,7 +43,6 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
     public static class HitscanBloodPatch
     {
@@ -51,6 +50,7 @@ namespace DWMPHorde.Patches
         private static Vector3 _lastBloodForwardPos;
         private static string _lastBloodForwardPrefab;
 
+        [HarmonyPriority(Priority.Last)]
         private static void Prefix(string prefab, Vector3 position, Quaternion quaternion)
         {
             TryForwardBlood(prefab, position, quaternion);

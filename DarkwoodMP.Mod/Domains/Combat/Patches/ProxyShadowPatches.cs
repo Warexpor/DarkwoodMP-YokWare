@@ -78,8 +78,16 @@ namespace DWMPHorde.Patches
 
         private void Update()
         {
-            if (_proxyT == null || _shadow == null || _shadow.dead || _isDying)
+            if (_shadow == null || _shadow.dead || _isDying)
                 return;
+
+            // The owner's proxy is gone (peer disconnected / left the world): nothing left to
+            // orbit. Without this the shadow froze in place for the rest of the night.
+            if (_proxyT == null)
+            {
+                StartDying();
+                return;
+            }
 
             var owner = _proxyT.GetComponent<RemotePlayerProxy>();
             if (owner != null)
@@ -190,10 +198,10 @@ namespace DWMPHorde.Patches
     /// which would teleport them to the host player's position (uses Player.Instance).
     /// The controller handles its own positioning and appearance.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(ShadowCreature), "appear")]
     public static class ProxyShadowAppearBlock
     {
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(ShadowCreature __instance)
         {
             if (__instance.GetComponent<ProxyShadowController>() != null)

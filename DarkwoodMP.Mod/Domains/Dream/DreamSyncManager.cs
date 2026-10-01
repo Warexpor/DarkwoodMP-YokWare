@@ -45,6 +45,23 @@ namespace DWMPHorde.Sync
         private static bool _dreamEndBroadcastSent;
         private static bool _hostOrderedDreamEnd;
 
+        /// <summary>
+        /// Bumped whenever this peer's dream session is torn down (disconnect, reject, cleanup,
+        /// failed load, remote end). Entry coroutines capture it plus the session id and bail after
+        /// every yield once either no longer matches, so a cancelled entry cannot load a pad or
+        /// teleport the player into a sessionless dream.
+        /// </summary>
+        private static int _entryGeneration;
+
+        private static void CancelPendingEntries() => _entryGeneration++;
+
+        private static bool EntryStale(int generation, int sessionId)
+        {
+            return generation != _entryGeneration
+                || !DreamSession.IsActive
+                || (sessionId != 0 && DreamSession.SessionId != sessionId);
+        }
+
         /// <summary>True when the local player's entry transition was intercepted by DreamEntryClientPatch.</summary>
         public static bool EntryTransitionPlayedLocally => _earlyEntryTransitionPlayed;
 

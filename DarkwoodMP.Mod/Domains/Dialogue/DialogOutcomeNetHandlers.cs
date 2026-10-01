@@ -22,8 +22,8 @@ namespace DWMPHorde.Networking
         internal void HandleDialogTreeState(DialogTreeStateMessage msg) =>
             _apply.HandleDialogTreeState(msg);
 
-        internal void AbortWorldOnlyDrainForRelease() =>
-            _apply.AbortWorldOnlyDrainForRelease();
+        internal void AbortWorldOnlyDrainForRelease(string npcName, int ownerPlayerId) =>
+            _apply.AbortWorldOnlyDrainForRelease(npcName, ownerPlayerId);
 
         internal void HostFireNpcCloseDialogue(string npcName) =>
             _close.HostFireNpcCloseDialogue(npcName);

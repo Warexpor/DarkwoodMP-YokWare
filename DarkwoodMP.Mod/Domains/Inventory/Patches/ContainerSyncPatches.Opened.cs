@@ -45,22 +45,26 @@ namespace DWMPHorde.Patches
             _snapshotDepth++;
         }
 
+        /// <summary>
+        /// Closes the snapshot taken by <see cref="PrefixSnapshot"/>. Runs from every patch's
+        /// Finalizer, not the Postfix: Harmony skips Postfix when the original throws, and a depth
+        /// left up makes every later pile drain look nested, so pile sync would stay off until
+        /// restart. Postfix only sends the diff; the Finalizer owns the depth.
+        /// </summary>
+        internal static void FinalizeSnapshot(ContainerSnapshotState state)
+        {
+            if (state.Active && _snapshotDepth > 0)
+                _snapshotDepth--;
+        }
+
         internal static void PostfixSendFullDiff(ContainerSnapshotState state)
         {
             if (!state.Active) return;
-            try
-            {
-                Inventory pile = Player.Instance?.openedItemInventory2;
-                if (pile == null) return;
-                // SendFullDiff is a true slot diff: identical before/after (bag-only
-                // remove with workbench still open) sends nothing.
-                ContainerSnapshotHelper.SendFullDiff(pile, state.Snapshot);
-            }
-            finally
-            {
-                if (_snapshotDepth > 0)
-                    _snapshotDepth--;
-            }
+            Inventory pile = Player.Instance?.openedItemInventory2;
+            if (pile == null) return;
+            // SendFullDiff is a true slot diff: identical before/after (bag-only
+            // remove with workbench still open) sends nothing.
+            ContainerSnapshotHelper.SendFullDiff(pile, state.Snapshot);
         }
     }
 
@@ -81,6 +85,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -96,6 +104,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -112,6 +124,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -131,6 +147,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -154,6 +174,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -178,6 +202,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>
@@ -196,6 +224,10 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(ContainerSnapshotState __state) =>
             WorkbenchSharedPileSync.PostfixSendFullDiff(__state);
+
+        [HarmonyFinalizer]
+        private static void Finalizer(ContainerSnapshotState __state) =>
+            WorkbenchSharedPileSync.FinalizeSnapshot(__state);
     }
 
     /// <summary>Syncs transferring 1 item from player inventory to the opened container.</summary>
@@ -246,10 +278,12 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(InvSlot), "controllerPlaceItem")]
     public static class ContainerControllerPlaceItemPatch
     {
-        private static void Prefix(InvSlot __instance, ref ContainerSlotActionState __state)
+        private static void Prefix(InvSlot __instance, bool force, ref ContainerSlotActionState __state)
         {
             __state = default;
             if (!ContainerSyncHelpers.IsContainer(__instance)) return;
+            // Vanilla controllerPlaceItem is a no-op for a death-drop bag unless forced.
+            if (!force && __instance.inventory.invType == Inventory.InvType.deathDrop) return;
 
             var pickedUp = Singleton<Controller>.Instance?.pickedUpItem;
             if (pickedUp == null || InvItemClass.isNull(pickedUp)) return;
@@ -266,9 +300,9 @@ namespace DWMPHorde.Patches
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
         }
 
-        private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
+        private static void Postfix(InvSlot __instance, bool __runOriginal, ContainerSlotActionState __state)
         {
-            if (!__state.Active) return;
+            if (!__state.Active || !__runOriginal) return;
             ContainerSyncHelpers.SendContainerAction(ContainerAction.PlaceItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, isPlayerPlaced: true, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }

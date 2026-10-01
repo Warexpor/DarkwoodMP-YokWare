@@ -13,6 +13,15 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// The host-ordered exit transition finished or chained into the next pocket; the flag
+        /// must not outlive it (initiateEndDreaming authority patch reads it).
+        /// </summary>
+        public static void ClearHostOrderedDreamEnd()
+        {
+            _hostOrderedDreamEnd = false;
+        }
+
+        /// <summary>
         /// True when the named outcome's effects include transferToDream (next pocket).
         /// Used so initiateEndDreaming does not DreamSession.End before the chain —
         /// that Idle+TryBegin path wiped the death roster via OnDreamStarted.

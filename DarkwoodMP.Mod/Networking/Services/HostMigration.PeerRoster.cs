@@ -37,6 +37,9 @@ namespace DWMPHorde.Networking
             ApplyPeerRosterLocal(msg);
 
             Broadcast(NetMessageType.PeerRoster, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // Join/leave changes the party size, and a roster tick is the one place that also
+            // notices a host-side setting edit: peers re-sync whenever any of it differs.
+            BroadcastSessionSettingsIfChanged();
             // Trace only; frequent Support/Dev events are noise.
             ModLog.Trace(LogCat.Network, () => "[HostMigration] roster peers=" + list.Count
                 + " hostId=" + _localPlayerId
@@ -205,6 +208,7 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < gone.Count; i++)
             {
                 int id = gone[i];
+                DeathStateTracker.OnRemotePeerGone(id);
                 // Belt: clear stuck drag claims if host STOP was lost (host already
                 // broadcast on disconnect; clients must still drop local claim maps).
                 PlayerInteractHandlers?.ReleaseDragClaimsForDisconnectedPlayer(

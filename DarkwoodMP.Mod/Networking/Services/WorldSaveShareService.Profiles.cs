@@ -89,6 +89,8 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Write verified package into a permanent local profile slot.
         /// Pass overwriteConfirmed=true after UI confirm when the slot already has data.
+        /// Every file is validated and inflated before any disk write, and the slot is swapped
+        /// atomically (<see cref="CommitInflatedPackage"/>), so a failure never leaves a mixed slot.
         /// </summary>
         public bool TryCommitPermanentSlot(int profileId, bool overwriteConfirmed, out string error)
         {
@@ -111,136 +113,9 @@ namespace DWMPHorde.Networking
 
             try
             {
-                GameProfile target = EnsureProfileSlot(profileId, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
-                Core.currentProfile = target;
-                string profDir = GetProfileDir(profileId);
-                Directory.CreateDirectory(profDir);
-
-                for (int i = 0; i < _pendingBegin.FileCount; i++)
-                {
-                    string name = _pendingBegin.FileNames[i];
-                    if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                        || (name != "sav.dat" && name != "savs.dat" && name != "savch.dat"))
-                    {
-                        error = "Bad file name: " + name;
-                        return false;
-                    }
-
-                    byte[][] chunks = _chunkBuffers[i];
-                    int totalLen = 0;
-                    for (int c = 0; c < chunks.Length; c++)
-                        totalLen += chunks[c].Length;
-
-                    byte[] compressed = new byte[totalLen];
-                    int off = 0;
-                    for (int c = 0; c < chunks.Length; c++)
-                    {
-                        Buffer.BlockCopy(chunks[c], 0, compressed, off, chunks[c].Length);
-                        off += chunks[c].Length;
-                    }
-
-                    byte[] raw = Inflate(compressed);
-                    if (_pendingBegin.UncompressedSizes[i] > 0
-                        && raw.Length != _pendingBegin.UncompressedSizes[i])
-                    {
-                        error = "Decompressed size mismatch for " + name;
-                        return false;
-                    }
-
-                    string dest = Path.Combine(profDir, name);
-                    string tmp = dest + ".dwmp_tmp";
-                    File.WriteAllBytes(tmp, raw);
-                    if (File.Exists(dest))
-                        File.Delete(dest);
-                    File.Move(tmp, dest);
-
-                    ModLog.Event(LogCat.Save,
-                        "Permanent co-op copy: wrote " + name + " → prof" + profileId
-                        + " (" + raw.Length + " bytes)");
-                }
-
-                target.day = _pendingBegin.DayIndex;
-                target.chapter = _pendingBegin.ChapterId;
-                target.timeSaved = DateTime.Now.ToString();
-                target.majorVersion = Core.majorVersion;
-                target.minorVersion = Core.minorVersion;
-                target.RCVersion = Core.RCVersion;
-                target.fullRelease = true;
-                target.Active = true;
-                // Mark so PLAY list can tell campaign vs co-op if we ever surface it in vanilla UI.
-                target.bool1 = true;
-
-                MergeProfileIntoDiskIndexAndSave(target);
-                Core.currentProfile = target;
-
-                try
-                {
-                    SaveManager sm = Singleton<SaveManager>.Instance;
-                    if (sm != null)
-                        sm.updateFilePaths();
-                }
-                catch (Exception ex)
-                {
-                    ModLog.Error(LogCat.Save, "updateFilePaths after permanent copy failed", ex);
-                }
-
-                string hostAddr = "";
-                try
-                {
-                    if (ModConfig.ConnectAddress != null)
-                        hostAddr = ModConfig.ConnectAddress.Value ?? "";
-                }
-                catch { /* ignore */ }
-
-                string diskFp = CoopWorldCopyMeta.FingerprintProfileSlot(profileId);
-                string savPath = Path.Combine(profDir, "sav.dat");
-                string savsPath = Path.Combine(profDir, "savs.dat");
-                var existing = CoopWorldCopyMeta.TryLoad(profileId);
-                string joinedAt = existing != null && !string.IsNullOrEmpty(existing.JoinedAt)
-                    ? existing.JoinedAt
-                    : DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                CoopWorldCopyMeta.Write(profileId, new CoopWorldCopyMeta
-                {
-                    IsCoopCopy = true,
-                    HostProfileId = _hostSourceProfileId,
-                    Chapter = _pendingBegin.ChapterId,
-                    Day = _pendingBegin.DayIndex,
-                    WorldSeed = _pendingBegin.ChapterId * 100000 + _pendingBegin.DayIndex,
-                    HostAddress = hostAddr,
-                    JoinedAt = joinedAt,
-                    LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
-                    ContentFingerprint = diskFp,
-                    CampaignId = !string.IsNullOrEmpty(_pendingBegin.CampaignId)
-                        ? _pendingBegin.CampaignId
-                        : (existing != null ? existing.CampaignId : null),
-                    SavBytes = File.Exists(savPath) ? new FileInfo(savPath).Length : 0,
-                    SavsBytes = File.Exists(savsPath) ? new FileInfo(savsPath).Length : 0,
-                    Note = "Permanent local copy of co-op world. Updated on every session Save. Delete PLAY profile to remove."
-                });
-                if (string.IsNullOrEmpty(_pendingBegin.CampaignId)
-                    && (existing == null || string.IsNullOrEmpty(existing.CampaignId)))
-                    CoopWorldCopyMeta.GetOrCreateCampaignId(profileId);
-
-                Sync.WorldPhysicsSyncService.Reset();
-                Sync.DreamSyncManager.OnDisconnected();
-                Sync.MultiplayerMapManager.Reset();
-                Sync.DreamSession.ResetIncludingCompletions();
-                DeathStateTracker.Reset();
-
-                int chapterId = _pendingBegin.ChapterId > 0 ? _pendingBegin.ChapterId : 1;
-                _chunkBuffers = null;
-                _awaitingSlotPick = false;
-                _awaitingEnterWorld = true;
-                _enterProfileId = profileId;
-                _enterChapterId = chapterId;
-
-                ProgressText = "Permanent copy on Profile " + profileId + " — press ENTER WORLD";
-                if (_net != null)
-                    _net.StatusText = ProgressText;
-                ModLog.Event(LogCat.Session,
-                    "Join pipeline: permanent world on slot " + profileId
-                    + " ch" + chapterId + " — waiting for ENTER WORLD");
-                return true;
+                if (!TryInflatePackage(out List<VerifiedFile> files, out error))
+                    return false;
+                return CommitInflatedPackage(profileId, files, out error);
             }
             catch (Exception ex)
             {

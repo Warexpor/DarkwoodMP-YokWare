@@ -1,5 +1,6 @@
 using System;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -27,7 +28,9 @@ namespace DWMPHorde.Networking
         internal void HostFireNpcCloseDialogue(string npcName)
         {
             // Still draining lookKeyhole boards; closing early would miss flags or GameEvent wiring.
-            if (_apply.IsWorldDrainActive)
+            // Also while an outcome for this NPC is still queued: closing first would fire
+            // onCloseDialogue before the outcome it depends on has been applied.
+            if (_apply.IsWorldDrainActive || _apply.HasDeferredApplyFor(npcName))
             {
                 _apply.DeferCloseUntilDrainDone(npcName);
                 ModRuntime.LegacyInfo(
@@ -39,7 +42,7 @@ namespace DWMPHorde.Networking
             NPC npc = FindNpcByName(npcName);
             if (npc == null || npc.gameObject == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "dlg-close-npc-miss:" + npcName,
                     "[DialogOutcome] onCloseDialogue skip — NPC '" + npcName + "' not found");
                 return;
             }
@@ -95,16 +98,20 @@ namespace DWMPHorde.Networking
                     catch { /* ignore */ }
                 }
 
-                // Replay leave-door events under the dream pad when the normal
-                // close trigger did not run.
-                int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
+                // Replay leave-door events under the dream pad when the normal close trigger
+                // did not run. Only for the bunker door NPC: any other NPC closing during a
+                // dream must not re-fire the door's one-shot events or force a door open.
+                if (dialogueDoorNpc)
+                {
+                    int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
 
-                // If the leave-door event opened the door, skip force-open so
-                // the client hears one open sound.
-                if (leaveFired == 0)
-                    DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
-                else
-                    DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
+                    // If the leave-door event opened the door, skip force-open so
+                    // the client hears one open sound.
+                    if (leaveFired == 0)
+                        DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
+                    else
+                        DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
+                }
             }
             catch (Exception ex)
             {
@@ -180,6 +187,14 @@ namespace DWMPHorde.Networking
         }
 
         internal static NPC FindNpcByName(string name, bool preferDreamPad)
+            => FindNpcByName(name, preferDreamPad, strictPad: false);
+
+        /// <summary>
+        /// <paramref name="strictPad"/>: with a dream active, return only an NPC on the dream pad
+        /// (null when the pad twin is not loaded yet) and never fall back to the overworld twin.
+        /// Callers that fire events or SetActive the result must use it (clone trap).
+        /// </summary>
+        internal static NPC FindNpcByName(string name, bool preferDreamPad, bool strictPad)
         {
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
@@ -223,15 +238,16 @@ namespace DWMPHorde.Networking
             }
 
             // Prefer the dream pad because the overworld bunker also has door_underground.
-            NPC found = bestDream ?? bestActive ?? bestAny;
+            NPC found = strictPad && preferDreamPad ? bestDream : (bestDream ?? bestActive ?? bestAny);
             if (found == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "dlg-find-npc-miss:" + name,
                     $"[DialogOutcome] FindNpc miss '{name}' (scanned {all.Length} NPCs, inactive incl.)");
             }
-            else if (!found.gameObject.activeInHierarchy)
+            else if (!found.gameObject.activeInHierarchy && (dreamRoot == null || found == bestDream))
             {
                 // Host world-apply needs a live target for displayDialogue / EventTriggers.
+                // Never wake the overworld twin when a dream is active and only it was found.
                 try { found.gameObject.SetActive(true); }
                 catch { /* ignore */ }
             }

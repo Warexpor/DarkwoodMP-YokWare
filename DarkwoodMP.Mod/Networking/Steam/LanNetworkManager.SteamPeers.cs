@@ -78,12 +78,21 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Network,
                 $"Steam player {playerId} connected sid={remote.m_SteamID} (peers={_steamPeers.Count})");
 
+            if (HostRequiresPassword())
+            {
+                // Password mode: only the host Handshake goes out now (the client answers it with
+                // the key). WorldSession and the join bulk follow once the password is verified
+                // (SessionHandlers), and a peer that never proves it is dropped after a grace.
+                _steamUnauthSince[playerId] = UnityEngine.Time.unscaledTime;
+                SendHostHandshake(playerId);
+                return true;
+            }
+
             CompleteHostPeerJoin(playerId);
             return true;
         }
 
-        /// <summary>Shared host post-connect (Handshake + WorldSession) for LAN and Steam.</summary>
-        private void CompleteHostPeerJoin(int playerId)
+        private void SendHostHandshake(int playerId)
         {
             SendToPlayer(playerId, NetMessageType.Handshake, w =>
             {
@@ -94,6 +103,13 @@ namespace DWMPHorde.Networking
                     HostPlayerId = (short)_localPlayerId
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>Shared host post-connect (Handshake + WorldSession) for LAN and Steam.</summary>
+        private void CompleteHostPeerJoin(int playerId, bool sendHandshake = true)
+        {
+            if (sendHandshake)
+                SendHostHandshake(playerId);
 
             WorldSessionMessage session = _worldSync.BuildHostSession();
             SendToPlayer(playerId, NetMessageType.WorldSession, w => session.Serialize(w),
@@ -126,6 +142,8 @@ namespace DWMPHorde.Networking
             bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
             short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;
             string lanKey = ClientStateBackup.GetOrCreateLanClientKey() ?? string.Empty;
+            // Identity of the world we actually have loaded; the host verifies AlreadyInWorld against it.
+            GetLocalWorldIdentity(mint: false, out string worldCampaignId, out int worldChapterId);
             Broadcast(NetMessageType.Handshake, w =>
             {
                 new HandshakeMessage
@@ -134,6 +152,9 @@ namespace DWMPHorde.Networking
                     PlayerId = preferredId,
                     AlreadyInWorld = alreadyInWorld,
                     StableClientKey = lanKey,
+                    CampaignId = worldCampaignId,
+                    ChapterId = worldChapterId,
+                    ConnectionKey = IsSteamSession ? Config.ModConfig.GetConnectionKey() : string.Empty,
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
 
@@ -161,6 +182,18 @@ namespace DWMPHorde.Networking
             {
                 body = new byte[payload.Length - 1];
                 Buffer.BlockCopy(payload, 1, body, 0, body.Length);
+            }
+
+            // Steam has no connection-request key like LiteNetLib: until a peer's Handshake proved the
+            // host password, nothing it sends is processed (it could otherwise drive host handlers).
+            if (_role == NetworkRole.Host && HostRequiresPassword()
+                && type != NetMessageType.Handshake && !_steamPasswordOk.Contains(remote.m_SteamID))
+            {
+                if (NetLogThrottle.ShouldLog("steam-unauth:" + remote.m_SteamID, 10f, out int dropped))
+                    ModLog.Warn(LogCat.Network,
+                        "Dropping " + type + " from unauthenticated Steam peer p" + playerId
+                        + " (password not yet verified)" + NetLogThrottle.SuppressedSuffix(dropped));
+                return;
             }
 
             _currentReceivePeer = null;

@@ -19,7 +19,47 @@ namespace DWMPHorde.Networking
         private readonly Dictionary<int, CSteamID> _steamPeers = new Dictionary<int, CSteamID>();
         private readonly Dictionary<ulong, int> _steamIdToPlayer = new Dictionary<ulong, int>();
         private readonly List<int> _steamSoftReconnectProxyIds = new List<int>(8);
+        /// <summary>Host: Steam peers whose Handshake carried the right host password.</summary>
+        private readonly HashSet<ulong> _steamPasswordOk = new HashSet<ulong>();
+
+        private static bool HostRequiresPassword()
+            => !string.IsNullOrEmpty(Config.ModConfig.HostPassword?.Value?.Trim());
+
+        /// <summary>Host: Steam peers accepted but not yet password-verified → accept time.</summary>
+        private readonly Dictionary<int, float> _steamUnauthSince = new Dictionary<int, float>();
+        /// <summary>A lobby member that never sends a valid Handshake is dropped, freeing its player slot.</summary>
+        private const float SteamUnauthGraceSec = 20f;
+
+        private void TickSteamUnauthTimeout()
+        {
+            if (_steamUnauthSince.Count == 0 || _role != NetworkRole.Host)
+                return;
+            float now = UnityEngine.Time.unscaledTime;
+            List<int> expired = null;
+            foreach (var kvp in _steamUnauthSince)
+            {
+                if (now - kvp.Value < SteamUnauthGraceSec)
+                    continue;
+                if (expired == null) expired = new List<int>();
+                expired.Add(kvp.Key);
+            }
+            if (expired == null)
+                return;
+            foreach (int playerId in expired)
+            {
+                ModLog.Warn(LogCat.Network,
+                    "Steam peer p" + playerId + " never proved the host password within "
+                    + (int)SteamUnauthGraceSec + "s — dropped");
+                RemovePeerSlot(playerId);
+            }
+        }
         private CSteamID _currentReceiveSteamId = CSteamID.Nil;
+
+        /// <summary>
+        /// Steam lobby id of the last client join (0 = last join was LAN, or none). Survives StopNetwork
+        /// so ENTER WORLD can still arm the phase-3 reconnect after the transfer link already dropped.
+        /// </summary>
+        internal ulong LastClientSteamLobbyId { get; private set; }
 
         public ConnectionBackend Backend => _backend;
         public bool IsSteamSession => _backend == ConnectionBackend.Steam;
@@ -62,8 +102,15 @@ namespace DWMPHorde.Networking
         {
             if (IsSteamSession)
             {
-                foreach (int id in _steamPeers.Keys)
-                    yield return id;
+                // A lobby member that has not proved the host password gets nothing but the handshake
+                // exchange (sent by id): no world state, chat, roster or entity stream.
+                bool gate = _role == NetworkRole.Host && HostRequiresPassword();
+                foreach (var kvp in _steamPeers)
+                {
+                    if (gate && !_steamPasswordOk.Contains(kvp.Value.m_SteamID))
+                        continue;
+                    yield return kvp.Key;
+                }
             }
             else
             {
@@ -85,6 +132,8 @@ namespace DWMPHorde.Networking
                 {
                     _steamPeers.Remove(playerId);
                     _steamIdToPlayer.Remove(sid.m_SteamID);
+                    _steamPasswordOk.Remove(sid.m_SteamID);
+                    _steamUnauthSince.Remove(playerId);
                     Steam.CloseSession(sid);
                 }
             }
@@ -103,19 +152,28 @@ namespace DWMPHorde.Networking
             }
             _steamPeers.Clear();
             _steamIdToPlayer.Clear();
+            _steamPasswordOk.Clear();
+            _steamUnauthSince.Clear();
             _peers.Clear();
             _currentReceiveSteamId = CSteamID.Nil;
         }
 
         /// <summary>Host: Steam lobby + SteamNetworkingSockets listen. Separate from <see cref="StartHost"/>.</summary>
-        public void StartHostSteam()
+        /// <param name="reuseLobbyId">
+        /// Chapter resume: the lobby this host kept open through the scene load (0 = create a new one).
+        /// Returning clients rejoin that same id, so it must survive.
+        /// </param>
+        public void StartHostSteam(ulong reuseLobbyId = 0)
         {
+            // The kept lobby is not an active transport (StopNetwork(keepSteamLobby) shut the
+            // sockets), so this StopNetwork leaves it alone.
             StopNetwork();
             if (!SteamCoopTransport.IsSteamReady(out string fail))
             {
+                // Full stop, not a bare role flip: a soft reconnect kept the session state
+                // (SessionSettings, death marks, pendings) that must not leak into an offline world.
+                StopNetwork();
                 StatusText = "Steam unavailable: " + fail;
-                _role = NetworkRole.Offline;
-                _backend = ConnectionBackend.None;
                 return;
             }
 
@@ -128,7 +186,7 @@ namespace DWMPHorde.Networking
             // Ensure SNS callbacks exist before StartHost so +connect_lobby is parsed.
             _ = Steam;
 
-            if (!Steam.StartHost())
+            if (!Steam.StartHost(new CSteamID(reuseLobbyId)))
             {
                 StatusText = "Steam host failed";
                 _role = NetworkRole.Offline;
@@ -136,9 +194,11 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            StatusText = "Steam host — creating lobby…";
+            // Kept lobby re-listened: OnSteamLobbyReady already set the status.
+            if (!Steam.LobbyId.IsValid())
+                StatusText = "Steam host — creating lobby…";
             ModLog.Event(LogCat.Network,
-                "Hosting via Steam SNS | v" + PluginInfo.DisplayVersion
+                "Hosting via Steam SNS | " + PluginInfo.DisplayVersion
                 + " proto=" + PluginInfo.ProtocolVersion
                 + " maxPlayers=" + (Config.ModConfig.MaxPlayers?.Value ?? 8));
         }
@@ -157,6 +217,7 @@ namespace DWMPHorde.Networking
 
         public void ConnectSteamLobby(CSteamID lobbyId)
         {
+            LastClientSteamLobbyId = lobbyId.m_SteamID;
             bool softReconnect = false;
             try
             {
@@ -187,6 +248,7 @@ namespace DWMPHorde.Networking
                 _hostWasShareableForWaitingClients = false;
                 _hostWorldReadyEmitted = false;
                 _clientHostWorldReady = false;
+                NoteSoftReconnectAttempt(null, 0, lobbyId.m_SteamID);
             }
             else
             {
@@ -195,9 +257,10 @@ namespace DWMPHorde.Networking
 
             if (!SteamCoopTransport.IsSteamReady(out string fail))
             {
+                // Full stop, not a bare role flip: a soft reconnect kept the session state
+                // (SessionSettings, death marks, pendings) that must not leak into an offline world.
+                StopNetwork();
                 StatusText = "Steam unavailable: " + fail;
-                _role = NetworkRole.Offline;
-                _backend = ConnectionBackend.None;
                 return;
             }
 
@@ -208,6 +271,7 @@ namespace DWMPHorde.Networking
 
             if (!Steam.JoinLobby(lobbyId))
             {
+                StopNetwork();
                 StatusText = "Steam join failed";
                 _role = NetworkRole.Offline;
                 _backend = ConnectionBackend.None;
@@ -217,7 +281,7 @@ namespace DWMPHorde.Networking
             StatusText = "Steam joining lobby…";
             ModLog.Event(LogCat.Network,
                 "Connecting via Steam lobby " + lobbyId.m_SteamID
-                + " | v" + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
+                + " | " + PluginInfo.DisplayVersion + " proto=" + PluginInfo.ProtocolVersion
                 + (softReconnect ? " (soft)" : ""));
         }
 
@@ -290,6 +354,13 @@ namespace DWMPHorde.Networking
         {
             StatusText = "Steam lobby failed: " + reason;
             ModLog.Error(LogCat.Network, "Steam lobby failed: " + reason);
+            // In-world reconnect: the lobby may simply not be back yet — bounded retry first.
+            if (_role == NetworkRole.Client && !_suppressHostMigration && !_migrationInProgress
+                && _softReconnectTries > 0)
+            {
+                OnClientLinkFailed("Steam lobby failed: " + reason);
+                return;
+            }
             _suppressHostMigration = true;
             // Full tear so peer maps / lobby / role cannot stick half-open.
             StopNetwork();
@@ -322,6 +393,11 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Client)
             {
                 ModLog.Warn(LogCat.Network, "Steam SNS fail before peer map — tearing join");
+                if (!_suppressHostMigration && !_migrationInProgress && _softReconnectTries > 0)
+                {
+                    OnClientLinkFailed("Steam SNS failed");
+                    return;
+                }
                 _suppressHostMigration = true;
                 StopNetwork();
                 StatusText = "Steam SNS failed";

@@ -43,6 +43,9 @@ namespace DWMPHorde.Networking
         internal void ClearMembershipForSoftReconnect() =>
             _enterExit.ClearMembershipForSoftReconnect();
 
+        internal void ResetForNetworkStop() =>
+            _enterExit.ResetForNetworkStop();
+
         internal void ForceAnnounceLocalOutsideLocationEnter(string reason) =>
             _enterExit.ForceAnnounceLocalOutsideLocationEnter(reason);
 

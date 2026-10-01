@@ -8,10 +8,10 @@ using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Character), "canSeeEnemy")]
     public static class HostCanSeeEnemyPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(Character __instance)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)

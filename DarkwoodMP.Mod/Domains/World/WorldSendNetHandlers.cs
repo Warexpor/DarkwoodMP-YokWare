@@ -248,7 +248,8 @@ namespace DWMPHorde.Networking
             // (3x WorldObjectRemoved would cause peer scan thrash and NRE). One wire send per key.
             if (!Sync.WorldPhysicsSyncService.TryClaimOutboundObjectRemove(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
                 return;
-            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
+            // One-shot removal (claims, trap disarm): a lost Unreliable packet leaves the object alive on a peer.
+            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal void SendPlayerLightState(PlayerLightStateMessage msg, DeliveryMethod method = DeliveryMethod.Unreliable)

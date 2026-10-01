@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Local game location, when it differs from the default (not committed). -->
+  <!-- Local game location (not committed). On Linux this file is REQUIRED: the GameDir fallback
+       below is a Windows Steam path and does not exist there. Copy the example from README.md
+       ("Build and test") to DarkwoodMP.Mod/GamePath.local.props and set GameDir (Steam install) and,
+       for dual-box, SecondPlugins (second install's BepInEx/plugins). -->
   <Import Project="GamePath.local.props" Condition="Exists('GamePath.local.props')" />
 
   <!-- Loader: BepInEx (default) or MelonLoader
@@ -8,6 +11,7 @@
        dotnet build -c Release -p:Loader=MelonLoader -->
   <PropertyGroup>
     <Loader Condition="'$(Loader)' == ''">BepInEx</Loader>
+    <!-- Fallback only: default Windows Steam location. Overridden by GamePath.local.props or -p:GameDir=... -->
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
     <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(GameDir)\MelonLoader\net35\MelonLoader.dll')">$(GameDir)\MelonLoader\net35</MelonLoaderDir>
     <MelonLoaderDir Condition="'$(MelonLoaderDir)' == '' and Exists('$(MSBuildThisFileDirectory)..\libs\MelonLoader\MelonLoader.dll')">$(MSBuildThisFileDirectory)..\libs\MelonLoader</MelonLoaderDir>
@@ -23,8 +27,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.8.71</Version>
-    <InformationalVersion>0.8.71-path-b</InformationalVersion>
+    <Version>0.8.127</Version>
+    <InformationalVersion>0.8.127-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
@@ -184,10 +188,11 @@
   </Target>
 
   <!-- Deploy BepInEx build to local playtest installs (mod + LiteNetLib only). -->
-  <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx'">
+  <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx' and '$(SkipDeploy)' != 'true'">
     <PropertyGroup>
       <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
-      <!-- Override via GamePath.local.props (SecondPlugins). Windows default kept as fallback. -->
+      <!-- Second (dual-box) install. Set SecondPlugins in GamePath.local.props; the Windows path below
+           is only a historical fallback and is skipped (Exists check) when the folder is absent. -->
       <SecondPlugins Condition="'$(SecondPlugins)' == ''">C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
@@ -202,7 +207,7 @@
   </Target>
 
   <!-- Optional Melon Mods/ drop -->
-  <Target Name="DeployMelon" AfterTargets="Build" Condition="'$(Loader)' == 'MelonLoader' and Exists('$(GameDir)\Mods')">
+  <Target Name="DeployMelon" AfterTargets="Build" Condition="'$(Loader)' == 'MelonLoader' and '$(SkipDeploy)' != 'true' and Exists('$(GameDir)\Mods')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(GameDir)\Mods" Condition="Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
   </Target>

@@ -164,7 +164,8 @@ namespace DWMPHorde.Networking
             // Forward client-originated removal to other clients (3+ support).
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
                 && msg.Mode == WorldObjectRemovedMessage.ModeRemove)
-                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
+                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
         }
 
         /// <summary>
@@ -229,15 +230,39 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
             if (Patches.WorldPickupClaimPending.TryTake(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName,
-                out string type, out int amt, out int pre))
+                out string type, out int amt, out int pre, out string recipeFor))
             {
-                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny");
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny", recipeFor);
                 return;
             }
-            if (!string.IsNullOrEmpty(msg.ItemType) && msg.Amount > 0)
-                Patches.WorldPickupClaimPending.Refund(msg.ItemType, msg.Amount, -1, "claim deny fallback");
+            // No pending entry: the host-won Remove (ClaimedBy=host) already refunded this claim.
+            // A blind refund here removed the amount a second time and ate the client's own stock.
+            ModLog.Event(LogCat.World,
+                "[WorldPickup] deny for " + msg.ObjectName + " had no pending claim (already refunded)");
         }
 
+        /// <summary>A name match is only trusted this close to the position the sender reported.</summary>
+        private const float BodyPushNameMatchMaxDist = 8f;
+
+        /// <summary>
+        /// Body-push / scrape source: the same-named object nearest the reported position, on the
+        /// same side (dream pad vs overworld) as that position. Never a scene-wide name search:
+        /// <c>GameObject.Find(name)</c> returned the first same-named object anywhere, including
+        /// the overworld twin of a dream-pad object, so the wrong body got the scrape sound.
+        /// </summary>
+        private static GameObject ResolveBodyPushObject(string objectName, Vector3 bodyPos)
+        {
+            if (string.IsNullOrEmpty(objectName) || float.IsNaN(bodyPos.x))
+                return null;
+            Component hit = WorldQueryHelper.FindNearestByName<ItemSounds>(
+                bodyPos, objectName, BodyPushNameMatchMaxDist);
+            if (hit == null)
+                hit = WorldQueryHelper.FindNearestByName<Item>(
+                    bodyPos, objectName, BodyPushNameMatchMaxDist);
+            if (hit == null || !WorldPhysicsSyncService.IsOnSameWorldSide(bodyPos, hit.transform))
+                return null;
+            return hit.gameObject;
+        }
 
         internal void HandlePlayerAudio(PlayerAudioMessage msg)
         {
@@ -288,7 +313,7 @@ namespace DWMPHorde.Networking
                     && !LocalAudioService.IsNearListenerPeerBand(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
                     return;
 
-                GameObject go = GameObject.Find(msg.ObjectName);
+                GameObject go = ResolveBodyPushObject(msg.ObjectName, bodyPos);
                 if (go != null)
                 {
                     ItemSounds sounds = go.GetComponent<ItemSounds>();

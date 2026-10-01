@@ -21,6 +21,20 @@ namespace DWMPHorde.Networking
         /// Optional trailing; AvailableBytes-safe.
         /// </summary>
         public string StableClientKey;
+        /// <summary>
+        /// Client→host: CampaignId of the world the client currently has loaded (empty when the
+        /// client has no co-op campaign identity). Host compares it to its own before trusting
+        /// <see cref="AlreadyInWorld"/>.
+        /// </summary>
+        public string CampaignId;
+        /// <summary>Client→host: chapter of the world the client currently has loaded (0 = unknown).</summary>
+        public int ChapterId;
+        /// <summary>
+        /// Client→host over Steam: the connection key (host password). LAN joins prove it in the
+        /// LiteNetLib connection request instead; Steam has no such step, so the host checks it here.
+        /// Empty on LAN and host→client.
+        /// </summary>
+        public string ConnectionKey;
 
         public void Serialize(NetWriter writer)
         {
@@ -29,6 +43,9 @@ namespace DWMPHorde.Networking
             writer.Put(AlreadyInWorld);
             writer.Put(HostPlayerId);
             writer.Put(StableClientKey ?? string.Empty);
+            writer.Put(CampaignId ?? string.Empty);
+            writer.Put(ChapterId);
+            writer.Put(ConnectionKey ?? string.Empty);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -47,6 +64,12 @@ namespace DWMPHorde.Networking
             // Length-prefixed string needs at least 2 bytes for the ushort length.
             if (reader.AvailableBytes >= 2)
                 msg.StableClientKey = reader.GetString();
+            if (reader.AvailableBytes >= 2)
+                msg.CampaignId = reader.GetString();
+            if (reader.AvailableBytes >= 4)
+                msg.ChapterId = reader.GetInt();
+            if (reader.AvailableBytes >= 2)
+                msg.ConnectionKey = reader.GetString();
             return msg;
         }
     }
@@ -268,6 +291,8 @@ namespace DWMPHorde.Networking
         public string TargetName;
         public float TargetPosX, TargetPosY, TargetPosZ;
         public bool CanCutInHalf;
+        /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the host to apply to the target. Trailing count + effects; null = none.</summary>
+        public SensorEffectWire[] Effects;
 
         public void Serialize(NetWriter w)
         {
@@ -277,21 +302,27 @@ namespace DWMPHorde.Networking
             w.Put(TargetName ?? "");
             w.Put(TargetPosX); w.Put(TargetPosY); w.Put(TargetPosZ);
             w.Put(CanCutInHalf);
+            SensorEffectWire.WriteList(w, Effects);
         }
 
-        public static PlayerAttackMessage Deserialize(NetReader r) => new PlayerAttackMessage
+        public static PlayerAttackMessage Deserialize(NetReader r)
         {
-            TargetNameHash = r.GetShort(),
-            Damage = r.GetInt(),
-            AttackerPosX = r.GetFloat(),
-            AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat(),
-            TargetName = r.GetString(),
-            TargetPosX = r.GetFloat(),
-            TargetPosY = r.GetFloat(),
-            TargetPosZ = r.GetFloat(),
-            CanCutInHalf = r.GetBool()
-        };
+            var msg = new PlayerAttackMessage
+            {
+                TargetNameHash = r.GetShort(),
+                Damage = r.GetInt(),
+                AttackerPosX = r.GetFloat(),
+                AttackerPosY = r.GetFloat(),
+                AttackerPosZ = r.GetFloat(),
+                TargetName = r.GetString(),
+                TargetPosX = r.GetFloat(),
+                TargetPosY = r.GetFloat(),
+                TargetPosZ = r.GetFloat(),
+                CanCutInHalf = r.GetBool()
+            };
+            msg.Effects = SensorEffectWire.ReadList(r);
+            return msg;
+        }
     }
 
     public struct DamagePlayerMessage
@@ -304,6 +335,8 @@ namespace DWMPHorde.Networking
         public bool NormalHit;
         /// <summary>Vanilla <c>canInterrupt</c>. Optional wire trailer; default true.</summary>
         public bool CanInterrupt;
+        /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) the victim's own client applies. Trailing count + effects; null = none.</summary>
+        public SensorEffectWire[] Effects;
 
         public void Serialize(NetWriter w)
         {
@@ -313,6 +346,7 @@ namespace DWMPHorde.Networking
             w.Put(ShowRedScreen);
             w.Put(NormalHit);
             w.Put(CanInterrupt);
+            SensorEffectWire.WriteList(w, Effects);
         }
 
         public static DamagePlayerMessage Deserialize(NetReader r)
@@ -332,7 +366,10 @@ namespace DWMPHorde.Networking
             if (r.AvailableBytes > 0)
                 msg.NormalHit = r.GetBool();
             if (r.AvailableBytes > 0)
+            {
                 msg.CanInterrupt = r.GetBool();
+                msg.Effects = SensorEffectWire.ReadList(r);
+            }
             return msg;
         }
     }
@@ -342,12 +379,19 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public bool IsNight;
         public bool HasDropBag;
+        /// <summary>
+        /// Vanilla would have ended this peer's run (nightmare, or hard on the last
+        /// life). The mod rewrites it to a shared death; a night party wipe made
+        /// only of such deaths is a coordinated game over.
+        /// </summary>
+        public bool PermadeathEligible;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(IsNight);
             w.Put(HasDropBag);
+            w.Put(PermadeathEligible);
         }
         public static PlayerDiedMessage Deserialize(NetReader r) => new PlayerDiedMessage
         {
@@ -355,7 +399,8 @@ namespace DWMPHorde.Networking
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
             IsNight = r.GetBool(),
-            HasDropBag = r.GetBool()
+            HasDropBag = r.GetBool(),
+            PermadeathEligible = r.GetBool()
         };
     }
 

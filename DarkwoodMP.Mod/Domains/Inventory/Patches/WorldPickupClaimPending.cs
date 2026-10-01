@@ -8,13 +8,16 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Client-side optimistic pickup claim (non-GUID world + GUID drops). Records
     /// pre-count so a host ClaimDeny / lost Remove can refund only the surplus
-    /// granted by the race.
+    /// granted by the race. A recipe's live item type is always "recipe", so the
+    /// recipe it teaches (<c>recipeFor</c>) rides along and is what the count and the
+    /// removal match on.
     /// </summary>
     internal static class WorldPickupClaimPending
     {
         private struct Entry
         {
             public string ItemType;
+            public string RecipeFor;
             public int Amount;
             public int PreCount;
         }
@@ -28,13 +31,14 @@ namespace DWMPHorde.Patches
         }
 
         internal static void Record(float x, float y, float z, string objectName,
-            string itemType, int amount, int preCount)
+            string itemType, int amount, int preCount, string recipeFor = null)
         {
             if (string.IsNullOrEmpty(objectName) || string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
             _pending[Key(x, y, z, objectName)] = new Entry
             {
                 ItemType = itemType,
+                RecipeFor = recipeFor,
                 Amount = amount,
                 PreCount = preCount
             };
@@ -47,18 +51,20 @@ namespace DWMPHorde.Patches
 
         /// <summary>Take pending once; returns false if none.</summary>
         internal static bool TryTake(float x, float y, float z, string objectName,
-            out string itemType, out int amount, out int preCount)
+            out string itemType, out int amount, out int preCount, out string recipeFor)
         {
             int k = Key(x, y, z, objectName);
             if (_pending.TryGetValue(k, out Entry e))
             {
                 _pending.Remove(k);
                 itemType = e.ItemType;
+                recipeFor = e.RecipeFor;
                 amount = e.Amount;
                 preCount = e.PreCount;
                 return true;
             }
             itemType = null;
+            recipeFor = null;
             amount = 0;
             preCount = -1;
             return false;
@@ -72,13 +78,15 @@ namespace DWMPHorde.Patches
 
         // --- GUID drop claim pending (DroppedItemPickup host-auth) ---
 
-        internal static void RecordGuid(string guid, string itemType, int amount, int preCount)
+        internal static void RecordGuid(string guid, string itemType, int amount, int preCount,
+            string recipeFor = null)
         {
             if (string.IsNullOrEmpty(guid) || string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
             _pendingGuid[guid] = new Entry
             {
                 ItemType = itemType,
+                RecipeFor = recipeFor,
                 Amount = amount,
                 PreCount = preCount
             };
@@ -90,17 +98,20 @@ namespace DWMPHorde.Patches
             _pendingGuid.Remove(guid);
         }
 
-        internal static bool TryTakeGuid(string guid, out string itemType, out int amount, out int preCount)
+        internal static bool TryTakeGuid(string guid, out string itemType, out int amount,
+            out int preCount, out string recipeFor)
         {
             if (!string.IsNullOrEmpty(guid) && _pendingGuid.TryGetValue(guid, out Entry e))
             {
                 _pendingGuid.Remove(guid);
                 itemType = e.ItemType;
+                recipeFor = e.RecipeFor;
                 amount = e.Amount;
                 preCount = e.PreCount;
                 return true;
             }
             itemType = null;
+            recipeFor = null;
             amount = 0;
             preCount = -1;
             return false;
@@ -108,15 +119,17 @@ namespace DWMPHorde.Patches
 
         internal static void TryRefundIfPendingGuid(string guid, string reason)
         {
-            if (!TryTakeGuid(guid, out string type, out int amt, out int pre))
+            if (!TryTakeGuid(guid, out string type, out int amt, out int pre, out string recipeFor))
                 return;
-            Refund(type, amt, pre, reason);
+            Refund(type, amt, pre, reason, recipeFor);
         }
 
         /// <summary>
         /// Remove surplus of itemType from the local player bag (container deny parity).
+        /// <paramref name="recipeFor"/> non-empty: the item is that recipe (live type "recipe").
         /// </summary>
-        internal static void Refund(string itemType, int amount, int preCount, string reason)
+        internal static void Refund(string itemType, int amount, int preCount, string reason,
+            string recipeFor = null)
         {
             if (string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
@@ -126,7 +139,9 @@ namespace DWMPHorde.Patches
                 if (pinv == null || pinv.slots == null)
                     return;
 
-                int totalNow = ContainerSyncHelpers.CountPlayerItemType(itemType);
+                bool isRecipe = !string.IsNullOrEmpty(recipeFor);
+                string wireType = isRecipe ? recipeFor : itemType;
+                int totalNow = ContainerSyncHelpers.CountPlayerItem(wireType, isRecipe);
                 int toRemove = preCount >= 0
                     ? Math.Max(0, totalNow - preCount)
                     : amount;
@@ -134,31 +149,15 @@ namespace DWMPHorde.Patches
                 {
                     ModLog.Warn(LogCat.World,
                         "[WorldPickup] refund skip (" + reason + "): nothing to remove type="
-                        + itemType + " totalNow=" + totalNow + " pre=" + preCount);
+                        + wireType + " totalNow=" + totalNow + " pre=" + preCount);
                     return;
                 }
 
-                int left = Math.Min(toRemove, totalNow);
-                for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
-                {
-                    InvSlot s = pinv.slots[i];
-                    if (InvItemClass.isNull(s.invItem)) continue;
-                    if (!string.Equals(s.invItem.type, itemType, StringComparison.Ordinal))
-                        continue;
-                    if (s.invItem.amount <= left)
-                    {
-                        left -= s.invItem.amount;
-                        s.removeItem();
-                    }
-                    else
-                    {
-                        s.invItem.removeAmount(left);
-                        left = 0;
-                    }
-                }
+                int removed = ContainerSyncHelpers.RemoveGrantedFromPlayer(
+                    wireType, isRecipe, Math.Min(toRemove, totalNow), -1f, 0);
 
                 ModLog.Event(LogCat.World,
-                    "[WorldPickup] refunded " + itemType + " x" + (toRemove - left)
+                    "[WorldPickup] refunded " + (isRecipe ? "recipe:" : "") + wireType + " x" + removed
                     + " (" + reason + ")");
 
                 if (Player.Instance != null)
@@ -177,9 +176,9 @@ namespace DWMPHorde.Patches
         /// <summary>Lost race: consume pending + refund once.</summary>
         internal static void TryRefundIfPending(float x, float y, float z, string objectName, string reason)
         {
-            if (!TryTake(x, y, z, objectName, out string type, out int amt, out int pre))
+            if (!TryTake(x, y, z, objectName, out string type, out int amt, out int pre, out string recipeFor))
                 return;
-            Refund(type, amt, pre, reason);
+            Refund(type, amt, pre, reason, recipeFor);
         }
     }
 }

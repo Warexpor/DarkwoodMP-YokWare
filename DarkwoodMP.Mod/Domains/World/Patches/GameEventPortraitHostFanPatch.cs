@@ -20,12 +20,18 @@ namespace DWMPHorde.Patches
     public static class GameEventPortraitHostFanPatch
     {
         private static FieldInfo _gameEventField;
-        private static bool _track;
-        private static CharacterDialogue.PortraitType _expected;
-        private static bool _applyDialogue;
-        private static readonly List<int> _ids = new List<int>(64);
-        private static readonly List<CharacterDialogue.PortraitType> _before =
-            new List<CharacterDialogue.PortraitType>(64);
+
+        // Per-MoveNext state travels in __state (null = not tracked): a GameEvent step can start
+        // another GameEvent coroutine whose MoveNext runs inside this one, and statics would be
+        // overwritten.
+        private sealed class State
+        {
+            public CharacterDialogue.PortraitType Expected;
+            public bool ApplyDialogue;
+            public readonly List<int> Ids = new List<int>(64);
+            public readonly List<CharacterDialogue.PortraitType> Before =
+                new List<CharacterDialogue.PortraitType>(64);
+        }
 
         private static bool Prepare() => TargetMethod() != null;
 
@@ -68,20 +74,25 @@ namespace DWMPHorde.Patches
                 : null;
         }
 
-        private static void Prefix(object __instance)
+        private static void Prefix(object __instance, out State __state)
         {
-            _track = false;
-            _ids.Clear();
-            _before.Clear();
+            __state = null;
+            // Host-only fan-out: nothing to track offline / as a client.
+            var hostNet = LanNetworkManager.Instance;
+            if (hostNet == null || hostNet.Role != NetworkRole.Host || !hostNet.IsConnected)
+                return;
             GameEvent ge = GetGameEvent(__instance);
             if (ge == null) return;
             if (ge.type != GameEvent.Type.modifyCharacter) return;
             if (ge.characterModifyType != GameEvent.CharacterModify.portraitType)
                 return;
 
-            _expected = ge.portraitType;
-            _applyDialogue = ge.activeModifier;
-            _track = true;
+            var st = new State
+            {
+                Expected = ge.portraitType,
+                ApplyDialogue = ge.activeModifier
+            };
+            __state = st;
 
             // trueTargets is a MoveNext local (no yield cross) — snapshot scene
             // NPCs and detect which faces the write changed.
@@ -90,15 +101,14 @@ namespace DWMPHorde.Patches
             {
                 NPC n = all[i];
                 if (n == null) continue;
-                _ids.Add(n.GetInstanceID());
-                _before.Add(n.portraitType);
+                st.Ids.Add(n.GetInstanceID());
+                st.Before.Add(n.portraitType);
             }
         }
 
-        private static void Postfix(object __instance)
+        private static void Postfix(object __instance, State __state)
         {
-            if (!_track) return;
-            _track = false;
+            if (__state == null) return;
 
             var net = LanNetworkManager.Instance;
             // Host-only. Clients applying GameEventsFired write portraits under
@@ -114,11 +124,11 @@ namespace DWMPHorde.Patches
                 NPC n = all[i];
                 if (n == null) continue;
                 int id = n.GetInstanceID();
-                int idx = _ids.IndexOf(id);
+                int idx = __state.Ids.IndexOf(id);
                 if (idx < 0) continue;
-                CharacterDialogue.PortraitType was = _before[idx];
+                CharacterDialogue.PortraitType was = __state.Before[idx];
                 if (n.portraitType == was) continue;
-                if (n.portraitType != _expected) continue;
+                if (n.portraitType != __state.Expected) continue;
 
                 string npcName = n.name;
                 if (string.IsNullOrEmpty(npcName)) continue;
@@ -144,15 +154,12 @@ namespace DWMPHorde.Patches
                     npcName, rep, attackedId,
                     hasDead: true, dead: dead, deadId: deadId,
                     hasPortrait: true,
-                    portraitType: (int)_expected,
-                    applyDialoguePortrait: _applyDialogue,
+                    portraitType: (int)__state.Expected,
+                    applyDialoguePortrait: __state.ApplyDialogue,
                     posX: pos.x, posY: pos.y, posZ: pos.z);
                 ModRuntime.LegacyInfo(
-                    $"[RepSync] GameEvent portrait host fan '{npcName}': {was} → {_expected}");
+                    $"[RepSync] GameEvent portrait host fan '{npcName}': {was} → {__state.Expected}");
             }
-
-            _ids.Clear();
-            _before.Clear();
         }
     }
 }

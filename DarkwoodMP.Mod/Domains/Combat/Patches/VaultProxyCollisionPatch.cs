@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -10,38 +12,75 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "jumpThroughWindow")]
     internal static class VaultStartPatch
     {
-        // Track player colliders so we can disable them during vault to prevent
-        // the player's own collider from scraping walls and reversing velocity.
-        internal static Collider[] _playerColliders;
+        // Colliders THIS patch disabled for the running vault (proxies + the player's own), so the
+        // restore re-enables exactly those and nothing that was already off for another reason.
+        private static readonly List<Collider> _disabled = new List<Collider>(32);
+        private static bool _active;
 
         static void Prefix(Player __instance)
         {
+            // Mod loaded without a co-op session must stay vanilla.
             var net = ModRuntime.Network as LanNetworkManager;
-            var allProxies = net?.GetAllProxies();
+            if (net == null || !net.IsConnected) return;
+
+            // A previous vault that never reached endJumpThroughWindow must not leak.
+            Restore();
+
+            var allProxies = net.GetAllProxies();
             if (allProxies != null)
             {
                 foreach (var proxy in allProxies)
                 {
-                    Collider[] proxyCols = proxy.CachedColliders;
-                    if (proxyCols == null) continue;
-                    for (int ci = 0; ci < proxyCols.Length; ci++)
-                    {
-                        if (proxyCols[ci] == null) continue;
-                        proxyCols[ci].enabled = false;
-                    }
+                    DisableEnabled(proxy.CachedColliders);
                 }
             }
 
             // Disable the player's own colliders so they don't scrape walls during vault
-            _playerColliders = __instance.GetComponentsInChildren<Collider>(true);
-            foreach (var pc in _playerColliders)
-            {
-                if (pc == null || !pc.enabled) continue;
-                pc.enabled = false;
-            }
+            DisableEnabled(__instance.GetComponentsInChildren<Collider>(true));
+            _active = true;
 
             // Notify remote peers to disable this player's proxy colliders during vault
             SendVaultState(true);
+        }
+
+        // Finalizer (not Postfix): if vanilla jumpThroughWindow throws the vault never starts, so
+        // nothing would ever call endJumpThroughWindow to hand the colliders back.
+        static void Finalizer(Exception __exception)
+        {
+            if (__exception != null)
+                Restore();
+        }
+
+        private static void DisableEnabled(Collider[] cols)
+        {
+            if (cols == null) return;
+            for (int i = 0; i < cols.Length; i++)
+            {
+                Collider c = cols[i];
+                if (c == null || !c.enabled) continue;
+                c.enabled = false;
+                _disabled.Add(c);
+            }
+        }
+
+        /// <summary>
+        /// Re-enables the colliders disabled for the vault and tells peers the vault is over.
+        /// Called from endJumpThroughWindow and from every vanilla path that ends a vault without
+        /// it (death, stopAllPerformingActionAnims, a failed start).
+        /// </summary>
+        internal static void Restore()
+        {
+            for (int i = 0; i < _disabled.Count; i++)
+            {
+                Collider c = _disabled[i];
+                if (c != null) c.enabled = true;
+            }
+            _disabled.Clear();
+
+            if (!_active) return;
+            _active = false;
+            // Notify remote peers to re-enable this player's proxy colliders after vault
+            SendVaultState(false);
         }
 
         /// <summary>Broadcasts/sends vault state to remote peers so they can
@@ -67,37 +106,20 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player), "endJumpThroughWindow")]
     internal static class VaultEndPatch
     {
-        static void Postfix(Player __instance)
-        {
-            var net = ModRuntime.Network as LanNetworkManager;
-            var allProxies = net?.GetAllProxies();
-            if (allProxies != null)
-            {
-                foreach (var proxy in allProxies)
-                {
-                    Collider[] proxyCols = proxy.CachedColliders;
-                    if (proxyCols == null) continue;
-                    for (int ci = 0; ci < proxyCols.Length; ci++)
-                    {
-                        if (proxyCols[ci] == null) continue;
-                        proxyCols[ci].enabled = true;
-                    }
-                }
-            }
+        static void Postfix() => VaultStartPatch.Restore();
+    }
 
-            // Re-enable player's own colliders
-            if (VaultStartPatch._playerColliders != null)
-            {
-                foreach (var pc in VaultStartPatch._playerColliders)
-                {
-                    if (pc == null) continue;
-                    pc.enabled = true;
-                }
-                VaultStartPatch._playerColliders = null;
-            }
+    /// <summary>Vanilla ends a vault without endJumpThroughWindow on death.</summary>
+    [HarmonyPatch(typeof(Player), "die")]
+    internal static class VaultDeathRestorePatch
+    {
+        static void Postfix() => VaultStartPatch.Restore();
+    }
 
-            // Notify remote peers to re-enable this player's proxy colliders after vault
-            VaultStartPatch.SendVaultState(false);
-        }
+    /// <summary>Vanilla clears <c>jumping</c> here (cutscenes, interrupts) without endJumpThroughWindow.</summary>
+    [HarmonyPatch(typeof(Player), "stopAllPerformingActionAnims")]
+    internal static class VaultStopAnimsRestorePatch
+    {
+        static void Postfix() => VaultStartPatch.Restore();
     }
 }

@@ -23,6 +23,8 @@ namespace DWMPHorde.Logging
         private static float _defaultRateSec = 1f;
 
         private static readonly Dictionary<string, float> _rateLast = new Dictionary<string, float>(64);
+        // Lines dropped per key since the last one that went out; reported on the next emitted line.
+        private static readonly Dictionary<string, int> _rateSuppressed = new Dictionary<string, int>(64);
         private const int RateCap = 256;
 
         /// <summary>Must match <see cref="LogCat"/> order and count.</summary>
@@ -161,6 +163,7 @@ namespace DWMPHorde.Logging
         public static void ResetRateLimits()
         {
             _rateLast.Clear();
+            _rateSuppressed.Clear();
         }
 
         public static bool IsEnabled(LogCat cat, LogLevel level)
@@ -213,36 +216,57 @@ namespace DWMPHorde.Logging
         public static void TraceRate(LogCat cat, string key, string message, float minIntervalSec = -1f)
         {
             if (!IsEnabled(cat, LogLevel.Trace)) return;
-            if (!PassRate(key, minIntervalSec)) return;
-            Write(cat, LogLevel.Trace, message);
+            if (!PassRate(key, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, message + SuppressedSuffix(suppressed));
         }
 
         public static void TraceRate(LogCat cat, string key, Func<string> messageFactory, float minIntervalSec = -1f)
         {
             if (!IsEnabled(cat, LogLevel.Trace) || messageFactory == null) return;
-            if (!PassRate(key, minIntervalSec)) return;
-            Write(cat, LogLevel.Trace, messageFactory());
+            if (!PassRate(key, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, messageFactory() + SuppressedSuffix(suppressed));
         }
 
         public static void WarnRate(LogCat cat, string key, string message, float minIntervalSec = 5f)
         {
             if (!IsEnabled(cat, LogLevel.Warn)) return;
-            if (!PassRate(key, minIntervalSec)) return;
-            Write(cat, LogLevel.Warn, message);
+            if (!PassRate(key, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Warn, message + SuppressedSuffix(suppressed));
         }
 
-        private static bool PassRate(string key, float minIntervalSec)
+        private static bool PassRate(string key, float minIntervalSec) => PassRate(key, minIntervalSec, out _);
+
+        /// <summary>
+        /// True when the line should go out. <paramref name="suppressed"/> is how many lines this key
+        /// dropped since the previous emit, so a throttled warning still says how loud the fault is.
+        /// </summary>
+        private static bool PassRate(string key, float minIntervalSec, out int suppressed)
         {
+            suppressed = 0;
             if (string.IsNullOrEmpty(key)) return true;
             float interval = minIntervalSec > 0f ? minIntervalSec : _defaultRateSec;
             float now = Time.unscaledTime;
             if (_rateLast.TryGetValue(key, out float last) && now - last < interval)
+            {
+                _rateSuppressed.TryGetValue(key, out int dropped);
+                _rateSuppressed[key] = dropped + 1;
                 return false;
+            }
             if (_rateLast.Count >= RateCap)
+            {
                 _rateLast.Clear();
+                _rateSuppressed.Clear();
+            }
+            else if (_rateSuppressed.TryGetValue(key, out suppressed))
+            {
+                _rateSuppressed.Remove(key);
+            }
             _rateLast[key] = now;
             return true;
         }
+
+        private static string SuppressedSuffix(int suppressed)
+            => suppressed > 0 ? " (+" + suppressed + " suppressed)" : string.Empty;
 
         private static void Write(LogCat cat, LogLevel level, string message)
         {
@@ -301,7 +325,7 @@ namespace DWMPHorde.Logging
             try
             {
                 Event(LogCat.Core, "================================================");
-                Event(LogCat.Core, "  " + PluginInfo.Name + " v" + PluginInfo.DisplayVersion);
+                Event(LogCat.Core, "  " + PluginInfo.DisplayVersion);
                 Event(LogCat.Core, "  Protocol=" + PluginInfo.ProtocolVersion
                     + " | LogPreset=" + _preset
                     + " | MinLevel=" + _minLevel
@@ -317,7 +341,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client loader logs");
                 Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
-                Event(LogCat.Core, "  Docs: docs/PATH_B_FEATURE_INVENTORY.md + DarkwoodMP.Mod/docs/LOGGING.md");
+                Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md + PLAYTEST.md");
                 Event(LogCat.Core, "================================================");
             }
             finally

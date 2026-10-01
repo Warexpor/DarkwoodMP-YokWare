@@ -118,8 +118,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Dreams), "endDreaming")]
     public static class DreamEndPatch
     {
-        private static void Prefix(Dreams __instance)
+        private static void Prefix(Dreams __instance, ref bool __state)
         {
+            // true = this call ran the local end path; Postfix drops the pre-dream pose.
+            __state = false;
+
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
@@ -140,6 +143,9 @@ namespace DWMPHorde.Patches
                 string next = FindTransferDestPreset(__instance);
                 if (!string.IsNullOrEmpty(next) && DreamSession.IsActive)
                     DreamSession.SetChainedPreset(next);
+                // The exit transition for this pocket is over: a host-ordered flag left set here
+                // made the client end pocket 2 by itself (initiateEndDreaming authority bypass).
+                DreamSyncManager.ClearHostOrderedDreamEnd();
                 ModRuntime.LegacyInfo(
                     "[DreamSync] endDreaming with chain — session stays active; ChainStart via prepare");
                 return;
@@ -149,13 +155,16 @@ namespace DWMPHorde.Patches
             if (DreamSession.IsActive)
                 DreamSession.End(outcome);
             DreamSyncManager.OnLocalDreamEnded();
+            __state = true;
         }
 
         /// <summary>
         /// Safety: if positionCopy was corrupted to pad coords, vanilla teleport leaves
         /// the peer in the abyss. Snap to pre-dream overworld after endDreaming body runs.
+        /// The pre-dream pose is dropped afterwards: left behind it teleported the client to the
+        /// last dream start on any later disconnect and fed ClientStateBackup.
         /// </summary>
-        private static void Postfix(Dreams __instance)
+        private static void Postfix(Dreams __instance, bool __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
@@ -164,6 +173,21 @@ namespace DWMPHorde.Patches
             if (__instance != null && __instance.dreaming)
                 return; // chained transfer still dreaming
 
+            try
+            {
+                SnapOffPadIfStranded(__instance);
+            }
+            finally
+            {
+                // Chain keeps the pose for the final exit (switchingDream / session still live).
+                if (__state && (__instance == null || !__instance.switchingDream)
+                    && !DreamSession.IsActive)
+                    DreamSyncManager.ClearPreDreamState();
+            }
+        }
+
+        private static void SnapOffPadIfStranded(Dreams __instance)
+        {
             Player player = Player.Instance;
             if (player == null) return;
             Vector3 live = player._transform.position;

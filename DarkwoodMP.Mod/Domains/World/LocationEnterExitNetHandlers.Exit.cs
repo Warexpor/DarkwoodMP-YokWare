@@ -136,6 +136,10 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
+            // Host-owned pad slot/yaw map first: the joiner must spawn any pad it does not
+            // have yet at the host's coordinates, not at its own first-spawn order.
+            OutsidePadSlots.SendSnapshotTo(_net, targetPlayerId);
+
             int sent = 0;
 
             // Host's own outside location

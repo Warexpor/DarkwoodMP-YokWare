@@ -47,12 +47,12 @@ namespace DWMPHorde.Patches
     /// String AddPrefab path for gasoline trails (pour can + network SpawnGasTrail).
     /// Host only broadcasts. Client local spawns are blocked (host owns layout).
     /// </summary>
-    [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
     public static class GasolineTrailSpawnPatch
     {
         private static readonly List<Vector3> _pendingTrails = new List<Vector3>(32);
         private static float _nextFlushTime;
+        private static bool _flushScheduled;
         private const float FlushInterval = 0.08f;
         private const int MaxBatchSize = 12;
 
@@ -60,6 +60,7 @@ namespace DWMPHorde.Patches
         {
             _pendingTrails.Clear();
             _nextFlushTime = 0f;
+            _flushScheduled = false;
         }
 
         /// <summary>
@@ -68,6 +69,7 @@ namespace DWMPHorde.Patches
         /// (Forwardable), and place a local visual so the pourer sees puddles without waiting.
         /// Host scatter / molotov secondaries stay host-owned (Object overload Prefix).
         /// </summary>
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(object[] __args)
         {
             string prefab = __args != null && __args.Length > 0 ? __args[0] as string : null;
@@ -94,6 +96,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
+        [HarmonyPriority(Priority.First)]
         private static void Postfix(ref GameObject __result, object[] __args)
         {
             string prefab = (string)__args[0];
@@ -112,9 +115,25 @@ namespace DWMPHorde.Patches
         {
             _pendingTrails.Add(position);
             float now = Time.unscaledTime;
-            if (now < _nextFlushTime && _pendingTrails.Count < MaxBatchSize)
+            var ctrl = Singleton<Controller>.Instance;
+            if (now < _nextFlushTime && _pendingTrails.Count < MaxBatchSize && ctrl != null)
+            {
+                // Rate-limited: the tail of a pour must still go out when no further trail
+                // spawns follow, so a timer flushes whatever is pending once the interval passed.
+                if (!_flushScheduled)
+                {
+                    _flushScheduled = true;
+                    ctrl.Invoke(FlushOnTimer, Mathf.Max(0.01f, _nextFlushTime - now), timeScaleDependent: false);
+                }
                 return;
+            }
             FlushPendingTrails(now);
+        }
+
+        private static void FlushOnTimer()
+        {
+            _flushScheduled = false;
+            FlushPendingTrails(Time.unscaledTime);
         }
 
         private static void FlushPendingTrails(float now)
@@ -162,10 +181,10 @@ namespace DWMPHorde.Patches
     /// Object AddPrefab overload — gas bomb <c>spawnObjects()</c> uses Object prefab, not string path.
     /// Host relays positions via GasTrail (same channel as string path). Client never local-scatters.
     /// </summary>
-    [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(Core), "AddPrefab", typeof(Object), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
     public static class GasolineTrailObjectSpawnPatch
     {
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(object[] __args)
         {
             Object prefab = __args != null && __args.Length > 0 ? __args[0] as Object : null;
@@ -176,6 +195,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
+        [HarmonyPriority(Priority.First)]
         private static void Postfix(ref GameObject __result, object[] __args)
         {
             Object prefab = (Object)__args[0];
@@ -197,10 +217,10 @@ namespace DWMPHorde.Patches
     /// second sim, but a client torch / flaming melee / Burn trigger that would
     /// startBurning locally must ask the host via existing GasIgnite (Forwardable).
     /// </summary>
-    [HarmonyPriority(Priority.First)]
     [HarmonyPatch(typeof(Liquid), "startBurning")]
     public static class GasIgnitePatch
     {
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(Liquid __instance, out bool __state)
         {
             __state = __instance != null && __instance.burning;
@@ -228,13 +248,24 @@ namespace DWMPHorde.Patches
             return false;
         }
 
+        [HarmonyPriority(Priority.First)]
         private static void Postfix(Liquid __instance, bool __state)
         {
             if (__state) return;
             if (__instance == null || !__instance.burning) return;
 
             var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host) return;
+            if (net == null || !net.IsConnected) return;
+
+            // Host owns fire spread: it reports every puddle that ignites, so a client puddle
+            // lit from the network must not also spread to neighbours on its own timer
+            // (vanilla startBurning schedules waitToBurnNeighbors).
+            if (net.Role == NetworkRole.Client)
+            {
+                __instance.stopRoutine("waitToBurnNeighbors");
+                return;
+            }
+            if (net.Role != NetworkRole.Host) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
             if (TraverseHack.GetExplicitFlag()) return;
 

@@ -59,10 +59,10 @@ namespace DWMPHorde.Patches
     /// Host: intercept shadow prefab spawning — assign id, owner, sync to clients.
     /// No multi-proxy fan-out (NightShadows is a per-owner curse).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
     public static class ShadowCaptureOnSpawnPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(GameObject __result, object[] __args)
         {
             string prefab = (string)__args[0];
@@ -141,10 +141,10 @@ namespace DWMPHorde.Patches
     /// Host: when a shadow dies, mark it dead in the tracker (the next broadcast
     /// will skip it and then remove it from the dictionary).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(ShadowCreature), "die")]
     public static class HostShadowDiePatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Prefix(ShadowCreature __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;

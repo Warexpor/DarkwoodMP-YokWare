@@ -61,6 +61,7 @@ namespace DWMPHorde.Patches
             public Vector3 Pos;
             public string SendName;
             public string ItemType;
+            public string RecipeFor;
             public int Amount;
             public float Durability;
             public int Ammo;
@@ -113,16 +114,18 @@ namespace DWMPHorde.Patches
                     && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
                 {
                     DroppedItemSyncHelpers.CaptureWorldPickupItemMeta(__instance,
-                        out string gType, out int gAmt, out float gDur, out int gAmmo);
+                        out string gType, out int gAmt, out float gDur, out int gAmmo,
+                        out string gRecipeFor);
                     __state.DeferredGuidClaim = true;
                     __state.Guid = ident.Id;
                     __state.ItemType = gType;
+                    __state.RecipeFor = gRecipeFor;
                     __state.Amount = gAmt;
                     __state.Durability = gDur;
                     __state.Ammo = gAmmo;
                     __state.PreCount = string.IsNullOrEmpty(gType)
                         ? -1
-                        : ContainerSyncHelpers.CountPlayerItemType(gType);
+                        : CountForClaim(gType, gRecipeFor);
                     WorldPickupWireGuard.Begin();
                     __state.BeganWireGuard = true;
                     return true; // no wire yet — Postfix after successful destroy
@@ -150,17 +153,19 @@ namespace DWMPHorde.Patches
                     {
                         // Capture meta before transfer empties the slot; claim after success.
                         DroppedItemSyncHelpers.CaptureWorldPickupItemMeta(__instance,
-                            out string itemType, out int amount, out float dur, out int ammo);
+                            out string itemType, out int amount, out float dur, out int ammo,
+                            out string recipeFor);
                         __state.DeferredWorldClaim = true;
                         __state.Pos = cPos;
                         __state.SendName = cName;
                         __state.ItemType = itemType;
+                        __state.RecipeFor = recipeFor;
                         __state.Amount = amount;
                         __state.Durability = dur;
                         __state.Ammo = ammo;
                         __state.PreCount = string.IsNullOrEmpty(itemType)
                             ? -1
-                            : ContainerSyncHelpers.CountPlayerItemType(itemType);
+                            : CountForClaim(itemType, recipeFor);
                         WorldPickupWireGuard.Begin();
                         __state.BeganWireGuard = true;
                         return true; // no wire yet — Postfix after successful destroy
@@ -190,15 +195,20 @@ namespace DWMPHorde.Patches
             // TrapPickupGuard / WorldPickupWireGuard cleared in Finalizer
             // (covers throw before/during Postfix).
 
-            // Vanilla only destroys when transferItemAllToPlayer succeeds.
-            if (__instance != null)
+            if (!__state.DeferredGuidClaim && !__state.DeferredWorldClaim)
+                return;
+
+            // Vanilla destroys only when slots[0].transferItemAllToPlayer() returned true — and
+            // Object.Destroy is deferred, so the item is still alive here. Every true path
+            // empties slot 0 (removeAmount → clear); a failed / partial transfer leaves it filled.
+            if (string.IsNullOrEmpty(__state.ItemType) || !TransferredAll(__instance))
                 return;
 
             if (__state.DeferredGuidClaim)
             {
                 DroppedItemSyncHelpers.FinishGuidPickupClaim(
                     __state.Guid, __state.ItemType, __state.Amount,
-                    __state.Durability, __state.Ammo, __state.PreCount);
+                    __state.Durability, __state.Ammo, __state.PreCount, __state.RecipeFor);
                 return;
             }
 
@@ -207,8 +217,23 @@ namespace DWMPHorde.Patches
 
             DroppedItemSyncHelpers.FinishWorldPickupClaim(
                 __state.Pos, __state.SendName, __state.ItemType, __state.Amount,
-                __state.Durability, __state.Ammo, __state.PreCount);
+                __state.Durability, __state.Ammo, __state.PreCount, __state.RecipeFor);
         }
+
+        /// <summary>True when the dropped item's single slot was fully moved into the player's bags.</summary>
+        private static bool TransferredAll(Item item)
+        {
+            if (item == null) return true; // already destroyed by something that took it
+            Inventory bag = item.GetComponent<Inventory>();
+            if (bag == null || bag.slots == null || bag.slots.Count == 0) return true;
+            return InvItemClass.isNull(bag.slots[0].invItem);
+        }
+
+        /// <summary>Bag count the pickup's refund compares against (recipe-aware).</summary>
+        private static int CountForClaim(string itemType, string recipeFor)
+            => string.IsNullOrEmpty(recipeFor)
+                ? ContainerSyncHelpers.CountPlayerItem(itemType, false)
+                : ContainerSyncHelpers.CountPlayerItem(recipeFor, true);
 
         // Finalizer (not Postfix): getDroppedItem throw after Prefix Begin leaves
         // TrapPickupGuard / WorldPickupWireGuard sticky → RemoveItem suppress for that

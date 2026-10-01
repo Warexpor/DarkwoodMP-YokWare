@@ -29,6 +29,7 @@ namespace DWMPHorde
         private bool _confirmingOverwrite;
         private int _pendingSlot;
         private bool _pendingIsSave;
+        private const string LockOwner = "f3";
 
         private const int SlotCount = 10;
         private readonly ManualSaveSlotMeta[] _slotMetas = new ManualSaveSlotMeta[SlotCount];
@@ -42,17 +43,29 @@ namespace DWMPHorde
         public static void ToggleVisible()
         {
             if (_instance == null) return;
+            _instance.Toggle();
+        }
 
-            if (!_instance._visible)
+        /// <summary>Open (when the game allows it) or close the window; confirm state never survives either.</summary>
+        private void Toggle()
+        {
+            if (_visible)
             {
-                if (Core.mainMenu || Core.loadingGame || Core.forbidInputs)
-                    return;
+                _visible = false;
+                _confirmingOverwrite = false;
+                return;
             }
 
-            _instance._visible = !_instance._visible;
-            if (_instance._visible)
-                _instance.RefreshMetas();
+            if (Core.mainMenu || Core.loadingGame || Core.forbidInputs)
+                return;
+
+            _visible = true;
+            _confirmingOverwrite = false;
+            RefreshMetas();
         }
+
+        private static Networking.LanNetworkManager Net => ModRuntime.Network;
+
 
         public static void EnsureExists()
         {
@@ -100,11 +113,17 @@ namespace DWMPHorde
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F3) && !Core.mainMenu && !Core.loadingGame && !Core.forbidInputs)
+            if (Input.GetKeyDown(KeyCode.F3))
+                Toggle();
+
+            if (_visible)
             {
-                _visible = !_visible;
-                if (_visible) RefreshMetas();
+                // Scene change / title under an open window, or Esc: close it.
+                if (Core.mainMenu || Core.loadingGame || Input.GetKeyDown(KeyCode.Escape))
+                    Toggle();
             }
+            // Hold vanilla input (movement, hotbar, walkie) while the window is up.
+            UiInputLock.Set(LockOwner, _visible);
 
             if (_statusTimer > 0)
             {
@@ -112,13 +131,15 @@ namespace DWMPHorde
                 if (_statusTimer <= 0) _statusMsg = "";
             }
 
-            if (_scheduledBackupRestore && Player.Instance != null)
+            // Never overlay the backup while the slot is still loading: Player.Instance can be the
+            // old scene's body until SaveManager.Load finishes.
+            if (_scheduledBackupRestore && Player.Instance != null && !Core.loadingGame && !Core.mainMenu)
             {
                 _scheduledBackupRestore = false;
                 // Host character lives in sav.dat; never overlay ClientBackup on host.
                 // Role==Host alone: IsConnected is PeerCount>0, so solo host before any
                 // client join used to restore and overwrite the host body with an old self.
-                var net = ModRuntime.Network as Networking.LanNetworkManager;
+                var net = Net;
                 if (net != null && net.Role == Networking.NetworkRole.Host)
                 {
                     ModRuntime.LegacyInfo(
@@ -174,7 +195,7 @@ namespace DWMPHorde
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("Profile " + Core.currentProfile.id + " | Day " + Core.currentProfile.day + " | Ch." + Core.currentProfile.chapter, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("X", GUILayout.Width(24))) { _visible = false; }
+            if (GUILayout.Button("X", GUILayout.Width(24))) { _visible = false; _confirmingOverwrite = false; }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4f);
@@ -208,7 +229,7 @@ namespace DWMPHorde
 
             if (_confirmingOverwrite && _pendingSlot == idx)
             {
-                GUILayout.Label("Overwrite?", GUILayout.Width(90f));
+                GUILayout.Label(_pendingIsSave ? "Overwrite?" : "Load? (lose progress)", GUILayout.Width(_pendingIsSave ? 90f : 140f));
                 if (GUILayout.Button("Yes", GUILayout.Width(50f)))
                 {
                     _confirmingOverwrite = false;
@@ -236,7 +257,12 @@ namespace DWMPHorde
 
                 GUI.enabled = m.hasData;
                 if (GUILayout.Button("Load", GUILayout.Width(60f)))
-                    DoLoad(idx);
+                {
+                    // Loading replaces the live profile files: always confirm.
+                    _confirmingOverwrite = true;
+                    _pendingSlot = idx;
+                    _pendingIsSave = false;
+                }
                 GUI.enabled = true;
             }
 
@@ -253,6 +279,16 @@ namespace DWMPHorde
                     return;
                 }
 
+                // A connected client's world Save is blocked (the host owns Flags/DynamicSave), so
+                // the profile files on disk are stale: copying them would report a save that never
+                // happened. Personal inventory is backed up automatically.
+                var net = Net;
+                if (net != null && net.IsConnected && net.Role == Networking.NetworkRole.Client)
+                {
+                    SetStatus("Blocked: only the host can save the co-op world (F3 on the host)");
+                    return;
+                }
+
                 // Block manual save during partial night death or an active dream.
                 if (DeathStateTracker.LocalNightDeath && !DeathStateTracker.AllDeadAtNight)
                 {
@@ -264,11 +300,22 @@ namespace DWMPHorde
                     SetStatus("Blocked: cannot save during dream session");
                     return;
                 }
+                string profDir = SaveDir + "/prof" + Core.currentProfile.id;
+                string slotDir = _slotPaths[idx];
+                string savPath = profDir + "/sav.dat";
+                DateTime savBefore = File.Exists(savPath) ? File.GetLastWriteTimeUtc(savPath) : DateTime.MinValue;
+
                 // Co-op: local Save + SaveSyncPatch fans out so every peer Saves with Saving UI.
                 Singleton<SaveManager>.Instance.Save(true, true, true, false, true);
 
-                string profDir = SaveDir + "/prof" + Core.currentProfile.id;
-                string slotDir = _slotPaths[idx];
+                // Save returns silently when it declines (loading, patched out): only report
+                // success when the profile file really changed.
+                if (!File.Exists(savPath) || File.GetLastWriteTimeUtc(savPath) <= savBefore)
+                {
+                    SetStatus("Save did not write — try again in a moment");
+                    ModRuntime.Log?.LogWarning("[ManualSave] Save produced no new sav.dat (" + savPath + ")");
+                    return;
+                }
 
                 CopyIfExists(profDir + "/sav.dat", slotDir + "/sav.dat");
                 CopyIfExists(profDir + "/savs.dat", slotDir + "/savs.dat");
@@ -317,6 +364,22 @@ namespace DWMPHorde
                     return;
                 }
 
+                // Loading swaps the live profile files and reloads the chapter: that would pull
+                // the host's world out from under connected peers (or desync a client from its
+                // host). Leave the session first.
+                var session = Net;
+                if (session != null && session.Role != Networking.NetworkRole.Offline)
+                {
+                    SetStatus("Blocked: leave the co-op session first (F2 > Disconnect), then load");
+                    return;
+                }
+
+                if (Core.loadingGame || Core.mainMenu)
+                {
+                    SetStatus("Blocked: wait until the game finishes loading");
+                    return;
+                }
+
                 ManualSaveSlotMeta meta = _slotMetas[idx];
                 string profDir = SaveDir + "/prof" + Core.currentProfile.id;
                 string slotDir = _slotPaths[idx];
@@ -358,10 +421,8 @@ namespace DWMPHorde
                 Sync.DreamSyncManager.OnDisconnected();
                 Sync.MultiplayerMapManager.Reset();
 
-                // Only clients need post-load overlay (host uses slot character as-is).
-                var net = ModRuntime.Network as Networking.LanNetworkManager;
-                bool isHost = net != null && net.IsConnected && net.Role == Networking.NetworkRole.Host;
-                _scheduledBackupRestore = !isHost;
+                // Offline only (a live session is refused above): overlay the personal backup after load.
+                _scheduledBackupRestore = true;
 
                 int chapterId = meta.chapter > 0 ? meta.chapter : 1;
 

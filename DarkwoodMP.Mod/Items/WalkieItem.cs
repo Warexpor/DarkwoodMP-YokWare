@@ -38,6 +38,7 @@ namespace DWMPHorde.Items
             if (Time.unscaledTime < _nextAttempt)
                 return;
             _nextAttempt = Time.unscaledTime + 1f;
+            // Boot-time injection; later language switches are re-injected by LanguageSwitchPatch.
             try { InjectLocalization(); } catch { /* ignore */ }
             if (_template == null)
             {
@@ -60,13 +61,42 @@ namespace DWMPHorde.Items
                 _iconSettled = true;
         }
 
+        /// <summary>
+        /// <c>Language.DoSwitch</c> rebuilds every sheet from the language files, dropping the
+        /// injected walkie keys. Re-inject right after each switch (the settled <see cref="Tick"/>
+        /// path no longer runs).
+        /// </summary>
+        [HarmonyPatch(typeof(Language), "DoSwitch")]
+        private static class LanguageSwitchPatch
+        {
+            private static void Postfix()
+            {
+                try { InjectLocalization(); }
+                catch (Exception ex)
+                {
+                    ModLog.Warn(LogCat.Audio, "Walkie localization re-inject: " + ex.Message);
+                }
+            }
+        }
+
         [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.hasItem))]
         private static class HasItemPatch
         {
-            private static bool Prefix(string type, ref bool __result)
+            private static bool Prefix(ItemsDatabase __instance, string type, ref bool __result)
             {
                 if (type != ItemType)
                     return true;
+                // Claim the item only when getItem can actually serve it; otherwise fall through
+                // to vanilla so a database without the donor items behaves exactly as before.
+                try
+                {
+                    if (!EnsureTemplate(__instance))
+                        return true;
+                }
+                catch
+                {
+                    return true;
+                }
                 __result = true;
                 return false;
             }
@@ -105,9 +135,12 @@ namespace DWMPHorde.Items
                 {
                     if (_recipes == null && !EnsureTemplate(Singleton<ItemsDatabase>.Instance))
                         return;
+                    if (__instance.levels == null)
+                        return;
                     foreach (Workbench.Level level in __instance.levels)
                     {
-                        if (level != null && level.level == 1 && !level.recipes.Contains(_recipes))
+                        if (level != null && level.level == 1 && level.recipes != null
+                            && !level.recipes.Contains(_recipes))
                             level.recipes.Add(_recipes);
                     }
                 }

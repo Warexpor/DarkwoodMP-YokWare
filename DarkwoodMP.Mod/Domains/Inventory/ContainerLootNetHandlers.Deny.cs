@@ -110,11 +110,16 @@ namespace DWMPHorde.Networking
             // Build the pending pre-count key from the denied message (matches
             // the key format in RecordPendingTakePreCount).
             string preKey = $"{msg.PosX:F2}_{msg.PosY:F2}_{msg.PosZ:F2}_{msg.SlotIndex}";
-            _pending.ConsumePendingTakePreCount(preKey, out int preTakeCount);
+            bool haveTake = _pending.ConsumePendingTake(preKey, out ContainerPendingNetHandlers.PendingTake take);
 
             ModLog.Event(LogCat.Container,
                 "[Container] take denied by host — refunding " + msg.ItemType + " x" + msg.Amount
-                + " (preTakeCount=" + preTakeCount + ")");
+                + " (preTakeCount=" + take.PreCount + ")");
+
+            // The host still owns this slot: the ContainerStateSync that follows the deny must
+            // show it, so the optimistic local-remove mark for it must not hide it.
+            Vector3 containerPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            _pending.ClearPendingContainerRemove(containerPos, msg.SlotIndex);
 
             try
             {
@@ -122,49 +127,53 @@ namespace DWMPHorde.Networking
                 if (pinv == null || pinv.slots == null || string.IsNullOrEmpty(msg.ItemType) || msg.Amount <= 0)
                     return;
 
-                int totalNow = ContainerSyncHelpers.CountPlayerItemType(msg.ItemType);
+                // The pending record knows what the optimistic take actually granted
+                // (recipe flag, durability, ammo); the wire message only carries the type.
+                bool isRecipe = haveTake && take.IsRecipe;
+                string wireType = haveTake && !string.IsNullOrEmpty(take.ItemType) ? take.ItemType : msg.ItemType;
+                float durability = haveTake ? take.Durability : -1f;
+                int ammo = haveTake ? take.Ammo : 0;
+
+                // Vanilla grabItem parks the item on the cursor, not in a bag slot — a denied
+                // drag-take is undone by dropping the cursor stack, not by a bag search.
+                bool cursorCancelled = ContainerSyncHelpers.TryCancelCursorItem(
+                    containerPos, msg.SlotIndex, wireType, isRecipe, msg.Amount);
+
+                int totalNow = ContainerSyncHelpers.CountPlayerItem(wireType, isRecipe);
 
                 int toRemove;
-                if (preTakeCount >= 0)
+                if (take.PreCount >= 0)
                 {
                     // Precise refund: calculate what the take actually added.
                     // If the player already had some of this type, only
                     // remove the surplus, not the pre-existing items.
-                    toRemove = Math.Max(0, totalNow - preTakeCount);
+                    toRemove = Math.Max(0, totalNow - take.PreCount);
+                }
+                else if (cursorCancelled)
+                {
+                    // The cursor stack was the whole take; nothing reached the bag.
+                    toRemove = 0;
                 }
                 else
                 {
                     // No pre-count recorded, for example after a reconnect;
-                    // fall back to the old type-scan behavior.
+                    // fall back to the claimed amount.
                     toRemove = msg.Amount;
                 }
 
                 if (toRemove <= 0)
                 {
-                    ModLog.Warn(LogCat.Container,
-                        "[Container] refund: nothing to remove (totalNow=" + totalNow
-                        + " preTakeCount=" + preTakeCount + ")");
+                    if (!cursorCancelled)
+                    {
+                        ModLog.Warn(LogCat.Container,
+                            "[Container] refund: nothing to remove (totalNow=" + totalNow
+                            + " preTakeCount=" + take.PreCount + ")");
+                    }
                     return;
                 }
 
-                int left = Math.Min(toRemove, totalNow);
-                for (int i = pinv.slots.Count - 1; i >= 0 && left > 0; i--)
-                {
-                    InvSlot s = pinv.slots[i];
-                    if (InvItemClass.isNull(s.invItem)) continue;
-                    if (!string.Equals(s.invItem.type, msg.ItemType, System.StringComparison.Ordinal))
-                        continue;
-                    if (s.invItem.amount <= left)
-                    {
-                        left -= s.invItem.amount;
-                        s.removeItem();
-                    }
-                    else
-                    {
-                        s.invItem.removeAmount(left);
-                        left = 0;
-                    }
-                }
+                ContainerSyncHelpers.RemoveGrantedFromPlayer(
+                    wireType, isRecipe, Math.Min(toRemove, totalNow), durability, ammo);
             }
             catch (System.Exception ex)
             {
@@ -192,6 +201,8 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Container,
                 "[Container] place denied by host — restoring " + msg.ItemType + " x" + msg.Amount
                 + " to bag");
+
+            _pending.ClearPendingContainerRemove(new Vector3(msg.PosX, msg.PosY, msg.PosZ), msg.SlotIndex);
 
             try
             {

@@ -75,6 +75,9 @@ namespace DWMPHorde.Networking
                 best.disable();
         }
 
+        /// <summary>Session reset: a queued upgrade must not apply to a later session's hideout.</summary>
+        internal void ClearPendingHideoutUpgrades() => _pendingHideoutUpgrades.Clear();
+
         internal void TryFlushPendingHideoutUpgrades()
         {
             if (_pendingHideoutUpgrades.Count == 0) return;
@@ -330,6 +333,13 @@ namespace DWMPHorde.Networking
             if (msg.Amount <= 0)
             {
                 reason = "bad amount";
+                return false;
+            }
+            // A claim larger than the host's slot would apply as "remove the whole slot"
+            // and still grant the claimed amount: reject, the peer refunds the surplus.
+            if (msg.Amount > slot.invItem.amount)
+            {
+                reason = "amount " + msg.Amount + " > slot " + slot.invItem.amount;
                 return false;
             }
             return true;

@@ -66,6 +66,9 @@ namespace DWMPHorde.Patches
         private static void Prefix(UniqueObjects __instance, UniqueObject obj, out UniqueObject __state)
         {
             __state = null;
+            // Co-op only: the pad/overworld twin collision does not exist offline.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             if (obj == null || __instance == null || __instance.objects == null
                 || string.IsNullOrEmpty(obj.type))
                 return;
@@ -76,6 +79,8 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(UniqueObjects __instance, UniqueObject obj, UniqueObject __state)
         {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             if (obj == null || __instance == null || __instance.objects == null
                 || string.IsNullOrEmpty(obj.type))
                 return;

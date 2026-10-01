@@ -50,6 +50,10 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static byte _unionLvlFlags;
 
+        /// <summary>How long a session may sit in Starting before the watchdog cleans it up.</summary>
+        private const float StartingTimeoutSec = 60f;
+        private static int _startingEpoch;
+
         public static bool IsActive =>
             Current == State.Starting || Current == State.Active || Current == State.Ending;
 
@@ -159,6 +163,7 @@ namespace DWMPHorde.Sync
             Current = State.Starting;
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
+            ArmStartingWatchdog();
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName}");
             return true;
         }
@@ -195,6 +200,7 @@ namespace DWMPHorde.Sync
             Current = State.Starting;
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
+            ArmStartingWatchdog();
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName} (from host)");
             return true;
         }
@@ -265,11 +271,16 @@ namespace DWMPHorde.Sync
                 SetPendingHostPreset(nextPreset);
                 return;
             }
+            // Already on this pocket (a second chain call for the same transfer): marking the
+            // current preset completed here would block startDreaming ("party already completed").
+            if (string.Equals(PresetName, nextPreset, StringComparison.OrdinalIgnoreCase))
+                return;
             if (!string.IsNullOrEmpty(PresetName))
                 MarkCompleted(PresetName);
             PresetName = nextPreset;
             Current = State.Starting;
             SetPendingHostPreset(nextPreset);
+            ArmStartingWatchdog();
             // Same session: dead peers stay dead and spectating. Do not wipe the roster.
             FinalDreamsceneManager.OnDreamChained();
             DreamSyncManager.NoteLocalDreamPreset(nextPreset);
@@ -277,10 +288,57 @@ namespace DWMPHorde.Sync
             ModLog.Event(LogCat.Dream, $"Chained preset → {nextPreset} (session {SessionId})");
         }
 
+        /// <summary>
+        /// A host session whose prepareDream never reaches startDreaming (prepareLocation failed,
+        /// coroutine killed) stayed Starting forever: every later start was rejected as "already
+        /// active". Bounded wait, then the same failure cleanup a prepare error uses.
+        /// </summary>
+        private static void ArmStartingWatchdog()
+        {
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null) return;
+            int epoch = ++_startingEpoch;
+            ctrl.StartCoroutine(StartingWatchdog(epoch, SessionId));
+        }
+
+        private static System.Collections.IEnumerator StartingWatchdog(int epoch, int sessionId)
+        {
+            float deadline = Time.realtimeSinceStartup + StartingTimeoutSec;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (epoch != _startingEpoch || Current != State.Starting || SessionId != sessionId)
+                    yield break;
+                yield return null;
+            }
+            if (epoch != _startingEpoch || Current != State.Starting || SessionId != sessionId)
+                yield break;
+
+            var dreams = Dreams.Instance;
+            if (dreams != null && dreams.dreaming && dreams.dreamLocation != null)
+            {
+                // The pad is live; only the Starting→Active flip was missed.
+                ModLog.Event(LogCat.Dream,
+                    $"Starting watchdog: session {sessionId} is dreaming — marking Active");
+                MarkActive();
+                yield break;
+            }
+
+            ModRuntime.Log?.LogWarning(
+                $"[DreamSession] Session {sessionId} preset={PresetName} stuck in Starting for "
+                + $"{StartingTimeoutSec:F0}s — cleaning up");
+            DreamSyncManager.ForceLocalDreamCleanup("prepare_failed");
+            // Force cleanup covers the session; make sure nothing is left latched either way.
+            if (Current == State.Starting && SessionId == sessionId)
+                AbortStarting("prepare_failed");
+        }
+
         public static void MarkActive()
         {
             if (Current == State.Starting)
+            {
                 Current = State.Active;
+                _startingEpoch++;
+            }
         }
 
         public static void End(string outcomeName = "")
@@ -407,31 +465,6 @@ namespace DWMPHorde.Sync
             ModLog.Event(LogCat.Dream,
                 "Applied session snapshot completed=" + _completedPresets.Count
                 + " lvlFlags=" + lvlFlags);
-        }
-
-        public static void WriteSnapshot(NetWriter w)
-        {
-            w.Put(SessionId);
-            w.Put(ReadUnionLvlFlags());
-            string[] done = GetCompletedPresets();
-            w.Put(done.Length);
-            for (int i = 0; i < done.Length; i++)
-                w.Put(done[i] ?? "");
-        }
-
-        public static void ReadSnapshotInto(NetReader r, out int sessionId, out byte lvlFlags, out string[] completed)
-        {
-            sessionId = 0;
-            lvlFlags = 0;
-            completed = Array.Empty<string>();
-            if (r.AvailableBytes < 1) return;
-            sessionId = r.GetInt();
-            lvlFlags = r.GetByte();
-            int n = r.GetInt();
-            if (n < 0 || n > 256) n = 0;
-            completed = new string[n];
-            for (int i = 0; i < n; i++)
-                completed[i] = r.GetString();
         }
     }
 }

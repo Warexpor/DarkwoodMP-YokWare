@@ -21,12 +21,39 @@ namespace DWMPHorde.Patches
         private static bool Prefix(GameEvent __instance, ref IEnumerator __result)
         {
             if (__instance == null) return true;
+
+            // Chapter jump is a world event owned by the host, whoever the actor is.
+            // Host runs it (Save + generateChapter -> ChapterTransition + share for all).
+            // A connected client never runs it: its generateChapter would only send a
+            // ChapterTransition request the host rejects, and the host reload already
+            // brings the client along.
+            if (IsChapterJump(__instance))
+            {
+                if (!IsConnectedClient()) return true;
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
             if (!ShouldSuppressPersonal()) return true;
             if (!IsPersonalPlayerTargeted(__instance)) return true;
 
             __result = HarmonyCoroutineUtil.Empty();
             return false;
         }
+
+        /// <summary>
+        /// Vanilla transportPlayerToObject + activeModifier: Save, then
+        /// <c>Controller.generateChapter(intValue)</c> (ch1 to ch2). Not a teleport.
+        /// </summary>
+        internal static bool IsChapterJump(GameEvent ge)
+            => ge != null
+               && ge.type == GameEvent.Type.transportPlayerToObject
+               && ge.activeModifier;
+
+        private static bool IsConnectedClient()
+            => ModRuntime.Network != null
+               && ModRuntime.Network.IsConnected
+               && ModRuntime.Network.Role == NetworkRole.Client;
 
         private static bool ShouldSuppressPersonal()
         {
@@ -51,6 +78,8 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.addRecipes:
                     return true;
                 case GameEvent.Type.transportPlayerToObject:
+                    // activeModifier = chapter jump (world event, see IsChapterJump).
+                    return !ge.activeModifier;
                 case GameEvent.Type.transportToOutsideLocation:
                 case GameEvent.Type.returnToWorld:
                     return true;

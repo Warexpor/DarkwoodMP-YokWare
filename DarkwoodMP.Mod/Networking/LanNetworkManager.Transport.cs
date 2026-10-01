@@ -49,6 +49,13 @@ namespace DWMPHorde.Networking
             int excludePlayerId = 0)
         {
             BuildPacketHot(type, writeBody, out byte[] data, out int length);
+            FanOutHot(data, length, method, skipLoadingPeers, excludePlayerId);
+        }
+
+        /// <summary>Send an already-framed hot buffer: host to every peer, client to the host only.</summary>
+        private void FanOutHot(byte[] data, int length, DeliveryMethod method,
+            bool skipLoadingPeers, int excludePlayerId)
+        {
             if (length <= 0) return;
             if (_role == NetworkRole.Host)
             {
@@ -101,7 +108,94 @@ namespace DWMPHorde.Networking
             }
             if (!_peers.TryGetValue(playerId, out NetPeer peer))
                 return;
-            peer.Send(data, 0, length, method);
+            SendToLanPeer(peer, playerId, data, length, method);
+        }
+
+        /// <summary>LiteNetLib only fragments the two reliable unsequenced methods; the rest must fit one datagram.</summary>
+        private static bool CanFragment(DeliveryMethod method)
+            => method == DeliveryMethod.ReliableOrdered || method == DeliveryMethod.ReliableUnordered;
+
+        /// <summary>
+        /// One LAN peer send that can never throw out of the frame. A packet too big for a single
+        /// datagram on an unfragmentable method (Unreliable / Sequenced) is promoted to
+        /// ReliableOrdered, which LiteNetLib fragments; hot streams are chunked below the limit by
+        /// their senders so this is the backstop for everything else.
+        /// </summary>
+        private static void SendToLanPeer(NetPeer peer, int playerId, byte[] data, int length,
+            DeliveryMethod method)
+        {
+            if (!CanFragment(method))
+            {
+                int max = peer.GetMaxSinglePacketSize(method);
+                if (length > max)
+                {
+                    if (NetLogThrottle.ShouldLog("send-promote:" + (int)(data[0]), 5f, out int dropped))
+                        ModLog.Warn(LogCat.Network,
+                            "Send " + (NetMessageType)data[0] + " " + length + "B exceeds " + method
+                            + " limit " + max + "B to p" + playerId + " — sent ReliableOrdered instead"
+                            + NetLogThrottle.SuppressedSuffix(dropped));
+                    method = DeliveryMethod.ReliableOrdered;
+                }
+            }
+
+            try
+            {
+                peer.Send(data, 0, length, method);
+            }
+            catch (TooBigPacketException ex)
+            {
+                // Must never escape: this runs inside Update/PollEvents and would abort the frame
+                // for every peer. Rate-limited because the same oversize send repeats every tick.
+                if (NetLogThrottle.ShouldLog("send-toobig:" + (int)(data[0]), 5f, out int dropped))
+                    ModLog.Error(LogCat.Network,
+                        "Send " + (NetMessageType)data[0] + " " + length + "B to p" + playerId
+                        + " rejected by LiteNetLib (" + method + "): " + ex.Message
+                        + NetLogThrottle.SuppressedSuffix(dropped));
+            }
+            catch (System.Exception ex)
+            {
+                // Same guarantee for anything else the socket layer throws (peer torn down between
+                // the enumeration and the send, socket closed): one peer's failure stays its own.
+                if (NetLogThrottle.ShouldLog("send-fail:" + (int)(data[0]), 5f, out int dropped))
+                    ModLog.Error(LogCat.Network,
+                        "Send " + (NetMessageType)data[0] + " " + length + "B to p" + playerId
+                        + " failed (" + method + "): " + ex.GetType().Name + ": " + ex.Message
+                        + NetLogThrottle.SuppressedSuffix(dropped));
+            }
+        }
+
+        /// <summary>Steam SNS fragments internally, but a lost fragment drops the message — keep hot chunks near one packet.</summary>
+        private const int SteamUnreliableChunkBytes = 1180;
+        /// <summary>Fallback when no peer is registered yet (LiteNetLib default MTU 1024 minus header).</summary>
+        private const int DefaultUnreliableChunkBytes = 1000;
+
+        /// <summary>
+        /// Largest framed unreliable packet every targeted peer can take in one datagram
+        /// (hot snapshot senders split to this so nothing hits TooBigPacketException).
+        /// </summary>
+        internal int MinUnreliablePacketBytes(bool gameplayReadyOnly, bool skipLoadingPeers = false,
+            int excludePlayerId = 0)
+        {
+            int min = int.MaxValue;
+            foreach (int peerId in EnumeratePeerIds())
+            {
+                if (excludePlayerId > 0 && peerId == excludePlayerId)
+                    continue;
+                if (gameplayReadyOnly && !IsPeerReadyForGameplay(peerId))
+                    continue;
+                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
+                    continue;
+                int budget;
+                if (IsSteamSession)
+                    budget = SteamUnreliableChunkBytes;
+                else if (_peers.TryGetValue(peerId, out NetPeer peer))
+                    budget = peer.GetMaxSinglePacketSize(DeliveryMethod.Unreliable);
+                else
+                    budget = DefaultUnreliableChunkBytes;
+                if (budget < min)
+                    min = budget;
+            }
+            return min == int.MaxValue ? DefaultUnreliableChunkBytes : min;
         }
 
         /// <summary>

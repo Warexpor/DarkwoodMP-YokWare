@@ -11,16 +11,17 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Intercepts Player.onDeath on the client: notifies host, tracks
-    /// night/day death state, and redirects Final Dreamscene deaths to
-    /// the dream manager instead of vanilla death handling.
+    /// night/day death state, redirects Final Dreamscene deaths to
+    /// the dream manager instead of vanilla death handling, and rewrites a
+    /// permadeath-eligible death to the shared death (<see cref="SharedPermadeathDeath"/>).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Player), "onDeath")]
     public static class ClientDeathPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(Player __instance, ref IEnumerator __result)
         {
-            if (_bypassPermadeathRewrite)
+            if (SharedPermadeathDeath.Bypass)
                 return true;
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client)
                 return true;
@@ -56,8 +57,8 @@ namespace DWMPHorde.Patches
             if (net == null) return true;
 
             Vector3 pos = __instance._transform.position;
-            Controller ctrl = Singleton<Controller>.Instance;
-            bool isNight = ctrl != null && ctrl.isHardNight && (!Core.isDay() || ctrl.CurrentTime <= ctrl.dayTime + 50f);
+            bool isNight = DeathStateTracker.IsNightDeathWindow();
+            bool permadeathEligible = SharedPermadeathDeath.IsPermadeathEligible(__instance);
 
             ModRuntime.LegacyInfo($"[Death] Client died at {pos}, isNight={isNight}");
 
@@ -70,7 +71,8 @@ namespace DWMPHorde.Patches
                     PosY = pos.y,
                     PosZ = pos.z,
                     IsNight = isNight,
-                    HasDropBag = hasItems
+                    HasDropBag = hasItems,
+                    PermadeathEligible = permadeathEligible
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
@@ -81,65 +83,21 @@ namespace DWMPHorde.Patches
 
             if (isNight)
             {
-                DeathStateTracker.OnLocalNightDeath(pos);
+                DeathStateTracker.OnLocalNightDeath(pos, permadeathEligible);
             }
             else
             {
                 DeathStateTracker.OnLocalDayDeath();
             }
 
-            var profile = Core.currentProfile;
-            if (profile != null
-                && PermadeathPolicy.ClientUsesSharedDeath(true, (int)profile.difficulty, __instance.lifes))
+            IEnumerator shared = SharedPermadeathDeath.TryRewrite(__instance, connected: true);
+            if (shared != null)
             {
-                ModRuntime.LegacyInfo(
-                    "[Death] Client permadeath — shared respawn instead of local game-over");
-                __result = RunSharedDeath(__instance);
+                __result = shared;
                 return false;
             }
 
             return true;
-        }
-
-        private static bool _bypassPermadeathRewrite;
-
-        /// <summary>
-        /// Run vanilla onDeath with difficulty normal so the nightmare / last-life
-        /// branch is skipped, then put the profile difficulty back. Save sees the
-        /// real difficulty.
-        /// </summary>
-        private static IEnumerator RunSharedDeath(Player player)
-        {
-            var profile = Core.currentProfile;
-            var saved = profile.difficulty;
-            ClientPermadeathSaveGuard.Arm(saved);
-            profile.difficulty = GameProfile.Difficulty.normal;
-            _bypassPermadeathRewrite = true;
-            IEnumerator inner = null;
-            try
-            {
-                var method = AccessTools.Method(typeof(Player), "onDeath");
-                inner = method != null ? method.Invoke(player, null) as IEnumerator : null;
-            }
-            finally
-            {
-                _bypassPermadeathRewrite = false;
-            }
-
-            try
-            {
-                if (inner != null)
-                {
-                    while (inner.MoveNext())
-                        yield return inner.Current;
-                }
-            }
-            finally
-            {
-                // Save Prefix also restores; this covers suppress-Save / throw paths so
-                // nightmare cannot stay forced to normal across a later Save.
-                ClientPermadeathSaveGuard.RestoreIfArmed();
-            }
         }
     }
 
@@ -164,9 +122,9 @@ namespace DWMPHorde.Patches
         }
 
         [HarmonyPatch(typeof(SaveManager), "Save")]
-        [HarmonyPriority(Priority.First)]
         public static class RestoreDifficultyBeforeSave
         {
+            [HarmonyPriority(Priority.First)]
             private static void Prefix()
             {
                 RestoreIfArmed();

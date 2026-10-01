@@ -1,4 +1,5 @@
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -8,6 +9,8 @@ namespace DWMPHorde.Networking
     /// <summary>Door open/unblock handlers composed for 0.8.</summary>
     internal sealed class DoorNetHandlers
     {
+        private const float NamedDoorFallbackRadius = 2f;
+
         private readonly LanNetworkManager _net;
 
         internal DoorNetHandlers(LanNetworkManager net)
@@ -51,7 +54,9 @@ namespace DWMPHorde.Networking
                         && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
                         continue;
                     float dist = Vector3.Distance(d.transform.position, pos);
-                    if (dist > 20f) continue;
+                    // A name alone is weak (many "Wooden door"s share it): only a body offset
+                    // from the event position, never another door across the room.
+                    if (dist > NamedDoorFallbackRadius) continue;
                     if (!string.IsNullOrEmpty(want))
                     {
                         string n = DialogOutcomeNetHandlers.StripCloneSuffix(d.name);
@@ -73,7 +78,8 @@ namespace DWMPHorde.Networking
 
             if (door == null)
             {
-                ModRuntime.Log?.LogWarning($"[DoorSync] Door '{msg.DoorName}' not found at {pos}");
+                ModLog.WarnRate(LogCat.World, "door-open-miss:" + msg.DoorName,
+                    $"[DoorSync] Door '{msg.DoorName}' not found at {pos}");
                 return;
             }
 

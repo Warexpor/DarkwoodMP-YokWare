@@ -3,8 +3,8 @@
 This is a compact code-coverage and runtime-verification checklist for the
 Path B Horde mod.
 
-**Current baseline:** product `0.8.31`, protocol **25**, message IDs through
-`ScenarioStateBulk` (138), host-authoritative N-player LAN. Steam uses the same
+**Current baseline:** product `0.8.127`, protocol **27**, message IDs through
+`SessionSettings` (146), host-authoritative N-player LAN. Steam uses the same
 message contracts through its separate networking transport.
 
 Code coverage and runtime coverage are different:

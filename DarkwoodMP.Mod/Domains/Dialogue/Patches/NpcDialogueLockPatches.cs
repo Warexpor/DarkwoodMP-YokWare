@@ -45,6 +45,7 @@ namespace DWMPHorde.Patches
                 DialogHostApplyGuard.ClearChainedDisplayBlock();
                 try { PeerItemPresence.SendFullLocalInventory(); }
                 catch { /* ignore */ }
+                NpcDialogueLock.BeginLeaseRenewal(_npc);
                 return true;
             }
 
@@ -79,28 +80,43 @@ namespace DWMPHorde.Patches
             NpcDialogueLock.TryAcquire(npcName, localId);
             try { PeerItemPresence.SendFullLocalInventory(); }
             catch { /* ignore */ }
+            NpcDialogueLock.BeginLeaseRenewal(_npc);
             return true;
         }
     }
 
+    /// <summary>
+    /// Releases the lock only when vanilla close() actually closed the conversation. The release
+    /// used to run in the Prefix, ahead of vanilla's early returns (tweening, exit dialogue shown
+    /// instead of closing), so a second close() released again and the host replayed
+    /// onCloseDialogue twice. Prefix captures the NPC; Postfix runs only if the original ran and
+    /// left dw.npc cleared.
+    /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "close")]
     public static class NpcDialogueLockReleasePatch
     {
-        private static void Prefix(DialogueWindow __instance)
+        private static void Prefix(DialogueWindow __instance, ref NPC __state)
         {
+            __state = __instance != null ? __instance.npc : null;
+        }
+
+        private static void Postfix(DialogueWindow __instance, NPC __state, bool __runOriginal)
+        {
+            // A prefix (DialogHostSilentClosePatch) skipped vanilla: not a real close.
+            if (!__runOriginal) return;
+            if (__state == null || string.IsNullOrEmpty(__state.name)) return;
+            // close() returned early and left npc bound: the conversation is still open.
+            if (__instance != null && __instance.npc != null) return;
+
             var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || !net.IsConnected) return;
             // World-only DialogOutcome SilentClose must not release the speaker's lease.
-            // Harmony Prefix order vs DialogHostSilentClosePatch is undefined; without this
-            // guard HostRelease(localId) can drop the host's real talk lock mid-conversation
-            // when world-only close runs on the same NPC name (dual open / stuck lock).
+            // Without this guard HostRelease(localId) can drop the host's real talk lock
+            // mid-conversation when world-only close runs on the same NPC name.
             if (DialogHostApplyGuard.Active)
                 return;
 
-            NPC npc = __instance != null ? __instance.npc : null;
-            if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-
-            string npcName = npc.name;
+            string npcName = __state.name;
             int localId = net.LocalPlayerId;
 
             if (net.Role == NetworkRole.Host)

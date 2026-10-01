@@ -50,6 +50,47 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// A name match is only trusted this close to the reported position. A bare
+        /// GameObject.Find(name) returned the first same-named barrel anywhere (including the
+        /// overworld twin of a dream-pad barrel), so the wrong barrel was destroyed and the host
+        /// could run a real explode() on an unrelated one.
+        /// </summary>
+        private const float ExplodesNameMatchMaxDist = 8f;
+
+        /// <summary>
+        /// Position-first Explodes lookup for a named explosion: nearest same-named Explodes within
+        /// <see cref="ExplodesNameMatchMaxDist"/> of <paramref name="pos"/>, on the same side
+        /// (dream pad vs overworld) as the explosion. Never a scene-wide name search.
+        /// </summary>
+        private static Explodes ResolveExplodesByNameNear(string objectName, Vector3 pos)
+        {
+            if (string.IsNullOrEmpty(objectName)) return null;
+            Explodes e = WorldQueryHelper.FindNearestByName<Explodes>(
+                pos, objectName, ExplodesNameMatchMaxDist);
+            if (e == null) return null;
+
+            return IsOnSameWorldSide(pos, e.transform) ? e : null;
+        }
+
+        /// <summary>
+        /// True when <paramref name="target"/> is on the same side (dream pad vs overworld) as
+        /// <paramref name="pos"/>. The pad is a clone of overworld locations, so a same-named object
+        /// on the other side must never be picked for a position reported on this side.
+        /// </summary>
+        internal static bool IsOnSameWorldSide(Vector3 pos, Transform target)
+        {
+            if (target == null) return false;
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            bool posOnPad = pad != null && Vector3.Distance(pos, pad.position) <= DreamPadRadius;
+            bool targetOnPad = pad != null
+                && (target.IsChildOf(pad)
+                    || Vector3.Distance(target.position, pad.position) <= DreamPadRadius);
+            return posOnPad == targetOnPad;
+        }
+
+        private const float DreamPadRadius = 250f;
+
         public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false, string soundId = null)
         {
             int nearbyN = OverlapNear(pos, 1.5f);
@@ -65,12 +106,8 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            if (target == null && !string.IsNullOrEmpty(objectName))
-            {
-                GameObject named = GameObject.Find(objectName);
-                if (named != null)
-                    target = named.GetComponent<Explodes>();
-            }
+            if (target == null)
+                target = ResolveExplodesByNameNear(objectName, pos);
 
             if (target != null)
             {
@@ -92,7 +129,8 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                ModRuntime.Log?.LogWarning("[ExplosionTrigger] no Explodes found at " + pos + " name=" + objectName);
+                ModLog.WarnRate(LogCat.Physics, "explosion-no-target:" + objectName,
+                    "[ExplosionTrigger] no Explodes found at " + pos + " name=" + objectName);
                 // Object may already be destroyed or out of range; still play the host's boom.
                 PlayExplosionSound(pos, soundId, objectName, null);
             }
@@ -107,25 +145,18 @@ namespace DWMPHorde.Sync
         {
             Explodes target = null;
 
-            // Try by object name first (works for static world objects like barrels)
-            if (!string.IsNullOrEmpty(objectName))
+            // Position first: the barrel under the explosion.
+            int nearbyN = OverlapNear(pos, 1.5f);
+            for (int i = 0; i < nearbyN; i++)
             {
-                GameObject named = GameObject.Find(objectName);
-                if (named != null)
-                    target = named.GetComponent<Explodes>();
+                if (_overlap3D[i] == null) continue;
+                Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
+                if (expl != null) { target = expl; break; }
             }
 
-            // Fallback: search by position
+            // Then a same-named Explodes close to the reported position (host moved/rolled it).
             if (target == null)
-            {
-                int nearbyN = OverlapNear(pos, 1.5f);
-                for (int i = 0; i < nearbyN; i++)
-                {
-                    if (_overlap3D[i] == null) continue;
-                    Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
-                    if (expl != null) { target = expl; break; }
-                }
-            }
+                target = ResolveExplodesByNameNear(objectName, pos);
 
             // Sound is independent of visual success. Play first so already-activated or
             // destroyed mushrooms still boom on peers.

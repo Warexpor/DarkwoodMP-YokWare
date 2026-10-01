@@ -68,6 +68,11 @@ namespace DWMPHorde.Networking
 
         internal void HandleDragSync(DragSyncMessage msg)
         {
+            // Host: the transport peer is the only trustworthy claimer id; an embedded id could
+            // claim, steal or release another player's drag.
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+                msg.ClaimedByPlayerId = _net.CurrentReceivePlayerId;
+
             Vector3 targetPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Vector3 targetRot = new Vector3(msg.RotX, msg.RotY, msg.RotZ);
 

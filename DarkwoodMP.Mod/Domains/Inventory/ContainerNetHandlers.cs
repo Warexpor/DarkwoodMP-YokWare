@@ -19,13 +19,18 @@ namespace DWMPHorde.Networking
             _pending = pending ?? throw new System.ArgumentNullException(nameof(pending));
         }
 
-        internal void ClearPendingContainerState() => _pending.ClearPendingContainerState();
+        internal void ClearPendingContainerState()
+        {
+            _pending.ClearPendingContainerState();
+            _loot.ClearPendingHideoutUpgrades();
+        }
 
         internal void RecordPendingContainerRemove(UnityEngine.Vector3 pos, int slotIdx) =>
             _pending.RecordPendingContainerRemove(pos, slotIdx);
 
-        internal void RecordPendingTakePreCount(UnityEngine.Vector3 pos, int slotIdx, int preCount) =>
-            _pending.RecordPendingTakePreCount(pos, slotIdx, preCount);
+        internal void RecordPendingTakePreCount(UnityEngine.Vector3 pos, int slotIdx, int preCount,
+            bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0) =>
+            _pending.RecordPendingTakePreCount(pos, slotIdx, preCount, isRecipe, itemType, durability, ammo);
 
         internal void ClearPendingTakePreCount(UnityEngine.Vector3 pos, int slotIdx) =>
             _pending.ClearPendingTakePreCount(pos, slotIdx);

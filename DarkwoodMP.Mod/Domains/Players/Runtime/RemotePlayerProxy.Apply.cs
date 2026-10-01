@@ -138,7 +138,7 @@ namespace DWMPHorde.Players
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net == null || net.Role == Networking.NetworkRole.Offline) return;
             if (bullet.objectThatSpawnedMe != null) return; // Skip enemy bullets
-            if (!Config.ModConfig.FriendlyFireEnabled.Value) return; // FF disabled
+            if (!SessionSettings.FriendlyFireEnabled) return; // FF disabled
 
             // Prefer live weapon modded damage when local player owns the shot;
             // bullet.damage is set at spawn and may omit upgrade modifiers.

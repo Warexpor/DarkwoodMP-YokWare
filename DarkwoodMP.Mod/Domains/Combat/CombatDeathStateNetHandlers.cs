@@ -1,4 +1,5 @@
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -24,7 +25,7 @@ namespace DWMPHorde.Networking
             int playerId = _net.CurrentReceivePlayerId;
             if (playerId <= 0)
             {
-                ModRuntime.Log?.LogWarning("[Death] PlayerDied with invalid playerId — ignored");
+                ModLog.WarnRate(LogCat.Death, "playerdied-badid", "[Death] PlayerDied with invalid playerId — ignored");
                 return;
             }
 
@@ -60,7 +61,7 @@ namespace DWMPHorde.Networking
 
             if (isNight)
             {
-                DeathStateTracker.OnRemoteNightDeath(playerId, deathPos);
+                DeathStateTracker.OnRemoteNightDeath(playerId, deathPos, msg.PermadeathEligible);
 
                 if (_net.Role == NetworkRole.Host)
                 {
@@ -84,13 +85,57 @@ namespace DWMPHorde.Networking
 
             DeathStateTracker.OnRemoteDayDeath(playerId);
 
-            if (_net.Role == NetworkRole.Host && Singleton<SaveManager>.Instance != null)
-                Singleton<SaveManager>.Instance.Save(doJson: true);
+            if (_net.Role == NetworkRole.Host)
+                RequestRemoteDeathSave();
+        }
+
+        /// <summary>Minimum spacing of the host world saves a remote day death asks for.</summary>
+        private const float RemoteDeathSaveCoalesceSec = 15f;
+        private float _lastRemoteDeathSaveAt = -1000f;
+        private bool _remoteDeathSavePending;
+
+        /// <summary>
+        /// A remote day death persists the world on the host, but a full SaveManager.Save per
+        /// death hitches the host (and fans a SaveSync to every peer) when several players
+        /// die close together. Deaths inside the window share one trailing save instead.
+        /// </summary>
+        private void RequestRemoteDeathSave()
+        {
+            if (_remoteDeathSavePending)
+                return;
+
+            float wait = RemoteDeathSaveCoalesceSec - (Time.unscaledTime - _lastRemoteDeathSaveAt);
+            if (wait <= 0f)
+            {
+                SaveAfterRemoteDeath();
+                return;
+            }
+
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null)
+                return;
+            _remoteDeathSavePending = true;
+            ctrl.Invoke(delegate
+            {
+                _remoteDeathSavePending = false;
+                SaveAfterRemoteDeath();
+            }, wait, timeScaleDependent: false);
+        }
+
+        private void SaveAfterRemoteDeath()
+        {
+            if (_net.Role != NetworkRole.Host || !_net.IsConnected)
+                return;
+            SaveManager save = Singleton<SaveManager>.Instance;
+            if (save == null)
+                return;
+            _lastRemoteDeathSaveAt = Time.unscaledTime;
+            save.Save(doJson: true);
         }
 
         internal void HandleNightDeathState(NightDeathStateMessage msg)
         {
-            if (!msg.AllDeadTrigger)
+            if (!msg.AllDeadTrigger && !msg.PartyWipe)
                 return;
 
             int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
@@ -112,12 +157,100 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            if (msg.PartyWipe)
+            {
+                ModRuntime.LegacyInfo("[Death] Party wipe on permadeath difficulty — running permadeath outcome");
+                Patches.PartyWipeOutcome.Begin("host PartyWipe");
+                return;
+            }
+
             ModRuntime.LegacyInfo("[Death] All dead at night — exiting spectator for morning");
 
             if (Spectator.SpectatorModeController.Instance != null)
                 Spectator.SpectatorModeController.Instance.ExitAndRespawn();
 
             DeathStateTracker.Reset();
+        }
+
+        /// <summary>
+        /// Host morning edge: leave night-death spectate, go home, drop night-death marks.
+        /// Idempotent (a peer that is not night-dead only clears its remote bookkeeping),
+        /// so a duplicate, a late join, or a reconnect around dawn is harmless.
+        /// </summary>
+        internal void HandleNightDeathRelease(NightDeathReleaseMessage msg)
+        {
+            if (_net.Role != NetworkRole.Client)
+                return;
+            int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
+            if (_net.CurrentReceivePlayerId != hostId)
+            {
+                ModRuntime.LegacyInfo(
+                    $"[Death] Rejected NightDeathRelease from non-host p{_net.CurrentReceivePlayerId}");
+                return;
+            }
+
+            ModRuntime.LegacyInfo($"[Death] Host morning release (day {msg.Day})");
+            DeathStateTracker.ClientReleaseNightDeadAtMorning();
+        }
+
+        /// <summary>
+        /// Host startAfterNight ran; apply this peer's own survival reward. Trader
+        /// standing is per-player, so it is written straight into the local Flags state.
+        /// </summary>
+        internal void HandleMorningReward(MorningRewardMessage msg)
+        {
+            if (_net.Role != NetworkRole.Client)
+                return;
+            int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
+            if (_net.CurrentReceivePlayerId != hostId)
+                return;
+
+            Player player = Player.Instance;
+            if (player == null || DeathStateTracker.LocalNightDeath)
+                return;
+
+            if (!string.IsNullOrEmpty(msg.TraderName) && msg.Reputation > 0)
+            {
+                Flags flags = Singleton<Flags>.Instance;
+                if (flags != null)
+                {
+                    Flags.NPCState state = flags.getNPCState(msg.TraderName);
+                    if (state == null)
+                    {
+                        state = new Flags.NPCState { name = msg.TraderName, wantsToTalk = true };
+                        flags.npcStates.Add(state);
+                    }
+                    state.reputation += msg.Reputation;
+
+                    string traderName = msg.TraderName;
+                    int repGain = msg.Reputation;
+                    Controller ctrl = Singleton<Controller>.Instance;
+                    if (ctrl != null)
+                    {
+                        ctrl.Invoke(delegate
+                        {
+                            UI ui = Singleton<UI>.Instance;
+                            if (ui != null && ui.journal != null)
+                                ui.journal.showJournalInfoPopup("Reputation",
+                                    Language.Get(traderName, "Objects") + ": " + repGain);
+                        }, 3f, timeScaleDependent: true);
+                    }
+                }
+            }
+
+            if (msg.Saturation > 0f)
+                player.gainSaturation(msg.Saturation);
+
+            if (msg.ShowTraderHelp && Singleton<UI>.Instance != null)
+            {
+                var help = Singleton<UI>.Instance.displayHelpMessage(
+                    Language.Get("Helpmsg_nightTraderReputation", "UI"));
+                if (help != null)
+                    help.longevity = 10f;
+            }
+
+            ModRuntime.LegacyInfo(
+                $"[MorningRep] client reward: {msg.TraderName} +{msg.Reputation} sat {msg.Saturation}");
         }
 
         internal void HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage msg)

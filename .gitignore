@@ -75,6 +75,8 @@ appsettings.*.local.json
 !/scripts/check-dualbox-perf.sh
 !/scripts/fetch-melonloader-refs.sh
 !/scripts/build-loaders.sh
+!/scripts/pack-release.sh
+!/scripts/pack-release.ps1
 /tools/
 /libs/
 

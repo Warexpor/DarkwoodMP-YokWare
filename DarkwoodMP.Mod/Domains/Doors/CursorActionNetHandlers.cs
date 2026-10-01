@@ -1,4 +1,5 @@
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using LiteNetLib;
@@ -29,7 +30,7 @@ namespace DWMPHorde.Networking
             {
                 if (TryFirePlainItemActivate(pos, msg.ObjectName))
                     return;
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "cursor-no-activate:" + msg.ObjectName,
                     $"[CursorActionSync] host: no activate target near {pos} name={msg.ObjectName}");
                 return;
             }
@@ -54,7 +55,7 @@ namespace DWMPHorde.Networking
 
                 if (requesterId <= 0)
                 {
-                    ModRuntime.Log?.LogWarning(
+                    ModLog.WarnRate(LogCat.World, "cursor-loc-no-requester:" + actionName,
                         $"[CursorActionSync] location enter {actionName} but no requester id");
                     return;
                 }
@@ -62,7 +63,7 @@ namespace DWMPHorde.Networking
                 if (!DWMPHorde.Patches.CustomCursorActionSync.TryResolveLocationEnterName(best, out string locName)
                     || string.IsNullOrEmpty(locName))
                 {
-                    ModRuntime.Log?.LogWarning(
+                    ModLog.WarnRate(LogCat.World, "cursor-loc-no-dest:" + actionName,
                         $"[CursorActionSync] location enter {actionName}: could not resolve dest");
                     return;
                 }
@@ -146,7 +147,7 @@ namespace DWMPHorde.Networking
             var ol = Singleton<OutsideLocations>.Instance;
             if (ol == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "loc-transport-no-ol",
                     $"[LocationTransport] OutsideLocations null for '{msg.LocationName}'");
                 return;
             }

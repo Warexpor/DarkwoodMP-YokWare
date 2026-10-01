@@ -222,10 +222,12 @@ namespace DWMPHorde.Networking.Steam
             }
         }
 
+        /// <summary>
+        /// Always a private copy: queued reliable sends outlive the call, and the caller's buffer is
+        /// often a recycled hot buffer (or a shared packet) that gets overwritten next tick.
+        /// </summary>
         private static byte[] Slice(byte[] data, int length)
         {
-            if (data.Length == length)
-                return data;
             byte[] copy = new byte[length];
             Buffer.BlockCopy(data, 0, copy, 0, length);
             return copy;

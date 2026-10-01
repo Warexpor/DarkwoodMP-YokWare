@@ -13,9 +13,24 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
     public static class DialogClientWorldDeferBoardPatch
     {
-        private static bool Prefix(DialogueWindow __instance, out bool __state)
+        /// <summary>
+        /// What the board commit must describe, read BEFORE vanilla runs. displayNextBoard's own
+        /// outcomes (exit, switch dialogue, close) null dw.npc / replace currentDialogue /
+        /// reset currentBoard, so reading them afterwards dropped the commit or sent the wrong
+        /// board index.
+        /// </summary>
+        internal struct BoardState
         {
-            __state = false;
+            public bool Deferred;
+            public bool HaveBoard;
+            public string NpcName;
+            public string DialogueName;
+            public int BoardIndex;
+        }
+
+        private static bool Prefix(DialogueWindow __instance, out BoardState __state)
+        {
+            __state = default(BoardState);
             if (!DialogHostApplyGuard.ShouldRunDisplayNextBoard())
                 return false;
 
@@ -28,14 +43,28 @@ namespace DWMPHorde.Patches
             if (!DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false))
                 return true;
 
+            try
+            {
+                if (__instance.npc != null && __instance.currentDialogue != null)
+                {
+                    __state.NpcName = __instance.npc.name;
+                    __state.DialogueName = __instance.currentDialogue.fullName ?? "";
+                    // The board vanilla is about to display: currentBoard is incremented first.
+                    __state.BoardIndex =
+                        Traverse.Create(__instance).Field("currentBoard").GetValue<int>() + 1;
+                    __state.HaveBoard = true;
+                }
+            }
+            catch { __state.HaveBoard = false; }
+
             DialogClientWorldDefer.Begin();
-            __state = true;
+            __state.Deferred = true;
             return true;
         }
 
-        private static void Postfix(DialogueWindow __instance, bool __state)
+        private static void Postfix(DialogueWindow __instance, BoardState __state)
         {
-            if (__state)
+            if (__state.Deferred)
             {
                 // End moved to Finalizer (covers throw before/during Postfix).
                 if (__instance != null)
@@ -48,7 +77,7 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            TrySendBoardCommit(__instance);
+            TrySendBoardCommit(__state);
             TrySuppressHostCook(__instance);
         }
 
@@ -56,15 +85,17 @@ namespace DWMPHorde.Patches
         // DialogClientWorldDefer.Active sticky → Flags/world events/prepareLocation/
         // returnToWorld/Map.showElement suppressed forever on the speaking client.
         [HarmonyFinalizer]
-        private static void Finalizer(bool __state)
+        private static void Finalizer(BoardState __state)
         {
-            if (__state)
+            if (__state.Deferred)
                 DialogClientWorldDefer.End();
         }
 
-        private static void TrySendBoardCommit(DialogueWindow dw)
+        private static void TrySendBoardCommit(BoardState state)
         {
-            if (dw == null || dw.npc == null || dw.currentDialogue == null) return;
+            // Only boards the Prefix captured on a deferring client (matches the old gate, which
+            // read Role/Defer in the Postfix) are committed.
+            if (!state.Deferred || !state.HaveBoard) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             if (DialogHostApplyGuard.Active) return;
 
@@ -72,16 +103,17 @@ namespace DWMPHorde.Patches
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
 
-            string name = dw.currentDialogue.fullName ?? "";
+            string name = state.DialogueName;
             if (string.IsNullOrEmpty(name)) return;
             if (DialogBoardCommit.IsRecentDest(name))
                 return;
 
-            int boardIdx = Traverse.Create(dw).Field("currentBoard").GetValue<int>();
+            string npcName = state.NpcName;
+            int boardIdx = state.BoardIndex;
             net.Send(NetMessageType.DialogOutcomeSync,
                 w => new DialogOutcomeSyncMessage
                 {
-                    NpcName = dw.npc.name,
+                    NpcName = npcName,
                     DecisionIndex = -1,
                     DialogueName = name,
                     BoardIndex = boardIdx,
@@ -91,7 +123,7 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo(
-                    $"[DialogOutcome] board commit NPC={dw.npc.name} dialogue={name} board={boardIdx}");
+                    $"[DialogOutcome] board commit NPC={npcName} dialogue={name} board={boardIdx}");
         }
 
         private static void TrySuppressHostCook(DialogueWindow dw)

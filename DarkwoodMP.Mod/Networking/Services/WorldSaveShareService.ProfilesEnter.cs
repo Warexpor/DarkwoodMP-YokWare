@@ -54,6 +54,7 @@ namespace DWMPHorde.Networking
         private IEnumerator ClientOfflineEnterCoroutine(int profileId, int chapterId)
         {
             _clientApplying = true;
+            _clientEntering = true;
             ProgressText = "Loading host world (offline)…";
             if (_net != null)
                 _net.StatusText = ProgressText;
@@ -66,14 +67,25 @@ namespace DWMPHorde.Networking
             try
             {
                 ChapterSessionResume.EnsureSceneHook();
-                if (_net != null && _net.IsConnected)
+                if (_net != null)
                 {
+                    // Capture even when the transfer link already dropped while the player sat on the
+                    // slot picker: skipping it left no phase-3 reconnect and a silent solo load.
                     ChapterSessionResume.CaptureForResume(_net);
-                    ModLog.Event(LogCat.Session,
-                        "Join pipeline phase 2: ENTER WORLD (slot " + profileId
-                        + ") — disconnect transfer link, load offline, then phase-3 reconnect");
-                    // StopNetwork resets WorldSaveShare; locals already hold load state.
-                    _net.StopNetwork();
+                    if (_net.IsConnected)
+                    {
+                        ModLog.Event(LogCat.Session,
+                            "Join pipeline phase 2: ENTER WORLD (slot " + profileId
+                            + ") — disconnect transfer link, load offline, then phase-3 reconnect");
+                        // StopNetwork resets WorldSaveShare; locals already hold load state.
+                        _net.StopNetwork();
+                    }
+                    else
+                    {
+                        ModLog.Warn(LogCat.Session,
+                            "Join pipeline phase 2: transfer link already down at ENTER WORLD (slot "
+                            + profileId + ") — loading offline");
+                    }
                 }
             }
             catch (Exception ex)
@@ -82,6 +94,7 @@ namespace DWMPHorde.Networking
             }
 
             _clientApplying = false;
+            _clientEntering = false;
             yield return null;
 
             // Prefer vanilla Continue path (Yokyy): UI.initLoadGame with currentProfile set.

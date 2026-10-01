@@ -20,7 +20,6 @@ namespace DWMPHorde.Patches
     /// multi-collider proxies + lingering sensors spam DamagePlayer every
     /// FixedUpdate (massively overscaled AI/melee damage on clients).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class HostMeleeSensorPatch
     {
@@ -29,16 +28,31 @@ namespace DWMPHorde.Patches
 
         public static void Reset() => _lastProxyHitTime.Clear();
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
             Collider _collider = (Collider)__args[0];
             if (_collider == null) return true;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host
+                || !ModRuntime.Network.IsConnected)
                 return true;
 
             RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null)
                 return true;
+
+            // Vanilla early-outs (ignore lists, attacker's own colliders, line of sight): where
+            // vanilla would drop the hit, let it run — it returns without effect on a proxy.
+            Transform attacker = __instance.attackerTransform;
+            if (_collider.transform == null || attacker == null || IsIgnored(__instance, _collider))
+                return true;
+            if (attacker == _collider.transform || _collider.transform.IsChildOf(attacker))
+                return true;
+            if (!__instance.doesNotNeedLineOfSight && !Core.canSeeAttack(attacker, _collider.transform))
+                return true;
+            // Vanilla bookkeeping once a collider passed the gates.
+            __instance.collidersToIgnore.Add(_collider);
+            __instance.gameObjectsToIgnore.Add(_collider.gameObject);
 
             // NightShadows: only the curse owner takes damage from that wave.
             if (__instance.attackerTransform != null)
@@ -52,7 +66,7 @@ namespace DWMPHorde.Patches
             }
 
             if (__instance.type == MeleeSensor.MeleeSensorType.player
-                && !Config.ModConfig.FriendlyFireEnabled.Value)
+                && !SessionSettings.FriendlyFireEnabled)
             {
                 // Still consume the sensor — returning false alone left it lingering and
                 // retriggering every FixedUpdate against the proxy colliders.
@@ -81,12 +95,6 @@ namespace DWMPHorde.Patches
 
             bool isPlayer = __instance.type == MeleeSensor.MeleeSensorType.player;
 
-            // Drain weapon durability if it's the host player attacking
-            if (isPlayer && Player.Instance != null && Player.Instance.currentItem != null)
-            {
-                Player.Instance.currentItem.drainDurability(__instance.itemDurabilityDrain);
-            }
-
             float strengthMod = 1f;
             if (__instance.attackerTransform != null)
             {
@@ -94,6 +102,19 @@ namespace DWMPHorde.Patches
                 if (atkCB != null)
                     strengthMod = atkCB.strengthModifier;
             }
+
+            // Vanilla drain: melee weapons only, scaled by the attacker's strength modifier.
+            Player hostPlayer = Player.Instance;
+            if (isPlayer && hostPlayer != null && !InvItemClass.isNull(hostPlayer.currentItem)
+                && hostPlayer.currentItem.baseClass != null && hostPlayer.currentItem.baseClass.isMelee)
+            {
+                hostPlayer.currentItem.drainDurability((float)__instance.itemDurabilityDrain * strengthMod);
+            }
+
+            // Vanilla fires the sensor's onHit callback when a non-player sensor lands on the player.
+            if (!isPlayer && __instance.onHit != null)
+                __instance.onHit();
+
             int dmg = Mathf.Max(1, (int)((float)__instance.damage * strengthMod));
             Vector3 atkPos = __instance.attackerTransform != null
                 ? __instance.attackerTransform.position
@@ -138,7 +159,9 @@ namespace DWMPHorde.Patches
                 CanCutInHalf = dmg >= 80,
                 ShowRedScreen = true,
                 NormalHit = true,
-                CanInterrupt = true
+                CanInterrupt = true,
+                // The victim's own client activates these (vanilla applies sensor effects after getHit).
+                Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
             LanNetworkManager.Instance?.SendToPlayer(proxy.PlayerId, NetMessageType.DamagePlayer, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
@@ -148,6 +171,19 @@ namespace DWMPHorde.Patches
 
             // Mirror vanilla MeleeSensor: one hit consumes the sensor.
             ConsumeSensor(__instance);
+            if (isPlayer && hostPlayer != null && !InvItemClass.isNull(hostPlayer.currentItem))
+                hostPlayer.currentItem.refresh();
+            return false;
+        }
+
+        private static bool IsIgnored(MeleeSensor sensor, Collider col)
+        {
+            List<Collider> ignored = sensor.collidersToIgnore;
+            for (int i = 0; i < ignored.Count; i++)
+            {
+                if (ignored[i] != null && ignored[i] == col)
+                    return true;
+            }
             return false;
         }
 

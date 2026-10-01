@@ -30,7 +30,7 @@ namespace DWMPHorde.Patches
             if (proxy == null)
                 return true;
 
-            if (!Config.ModConfig.FriendlyFireEnabled.Value)
+            if (!SessionSettings.FriendlyFireEnabled)
                 return true;
 
             Vector3 proxyPos = proxy.transform.position;
@@ -58,7 +58,8 @@ namespace DWMPHorde.Patches
                 AttackerPosZ = pos.z,
                 CanCutInHalf = dmg >= 80,
                 AttackerPlayerId = LanNetworkManager.Instance?.LocalPlayerId ?? 0,
-                VictimPlayerId = proxy.PlayerId
+                VictimPlayerId = proxy.PlayerId,
+                Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
             LanNetworkManager.Instance?.Send(NetMessageType.FriendlyFire, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
@@ -69,31 +70,24 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// On the client, when the local player hits any target (Character,
     /// Door, Window, Item) with a melee weapon, sends the attack to the
-    /// host for authoritative damage processing and broadcasts the hit
-    /// sound to other clients.
+    /// host for authoritative damage processing.
+    /// Mirrors vanilla <c>MeleeSensor.OnTriggerEnter</c> for the local player's sensor: same
+    /// early-outs (ignore lists, attacker self, line of sight), same Character gate, the sensor is
+    /// consumed and the weapon durability drained exactly as vanilla does. Only the damage itself
+    /// is host-authoritative. Door / barricaded window / destructible item hits keep running
+    /// vanilla locally; vanilla's own <c>alertInArea(600)</c> for those is a no-op on a client
+    /// (host owns AI), so the host is told to run it.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class ClientMeleeSensorPatch
     {
-        // Time-based debounce per character to prevent duplicate
-        // OnTriggerEnter from multiple colliders on the same target
-        // in one swing.  Time.time keyed by character nameHash.
-        // This avoids pooling issues with GetInstanceID().
-        private const float HIT_DEBOUNCE = 0.2f;
-        private static readonly Dictionary<short, float> _lastCharHitTime =
-            new Dictionary<short, float>();
-
-        public static void Reset()
-        {
-            _lastCharHitTime.Clear();
-        }
-
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
             Collider _collider = (Collider)__args[0];
             if (_collider == null) return true;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected
+                || ModRuntime.Network.Role != NetworkRole.Client)
                 return true;
             if (__instance.type != MeleeSensor.MeleeSensorType.player)
                 return true;
@@ -102,58 +96,65 @@ namespace DWMPHorde.Patches
             if (_collider.GetComponentInParent<RemotePlayerProxy>() != null)
                 return true;
 
-            // Send sound for all player melee hits (Character, Door, Window, Item)
-            var soundMsg = new PlayerSoundMessage
-            {
-                Range = 600f,
-                DangerousSound = false,
-                Volume = 1f,
-                Gunshot = false
-            };
-            LanNetworkManager.Instance?.Send(NetMessageType.PlayerSound, w => soundMsg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // Vanilla early-outs: vanilla runs them again and returns, so just let it.
+            Transform attacker = __instance.attackerTransform;
+            if (_collider.transform == null || attacker == null || IsIgnored(__instance, _collider))
+                return true;
+            if (attacker == _collider.transform || _collider.transform.IsChildOf(attacker))
+                return true;
+            if (!__instance.doesNotNeedLineOfSight && !Core.canSeeAttack(attacker, _collider.transform))
+                return true;
 
-            Character c = _collider.GetComponent<Character>();
-            if (c == null)
+            GameObject go = _collider.gameObject;
+            Character c = go.GetComponent<Character>();
+            if (c == null && go.transform.parent != null)
+                c = go.transform.parent.GetComponent<Character>();
+
+            if (c == null || !CanBeHit(c))
             {
-                Rigidbody rb = _collider.attachedRigidbody;
-                if (rb != null) c = rb.GetComponent<Character>();
+                // Not a Character hit: vanilla runs locally. Its alertInArea(600) for doors,
+                // barricaded windows and destructible items only wakes the host's AI if the host
+                // is told, so forward exactly those (never a blanket sound per trigger).
+                if (WouldVanillaAlert(__instance, _collider, go))
+                    SendMeleeAlert();
+                return true;
             }
-            if (c == null) return true;
-            // Corpse hits: host drops !alive silently — don't spam PlayerAttack.
-            if (!c.alive) return false;
+
+            // ---- Character hit: damage is host-authoritative ----
+            // Vanilla bookkeeping: ignore this collider/GO and the target's own colliders so the
+            // same swing cannot re-trigger on another collider of the same character.
+            __instance.collidersToIgnore.Add(_collider);
+            __instance.gameObjectsToIgnore.Add(go);
+            Collider cc = c.GetComponent<Collider>();
+            if (cc != null && !__instance.collidersToIgnore.Contains(cc))
+                __instance.collidersToIgnore.Add(cc);
+            if (c.hitCollider != null)
+            {
+                Collider hc = c.hitCollider.GetComponent<Collider>();
+                if (hc != null && !__instance.collidersToIgnore.Contains(hc))
+                    __instance.collidersToIgnore.Add(hc);
+            }
+
+            float strengthMod = 1f;
+            CharBase attackerBase = attacker.GetComponent<CharBase>();
+            if (attackerBase != null)
+                strengthMod = attackerBase.strengthModifier;
+
+            Player local = Player.Instance;
+            bool canCutInHalf = false;
+            if (local != null && !InvItemClass.isNull(local.currentItem) && local.currentItem.baseClass != null)
+                canCutInHalf = local.currentItem.baseClass.canCutInHalf;
 
             // Prefer host stable id when known; 0 → host resolves by name+hit pos (phantoms).
             short nameHash = 0;
             if (ClientEntityInterpolationService.IsHostSynced(c))
                 CharacterTracker.TryGetStableId(c, out nameHash);
-            // Debounce key: stable id or a stable hash of name when unsynced.
-            short debounceKey = nameHash != 0 ? nameHash : (short)(c.name.GetHashCode() & 0x7FFF);
-
-            float now = Time.time;
-            if (_lastCharHitTime.TryGetValue(debounceKey, out float lastHit) &&
-                now - lastHit < HIT_DEBOUNCE)
-                return false;
-            _lastCharHitTime[debounceKey] = now;
 
             // Hit SFX + Hit roll locally (host owns damage). Echo GetHit is ignored briefly.
             ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash);
 
-            Vector3 pos = Player.Instance != null
-                ? Player.Instance.transform.position
-                : c.transform.position;
-
-            float strengthMod = 1f;
-            bool canCutInHalf = false;
-            if (Player.Instance != null)
-            {
-                CharBase cb = Player.Instance.GetComponent<CharBase>();
-                if (cb != null)
-                    strengthMod = cb.strengthModifier;
-                if (!InvItemClass.isNull(Player.Instance.currentItem) && Player.Instance.currentItem.baseClass != null)
-                    canCutInHalf = Player.Instance.currentItem.baseClass.canCutInHalf;
-            }
-
-            int dmg = Mathf.Max(1, Mathf.RoundToInt((float)__instance.damage * strengthMod));
+            Vector3 pos = local != null ? local.transform.position : c.transform.position;
+            int dmg = Mathf.Max(1, (int)((float)__instance.damage * strengthMod));
             string entityName = c.name;
             if (entityName.EndsWith("(Clone)"))
                 entityName = entityName.Substring(0, entityName.Length - 7);
@@ -171,11 +172,74 @@ namespace DWMPHorde.Patches
                 TargetName = entityName,
                 TargetPosX = c.transform.position.x,
                 TargetPosY = c.transform.position.y,
-                TargetPosZ = c.transform.position.z
+                TargetPosZ = c.transform.position.z,
+                Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
             LanNetworkManager.Instance?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
+            // Vanilla's remaining Character-hit steps for a player sensor.
+            if (local != null && !InvItemClass.isNull(local.currentItem) && local.currentItem.baseClass.isMelee)
+                local.currentItem.drainDurability((float)__instance.itemDurabilityDrain * strengthMod);
+            if (__instance.adrenalineSkillActive)
+                Core.AddPrefab("FX/skills/hit_adrenalin_prefab", c.transform.position,
+                    Quaternion.Euler(0f, Random.Range(0, 360), 0f), null);
+            Core.RemovePooledPrefab("Sensors", __instance.transform);
+            if (local != null && !InvItemClass.isNull(local.currentItem))
+                local.currentItem.refresh();
+
             return false;
+        }
+
+        private static bool IsIgnored(MeleeSensor sensor, Collider col)
+        {
+            List<Collider> ignored = sensor.collidersToIgnore;
+            for (int i = 0; i < ignored.Count; i++)
+            {
+                if (ignored[i] != null && ignored[i] == col)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Vanilla's Character gate for a player melee sensor hit.</summary>
+        private static bool CanBeHit(Character c)
+        {
+            return !c.ethereal
+                && (c.alive || (c.hasPreDeath && c.health > 0f))
+                && !c.isUnderwater
+                && !c.isUnderground
+                && (c.flier == null || !c.flier.inFlight || c.flier.diving);
+        }
+
+        /// <summary>True when vanilla's non-Character branches would call alertInArea(600).</summary>
+        private static bool WouldVanillaAlert(MeleeSensor sensor, Collider col, GameObject go)
+        {
+            if (go.CompareTag("Door"))
+                return true;
+
+            Window window = go.GetComponent<Window>();
+            if (window == null && col.attachedRigidbody != null)
+                window = col.attachedRigidbody.GetComponent<Window>();
+            if (window != null && window.barricaded)
+                return true;
+
+            Item item = go.GetComponent<Item>();
+            if (item == null && col.attachedRigidbody != null)
+                item = col.attachedRigidbody.GetComponent<Item>();
+            return item != null && (item.shadowArmor != null || (item.destructible && !item.destroyed));
+        }
+
+        private static void SendMeleeAlert()
+        {
+            // Same radius / loudness as vanilla's Character.alertInArea(pos, 600f, false, 1f).
+            var soundMsg = new PlayerSoundMessage
+            {
+                Range = 600f,
+                DangerousSound = false,
+                Volume = 1f,
+                Gunshot = false
+            };
+            LanNetworkManager.Instance?.Send(NetMessageType.PlayerSound, w => soundMsg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }

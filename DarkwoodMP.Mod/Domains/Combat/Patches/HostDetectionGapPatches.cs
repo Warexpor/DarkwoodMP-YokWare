@@ -14,7 +14,6 @@ namespace DWMPHorde.Patches
     /// and sniffs the closest one. When the sniff completes, attacks whichever player
     /// triggered the sniff.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Sniffer), "Update")]
     public static class HostSnifferUpdatePatch
     {
@@ -26,6 +25,7 @@ namespace DWMPHorde.Patches
             _sniffTargetPlayerId.Clear();
         }
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(Sniffer __instance)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
@@ -44,12 +44,6 @@ namespace DWMPHorde.Patches
             if (ProxyDistanceHelper.ProxyIsFar(charComponent))
                 return true;
 
-            // Entity is busy; skip sniff logic.
-            if (charComponent.behaviour == Character.Behaviour.chasingTarget ||
-                charComponent.behaviour == Character.Behaviour.defensive ||
-                charComponent.behaviour == Character.Behaviour.escaping)
-                return false;
-
             var net = LanNetworkManager.Instance;
             if (net == null) return false;
 
@@ -66,6 +60,15 @@ namespace DWMPHorde.Patches
 
             if (__instance.canSniff)
             {
+                // Vanilla startSniffing gates: not while the entity already sees an enemy or is
+                // chasing / defending / escaping. (Vanilla only gates the START, so the sniff
+                // timer and cooldown above/below keep running while the entity is busy.)
+                if (charComponent.enemyInSight
+                    || charComponent.behaviour == Character.Behaviour.chasingTarget
+                    || charComponent.behaviour == Character.Behaviour.defensive
+                    || charComponent.behaviour == Character.Behaviour.escaping)
+                    return false;
+
                 // Check BOTH host and all proxies for proximity
                 bool hostInRange = Player.Instance != null &&
                     Core.trueDistance(__instance.transform.position, Player.Instance._transform.position) < __instance.radius;
@@ -140,6 +143,10 @@ namespace DWMPHorde.Patches
                 if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
                     return;
 
+                // Vanilla stopSniffing: the sniffed body must still be within smell range.
+                if (Core.trueDistance(__instance.transform.position, proxy.transform.position) >= __instance.radius)
+                    return;
+
                 charComponent.attackCharacter(proxy.transform);
             }
             else
@@ -147,6 +154,10 @@ namespace DWMPHorde.Patches
                 // Attack the host
                 Player host = Player.Instance;
                 if (host == null || host.invisible || host.ignoreMe)
+                    return;
+
+                // Vanilla stopSniffing: the sniffed body must still be within smell range.
+                if (Core.trueDistance(__instance.transform.position, host._transform.position) >= __instance.radius)
                     return;
 
                 // Attack the sniffed body. attackPlayer() retargets to the nearest

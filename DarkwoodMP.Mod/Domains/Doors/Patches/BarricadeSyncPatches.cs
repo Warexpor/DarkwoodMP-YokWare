@@ -30,10 +30,6 @@ namespace DWMPHorde.Patches
 
         public static void Reset()
         {
-            DoorBarricadePatch.ClearSessionState();
-            DoorGetHitPatch.ClearSessionState();
-            WindowGetHitPatch.ClearSessionState();
-            ItemGetHitPatch.ClearSessionState();
             ClientWorldMeleeRedirectHelper.Reset();
             _getHitDepth.Clear();
             ClearRemovedBoards();
@@ -167,23 +163,16 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Door), "barricade", new[] { typeof(bool) })]
     public static class DoorBarricadePatch
     {
-        private static readonly Dictionary<int, bool> _wasDestroyed = new Dictionary<int, bool>();
-
-        internal static void ClearSessionState() => _wasDestroyed.Clear();
-
+        // __state (not a static map): nested/re-entrant barricade calls cannot overwrite it.
         [HarmonyPrefix]
-        private static void Prefix(Door __instance)
+        private static void Prefix(Door __instance, out bool __state)
         {
-            _wasDestroyed[__instance.GetInstanceID()] = __instance.destroyed;
+            __state = __instance.destroyed;
         }
 
-        private static void Postfix(Door __instance, object[] __args)
+        private static void Postfix(Door __instance, object[] __args, bool __state)
         {
-            int id = __instance.GetInstanceID();
-            bool wasDestroyed;
-            if (!_wasDestroyed.TryGetValue(id, out wasDestroyed))
-                wasDestroyed = false;
-            _wasDestroyed.Remove(id);
+            bool wasDestroyed = __state;
 
             bool byPlayer = (bool)__args[0];
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
@@ -255,33 +244,34 @@ namespace DWMPHorde.Patches
     /// Uses Prefix to capture pre-damage barricade state because vanilla
     /// Door.getHit calls destroyBarricade() before Postfix, resetting barricaded.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Door), "getHit", new[] { typeof(int), typeof(Transform), typeof(bool), typeof(bool) })]
     public static class DoorGetHitPatch
     {
-        private static readonly Dictionary<int, bool> _wasBarricaded = new Dictionary<int, bool>(16);
-        private static readonly Dictionary<int, int> _barricadeHealthBefore = new Dictionary<int, int>(16);
-        private static readonly Dictionary<int, bool> _playerBarricadeBefore = new Dictionary<int, bool>(16);
-
-        internal static void ClearSessionState()
+        // Pre-hit barricade state travels in __state: a nested getHit on the same door (or a
+        // Finalizer of an inner call) cannot clear or overwrite what the outer Postfix reads.
+        private struct State
         {
-            _wasBarricaded.Clear();
-            _barricadeHealthBefore.Clear();
-            _playerBarricadeBefore.Clear();
+            public bool WasBarricaded;
+            public int BarricadeHealthBefore;
+            public bool PlayerBarricadeBefore;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix(Door __instance)
+        private static void Prefix(Door __instance, out State __state)
         {
-            int id = __instance.GetInstanceID();
-            BarricadeSyncHelpers.BeginGetHit(id);
-            _wasBarricaded[id] = __instance.barricaded;
-            _barricadeHealthBefore[id] = __instance.barricadeHealth;
-            _playerBarricadeBefore[id] = __instance.playerBarricade;
+            BarricadeSyncHelpers.BeginGetHit(__instance.GetInstanceID());
+            __state = new State
+            {
+                WasBarricaded = __instance.barricaded,
+                BarricadeHealthBefore = __instance.barricadeHealth,
+                PlayerBarricadeBefore = __instance.playerBarricade
+            };
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPostfix]
-        private static void Postfix(Door __instance, object[] __args)
+        private static void Postfix(Door __instance, object[] __args, State __state)
         {
             if (ClientRandomEventGate.PlayingHostLocationEvent
                 && !(__args.Length > 1 && __args[1] is Transform doorAtk
@@ -289,17 +279,10 @@ namespace DWMPHorde.Patches
                     && (doorAtk == Player.Instance.transform || doorAtk.IsChildOf(Player.Instance.transform))))
                 return;
 
-            int id = __instance.GetInstanceID();
-            bool wasBarricaded;
-            int barricadeHealthBefore;
-            bool playerBarricadeBefore;
-            if (!_wasBarricaded.TryGetValue(id, out wasBarricaded))
-                wasBarricaded = false;
-            if (!_barricadeHealthBefore.TryGetValue(id, out barricadeHealthBefore))
-                barricadeHealthBefore = 0;
-            if (!_playerBarricadeBefore.TryGetValue(id, out playerBarricadeBefore))
-                playerBarricadeBefore = false;
-            // Stash + EndGetHit cleared in Finalizer (covers throw before/during Postfix).
+            bool wasBarricaded = __state.WasBarricaded;
+            int barricadeHealthBefore = __state.BarricadeHealthBefore;
+            bool playerBarricadeBefore = __state.PlayerBarricadeBefore;
+            // EndGetHit runs in the Finalizer (covers throw before/during Postfix).
 
             int damage = (int)__args[0];
 
@@ -341,16 +324,13 @@ namespace DWMPHorde.Patches
         }
 
         // Finalizer (not Postfix): getHit throw after Prefix BeginGetHit leaves
-        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever + stash leak.
+        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever.
+        [HarmonyPriority(Priority.Last)]
         [HarmonyFinalizer]
         private static void Finalizer(Door __instance)
         {
             if (__instance == null) return;
-            int id = __instance.GetInstanceID();
-            BarricadeSyncHelpers.EndGetHit(id);
-            _wasBarricaded.Remove(id);
-            _barricadeHealthBefore.Remove(id);
-            _playerBarricadeBefore.Remove(id);
+            BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
         }
     }
 
@@ -359,35 +339,36 @@ namespace DWMPHorde.Patches
     /// after getHit is called (including destruction when health reaches zero).
     /// Uses Prefix because vanilla Window.getHit calls destroyBarricade() before Postfix.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Window), "getHit", new[] { typeof(int), typeof(Transform), typeof(bool) })]
     public static class WindowGetHitPatch
     {
-        private static readonly Dictionary<int, bool> _wasBarricaded = new Dictionary<int, bool>(16);
-        private static readonly Dictionary<int, int> _barricadeHealthBefore = new Dictionary<int, int>(16);
-        private static readonly Dictionary<int, bool> _playerBarricadeBefore = new Dictionary<int, bool>(16);
-
-        internal static void ClearSessionState()
+        // Pre-hit barricade state travels in __state (nested getHit safe, nothing static to leak).
+        private struct State
         {
-            _wasBarricaded.Clear();
-            _barricadeHealthBefore.Clear();
-            _playerBarricadeBefore.Clear();
+            public bool WasBarricaded;
+            public int BarricadeHealthBefore;
+            public bool PlayerBarricadeBefore;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix(Window __instance)
+        private static void Prefix(Window __instance, out State __state)
         {
             int id = __instance.GetInstanceID();
             BarricadeSyncHelpers.BeginGetHit(id);
-            _wasBarricaded[id] = __instance.barricaded;
-            _barricadeHealthBefore[id] = __instance.barricadeHealth;
-            _playerBarricadeBefore[id] = __instance.playerBarricade;
+            __state = new State
+            {
+                WasBarricaded = __instance.barricaded,
+                BarricadeHealthBefore = __instance.barricadeHealth,
+                PlayerBarricadeBefore = __instance.playerBarricade
+            };
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[Barr_Win] Prefix id={id} barricaded={__instance.barricaded} hp={__instance.barricadeHealth}");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPostfix]
-        private static void Postfix(Window __instance, object[] __args)
+        private static void Postfix(Window __instance, object[] __args, State __state)
         {
             if (ClientRandomEventGate.PlayingHostLocationEvent
                 && !(__args.Length > 1 && __args[1] is Transform winAtk
@@ -398,16 +379,10 @@ namespace DWMPHorde.Patches
             int damage = (int)__args[0];
             int id = __instance.GetInstanceID();
 
-            bool wasBarricaded;
-            int barricadeHealthBefore;
-            bool playerBarricadeBefore;
-            if (!_wasBarricaded.TryGetValue(id, out wasBarricaded))
-                wasBarricaded = false;
-            if (!_barricadeHealthBefore.TryGetValue(id, out barricadeHealthBefore))
-                barricadeHealthBefore = 0;
-            if (!_playerBarricadeBefore.TryGetValue(id, out playerBarricadeBefore))
-                playerBarricadeBefore = false;
-            // Stash + EndGetHit cleared in Finalizer (covers throw before/during Postfix).
+            bool wasBarricaded = __state.WasBarricaded;
+            int barricadeHealthBefore = __state.BarricadeHealthBefore;
+            bool playerBarricadeBefore = __state.PlayerBarricadeBefore;
+            // EndGetHit runs in the Finalizer (covers throw before/during Postfix).
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
@@ -431,16 +406,13 @@ namespace DWMPHorde.Patches
         }
 
         // Finalizer (not Postfix): getHit throw after Prefix BeginGetHit leaves
-        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever + stash leak.
+        // IsInsideGetHit sticky → destroyBarricade sync suppressed forever.
+        [HarmonyPriority(Priority.Last)]
         [HarmonyFinalizer]
         private static void Finalizer(Window __instance)
         {
             if (__instance == null) return;
-            int id = __instance.GetInstanceID();
-            BarricadeSyncHelpers.EndGetHit(id);
-            _wasBarricaded.Remove(id);
-            _barricadeHealthBefore.Remove(id);
-            _playerBarricadeBefore.Remove(id);
+            BarricadeSyncHelpers.EndGetHit(__instance.GetInstanceID());
         }
     }
 
@@ -449,25 +421,23 @@ namespace DWMPHorde.Patches
     /// Captures the position in a Prefix because Item.getHit → die() may move
     /// the transform before the Postfix runs.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Item), "getHit", new[] { typeof(int), typeof(Transform), typeof(bool) })]
     public static class ItemGetHitPatch
     {
-        private static readonly Dictionary<int, Vector3> _prePosByItem = new Dictionary<int, Vector3>(16);
-
-        internal static void ClearSessionState() => _prePosByItem.Clear();
-
+        // __state (not a static map): a nested getHit on the same item cannot overwrite it and
+        // nothing accumulates offline.
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix(Item __instance)
+        private static void Prefix(Item __instance, out Vector3 __state)
         {
-            _prePosByItem[__instance.GetInstanceID()] = __instance.transform.position;
+            __state = __instance.transform.position;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPostfix]
-        private static void Postfix(Item __instance, object[] __args)
+        private static void Postfix(Item __instance, object[] __args, Vector3 __state)
         {
             int damage = (int)__args[0];
-            int itemId = __instance.GetInstanceID();
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             // Match Door/Window: allow host MeleeWorldHit apply (IsApplyingRemoteState)
@@ -480,9 +450,7 @@ namespace DWMPHorde.Patches
             if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
                 return;
 
-            if (!_prePosByItem.TryGetValue(itemId, out Vector3 pos))
-                pos = __instance.transform.position;
-            _prePosByItem.Remove(itemId);
+            Vector3 pos = __state;
             bool destroyed = __instance.destroyed;
             int health = __instance.health;
 
