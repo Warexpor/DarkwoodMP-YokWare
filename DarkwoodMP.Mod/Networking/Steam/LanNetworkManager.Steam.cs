@@ -171,6 +171,8 @@ namespace DWMPHorde.Networking
         /// </param>
         public void StartHostSteam(ulong reuseLobbyId = 0)
         {
+            // Half-applied patches would sync half the game: refuse to start a session.
+            if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             // The kept lobby is not an active transport (StopNetwork(keepSteamLobby) shut the
             // sockets), so this StopNetwork leaves it alone.
             StopNetwork();
@@ -212,6 +214,8 @@ namespace DWMPHorde.Networking
         /// <summary>Client: join a YokWare Steam lobby by id (ulong or steam://joinlobby/…).</summary>
         public void ConnectSteam(string lobbyIdRaw)
         {
+            // Half-applied patches would sync half the game: refuse to start a session.
+            if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             if (!Steam.TryParseLobbyId(lobbyIdRaw, out CSteamID lobbyId))
             {
                 StatusText = "Invalid Steam lobby id";

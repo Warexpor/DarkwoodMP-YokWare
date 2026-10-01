@@ -29,6 +29,13 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, PendingAnim> _pendingAnim =
             new Dictionary<string, PendingAnim>(32);
 
+        /// <summary>Session end: pending visuals belong to the host world that sent them.</summary>
+        internal static void ResetPendingVisuals()
+        {
+            _pendingPortrait.Clear();
+            _pendingAnim.Clear();
+        }
+
         /// <summary>
         /// Host: fill sparse portrait / anim-library trailers for ReputationBulk from
         /// live NPC bodies (mirrors live ReputationSync 0.8.96/97).

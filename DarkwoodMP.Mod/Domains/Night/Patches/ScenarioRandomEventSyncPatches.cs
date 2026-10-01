@@ -7,6 +7,13 @@ namespace DWMPHorde.Patches
     {
         public static int PendingEventIndex = -1;
         public static NightScenario PendingScenario;
+
+        /// <summary>Session end: a host event never consumed must not fire in the next world.</summary>
+        public static void Reset()
+        {
+            PendingEventIndex = -1;
+            PendingScenario = null;
+        }
     }
 
     /// <summary>

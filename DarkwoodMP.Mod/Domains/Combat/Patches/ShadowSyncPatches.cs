@@ -59,14 +59,11 @@ namespace DWMPHorde.Patches
     /// Host: intercept shadow prefab spawning — assign id, owner, sync to clients.
     /// No multi-proxy fan-out (NightShadows is a per-owner curse).
     /// </summary>
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class ShadowCaptureOnSpawnPatch
     {
-        [HarmonyPriority(Priority.Last)]
-        private static void Postfix(GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, string prefab)
         {
-            string prefab = (string)__args[0];
-
             if (__result == null) return;
             if (prefab != "characters/fakechars/shadow" && prefab != "characters/fakechars/shadow_immortal")
                 return;

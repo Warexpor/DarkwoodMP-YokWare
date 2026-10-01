@@ -16,7 +16,7 @@ namespace DWMPHorde.Patches
     public static class GameEventPersonalActorPatch
     {
         /// <summary>Set while client ApplyGameEventsFired runs for a non-local actor.</summary>
-        public static bool SuppressPersonalForLocalPlayer;
+        public static bool SuppressPersonalForLocalPlayer; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         private static bool Prefix(GameEvent __instance, ref IEnumerator __result)
         {

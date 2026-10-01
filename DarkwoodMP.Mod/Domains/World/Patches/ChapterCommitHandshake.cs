@@ -158,6 +158,17 @@ namespace DWMPHorde.Patches
         /// <summary>Client: the Begin of the package now being received carries this pass.</summary>
         internal static void ClientNoteSharePass(int pass) => _clientSharePass = pass;
 
+        /// <summary>
+        /// Session end. Safe across the chapter reload: every pass is begun, acked and closed
+        /// (ChapterLoadGo) before the teardown StopNetwork, and the next session's first share
+        /// opens a fresh pass on both sides; acks cannot cross sessions (new peers).
+        /// </summary>
+        internal static void ResetSharePasses()
+        {
+            _hostSharePass = 0;
+            _clientSharePass = 0;
+        }
+
         /// <summary>Client: a newer share superseded the package held (or being verified) for the go.</summary>
         internal static void ClientShareSuperseded()
         {

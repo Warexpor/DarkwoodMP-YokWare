@@ -11,7 +11,7 @@ namespace DWMPHorde.Networking
     /// </summary>
     internal static class WorldSaveGuards
     {
-        private static bool _quitHooked;
+        private static bool _quitHooked; // process-scoped: one-time Application.quitting hook
 
         /// <summary>The application is shutting down: scene objects are being torn down under us.</summary>
         internal static bool IsQuitting { get; private set; }

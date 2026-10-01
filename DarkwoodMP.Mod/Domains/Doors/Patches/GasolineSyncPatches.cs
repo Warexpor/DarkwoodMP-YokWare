@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
     /// String AddPrefab path for gasoline trails (pour can + network SpawnGasTrail).
     /// Host only broadcasts. Client local spawns are blocked (host owns layout).
     /// </summary>
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class GasolineTrailSpawnPatch
     {
         private static readonly List<Vector3> _pendingTrails = new List<Vector3>(32);
@@ -69,16 +69,13 @@ namespace DWMPHorde.Patches
         /// (Forwardable), and place a local visual so the pourer sees puddles without waiting.
         /// Host scatter / molotov secondaries stay host-owned (Object overload Prefix).
         /// </summary>
-        [HarmonyPriority(Priority.First)]
-        private static bool Prefix(object[] __args)
+        internal static bool AllowSpawn(string prefab, Vector3 position)
         {
-            string prefab = __args != null && __args.Length > 0 ? __args[0] as string : null;
             if (!GasSyncPolicy.IsGasolineTrailPath(prefab))
                 return true;
             if (!GasSyncPolicy.ClientMustNotMutateWorld())
                 return true;
 
-            Vector3 position = __args.Length > 1 ? (Vector3)__args[1] : Vector3.zero;
             var net = ModRuntime.Network as LanNetworkManager;
             if (net != null && net.IsConnected)
             {
@@ -96,11 +93,8 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        [HarmonyPriority(Priority.First)]
-        private static void Postfix(ref GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, string prefab, Vector3 position)
         {
-            string prefab = (string)__args[0];
-            Vector3 position = (Vector3)__args[1];
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (ModRuntime.Network.Role != NetworkRole.Host) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
@@ -181,13 +175,11 @@ namespace DWMPHorde.Patches
     /// Object AddPrefab overload — gas bomb <c>spawnObjects()</c> uses Object prefab, not string path.
     /// Host relays positions via GasTrail (same channel as string path). Client never local-scatters.
     /// </summary>
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(Object), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabObjectPatch"/> (one detour for all features).</remarks>
     public static class GasolineTrailObjectSpawnPatch
     {
-        [HarmonyPriority(Priority.First)]
-        private static bool Prefix(object[] __args)
+        internal static bool AllowSpawn(Object prefab)
         {
-            Object prefab = __args != null && __args.Length > 0 ? __args[0] as Object : null;
             if (!GasSyncPolicy.IsGasolineTrailPrefab(prefab))
                 return true;
             if (!GasSyncPolicy.ClientMustNotMutateWorld())
@@ -195,11 +187,8 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        [HarmonyPriority(Priority.First)]
-        private static void Postfix(ref GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, Object prefab, Vector3 position)
         {
-            Object prefab = (Object)__args[0];
-            Vector3 position = (Vector3)__args[1];
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (ModRuntime.Network.Role != NetworkRole.Host) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;

@@ -10,6 +10,8 @@ namespace DWMPHorde.Logging
     /// Co-op frame cost probe for Host and Client. Emits a periodic Event line while
     /// connected so dual-box FPS bugs show in LogOutput without Trace spam.
     /// Times are milliseconds accumulated between reports.
+    /// Only runs under LogPreset Dev/Trace or Debug.PerfProbe; otherwise every entry point
+    /// is a single bool check (SetActive refuses to arm it).
     /// </summary>
     public static partial class CoopPerfProbe
     {
@@ -70,8 +72,23 @@ namespace DWMPHorde.Logging
 
         public static bool IsActive => _active;
 
+        /// <summary>Probe allowed by config: Dev/Trace preset or the PerfProbe flag.</summary>
+        public static bool IsEnabledByConfig
+        {
+            get
+            {
+                LogPreset preset = ModLog.CurrentPreset;
+                return preset == LogPreset.Dev || preset == LogPreset.Trace
+                    || Config.ModConfig.IsPerfProbe;
+            }
+        }
+
         public static void SetActive(bool active, NetworkRole role = NetworkRole.Offline)
         {
+            if (active && !IsEnabledByConfig)
+                active = false;
+            if (!active && !_active)
+                return; // already idle: nothing to reset or log
             string tag = role == NetworkRole.Host ? "Host"
                 : role == NetworkRole.Client ? "Client" : "?";
             if (_active == active && _roleTag == tag) return;

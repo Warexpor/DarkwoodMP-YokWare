@@ -3,6 +3,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -109,6 +110,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Play(string audioID, Transform parentObj)</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "Play", typeof(string), typeof(Transform))]
     public static class AudioPlayStrTrans
     {
@@ -152,6 +154,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Play(string audioID, Transform parentObj, float volume, float delay, float startTime)</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "Play", typeof(string), typeof(Transform), typeof(float), typeof(float), typeof(float))]
     public static class AudioPlayStrTransFloatFloatFloat
     {
@@ -192,6 +195,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Play(string audioID, Vector3 worldPosition, Transform parentObj = null)</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "Play", typeof(string), typeof(Vector3), typeof(Transform))]
     public static class AudioPlayStrVecTrans
     {
@@ -239,6 +243,7 @@ namespace DWMPHorde.Patches
     /// Item.openInventory. Playing here too doubled loot sound on the client.
     /// (initiateOpenCloseInventory → Player.openInventory → this patch + Item.Play).
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(Player), "openInventory")]
     public static class PlayerOpenInventorySoundPatch
     {
@@ -260,6 +265,7 @@ namespace DWMPHorde.Patches
     /// Play(string audioID). Only allowlisted player one-shots, such as molotov, are forwarded.
     /// Blanket forwarding previously spammed ambient/music helpers over the LAN.
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "Play", typeof(string))]
     public static class AudioPlayStrOnly
     {

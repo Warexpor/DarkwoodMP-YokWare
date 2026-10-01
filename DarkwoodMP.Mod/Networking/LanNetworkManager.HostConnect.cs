@@ -37,6 +37,8 @@ namespace DWMPHorde.Networking
 
         public void StartHost(int port)
         {
+            // Half-applied patches would sync half the game: refuse to start a session.
+            if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             StopNetwork();
             _role = NetworkRole.Host;
             _localPlayerId = 1;
@@ -64,6 +66,8 @@ namespace DWMPHorde.Networking
 
         public void ConnectToHost(string address, int port)
         {
+            // Half-applied patches would sync half the game: refuse to start a session.
+            if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             LastClientSteamLobbyId = 0;
             // Phase-3 / migration: already in chapter with a live Player. Full StopNetwork
             // runs NetworkResetRegistry (entity interp reset + CharacterTracker scene scan)
@@ -218,6 +222,6 @@ namespace DWMPHorde.Networking
         /// <summary>GUIDs of dropped items that have already been picked up (host-authoritative).
         /// Prevents item multiplication when both players pick up the same GUID
         /// network message is processed.</summary>
-        internal static readonly HashSet<string> _consumedDropGuids = new HashSet<string>();
+        internal static readonly HashSet<string> _consumedDropGuids = new HashSet<string>(); // reset-in: ResetConsumedDropGuids
     }
 }

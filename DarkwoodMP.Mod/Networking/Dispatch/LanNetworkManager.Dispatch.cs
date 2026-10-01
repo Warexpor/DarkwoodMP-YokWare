@@ -18,7 +18,7 @@ namespace DWMPHorde.Networking
         /// mid-load) the other peers should still get them. Every other forwardable type is a world
         /// mutation the host must have applied before telling anyone else.
         /// </summary>
-        private static readonly HashSet<NetMessageType> _senderAuthoritativeRelay = new HashSet<NetMessageType>
+        private static readonly HashSet<NetMessageType> _senderAuthoritativeRelay = new HashSet<NetMessageType> // process-scoped: constant type set
         {
             NetMessageType.PlayerLightState,
             NetMessageType.PlayerAnimation,

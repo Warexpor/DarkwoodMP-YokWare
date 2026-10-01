@@ -338,7 +338,7 @@ namespace DWMPHorde.Patches
         // This avoids pooling issues with GetInstanceID().
         private const float HIT_DEBOUNCE = 0.2f;
         internal static readonly Dictionary<long, float> _lastCharHitTime = new Dictionary<long, float>();
-        private static readonly List<long> _staleHitKeys = new List<long>(8);
+        private static readonly List<long> _staleHitKeys = new List<long>(8); // process-scoped: scratch buffer, cleared before each use
 
         [HarmonyPriority(Priority.Last)]
         private static bool Prefix(MeleeSensor __instance, object[] __args)

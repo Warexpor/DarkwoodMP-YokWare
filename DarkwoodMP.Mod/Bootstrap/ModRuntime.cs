@@ -1,4 +1,5 @@
 using DWMPHorde.Config;
+using DWMPHorde.Harmony;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Patches;
@@ -42,6 +43,38 @@ namespace DWMPHorde
         private static bool _running;
         private static HarmonyLib.Harmony _harmony;
         private static GameObject _runtimeRoot;
+        private static readonly System.Collections.Generic.List<PatchFailure> _patchFailures =
+            new System.Collections.Generic.List<PatchFailure>(); // process-scoped
+
+        /// <summary>Patch classes that failed to apply at startup (critical and optional).</summary>
+        public static System.Collections.Generic.IReadOnlyList<PatchFailure> PatchFailures => _patchFailures;
+
+        /// <summary>
+        /// False until patching ran, and whenever a critical (non-<see cref="OptionalPatchAttribute"/>)
+        /// patch class failed. Host/Join must refuse to start a session in that state.
+        /// </summary>
+        public static bool PatchingHealthy { get; private set; }
+
+        /// <summary>Short status line for menus/logs; empty when every patch applied.</summary>
+        public static string PatchStatusText { get; private set; } = "";
+
+        /// <summary>
+        /// Session-start gate. Returns false (with a user-facing reason) when critical
+        /// patches are missing, so hosting/joining with a half-patched game is refused.
+        /// </summary>
+        public static bool CanStartSession(out string reason)
+        {
+            if (PatchingHealthy)
+            {
+                reason = null;
+                return true;
+            }
+            reason = string.IsNullOrEmpty(PatchStatusText)
+                ? "Multiplayer disabled: game patches were not applied (see log)."
+                : PatchStatusText;
+            ModLog.Warn(LogCat.Core, "Session start refused: " + reason);
+            return false;
+        }
 
         /// <summary>
         /// Called by loader entry once on plugin load.
@@ -82,14 +115,14 @@ namespace DWMPHorde
             try
             {
                 _harmony = new HarmonyLib.Harmony(PluginInfo.Guid);
-                _harmony.PatchAll();
+                ApplyPatches();
             }
             catch (System.Exception ex)
             {
-                string msg = "FATAL: Harmony PatchAll failed — co-op sync patches are incomplete, "
-                    + "do not host or join with this install: " + ex;
-                Log?.LogError(msg);
-                ModLog.Error(LogCat.Core, "FATAL: Harmony PatchAll failed", ex);
+                PatchingHealthy = false;
+                PatchStatusText = "Multiplayer disabled: Harmony patching crashed (see log).";
+                Log?.LogError("FATAL: Harmony patching failed: " + ex);
+                ModLog.Error(LogCat.Core, "FATAL: Harmony patching failed", ex);
             }
 
             try
@@ -105,6 +138,34 @@ namespace DWMPHorde
                 Log?.LogError("ModRuntime.Start boot failed: " + ex);
                 ModLog.Error(LogCat.Core, "ModRuntime.Start boot failed", ex);
             }
+        }
+
+        /// <summary>
+        /// Patches one class at a time (a single PatchAll stops at the first bad class and
+        /// leaves every later one unapplied) and records which classes failed.
+        /// </summary>
+        private static void ApplyPatches()
+        {
+            _patchFailures.Clear();
+            PatchingHealthy = false;
+            var failures = PatchApplier.ApplyAll(_harmony, typeof(ModRuntime).Assembly, out int applied);
+            _patchFailures.AddRange(failures);
+            int critical = 0;
+            for (int i = 0; i < failures.Count; i++)
+                if (!failures[i].Optional) critical++;
+            PatchingHealthy = critical == 0;
+            if (critical > 0)
+            {
+                PatchStatusText = "Multiplayer disabled: " + critical + " critical game patch(es) failed"
+                    + " (mod/game version mismatch?). See log.";
+                Log?.LogError("FATAL: " + PatchStatusText + " Hosting and joining are blocked.");
+            }
+            else if (failures.Count > 0)
+                PatchStatusText = failures.Count + " cosmetic patch(es) failed; multiplayer still allowed.";
+            else
+                PatchStatusText = "";
+            ModLog.Event(LogCat.Core, "Harmony: " + applied + " patch classes applied, "
+                + critical + " critical / " + (failures.Count - critical) + " optional failures");
         }
 
         private static void RegisterNetworkResets()
@@ -191,6 +252,28 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(NetLogThrottle.Reset);
             NetworkResetRegistry.Register(() =>
                 (Network as LanNetworkManager)?.DialogOutcomeApplyHandlers?.ClearPendingApply());
+
+            // Session caches / pending state in patch classes (StaticStateResetTests guards these).
+            NetworkResetRegistry.Register(CanSeeComponentCache.Reset);
+            NetworkResetRegistry.Register(HostGridOccupancy.ResetCaches);
+            NetworkResetRegistry.Register(NpcAttackedIdSync.ResetPendingVisuals);
+            NetworkResetRegistry.Register(WorldBurnSyncHelpers.Reset);
+            NetworkResetRegistry.Register(ThrownItemCombatDespawnSyncPatch.Reset);
+            NetworkResetRegistry.Register(ChapterTransitionHelpers.ResetSharePasses);
+            NetworkResetRegistry.Register(ClientTimeFixedUpdateSuppressPatch.Reset);
+            NetworkResetRegistry.Register(HitscanBloodPatch.Reset);
+            NetworkResetRegistry.Register(ExplosionSpawnFlagTracker.Reset);
+            NetworkResetRegistry.Register(LightStateHelper.ResetTxSignature);
+            NetworkResetRegistry.Register(MorningRewardFanOutPatch.Reset);
+            NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
+            NetworkResetRegistry.Register(ResetStaticSessionFlags);
+        }
+
+        /// <summary>Session flags on LanNetworkManager that no handler clears on stop.</summary>
+        private static void ResetStaticSessionFlags()
+        {
+            // A share/save coroutine torn down mid-run would otherwise block every later save.
+            LanNetworkManager._isRemoteSaveInProgress = false;
         }
 
         /// <summary>

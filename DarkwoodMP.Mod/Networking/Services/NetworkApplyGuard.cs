@@ -18,8 +18,8 @@ namespace DWMPHorde.Networking
     internal sealed class NetworkApplyGuard : IDisposable
     {
         private static int _depth;
-        private static bool _outerPrevIsApplying;
-        private static bool _outerPrevTraverseHack;
+        private static bool _outerPrevIsApplying; // process-scoped: call-scoped, unwound by its Finalizer/finally
+        private static bool _outerPrevTraverseHack; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         private readonly bool _entered;
 

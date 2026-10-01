@@ -34,10 +34,26 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<int, float> _stallSince =
             new Dictionary<int, float>(64);
 
+        /// <summary>Components looked up once per projectile spawn instead of every FixedUpdate.</summary>
+        private struct Parts
+        {
+            public Rigidbody Body;
+            public Collider Collider;
+            public ThrownItem Thrown;
+            public Bullet Bullet;
+        }
+
+        private const int MaxTrackedParts = 2048;
+        private static readonly Dictionary<int, Parts> _parts = new Dictionary<int, Parts>(64);
+
+        private static readonly AccessTools.FieldRef<FastProjectile, float> SweepDistance =
+            AccessTools.FieldRefAccess<FastProjectile, float>("distance");
+
         public static void Reset()
         {
             _spawnedAt.Clear();
             _stallSince.Clear();
+            _parts.Clear();
         }
 
         /// <summary>Remove tracking for a projectile id (called on despawn/destroy).</summary>
@@ -45,6 +61,25 @@ namespace DWMPHorde.Patches
         {
             _spawnedAt.Remove(id);
             _stallSince.Remove(id);
+            _parts.Remove(id);
+        }
+
+        private static Parts PartsOf(FastProjectile fp, int id)
+        {
+            if (_parts.TryGetValue(id, out Parts parts))
+                return parts;
+            // Non-pooled projectiles destroyed without onCollide never call ResetEntry.
+            if (_parts.Count >= MaxTrackedParts)
+                _parts.Clear();
+            parts = new Parts
+            {
+                Body = fp.GetComponent<Rigidbody>(),
+                Collider = fp.GetComponent<Collider>(),
+                Thrown = fp.GetComponent<ThrownItem>(),
+                Bullet = fp.GetComponent<Bullet>()
+            };
+            _parts[id] = parts;
+            return parts;
         }
 
         private static bool Prefix(FastProjectile __instance)
@@ -66,7 +101,8 @@ namespace DWMPHorde.Patches
                 _stallSince.Remove(id);
             }
 
-            Rigidbody rb = __instance.GetComponent<Rigidbody>();
+            Parts parts = PartsOf(__instance, id);
+            Rigidbody rb = parts.Body;
             float speed = rb != null ? rb.velocity.magnitude : 0f;
 
             // Velocity-scaled sweep: reliable while flying, tiny when stopped.
@@ -82,7 +118,7 @@ namespace DWMPHorde.Patches
                 float extents = 0.5f;
                 try
                 {
-                    Collider col = __instance.GetComponent<Collider>();
+                    Collider col = parts.Collider;
                     if (col != null)
                         extents = Mathf.Max(0.15f, col.bounds.extents.y * 2f);
                 }
@@ -93,17 +129,17 @@ namespace DWMPHorde.Patches
                     _stallSince[id] = now;
             }
 
-            Traverse.Create(__instance).Field("distance").SetValue(dist);
+            SweepDistance(__instance) = dist;
 
             // ThrownItem keeps its own lifetime; only cull Bullet pellets / FX projectiles.
-            ThrownItem thrown = __instance.GetComponent<ThrownItem>();
+            ThrownItem thrown = parts.Thrown;
             if (thrown != null)
             {
                 TraverseHack.IsInsideFastProjectileRaycast = true;
                 return true;
             }
 
-            Bullet bullet = __instance.GetComponent<Bullet>();
+            Bullet bullet = parts.Bullet;
             float maxAge = FallbackMaxAgeSec;
             if (bullet != null && bullet.longevity > 0.05f)
                 maxAge = Mathf.Max(bullet.longevity + 0.25f, 0.5f);
@@ -131,11 +167,6 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix()
-        {
-            TraverseHack.IsInsideFastProjectileRaycast = false;
-        }
-
         // FixedUpdate can throw; stuck true makes HitscanImpactSyncPatch skip forever.
         private static void Finalizer()
         {
@@ -145,9 +176,7 @@ namespace DWMPHorde.Patches
         private static void DespawnProjectile(FastProjectile fp)
         {
             if (fp == null) return;
-            int id = fp.GetInstanceID();
-            _spawnedAt.Remove(id);
-            _stallSince.Remove(id);
+            ResetEntry(fp.GetInstanceID());
 
             // Only an instance vanilla is about to Destroy needs `active` cleared (Destroy is
             // deferred, FixedUpdate could still sweep once). A pooled instance keeps its serialized

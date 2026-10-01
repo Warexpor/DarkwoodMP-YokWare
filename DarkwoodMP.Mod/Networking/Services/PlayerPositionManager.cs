@@ -143,6 +143,7 @@ namespace DWMPHorde.Networking
         public static void Clear()
         {
             _remotePlayers.Clear();
+            _hostPos = Vector3.zero;
         }
     }
 }

@@ -75,8 +75,8 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Rain), "onUpdateTime")]
     public static class RainHostLightningSyncPatch
     {
-        private static float _lightningBefore;
-        private static bool _wasRaining;
+        private static float _lightningBefore; // process-scoped: Prefix/Postfix pair of one call
+        private static bool _wasRaining; // process-scoped: Prefix/Postfix pair of one call
 
         private static void Prefix(Rain __instance)
         {

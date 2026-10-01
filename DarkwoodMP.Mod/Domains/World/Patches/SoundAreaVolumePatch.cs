@@ -2,6 +2,7 @@ using DWMPHorde.Audio;
 using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -12,6 +13,7 @@ namespace DWMPHorde.Patches
     /// plays it and the LOUDEST candidate of the frame wins (thisFrameVolume is reset in
     /// LateUpdate). Same formula as vanilla Update, so with the listener on the body this is a no-op.
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(SoundArea), "Update")]
     public static class SoundAreaUpdatePatch
     {
@@ -49,6 +51,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Resets SoundArea.thisFrameVolume so the next Update recalculates.</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(SoundArea), "LateUpdate")]
     public static class SoundAreaLateUpdatePatch
     {

@@ -315,8 +315,8 @@ namespace DWMPHorde.Networking
             return preferredId;
         }
 
-        private static string _cachedLanIPv4;
-        private static float _cachedLanIPv4At = -999f;
+        private static string _cachedLanIPv4; // process-scoped: short TTL LAN address cache
+        private static float _cachedLanIPv4At = -999f; // process-scoped: short TTL LAN address cache
         private const float LanIPv4CacheSec = 60f;
 
         /// <summary>

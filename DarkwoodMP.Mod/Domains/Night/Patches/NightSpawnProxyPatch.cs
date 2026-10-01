@@ -20,7 +20,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawner), "getFreeSpotAround", new[] { typeof(GameObject), typeof(float), typeof(bool), typeof(int) })]
     public static class NightSpawnGetFreeSpotPatch
     {
-        internal static bool InsideNightSpawn;
+        internal static bool InsideNightSpawn; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         [HarmonyPriority(Priority.First)]
         private static void Prefix(CharacterSpawner __instance, object[] __args)

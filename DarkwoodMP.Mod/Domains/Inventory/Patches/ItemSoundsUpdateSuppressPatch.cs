@@ -23,19 +23,36 @@ namespace DWMPHorde.Patches
         private const float AlertIntervalSec = 0.5f;
         private static readonly Dictionary<int, float> _lastAlertTime = new Dictionary<int, float>(32);
 
-        public static void Reset() => _lastAlertTime.Clear();
+        /// <summary>ItemSounds instance id → GameObject name (the name getter allocates every call).</summary>
+        private static readonly Dictionary<int, string> _nameById = new Dictionary<int, string>(256);
+        private const int MaxCachedNames = 8192;
+
+        public static void Reset()
+        {
+            _lastAlertTime.Clear();
+            _nameById.Clear();
+        }
 
         private static bool Prefix(ItemSounds __instance)
         {
-            if (__instance == null || __instance.gameObject == null)
-                return true;
-
             // Single-player / not connected: never suppress.
             var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
 
-            string name = __instance.gameObject.name;
+            if (__instance == null)
+                return true;
+
+            int id = __instance.GetInstanceID();
+            if (!_nameById.TryGetValue(id, out string name))
+            {
+                if (__instance.gameObject == null)
+                    return true;
+                if (_nameById.Count >= MaxCachedNames)
+                    _nameById.Clear();
+                name = __instance.gameObject.name;
+                _nameById[id] = name;
+            }
             if (!ItemMovingSoundHelper.IsRemoteScrape(name))
                 return true;
 

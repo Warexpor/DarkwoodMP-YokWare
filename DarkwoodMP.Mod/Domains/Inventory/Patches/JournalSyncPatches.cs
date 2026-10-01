@@ -31,9 +31,9 @@ namespace DWMPHorde.Patches
             SendJournalItem(JournalItemKind.Remove, type);
         }
 
-        private static HashSet<string> _snapKeys;
-        private static HashSet<string> _snapNotes;
-        private static HashSet<string> _snapItems;
+        private static HashSet<string> _snapKeys; // process-scoped: Prefix/Postfix pair of one call
+        private static HashSet<string> _snapNotes; // process-scoped: Prefix/Postfix pair of one call
+        private static HashSet<string> _snapItems; // process-scoped: Prefix/Postfix pair of one call
 
         /// <summary>Host world-only apply: detect journal dict removes and fan them out.</summary>
         internal static void BeginWorldApplyDiff()
@@ -278,7 +278,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CraftingRecipes), "doCraft")]
     public static class WorkbenchUpgradePatch
     {
-        private static int _levelBeforeCraft = -1;
+        private static int _levelBeforeCraft = -1; // process-scoped: Prefix/Postfix pair of one call
 
         private static void Prefix()
         {
