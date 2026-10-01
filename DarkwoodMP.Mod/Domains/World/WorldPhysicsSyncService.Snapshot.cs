@@ -317,15 +317,12 @@ namespace DWMPHorde.Sync
                     _lastPos.Remove(k);
                 }
 
-                // Purge Vector3-keyed state dicts (doors, traps, generators).
-                // These track "last known state" within scan range; clearing them
-                // Periodic cleanup is safe because the next scan redetects objects.
-                // and re-populate. Prevents unbounded growth when objects are
-                // destroyed or go out of range permanently.
-                _lastDoorOpen.Clear();
-                _lastTrapTriggered.Clear();
-                _lastGeneratorOn.Clear();
-                _lastGeneratorFuel.Clear();
+                // Vector3-keyed "last sent state" for doors, traps and generators: forget keys
+                // that left range or were destroyed, and re-send a few long-unsent ones per pass.
+                PruneStateKeys(_doorKeyAge, _lastDoorOpen, null, now2);
+                PruneStateKeys(_trapKeyAge, _lastTrapTriggered, null, now2);
+                PruneStateKeys(_generatorKeyAge, _lastGeneratorOn, _lastGeneratorFuel, now2);
+                PruneTrapResultCache(now2);
             }
 
             if (_objects.Count == 0 && _doors.Count == 0 && _traps.Count == 0 && _generators.Count == 0)

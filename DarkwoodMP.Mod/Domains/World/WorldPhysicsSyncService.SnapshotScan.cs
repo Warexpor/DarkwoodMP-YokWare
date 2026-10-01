@@ -61,6 +61,7 @@ namespace DWMPHorde.Sync
 
                 bool stateChanged = !_lastDoorOpen.TryGetValue(key, out bool wasOpened) || wasOpened != opened;
                 bool isMoving = opened && angVel.sqrMagnitude > 0.01f;
+                NoteStateKey(_doorKeyAge, key, stateChanged || isMoving);
 
                 if (stateChanged || isMoving)
                 {
@@ -106,6 +107,7 @@ namespace DWMPHorde.Sync
                 Vector3 key = new Vector3((float)Math.Round(pos.x, 1), (float)Math.Round(pos.y, 1), (float)Math.Round(pos.z, 1));
                 bool triggered = ReadTrapTriggered(go);
                 bool changed = !_lastTrapTriggered.TryGetValue(key, out bool was) || was != triggered;
+                NoteStateKey(_trapKeyAge, key, changed);
                 if (changed)
                 {
                     _lastTrapTriggered[key] = triggered;
@@ -199,6 +201,7 @@ namespace DWMPHorde.Sync
                         fuelChanged = true;
                 }
 
+                NoteStateKey(_generatorKeyAge, key, onChanged || fuelChanged);
                 if (onChanged || fuelChanged)
                 {
                     _lastGeneratorOn[key] = isOn;
@@ -240,25 +243,28 @@ namespace DWMPHorde.Sync
 
             int id = root.GetInstanceID();
             if (_knownTraps.ContainsKey(id)) return;
+            float now = Time.time;
 
             // Already classified
-            if (_trapResultCache.TryGetValue(id, out bool knownIsTrap))
+            if (_trapResultCache.TryGetValue(id, out TrapClassification known))
             {
-                if (knownIsTrap && !_knownTraps.ContainsKey(id))
+                known.LastSeen = now;
+                _trapResultCache[id] = known;
+                if (known.IsTrap && !_knownTraps.ContainsKey(id))
                     _knownTraps[id] = root;
                 return;
             }
 
             if (!TrapNetworkId.IsWorldTrap(root))
             {
-                _trapResultCache[id] = false;
+                _trapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
                 return;
             }
 
             // Verify by checking for a "triggered"/"snapped"/"sprung" bool field
             if (HasTrapField(root))
             {
-                _trapResultCache[id] = true;
+                _trapResultCache[id] = new TrapClassification { IsTrap = true, LastSeen = now };
                 _knownTraps[id] = root;
                 var net = ModRuntime.Network as LanNetworkManager;
                 if (net != null && net.Role == NetworkRole.Host)
@@ -268,8 +274,87 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                _trapResultCache[id] = false;
+                _trapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
             }
+        }
+
+        private static void NoteStateKey(Dictionary<Vector3, StateKeyAge> ages, Vector3 key, bool sent)
+        {
+            float now = Time.time;
+            ages.TryGetValue(key, out StateKeyAge age);
+            age.LastSeen = now;
+            if (sent || age.LastSent <= 0f)
+                age.LastSent = now;
+            ages[key] = age;
+        }
+
+        /// <summary>
+        /// Forget keys no longer scanned (destroyed / permanently out of range) and drop the
+        /// "last state" of a few long-unsent keys so the next scan re-sends just those. Replaces a
+        /// blanket clear that re-sent every door / trap / generator in range in one burst.
+        /// </summary>
+        private static void PruneStateKeys(Dictionary<Vector3, StateKeyAge> ages,
+            Dictionary<Vector3, bool> lastState, Dictionary<Vector3, float> lastExtra, float now)
+        {
+            _stateKeyScratch.Clear();
+            foreach (var kv in ages)
+            {
+                if (now - kv.Value.LastSeen > StateKeyForgetSeconds)
+                    _stateKeyScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _stateKeyScratch.Count; i++)
+            {
+                Vector3 k = _stateKeyScratch[i];
+                ages.Remove(k);
+                lastState.Remove(k);
+                lastExtra?.Remove(k);
+            }
+
+            // State keys that were never noted (older entries) also go.
+            _stateKeyScratch.Clear();
+            foreach (var kv in lastState)
+            {
+                if (!ages.ContainsKey(kv.Key))
+                    _stateKeyScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _stateKeyScratch.Count; i++)
+            {
+                lastState.Remove(_stateKeyScratch[i]);
+                lastExtra?.Remove(_stateKeyScratch[i]);
+            }
+
+            _stateKeyScratch.Clear();
+            foreach (var kv in ages)
+            {
+                if (_stateKeyScratch.Count >= StateKeyResyncPerPass) break;
+                if (now - kv.Value.LastSent > StateKeyResyncSeconds && lastState.ContainsKey(kv.Key))
+                    _stateKeyScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _stateKeyScratch.Count; i++)
+            {
+                Vector3 k = _stateKeyScratch[i];
+                lastState.Remove(k);
+                lastExtra?.Remove(k);
+                // Rotate: this key counts as sent now so the next pass picks other stale keys.
+                StateKeyAge age = ages[k];
+                age.LastSent = now;
+                ages[k] = age;
+            }
+            _stateKeyScratch.Clear();
+        }
+
+        /// <summary>Drop trap classifications for colliders the scan has not touched in a while.</summary>
+        private static void PruneTrapResultCache(float now)
+        {
+            _snapStaleIntKeys.Clear();
+            foreach (var kv in _trapResultCache)
+            {
+                if (now - kv.Value.LastSeen > TrapResultForgetSeconds)
+                    _snapStaleIntKeys.Add(kv.Key);
+            }
+            for (int i = 0; i < _snapStaleIntKeys.Count; i++)
+                _trapResultCache.Remove(_snapStaleIntKeys[i]);
+            _snapStaleIntKeys.Clear();
         }
 
         /// <summary>Returns true if the GameObject has a component with a trap-related boolean field.</summary>

@@ -297,6 +297,9 @@ namespace DWMPHorde.Sync
             _lastTrapTriggered.Clear();
             _knownTraps.Clear();
             _trapResultCache.Clear();
+            _doorKeyAge.Clear();
+            _trapKeyAge.Clear();
+            _generatorKeyAge.Clear();
             if (!keepThrownLights)
             {
                 _thrownLights.Clear();
@@ -340,7 +343,12 @@ namespace DWMPHorde.Sync
             MovingObjectSoundService.Reset();
             ListTracker<Door>.Clear();
             ListTracker<Generator>.Clear();
-            CharacterTracker.Clear();
+            // Promotion runs only this reset (no network stop follows), so the tracker must be
+            // rescanned there: an empty tracker left the new host broadcasting no NPCs.
+            if (keepThrownLights)
+                CharacterTracker.ResetForNetworkStop();
+            else
+                CharacterTracker.Clear();
         }
 
         /// <summary>
