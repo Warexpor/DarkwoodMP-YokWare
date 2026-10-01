@@ -310,7 +310,6 @@ namespace DWMPHorde.Networking
 
 
         public event Action Connected;
-        public event Action Disconnected;
 
         /// <summary>One-shot host→client new-world save transfer.</summary>
         public WorldSaveShareService WorldSaveShare => _worldSaveShare;

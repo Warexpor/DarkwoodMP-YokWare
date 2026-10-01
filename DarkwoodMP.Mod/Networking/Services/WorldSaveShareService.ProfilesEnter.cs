@@ -54,7 +54,6 @@ namespace DWMPHorde.Networking
         private IEnumerator ClientOfflineEnterCoroutine(int profileId, int chapterId)
         {
             _clientApplying = true;
-            _clientEntering = true;
             ProgressText = "Loading host world (offline)…";
             if (_net != null)
                 _net.StatusText = ProgressText;
@@ -94,7 +93,6 @@ namespace DWMPHorde.Networking
             }
 
             _clientApplying = false;
-            _clientEntering = false;
             yield return null;
 
             // Prefer vanilla Continue path (Yokyy): UI.initLoadGame with currentProfile set.
@@ -138,37 +136,6 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Update Core.profiles in RAM from disk merge when possible (never drop other slots).
-        /// Prefer <see cref="MergeProfileIntoDiskIndexAndSave"/> on the client receive path.
-        /// </summary>
-        private static void MergeProfileIntoMemoryOnly(GameProfile slot)
-        {
-            if (slot == null) return;
-            // Start from disk index so we never collapse to a single receive slot in RAM.
-            List<GameProfile> profiles = LoadProfilesFromDisk();
-            if (profiles == null)
-            {
-                profiles = Core.profiles != null
-                    ? new List<GameProfile>(Core.profiles)
-                    : new List<GameProfile>();
-            }
-            for (int i = profiles.Count - 1; i >= 0; i--)
-            {
-                if (profiles[i] != null && profiles[i].id == slot.id)
-                    profiles.RemoveAt(i);
-            }
-            profiles.Add(slot);
-            profiles.Sort((a, b) =>
-            {
-                int aid = a != null ? a.id : 0;
-                int bid = b != null ? b.id : 0;
-                return aid.CompareTo(bid);
-            });
-            Core.profiles = profiles;
-            Core.currentProfile = slot;
-        }
-
-        /// <summary>
         /// Find or create the GameProfile with the receive slot id (does not touch disk yet).
         /// </summary>
         private static GameProfile EnsureProfileSlot(int profileId, int day, int chapter)
@@ -203,10 +170,11 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Merge <paramref name="slot"/> into the real on-disk profile list, then save.
         /// Never call bare saveGameProfiles() with a partial Core.profiles; that wipes PLAY slots.
+        /// Returns false when profs.dat could not be written.
         /// </summary>
-        private static void MergeProfileIntoDiskIndexAndSave(GameProfile slot)
+        private static bool MergeProfileIntoDiskIndexAndSave(GameProfile slot)
         {
-            if (slot == null) return;
+            if (slot == null) return false;
 
             List<GameProfile> profiles = LoadProfilesFromDisk();
             if (profiles == null)
@@ -280,7 +248,7 @@ namespace DWMPHorde.Networking
             if (sm == null)
             {
                 ModLog.Warn(LogCat.Save, "SaveManager missing — could not persist merged profile index");
-                return;
+                return false;
             }
 
             try { sm.updateFilePaths(); }
@@ -293,14 +261,13 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Save,
                     "Saved profile index with " + profiles.Count + " slots (merged receive slot "
                     + slot.id + ")");
+                return true;
             }
             catch (Exception ex)
             {
                 ModLog.Error(LogCat.Save, "saveGameProfiles after merge failed", ex);
+                return false;
             }
         }
-
-        /// <summary>
-        /// Read the real profile index from disk (GetProfiles / loadGameProfiles), not in-memory Core.profiles.
     }
 }

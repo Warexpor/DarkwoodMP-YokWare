@@ -37,8 +37,12 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix()
+        private static void Postfix(bool __runOriginal)
         {
+            // The prefix blocked the generation (connected client): no new world exists, so no
+            // campaign id may be minted for it.
+            if (!__runOriginal)
+                return;
             // Load path / chapter reload: world came from disk — not a fresh generation.
             if (Core.loadingGame || Core.loadedGame || Core.doLoadChapterSave)
                 return;

@@ -78,6 +78,9 @@ namespace DWMPHorde.Networking
             _softReconnectAddress = null;
             _softReconnectPort = 0;
             _softReconnectLobby = 0;
+            _isPromotedHost = false;
+            _migrationReservedIds.Clear();
+            _joinPipelineReservedIds.Clear();
             // Keep _suppressHostMigration under StopNetwork control only.
         }
 
@@ -264,20 +267,17 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // First attempt already ran in TryBeginHostMigration; retries only after delay.
-            if (_migrationRetryCount > 0 || _migrationRetryAt > 0f)
-            {
-                _migrationRetryCount++;
-                _migrationRetryAt = Time.unscaledTime + MigrationRetrySec;
-                ModLog.Event(LogCat.Network,
-                    "Migration reconnect try " + _migrationRetryCount + "/" + MigrationMaxRetries
-                    + " → " + _migrationTargetAddress
-                    + (steamTarget ? " (Steam)" : (":" + _migrationTargetPort)));
-                if (steamTarget)
-                    ConnectSteamPreservingId(_migrationTargetAddress, _migrationElectId);
-                else
-                    ConnectToHostPreservingId(_migrationTargetAddress, _migrationTargetPort, _migrationElectId);
-            }
+            // First attempt already ran in TryBeginHostMigration, which armed _migrationRetryAt.
+            _migrationRetryCount++;
+            _migrationRetryAt = Time.unscaledTime + MigrationRetrySec;
+            ModLog.Event(LogCat.Network,
+                "Migration reconnect try " + _migrationRetryCount + "/" + MigrationMaxRetries
+                + " → " + _migrationTargetAddress
+                + (steamTarget ? " (Steam)" : (":" + _migrationTargetPort)));
+            if (steamTarget)
+                ConnectSteamPreservingId(_migrationTargetAddress, _migrationElectId);
+            else
+                ConnectToHostPreservingId(_migrationTargetAddress, _migrationTargetPort, _migrationElectId);
         }
     }
 }

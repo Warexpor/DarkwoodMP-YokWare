@@ -188,47 +188,44 @@ namespace DWMPHorde.Networking
 
             LogSavPairTimestamps(savPath, savsPath);
 
-            // Pack one file per frame. ReadAllBytes plus Deflate of the save file on one frame
-            // freezes the host mid-game (the hitch users call an "event"). Horde Resend
-            // only ran when the host wasn't mid-combat dual-box load.
-            var files = new List<PackedFile>();
-            foreach (string name in FileNames)
+            // Read the whole save set in ONE main-thread step. Save also runs on the main thread, so
+            // no Save (SaveSync fan-out, sleep, F3) can land between two files and hand clients a
+            // sav/savs pair from different moments. Only Deflate runs off-thread, one file per frame.
+            List<KeyValuePair<string, byte[]>> snapshot = null;
+            Exception readEx = null;
+            for (int attempt = 0; attempt < 3 && snapshot == null; attempt++)
             {
-                string path = Path.Combine(profDir, name);
-                if (!File.Exists(path))
-                {
-                    ModLog.Event(LogCat.Save, "Share skip missing file: " + path);
-                    continue;
-                }
-
-                ProgressText = "Reading " + name + "…";
-                _net.StatusText = ProgressText;
-                yield return null;
-                if (gen != _shareGeneration) yield break;
-
-                // Read and Deflate off the main thread to avoid a long main-thread hitch.
-                byte[] raw = null;
-                Exception ioEx = null;
-                bool ioDone = false;
-                string pathCapture = path;
-                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    try { raw = File.ReadAllBytes(pathCapture); }
-                    catch (Exception ex) { ioEx = ex; }
-                    finally { ioDone = true; }
-                });
-                while (!ioDone)
+                if (attempt > 0)
                 {
                     yield return null;
                     if (gen != _shareGeneration) yield break;
                 }
-
-                if (ioEx != null)
+                try { snapshot = ReadSaveSetSnapshot(profDir); }
+                catch (Exception ex) { readEx = ex; }
+            }
+            if (snapshot == null)
+            {
+                ModLog.Error(LogCat.Save, "Failed reading save files for share (prof" + profileId + ")", readEx);
+                ProgressText = WorldSharePolicy.FormatShareFailure(
+                    "could not read save files: " + (readEx != null ? readEx.Message : "unknown"));
+                _net.StatusText = ProgressText;
+                try
                 {
-                    ModLog.Error(LogCat.Save, "Failed reading " + name, ioEx);
-                    continue;
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
                 }
+                catch { /* ignore */ }
+                FinishHostShare(gen, runAfter: true);
+                yield break;
+            }
 
+            var files = new List<PackedFile>();
+            foreach (KeyValuePair<string, byte[]> entry in snapshot)
+            {
+                string name = entry.Key;
+                byte[] raw = entry.Value;
                 if (raw == null || raw.Length == 0)
                     continue;
 
@@ -277,8 +274,10 @@ namespace DWMPHorde.Networking
                     chunks[c] = slice;
                     // Slice large compressed buffers across frames too
                     if ((c & 31) == 31)
+                    {
                         yield return null;
                         if (gen != _shareGeneration) yield break;
+                    }
                 }
 
                 files.Add(new PackedFile
