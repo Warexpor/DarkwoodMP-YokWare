@@ -125,8 +125,32 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Client free bodies: unreliable stream, re-stamped and split to the MTU by the host.
+            // Client free bodies: only the ones that exist in the host world go on (the host is the
+            // authority on item existence), on the unreliable stream, re-stamped and split to the MTU.
+            int kept = KeepHostResolvedObjects(ref state);
+            if (kept == 0)
+                return;
             _net.SendPhysicsStateStream(state, excludePlayerId: _net.CurrentReceivePlayerId);
+        }
+
+        /// <summary>
+        /// Compact the object prefix to the entries ApplySnapshot resolved on the host (it clears the
+        /// name of anything it could not find). Returns the kept count.
+        /// </summary>
+        private static int KeepHostResolvedObjects(ref PhysicsStateMessage state)
+        {
+            int oc = state.EffectiveObjectCount;
+            int kept = 0;
+            for (int i = 0; i < oc; i++)
+            {
+                if (string.IsNullOrEmpty(state.Objects[i].Name))
+                    continue;
+                if (kept != i)
+                    state.Objects[kept] = state.Objects[i];
+                kept++;
+            }
+            state.ObjectCount = kept;
+            return kept;
         }
 
         internal void HandleItemSpawn(ItemSpawnMessage msg)
