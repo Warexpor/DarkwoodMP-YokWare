@@ -286,7 +286,8 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private int TryRebindPreferredSteamPlayerId(int provisionalId, int preferredId, CSteamID steamId)
+        private int TryRebindPreferredSteamPlayerId(int provisionalId, int preferredId, CSteamID steamId,
+            bool reservedForResume)
         {
             if (preferredId <= 0 || preferredId == provisionalId || !steamId.IsValid())
                 return provisionalId;
@@ -294,29 +295,14 @@ namespace DWMPHorde.Networking
                 return provisionalId;
             if (_steamPeers.ContainsKey(preferredId))
                 return provisionalId;
+            if (!reservedForResume
+                && !TryConsumeMigrationReservation(preferredId, steamId.m_SteamID.ToString()))
+                return provisionalId;
 
             _steamPeers.Remove(provisionalId);
             _steamPeers[preferredId] = steamId;
             _steamIdToPlayer[steamId.m_SteamID] = preferredId;
-            if (_handshakedPeers.Remove(provisionalId))
-                _handshakedPeers.Add(preferredId);
-            if (_awaitingLateJoinBulk.TryGetValue(provisionalId, out float t))
-            {
-                _awaitingLateJoinBulk.Remove(provisionalId);
-                _awaitingLateJoinBulk[preferredId] = t;
-            }
-            if (_pendingHeavyLateJoinBulk.TryGetValue(provisionalId, out int heavyPhase))
-            {
-                _pendingHeavyLateJoinBulk.Remove(provisionalId);
-                _pendingHeavyLateJoinBulk[preferredId] = heavyPhase;
-            }
-            if (_peersLoadingWorld.Remove(provisionalId))
-                _peersLoadingWorld.Add(preferredId);
-            if (_peersCoopReconnect.Remove(provisionalId))
-                _peersCoopReconnect.Add(preferredId);
-
-            if (preferredId >= _nextPlayerId)
-                _nextPlayerId = preferredId + 1;
+            RebindPlayerIdState(provisionalId, preferredId);
 
             ModLog.Event(LogCat.Network,
                 "Steam rebind peer id " + provisionalId + " → preferred " + preferredId);

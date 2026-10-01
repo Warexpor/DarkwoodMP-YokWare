@@ -139,17 +139,21 @@ namespace DWMPHorde.Networking
                         CompleteHostPeerJoin(playerId, sendHandshake: false);
                 }
                 // Migration reconnect: client put preferred id in Handshake.PlayerId.
-                // Chapter resume: the host remembers each client's previous id by stable key.
+                // Chapter resume / join pipeline: the host reserved the previous id by stable key.
+                // An unreserved claim is only honoured for a migration survivor (checked in rebind).
                 int preferredId = handshake.AlreadyInWorld && handshake.PlayerId > 0 ? handshake.PlayerId : 0;
-                if (TryTakeResumePlayerId(handshake.StableClientKey, playerId, out int resumeId))
+                bool reservedForResume = TryTakeResumePlayerId(handshake.StableClientKey, playerId, out int resumeId);
+                if (reservedForResume)
                     preferredId = resumeId;
+                else if (preferredId > 0)
+                    reservedForResume = TryTakeJoinPipelineReservation(preferredId, handshake.StableClientKey);
                 if (preferredId > 0)
                 {
                     int rebound = playerId;
                     if (_currentReceivePeer != null)
-                        rebound = TryRebindPreferredPlayerId(playerId, preferredId, _currentReceivePeer);
+                        rebound = TryRebindPreferredPlayerId(playerId, preferredId, _currentReceivePeer, reservedForResume);
                     else if (IsSteamSession && _currentReceiveSteamId.IsValid())
-                        rebound = TryRebindPreferredSteamPlayerId(playerId, preferredId, _currentReceiveSteamId);
+                        rebound = TryRebindPreferredSteamPlayerId(playerId, preferredId, _currentReceiveSteamId, reservedForResume);
 
                     if (rebound != playerId)
                     {

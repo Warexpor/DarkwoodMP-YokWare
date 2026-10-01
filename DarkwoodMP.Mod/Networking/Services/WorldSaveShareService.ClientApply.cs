@@ -48,7 +48,7 @@ namespace DWMPHorde.Networking
             // The host re-ran a chapter share (a broadcast queued behind a running share): the
             // package being verified or held for the go is the older one. Supersede it; the apply
             // coroutine of the old package quits on the generation bump.
-            if (Patches.ChapterTransitionHelpers.ChapterShareExpected && !_clientEntering
+            if (Patches.ChapterTransitionHelpers.ChapterShareExpected
                 && !_clientReceiving && (_clientApplying || _awaitingChapterGo))
             {
                 ModLog.Event(LogCat.Save,
@@ -91,7 +91,9 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < msg.FileCount; i++)
             {
                 int n = msg.ChunkCounts != null && i < msg.ChunkCounts.Length ? msg.ChunkCounts[i] : 0;
-                if (n < 0 || n > 100000) n = 0;
+                // A file never needs more chunks than the inflate cap allows; a larger count is a
+                // corrupt header (and would reserve unbounded memory before any data arrived).
+                if (n < 0 || n > MaxInflatedFileBytes / ChunkSize + 1) n = 0;
                 _chunkBuffers[i] = new byte[n][];
                 _chunksExpected += n;
             }
@@ -115,7 +117,7 @@ namespace DWMPHorde.Networking
                 return;
             if (msg.ChunkIndex < 0 || msg.ChunkIndex >= chunks.Length)
                 return;
-            if (msg.Data == null)
+            if (msg.Data == null || msg.Data.Length > ChunkSize)
                 return;
 
             if (chunks[msg.ChunkIndex] == null)
@@ -188,8 +190,29 @@ namespace DWMPHorde.Networking
             yield return null;
             if (gen != _shareGeneration || _chunkBuffers == null) yield break;
 
+            // Validate names and declared sizes and inflate under a cap once; the fingerprint and
+            // the chapter path both use this result (no unchecked inflate on the main thread).
+            List<VerifiedFile> verified = null;
+            string verifyError = null;
+            try
+            {
+                if (!TryInflatePackage(out verified, out verifyError))
+                    verified = null;
+            }
+            catch (Exception ex)
+            {
+                verified = null;
+                verifyError = ex.Message;
+                ModLog.Error(LogCat.Save, "Package inflate failed", ex);
+            }
+            if (verified == null)
+            {
+                FailClientApply("host world package could not be verified: " + (verifyError ?? "unknown"));
+                yield break;
+            }
+
             string packageFp = null;
-            try { packageFp = ComputeUncompressedPackageFingerprint(); }
+            try { packageFp = ComputePackageFingerprint(verified); }
             catch (Exception ex)
             {
                 ModLog.Warn(LogCat.Save, "Package fingerprint failed: " + ex.Message);
@@ -225,6 +248,7 @@ namespace DWMPHorde.Networking
                     JoinedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
                 };
                 meta.IsCoopCopy = true;
+                meta.OwnCampaign = false;
                 meta.HostProfileId = _hostSourceProfileId;
                 meta.Chapter = _pendingBegin.ChapterId;
                 meta.Day = _pendingBegin.DayIndex;
@@ -263,28 +287,9 @@ namespace DWMPHorde.Networking
             // of falling through to the title-screen slot pick.
             if (Patches.ChapterTransitionHelpers.ChapterShareExpected && Core.currentProfile != null)
             {
-                // Verify and inflate into memory only. The slot is NOT written here: this client is
-                // still playing the old chapter and may wait minutes for the host's go (or be told to
-                // leave), so the commit happens at the go (HandleChapterLoadGo) and never otherwise.
-                string verifyError;
-                List<VerifiedFile> verified;
-                try
-                {
-                    if (!TryInflatePackage(out verified, out verifyError))
-                        verified = null;
-                }
-                catch (Exception ex)
-                {
-                    verified = null;
-                    verifyError = ex.Message;
-                    ModLog.Error(LogCat.Save, "Chapter package inflate failed", ex);
-                }
-                if (verified == null)
-                {
-                    FailClientApply("chapter world could not be verified: " + (verifyError ?? "unknown"));
-                    yield break;
-                }
-
+                // Verified and inflated into memory only (above). The slot is NOT written here: this
+                // client is still playing the old chapter and may wait minutes for the host's go (or
+                // be told to leave), so the commit happens at the go (HandleChapterLoadGo) and never otherwise.
                 _verifiedPackage = verified;
                 _chunkBuffers = null;
                 _clientApplying = false;

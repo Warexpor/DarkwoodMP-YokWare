@@ -25,6 +25,10 @@ namespace DWMPHorde.Networking
                 _backend = ConnectionBackend.Steam;
 
             _role = NetworkRole.Host;
+            // Survivor's world was a client copy: no automatic save may ever write it (leave
+            // checkpoint, SaveSync). Cleared with the session in ResetMigrationState.
+            _isPromotedHost = true;
+            ArmMigrationReservations(keepId);
             _localPlayerId = keepId;
             _hostPlayerId = keepId;
             _nextPlayerId = Math.Max(2, keepId + 1);
@@ -70,8 +74,10 @@ namespace DWMPHorde.Networking
                 if (!bound)
                 {
                     ModLog.Error(LogCat.Network, "Host migration promote failed to bind port " + port);
-                    _role = NetworkRole.Offline;
                     _migrationInProgress = false;
+                    // Full teardown (reset registry, share service, unstarted socket, proxies). The
+                    // promoted flag keeps StopNetwork from writing a leave checkpoint.
+                    StopNetwork();
                     StatusText = "Host grant failed (port busy)";
                     return;
                 }
@@ -112,9 +118,8 @@ namespace DWMPHorde.Networking
             if (!Steam.BeginHostingAfterMigration())
             {
                 ModLog.Error(LogCat.Network, "Steam host grant promote failed");
-                _role = NetworkRole.Offline;
-                _backend = ConnectionBackend.None;
                 _migrationInProgress = false;
+                StopNetwork();
                 StatusText = "Host grant failed (Steam)";
                 return;
             }
@@ -288,7 +293,8 @@ namespace DWMPHorde.Networking
                 + " electHost=" + hostKey);
         }
 
-        private int TryRebindPreferredPlayerId(int provisionalId, int preferredId, NetPeer peer)
+        private int TryRebindPreferredPlayerId(int provisionalId, int preferredId, NetPeer peer,
+            bool reservedForResume)
         {
             if (preferredId <= 0 || preferredId == provisionalId || peer == null)
                 return provisionalId;
@@ -296,28 +302,12 @@ namespace DWMPHorde.Networking
                 return provisionalId;
             if (_peers.ContainsKey(preferredId))
                 return provisionalId;
+            if (!reservedForResume && !TryConsumeMigrationReservation(preferredId, LanAddressOf(peer)))
+                return provisionalId;
 
             _peers.Remove(provisionalId);
             _peers[preferredId] = peer;
-            if (_handshakedPeers.Remove(provisionalId))
-                _handshakedPeers.Add(preferredId);
-            if (_awaitingLateJoinBulk.TryGetValue(provisionalId, out float t))
-            {
-                _awaitingLateJoinBulk.Remove(provisionalId);
-                _awaitingLateJoinBulk[preferredId] = t;
-            }
-            if (_pendingHeavyLateJoinBulk.TryGetValue(provisionalId, out int heavyPhase))
-            {
-                _pendingHeavyLateJoinBulk.Remove(provisionalId);
-                _pendingHeavyLateJoinBulk[preferredId] = heavyPhase;
-            }
-            if (_peersLoadingWorld.Remove(provisionalId))
-                _peersLoadingWorld.Add(preferredId);
-            if (_peersCoopReconnect.Remove(provisionalId))
-                _peersCoopReconnect.Add(preferredId);
-
-            if (preferredId >= _nextPlayerId)
-                _nextPlayerId = preferredId + 1;
+            RebindPlayerIdState(provisionalId, preferredId);
 
             ModLog.Event(LogCat.Network,
                 "Rebind peer id " + provisionalId + " → preferred " + preferredId);
