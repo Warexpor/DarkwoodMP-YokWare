@@ -418,11 +418,13 @@ namespace DWMPHorde.Networking
                 "Host world ready inferred from WorldSaveBegin (no prior HostWorldReady)");
         }
 
+        /// <summary>Client: the host's session identity ([HostOnly]: the host never receives it).</summary>
         private void HandleWorldSession(WorldSessionMessage session)
         {
-            _worldSync.ApplyHostSession(session, asClient: _role == NetworkRole.Client);
-            if (_role == NetworkRole.Client)
-                StatusText = "Synced — load " + session.SaveSlotName + " (ch" + session.ChapterId + ")";
+            if (_role != NetworkRole.Client)
+                return;
+            _worldSync.ApplyHostSession(session, asClient: true);
+            StatusText = "Synced — load " + session.SaveSlotName + " (ch" + session.ChapterId + ")";
         }
 
     }

@@ -11,5 +11,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
 [assembly: Guid("4F8530CA-34D2-48F3-BCC6-0C219BE9BFF0")]
-[assembly: AssemblyVersion("0.8.127.0")]
-[assembly: AssemblyFileVersion("0.8.127.0")]
+// Derived from PluginInfo, the single source of the product version.
+[assembly: AssemblyVersion(DWMPHorde.PluginInfo.Version + ".0")]
+[assembly: AssemblyFileVersion(DWMPHorde.PluginInfo.Version + ".0")]

@@ -58,26 +58,67 @@ namespace DWMPHorde.Networking
         {
             if (length <= 0) return;
             if (_role == NetworkRole.Host)
-            {
-                if (PeerCount == 0) return;
-                foreach (int peerId in EnumeratePeerIds())
-                {
-                    if (excludePlayerId > 0 && peerId == excludePlayerId)
-                        continue;
-                    if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                        continue;
-                    SendRawToPlayer(peerId, data, length, method);
-                }
-            }
+                SendFramedToPeers(data, length, method,
+                    skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
             else
+                SendFramedToFirstPeer(data, length, method, excludePlayerId);
+        }
+
+        private enum FanOutFilter { All, SkipLoading, GameplayReady }
+
+        private bool PassesFanOut(int peerId, FanOutFilter filter, int excludePlayerId)
+        {
+            if (excludePlayerId > 0 && peerId == excludePlayerId)
+                return false;
+            if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(peerId))
+                return false;
+            switch (filter)
             {
-                foreach (int peerId in EnumeratePeerIds())
+                case FanOutFilter.SkipLoading: return !_peersLoadingWorld.Contains(peerId);
+                case FanOutFilter.GameplayReady: return IsPeerReadyForGameplay(peerId);
+                default: return true;
+            }
+        }
+
+        /// <summary>
+        /// The one fan-out loop behind every broadcast. Walks the peer table directly (struct
+        /// enumerators, no per-send allocation) and applies the same gates as EnumeratePeerIds.
+        /// </summary>
+        private void SendFramedToPeers(byte[] data, int length, DeliveryMethod method,
+            FanOutFilter filter, int excludePlayerId)
+        {
+            if (data == null || length <= 0)
+                return;
+            if (IsSteamSession)
+            {
+                bool passwordGate = _role == NetworkRole.Host && HostRequiresPassword();
+                foreach (var kvp in _steamPeers)
                 {
-                    if (excludePlayerId > 0 && peerId == excludePlayerId)
+                    if (passwordGate && !_steamPasswordOk.Contains(kvp.Value.m_SteamID))
                         continue;
-                    SendRawToPlayer(peerId, data, length, method);
-                    return;
+                    if (!PassesFanOut(kvp.Key, filter, excludePlayerId))
+                        continue;
+                    Steam.Send(kvp.Value, data, length, method);
                 }
+                return;
+            }
+            foreach (var kvp in _peers)
+            {
+                if (!PassesFanOut(kvp.Key, filter, excludePlayerId))
+                    continue;
+                SendToLanPeer(kvp.Value, kvp.Key, data, length, method);
+            }
+        }
+
+        /// <summary>Client: the only peer is the host.</summary>
+        private void SendFramedToFirstPeer(byte[] data, int length, DeliveryMethod method, int excludePlayerId)
+        {
+            foreach (int peerId in EnumeratePeerIds())
+            {
+                if (excludePlayerId > 0 && peerId == excludePlayerId)
+                    continue;
+                SendRawToPlayer(peerId, data, length, method);
+                return;
             }
         }
 
@@ -210,12 +251,7 @@ namespace DWMPHorde.Networking
         {
             if (data == null || length <= 0 || PeerCount == 0)
                 return;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (!IsPeerReadyForGameplay(peerId))
-                    continue;
-                SendRawToPlayer(peerId, data, length, method);
-            }
+            SendFramedToPeers(data, length, method, FanOutFilter.GameplayReady, 0);
         }
 
         /// <summary>Send a message to all connected peers.</summary>
@@ -225,34 +261,17 @@ namespace DWMPHorde.Networking
         /// </param>
         public void SendToAll(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
-        {
-            if (PeerCount == 0) return;
-            byte[] data = null;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                    continue;
-                if (data == null)
-                    data = BuildPacket(type, writeBody);
-                SendRawToPlayer(peerId, data, method);
-            }
-        }
+            => SendToAllExcept(0, type, writeBody, method, skipLoadingPeers);
 
-        /// <summary>Send a message to all peers except one.</summary>
+        /// <summary>Send a message to all peers except one (0 = nobody excluded).</summary>
         public void SendToAllExcept(int excludePlayerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (PeerCount == 0) return;
-            byte[] data = null;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (peerId == excludePlayerId) continue;
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                    continue;
-                if (data == null)
-                    data = BuildPacket(type, writeBody);
-                SendRawToPlayer(peerId, data, method);
-            }
+            // Built before the loop: a body writer that itself sends must not run mid-iteration.
+            byte[] data = BuildPacket(type, writeBody);
+            SendFramedToPeers(data, data.Length, method,
+                skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
         }
 
         /// <summary>
@@ -349,15 +368,13 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Legacy send to first connected peer (backward compat during migration).</summary>
+        /// <summary>Client → host (a client's only peer). On the host this reaches one arbitrary client.</summary>
         public void Send(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                SendRawToPlayer(peerId, BuildPacket(type, writeBody), method);
-                return; // Send to first peer only
-            }
+            if (PeerCount == 0) return;
+            byte[] data = BuildPacket(type, writeBody);
+            SendFramedToFirstPeer(data, data.Length, method, 0);
         }
     }
 }

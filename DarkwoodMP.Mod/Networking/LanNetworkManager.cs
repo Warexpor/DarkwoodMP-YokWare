@@ -121,6 +121,12 @@ namespace DWMPHorde.Networking
         internal HashSet<int> HandshakedPeers => _handshakedPeers;
         internal readonly HashSet<int> _handshakedPeers = new HashSet<int>();
 
+        /// <summary>
+        /// Host: peers refused by <see cref="RejectPeerWorld"/> during their drop grace. Nothing they
+        /// send is processed and fan-out skips them.
+        /// </summary>
+        private readonly HashSet<int> _rejectedPeers = new HashSet<int>();
+
         private int _nextPlayerId = 2;
         private int _localPlayerId = 1; // Host is always player 1
 

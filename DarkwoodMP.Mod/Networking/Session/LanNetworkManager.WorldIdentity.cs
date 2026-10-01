@@ -130,6 +130,10 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || playerId <= 0 || !HasPeer(playerId))
                 return;
             ModLog.Warn(LogCat.Session, "Peer " + playerId + " refused: " + reason);
+            // From here on the peer is only waiting to leave: drop its traffic and stop streaming to it.
+            _rejectedPeers.Add(playerId);
+            if (_handshakedPeers.Remove(playerId))
+                _handshakeComplete = _handshakedPeers.Count > 0;
             SendToPlayer(playerId, NetMessageType.ChapterLoadGo, w => new ChapterLoadGoMessage
             {
                 ChapterId = chapterId,

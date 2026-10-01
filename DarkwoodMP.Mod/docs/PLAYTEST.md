@@ -1,4 +1,6 @@
-# Playtest checklist — 0.8.127 / protocol 27
+# Playtest checklist
+
+Run it against the version and protocol in the README table.
 
 Dual-box (Steam host + SecondDarkwood client) first, then a 3-player run
 (host + two clients). Tick a section only after you saw it in the game; code-only
@@ -11,8 +13,9 @@ same DLL everywhere.
 ## 1. Deploy and version check
 
 - [ ] `md5sum` of `DarkwoodMP.Mod.dll` (and `LiteNetLib.dll`) matches on every box.
-- [ ] F2 window title reads **YokWare Branch 0.8.127 / Path B** and the footer shows
-      `proto=27` on every box. Log banner shows `Protocol=27`.
+- [ ] F2 window title reads **YokWare Branch &lt;version&gt; / Path B** and the footer shows
+      `proto=&lt;protocol&gt;` on every box (both from the README table). Log banner shows the
+      same `Protocol=`.
 - [ ] Linux dual-box only: `FreeCursorForDualBox = true` in both cfgs (default is
       false); mouse is not trapped and the Wine window does not freeze on blur.
 - [ ] A client on a different DLL is refused with a protocol mismatch, not half-joined.

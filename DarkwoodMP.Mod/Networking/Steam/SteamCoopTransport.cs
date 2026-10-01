@@ -37,8 +37,22 @@ namespace DWMPHorde.Networking.Steam
         private readonly Dictionary<ulong, HSteamNetConnection> _connBySteamId =
             new Dictionary<ulong, HSteamNetConnection>();
         private readonly Dictionary<uint, ulong> _steamIdByConn = new Dictionary<uint, ulong>();
-        private readonly Dictionary<uint, Queue<byte[]>> _reliableOutbox =
-            new Dictionary<uint, Queue<byte[]>>();
+        /// <summary>Reliable sends parked after k_EResultLimitExceeded, per connection, with their byte total.</summary>
+        private sealed class ReliableOutbox
+        {
+            public readonly Queue<byte[]> Queue = new Queue<byte[]>();
+            public long Bytes;
+        }
+
+        /// <summary>
+        /// Parked reliable bytes one connection may hold. A peer that stops draining past this is
+        /// stalled: it is dropped instead of growing host memory and replaying a stale backlog.
+        /// Comfortably above a full world-share package.
+        /// </summary>
+        private const long MaxReliableOutboxBytes = 96L * 1024 * 1024;
+
+        private readonly Dictionary<uint, ReliableOutbox> _reliableOutbox =
+            new Dictionary<uint, ReliableOutbox>();
 
         private Callback<GameLobbyJoinRequested_t> _cbLobbyJoinRequested;
         private Callback<LobbyChatUpdate_t> _cbLobbyChatUpdate;
@@ -366,6 +380,7 @@ namespace DWMPHorde.Networking.Steam
             _clientTransportReady = false;
             _clientConnectStartedUtc = DateTime.MinValue;
             _reliableOutbox.Clear();
+            _stalledSteamIds.Clear();
             _pendingHostConnects.Clear();
         }
     }

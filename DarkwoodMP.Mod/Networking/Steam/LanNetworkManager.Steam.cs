@@ -109,13 +109,19 @@ namespace DWMPHorde.Networking
                 {
                     if (gate && !_steamPasswordOk.Contains(kvp.Value.m_SteamID))
                         continue;
+                    if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(kvp.Key))
+                        continue;
                     yield return kvp.Key;
                 }
             }
             else
             {
                 foreach (int id in _peers.Keys)
+                {
+                    if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(id))
+                        continue;
                     yield return id;
+                }
             }
         }
 

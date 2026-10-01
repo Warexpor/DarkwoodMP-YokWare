@@ -14,9 +14,9 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class LanNetworkManager
     {
-        internal void OnSteamPacket(CSteamID remote, byte[] payload)
+        internal void OnSteamPacket(CSteamID remote, byte typeByte, byte[] body, bool reliable)
         {
-            if (_backend != ConnectionBackend.Steam || payload == null || payload.Length == 0)
+            if (_backend != ConnectionBackend.Steam || body == null)
                 return;
 
             // Host: first packet from unknown steam user → register peer (like OnPeerConnected).
@@ -41,7 +41,8 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            DispatchSteamPayload(remote, playerId, payload);
+            DispatchSteamPayload(remote, playerId, (NetMessageType)typeByte, body,
+                reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
         }
 
         private bool TryHostAcceptSteamPeer(CSteamID remote)
@@ -167,23 +168,9 @@ namespace DWMPHorde.Networking
             Connected?.Invoke();
         }
 
-        private void DispatchSteamPayload(CSteamID remote, int playerId, byte[] payload)
+        private void DispatchSteamPayload(CSteamID remote, int playerId, NetMessageType type, byte[] body,
+            DeliveryMethod deliveryMethod)
         {
-            if (payload == null || payload.Length < 1)
-                return;
-
-            var type = (NetMessageType)payload[0];
-            byte[] body;
-            if (payload.Length == 1)
-            {
-                body = new byte[0];
-            }
-            else
-            {
-                body = new byte[payload.Length - 1];
-                Buffer.BlockCopy(payload, 1, body, 0, body.Length);
-            }
-
             // Steam has no connection-request key like LiteNetLib: until a peer's Handshake proved the
             // host password, nothing it sends is processed (it could otherwise drive host handlers).
             if (_role == NetworkRole.Host && HostRequiresPassword()
@@ -203,7 +190,7 @@ namespace DWMPHorde.Networking
                 ClientPerfProbe.NotePacketRx(type);
             try
             {
-                ProcessInboundMessage(type, body);
+                ProcessInboundMessage(type, body, deliveryMethod);
             }
             finally
             {

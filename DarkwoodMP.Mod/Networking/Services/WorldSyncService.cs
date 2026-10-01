@@ -8,8 +8,6 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed class WorldSyncService
     {
-        private WorldSessionMessage _hostSession;
-
         public WorldSessionMessage BuildHostSession()
         {
             var session = new WorldSessionMessage
@@ -21,14 +19,11 @@ namespace DWMPHorde.Networking
                 BigLocationName = ClientSaveBridge.GetBigLocationName()
             };
 
-            _hostSession = session;
             return session;
         }
 
         public void ApplyHostSession(WorldSessionMessage session, bool asClient)
         {
-            _hostSession = session;
-
             ModLog.Event(LogCat.Session,
                 "World session "
                 + (asClient ? "received" : "published")
@@ -45,11 +40,6 @@ namespace DWMPHorde.Networking
 
             if (asClient)
                 ClientSaveBridge.NoteClientShouldMatchHost(session);
-        }
-
-        public void Reset()
-        {
-            _hostSession = default;
         }
     }
 }

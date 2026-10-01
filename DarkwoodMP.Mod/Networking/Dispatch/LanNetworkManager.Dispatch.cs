@@ -20,7 +20,6 @@ namespace DWMPHorde.Networking
         /// </summary>
         private static readonly HashSet<NetMessageType> _senderAuthoritativeRelay = new HashSet<NetMessageType>
         {
-            NetMessageType.PlayerState,
             NetMessageType.PlayerLightState,
             NetMessageType.PlayerAnimation,
             NetMessageType.PlayerAnimLibrary,
@@ -73,29 +72,96 @@ namespace DWMPHorde.Networking
         /// <summary>Host: body the generic Forwardable relay sends instead of the raw inbound payload.</summary>
         private byte[] _relayPayloadOverride;
 
+        /// <summary>Delivery method of the message being dispatched (relays keep it).</summary>
+        private DeliveryMethod _currentReceiveMethod = DeliveryMethod.ReliableOrdered;
+
+        /// <summary>Delivery method of the message being dispatched; ReliableOrdered outside dispatch.</summary>
+        internal DeliveryMethod CurrentReceiveMethod => _currentReceiveMethod;
+
         /// <summary>
         /// Host: the generic relay forwards this re-serialised, sender-stamped body instead of the raw
         /// client payload (which could claim another player's id). The relay still follows the
         /// normal rules (no relay if the handler threw, forward kind unchanged).
         /// </summary>
-        private void RelayStamped(NetMessageType type, Action<NetWriter> write)
+        private void RelayStamped(Action<NetWriter> write)
         {
             var w = new NetWriter();
             write(w);
             _relayPayloadOverride = w.CopyData();
         }
 
-        /// <summary>Shared LAN/Steam inbound dispatch (type + body after framing byte).</summary>
-        private void ProcessInboundMessage(NetMessageType type, byte[] payload)
+        /// <summary>
+        /// Relays keep unreliable streams unreliable: re-sending a 30 Hz sample stream reliably would
+        /// queue every reliable event behind stale samples on a lossy link.
+        /// </summary>
+        internal static DeliveryMethod RelayMethodFor(DeliveryMethod inbound)
+            => inbound == DeliveryMethod.Unreliable || inbound == DeliveryMethod.Sequenced
+                ? inbound
+                : DeliveryMethod.ReliableOrdered;
+
+        /// <summary>
+        /// Host gate run before any handler: traffic from a refused peer, gameplay traffic from a peer
+        /// that has not completed its Handshake, and host-only types sent by a client are dropped.
+        /// </summary>
+        private bool HostAcceptsInbound(NetMessageType type)
         {
-            // Host relay of a client message is independent of the host's local apply only for
-            // sender-authoritative presence. For everything else a handler that threw means the host
-            // never applied the mutation, so fanning it out would desync the clients from the host
-            // (the host is the authority). A packet we could not parse (InvalidDataException) is never
-            // relayed, and a handler that asked to swallow the forward (_suppressForwardThisMessage)
-            // is honored.
-            bool relay = true;
+            if (_role != NetworkRole.Host || _currentReceivePlayerId <= 0)
+                return true;
+            string why = null;
+            if (_rejectedPeers.Contains(_currentReceivePlayerId))
+                why = "refused peer";
+            else if (type != NetMessageType.Handshake && !_handshakedPeers.Contains(_currentReceivePlayerId))
+                why = "no handshake yet";
+            else if (_hostOnlyTypes.Contains(type))
+                why = "host-only type";
+            if (why == null)
+                return true;
+            if (NetLogThrottle.ShouldLog("inbound-gate:" + (int)type + ":" + _currentReceivePlayerId, 10f, out int dropped))
+                ModLog.Warn(LogCat.Network,
+                    "Dropping " + type + " from p" + _currentReceivePlayerId + " (" + why + ")"
+                    + NetLogThrottle.SuppressedSuffix(dropped));
+            return false;
+        }
+
+        /// <summary>Shared LAN/Steam inbound dispatch (type + body after framing byte).</summary>
+        private void ProcessInboundMessage(NetMessageType type, byte[] payload, DeliveryMethod inboundMethod)
+        {
+            // Per-message state is set here and cleared on the way out, whatever happens, so nothing a
+            // handler (or code running outside dispatch) leaves behind applies to the next packet, and
+            // CurrentReceivePlayerId is never a stale sender outside dispatch.
+            _suppressForwardThisMessage = false;
             _relayPayloadOverride = null;
+            _currentReceiveMethod = inboundMethod;
+            try
+            {
+                if (!HostAcceptsInbound(type))
+                    return;
+                if (!DispatchAndDecideRelay(type, payload, out byte[] relayBody))
+                    return;
+                RelayToOtherClients(type, relayBody, inboundMethod);
+            }
+            finally
+            {
+                _suppressForwardThisMessage = false;
+                _relayPayloadOverride = null;
+                _currentReceiveMethod = DeliveryMethod.ReliableOrdered;
+                _currentReceivePlayerId = -1;
+                _currentReceivePeer = null;
+            }
+        }
+
+        /// <summary>
+        /// Runs the handler and decides the relay. Host relay of a client message is independent of the
+        /// host's local apply only for sender-authoritative presence; for everything else a handler
+        /// that threw means the host never applied the mutation, so fanning it out would desync the
+        /// clients from the host. A packet we could not parse (InvalidDataException) or no handler
+        /// claimed is never relayed, and a handler that asked to swallow the forward
+        /// (_suppressForwardThisMessage) is honored.
+        /// </summary>
+        private bool DispatchAndDecideRelay(NetMessageType type, byte[] payload, out byte[] relayBody)
+        {
+            bool relay = true;
+            relayBody = payload;
             using (new NetworkApplyGuard())
             {
                 try
@@ -106,6 +172,7 @@ namespace DWMPHorde.Networking
                         || TryDispatchWorld(type, payload)
                         || TryDispatchDialogueDream(type, payload)))
                     {
+                        relay = false;
                         if (NetLogThrottle.ShouldLog("unhandled:" + (int)type, 10f, out int dropped))
                             ModLog.Warn(LogCat.Network,
                                 "Unhandled message type: " + type + " (" + (int)type + ")"
@@ -137,58 +204,45 @@ namespace DWMPHorde.Networking
                             + (relay ? "" : " — not relayed") + ": " + ex
                             + NetLogThrottle.SuppressedSuffix(dropped));
                 }
-                finally
-                {
-                    // Per-message flags never leak into the next message, whatever happened.
-                    _isForwardedMessage = false;
-                    if (_suppressForwardThisMessage)
-                    {
-                        _suppressForwardThisMessage = false;
-                        relay = false;
-                    }
-                }
             }
 
+            if (_suppressForwardThisMessage)
+                relay = false;
             if (_relayPayloadOverride != null)
-            {
-                payload = _relayPayloadOverride;
-                _relayPayloadOverride = null;
-            }
-            if (!relay)
+                relayBody = _relayPayloadOverride;
+            return relay;
+        }
+
+        /// <summary>Host: fan a client message out to the other clients (3+ players).</summary>
+        private void RelayToOtherClients(NetMessageType type, byte[] body, DeliveryMethod inboundMethod)
+        {
+            int sender = _currentReceivePlayerId;
+            if (_role != NetworkRole.Host || sender <= 0)
                 return;
 
             // Sticky per-client presentation state, replayed to later joiners (late-join bulk only
             // carried the host's own light / anim library, so a client who joined after another
             // client lit a lantern or equipped a weapon saw that player bare).
-            if (_role == NetworkRole.Host && _currentReceivePlayerId > 1
-                && (type == NetMessageType.PlayerLightState || type == NetMessageType.PlayerAnimLibrary))
-                _stickyPlayerPayloads[StickyKey(_currentReceivePlayerId, type)] = payload;
+            if (sender > 1 && (type == NetMessageType.PlayerLightState || type == NetMessageType.PlayerAnimLibrary))
+                _stickyPlayerPayloads[StickyKey(sender, type)] = body;
 
-            // === Forward client messages to other clients (3+ support) ===
-            if (!_isForwardedMessage && _role == NetworkRole.Host && _currentReceivePlayerId > 0)
+            if (!_forwardableMap.TryGetValue(type, out var fwdKind))
+                return;
+            DeliveryMethod method = RelayMethodFor(inboundMethod);
+            if (fwdKind == ForwardableKind.Direct)
             {
-                if (_forwardableMap.TryGetValue(type, out var fwdKind))
+                // PutRaw is already the message body; a length prefix would break deserializers.
+                SendToAllExcept(sender, type, w => w.PutRaw(body), method);
+            }
+            else
+            {
+                var fwd = new RemotePlayerForwardMessage
                 {
-                    if (fwdKind == ForwardableKind.Direct)
-                    {
-                        // Direct rebroadcast must be reliable (default SendToAllExcept is Unreliable).
-                        // PutRaw is already the message body; adding a length
-                        // prefix would break deserializers.
-                        SendToAllExcept(_currentReceivePlayerId, type, w => w.PutRaw(payload),
-                            DeliveryMethod.ReliableOrdered);
-                    }
-                    else
-                    {
-                        var fwd = new RemotePlayerForwardMessage
-                        {
-                            OriginalPlayerId = _currentReceivePlayerId,
-                            InnerType = (byte)type,
-                            InnerPayload = payload
-                        };
-                        SendToAllExcept(_currentReceivePlayerId, NetMessageType.RemotePlayerForward,
-                            w => fwd.Serialize(w), DeliveryMethod.ReliableOrdered);
-                    }
-                }
+                    OriginalPlayerId = sender,
+                    InnerType = (byte)type,
+                    InnerPayload = body
+                };
+                SendToAllExcept(sender, NetMessageType.RemotePlayerForward, w => fwd.Serialize(w), method);
             }
         }
     }

@@ -45,7 +45,7 @@ namespace DWMPHorde.Networking
                                     drag.Serialize(dragWriter);
                                     byte[] dragBody = dragWriter.CopyData();
                                     SendToAllExcept(_currentReceivePlayerId, NetMessageType.DragSync,
-                                        w => w.PutRaw(dragBody), DeliveryMethod.ReliableOrdered);
+                                        w => w.PutRaw(dragBody), RelayMethodFor(_currentReceiveMethod));
                                     _suppressForwardThisMessage = true;
                                 }
                                 return true;
@@ -90,21 +90,11 @@ namespace DWMPHorde.Networking
                             return true;
                         case NetMessageType.RemotePlayerForward:
                             {
+                                // Host -> client only ([HostOnly]: the host drops it from clients before
+                                // dispatch). The inner message is attributed to the original player.
                                 var fwd = RemotePlayerForwardMessage.Deserialize(new NetReader(payload));
-                                // Host trust: only the original player may ask the host to re-broadcast
-                                // their own message. A claimed OriginalPlayerId that differs from the
-                                // The actual sender does not match the claimed identity.
-                                // Drop the forward.
-                                if (_role == NetworkRole.Host && fwd.OriginalPlayerId != _currentReceivePlayerId)
-                                {
-                                    ModLog.Warn(LogCat.Network,
-                                        "Reject RemotePlayerForward: claimed p" + fwd.OriginalPlayerId
-                                        + " from p" + _currentReceivePlayerId);
-                                    return true;
-                                }
                                 int saved = _currentReceivePlayerId;
                                 _currentReceivePlayerId = fwd.OriginalPlayerId;
-                                _isForwardedMessage = true;
                                 try
                                 {
                                     PlayerFXHandlers.DispatchRemotePlayerForward(
@@ -112,7 +102,6 @@ namespace DWMPHorde.Networking
                                 }
                                 finally
                                 {
-                                    _isForwardedMessage = false;
                                     _currentReceivePlayerId = saved;
                                 }
                                 return true;

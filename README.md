@@ -51,8 +51,8 @@ game installation.
 3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
    `DarkwoodMP.Mod/bin/Release/BepInEx/` to
    `Darkwood/BepInEx/plugins/`.
-4. Launch Darkwood. The F2 window title should read YokWare Branch 0.8.127 / Path B
-   and its footer protocol 27.
+4. Launch Darkwood. The F2 window title should read YokWare Branch &lt;version&gt; / Path B
+   and its footer the protocol, both as in the table above.
 
 The project can also copy these files to the configured local Steam and
 SecondDarkwood plugin directories after a BepInEx build. Treat that as a local

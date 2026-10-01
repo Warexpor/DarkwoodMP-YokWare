@@ -31,9 +31,18 @@ namespace DWMPHorde.Networking
             return map;
         }
 
-        /// <summary>True while the current OnNetworkReceive is forwarding a
-        /// RemotePlayerForwardMessage's inner payload to prevent re-forwarding.</summary>
-        private bool _isForwardedMessage;
+        private static readonly HashSet<NetMessageType> _hostOnlyTypes = BuildHostOnlySet();
+
+        private static HashSet<NetMessageType> BuildHostOnlySet()
+        {
+            var set = new HashSet<NetMessageType>();
+            foreach (var field in typeof(NetMessageType).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (System.Attribute.GetCustomAttribute(field, typeof(HostOnlyAttribute), false) != null)
+                    set.Add((NetMessageType)field.GetValue(null));
+            }
+            return set;
+        }
 
         /// <summary>Get the PlayerId for a given NetPeer, or -1 if unknown.</summary>
         private int GetPlayerId(NetPeer peer)
@@ -137,6 +146,7 @@ namespace DWMPHorde.Networking
             // Steam path already called RemovePeerSlot before this.
 
             _handshakedPeers.Remove(playerId);
+            _rejectedPeers.Remove(playerId);
             // A peer that rebinds to this id later counts from a low sequence again; the old
             // high-water marks would drop its unreliable packets until it overtook them.
             _lastPlayerStateSequence.Remove(playerId);
@@ -221,7 +231,7 @@ namespace DWMPHorde.Networking
             _currentReceivePlayerId = GetPlayerId(peer);
             if (IsConnected)
                 ClientPerfProbe.NotePacketRx(type);
-            ProcessInboundMessage(type, payload);
+            ProcessInboundMessage(type, payload, deliveryMethod);
         }
     }
 }
