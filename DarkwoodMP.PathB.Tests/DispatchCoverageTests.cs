@@ -5,8 +5,8 @@ using Xunit;
 namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
-/// The wire enum and the receive switch must agree: an id nobody dispatches is silently dropped,
-/// an id dispatched twice runs its handler twice (or is shadowed by the first case).
+/// The wire enum and the inbound handler table must agree: an id nobody registers is silently
+/// dropped; registering an id twice throws at startup.
 /// </summary>
 public class DispatchCoverageTests
 {
@@ -37,7 +37,7 @@ public class DispatchCoverageTests
         var counts = new Dictionary<string, int>();
         foreach (string file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
         {
-            foreach (Match m in Regex.Matches(File.ReadAllText(file), @"case\s+NetMessageType\.(\w+)\s*:"))
+            foreach (Match m in Regex.Matches(File.ReadAllText(file), @"\bOn(?:Raw)?\(\s*NetMessageType\.(\w+)\s*,"))
                 counts[m.Groups[1].Value] = counts.GetValueOrDefault(m.Groups[1].Value) + 1;
         }
 
@@ -46,8 +46,29 @@ public class DispatchCoverageTests
         var repeated = counts.Where(kv => kv.Value > 1).Select(kv => kv.Key + " x" + kv.Value).ToList();
         var unknown = counts.Keys.Where(n => !Enum.TryParse<NetMessageType>(n, out _)).ToList();
 
-        Assert.True(missing.Count == 0, "message types with no dispatch case: " + string.Join(", ", missing));
-        Assert.True(repeated.Count == 0, "message types dispatched more than once: " + string.Join(", ", repeated));
-        Assert.True(unknown.Count == 0, "dispatch cases for unknown message types: " + string.Join(", ", unknown));
+        Assert.True(missing.Count == 0, "message types with no inbound handler: " + string.Join(", ", missing));
+        Assert.True(repeated.Count == 0, "message types registered more than once: " + string.Join(", ", repeated));
+        Assert.True(unknown.Count == 0, "handlers for unknown message types: " + string.Join(", ", unknown));
+    }
+
+    [Fact]
+    public void HostOnlyTypes_AreNeverRelayed()
+    {
+        // A [HostOnly] type is dropped when a client sends it, so marking it forwardable is a contradiction.
+        foreach (var field in typeof(NetMessageType).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+        {
+            bool hostOnly = Attribute.IsDefined(field, typeof(HostOnlyAttribute));
+            bool relayed = Attribute.IsDefined(field, typeof(ForwardableAttribute))
+                || Attribute.IsDefined(field, typeof(ForwardablePlayerAttribute));
+            Assert.False(hostOnly && relayed, field.Name + " is both [HostOnly] and forwardable");
+        }
+    }
+
+    [Fact]
+    public void HandshakeIsNotHostOnly()
+    {
+        // Clients must be able to open the session.
+        var field = typeof(NetMessageType).GetField(nameof(NetMessageType.Handshake))!;
+        Assert.False(Attribute.IsDefined(field, typeof(HostOnlyAttribute)));
     }
 }

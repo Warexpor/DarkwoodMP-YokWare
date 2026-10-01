@@ -11,85 +11,27 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
-        /// <summary>Inbound dispatch slice: DialogueDream.</summary>
-        private bool TryDispatchDialogueDream(NetMessageType type, byte[] payload)
+        /// <summary>Inbound handlers: DialogueDream.</summary>
+        private void RegisterDialogueDreamHandlers()
         {
-            switch (type)
-            {
-                        case NetMessageType.DialogOutcomeSync:
-                            DialogOutcomeHandlers.HandleDialogOutcomeSync(
-                                DialogOutcomeSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamStarted:
-                            DreamHandlers.HandleDreamStarted(
-                                DreamStartedMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamEnded:
-                            DreamHandlers.HandleDreamEnded(
-                                DreamEndedMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamStartRequest:
-                            DreamHandlers.HandleDreamStartRequest(
-                                DreamStartRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamItemPickup:
-                            DreamHandlers.HandleDreamItemPickup(
-                                DreamItemPickupMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamAudio:
-                            DreamHandlers.HandleDreamAudio(
-                                DreamAudioMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamEntered:
-                            DreamHandlers.HandleDreamEntered(
-                                DreamEnteredMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamPropCollider:
-                            DreamHandlers.HandleDreamPropCollider(
-                                DreamPropColliderMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamChainStart:
-                            DreamHandlers.HandleDreamChainStart(
-                                DreamChainStartMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.FinalDreamsceneDeath:
-                            CombatHandlers.HandleFinalDreamsceneDeath(FinalDreamsceneDeathMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.SceneLoad:
-                            EpilogueHandlers.HandleSceneLoad(
-                                SceneLoadMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.CutsceneSync:
-                            CutsceneHandlers.HandleCutsceneSync(
-                                CutsceneSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ChapterTransition:
-                            ChapterHandlers.HandleChapterTransition(
-                                ChapterTransitionMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ChapterShareAck:
-                            ChapterHandlers.HandleChapterShareAck(
-                                ChapterShareAckMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ChapterLoadGo:
-                            ChapterHandlers.HandleChapterLoadGo(
-                                ChapterLoadGoMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.GameEventsFired:
-                            GameEventHandlers.HandleGameEventsFired(
-                                GameEventsFiredMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DialogNpcLock:
-                            DialogNpcLockHandlers.HandleDialogNpcLock(
-                                DialogNpcLockMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DialogTreeState:
-                            DialogOutcomeHandlers.HandleDialogTreeState(
-                                DialogTreeStateMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                default:
-                    return false;
-            }
+            On(NetMessageType.DialogOutcomeSync, DialogOutcomeSyncMessage.Deserialize, m => DialogOutcomeHandlers.HandleDialogOutcomeSync(m));
+            On(NetMessageType.DreamStarted, DreamStartedMessage.Deserialize, m => DreamHandlers.HandleDreamStarted(m));
+            On(NetMessageType.DreamEnded, DreamEndedMessage.Deserialize, m => DreamHandlers.HandleDreamEnded(m));
+            On(NetMessageType.DreamStartRequest, DreamStartRequestMessage.Deserialize, m => DreamHandlers.HandleDreamStartRequest(m));
+            On(NetMessageType.DreamItemPickup, DreamItemPickupMessage.Deserialize, m => DreamHandlers.HandleDreamItemPickup(m));
+            On(NetMessageType.DreamAudio, DreamAudioMessage.Deserialize, m => DreamHandlers.HandleDreamAudio(m));
+            On(NetMessageType.DreamEntered, DreamEnteredMessage.Deserialize, m => DreamHandlers.HandleDreamEntered(m));
+            On(NetMessageType.DreamPropCollider, DreamPropColliderMessage.Deserialize, m => DreamHandlers.HandleDreamPropCollider(m));
+            On(NetMessageType.DreamChainStart, DreamChainStartMessage.Deserialize, m => DreamHandlers.HandleDreamChainStart(m));
+            On(NetMessageType.FinalDreamsceneDeath, FinalDreamsceneDeathMessage.Deserialize, m => CombatHandlers.HandleFinalDreamsceneDeath(m));
+            On(NetMessageType.SceneLoad, SceneLoadMessage.Deserialize, m => EpilogueHandlers.HandleSceneLoad(m));
+            On(NetMessageType.CutsceneSync, CutsceneSyncMessage.Deserialize, m => CutsceneHandlers.HandleCutsceneSync(m));
+            On(NetMessageType.ChapterTransition, ChapterTransitionMessage.Deserialize, m => ChapterHandlers.HandleChapterTransition(m));
+            On(NetMessageType.ChapterShareAck, ChapterShareAckMessage.Deserialize, m => ChapterHandlers.HandleChapterShareAck(m));
+            On(NetMessageType.ChapterLoadGo, ChapterLoadGoMessage.Deserialize, m => ChapterHandlers.HandleChapterLoadGo(m));
+            On(NetMessageType.GameEventsFired, GameEventsFiredMessage.Deserialize, m => GameEventHandlers.HandleGameEventsFired(m));
+            On(NetMessageType.DialogNpcLock, DialogNpcLockMessage.Deserialize, m => DialogNpcLockHandlers.HandleDialogNpcLock(m));
+            On(NetMessageType.DialogTreeState, DialogTreeStateMessage.Deserialize, m => DialogOutcomeHandlers.HandleDialogTreeState(m));
         }
     }
 }

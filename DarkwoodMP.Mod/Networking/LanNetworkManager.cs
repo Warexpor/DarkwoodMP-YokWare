@@ -389,6 +389,7 @@ namespace DWMPHorde.Networking
                 CombatFxImpactHandlers, CombatFxGasBurnHandlers);
             SaveHandlers = new SaveNetHandlers(this);
             BulkSyncHandlers = new BulkSyncNetHandlers(this);
+            RegisterInboundHandlers();
             Sync.DreamAudioPlayer.Initialize();
         }
     }
