@@ -131,9 +131,9 @@ namespace DWMPHorde.Networking
                 return;
             ModLog.Warn(LogCat.Session, "Peer " + playerId + " refused: " + reason);
             // From here on the peer is only waiting to leave: drop its traffic and stop streaming to it.
-            _rejectedPeers.Add(playerId);
-            if (_handshakedPeers.Remove(playerId))
-                _handshakeComplete = _handshakedPeers.Count > 0;
+            _session.Link.Rejected.Add(playerId);
+            if (_session.Link.Handshaked.Remove(playerId))
+                _session.Link.HandshakeComplete = _session.Link.Handshaked.Count > 0;
             SendToPlayer(playerId, NetMessageType.ChapterLoadGo, w => new ChapterLoadGoMessage
             {
                 ChapterId = chapterId,
@@ -173,8 +173,8 @@ namespace DWMPHorde.Networking
         /// <summary>Host: stable client key → current PlayerId for every keyed peer (before teardown).</summary>
         internal Dictionary<string, int> SnapshotStableKeyRoster()
         {
-            var roster = new Dictionary<string, int>(_stableKeyByPlayer.Count);
-            foreach (var kvp in _stableKeyByPlayer)
+            var roster = new Dictionary<string, int>(_session.StableKeyByPlayer.Count);
+            foreach (var kvp in _session.StableKeyByPlayer)
             {
                 if (kvp.Key > 1 && !string.IsNullOrEmpty(kvp.Value) && HasPeer(kvp.Key))
                     roster[kvp.Value] = kvp.Key;

@@ -18,7 +18,7 @@ namespace DWMPHorde.Networking
     {
         private void Update()
         {
-            bool perf = IsConnected && _handshakeComplete
+            bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
@@ -98,7 +98,7 @@ namespace DWMPHorde.Networking
             CombatFxImpactHandlers?.TickMeleeHitDebounceCleanup();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
-            if (!IsConnected || !_handshakeComplete)
+            if (!IsConnected || !_session.Link.HandshakeComplete)
             {
                 if (perf) ClientPerfProbe.MarkUpdateRest();
                 return;

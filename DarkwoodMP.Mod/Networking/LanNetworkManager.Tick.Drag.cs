@@ -74,9 +74,9 @@ namespace DWMPHorde.Networking
 
         private void LateUpdate()
         {
-            if (!IsConnected || !_handshakeComplete) return;
+            if (!IsConnected || !_session.Link.HandshakeComplete) return;
 
-            bool perf = IsConnected && _handshakeComplete
+            bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             if (perf) ClientPerfProbe.LateBegin();
 

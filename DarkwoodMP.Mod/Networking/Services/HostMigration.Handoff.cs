@@ -45,7 +45,7 @@ namespace DWMPHorde.Networking
                 return true;
 
             var survivors = new List<int>(8);
-            foreach (int id in _handshakedPeers)
+            foreach (int id in _session.Link.Handshaked)
             {
                 if (id > 0 && id != _localPlayerId)
                     survivors.Add(id);
@@ -135,7 +135,7 @@ namespace DWMPHorde.Networking
 
             // A link that never completed its handshake is a failed connect, not a host loss:
             // electing here would promote a client that was never part of the session.
-            if (!_handshakeComplete)
+            if (!_session.Link.HandshakeComplete)
             {
                 OnClientLinkFailed(reason);
                 return;
@@ -266,7 +266,7 @@ namespace DWMPHorde.Networking
             if (_remotePlayers.ContainsKey(deadHost))
                 _remotePlayers.Remove(deadHost);
             PlayerPositionManager.RemovePlayer(deadHost);
-            _remoteOutsideLocation.Remove(deadHost);
+            _session.RemoteOutsideLocation.Remove(deadHost);
             try
             {
                 DeathStateTracker.OnRemoteDisconnected(deadHost);

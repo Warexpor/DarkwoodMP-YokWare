@@ -117,22 +117,22 @@ namespace DWMPHorde.Networking
             if (from == to || from <= 0 || to <= 0)
                 return;
 
-            if (_handshakedPeers.Remove(from))
-                _handshakedPeers.Add(to);
-            if (_rejectedPeers.Remove(from))
-                _rejectedPeers.Add(to);
-            MoveKey(_awaitingLateJoinBulk, from, to);
-            MoveKey(_pendingHeavyLateJoinBulk, from, to);
-            MoveKey(_heavyPhaseFailures, from, to);
-            if (_peersLoadingWorld.Remove(from))
-                _peersLoadingWorld.Add(to);
-            if (_peersCoopReconnect.Remove(from))
-                _peersCoopReconnect.Add(to);
-            MoveKey(_lastPlayerStateSequence, from, to);
-            MoveKey(_lastPhysicsStateSequence, from, to);
-            MoveKey(_lastReliablePhysicsStateSequence, from, to);
-            MoveKey(_stableKeyByPlayer, from, to);
-            MoveKey(_remoteOutsideLocation, from, to);
+            if (_session.Link.Handshaked.Remove(from))
+                _session.Link.Handshaked.Add(to);
+            if (_session.Link.Rejected.Remove(from))
+                _session.Link.Rejected.Add(to);
+            MoveKey(_session.Link.AwaitingLateJoinBulk, from, to);
+            MoveKey(_session.Link.PendingHeavyLateJoinBulk, from, to);
+            MoveKey(_session.Link.HeavyPhaseFailures, from, to);
+            if (_session.Link.LoadingWorld.Remove(from))
+                _session.Link.LoadingWorld.Add(to);
+            if (_session.Link.CoopReconnect.Remove(from))
+                _session.Link.CoopReconnect.Add(to);
+            MoveKey(_session.Link.LastPlayerStateSequence, from, to);
+            MoveKey(_session.Link.LastPhysicsStateSequence, from, to);
+            MoveKey(_session.Link.LastReliablePhysicsStateSequence, from, to);
+            MoveKey(_session.StableKeyByPlayer, from, to);
+            MoveKey(_session.RemoteOutsideLocation, from, to);
             MoveSticky(from, to, NetMessageType.PlayerLightState);
             MoveSticky(from, to, NetMessageType.PlayerAnimLibrary);
 
@@ -160,10 +160,10 @@ namespace DWMPHorde.Networking
         private void MoveSticky(int from, int to, NetMessageType type)
         {
             long src = StickyKey(from, type);
-            if (_stickyPlayerPayloads.TryGetValue(src, out byte[] payload))
+            if (_session.StickyPlayerPayloads.TryGetValue(src, out byte[] payload))
             {
-                _stickyPlayerPayloads.Remove(src);
-                _stickyPlayerPayloads[StickyKey(to, type)] = payload;
+                _session.StickyPlayerPayloads.Remove(src);
+                _session.StickyPlayerPayloads[StickyKey(to, type)] = payload;
             }
         }
 

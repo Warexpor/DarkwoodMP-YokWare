@@ -27,7 +27,7 @@ namespace DWMPHorde.Networking
         internal bool IsPeerInWorld(int playerId)
         {
             return playerId > 1
-                && (_peersCoopReconnect.Contains(playerId) || _lastPlayerStateSequence.ContainsKey(playerId));
+                && (_session.Link.CoopReconnect.Contains(playerId) || _session.Link.LastPlayerStateSequence.ContainsKey(playerId));
         }
 
         /// <summary>
@@ -45,10 +45,10 @@ namespace DWMPHorde.Networking
                 if (id <= 1 || IsPeerInWorld(id))
                     continue;
                 MarkPeerLoadingWorld(id);
-                if (_handshakedPeers.Contains(id))
+                if (_session.Link.Handshaked.Contains(id))
                 {
-                    if (!_awaitingLateJoinBulk.ContainsKey(id))
-                        _awaitingLateJoinBulk[id] = 0f;
+                    if (!_session.Link.AwaitingLateJoinBulk.ContainsKey(id))
+                        _session.Link.AwaitingLateJoinBulk[id] = 0f;
                     ReserveIdForJoinPipeline(id);
                 }
                 marked++;
@@ -68,8 +68,8 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || playerId <= 0)
                 return;
 
-            _awaitingLateJoinBulk.Remove(playerId);
-            _peersCoopReconnect.Remove(playerId);
+            _session.Link.AwaitingLateJoinBulk.Remove(playerId);
+            _session.Link.CoopReconnect.Remove(playerId);
             ModLog.Event(LogCat.Session,
                 "Sending late-join bulk → player " + playerId
                 + " (light now; heavy sticky world staggered)");
@@ -117,8 +117,8 @@ namespace DWMPHorde.Networking
             // Proxy from live PlayerState once CanSpawnRemoteProxies.
 
             // Heavy sticky world: weather/trade/construct/locks/barricades/gas/deathbags/GE.
-            _pendingHeavyLateJoinBulk[playerId] = 0;
-            _heavyPhaseFailures.Remove(playerId);
+            _session.Link.PendingHeavyLateJoinBulk[playerId] = 0;
+            _session.Link.HeavyPhaseFailures.Remove(playerId);
         }
 
         /// <summary>Run one light late-join step; a throw is logged by name and does not stop the rest.</summary>
@@ -133,8 +133,6 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Heavy phase failures per peer for the phase currently being retried.</summary>
-        private readonly Dictionary<int, int> _heavyPhaseFailures = new Dictionary<int, int>();
         private const int HeavyPhaseMaxAttempts = 3;
 
         private static readonly string[] HeavyPhaseNames =
@@ -151,21 +149,21 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void TickHeavyLateJoinBulk()
         {
-            if (_role != NetworkRole.Host || _pendingHeavyLateJoinBulk.Count == 0)
+            if (_role != NetworkRole.Host || _session.Link.PendingHeavyLateJoinBulk.Count == 0)
                 return;
 
             // Copy keys because the dictionary changes as peers finish.
-            var peers = new List<int>(_pendingHeavyLateJoinBulk.Keys);
+            var peers = new List<int>(_session.Link.PendingHeavyLateJoinBulk.Keys);
             for (int p = 0; p < peers.Count; p++)
             {
                 int playerId = peers[p];
                 if (!HasPeer(playerId))
                 {
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
-                    _heavyPhaseFailures.Remove(playerId);
+                    _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
+                    _session.Link.HeavyPhaseFailures.Remove(playerId);
                     continue;
                 }
-                if (!_pendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
+                if (!_session.Link.PendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
                     continue;
 
                 try
@@ -213,7 +211,7 @@ namespace DWMPHorde.Networking
                             GameEventHandlers.SendGameEventsBulkTo(playerId);
                             break;
                         default:
-                            _pendingHeavyLateJoinBulk.Remove(playerId);
+                            _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
                             ModLog.Event(LogCat.Session,
                                 "Late-join heavy bulk complete → player " + playerId);
                             return;
@@ -224,33 +222,33 @@ namespace DWMPHorde.Networking
                     // Retry the same phase on the next frames; only give up (loudly, naming the phase)
                     // after a bounded number of attempts. Skipping on the first throw silently left the
                     // joiner without e.g. every lock / barricade state.
-                    _heavyPhaseFailures.TryGetValue(playerId, out int failures);
+                    _session.Link.HeavyPhaseFailures.TryGetValue(playerId, out int failures);
                     failures++;
                     if (failures < HeavyPhaseMaxAttempts)
                     {
-                        _heavyPhaseFailures[playerId] = failures;
+                        _session.Link.HeavyPhaseFailures[playerId] = failures;
                         ModLog.Warn(LogCat.Session,
                             "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
                             + " failed (attempt " + failures + "/" + HeavyPhaseMaxAttempts + "), retrying: " + ex.Message);
                         return;
                     }
-                    _heavyPhaseFailures.Remove(playerId);
+                    _session.Link.HeavyPhaseFailures.Remove(playerId);
                     ModLog.Error(LogCat.Session,
                         "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
                         + " failed " + HeavyPhaseMaxAttempts + " times — SKIPPING; the joiner is missing this state", ex);
                 }
 
-                _heavyPhaseFailures.Remove(playerId);
+                _session.Link.HeavyPhaseFailures.Remove(playerId);
                 phase++;
                 if (phase >= HeavyLateJoinPhaseCount)
                 {
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
+                    _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
                     ModLog.Event(LogCat.Session,
                         "Late-join heavy bulk complete → player " + playerId);
                 }
                 else
                 {
-                    _pendingHeavyLateJoinBulk[playerId] = phase;
+                    _session.Link.PendingHeavyLateJoinBulk[playerId] = phase;
                 }
 
                 // Process one peer and phase per frame to avoid stacked scene scans.
@@ -265,11 +263,11 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 0)
                 return;
-            if (!_awaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
+            if (!_session.Link.AwaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
             {
                 // In-world PlayerState from a muted peer with no bulk pending: it ignored a world
                 // package (already playing). Nothing else would ever unmute it.
-                if (_peersLoadingWorld.Contains(playerId)
+                if (_session.Link.LoadingWorld.Contains(playerId)
                     && (_worldSaveShare == null || !_worldSaveShare.IsHostShareRunning)
                     && !Patches.ChapterTransitionHelpers.IsChapterTransitionActive)
                     MarkPeerGameplayReady(playerId);
@@ -277,19 +275,19 @@ namespace DWMPHorde.Networking
             }
 
             float now = Time.realtimeSinceStartup;
-            float settle = _peersCoopReconnect.Contains(playerId)
+            float settle = _session.Link.CoopReconnect.Contains(playerId)
                 ? CoopReconnectBulkSettleSeconds
                 : ClientBulkSettleSeconds;
 
             if (firstSeen <= 0f)
             {
-                _awaitingLateJoinBulk[playerId] = now;
+                _session.Link.AwaitingLateJoinBulk[playerId] = now;
                 // The joiner is past LoadScene, so high-rate gameplay packets can resume.
                 MarkPeerGameplayReady(playerId);
                 ModLog.Event(LogCat.Session,
                     "Player " + playerId + " in-world — bulk in "
                     + settle.ToString("F1") + "s (settle"
-                    + (_peersCoopReconnect.Contains(playerId) ? ", phase3 reconnect" : "")
+                    + (_session.Link.CoopReconnect.Contains(playerId) ? ", phase3 reconnect" : "")
                     + ")");
                 return;
             }
@@ -339,20 +337,20 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void TickHostWorldShareWhenReady()
         {
-            if (_role != NetworkRole.Host || !IsConnected || !_handshakeComplete)
+            if (_role != NetworkRole.Host || !IsConnected || !_session.Link.HandshakeComplete)
             {
-                _hostWasShareableForWaitingClients = false;
-                _hostWorldReadyEmitted = false;
+                _session.HostWasShareableForWaitingClients = false;
+                _session.HostWorldReadyEmitted = false;
                 return;
             }
 
             bool shareable = HostHasShareableWorld();
             if (!shareable)
             {
-                _hostWasShareableForWaitingClients = false;
-                if (_hostWorldReadyEmitted)
+                _session.HostWasShareableForWaitingClients = false;
+                if (_session.HostWorldReadyEmitted)
                 {
-                    _hostWorldReadyEmitted = false;
+                    _session.HostWorldReadyEmitted = false;
                     BroadcastHostWorldReady(ready: false);
                     ModLog.Event(LogCat.Session,
                         "Host left fully-in-world state — HostWorldReady Ready=false broadcast");
@@ -365,17 +363,17 @@ namespace DWMPHorde.Networking
             EmitHostWorldReadyIfNeeded();
 
             // Share only on the transition to the ready state.
-            if (_hostWasShareableForWaitingClients)
+            if (_session.HostWasShareableForWaitingClients)
                 return;
 
             // A share already running would coalesce this one away: keep the edge armed and retry
             // once it is done instead of losing the waiting peers.
             if (_worldSaveShare != null && _worldSaveShare.IsBusy)
                 return;
-            _hostWasShareableForWaitingClients = true;
+            _session.HostWasShareableForWaitingClients = true;
 
             int waiting = 0;
-            foreach (int id in _handshakedPeers)
+            foreach (int id in _session.Link.Handshaked)
             {
                 // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the world.
                 if (id > 1 && !IsPeerInWorld(id))
@@ -397,9 +395,9 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || !HostHasShareableWorld())
                 return;
-            if (_hostWorldReadyEmitted)
+            if (_session.HostWorldReadyEmitted)
                 return;
-            _hostWorldReadyEmitted = true;
+            _session.HostWorldReadyEmitted = true;
             BroadcastHostWorldReady(ready: true);
         }
 
@@ -427,7 +425,7 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Session,
                 "HostWorldReady broadcast ready=" + msg.Ready
                 + " ch" + msg.ChapterId
-                + " day" + msg.DayIndex + " peers=" + _handshakedPeers.Count);
+                + " day" + msg.DayIndex + " peers=" + _session.Link.Handshaked.Count);
         }
 
         private static HostWorldReadyMessage BuildHostWorldReadyMessage(bool ready)

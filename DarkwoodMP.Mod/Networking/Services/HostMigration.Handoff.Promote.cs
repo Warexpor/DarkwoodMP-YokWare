@@ -84,8 +84,8 @@ namespace DWMPHorde.Networking
             }
 
             NoteSessionPort(port);
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
             _migrationInProgress = false;
             StatusText = "HOST GRANTED — port " + port + " (p" + keepId + ")";
             ModLog.Event(LogCat.Network,
@@ -127,8 +127,8 @@ namespace DWMPHorde.Networking
             Steam.ArmMigrationAllowlist(allow, 60);
             _backend = ConnectionBackend.Steam;
             NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
             _migrationInProgress = false;
             StatusText = "HOST GRANTED — Steam (p" + keepId + ")";
             ModLog.Event(LogCat.Network,
