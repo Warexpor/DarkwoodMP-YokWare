@@ -177,7 +177,7 @@ namespace DWMPHorde.Patches
             {
                 Sync.WorldPhysicsSyncService.MuteThrownCombat(capture.HeldItem);
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ThrowableSync] muted client throw combat for " + capture.ItemType);
+                    ModRuntime.LegacyInfo($"[ThrowableSync] muted client throw combat for {capture.ItemType}");
             }
 
             // Always log throws (esp. flares) — playtests had silent host TX.
@@ -230,7 +230,7 @@ namespace DWMPHorde.Patches
                 }
                 if (isProxySpawned)
                 {
-                    ModRuntime.LegacyInfo("[ExplosionSync] skip host-synced ThrownItem explosion at " + __instance.transform.position);
+                    ModRuntime.LegacyInfo($"[ExplosionSync] skip host-synced ThrownItem explosion at {__instance.transform.position}");
                     return;
                 }
             }
@@ -272,9 +272,7 @@ namespace DWMPHorde.Patches
                 SoundId = soundId
             });
 
-            ModRuntime.LegacyInfo("[ExplosionSync] sent explosion at " + pos
-                + " name=" + __instance.name + " sound=" + soundId + " prefab=" + prefabName
-                + " flaming=" + flaming);
+            ModRuntime.LegacyInfo($"[ExplosionSync] sent explosion at {pos} name={__instance.name} sound={soundId} prefab={prefabName} flaming={flaming}");
         }
     }
 

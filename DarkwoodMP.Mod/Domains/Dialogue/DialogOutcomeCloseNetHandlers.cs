@@ -34,8 +34,7 @@ namespace DWMPHorde.Networking
             {
                 _apply.DeferCloseUntilDrainDone(npcName);
                 ModRuntime.LegacyInfo(
-                    "[DialogOutcome] defer onCloseDialogue until world-only drain finishes NPC="
-                    + npcName);
+                    $"[DialogOutcome] defer onCloseDialogue until world-only drain finishes NPC={npcName}");
                 return;
             }
 
@@ -57,14 +56,12 @@ namespace DWMPHorde.Networking
                 if (!onPad)
                 {
                     ModRuntime.LegacyInfo(
-                        "[DialogOutcome] skip onCloseDialogue — dream pad NPC not ready for "
-                        + npcName);
+                        $"[DialogOutcome] skip onCloseDialogue — dream pad NPC not ready for {npcName}");
                     return;
                 }
             }
             ModRuntime.LegacyInfo(
-                "[DialogOutcome] host replaying onCloseDialogue for NPC=" + npcName
-                + " at (" + npcPos.x.ToString("F0") + "," + npcPos.z.ToString("F0") + ")");
+                $"[DialogOutcome] host replaying onCloseDialogue for NPC={npcName} at ({npcPos.x.ToString("F0")},{npcPos.z.ToString("F0")})");
 
             // Pre-arm mute window before onCloseDialogue / leave-door GE so peer DoorOpen
             // applies without a second openSound (GE already played it).
@@ -166,8 +163,7 @@ namespace DWMPHorde.Networking
                     ge.fire();
                     fired++;
                     ModRuntime.LegacyInfo(
-                        "[DialogOutcome] host force-fired leave-door GE '" + n
-                        + "' wasFired=" + wasFired);
+                        $"[DialogOutcome] host force-fired leave-door GE '{n}' wasFired={wasFired}");
                 }
                 catch (Exception ex)
                 {

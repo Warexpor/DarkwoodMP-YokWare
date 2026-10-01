@@ -224,8 +224,7 @@ namespace DWMPHorde.Patches
             if (CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, remoteInside))
             {
                 ModRuntime.LegacyInfo(
-                    "[LocationSync] skip Location.leave — remote still inside "
-                    + (__instance.gameObject != null ? __instance.gameObject.name : __instance.name));
+                    $"[LocationSync] skip Location.leave — remote still inside {(__instance.gameObject != null ? __instance.gameObject.name : __instance.name)}");
                 return false;
             }
             return true;

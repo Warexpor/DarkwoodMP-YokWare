@@ -104,7 +104,7 @@ namespace DWMPHorde.Patches
             net.Send(NetMessageType.GameEventsFired,
                 w => msg.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[Epilogue] Client crawl pan — asking host to fire " + type);
+            ModRuntime.LegacyInfo($"[Epilogue] Client crawl pan — asking host to fire {type}");
         }
     }
 }

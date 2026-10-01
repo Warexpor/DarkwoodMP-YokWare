@@ -63,7 +63,7 @@ namespace DWMPHorde.Sync
                 PosZ = key.z,
                 IsOn = __instance.isOn
             });
-            ModRuntime.LegacyInfo("[InteractiveItemSync] switchMe at " + key + " isOn=" + __instance.isOn);
+            ModRuntime.LegacyInfo($"[InteractiveItemSync] switchMe at {key} isOn={__instance.isOn}");
         }
 
         internal static bool IsWellInteractiveItem(InteractiveItem ii)
@@ -164,7 +164,7 @@ namespace DWMPHorde.Sync
                 PosY = key.y,
                 PosZ = key.z
             });
-            ModRuntime.LegacyInfo("[PadlockSync] unlock at " + key);
+            ModRuntime.LegacyInfo($"[PadlockSync] unlock at {key}");
         }
     }
 
@@ -191,7 +191,7 @@ namespace DWMPHorde.Sync
                 PosY = key.y,
                 PosZ = key.z
             });
-            ModRuntime.LegacyInfo("[LockedSync] unlock at " + key);
+            ModRuntime.LegacyInfo($"[LockedSync] unlock at {key}");
         }
     }
 
@@ -238,8 +238,7 @@ namespace DWMPHorde.Sync
                 FuelDelta = delta
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GeneratorSync] send addFuel at " + key
-                    + " fuel=" + __instance.fuel + " delta=" + delta);
+                ModRuntime.LegacyInfo($"[GeneratorSync] send addFuel at {key} fuel={__instance.fuel} delta={delta}");
         }
     }
 
@@ -271,7 +270,7 @@ namespace DWMPHorde.Sync
                 ItemType = itemType
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GeneratorSync] send setLowPower=" + __instance.lowPower + " at " + key);
+                ModRuntime.LegacyInfo($"[GeneratorSync] send setLowPower={__instance.lowPower} at {key}");
         }
     }
 }

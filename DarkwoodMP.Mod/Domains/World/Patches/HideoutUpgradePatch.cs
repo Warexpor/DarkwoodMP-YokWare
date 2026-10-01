@@ -36,7 +36,7 @@ namespace DWMPHorde.Patches
                 PosZ = key.z,
                 IsOn = true
             });
-            ModRuntime.LegacyInfo("[HideoutUpgrade] enable at " + key);
+            ModRuntime.LegacyInfo($"[HideoutUpgrade] enable at {key}");
         }
     }
 
@@ -64,7 +64,7 @@ namespace DWMPHorde.Patches
                 PosZ = key.z,
                 IsOn = false
             });
-            ModRuntime.LegacyInfo("[HideoutUpgrade] disable at " + key);
+            ModRuntime.LegacyInfo($"[HideoutUpgrade] disable at {key}");
         }
     }
 }

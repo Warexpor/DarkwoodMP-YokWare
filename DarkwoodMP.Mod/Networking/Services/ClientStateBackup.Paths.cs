@@ -137,7 +137,7 @@ namespace DWMPHorde.Networking
                 else
                     SaveLocalSelfBackupFile(json);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] migrated legacy backup → campaign " + current);
+                    $"[ClientBackup] migrated legacy backup → campaign {current}");
             }
             catch (Exception ex)
             {
@@ -259,7 +259,7 @@ namespace DWMPHorde.Networking
                 }
 
                 File.WriteAllText(path, json);
-                ModRuntime.LegacyInfo("[ClientBackup] saved" + keyTag + " → " + path);
+                ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
             }
             catch (Exception ex)
             {
@@ -308,7 +308,7 @@ namespace DWMPHorde.Networking
                 catch { /* default path */ }
 
                 File.WriteAllText(path, json);
-                ModRuntime.LegacyInfo("[ClientBackup] saved local self → " + path);
+                ModRuntime.LegacyInfo($"[ClientBackup] saved local self → {path}");
             }
             catch (Exception ex)
             {
@@ -374,9 +374,9 @@ namespace DWMPHorde.Networking
                         {
                             SaveBackupFile(SerializeToJson(data), playerId, steamId, stableKey);
                             if (steamId != 0)
-                                ModRuntime.LegacyInfo("[ClientBackup] migrated " + tag + " → steam key");
+                                ModRuntime.LegacyInfo($"[ClientBackup] migrated {tag} → steam key");
                             else
-                                ModRuntime.LegacyInfo("[ClientBackup] migrated " + tag + " → LAN k key");
+                                ModRuntime.LegacyInfo($"[ClientBackup] migrated {tag} → LAN k key");
                         }
                     }
                     catch (Exception migEx)
@@ -393,20 +393,18 @@ namespace DWMPHorde.Networking
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip " + tag
-                        + " backup — campaign mismatch (file=(none/mismatched) current="
-                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                        $"[ClientBackup] skip {tag} backup — campaign mismatch (file=(none/mismatched) current={(CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)")})");
                     return null;
                 }
                 if (!HasMeaningfulProgress(data))
                 {
-                    ModRuntime.LegacyInfo("[ClientBackup] skip " + tag + " backup — empty/no progress");
+                    ModRuntime.LegacyInfo($"[ClientBackup] skip {tag} backup — empty/no progress");
                     return null;
                 }
                 if (LooksLikeStaleBackupOnFreshWorld(data))
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip " + tag + " backup — stale/legacy-poison snapshot");
+                        $"[ClientBackup] skip {tag} backup — stale/legacy-poison snapshot");
                     return null;
                 }
                 return data;
@@ -435,8 +433,7 @@ namespace DWMPHorde.Networking
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current="
-                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                        $"[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current={(CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)")})");
                     return null;
                 }
                 if (!HasMeaningfulProgress(data))

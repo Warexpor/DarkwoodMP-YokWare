@@ -189,7 +189,7 @@ namespace DWMPHorde.Spectator
             }
             catch (System.Exception ex)
             {
-                ModRuntime.LegacyInfo("[Spectate] MuteLocalPlayerAudio: " + ex.Message);
+                ModRuntime.LegacyInfo($"[Spectate] MuteLocalPlayerAudio: {ex.Message}");
             }
         }
 

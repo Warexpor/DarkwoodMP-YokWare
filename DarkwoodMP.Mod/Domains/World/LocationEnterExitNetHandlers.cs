@@ -319,8 +319,7 @@ namespace DWMPHorde.Networking
             _deferredCreateWhileLocalLoading.Clear();
             if (n > 0)
                 ModRuntime.LegacyInfo(
-                    "[LocationSync] soft reconnect cleared RemoteOutsideLocation x" + n
-                    + " (proxies destroyed — await LocationEnter re-place)");
+                    $"[LocationSync] soft reconnect cleared RemoteOutsideLocation x{n} (proxies destroyed — await LocationEnter re-place)");
         }
 
         /// <summary>
@@ -376,7 +375,7 @@ namespace DWMPHorde.Networking
             {
                 DialogHostApplyGuard.RunHostWorldFanout(() => loc.leave());
                 ModRuntime.LegacyInfo(
-                    "[LocationSync] last remote left '" + locName + "' — host left location");
+                    $"[LocationSync] last remote left '{locName}' — host left location");
             }
         }
     }

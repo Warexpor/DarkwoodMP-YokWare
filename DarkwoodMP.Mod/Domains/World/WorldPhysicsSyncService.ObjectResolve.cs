@@ -346,7 +346,7 @@ namespace DWMPHorde.Sync
                 if (best != null)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[ObjectApply] found \"" + best.name + "\" via full scan (" + bestDist.ToString("F1") + " u from target)");
+                        ModRuntime.LegacyInfo($"[ObjectApply] found \"{best.name}\" via full scan ({bestDist.ToString("F1")} u from target)");
                     return RememberResolved(obj.Name, best);
                 }
             }
@@ -405,7 +405,7 @@ namespace DWMPHorde.Sync
                     rb.angularVelocity = Vector3.zero;
                 }
 
-                ModRuntime.LegacyInfo("[ObjectApply] spawned \"" + obj.Name + "\" type=" + obj.ItemType + " at " + targetPos);
+                ModRuntime.LegacyInfo($"[ObjectApply] spawned \"{obj.Name}\" type={obj.ItemType} at {targetPos}");
             }
 
             return spawned;

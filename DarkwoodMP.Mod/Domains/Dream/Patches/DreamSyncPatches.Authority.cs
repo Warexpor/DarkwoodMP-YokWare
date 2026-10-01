@@ -45,7 +45,7 @@ namespace DWMPHorde.Patches
                         SessionId = DreamSession.SessionId
                     }.Serialize(w),
                     DeliveryMethod.ReliableOrdered);
-                ModRuntime.LegacyInfo("[DreamSync] Host DreamChainStart → " + name);
+                ModRuntime.LegacyInfo($"[DreamSync] Host DreamChainStart → {name}");
             }
         }
     }

@@ -188,8 +188,7 @@ namespace DWMPHorde.Networking
                 }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
-                "[Death] host fan DeathBagLooted (emptied via container take) id="
-                + (bagId ?? "?") + " at " + pos);
+                $"[Death] host fan DeathBagLooted (emptied via container take) id={(bagId ?? "?")} at {pos}");
         }
 
         /// <summary>Lookup by BagId; purges destroyed entries.</summary>

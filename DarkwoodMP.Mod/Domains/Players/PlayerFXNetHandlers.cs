@@ -266,8 +266,8 @@ namespace DWMPHorde.Networking
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.Log?.LogWarning("[Network] getItem: " + ex.Message);
             }
-            if (itemDef == null) { ModRuntime.LegacyInfo("[WeaponFire] handle: item not found: " + msg.ItemType); return; }
-            if (!itemDef.isFirearm) { ModRuntime.LegacyInfo("[WeaponFire] handle: not a firearm: " + msg.ItemType); return; }
+            if (itemDef == null) { ModRuntime.LegacyInfo($"[WeaponFire] handle: item not found: {msg.ItemType}"); return; }
+            if (!itemDef.isFirearm) { ModRuntime.LegacyInfo($"[WeaponFire] handle: not a firearm: {msg.ItemType}"); return; }
 
             Transform proxyT = proxy.transform;
 
@@ -284,7 +284,7 @@ namespace DWMPHorde.Networking
                 + aimUp * itemDef.muzzleOffset.y
                 + aimRight * itemDef.muzzleOffset.x;
 
-            ModRuntime.LegacyInfo("[WeaponFire] handle: spawning muzzle for " + msg.ItemType + " count=" + msg.ProjectileCount + " aimY=" + msg.AimY);
+            ModRuntime.LegacyInfo($"[WeaponFire] handle: spawning muzzle for {msg.ItemType} count={msg.ProjectileCount} aimY={msg.AimY}");
 
             if (itemDef.muzzlePrefab != null)
             {

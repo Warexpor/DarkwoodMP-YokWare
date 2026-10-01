@@ -75,7 +75,7 @@ namespace DWMPHorde.Sync
             long nextBlock = ((highest >> EpochShift) + 1) << EpochShift;
             if (nextBlock < MaxSaneId)
                 _nextHostId = (int)nextBlock;
-            ModRuntime.LegacyInfo("[TrapId] promoted host mints from " + _nextHostId);
+            ModRuntime.LegacyInfo($"[TrapId] promoted host mints from {_nextHostId}");
         }
 
         public static int GetId(GameObject go)

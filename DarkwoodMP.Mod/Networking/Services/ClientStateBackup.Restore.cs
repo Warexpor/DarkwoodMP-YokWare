@@ -98,12 +98,7 @@ namespace DWMPHorde.Networking
             catch { /* offline / mid-teardown */ }
 
             ModRuntime.LegacyInfo(
-                "[ClientBackup] restored from backup — level=" + data.CurrentLevel +
-                " exp=" + data.Experience +
-                " skills=" + (data.Skills?.Count ?? 0) +
-                " pts=" + data.SkillPoints +
-                " inv=" + (data.InventoryItems?.Count ?? 0) + " items" +
-                " pos=(" + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
+                $"[ClientBackup] restored from backup — level={data.CurrentLevel} exp={data.Experience} skills={(data.Skills?.Count ?? 0)} pts={data.SkillPoints} inv={(data.InventoryItems?.Count ?? 0)} items pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
             return true;
         }
 
@@ -323,7 +318,7 @@ namespace DWMPHorde.Networking
                     net.TeleportRemoteProxyTo(pos, 0f);
 
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored position " + pos);
+                    $"[ClientBackup] restored position {pos}");
             }
             catch (Exception ex)
             {

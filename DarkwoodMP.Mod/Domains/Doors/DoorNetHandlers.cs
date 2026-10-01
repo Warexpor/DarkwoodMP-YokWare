@@ -100,7 +100,7 @@ namespace DWMPHorde.Networking
                     DialogHostApplyGuard.RunHostWorldFanout(() =>
                         Core.sendTriggerInfo(door.gameObject, EventTrigger.Type.onTryToOpenLocked));
                     ModRuntime.LegacyInfo(
-                        "[DoorSync] locked attempt trigger '" + door.name + "' at " + pos);
+                        $"[DoorSync] locked attempt trigger '{door.name}' at {pos}");
                 }
                 return;
             }

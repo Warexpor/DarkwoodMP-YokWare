@@ -151,7 +151,7 @@ namespace DWMPHorde.Networking
                         _pending.RemoveAt(0);
                     }
                     _pending.Add(msg);
-                    ModRuntime.LegacyInfo("[ShadowArmorSync] queued (armor not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[ShadowArmorSync] queued (armor not loaded) at {pos}");
                 }
                 return;
             }

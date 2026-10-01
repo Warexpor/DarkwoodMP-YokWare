@@ -40,7 +40,7 @@ namespace DWMPHorde.Networking
                 && DreamSession.IsPresetCompleted(msg.PresetName))
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] Drop DreamStarted — party already completed: " + msg.PresetName);
+                    $"[DreamSync] Drop DreamStarted — party already completed: {msg.PresetName}");
                 return;
             }
 
@@ -91,7 +91,7 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Client && DreamSession.IsRejectedOutcome(msg.OutcomeName))
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSession] Host rejected story end — " + msg.OutcomeName);
+                    $"[DreamSession] Host rejected story end — {msg.OutcomeName}");
                 DreamSyncManager.ForceLocalDreamCleanup(msg.OutcomeName);
                 return;
             }

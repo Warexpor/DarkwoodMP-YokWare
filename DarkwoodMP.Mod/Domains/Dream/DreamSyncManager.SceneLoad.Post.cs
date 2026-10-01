@@ -63,7 +63,7 @@ namespace DWMPHorde.Sync
                 }
                 if (remapped > 0)
                     ModRuntime.LegacyInfo(
-                        "[DreamSync] Remapped " + remapped + " UniqueObject(s) onto dream pad");
+                        $"[DreamSync] Remapped {remapped} UniqueObject(s) onto dream pad");
 
                 // Pad GameEvents / UniqueObjects were not in the scene when dream-start
                 // Invalidate ran; drop the TTL cache so GameEventsFired SoftMatch sees them.

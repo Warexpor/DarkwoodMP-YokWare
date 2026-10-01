@@ -131,8 +131,7 @@ namespace DWMPHorde.Networking
                 if (steamId == 0 && string.IsNullOrEmpty(stableKey) && !allowPlayerId)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip push → p" + playerId
-                        + " — no SteamId/StableClientKey (cold LAN; peer uses local self)");
+                        $"[ClientBackup] skip push → p{playerId} — no SteamId/StableClientKey (cold LAN; peer uses local self)");
                     return;
                 }
                 var data = ClientStateBackup.LoadBackupFileForPlayer(
@@ -149,8 +148,7 @@ namespace DWMPHorde.Networking
                 if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip push → p" + playerId
-                        + " — stale/legacy-poison backup");
+                        $"[ClientBackup] skip push → p{playerId} — stale/legacy-poison backup");
                     return;
                 }
                 string json = ClientStateBackup.SerializeToJson(data);
@@ -262,8 +260,7 @@ namespace DWMPHorde.Networking
                         {
                             data = local;
                             ModRuntime.LegacyInfo(
-                                "[ClientBackup] prefer local self over host push (localScore="
-                                + localScore + " hostScore=" + hostScore + ")");
+                                $"[ClientBackup] prefer local self over host push (localScore={localScore} hostScore={hostScore})");
                         }
                     }
 
@@ -271,8 +268,7 @@ namespace DWMPHorde.Networking
                         || !ClientStateBackup.HasMeaningfulProgress(data))
                     {
                         ModRuntime.LegacyInfo(
-                            "[ClientBackup] ignore host push — no usable backup for this campaign"
-                            + " — keeping loaded character / local fallback");
+                            $"[ClientBackup] ignore host push — no usable backup for this campaign — keeping loaded character / local fallback");
                         WrongSaveWarning.Notify(
                             "character backup does not match this co-op campaign — kept loaded character");
                         return;
@@ -281,8 +277,7 @@ namespace DWMPHorde.Networking
                     if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
                     {
                         ModRuntime.LegacyInfo(
-                            "[ClientBackup] ignore host push — stale/legacy-poison backup"
-                            + " — local fallback still allowed");
+                            $"[ClientBackup] ignore host push — stale/legacy-poison backup — local fallback still allowed");
                         WrongSaveWarning.Notify(
                             "stale character backup refused — kept loaded character");
                         return;

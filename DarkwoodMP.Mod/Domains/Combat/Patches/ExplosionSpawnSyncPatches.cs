@@ -57,7 +57,7 @@ namespace DWMPHorde.Patches
 
             var net = ModRuntime.Network;
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[FX] entered role=" + (net?.Role.ToString() ?? "null") + " obj=" + __instance?.name + " hasThrown=" + (__instance.GetComponent<ThrownItem>() != null));
+                ModRuntime.LegacyInfo($"[FX] entered role={(net?.Role.ToString() ?? "null")} obj={(__instance?.name)} hasThrown={(__instance.GetComponent<ThrownItem>() != null)}");
 
             ExplosionSpawnFlagTracker.CurrentExplodes = __instance;
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;

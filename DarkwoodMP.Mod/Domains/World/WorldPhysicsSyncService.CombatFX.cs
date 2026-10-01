@@ -111,7 +111,7 @@ namespace DWMPHorde.Sync
 
             if (target != null)
             {
-                ModRuntime.LegacyInfo("[ExplosionTrigger] activating " + target.name + " at " + pos + " flaming=" + flaming);
+                ModRuntime.LegacyInfo($"[ExplosionTrigger] activating {target.name} at {pos} flaming={flaming}");
                 _suppressBroadcast = true;
                 try
                 {
@@ -170,7 +170,7 @@ namespace DWMPHorde.Sync
                     bool activated = (bool)Traverse.Create(target).Field("activated").GetValue();
                     if (activated)
                     {
-                        ModRuntime.LegacyInfo("[ExplosionVisual] " + target.name + " already activated, VFX skip (sound already played)");
+                        ModRuntime.LegacyInfo($"[ExplosionVisual] {target.name} already activated, VFX skip (sound already played)");
                         return;
                     }
                 }
@@ -186,14 +186,14 @@ namespace DWMPHorde.Sync
                     if (target.spawnObject != null)
                     {
                         Traverse.Create(target).Method("spawnObjects").GetValue();
-                        ModRuntime.LegacyInfo("[ExplosionVisual] spawnObjects() for " + target.name + " at " + pos);
+                        ModRuntime.LegacyInfo($"[ExplosionVisual] spawnObjects() for {target.name} at {pos}");
                     }
 
                     // 2) Main boom VFX
                     if (target.explosionPrefab != null)
                     {
                         Core.AddPrefab(target.explosionPrefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
-                        ModRuntime.LegacyInfo("[ExplosionVisual] spawned local prefab " + target.explosionPrefab.name + " at " + pos);
+                        ModRuntime.LegacyInfo($"[ExplosionVisual] spawned local prefab {target.explosionPrefab.name} at {pos}");
                     }
 
                     // Dedupe host ExplosionSpawnObject for the secondaries we just spawned
@@ -212,7 +212,7 @@ namespace DWMPHorde.Sync
             }
 
             // Fallback: no local Explodes (already destroyed / never loaded).
-            ModRuntime.LegacyInfo("[ExplosionVisual] no local Explodes for \"" + objectName + "\", using message data");
+            ModRuntime.LegacyInfo($"[ExplosionVisual] no local Explodes for \"{objectName}\", using message data");
 
             if (!string.IsNullOrEmpty(prefabName))
             {
@@ -231,7 +231,7 @@ namespace DWMPHorde.Sync
                     if (prefab != null)
                     {
                         Core.AddPrefab(prefab, pos, Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
-                        ModRuntime.LegacyInfo("[ExplosionVisual] fallback prefab " + prefabName + " at " + pos);
+                        ModRuntime.LegacyInfo($"[ExplosionVisual] fallback prefab {prefabName} at {pos}");
                     }
                     else
                     {
@@ -257,7 +257,7 @@ namespace DWMPHorde.Sync
             if (FindFlammableLiquidNear(pos, 1.15f) != null)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[GasTrail] skip spawn — liquid already near " + pos);
+                    ModRuntime.LegacyInfo($"[GasTrail] skip spawn — liquid already near {pos}");
                 return;
             }
 
@@ -270,7 +270,7 @@ namespace DWMPHorde.Sync
                 if (go != null)
                 {
                     Core.addToSaveable(go, isDynamic: true);
-                    ModRuntime.LegacyInfo("[GasTrail] spawned at " + pos);
+                    ModRuntime.LegacyInfo($"[GasTrail] spawned at {pos}");
                 }
                 else
                 {
@@ -296,7 +296,7 @@ namespace DWMPHorde.Sync
                     if (!liquid.burning)
                     {
                         liquid.startBurning();
-                        ModRuntime.LegacyInfo("[GasIgnite] ignited " + liquid.name + " at " + pos);
+                        ModRuntime.LegacyInfo($"[GasIgnite] ignited {liquid.name} at {pos}");
                     }
                     return;
                 }
@@ -307,7 +307,7 @@ namespace DWMPHorde.Sync
                 if (liquid != null && !liquid.burning)
                 {
                     liquid.startBurning();
-                    ModRuntime.LegacyInfo("[GasIgnite] spawned+ignited trail at " + pos);
+                    ModRuntime.LegacyInfo($"[GasIgnite] spawned+ignited trail at {pos}");
                     return;
                 }
                 ModRuntime.Log?.LogWarning("[GasIgnite] no flammable Liquid found at " + pos + " (even after spawning)");

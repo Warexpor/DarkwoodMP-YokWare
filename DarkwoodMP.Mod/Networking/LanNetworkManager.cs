@@ -91,8 +91,7 @@ namespace DWMPHorde.Networking
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo(
-                        "[" + snapshotKind + "] stale snapshot rejected sender="
-                        + senderId + " seq=" + sequence + " last=" + last);
+                        $"[{snapshotKind}] stale snapshot rejected sender={senderId} seq={sequence} last={last}");
                 return false;
             }
 

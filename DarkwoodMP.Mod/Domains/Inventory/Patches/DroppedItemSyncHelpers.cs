@@ -17,7 +17,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
 
             string guid = System.Guid.NewGuid().ToString("N");
-            ModRuntime.LegacyInfo("[SendDrop] adding identifier guid=" + guid + " to " + spawned.name);
+            ModRuntime.LegacyInfo($"[SendDrop] adding identifier guid={guid} to {spawned.name}");
 
             var ident = spawned.gameObject.AddComponent<DroppedItemIdentifier>();
             ident.Id = guid;
@@ -83,8 +83,7 @@ namespace DWMPHorde.Patches
                     ObjectName = sendName,
                     Mode = WorldObjectRemovedMessage.ModeRemove
                 });
-                ModRuntime.LegacyInfo("[SendPickup] sent WorldObjectRemoved for " + sendName + " at " + pos
-                    + " (trap rescue)");
+                ModRuntime.LegacyInfo($"[SendPickup] sent WorldObjectRemoved for {sendName} at {pos} (trap rescue)");
             }
         }
 
@@ -120,7 +119,7 @@ namespace DWMPHorde.Patches
                     Ammo = ammo
                 };
                 net.SendDroppedItemPickup(remove);
-                ModRuntime.LegacyInfo("[GuidPickup] host claimed guid=" + guid + " type=" + itemType);
+                ModRuntime.LegacyInfo($"[GuidPickup] host claimed guid={guid} type={itemType}");
                 return;
             }
 
@@ -138,8 +137,7 @@ namespace DWMPHorde.Patches
             // Client→host only (Forwardable would fan ClaimRequest — host owns grant).
             net.Send(NetMessageType.DroppedItemPickup, w => claim.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[GuidPickup] client ClaimRequest guid=" + guid
-                + " type=" + itemType + " x" + amount);
+            ModRuntime.LegacyInfo($"[GuidPickup] client ClaimRequest guid={guid} type={itemType} x{amount}");
         }
 
         /// <summary>
@@ -176,7 +174,7 @@ namespace DWMPHorde.Patches
                     Durability = durability,
                     Ammo = ammo
                 });
-                ModRuntime.LegacyInfo("[WorldPickup] host claimed " + sendName + " at " + pos);
+                ModRuntime.LegacyInfo($"[WorldPickup] host claimed {sendName} at {pos}");
                 return;
             }
 
@@ -197,8 +195,7 @@ namespace DWMPHorde.Patches
             };
             net.Send(NetMessageType.WorldObjectRemoved, w => claim.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[WorldPickup] client ClaimRequest " + sendName + " at " + pos
-                + " type=" + itemType + " x" + amount);
+            ModRuntime.LegacyInfo($"[WorldPickup] client ClaimRequest {sendName} at {pos} type={itemType} x{amount}");
         }
 
         /// <summary>

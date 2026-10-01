@@ -46,7 +46,7 @@ namespace DWMPHorde.Sync
                 OpenerPosZ = openerPos.z,
                 BodyRotY = bodyRotY
             });
-            ModRuntime.LegacyInfo("[DoorSync] send close " + __instance.name + " at " + key + " bodyY=" + bodyRotY);
+            ModRuntime.LegacyInfo($"[DoorSync] send close {__instance.name} at {key} bodyY={bodyRotY}");
         }
     }
 
@@ -71,7 +71,7 @@ namespace DWMPHorde.Sync
             // TrapDisarmHarvestSync sends silent WorldObjectRemoved instead.
             if (TrapDisarmHarvestTracker.IsSilentDisarm)
             {
-                ModRuntime.LegacyInfo("[TrapSync] skip boom — silent disarm/harvest " + __instance.name);
+                ModRuntime.LegacyInfo($"[TrapSync] skip boom — silent disarm/harvest {__instance.name}");
                 return;
             }
 
@@ -101,8 +101,7 @@ namespace DWMPHorde.Sync
                 TrapNetId = trapId,
                 OccupantPlayerId = occupant
             });
-            ModRuntime.LegacyInfo("[TrapSync] send triggered " + __instance.name
-                + " id=" + trapId + " at " + key);
+            ModRuntime.LegacyInfo($"[TrapSync] send triggered {__instance.name} id={trapId} at {key}");
         }
     }
 
@@ -162,7 +161,7 @@ namespace DWMPHorde.Sync
                 RotY = euler.y,
                 RotZ = euler.z
             });
-            ModRuntime.LegacyInfo("[ItemSpawn] sent " + __state.Type + " at " + __state.Pos);
+            ModRuntime.LegacyInfo($"[ItemSpawn] sent {__state.Type} at {__state.Pos}");
         }
 
         // progressBarCompleted can throw; stuck true suppresses WorldObject harvest/destroy forever.
@@ -199,7 +198,7 @@ namespace DWMPHorde.Sync
                 LowPower = __instance.lowPower,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send turnOn at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send turnOn at {key} type={itemType}");
         }
     }
 
@@ -230,7 +229,7 @@ namespace DWMPHorde.Sync
                 LowPower = false,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send turnOff at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send turnOff at {key} type={itemType}");
         }
     }
 
@@ -261,7 +260,7 @@ namespace DWMPHorde.Sync
                 LowPower = false,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send powerDown at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send powerDown at {key} type={itemType}");
 
             // Do NOT fan-out LightState IsOn=false for powerItems.
             // Vanilla powerDown/cutPower keeps lamp isOn and only drops hasPower / visuals;
@@ -301,7 +300,7 @@ namespace DWMPHorde.Sync
                 ItemName = __instance.name,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[LightSync] send turnOn " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send turnOn {__instance.name} type={itemType}");
         }
     }
 
@@ -331,7 +330,7 @@ namespace DWMPHorde.Sync
                 ItemName = __instance.name,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[LightSync] send turnOff " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send turnOff {__instance.name} type={itemType}");
         }
     }
 
@@ -371,7 +370,7 @@ namespace DWMPHorde.Sync
                 UseIngredients = false,
                 OptionIndex = option
             });
-            ModRuntime.LegacyInfo("[ConstructibleSync] sent construct at " + key + " option=" + option);
+            ModRuntime.LegacyInfo($"[ConstructibleSync] sent construct at {key} option={option}");
         }
 
         internal static void RegisterConstructed(Constructible c, int forceOption)
@@ -418,7 +417,7 @@ namespace DWMPHorde.Sync
                 ItemName = __instance.name,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[LightSync] send empDisable " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send empDisable {__instance.name} type={itemType}");
         }
     }
 }

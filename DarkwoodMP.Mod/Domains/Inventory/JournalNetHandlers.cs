@@ -58,7 +58,7 @@ namespace DWMPHorde.Networking
             else
             {
                 Singleton<Controller>.Instance.workbenchLevel = level;
-                ModRuntime.LegacyInfo("[Workbench] Level synced from " + prevLevel + " to " + level);
+                ModRuntime.LegacyInfo($"[Workbench] Level synced from {prevLevel} to {level}");
             }
 
             // If the workbench inventory is currently open, refresh the display

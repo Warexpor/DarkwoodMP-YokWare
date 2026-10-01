@@ -59,8 +59,7 @@ namespace DWMPHorde.Networking
                         if (!IsLocalInEpilogue())
                         {
                             ModRuntime.LegacyInfo(
-                                "[Epilogue] Host ignored credits SceneLoad — not in epilogue "
-                                + "(living peer must not be dragged by a remote ending)");
+                                $"[Epilogue] Host ignored credits SceneLoad — not in epilogue (living peer must not be dragged by a remote ending)");
                             _net.SuppressRelay();
                             return;
                         }

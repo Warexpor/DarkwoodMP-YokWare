@@ -78,7 +78,7 @@ namespace DWMPHorde.Networking
                     if (events != null)
                     {
                         ModRuntime.LegacyInfo(
-                            "[Epilogue] Host firing crawl pan from p" + _net.CurrentReceivePlayerId);
+                            $"[Epilogue] Host firing crawl pan from p{_net.CurrentReceivePlayerId}");
                         events.fireWorldEvent(EpilogueNetHandlers.EpilogueCameraPanEvent);
                         // Inbound dispatch holds NetworkApplyGuard, so the fire Postfix
                         // and SendGameEventsFired both skip. Fan out explicitly.

@@ -62,7 +62,7 @@ namespace DWMPHorde.Networking
                     if (_pendingHideoutUpgrades.Count >= MaxPendingHideoutUpgrades)
                         _pendingHideoutUpgrades.RemoveAt(0);
                     _pendingHideoutUpgrades.Add(msg);
-                    ModRuntime.LegacyInfo("[HideoutUpgrade] queued — no ExperienceMachine near " + pos);
+                    ModRuntime.LegacyInfo($"[HideoutUpgrade] queued — no ExperienceMachine near {pos}");
                 }
                 else
                     ModRuntime.Log?.LogWarning("[HideoutUpgrade] no ExperienceMachine found near " + pos);

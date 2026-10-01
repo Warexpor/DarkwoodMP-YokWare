@@ -116,8 +116,7 @@ namespace DWMPHorde.Sync
             _hostOrderedDreamEnd = true;
             dreams.outcome = outcomeName;
             ModRuntime.LegacyInfo(
-                "[DreamSync] Host-ordered story end — playing exit transition outcome="
-                + outcomeName);
+                $"[DreamSync] Host-ordered story end — playing exit transition outcome={outcomeName}");
             try
             {
                 dreams.initiateEndDreaming();

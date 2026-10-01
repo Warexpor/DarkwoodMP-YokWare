@@ -152,7 +152,7 @@ namespace DWMPHorde.Sync
                             {
                                 if (_bodyPushSoundActive.Add(obj.Name))
                                 {
-                                    ModRuntime.LegacyInfo("[SND] body-push start " + obj.Name + " d=" + posDelta.ToString("F3"));
+                                    ModRuntime.LegacyInfo($"[SND] body-push start {obj.Name} d={posDelta.ToString("F3")}");
                                     LanNetworkManager.NotifyBodyPushStarted(go);
                                 }
                                 else
@@ -170,7 +170,7 @@ namespace DWMPHorde.Sync
                                 // Retarget after a hard drag jump without starting scrape.
                                 if (_bodyPushSoundActive.Remove(obj.Name))
                                 {
-                                    ModRuntime.LegacyInfo("[SND] body-push skip jump d=" + posDelta.ToString("F3") + " " + obj.Name);
+                                    ModRuntime.LegacyInfo($"[SND] body-push skip jump d={posDelta.ToString("F3")} {obj.Name}");
                                     LanNetworkManager.NotifyBodyPushStopped(obj.Name);
                                 }
                                 _pushStationaryCount[goId] = 0;
@@ -184,7 +184,7 @@ namespace DWMPHorde.Sync
                                 _pushStationaryCount[goId] = quietN;
                                 if (quietN >= 2 && _bodyPushSoundActive.Remove(obj.Name))
                                 {
-                                    ModRuntime.LegacyInfo("[SND] body-push stop (quiet) " + obj.Name);
+                                    ModRuntime.LegacyInfo($"[SND] body-push stop (quiet) {obj.Name}");
                                     LanNetworkManager.NotifyBodyPushStopped(obj.Name);
                                     _bodyPushSoundTimer.Remove(goId);
                                     _pushNameToGid.Remove(obj.Name);
@@ -327,7 +327,7 @@ namespace DWMPHorde.Sync
 
             // Log summary every 15 applies to avoid spamming
             if ((objApplied > 0 || objFailed > 0) && ++_objApplyLogCounter % 15 == 0 && ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[ObjectApply] applied=" + objApplied + " skipped=" + objSkipped + " failed=" + objFailed + " from " + fromPeer);
+                ModRuntime.LegacyInfo($"[ObjectApply] applied={objApplied} skipped={objSkipped} failed={objFailed} from {fromPeer}");
 
             int doorApplied = 0, doorFailed = 0, doorSkipped = 0;
             if (state.Doors != null)
@@ -389,7 +389,7 @@ namespace DWMPHorde.Sync
                 }
                 if (doorApplied > 0 || doorFailed > 0)
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[DoorRecv] applied=" + doorApplied + " failed=" + doorFailed + " skipped=" + doorSkipped + " from " + fromPeer);
+                        ModRuntime.LegacyInfo($"[DoorRecv] applied={doorApplied} failed={doorFailed} skipped={doorSkipped} from {fromPeer}");
             }
 
             int trapApplied = 0, trapSkipped = 0;
@@ -427,8 +427,7 @@ namespace DWMPHorde.Sync
 
                         bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;
                         if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo("[TrapApply] " + go.name + " id=" + ts.TrapNetId
-                                + " at " + tPos + " triggered=" + ts.Triggered + " silent=" + silent);
+                            ModRuntime.LegacyInfo($"[TrapApply] {go.name} id={ts.TrapNetId} at {tPos} triggered={ts.Triggered} silent={silent}");
                         ApplyTrapState(go, ts.Triggered, silentDisarm: silent);
                         trapApplied++;
                     }
@@ -443,7 +442,7 @@ namespace DWMPHorde.Sync
                 }
                 if (trapApplied > 0 || trapSkipped > 0)
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[TrapRecv] applied=" + trapApplied + " skipped=" + trapSkipped + " from " + fromPeer);
+                        ModRuntime.LegacyInfo($"[TrapRecv] applied={trapApplied} skipped={trapSkipped} from {fromPeer}");
             }
 
             if (state.Generators != null)
@@ -479,9 +478,7 @@ namespace DWMPHorde.Sync
                             gs.IsOn = gen.isOn;
                             gs.LowPower = gen.lowPower;
                             state.Generators[gi] = gs;
-                            ModRuntime.LegacyInfo("[GeneratorSync] host-auth addFuel +"
-                                + delta.ToString("F0") + " " + before.ToString("F0")
-                                + "→" + gen.fuel.ToString("F0") + " at " + gPos);
+                            ModRuntime.LegacyInfo($"[GeneratorSync] host-auth addFuel +{delta.ToString("F0")} {before.ToString("F0")}→{gen.fuel.ToString("F0")} at {gPos}");
                         }
                         else
                         {

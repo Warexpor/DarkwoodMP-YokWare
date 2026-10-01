@@ -187,7 +187,7 @@ namespace DWMPHorde.Players
                 }, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }
 
-            ModRuntime.LegacyInfo("[ProxyCollisionEnter] bullet hit proxy, relayed " + dmg + " damage");
+            ModRuntime.LegacyInfo($"[ProxyCollisionEnter] bullet hit proxy, relayed {dmg} damage");
 
             // Physically destroy the bullet so it doesn't persist
             if (collision.gameObject != null)

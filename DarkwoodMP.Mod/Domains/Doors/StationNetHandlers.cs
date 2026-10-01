@@ -82,11 +82,11 @@ namespace DWMPHorde.Networking
                     if (_pendingSawStates.Count >= MaxPendingSawStates)
                         _pendingSawStates.RemoveAt(0);
                     _pendingSawStates.Add(new PendingSawState { Msg = msg, SenderId = senderId });
-                    ModRuntime.LegacyInfo("[SawSync] queued (saw not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[SawSync] queued (saw not loaded) at {pos}");
                 }
                 else
                 {
-                    ModRuntime.LegacyInfo("[SawSync] saw not found at " + pos);
+                    ModRuntime.LegacyInfo($"[SawSync] saw not found at {pos}");
                 }
                 return;
             }
@@ -286,7 +286,7 @@ namespace DWMPHorde.Networking
                     if (_pendingFeederStates.Count >= MaxPendingStationStates)
                         _pendingFeederStates.RemoveAt(0);
                     _pendingFeederStates.Add(msg);
-                    ModRuntime.LegacyInfo("[FeederSync] queued (feeder not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[FeederSync] queued (feeder not loaded) at {pos}");
                 }
                 return;
             }

@@ -221,7 +221,7 @@ namespace DWMPHorde.Sync
                 RemoveDreamCameraEffects(locationName);
                 if (Dreams.Instance != null && !Dreams.Instance.dreaming)
                     Dreams.Instance.dreamPrepared = false;
-                ModRuntime.LegacyInfo("[DreamSync] Discarded stale dream pad: " + locationName);
+                ModRuntime.LegacyInfo($"[DreamSync] Discarded stale dream pad: {locationName}");
             }
             catch (Exception ex)
             {

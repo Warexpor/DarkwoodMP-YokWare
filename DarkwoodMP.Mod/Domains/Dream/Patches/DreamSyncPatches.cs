@@ -88,8 +88,7 @@ namespace DWMPHorde.Patches
             if (added > 0)
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] Refilled random dream pool (+" + added
-                    + ") — save had depleted presetList");
+                    $"[DreamSync] Refilled random dream pool (+{added}) — save had depleted presetList");
             }
         }
 
@@ -128,7 +127,7 @@ namespace DWMPHorde.Patches
                         {
                             // Party-once / session race; do not continue into a completed roll.
                             ModRuntime.LegacyInfo(
-                                "[DreamSync] Host random roll rejected TryBegin: " + resolved);
+                                $"[DreamSync] Host random roll rejected TryBegin: {resolved}");
                             try
                             {
                                 if (__instance != null)

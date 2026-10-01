@@ -74,7 +74,7 @@ namespace DWMPHorde.Networking
                 }
             }
             if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade doors → p" + targetPlayerId + ": " + sent);
+                ModRuntime.LegacyInfo($"[BulkSync] Barricade doors → p{targetPlayerId}: {sent}");
             // Mid-session board removals (door.destroyed stays false) — not in scan above.
             sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 0, maxSend: maxSend - sent);
             return sent;
@@ -111,7 +111,7 @@ namespace DWMPHorde.Networking
                 sent++;
             }
             if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade windows → p" + targetPlayerId + ": " + sent);
+                ModRuntime.LegacyInfo($"[BulkSync] Barricade windows → p{targetPlayerId}: {sent}");
             // Soft-reconnect / late-join: torn window boards (scan only sends Built).
             sent += BarricadeSyncHelpers.SendRemovedBoardsTo(_net, targetPlayerId, isWindow: 1, maxSend: maxSend - sent);
             return sent;
@@ -158,7 +158,7 @@ namespace DWMPHorde.Networking
                 itemSent++;
             }
             if (itemSent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade items → p" + targetPlayerId + ": " + itemSent);
+                ModRuntime.LegacyInfo($"[BulkSync] Barricade items → p{targetPlayerId}: {itemSent}");
             return itemSent;
         }
 
@@ -184,14 +184,14 @@ namespace DWMPHorde.Networking
             if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ItemDmgEvent] destroying " + item.name);
+                    ModRuntime.LegacyInfo($"[ItemDmgEvent] destroying {item.name}");
                 if (!item.destroyed)
                     item.die();
             }
             else
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ItemDmgEvent] setting " + item.name + " health to " + msg.Health);
+                    ModRuntime.LegacyInfo($"[ItemDmgEvent] setting {item.name} health to {msg.Health}");
                 Traverse.Create(item).Field("health").SetValue(msg.Health);
                 if (playFx && item.hitParticlePrefabObject != null)
                 {

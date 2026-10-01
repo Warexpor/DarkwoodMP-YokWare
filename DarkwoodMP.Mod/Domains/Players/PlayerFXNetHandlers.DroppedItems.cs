@@ -67,8 +67,7 @@ namespace DWMPHorde.Networking
             ident.Id = msg.Guid;
             Players.DroppedItemIdentifier.Register(ident);
 
-            ModRuntime.LegacyInfo("[DroppedItemSpawn] " + msg.ItemType + " x" + msg.Amount
-                + " recipe=" + msg.IsRecipe + " guid=" + msg.Guid);
+            ModRuntime.LegacyInfo($"[DroppedItemSpawn] {msg.ItemType} x{msg.Amount} recipe={msg.IsRecipe} guid={msg.Guid}");
         }
 
         /// <summary>Resets consumed GUID tracking (call on scene change / disconnect).</summary>
@@ -112,12 +111,12 @@ namespace DWMPHorde.Networking
             // ModeRemove (default / legacy Guid-only): mark consumed + destroy world copy.
             bool first = LanNetworkManager.ConsumedDropGuids.Add(msg.Guid);
             if (!first)
-                ModRuntime.LegacyInfo("[DroppedItemPickup] already consumed: " + msg.Guid);
+                ModRuntime.LegacyInfo($"[DroppedItemPickup] already consumed: {msg.Guid}");
 
             var ident = Players.DroppedItemIdentifier.FindById(msg.Guid);
             if (ident != null && ident.gameObject != null)
             {
-                ModRuntime.LegacyInfo("[DroppedItemPickup] removing guid=" + msg.Guid);
+                ModRuntime.LegacyInfo($"[DroppedItemPickup] removing guid={msg.Guid}");
                 UnityEngine.Object.Destroy(ident.gameObject);
             }
 
@@ -203,8 +202,7 @@ namespace DWMPHorde.Networking
             // No pending entry: the host-won Remove (ClaimedBy != us) already refunded and consumed
             // it, or nothing was granted. A blind Refund(..., preCount -1) here would remove the
             // claimed amount a second time out of the player's own stock.
-            ModRuntime.LegacyInfo("[GuidPickup] claim deny guid=" + msg.Guid
-                + ": no pending grant (already refunded by Remove) — nothing to undo");
+            ModRuntime.LegacyInfo($"[GuidPickup] claim deny guid={msg.Guid}: no pending grant (already refunded by Remove) — nothing to undo");
         }
     }
 }

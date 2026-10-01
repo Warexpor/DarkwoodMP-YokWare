@@ -165,7 +165,7 @@ namespace DWMPHorde.Patches
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GasTrailSync] host flushed " + _pendingTrails.Count + " trails");
+                ModRuntime.LegacyInfo($"[GasTrailSync] host flushed {_pendingTrails.Count} trails");
 
             _pendingTrails.Clear();
         }
@@ -265,7 +265,7 @@ namespace DWMPHorde.Patches
                 PosZ = pos.z
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GasIgniteSync] host sent ignite at " + pos);
+                ModRuntime.LegacyInfo($"[GasIgniteSync] host sent ignite at {pos}");
         }
     }
 }
