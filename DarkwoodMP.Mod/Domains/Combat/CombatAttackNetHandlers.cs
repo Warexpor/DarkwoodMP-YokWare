@@ -14,7 +14,7 @@ namespace DWMPHorde.Networking
     /// <summary>
     /// Host-authoritative attack / damage / friendly-fire message handlers.
     /// </summary>
-    internal sealed class CombatAttackNetHandlers
+    internal sealed partial class CombatAttackNetHandlers
     {
         private readonly LanNetworkManager _net;
 
@@ -31,12 +31,12 @@ namespace DWMPHorde.Networking
         internal void Reset()
         {
             _ffDebounce.Clear();
+            _budgets.Clear();
         }
 
         /// <summary>
-        /// Per-message anti-grief clamp only. Do not rate-limit peer attacks:
-        /// shotguns / multi-ray hitscan send legitimate bursts that a 50ms gate
-        /// would drop (under-damage for client FF and PvE).
+        /// Per-message anti-grief clamp; the per-peer token bucket (<see cref="TryConsumeBudget"/>)
+        /// caps sustained rate without dropping legitimate shotgun / multi-ray bursts.
         /// </summary>
         internal int SanitizePeerDamage(int reported, string context)
         {
@@ -80,6 +80,13 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            if (!AttackerCanFight(playerId, attackingProxy, out string cannotFight))
+            {
+                ModLog.WarnRate(LogCat.Combat, "atk-cannot:" + playerId,
+                    "[HandlePlayerAttack] rejected: p" + playerId + " is " + cannotFight);
+                return;
+            }
+
             // The host proxy is authoritative; do not use a client-supplied
             // origin for target range checks or damage attribution.
             Vector3 attackPos = attackingProxy.transform.position;
@@ -87,7 +94,7 @@ namespace DWMPHorde.Networking
             if (!CombatAuthorityPolicy.IsWithinRange(
                     msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ,
                     attackPos.x, attackPos.y, attackPos.z,
-                    GameplayConstants.MaxPlayerAttackRange))
+                    GameplayConstants.MaxAttackerPositionDrift))
             {
                 ModLog.WarnRate(LogCat.Combat, "atk-range:" + playerId,
                     "[HandlePlayerAttack] rejected attacker position outside authoritative range for p"
@@ -112,27 +119,33 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            float maxRange = GameplayConstants.MaxPlayerAttackRange;
+            float maxRange = msg.IsMelee
+                ? GameplayConstants.MaxPlayerMeleeAttackRange
+                : GameplayConstants.MaxPlayerRangedAttackRange;
             float distSq = Vector3.SqrMagnitude(target.transform.position - attackPos);
             if (distSq > maxRange * maxRange)
             {
                 EntitySyncLog.Damage(
                     "[Attack] too far dist=" + Mathf.Sqrt(distSq).ToString("F1")
-                    + " > " + maxRange + " target=" + target.name);
+                    + " > " + maxRange + (msg.IsMelee ? " (melee)" : "") + " target=" + target.name);
                 return;
             }
 
+            int damage = SanitizePeerDamage(msg.Damage, "HandlePlayerAttack");
+            if (damage <= 0) return;
+            if (!TryConsumeBudget(playerId, damage, "HandlePlayerAttack"))
+                return;
+
+            // Wake a host-culled target only for a hit that passed every check above (in range).
             if (!target.gameObject.activeSelf)
                 target.gameObject.SetActive(true);
             if (!target.enabled)
                 target.enabled = true;
 
-            int damage = SanitizePeerDamage(msg.Damage, "HandlePlayerAttack");
-            if (damage <= 0) return;
             Transform attackerT = attackingProxy.transform;
 
             float hpBefore = target.Health;
-            DialogHostApplyGuard.RunHostWorldFanout(() =>
+            HostApplyGuard.Run(() =>
             {
                 target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
                 // Vanilla MeleeSensor: after getHit, each weapon effect goes to character.effects.activate.
@@ -237,13 +250,18 @@ namespace DWMPHorde.Networking
         internal void HandleFriendlyFire(FriendlyFireMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-            if (!SessionSettings.FriendlyFireEnabled) return;
+            // FriendlyFire is Forwardable: every reject below also stops the raw relay.
+            if (!SessionSettings.FriendlyFireEnabled)
+            {
+                _net._suppressForwardThisMessage = true;
+                return;
+            }
 
             int atkPlayerId = _net.CurrentReceivePlayerId;
             if (!CombatAuthorityPolicy.IsValidPlayerId(atkPlayerId)
                 || (msg.AttackerPlayerId > 0 && msg.AttackerPlayerId != atkPlayerId))
             {
-                ModLog.WarnRate(LogCat.Combat, "ff-spoof:" + atkPlayerId,
+                RejectClientHit("ff-spoof:" + atkPlayerId,
                     "[FriendlyFire] rejected spoofed attacker id claimed="
                     + msg.AttackerPlayerId + " received=" + atkPlayerId);
                 return;
@@ -254,7 +272,7 @@ namespace DWMPHorde.Networking
                 || !CombatAuthorityPolicy.IsFinitePosition(
                     msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ))
             {
-                ModLog.WarnRate(LogCat.Combat, "ff-malformed:" + atkPlayerId,
+                RejectClientHit("ff-malformed:" + atkPlayerId,
                     "[FriendlyFire] rejected malformed victim/position");
                 return;
             }
@@ -262,8 +280,15 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy attackingProxy = _net.GetProxy(atkPlayerId);
             if (attackingProxy == null)
             {
-                ModLog.WarnRate(LogCat.Combat, "ff-noproxy:" + atkPlayerId,
+                RejectClientHit("ff-noproxy:" + atkPlayerId,
                     "[FriendlyFire] rejected: no authoritative attacker proxy for p" + atkPlayerId);
+                return;
+            }
+
+            if (!AttackerCanFight(atkPlayerId, attackingProxy, out string cannotFight))
+            {
+                RejectClientHit("ff-cannot:" + atkPlayerId,
+                    "[FriendlyFire] rejected: p" + atkPlayerId + " is " + cannotFight);
                 return;
             }
 
@@ -273,43 +298,74 @@ namespace DWMPHorde.Networking
             if (!CombatAuthorityPolicy.IsWithinRange(
                     msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ,
                     atkPos.x, atkPos.y, atkPos.z,
-                    GameplayConstants.MaxPlayerAttackRange))
+                    GameplayConstants.MaxAttackerPositionDrift))
             {
-                ModLog.WarnRate(LogCat.Combat, "ff-range:" + atkPlayerId,
+                RejectClientHit("ff-range:" + atkPlayerId,
                     "[FriendlyFire] rejected attacker position outside authoritative range for p"
                     + atkPlayerId);
                 return;
             }
 
             bool victimIsHost = victimPlayerId == _net.LocalPlayerId;
-            if (!victimIsHost && _net.GetProxy(victimPlayerId) == null)
+            RemotePlayerProxy victimProxyForRange = victimIsHost ? null : _net.GetProxy(victimPlayerId);
+            if (!victimIsHost && victimProxyForRange == null)
             {
-                ModLog.WarnRate(LogCat.Combat, "ff-victim:" + victimPlayerId,
+                RejectClientHit("ff-victim:" + victimPlayerId,
                     "[FriendlyFire] rejected unknown victim player " + victimPlayerId);
                 return;
             }
 
             // Never apply FF to self (attacker == victim) from a bad packet.
             if (victimPlayerId == atkPlayerId)
+            {
+                _net._suppressForwardThisMessage = true;
                 return;
+            }
+
+            Transform victimT = victimIsHost
+                ? (Player.Instance != null ? Player.Instance.transform : null)
+                : victimProxyForRange.transform;
+            if (victimT != null)
+            {
+                float maxFf = GameplayConstants.MaxPlayerRangedAttackRange;
+                if (Vector3.SqrMagnitude(victimT.position - atkPos) > maxFf * maxFf)
+                {
+                    RejectClientHit("ff-far:" + atkPlayerId,
+                        "[FriendlyFire] rejected: victim p" + victimPlayerId + " out of range of p" + atkPlayerId);
+                    return;
+                }
+            }
 
             // Night-dead victim: ignore further FF.
-            if (victimPlayerId > 0 && DeathStateTracker.IsRemoteNightDead(victimPlayerId))
+            if ((victimPlayerId > 0 && DeathStateTracker.IsRemoteNightDead(victimPlayerId))
+                || ((victimPlayerId == _net.LocalPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalNightDeath))
+            {
+                _net._suppressForwardThisMessage = true;
                 return;
-            if ((victimPlayerId == _net.LocalPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalNightDeath)
-                return;
+            }
 
             int damage = SanitizePeerDamage(msg.Damage, "FriendlyFire");
-            if (damage <= 0) return;
+            if (damage <= 0)
+            {
+                _net._suppressForwardThisMessage = true;
+                return;
+            }
 
             // Debounce only identical same-frame doubles (key includes damage).
             string debounceKey = atkPlayerId + "_" + victimPlayerId + "_" + damage;
             float now = Time.time;
             if (_ffDebounce.TryGetValue(debounceKey, out float last) && now - last < FriendlyFireDebounceSec)
             {
+                _net._suppressForwardThisMessage = true;
                 EntitySyncLog.CombatTrace("ff:deb",
                     "[FriendlyFire] debounced atk=" + atkPlayerId + "→vic=" + victimPlayerId
                     + " dmg=" + damage, 1f);
+                return;
+            }
+
+            if (!TryConsumeBudget(atkPlayerId, damage, "FriendlyFire"))
+            {
+                _net._suppressForwardThisMessage = true;
                 return;
             }
             _ffDebounce[debounceKey] = now;

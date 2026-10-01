@@ -122,9 +122,9 @@ namespace DWMPHorde.Networking
                 _drainDoneGeneration = _drainGeneration;
                 _dialogWorldDrainCo = null;
                 _drainNpcName = null;
+                // The drain holds no guard scope across its waits (each advance / close
+                // re-entered and left it); an enclosing caller's scope is not ours to end.
                 DialogHostApplyGuard.EndDrain();
-                while (DialogHostApplyGuard.Active)
-                    DialogHostApplyGuard.EndWorldOnly();
                 // The input lock belongs to the host's own conversation if it has one.
                 if (!(dw != null && HostOwnsWindow(dw, npc)))
                 {
@@ -169,9 +169,9 @@ namespace DWMPHorde.Networking
             try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
             _dialogWorldDrainCo = null;
             _drainNpcName = null;
+            // No guard scope to unwind: the drain never holds one across its waits, and the
+            // caller (a Release handler) may be inside its own scope.
             DialogHostApplyGuard.EndDrain();
-            while (DialogHostApplyGuard.Active)
-                DialogHostApplyGuard.EndWorldOnly();
             try
             {
                 var dw = Singleton<UI>.Instance?.dialogueWindow;

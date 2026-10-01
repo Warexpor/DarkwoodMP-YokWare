@@ -35,7 +35,6 @@ namespace DWMPHorde
                 var net = ModRuntime.Network as LanNetworkManager;
                 return net?.RemotePlayerCount ?? 0;
             }
-            set { /* kept for backward compat */ }
         }
 
         public static bool LocalNightDeath { get; private set; }
@@ -166,6 +165,7 @@ namespace DWMPHorde
         {
             Reset();
             _localNightDeathDay = -1;
+            _hostMorningEdgeDay = -1;
             _armDeathSaveSuppress = false;
             ClearMorningDeadMarks();
         }
@@ -297,9 +297,6 @@ namespace DWMPHorde
             return wasNightDead;
         }
 
-        /// <summary>Frame in which <see cref="OnRemoteDisconnected"/> asked for a morning resolve.</summary>
-        private static int _disconnectResolveFrame = -1;
-
         /// <returns>True when disconnect bookkeeping satisfies morning-resolve policy.</returns>
         public static bool OnRemoteDisconnected(int playerId)
         {
@@ -311,14 +308,11 @@ namespace DWMPHorde
                 $"Remote player {playerId} disconnected mid-night " +
                 $"(wasDead={leaverWasNightDead}, dead={RemoteNightDeathCount}/{TotalRemoteCount})");
 
-            bool resolve = NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            return NightDeathPolicy.ShouldResolveMorningOnDisconnect(
                 LocalNightDeath,
                 leaverWasNightDead,
                 TotalRemoteCount,
                 RemoteNightDeathCount);
-            if (resolve)
-                _disconnectResolveFrame = Time.frameCount;
-            return resolve;
         }
 
         /// <summary>
@@ -329,11 +323,9 @@ namespace DWMPHorde
         {
             if (_resolvingMorning || PartyWipeDeclared) return false;
             var net = ModRuntime.Network as LanNetworkManager;
-            // The leaver is already out of the transport when the disconnect cleanup asks, so
-            // the host may no longer be "connected" when its last peer was the one that left.
+            // Role alone, not IsConnected: the leaver is already out of the transport when the
+            // disconnect cleanup asks, and a host left alone and night-dead must still resolve.
             if (net == null || net.Role != NetworkRole.Host)
-                return false;
-            if (!net.IsConnected && _disconnectResolveFrame != Time.frameCount)
                 return false;
             if (!LocalNightDeath || !AllDeadAtNight)
                 return false;

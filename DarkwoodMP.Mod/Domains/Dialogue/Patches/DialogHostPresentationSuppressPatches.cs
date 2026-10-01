@@ -19,7 +19,7 @@ namespace DWMPHorde.Patches
         {
             // Only inside the synchronous apply scope. The sticky flag outlives it for the whole
             // drain and swallowed the host's own fades (sleep, death) during that window.
-            if (!DialogHostApplyGuard.Active) return true;
+            if (!DialogHostApplyGuard.DialogueApplyActive) return true;
             // Allow clearing; block fade-to-black from changePortrait / journal note.
             return _color.a < 0.01f;
         }
@@ -30,85 +30,8 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostApplyGuard.Active) return true;
+            if (!DialogHostApplyGuard.DialogueApplyActive) return true;
             return _color.a < 0.01f;
-        }
-    }
-
-    /// <summary>
-    /// A pending world-only drain's delayed boards (changePortrait Invoke → setPortrait →
-    /// displayNextBoard) run frames after the apply scope ended. Re-enter the guard for exactly
-    /// that call so its suppressors apply to it and to nothing else. Prefix/Finalizer pair keeps
-    /// the depth balanced if displayNextBoard throws or another prefix skips the original.
-    /// </summary>
-    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
-    public static class DialogHostDrainBoardScopePatch
-    {
-        // 0 = no scope, 1 = scope, 2 = scope + pushed GameEventsFired actor.
-        [HarmonyPriority(Priority.First)]
-        private static void Prefix(ref int __state)
-        {
-            __state = 0;
-            if (!DialogHostApplyGuard.DrainPending || DialogHostApplyGuard.Active) return;
-            // A real host conversation is not part of the drain.
-            if (Player.Instance != null && Player.Instance.inDialogue) return;
-            __state = DialogHostApplyGuard.BeginDrainScope() ? 2 : 1;
-        }
-
-        [HarmonyFinalizer]
-        private static void Finalizer(int __state)
-        {
-            if (__state != 0)
-                DialogHostApplyGuard.EndDrainScope(__state == 2);
-        }
-    }
-
-    /// <summary>
-    /// changePortrait schedules displayNextBoard after silent close nulls currentDialogue.
-    /// Block that stale continuation (and any other null-dialogue board advance).
-    /// </summary>
-    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
-    public static class DialogHostStaleBoardGuardPatch
-    {
-        private static bool Prefix(DialogueWindow __instance)
-        {
-            if (__instance == null) return false;
-            if (__instance.currentDialogue == null)
-                return false;
-            return true;
-        }
-
-        /// <summary>
-        /// World-only host apply: changePortrait sets Core.forbidInputs and relies on a
-        /// delayed Invoke to clear it. Silent-close / inactive DialogueWindow cancels that
-        /// Invoke → host stuck unable to walk/look/inv. Clear immediately after each board.
-        /// Also hide dialogue text / force-finish typewriter so host never sees peer lines.
-        /// forbidInputs clear is in Finalizer (Harmony skips Postfix on throw).
-        /// </summary>
-        private static void Postfix(DialogueWindow __instance)
-        {
-            if (!DialogHostPresentation.ShouldSuppress) return;
-            try
-            {
-                DialogHostPresentation.HideSpeakerVisuals(__instance);
-            }
-            catch { /* ignore */ }
-        }
-
-        // Finalizer (not Postfix): displayNextBoard throw after changePortrait armed
-        // forbidInputs leaves host unable to walk/look/inv for the rest of the session.
-        [HarmonyFinalizer]
-        private static void Finalizer(DialogueWindow __instance)
-        {
-            if (!DialogHostPresentation.ShouldSuppress) return;
-            try
-            {
-                Core.forbidInputs = false;
-                Core.cantChangeForbidInputs = false;
-                if (__instance != null)
-                    __instance.forbidInputs = false;
-            }
-            catch { /* ignore */ }
         }
     }
 
@@ -158,7 +81,7 @@ namespace DWMPHorde.Patches
         private static bool _stickySuppress;
 
         public static bool ShouldSuppress =>
-            _stickySuppress || DialogHostApplyGuard.Active;
+            _stickySuppress || DialogHostApplyGuard.DialogueApplyActive;
 
         public static void ArmStickySuppress()
         {

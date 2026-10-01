@@ -173,7 +173,8 @@ namespace DWMPHorde.Patches
                 TargetPosX = c.transform.position.x,
                 TargetPosY = c.transform.position.y,
                 TargetPosZ = c.transform.position.z,
-                Effects = SensorEffectCodec.ToWire(__instance.effects)
+                Effects = SensorEffectCodec.ToWire(__instance.effects),
+                IsMelee = true
             };
             LanNetworkManager.Instance?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 

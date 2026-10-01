@@ -79,7 +79,24 @@ namespace DWMPHorde.Networking
 
         internal void HandleDroppedItemPickup(DroppedItemPickupMessage msg)
         {
-            if (string.IsNullOrEmpty(msg.Guid)) return;
+            bool fromClient = _net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0;
+            if (string.IsNullOrEmpty(msg.Guid))
+            {
+                if (fromClient) _net._suppressForwardThisMessage = true;
+                return;
+            }
+
+            // A client may only ask to claim (FinishGuidPickupClaim). Deny / Remove are host-issued:
+            // a client Remove with a made-up ClaimedBy, relayed, would refund or delete the other
+            // peers' pending pickups.
+            if (fromClient && msg.Mode != DroppedItemPickupMessage.ModeClaimRequest)
+            {
+                _net._suppressForwardThisMessage = true;
+                ModLog.WarnRate(LogCat.World, "drop-pickup-mode:" + _net.CurrentReceivePlayerId,
+                    "[DroppedItemPickup] rejected client mode " + msg.Mode + " from p"
+                    + _net.CurrentReceivePlayerId + " guid=" + msg.Guid);
+                return;
+            }
 
             if (msg.Mode == DroppedItemPickupMessage.ModeClaimRequest)
             {

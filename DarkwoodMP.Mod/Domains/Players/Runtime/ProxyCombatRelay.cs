@@ -30,13 +30,13 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Marks getHit relay for this pair. Always returns true — every pellet allowed.
+        /// getHit relayed this pair this frame (every pellet still relays); the safety-net
+        /// paths then skip it.
         /// </summary>
-        public static bool TryMarkGetHitRelay(int attackerId, int victimId)
+        public static void MarkGetHitRelay(int attackerId, int victimId)
         {
             EnsureFrame();
             GetHitMarkedThisFrame.Add(new PairKey { AttackerId = attackerId, VictimId = victimId });
-            return true;
         }
 
         /// <summary>

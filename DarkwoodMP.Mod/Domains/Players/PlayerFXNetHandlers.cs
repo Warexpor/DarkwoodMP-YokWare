@@ -183,7 +183,7 @@ namespace DWMPHorde.Networking
                         PlayerBurningMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerDied:
-                    _net.CombatHandlers.HandlePlayerDied(
+                    _net.CombatDeathStateHandlers.HandlePlayerDied(
                         PlayerDiedMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerEffectSync:
@@ -201,7 +201,7 @@ namespace DWMPHorde.Networking
                     _net.DreamHandlers.HandleDreamEnded(DreamEndedMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.FinalDreamsceneDeath:
-                    _net.CombatHandlers.HandleFinalDreamsceneDeath(
+                    _net.CombatDeathStateHandlers.HandleFinalDreamsceneDeath(
                         FinalDreamsceneDeathMessage.Deserialize(new NetReader(innerPayload)));
                     break;
             }
@@ -209,7 +209,17 @@ namespace DWMPHorde.Networking
 
         internal void HandleBulletImpact(BulletImpactMessage msg)
         {
-            if (string.IsNullOrEmpty(msg.PrefabName)) return;
+            // Any prefab name would be instantiated on every peer: allow only the impact /
+            // blood FX our senders emit, and never relay anything else.
+            if (!ImpactFxPolicy.IsAllowedBulletImpact(msg.PoolName, msg.PrefabName)
+                || !CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
+            {
+                _net._suppressForwardThisMessage = true;
+                ModLog.WarnRate(LogCat.Combat, "impact-reject:" + _net.CurrentReceivePlayerId,
+                    "[BulletFX] rejected BulletImpact '" + msg.PrefabName + "' pool='" + msg.PoolName
+                    + "' from p" + _net.CurrentReceivePlayerId);
+                return;
+            }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);

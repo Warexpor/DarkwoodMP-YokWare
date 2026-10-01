@@ -3,16 +3,14 @@ using System;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// While host applies a remote peer's dialog outcome, suppress personal
-    /// bag mutations on host Player.Instance. Journal is shared world
-    /// identity. Apply and fan out; do not snapshot-restore.
-    /// When the inbound packet has a player id and no GeFireActorContext is
-    /// already pushed, stamps that peer as the GameEventsFired actor.
+    /// While host applies a remote peer's dialog outcome (or a world action that may open
+    /// one): <see cref="HostApplyGuard"/> fan-out semantics plus the dialogue-only presentation
+    /// scope (<see cref="DialogueApplyActive"/>: silent close, board gating, black screens).
     /// </summary>
     public static class DialogHostApplyGuard
     {
+        /// <summary>Dialogue-apply depth; every level also holds one <see cref="HostApplyGuard"/> level.</summary>
         private static int _depth;
-        private static bool _autoPushedActor;
 
         /// <summary>Allow exactly one displayNextBoard, then block chained/delayed calls.</summary>
         public static bool OneShotBoardActive { get; set; }
@@ -33,51 +31,32 @@ namespace DWMPHorde.Sync
 
         private static bool _oneShotConsumed;
 
-        public static bool SuppressPersonalRewards => _depth > 0;
+        public static bool SuppressPersonalRewards => HostApplyGuard.Active;
 
-        /// <summary>True while host is applying a client's dialog outcome (no host UI session).</summary>
-        public static bool Active => _depth > 0;
+        /// <summary>
+        /// Host is applying any remote peer's world action, client combat hits included
+        /// (same as <see cref="HostApplyGuard.Active"/>). Generic fan-out gates read this.
+        /// </summary>
+        public static bool Active => HostApplyGuard.Active;
+
+        /// <summary>
+        /// Host is replaying a remote peer's dialogue (no host UI session). Dialogue
+        /// presentation gates read this; a client combat hit does not set it.
+        /// </summary>
+        public static bool DialogueApplyActive => _depth > 0;
 
         public static void BeginWorldOnly()
         {
             _depth++;
-            if (_depth == 1)
-            {
-                _autoPushedActor = false;
-                // Prefer an explicit GeFireActorContext.Push (proxy volume, cursor).
-                // Otherwise stamp the inbound packet peer as the GE actor.
-                if (GeFireActorContext.Depth == 0)
-                {
-                    try
-                    {
-                        var net = ModRuntime.Network as Networking.LanNetworkManager;
-                        if (net != null && net.IsConnected && net.CurrentReceivePlayerId > 0)
-                        {
-                            GeFireActorContext.Push(net.CurrentReceivePlayerId);
-                            _autoPushedActor = true;
-                        }
-                    }
-                    catch { /* ignore */ }
-                }
-                try { DWMPHorde.Patches.JournalSyncHelpers.BeginWorldApplyDiff(); }
-                catch { /* journal UI may be missing */ }
-            }
+            HostApplyGuard.Begin();
         }
 
         public static void EndWorldOnly()
         {
-            if (_depth == 1)
-            {
-                try { DWMPHorde.Patches.JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
-                catch { /* ignore */ }
-                if (_autoPushedActor)
-                {
-                    GeFireActorContext.Pop();
-                    _autoPushedActor = false;
-                }
-            }
-            if (_depth > 0)
-                _depth--;
+            if (_depth <= 0)
+                return;
+            HostApplyGuard.End();
+            _depth--;
             if (_depth == 0)
             {
                 OneShotBoardActive = false;
@@ -157,7 +136,7 @@ namespace DWMPHorde.Sync
         public static void Reset()
         {
             _depth = 0;
-            _autoPushedActor = false;
+            HostApplyGuard.Reset();
             OneShotBoardActive = false;
             DestDrainActive = false;
             DrainPending = false;

@@ -25,11 +25,10 @@ public class CoopPolicyTests
         Assert.False(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: false));
         Assert.True(PartyRequirementPolicy.HaveItem(partyHas: false, activeModifier: false));
         Assert.True(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: true));
-        Assert.True(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Nightmare, 3));
-        Assert.True(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 1));
-        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Hard, 2));
-        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(false, PermadeathPolicy.Nightmare, 0));
-        Assert.False(PermadeathPolicy.ClientUsesSharedDeath(true, PermadeathPolicy.Normal, 0));
+        Assert.True(PermadeathPolicy.UsesSharedDeath(true, PermadeathPolicy.Hard, 1));
+        Assert.False(PermadeathPolicy.UsesSharedDeath(true, PermadeathPolicy.Hard, 2));
+        Assert.False(PermadeathPolicy.UsesSharedDeath(false, PermadeathPolicy.Nightmare, 0));
+        Assert.False(PermadeathPolicy.UsesSharedDeath(true, PermadeathPolicy.Normal, 0));
         Assert.True(PermadeathPolicy.UsesSharedDeath(true, PermadeathPolicy.Nightmare, 3));
         Assert.False(PermadeathPolicy.UsesSharedDeath(false, PermadeathPolicy.Nightmare, 3));
         Assert.True(PermadeathPolicy.PartyWipeEndsRun(true, 2, 2));
@@ -142,34 +141,9 @@ public class CoopPolicyTests
         Assert.False(NpcDialogueLockPolicy.CanAcquireNpcSlot(1, expire, 2, now)); // other owner
         Assert.True(NpcDialogueLockPolicy.CanAcquireNpcSlot(1, now - 1f, 2, now)); // expired
 
-        // Legacy helper: different NPC does not block
-        Assert.True(NpcDialogueLockPolicy.CanAcquire("wolfman", 1, expire, "doctor", 2, now));
-        Assert.False(NpcDialogueLockPolicy.CanAcquire("wolfman", 1, expire, "wolfman", 2, now));
-    }
-
-    [Fact]
-    public void NpcLock_MultiNpc_ParallelHolds_SameNpcStillDenied()
-    {
-        // Simulates Dictionary multi-NPC: P1 wolfman + P2 doctor both held;
-        // P2 must NOT steal wolfman (single-slot overwrite bug).
-        var owners = new Dictionary<string, int>(StringComparer.Ordinal);
-        var expires = new Dictionary<string, float>(StringComparer.Ordinal);
-        float now = 50f;
-
-        Assert.True(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "wolfman", 1, now));
-        Assert.True(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "doctor", 2, now));
-        Assert.Equal(2, owners.Count);
-        Assert.Equal(1, owners["wolfman"]);
-        Assert.Equal(2, owners["doctor"]);
-
-        // P2 tries wolfman while P1 still holds it; deny and leave the map unchanged.
-        Assert.False(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "wolfman", 2, now));
-        Assert.Equal(1, owners["wolfman"]);
-        Assert.Equal(2, owners["doctor"]);
-
-        // P1 renews wolfman successfully.
-        Assert.True(NpcDialogueLockPolicy.SimulateMultiNpcAcquire(owners, expires, "wolfman", 1, now));
-        Assert.Equal(1, owners["wolfman"]);
+        Assert.True(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, expire, 1, now));
+        Assert.False(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, expire, 2, now));
+        Assert.False(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, now - 1f, 1, now)); // expired
     }
 
     [Fact]
@@ -199,13 +173,25 @@ public class CoopPolicyTests
     }
 
     [Fact]
-    public void NightDeath_DisconnectPolicy_AliveLeaverNoRemotes_DoesNotResolve()
+    public void NightDeath_DisconnectPolicy_AliveLeaverNoRemotes_Resolves()
     {
-        Assert.False(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+        // Host night-dead, last living peer leaves: the host is a lone dead player and
+        // must resolve the morning like vanilla solo death instead of spectating nobody.
+        Assert.True(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
             localNightDead: true,
             leaverWasNightDead: false,
             remainingRemoteCount: 0,
             remainingRemoteDeadCount: 0));
+    }
+
+    [Fact]
+    public void NightDeath_DisconnectPolicy_AliveLeaverRemainingAllDead_Resolves()
+    {
+        Assert.True(NightDeathPolicy.ShouldResolveMorningOnDisconnect(
+            localNightDead: true,
+            leaverWasNightDead: false,
+            remainingRemoteCount: 2,
+            remainingRemoteDeadCount: 2));
     }
 
     [Fact]
@@ -350,9 +336,46 @@ public class CoopPolicyTests
     }
 
     [Fact]
-    public void DreamResolution_DisablesGlobalNamesDuringDream()
+    public void AttackBudget_AllowsBurst_CapsSustainedRate()
     {
-        Assert.False(DreamResolutionPolicy.CanUseGlobalNameFallback(dreamActive: true));
-        Assert.True(DreamResolutionPolicy.CanUseGlobalNameFallback(dreamActive: false));
+        float atk = 4f, dmg = 400f;
+        // Burst within the bucket.
+        for (int i = 0; i < 4; i++)
+            Assert.True(CombatAuthorityPolicy.TryConsumeAttackBudget(
+                ref atk, ref dmg, 0f, 100, 2f, 4f, 200f, 400f));
+        // Empty: no time passed.
+        Assert.False(CombatAuthorityPolicy.TryConsumeAttackBudget(
+            ref atk, ref dmg, 0f, 1, 2f, 4f, 200f, 400f));
+        // Half a second refills one attack and 100 damage.
+        Assert.True(CombatAuthorityPolicy.TryConsumeAttackBudget(
+            ref atk, ref dmg, 0.5f, 100, 2f, 4f, 200f, 400f));
+        Assert.False(CombatAuthorityPolicy.TryConsumeAttackBudget(
+            ref atk, ref dmg, 0f, 1, 2f, 4f, 200f, 400f));
+        // Damage short: rejected without taking an attack token.
+        float a2 = 4f, d2 = 50f;
+        Assert.False(CombatAuthorityPolicy.TryConsumeAttackBudget(
+            ref a2, ref d2, 0f, 100, 2f, 4f, 200f, 400f));
+        Assert.Equal(4f, a2);
+        // Refill never exceeds the burst size.
+        float a3 = 0f, d3 = 0f;
+        Assert.True(CombatAuthorityPolicy.TryConsumeAttackBudget(
+            ref a3, ref d3, 1000f, 400, 2f, 4f, 200f, 400f));
+        Assert.Equal(3f, a3);
+        Assert.Equal(0f, d3);
+    }
+
+    [Fact]
+    public void ImpactFx_AllowsOnlySenderPrefabs()
+    {
+        Assert.True(ImpactFxPolicy.IsAllowedBulletImpact("FX", "bullet_hit_1"));
+        Assert.True(ImpactFxPolicy.IsAllowedBulletImpact("FX", "Shotsplat1"));
+        Assert.True(ImpactFxPolicy.IsAllowedBulletImpact("", "FX/Bloodsplats/Shotsplat_stay"));
+        Assert.True(ImpactFxPolicy.IsAllowedBulletImpact(null, "FX/Bloodsplats/Shotsplat"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("FX", "Explosion"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("Characters", "bullet_hit_1"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", "Characters/Wolfman"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", "FX/Bloodsplats/../../Characters/Dog"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", "FX/Bloodsplats/"));
+        Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", ""));
     }
 }
