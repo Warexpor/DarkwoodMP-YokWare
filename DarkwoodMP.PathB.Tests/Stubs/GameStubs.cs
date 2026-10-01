@@ -41,3 +41,29 @@ public class Dreams
     public bool dreaming;
     public UnityEngine.Component dreamLocation;
 }
+
+public class ItemUpgrade
+{
+    public string name;
+}
+
+public class InvItemClass
+{
+    public System.Collections.Generic.List<ItemUpgrade> upgrades;
+    public static bool isNull(InvItemClass item) => item == null;
+}
+
+public class ItemsDatabase
+{
+    public ItemUpgrade getUpgrade(string name) => null;
+}
+
+public class Singleton<T> where T : class
+{
+    public static T Instance;
+}
+
+public class Character
+{
+    public enum Behaviour { idle, walking, running, defensive, chasingTarget, escaping, listening, following }
+}

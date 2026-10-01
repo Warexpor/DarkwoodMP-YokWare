@@ -27,7 +27,8 @@
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\ForwardableAttribute.cs" Link="Shipped\ForwardableAttribute.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Bootstrap\PluginInfo.cs" Link="Shipped\PluginInfo.cs" />
-    <!-- Wire message structs. DreamMessages.cs touches a few game types: see Stubs\GameStubs.cs. -->
+    <!-- Every wire message file (WireSymmetryTests round-trips them all). The few game types they
+         touch are stood in by Stubs\GameStubs.cs. -->
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\DreamMessages.cs" Link="Shipped\DreamMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\LocationPadSlotMessages.cs" Link="Shipped\LocationPadSlotMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\World\OutsidePadSlots.Logic.cs" Link="Shipped\OutsidePadSlots.Logic.cs" />
@@ -35,5 +36,13 @@
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\SensorEffectMessages.cs" Link="Shipped\SensorEffectMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\CombatMessages.cs" Link="Shipped\CombatMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\PlayerMessages.cs" Link="Shipped\PlayerMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldMessages.cs" Link="Shipped\WorldMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\SyncMessages.cs" Link="Shipped\SyncMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\ContainerMessages.cs" Link="Shipped\ContainerMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\BarricadeMessages.cs" Link="Shipped\BarricadeMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\ChatMessages.cs" Link="Shipped\ChatMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldSaveShareMessages.cs" Link="Shipped\WorldSaveShareMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\VoiceDataMessage.cs" Link="Shipped\VoiceDataMessage.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Domains\Inventory\InvItemUpgradeWire.cs" Link="Shipped\InvItemUpgradeWire.cs" />
   </ItemGroup>
 </Project>
