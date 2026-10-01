@@ -18,16 +18,16 @@ namespace DWMPHorde.Sync
 
             if (net == null || !net.IsConnected) return;
             if (net.Role != NetworkRole.Host) return;
-            if (_thrownLights.Count == 0) return;
+            if (_s.Thrown.ThrownLights.Count == 0) return;
 
             float now = Time.time;
-            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            for (int i = _s.Thrown.ThrownLights.Count - 1; i >= 0; i--)
             {
-                var t = _thrownLights[i];
+                var t = _s.Thrown.ThrownLights[i];
                 if (t.Go == null)
                 {
-                    if (t.ThrowId > 0) _thrownById.Remove(t.ThrowId);
-                    _thrownLights.RemoveAt(i);
+                    if (t.ThrowId > 0) _s.Thrown.ThrownById.Remove(t.ThrowId);
+                    _s.Thrown.ThrownLights.RemoveAt(i);
                     continue;
                 }
                 if (now < t.ExpireAt)
@@ -44,10 +44,10 @@ namespace DWMPHorde.Sync
                         PosY = pos.y,
                         PosZ = pos.z
                     });
-                    _thrownById.Remove(t.ThrowId);
+                    _s.Thrown.ThrownById.Remove(t.ThrowId);
                 }
                 BeginThrownLightFade(t.Go, FlareBurnoutFadeSec);
-                _thrownLights.RemoveAt(i);
+                _s.Thrown.ThrownLights.RemoveAt(i);
                 Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableDespawn] host expired throwId=" + t.ThrowId
                     + " type=" + t.ItemType + " pos=" + pos);
             }
@@ -56,10 +56,10 @@ namespace DWMPHorde.Sync
         public static void ApplyThrownDespawn(ThrowableDespawnMessage msg)
         {
             GameObject go = null;
-            if (msg.ThrowId > 0 && _thrownById.TryGetValue(msg.ThrowId, out var track))
+            if (msg.ThrowId > 0 && _s.Thrown.ThrownById.TryGetValue(msg.ThrowId, out var track))
             {
                 go = track.Go;
-                _thrownById.Remove(msg.ThrowId);
+                _s.Thrown.ThrownById.Remove(msg.ThrowId);
             }
             if (go == null)
             {
@@ -80,10 +80,10 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            for (int i = _s.Thrown.ThrownLights.Count - 1; i >= 0; i--)
             {
-                if (_thrownLights[i].ThrowId == msg.ThrowId || _thrownLights[i].Go == go)
-                    _thrownLights.RemoveAt(i);
+                if (_s.Thrown.ThrownLights[i].ThrowId == msg.ThrowId || _s.Thrown.ThrownLights[i].Go == go)
+                    _s.Thrown.ThrownLights.RemoveAt(i);
             }
 
             if (go != null)
@@ -102,9 +102,9 @@ namespace DWMPHorde.Sync
         {
             if (go == null) return;
             // Already fading?
-            for (int i = 0; i < _thrownLightFades.Count; i++)
+            for (int i = 0; i < _s.Thrown.ThrownLightFades.Count; i++)
             {
-                if (_thrownLightFades[i].Go == go)
+                if (_s.Thrown.ThrownLightFades[i].Go == go)
                     return;
             }
 
@@ -160,7 +160,7 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            _thrownLightFades.Add(new ThrownLightFade
+            _s.Thrown.ThrownLightFades.Add(new ThrownLightFade
             {
                 Go = go,
                 EndTime = Time.time + fadeSec,
@@ -173,16 +173,16 @@ namespace DWMPHorde.Sync
 
         private static void TickThrownLightFades()
         {
-            if (_thrownLightFades.Count == 0) return;
+            if (_s.Thrown.ThrownLightFades.Count == 0) return;
             float now = Time.time;
-            for (int i = _thrownLightFades.Count - 1; i >= 0; i--)
+            for (int i = _s.Thrown.ThrownLightFades.Count - 1; i >= 0; i--)
             {
-                var f = _thrownLightFades[i];
+                var f = _s.Thrown.ThrownLightFades[i];
                 if (f.Go == null)
                 {
                     if (f.SiblingDestroy != null)
                         UnityEngine.Object.Destroy(f.SiblingDestroy);
-                    _thrownLightFades.RemoveAt(i);
+                    _s.Thrown.ThrownLightFades.RemoveAt(i);
                     continue;
                 }
                 float left = f.EndTime - now;
@@ -210,7 +210,7 @@ namespace DWMPHorde.Sync
                         ExtinguishThrownLightImmediate(f.SiblingDestroy);
                         UnityEngine.Object.Destroy(f.SiblingDestroy);
                     }
-                    _thrownLightFades.RemoveAt(i);
+                    _s.Thrown.ThrownLightFades.RemoveAt(i);
                 }
             }
         }
@@ -274,9 +274,9 @@ namespace DWMPHorde.Sync
         public static bool IsThrownLightFading(GameObject go)
         {
             if (go == null) return false;
-            for (int i = 0; i < _thrownLightFades.Count; i++)
+            for (int i = 0; i < _s.Thrown.ThrownLightFades.Count; i++)
             {
-                if (_thrownLightFades[i].Go == go || _thrownLightFades[i].SiblingDestroy == go)
+                if (_s.Thrown.ThrownLightFades[i].Go == go || _s.Thrown.ThrownLightFades[i].SiblingDestroy == go)
                     return true;
             }
             return false;
@@ -295,9 +295,9 @@ namespace DWMPHorde.Sync
                 return;
             int sent = 0;
             float now = Time.time;
-            for (int i = 0; i < _thrownLights.Count; i++)
+            for (int i = 0; i < _s.Thrown.ThrownLights.Count; i++)
             {
-                var t = _thrownLights[i];
+                var t = _s.Thrown.ThrownLights[i];
                 if (t.Go == null || now >= t.ExpireAt) continue;
                 Vector3 p = t.Go.transform.position;
                 // Peer needs remaining-until-dark (= until fade start + fade).

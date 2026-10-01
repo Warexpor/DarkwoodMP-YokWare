@@ -20,7 +20,7 @@ namespace DWMPHorde.Sync
         public static void RemoveObjectFromInterpolation(GameObject go)
         {
             if (go == null) return;
-            _objectInterp.Remove(go.GetInstanceID());
+            _s.ObjectInterp.Remove(go.GetInstanceID());
         }
 
         /// <summary>
@@ -33,7 +33,7 @@ namespace DWMPHorde.Sync
             if (string.IsNullOrEmpty(objectName)) return;
 
             List<int> dropIds = null;
-            foreach (var kv in _clientKinematic)
+            foreach (var kv in _s.ClientKinematic)
             {
                 if (string.Equals(kv.Value.objName, objectName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -51,22 +51,22 @@ namespace DWMPHorde.Sync
                 for (int i = 0; i < dropIds.Count; i++)
                 {
                     int id = dropIds[i];
-                    if (_clientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
+                    if (_s.ClientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
                         kin.rb.isKinematic = false;
-                    _clientKinematic.Remove(id);
-                    _clientKinematicGate[id] = Time.time;
-                    _objectInterp.Remove(id);
-                    _bodyPushSoundActive.Remove(objectName);
-                    _bodyPushSoundTimer.Remove(id);
-                    if (_pushGidToName.TryGetValue(id, out string n) && string.Equals(n, objectName, StringComparison.OrdinalIgnoreCase))
-                        _pushGidToName.Remove(id);
-                    _pushNameToGid.Remove(objectName);
+                    _s.ClientKinematic.Remove(id);
+                    _s.ClientKinematicGate[id] = Time.time;
+                    _s.ObjectInterp.Remove(id);
+                    _s.BodyPushSoundActive.Remove(objectName);
+                    _s.BodyPushSoundTimer.Remove(id);
+                    if (_s.PushGidToName.TryGetValue(id, out string n) && string.Equals(n, objectName, StringComparison.OrdinalIgnoreCase))
+                        _s.PushGidToName.Remove(id);
+                    _s.PushNameToGid.Remove(objectName);
                 }
             }
 
             // Name-only cleanup when gid maps already gone.
-            _bodyPushSoundActive.Remove(objectName);
-            _pushNameToGid.Remove(objectName);
+            _s.BodyPushSoundActive.Remove(objectName);
+            _s.PushNameToGid.Remove(objectName);
         }
 
         /// <summary>
@@ -79,7 +79,7 @@ namespace DWMPHorde.Sync
             float now = Time.time;
             float duration = durationSec > 0.001f ? durationSec : InterpFixedDuration;
 
-            if (_objectInterp.TryGetValue(id, out var state))
+            if (_s.ObjectInterp.TryGetValue(id, out var state))
             {
                 float dur = state.TargetTime - state.PrevTime;
                 if (dur > 0.001f)
@@ -145,7 +145,7 @@ namespace DWMPHorde.Sync
             state.TargetRot = targetRot;
             state.PrevTime = now;
             state.TargetTime = now + duration;
-            _objectInterp[id] = state;
+            _s.ObjectInterp[id] = state;
 
             if (IsSceneFixedLightItem(go))
                 return;
@@ -232,20 +232,20 @@ namespace DWMPHorde.Sync
         {
             if (string.IsNullOrEmpty(name) || go == null)
                 return go;
-            if (!_lastResolvedByName.ContainsKey(name)
-                && _lastResolvedByName.Count >= MaxResolvedByName)
+            if (!_s.LastResolvedByName.ContainsKey(name)
+                && _s.LastResolvedByName.Count >= MaxResolvedByName)
             {
                 // Drop one entry so long sessions cannot grow unboundedly.
                 string drop = null;
-                foreach (var k in _lastResolvedByName.Keys)
+                foreach (var k in _s.LastResolvedByName.Keys)
                 {
                     drop = k;
                     break;
                 }
                 if (drop != null)
-                    _lastResolvedByName.Remove(drop);
+                    _s.LastResolvedByName.Remove(drop);
             }
-            _lastResolvedByName[name] = go;
+            _s.LastResolvedByName[name] = go;
             return go;
         }
 
@@ -276,7 +276,7 @@ namespace DWMPHorde.Sync
             Vector3 targetPos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
 
             // Strategy 0: last successful resolve for this name (skip if destroyed / too far).
-            if (_lastResolvedByName.TryGetValue(obj.Name, out GameObject cached)
+            if (_s.LastResolvedByName.TryGetValue(obj.Name, out GameObject cached)
                 && IsUsableResolveCandidate(cached, obj.Name, targetPos, ResolvedNameMaxDist))
                 return cached;
 
@@ -317,9 +317,9 @@ namespace DWMPHorde.Sync
             // Strategy 2: rate-limited full Rigidbody scan (scene-wide FindObjectsOfType
             // every PhysicsState packet was a dual-box hitch source).
             float nowScan = Time.time;
-            if (nowScan - _lastFullRbScanTime >= FullRbScanMinInterval)
+            if (nowScan - _s.LastFullRbScanTime >= FullRbScanMinInterval)
             {
-                _lastFullRbScanTime = nowScan;
+                _s.LastFullRbScanTime = nowScan;
                 DWMPHorde.Logging.ClientPerfProbe.NoteFullRbScan();
                 var footSw = System.Diagnostics.Stopwatch.StartNew();
                 Rigidbody[] allRbs = WorldQueryHelper.GetCachedSceneComponents<Rigidbody>();

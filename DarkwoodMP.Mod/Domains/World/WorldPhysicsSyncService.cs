@@ -31,61 +31,35 @@ namespace DWMPHorde.Sync
         /// <summary>NonAlloc overlap into shared <see cref="_overlap3D"/>.</summary>
         private static int OverlapNear(Vector3 pos, float radius)
             => Physics.OverlapSphereNonAlloc(pos, radius, _overlap3D);
-        private static readonly Dictionary<int, Vector3> _lastPos = new Dictionary<int, Vector3>(); // reset-in: ResetCore
-        private static readonly Dictionary<int, float> _lastMoveTime = new Dictionary<int, float>(); // reset-in: ResetCore
-        private static readonly Dictionary<int, float> _lastClientUpdateTime = new Dictionary<int, float>(); // reset-in: ResetCore
-        private static uint _nextSnapshotSequence; // reset-in: ResetCore
-        private static int _clientUpdateCleanupCounter; // reset-in: ResetCore
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
         // updates. Key = InstanceID, value = Rigidbody + time to release.
-        private static readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> _clientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
         // Keep only a one-tick cushion after movement stops. SoftStop and the
         // post-stop gate handle late packets.
         private const float BodyPushSoundHold = 0.05f;
         /// <summary>Use this path only for large corrections; normal pushes interpolate.</summary>
         private const float ClientPushSnapDistance = 8f;
-        private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>(); // reset-in: ResetCore
-        private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>(); // reset-in: ResetCore
         // Manually-managed AudioSource for host->client body-push sound.
         // We bypass AudioController for this because its pooled one-shot
         // AudioObjects get destroyed between 10Hz PhysicsState ticks,
         // making continuous playback impossible.  A looping AudioSource
         // gives us full lifecycle control.
-        private static readonly Dictionary<int, AudioSource> _pushSoundSource = new Dictionary<int, AudioSource>(); // reset-in: ResetCore
         // Fade-out tracking for body-push AudioSources.  Stores (startVolume, endTime)
         // so UpdateObjectInterpolation can ramp volume to 0 before destroying.
         // Without this, Stop() is instant and the user hears a click.
-        private static readonly Dictionary<int, (float startVol, float endTime)> _pushSoundFade = new Dictionary<int, (float, float)>();
         // Count stationary ticks so tiny position changes do not restart the fade.
-        private static readonly Dictionary<int, int> _pushStationaryCount = new Dictionary<int, int>(); // reset-in: ResetCore
         private const int StationaryFadeThreshold = 2; // ~0.2s guard at 10Hz
         // Maps object name → InstanceID so the NotifyBodyPushStopped signal can
         // look up the manual AudioSource by object name and start the fade.
-        private static readonly Dictionary<string, int> _pushNameToGid = new Dictionary<string, int>(); // reset-in: ResetCore
         // Reverse: GID → object name, for cleanup convenience.
-        private static readonly Dictionary<int, string> _pushGidToName = new Dictionary<int, string>(); // reset-in: ResetCore
-        // Gates against fromClient re-entry after _clientKinematic release.
+        // Gates against fromClient re-entry after _s.ClientKinematic release.
         // Prevents stale PhysicsState (client's 2.5s grace period) from
         // re-triggering NotifyBodyPushStarted after NotifyBodyPushStopped.
         // Value = Time.time when the gate was set (at NotifyBodyPushStopped).
-        private static readonly Dictionary<int, float> _clientKinematicGate = new Dictionary<int, float>(); // reset-in: ResetCore
-        private static readonly Dictionary<int, AudioObject> _pushSoundAO = new Dictionary<int, AudioObject>(); // reset-in: ResetCore
-        /// <summary>Object names with an active body-push scrape (start once, stop once).</summary>
-        private static readonly HashSet<string> _bodyPushSoundActive = // reset-in: ResetCore
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Position-based debounce for DestroyObjectByPos / outbound WorldObjectRemoved.
-        private static readonly Dictionary<PosNameKey, float> _destroyDebounce = new Dictionary<PosNameKey, float>(); // reset-in: ResetCore
         private static readonly List<PosNameKey> _destroyDebounceStaleKeys = new List<PosNameKey>(8); // process-scoped: scratch
-        private static readonly Dictionary<PosNameKey, float> _outboundRemoveDebounce = new Dictionary<PosNameKey, float>(); // reset-in: ResetCore
         private static readonly List<PosNameKey> _outboundRemoveStaleKeys = new List<PosNameKey>(8); // process-scoped: scratch
         private const float DestroyDebounceTime = 0.5f;
         private const float OutboundRemoveDebounceTime = 0.75f;
-        /// <summary>
-        /// Session consume set for non-GUID world pickups (isDroppedItem without
-        /// DroppedItemIdentifier). Mirrors ConsumedDropGuids so the second peer
-        /// cannot grant after the first remove is claimed locally or on the wire.
-        /// </summary>
-        private static readonly HashSet<PosNameKey> _consumedWorldPickups = new HashSet<PosNameKey>();
 
         /// <summary>
         /// Claim a one-shot outbound WorldObjectRemoved for this pose+name.
@@ -95,21 +69,21 @@ namespace DWMPHorde.Sync
         {
             PosNameKey key = MakePosNameKey(x, y, z, objectName);
             float now = Time.unscaledTime;
-            if (_outboundRemoveDebounce.TryGetValue(key, out float last)
+            if (_s.OutboundRemoveDebounce.TryGetValue(key, out float last)
                 && (now - last) < OutboundRemoveDebounceTime)
                 return false;
-            _outboundRemoveDebounce[key] = now;
+            _s.OutboundRemoveDebounce[key] = now;
             // Opportunistic prune so the dict cannot grow without bound across a long session.
-            if (_outboundRemoveDebounce.Count > 64)
+            if (_s.OutboundRemoveDebounce.Count > 64)
             {
                 _outboundRemoveStaleKeys.Clear();
-                foreach (var kv in _outboundRemoveDebounce)
+                foreach (var kv in _s.OutboundRemoveDebounce)
                 {
                     if (now - kv.Value >= OutboundRemoveDebounceTime)
                         _outboundRemoveStaleKeys.Add(kv.Key);
                 }
                 for (int i = 0; i < _outboundRemoveStaleKeys.Count; i++)
-                    _outboundRemoveDebounce.Remove(_outboundRemoveStaleKeys[i]);
+                    _s.OutboundRemoveDebounce.Remove(_outboundRemoveStaleKeys[i]);
             }
             return true;
         }
@@ -118,17 +92,17 @@ namespace DWMPHorde.Sync
         public static bool TryConsumeWorldPickup(float x, float y, float z, string objectName)
         {
             PosNameKey key = MakePosNameKey(x, y, z, objectName);
-            return _consumedWorldPickups.Add(key);
+            return _s.ConsumedWorldPickups.Add(key);
         }
 
         public static bool IsWorldPickupConsumed(float x, float y, float z, string objectName)
         {
-            return _consumedWorldPickups.Contains(MakePosNameKey(x, y, z, objectName));
+            return _s.ConsumedWorldPickups.Contains(MakePosNameKey(x, y, z, objectName));
         }
 
         public static void ResetConsumedWorldPickups()
         {
-            _consumedWorldPickups.Clear();
+            _s.ConsumedWorldPickups.Clear();
         }
 
         /// <summary>Position quantized to 0.1 u and packed without overlap, plus the normalized name.</summary>
@@ -168,21 +142,14 @@ namespace DWMPHorde.Sync
         }
 
         // Cooldown tracker for host body-push sound in ApplySnapshot.
-        private static readonly Dictionary<Vector3, bool> _lastDoorOpen = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
-        private static readonly Dictionary<Vector3, bool> _lastTrapTriggered = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
 
         private static int _objApplyLogCounter; // process-scoped: log throttle
         private static float _objInterpLastLogTime; // process-scoped: log throttle
         private static float _scanRadius = 40f; // process-scoped: tuning constant
-        private static float _fullResyncTimer; // reset-in: ResetCore
         // Periodic full resync for free bodies in range.
         private static readonly float FullResyncInterval = 5f;
-        private static float _lastFullRbScanTime = -999f; // reset-in: ResetCore
         /// <summary>Full RB walk is last-resort; keep rare (overlap + name cache handle the common path).</summary>
         private const float FullRbScanMinInterval = 2f;
-        /// <summary>Last successful FindOrSpawn hit by object name (distance-gated; non-unique names OK).</summary>
-        private static readonly Dictionary<string, GameObject> _lastResolvedByName = // reset-in: ResetCore
-            new Dictionary<string, GameObject>(128);
         private const int MaxResolvedByName = 256;
         private const float ResolvedNameMaxDist = 25f;
         /// <summary>
@@ -190,9 +157,6 @@ namespace DWMPHorde.Sync
         /// final quiet sample. Quiet samples do not refresh the motion timer.
         /// </summary>
         private const float QuietConfirmWindow = 0.15f;
-        private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>(); // reset-in: ResetCore
-        /// <summary>Trap classification per collider root instance id, with last time the scan saw it.</summary>
-        private static readonly Dictionary<int, TrapClassification> _trapResultCache = new Dictionary<int, TrapClassification>(); // reset-in: ResetCore
         private const float TrapResultForgetSeconds = 60f;
 
         private struct TrapClassification
@@ -207,9 +171,6 @@ namespace DWMPHorde.Sync
             public float LastSeen;
             public float LastSent;
         }
-        private static readonly Dictionary<Vector3, StateKeyAge> _doorKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
-        private static readonly Dictionary<Vector3, StateKeyAge> _trapKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
-        private static readonly Dictionary<Vector3, StateKeyAge> _generatorKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
         private static readonly List<Vector3> _stateKeyScratch = new List<Vector3>(16); // process-scoped: scratch
         /// <summary>Keys not scanned for this long (destroyed / out of range) are forgotten.</summary>
         private const float StateKeyForgetSeconds = 30f;
@@ -224,8 +185,6 @@ namespace DWMPHorde.Sync
             public float ExpireAt;
             public string ItemType;
         }
-        private static readonly List<ThrownLightTrack> _thrownLights = new List<ThrownLightTrack>(16); // reset-in: ResetCore
-        private static readonly Dictionary<int, ThrownLightTrack> _thrownById = new Dictionary<int, ThrownLightTrack>(16); // reset-in: ResetCore
 
         /// <summary>Vanilla Flare.waitToDie fade length after longevity elapses.</summary>
         public const float FlareBurnoutFadeSec = 2f;
@@ -235,9 +194,6 @@ namespace DWMPHorde.Sync
             public float StartTime;
             public float Longevity;
         }
-        /// <summary>GO instanceId → burn clock from Flare.Start (aim time).</summary>
-        private static readonly Dictionary<int, FlareBurnStart> _flareBurnStarts = // reset-in: ResetCore
-            new Dictionary<int, FlareBurnStart>(8);
 
         private struct ThrownLightFade
         {
@@ -249,7 +205,6 @@ namespace DWMPHorde.Sync
             /// <summary>Optional sibling (held FlareFx) destroyed after fade completes.</summary>
             public GameObject SiblingDestroy;
         }
-        private static readonly List<ThrownLightFade> _thrownLightFades = new List<ThrownLightFade>(8); // reset-in: ResetCore
 
         /// <summary>
         /// The network owns the lifetime; keep Flare for flicker and rotation
@@ -274,10 +229,6 @@ namespace DWMPHorde.Sync
         }
 
         private static readonly List<GeneratorState> _generators = new List<GeneratorState>(); // process-scoped: per-build scratch
-        private static readonly Dictionary<Vector3, bool> _lastGeneratorOn = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
-        private static readonly Dictionary<Vector3, float> _lastGeneratorFuel = new Dictionary<Vector3, float>(); // reset-in: ResetCore
-        private static readonly List<Vector3> _scanCenters = new List<Vector3>(8); // reset-in: ResetCore
-        private static readonly HashSet<int> _scannedObjectIds = new HashSet<int>(); // reset-in: ResetCore
         private static readonly List<int> _stalePushSrcKeys = new List<int>(8); // process-scoped: scratch
         private static readonly List<int> _staleKinematicKeys = new List<int>(8); // process-scoped: scratch
 
@@ -301,7 +252,6 @@ namespace DWMPHorde.Sync
             public Item CachedItem;
             public bool CachedComps;
         }
-        private static readonly Dictionary<int, ObjectInterpState> _objectInterp = new Dictionary<int, ObjectInterpState>(); // reset-in: ResetCore
         private static readonly List<int> _objectInterpDeadKeys = new List<int>(); // process-scoped: scratch
         private static readonly List<int> _objectInterpKeys = new List<int>(); // process-scoped: scratch
 

@@ -23,19 +23,19 @@ namespace DWMPHorde.Sync
 
             _objectInterpDeadKeys.Clear();
             _objectInterpKeys.Clear();
-            _objectInterpKeys.AddRange(_objectInterp.Keys);
+            _objectInterpKeys.AddRange(_s.ObjectInterp.Keys);
             float now = Time.time;
 
-            if (_objectInterp.Count > 0 && now - _objInterpLastLogTime >= 30f)
+            if (_s.ObjectInterp.Count > 0 && now - _objInterpLastLogTime >= 30f)
             {
                 _objInterpLastLogTime = now;
-                ModRuntime.LegacyInfo($"[ObjInterp] active={_objectInterp.Count}");
+                ModRuntime.LegacyInfo($"[ObjInterp] active={_s.ObjectInterp.Count}");
             }
 
             for (int oi = 0; oi < _objectInterpKeys.Count; oi++)
             {
                 int key = _objectInterpKeys[oi];
-                var s = _objectInterp[key];
+                var s = _s.ObjectInterp[key];
 
                 if (s.Target == null)
                 {
@@ -48,7 +48,7 @@ namespace DWMPHorde.Sync
                     s.CachedRb = s.Target.GetComponent<Rigidbody>();
                     s.CachedItem = s.Target.GetComponent<Item>();
                     s.CachedComps = true;
-                    _objectInterp[key] = s;
+                    _s.ObjectInterp[key] = s;
                 }
 
                 // Skip objects being dragged by the local player; local physics
@@ -87,7 +87,7 @@ namespace DWMPHorde.Sync
                 Quaternion lerpRot = Quaternion.Slerp(prevRotQ, targetRotQ, t);
 
                 Rigidbody rb = s.CachedRb;
-                bool hostClientPush = rb != null && _clientKinematic.ContainsKey(key);
+                bool hostClientPush = rb != null && _s.ClientKinematic.ContainsKey(key);
                 if (t < 1f || hostClientPush)
                 {
                     // Active lerp, or hold last target on host while waiting for next
@@ -126,7 +126,7 @@ namespace DWMPHorde.Sync
 
             foreach (int key in _objectInterpDeadKeys)
             {
-                if (_objectInterp.TryGetValue(key, out var deadState) && deadState.Target != null
+                if (_s.ObjectInterp.TryGetValue(key, out var deadState) && deadState.Target != null
                     && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                 {
                     Rigidbody rb = deadState.Target.GetComponent<Rigidbody>();
@@ -137,7 +137,7 @@ namespace DWMPHorde.Sync
                     // the sound doesn't play forever on the client.
                     LanNetworkManager.NotifyBodyPushStopped(deadState.Target.name);
                 }
-                _objectInterp.Remove(key);
+                _s.ObjectInterp.Remove(key);
             }
 
             // Unified scrape-loop fades + occlusion (drag + body-push).
@@ -150,7 +150,7 @@ namespace DWMPHorde.Sync
             // 10Hz tick + margin. Decision lag is the bug; SoftStop fade is vanilla 0.5s.
             float __srcCleanupNow = Time.time;
             _stalePushSrcKeys.Clear();
-            foreach (var __kv in _lastPushSoundTime)
+            foreach (var __kv in _s.LastPushSoundTime)
             {
                 if ((__srcCleanupNow - __kv.Value) > 0.15f)
                     _stalePushSrcKeys.Add(__kv.Key);
@@ -158,30 +158,30 @@ namespace DWMPHorde.Sync
             for (int __si = 0; __si < _stalePushSrcKeys.Count; __si++)
             {
                 int __k = _stalePushSrcKeys[__si];
-                if (_pushGidToName.TryGetValue(__k, out var __akn))
+                if (_s.PushGidToName.TryGetValue(__k, out var __akn))
                 {
                     ItemMovingSoundHelper.SoftStopNetwork(__akn);
-                    _pushNameToGid.Remove(__akn);
+                    _s.PushNameToGid.Remove(__akn);
                 }
-                _lastPushSoundTime.Remove(__k);
-                _pushStationaryCount.Remove(__k);
-                _pushGidToName.Remove(__k);
-                _pushSoundSource.Remove(__k);
-                _pushSoundFade.Remove(__k);
+                _s.LastPushSoundTime.Remove(__k);
+                _s.PushStationaryCount.Remove(__k);
+                _s.PushGidToName.Remove(__k);
+                _s.PushSoundSource.Remove(__k);
+                _s.PushSoundFade.Remove(__k);
             }
 
             // Release path for client-kinematic objects. This runs every frame
             // in LateUpdate, including when TryBuildWorldSnapshot is paused.
             float nowK = Time.time;
             _staleKinematicKeys.Clear();
-            foreach (var kv in _clientKinematic)
+            foreach (var kv in _s.ClientKinematic)
             {
                 if (nowK >= kv.Value.releaseTime)
                 {
                     var (rBody, _, oName) = kv.Value;
                     if (rBody != null)
                         rBody.isKinematic = false;
-                    if (!string.IsNullOrEmpty(oName) && _bodyPushSoundActive.Remove(oName))
+                    if (!string.IsNullOrEmpty(oName) && _s.BodyPushSoundActive.Remove(oName))
                         LanNetworkManager.NotifyBodyPushStopped(oName);
                     _staleKinematicKeys.Add(kv.Key);
                 }
@@ -189,18 +189,18 @@ namespace DWMPHorde.Sync
             for (int ski = 0; ski < _staleKinematicKeys.Count; ski++)
             {
                 int id = _staleKinematicKeys[ski];
-                _clientKinematic.Remove(id);
-                _bodyPushSoundTimer.Remove(id);
-                _pushSoundAO.Remove(id);
-                _pushSoundSource.Remove(id);
-                _lastPushSoundTime.Remove(id);
-                _pushStationaryCount.Remove(id);
-                if (_pushGidToName.TryGetValue(id, out var __skn))
+                _s.ClientKinematic.Remove(id);
+                _s.BodyPushSoundTimer.Remove(id);
+                _s.PushSoundAO.Remove(id);
+                _s.PushSoundSource.Remove(id);
+                _s.LastPushSoundTime.Remove(id);
+                _s.PushStationaryCount.Remove(id);
+                if (_s.PushGidToName.TryGetValue(id, out var __skn))
                 {
-                    _bodyPushSoundActive.Remove(__skn);
-                    _pushNameToGid.Remove(__skn);
+                    _s.BodyPushSoundActive.Remove(__skn);
+                    _s.PushNameToGid.Remove(__skn);
                 }
-                _pushGidToName.Remove(id);
+                _s.PushGidToName.Remove(id);
             }
         }
 
@@ -255,10 +255,7 @@ namespace DWMPHorde.Sync
                 gen.setLowPower(lowPower);
         }
 
-        private static float _nextDreamPropColliderBroadcast; // process-scoped: rate limit
         private const float DreamPropColliderMinInterval = 0.35f;
-        private static Item[] _dreamPropItemsCache; // reset-in: ResetCore
-        private static int _dreamPropItemsRootId; // reset-in: ResetCore
         private static readonly System.Collections.Generic.List<DreamPropColliderMessage.Entry> _dreamPropEntries = // process-scoped: scratch
             new System.Collections.Generic.List<DreamPropColliderMessage.Entry>(64);
         private static DreamPropColliderMessage.Entry[] _dreamPropEntryBuf = // process-scoped: scratch
@@ -267,22 +264,22 @@ namespace DWMPHorde.Sync
         /// <summary>Drop pad Item cache on dream enter/exit so collider fan-out rescans.</summary>
         public static void InvalidateDreamPropColliderCache()
         {
-            _dreamPropItemsCache = null;
-            _dreamPropItemsRootId = 0;
+            _s.DreamPropItemsCache = null;
+            _s.DreamPropItemsRootId = 0;
         }
 
         private static Item[] GetDreamPropItems(Transform dreamRoot, bool forceRefresh)
         {
             int rootId = dreamRoot.GetInstanceID();
             if (forceRefresh
-                || _dreamPropItemsCache == null
-                || _dreamPropItemsRootId != rootId)
+                || _s.DreamPropItemsCache == null
+                || _s.DreamPropItemsRootId != rootId)
             {
-                _dreamPropItemsCache = dreamRoot.GetComponentsInChildren<Item>(true)
+                _s.DreamPropItemsCache = dreamRoot.GetComponentsInChildren<Item>(true)
                     ?? System.Array.Empty<Item>();
-                _dreamPropItemsRootId = rootId;
+                _s.DreamPropItemsRootId = rootId;
             }
-            return _dreamPropItemsCache;
+            return _s.DreamPropItemsCache;
         }
 
         /// <summary>
@@ -296,9 +293,9 @@ namespace DWMPHorde.Sync
             if (!DreamSyncManager.IsDreamActive && (Dreams.Instance == null || !Dreams.Instance.dreaming))
                 return;
             float now = Time.unscaledTime;
-            if (!force && now < _nextDreamPropColliderBroadcast)
+            if (!force && now < _s.NextDreamPropColliderBroadcast)
                 return;
-            _nextDreamPropColliderBroadcast = now + DreamPropColliderMinInterval;
+            _s.NextDreamPropColliderBroadcast = now + DreamPropColliderMinInterval;
 
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             if (dreamRoot == null) return;
@@ -420,10 +417,5 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>
-        /// LightState that arrived before the Item existed (unloaded location grid).
-        /// Flushed by <see cref="TryFlushPendingLights"/> once the world is ready.
-        /// </summary>
-        private static readonly List<LightStateMessage> _pendingLights = new List<LightStateMessage>(32); // reset-in: ResetCore
     }
 }

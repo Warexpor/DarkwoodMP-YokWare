@@ -76,7 +76,7 @@ namespace DWMPHorde.Sync
                         if (flyRb != null && flyRb.isKinematic)
                             flyRb.isKinematic = false;
                         int flyId = go.GetInstanceID();
-                        _clientKinematic.Remove(flyId);
+                        _s.ClientKinematic.Remove(flyId);
                         objSkipped++;
                         continue;
                     }
@@ -88,7 +88,7 @@ namespace DWMPHorde.Sync
                     // For Rigidbody objects: use the existing interpolation system
                     // (smooth between 10 Hz updates) + isKinematic (prevents host
                     // physics from fighting).  The interpolation loop on the host
-                    // never releases kinematic, so _clientKinematic handles that.
+                    // never releases kinematic, so _s.ClientKinematic handles that.
                     bool fromClient = fromPeer.Equals("client", StringComparison.OrdinalIgnoreCase);
                     if (fromClient)
                     {
@@ -108,10 +108,10 @@ namespace DWMPHorde.Sync
                             continue;
                         }
 
-                        _lastClientUpdateTime[go.GetInstanceID()] = Time.time;
+                        _s.LastClientUpdateTime[go.GetInstanceID()] = Time.time;
 
                         int goId = go.GetInstanceID();
-                        bool haveInterp = _objectInterp.TryGetValue(goId, out var existingInterp);
+                        bool haveInterp = _s.ObjectInterp.TryGetValue(goId, out var existingInterp);
                         Rigidbody rb = null;
                         Item cachedItem = null;
                         if (haveInterp && existingInterp.CachedComps)
@@ -143,18 +143,18 @@ namespace DWMPHorde.Sync
 
                             // Always refresh kinematic hold while client reports the object.
                             // Gate only blocks brand-new sessions right after a clean stop.
-                            bool gated = _clientKinematicGate.ContainsKey(goId);
+                            bool gated = _s.ClientKinematicGate.ContainsKey(goId);
                             if (!gated || posChanged)
                             {
                                 if (gated && posChanged)
-                                    _clientKinematicGate.Remove(goId);
-                                _clientKinematic[goId] = (rb, Time.time + 0.5f, obj.Name);
+                                    _s.ClientKinematicGate.Remove(goId);
+                                _s.ClientKinematic[goId] = (rb, Time.time + 0.5f, obj.Name);
                             }
 
                             // Scrape: arm on sane motion only; first quiet packet → stop decision *now*.
                             if (armScrape && !gated)
                             {
-                                if (_bodyPushSoundActive.Add(obj.Name))
+                                if (_s.BodyPushSoundActive.Add(obj.Name))
                                 {
                                     ModRuntime.LegacyInfo($"[SND] body-push start {obj.Name} d={posDelta.ToString("F3")}");
                                     LanNetworkManager.NotifyBodyPushStarted(go);
@@ -164,36 +164,36 @@ namespace DWMPHorde.Sync
                                     // Keep MOS alive mid-push (NoteMoving is idempotent / cancels fade).
                                     LanNetworkManager.NotifyBodyPushStarted(go);
                                 }
-                                _bodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
-                                _pushNameToGid[obj.Name] = goId;
-                                _pushGidToName[goId] = obj.Name;
-                                _pushStationaryCount[goId] = 0;
+                                _s.BodyPushSoundTimer[goId] = Time.time + BodyPushSoundHold;
+                                _s.PushNameToGid[obj.Name] = goId;
+                                _s.PushGidToName[goId] = obj.Name;
+                                _s.PushStationaryCount[goId] = 0;
                             }
                             else if (posChanged && posDelta > BodyPushMaxArmDelta)
                             {
                                 // Retarget after a hard drag jump without starting scrape.
-                                if (_bodyPushSoundActive.Remove(obj.Name))
+                                if (_s.BodyPushSoundActive.Remove(obj.Name))
                                 {
                                     ModRuntime.LegacyInfo($"[SND] body-push skip jump d={posDelta.ToString("F3")} {obj.Name}");
                                     LanNetworkManager.NotifyBodyPushStopped(obj.Name);
                                 }
-                                _pushStationaryCount[goId] = 0;
+                                _s.PushStationaryCount[goId] = 0;
                             }
-                            else if (!gated && _bodyPushSoundActive.Contains(obj.Name))
+                            else if (!gated && _s.BodyPushSoundActive.Contains(obj.Name))
                             {
                                 // Require two quiet ticks before stopping to avoid rapid rearming.
-                                if (!_pushStationaryCount.TryGetValue(goId, out int quietN))
+                                if (!_s.PushStationaryCount.TryGetValue(goId, out int quietN))
                                     quietN = 0;
                                 quietN++;
-                                _pushStationaryCount[goId] = quietN;
-                                if (quietN >= 2 && _bodyPushSoundActive.Remove(obj.Name))
+                                _s.PushStationaryCount[goId] = quietN;
+                                if (quietN >= 2 && _s.BodyPushSoundActive.Remove(obj.Name))
                                 {
                                     ModRuntime.LegacyInfo($"[SND] body-push stop (quiet) {obj.Name}");
                                     LanNetworkManager.NotifyBodyPushStopped(obj.Name);
-                                    _bodyPushSoundTimer.Remove(goId);
-                                    _pushNameToGid.Remove(obj.Name);
-                                    _pushGidToName.Remove(goId);
-                                    _pushStationaryCount.Remove(goId);
+                                    _s.BodyPushSoundTimer.Remove(goId);
+                                    _s.PushNameToGid.Remove(obj.Name);
+                                    _s.PushGidToName.Remove(goId);
+                                    _s.PushStationaryCount.Remove(goId);
                                 }
                             }
 
@@ -205,7 +205,7 @@ namespace DWMPHorde.Sync
                                 rb.rotation = Quaternion.Euler(rotVec);
                                 go.transform.position = objPos;
                                 go.transform.rotation = Quaternion.Euler(rotVec);
-                                _objectInterp.Remove(goId);
+                                _s.ObjectInterp.Remove(goId);
                             }
                             SetObjectTarget(go, objPos, rotVec, ClientPushInterpDuration);
                         }
@@ -213,7 +213,7 @@ namespace DWMPHorde.Sync
                         {
                             go.transform.position = objPos;
                             go.transform.rotation = Quaternion.Euler(rotVec);
-                            _objectInterp.Remove(go.GetInstanceID());
+                            _s.ObjectInterp.Remove(go.GetInstanceID());
                         }
                     }
                     else
@@ -253,7 +253,7 @@ namespace DWMPHorde.Sync
                             RemoveObjectFromInterpolation(go);
                             int localId = go.GetInstanceID();
                             Rigidbody localRb = null;
-                            if (_objectInterp.TryGetValue(localId, out var localInterp) && localInterp.CachedComps)
+                            if (_s.ObjectInterp.TryGetValue(localId, out var localInterp) && localInterp.CachedComps)
                                 localRb = localInterp.CachedRb;
                             if (localRb == null)
                                 localRb = go.GetComponent<Rigidbody>();
@@ -272,13 +272,13 @@ namespace DWMPHorde.Sync
                         {
                             int __gid = go.GetInstanceID();
                             Item __ic = null;
-                            if (_objectInterp.TryGetValue(__gid, out var __eiCached) && __eiCached.CachedComps)
+                            if (_s.ObjectInterp.TryGetValue(__gid, out var __eiCached) && __eiCached.CachedComps)
                                 __ic = __eiCached.CachedItem;
                             if (__ic == null)
                                 __ic = go.GetComponent<Item>();
                             if (__ic != null)
                             {
-                                bool __hi = _objectInterp.TryGetValue(__gid, out var __ei);
+                                bool __hi = _s.ObjectInterp.TryGetValue(__gid, out var __ei);
                                 float __pd = __hi
                                     ? Vector3.Distance(__ei.TargetPos, pos)
                                     : Vector3.Distance(go.transform.position, pos);
@@ -290,26 +290,26 @@ namespace DWMPHorde.Sync
                                     {
                                         // Remote host→client motion: MOS only (MarkRemoteScrape inside NoteMoving).
                                         MovingObjectSoundService.NoteMoving(__ic.gameObject, obj.Name, __isnd);
-                                        _pushNameToGid[obj.Name] = __gid;
-                                        _pushGidToName[__gid] = obj.Name;
-                                        _lastPushSoundTime[__gid] = Time.time;
-                                        _pushStationaryCount[__gid] = 0;
+                                        _s.PushNameToGid[obj.Name] = __gid;
+                                        _s.PushGidToName[__gid] = obj.Name;
+                                        _s.LastPushSoundTime[__gid] = Time.time;
+                                        _s.PushStationaryCount[__gid] = 0;
                                     }
-                                    else if (_lastPushSoundTime.ContainsKey(__gid)
+                                    else if (_s.LastPushSoundTime.ContainsKey(__gid)
                                         || ItemMovingSoundHelper.IsRemoteScrape(obj.Name))
                                     {
                                         // Need two quiet ticks before soft-stop (avoids scrape chatter).
-                                        if (!_pushStationaryCount.TryGetValue(__gid, out int quietN))
+                                        if (!_s.PushStationaryCount.TryGetValue(__gid, out int quietN))
                                             quietN = 0;
                                         quietN++;
-                                        _pushStationaryCount[__gid] = quietN;
+                                        _s.PushStationaryCount[__gid] = quietN;
                                         if (quietN >= 2)
                                         {
                                             ItemMovingSoundHelper.SoftStopNetwork(obj.Name);
-                                            _lastPushSoundTime.Remove(__gid);
-                                            _pushStationaryCount.Remove(__gid);
-                                            _pushNameToGid.Remove(obj.Name);
-                                            _pushGidToName.Remove(__gid);
+                                            _s.LastPushSoundTime.Remove(__gid);
+                                            _s.PushStationaryCount.Remove(__gid);
+                                            _s.PushNameToGid.Remove(obj.Name);
+                                            _s.PushGidToName.Remove(__gid);
                                         }
                                     }
                                 }

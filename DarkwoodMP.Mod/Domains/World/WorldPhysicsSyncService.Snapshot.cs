@@ -19,7 +19,7 @@ namespace DWMPHorde.Sync
 
             int hitCount = Physics.OverlapSphereNonAlloc(center, _scanRadius, _overlap3D);
             float now = Time.time;
-            bool fullResync = (now - _fullResyncTimer) >= FullResyncInterval;
+            bool fullResync = (now - _s.FullResyncTimer) >= FullResyncInterval;
 
             for (int i = 0; i < hitCount && i < _overlap3D.Length; i++)
             {
@@ -39,7 +39,7 @@ namespace DWMPHorde.Sync
                 if (rootGo == null || rootGo.isStatic) continue;
 
                 int rootId = rootGo.GetInstanceID();
-                if (!_scannedObjectIds.Add(rootId))
+                if (!_s.ScannedObjectIds.Add(rootId))
                     continue; // already processed from another scan center
 
                 string rootName = rootGo.name;
@@ -53,23 +53,23 @@ namespace DWMPHorde.Sync
                 int trackingKey = rootId;
                 Vector3 pos = rootGo.transform.position;
 
-                if (!_lastPos.TryGetValue(trackingKey, out Vector3 last))
+                if (!_s.LastPos.TryGetValue(trackingKey, out Vector3 last))
                 {
-                    _lastPos[trackingKey] = pos;
+                    _s.LastPos[trackingKey] = pos;
                     // Seed as "already quiet" so first sighting does not force a 10 Hz stream.
-                    _lastMoveTime[trackingKey] = now - QuietConfirmWindow - 1f;
+                    _s.LastMoveTime[trackingKey] = now - QuietConfirmWindow - 1f;
                     continue;
                 }
 
                 float distSq = Vector3.SqrMagnitude(pos - last);
                 bool reallyMoved = distSq >= 0.0009f;
-                _lastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
+                _s.LastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
                 bool inQuietConfirm = !reallyMoved
                     && (now - timeSinceMoved) < QuietConfirmWindow;
                 if (!reallyMoved && !inQuietConfirm && !fullResync)
                     continue;
 
-                if (_lastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
+                if (_s.LastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
                     continue;
 
                 // Heavy filters only for objects we are about to serialize.
@@ -112,18 +112,18 @@ namespace DWMPHorde.Sync
                     continue;
 
                 Vector3 rot = rootGo.transform.eulerAngles;
-                _lastPos[trackingKey] = pos;
+                _s.LastPos[trackingKey] = pos;
                 // Only real motion extends the quiet window.
                 if (reallyMoved)
-                    _lastMoveTime[trackingKey] = now;
+                    _s.LastMoveTime[trackingKey] = now;
 
                 // Host: keep client-owned free-bodies in interp (posDelta for scrape +
                 // smooth apply). Clearing them made every client packet look stationary
                 // A zero position delta must not arm body-push audio.
                 if (net == null || net.Role == NetworkRole.Host)
                 {
-                    if (!_clientKinematic.ContainsKey(rootId))
-                        _objectInterp.Remove(rootId);
+                    if (!_s.ClientKinematic.ContainsKey(rootId))
+                        _s.ObjectInterp.Remove(rootId);
                 }
 
                 if (_objects.Count >= 256) return;
@@ -170,20 +170,20 @@ namespace DWMPHorde.Sync
 
             // Scan around the local player and, on the host, every remote proxy so
             // free bodies / traps near a far client enter the snapshot (3+ / split map).
-            _scanCenters.Clear();
-            _scanCenters.Add(local.transform.position);
+            _s.ScanCenters.Clear();
+            _s.ScanCenters.Add(local.transform.position);
             if (net != null && net.Role == NetworkRole.Host)
             {
                 foreach (var proxy in net.GetAllProxies())
                 {
                     if (proxy != null)
-                        _scanCenters.Add(proxy.transform.position);
+                        _s.ScanCenters.Add(proxy.transform.position);
                 }
             }
 
-            _scannedObjectIds.Clear();
-            for (int cIdx = 0; cIdx < _scanCenters.Count; cIdx++)
-                ScanPhysicsAround(_scanCenters[cIdx], net);
+            _s.ScannedObjectIds.Clear();
+            for (int cIdx = 0; cIdx < _s.ScanCenters.Count; cIdx++)
+                ScanPhysicsAround(_s.ScanCenters[cIdx], net);
 
             // Doors, traps, and generators are host-authoritative.
             // Clients still send free physics objects (pushables) and drag uses DragSync.
@@ -197,14 +197,14 @@ namespace DWMPHorde.Sync
 
             // Reset full-resync timer after processing (so the next call checks
             // elapsed time from this point, not from the previous reset).
-            if ((Time.time - _fullResyncTimer) >= FullResyncInterval)
-                _fullResyncTimer = Time.time;
+            if ((Time.time - _s.FullResyncTimer) >= FullResyncInterval)
+                _s.FullResyncTimer = Time.time;
 
             // Early scrape-stop once motion updates go quiet (timer not extended).
             // Start and stop once per active session instead of every tick.
             float nowS = Time.time;
             _snapStaleIntKeys.Clear();
-            foreach (var kv in _bodyPushSoundTimer)
+            foreach (var kv in _s.BodyPushSoundTimer)
             {
                 if (nowS < kv.Value) continue;
                 _snapStaleIntKeys.Add(kv.Key);
@@ -213,7 +213,7 @@ namespace DWMPHorde.Sync
             {
                 int id = _snapStaleIntKeys[si];
                 string oName = null;
-                if (_clientKinematic.TryGetValue(id, out var kinData))
+                if (_s.ClientKinematic.TryGetValue(id, out var kinData))
                 {
                     if (kinData.rb != null)
                     {
@@ -222,23 +222,23 @@ namespace DWMPHorde.Sync
                     }
                     oName = kinData.objName;
                 }
-                if (string.IsNullOrEmpty(oName) && _pushGidToName.TryGetValue(id, out var mapped))
+                if (string.IsNullOrEmpty(oName) && _s.PushGidToName.TryGetValue(id, out var mapped))
                     oName = mapped;
 
-                if (!string.IsNullOrEmpty(oName) && _bodyPushSoundActive.Remove(oName))
+                if (!string.IsNullOrEmpty(oName) && _s.BodyPushSoundActive.Remove(oName))
                 {
                     // NotifyBodyPushStopped force-stops native+MOS on all roles + broadcast.
                     LanNetworkManager.NotifyBodyPushStopped(oName);
                     ModRuntime.LegacyInfo($"[SND] body-push stop {oName}");
                 }
 
-                _bodyPushSoundTimer.Remove(id);
-                _pushSoundAO.Remove(id);
-                _pushSoundSource.Remove(id);
-                _lastPushSoundTime.Remove(id);
-                _pushStationaryCount.Remove(id);
-                if (_pushGidToName.TryGetValue(id, out var __sn)) _pushNameToGid.Remove(__sn);
-                _pushGidToName.Remove(id);
+                _s.BodyPushSoundTimer.Remove(id);
+                _s.PushSoundAO.Remove(id);
+                _s.PushSoundSource.Remove(id);
+                _s.LastPushSoundTime.Remove(id);
+                _s.PushStationaryCount.Remove(id);
+                if (_s.PushGidToName.TryGetValue(id, out var __sn)) _s.PushNameToGid.Remove(__sn);
+                _s.PushGidToName.Remove(id);
             }
 
             // Release client-kinematic objects whose timeout has expired (no recent
@@ -246,7 +246,7 @@ namespace DWMPHorde.Sync
             // resume control when the client stops pushing the object.
             float now_ = Time.time;
             _snapStaleIntKeys.Clear();
-            foreach (var kv in _clientKinematic)
+            foreach (var kv in _s.ClientKinematic)
             {
                 if (now_ >= kv.Value.releaseTime)
                 {
@@ -254,58 +254,58 @@ namespace DWMPHorde.Sync
                     if (rBody != null)
                         rBody.isKinematic = false;
                     // Sound may already have stopped via early timer; ensure once.
-                    if (!string.IsNullOrEmpty(objName) && _bodyPushSoundActive.Remove(objName))
+                    if (!string.IsNullOrEmpty(objName) && _s.BodyPushSoundActive.Remove(objName))
                         LanNetworkManager.NotifyBodyPushStopped(objName);
-                    _clientKinematicGate[kv.Key] = Time.time;
+                    _s.ClientKinematicGate[kv.Key] = Time.time;
                     _snapStaleIntKeys.Add(kv.Key);
                 }
             }
             for (int ei = 0; ei < _snapStaleIntKeys.Count; ei++)
             {
                 int id = _snapStaleIntKeys[ei];
-                _clientKinematic.Remove(id);
-                _bodyPushSoundTimer.Remove(id);
-                _pushSoundAO.Remove(id);
-                _pushSoundSource.Remove(id);
-                _lastPushSoundTime.Remove(id);
-                _pushStationaryCount.Remove(id);
-                if (_pushGidToName.TryGetValue(id, out var __ekn))
+                _s.ClientKinematic.Remove(id);
+                _s.BodyPushSoundTimer.Remove(id);
+                _s.PushSoundAO.Remove(id);
+                _s.PushSoundSource.Remove(id);
+                _s.LastPushSoundTime.Remove(id);
+                _s.PushStationaryCount.Remove(id);
+                if (_s.PushGidToName.TryGetValue(id, out var __ekn))
                 {
-                    _bodyPushSoundActive.Remove(__ekn);
-                    _pushNameToGid.Remove(__ekn);
+                    _s.BodyPushSoundActive.Remove(__ekn);
+                    _s.PushNameToGid.Remove(__ekn);
                 }
-                _pushGidToName.Remove(id);
+                _s.PushGidToName.Remove(id);
             }
 
             // Periodically purge stale client-update timestamps (every ~10s)
-            // to prevent unbounded growth of _lastClientUpdateTime.
-            if (++_clientUpdateCleanupCounter % 100 == 0)
+            // to prevent unbounded growth of _s.LastClientUpdateTime.
+            if (++_s.ClientUpdateCleanupCounter % 100 == 0)
             {
                 float now2 = Time.time;
                 _snapStaleIntKeys.Clear();
-                foreach (var kv in _lastClientUpdateTime)
+                foreach (var kv in _s.LastClientUpdateTime)
                 {
                     if (now2 - kv.Value > 2f)
                         _snapStaleIntKeys.Add(kv.Key);
                 }
                 for (int i = 0; i < _snapStaleIntKeys.Count; i++)
-                    _lastClientUpdateTime.Remove(_snapStaleIntKeys[i]);
+                    _s.LastClientUpdateTime.Remove(_snapStaleIntKeys[i]);
 
-                // Purge stale _clientKinematicGate entries (entries > 3s old)
+                // Purge stale _s.ClientKinematicGate entries (entries > 3s old)
                 // This cleans up the re-entry guard after the client's 2.5s
                 // PhysicsState grace period has elapsed.
                 _snapStaleIntKeys.Clear();
-                foreach (var kv in _clientKinematicGate)
+                foreach (var kv in _s.ClientKinematicGate)
                 {
                     if (now2 - kv.Value > 3f)
                         _snapStaleIntKeys.Add(kv.Key);
                 }
                 for (int i = 0; i < _snapStaleIntKeys.Count; i++)
-                    _clientKinematicGate.Remove(_snapStaleIntKeys[i]);
+                    _s.ClientKinematicGate.Remove(_snapStaleIntKeys[i]);
 
-                // Also purge stale entries from _lastPos / _lastMoveTime (entries > 5s idle)
+                // Also purge stale entries from _s.LastPos / _s.LastMoveTime (entries > 5s idle)
                 _snapStaleIntKeys.Clear();
-                foreach (var kv in _lastMoveTime)
+                foreach (var kv in _s.LastMoveTime)
                 {
                     if (now2 - kv.Value > 5f)
                         _snapStaleIntKeys.Add(kv.Key);
@@ -313,15 +313,15 @@ namespace DWMPHorde.Sync
                 for (int i = 0; i < _snapStaleIntKeys.Count; i++)
                 {
                     int k = _snapStaleIntKeys[i];
-                    _lastMoveTime.Remove(k);
-                    _lastPos.Remove(k);
+                    _s.LastMoveTime.Remove(k);
+                    _s.LastPos.Remove(k);
                 }
 
                 // Vector3-keyed "last sent state" for doors, traps and generators: forget keys
                 // that left range or were destroyed, and re-send a few long-unsent ones per pass.
-                PruneStateKeys(_doorKeyAge, _lastDoorOpen, null, now2);
-                PruneStateKeys(_trapKeyAge, _lastTrapTriggered, null, now2);
-                PruneStateKeys(_generatorKeyAge, _lastGeneratorOn, _lastGeneratorFuel, now2);
+                PruneStateKeys(_s.DoorKeyAge, _s.LastDoorOpen, null, now2);
+                PruneStateKeys(_s.TrapKeyAge, _s.LastTrapTriggered, null, now2);
+                PruneStateKeys(_s.GeneratorKeyAge, _s.LastGeneratorOn, _s.LastGeneratorFuel, now2);
                 PruneTrapResultCache(now2);
             }
 
@@ -334,7 +334,7 @@ namespace DWMPHorde.Sync
             CopyGrow(_generators, ref _snapGenerators, out int gc);
             msg = new PhysicsStateMessage
             {
-                Sequence = ++_nextSnapshotSequence,
+                Sequence = ++_s.NextSnapshotSequence,
                 Reliable = false,
                 Objects = oc > 0 ? _snapObjects : null,
                 Doors = dc > 0 ? _snapDoors : null,

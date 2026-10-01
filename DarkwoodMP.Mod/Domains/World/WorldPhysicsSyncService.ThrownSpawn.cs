@@ -174,7 +174,7 @@ namespace DWMPHorde.Sync
                 // Drop any free-body interp that already latched onto this GO by name.
                 RemoveObjectFromInterpolation(go);
                 if (rb != null)
-                    _clientKinematic.Remove(go.GetInstanceID());
+                    _s.ClientKinematic.Remove(go.GetInstanceID());
 
                 // ThrownItem.Awake schedules init() next frame and can zero or overwrite velocity.
                 // Re-assert vanilla flight state after init so peer force matches thrower.
@@ -244,9 +244,9 @@ namespace DWMPHorde.Sync
                     ExpireAt = Time.time + UntilFadeStart(untilDark),
                     ItemType = msg.ItemType
                 };
-                _thrownLights.Add(track);
+                _s.Thrown.ThrownLights.Add(track);
                 if (throwId > 0)
-                    _thrownById[throwId] = track;
+                    _s.Thrown.ThrownById[throwId] = track;
             }
 
             if (!visualOnly)
