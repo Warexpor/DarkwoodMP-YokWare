@@ -219,8 +219,7 @@ namespace DWMPHorde.Networking
             ObjectName = r.GetString(),
             ItemType = r.GetString(),
             ClaimedByPlayerId = r.GetInt(),
-            // Old peers without this field: default false → observers stop scrape (safe).
-            ScrapeActive = r.AvailableBytes >= 1 && r.GetBool()
+            ScrapeActive = r.GetBool()
         };
     }
 
@@ -247,7 +246,6 @@ namespace DWMPHorde.Networking
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(ObjectName ?? "");
-            // Always-on trailer (same-DLL dual deploy). Legacy readers stop at ObjectName.
             w.Put(Mode);
             w.Put(ClaimedByPlayerId);
             w.Put(ItemType ?? "");
@@ -264,28 +262,13 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 ObjectName = r.GetString(),
-                Mode = ModeRemove,
-                ClaimedByPlayerId = 0,
-                ItemType = "",
-                Amount = 0,
-                Durability = 0f,
-                Ammo = 0
+                Mode = r.GetByte(),
+                ClaimedByPlayerId = r.GetInt(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt()
             };
-            if (r.AvailableBytes >= 1 + 4)
-            {
-                msg.Mode = r.GetByte();
-                msg.ClaimedByPlayerId = r.GetInt();
-                if (r.AvailableBytes >= 2)
-                {
-                    msg.ItemType = r.GetString();
-                    if (r.AvailableBytes >= 4 + 4 + 4)
-                    {
-                        msg.Amount = r.GetInt();
-                        msg.Durability = r.GetFloat();
-                        msg.Ammo = r.GetInt();
-                    }
-                }
-            }
             return msg;
         }
     }
@@ -446,10 +429,9 @@ namespace DWMPHorde.Networking
             {
                 PosX = r.GetFloat(),
                 PosY = r.GetFloat(),
-                PosZ = r.GetFloat()
+                PosZ = r.GetFloat(),
+                TrapNetId = r.GetInt()
             };
-            if (r.AvailableBytes >= 4)
-                msg.TrapNetId = r.GetInt();
             return msg;
         }
     }
@@ -565,7 +547,6 @@ namespace DWMPHorde.Networking
         /// <summary>0.8.64: opener world pos for hinge force direction. Absent = legacy door pos.</summary>
         public float OpenerPosX, OpenerPosY, OpenerPosZ;
         /// <summary>True when OpenForce/Opener trailer was present on the wire.</summary>
-        public bool HasOpenForceTrailer;
         /// <summary>0.8.90: client tried a padlocked door. Host fires the story trigger and does not open.</summary>
         public bool AttemptOnly;
 
@@ -573,10 +554,9 @@ namespace DWMPHorde.Networking
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(DoorName ?? "");
-            // Trailer: OpenForce + OpenerPos (16 bytes). Pre-0.8.64 peers stop after DoorName.
             w.Put(OpenForce);
             w.Put(OpenerPosX); w.Put(OpenerPosY); w.Put(OpenerPosZ);
-            // 0.8.90: true = rattle a locked door, do not open it.
+            // True = rattle a locked door, do not open it.
             w.Put(AttemptOnly);
         }
 
@@ -588,20 +568,12 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 DoorName = r.GetString(),
-                OpenForce = 0f,
-                HasOpenForceTrailer = false
+                OpenForce = r.GetFloat(),
+                OpenerPosX = r.GetFloat(),
+                OpenerPosY = r.GetFloat(),
+                OpenerPosZ = r.GetFloat(),
+                AttemptOnly = r.GetBool()
             };
-            // 4 floats = 16 bytes
-            if (r.AvailableBytes >= 16)
-            {
-                msg.OpenForce = r.GetFloat();
-                msg.OpenerPosX = r.GetFloat();
-                msg.OpenerPosY = r.GetFloat();
-                msg.OpenerPosZ = r.GetFloat();
-                msg.HasOpenForceTrailer = true;
-                if (r.AvailableBytes >= 1)
-                    msg.AttemptOnly = r.GetBool();
-            }
             return msg;
         }
     }
@@ -808,14 +780,10 @@ namespace DWMPHorde.Networking
                 Amount = r.GetInt(),
                 Durability = r.GetFloat(),
                 Ammo = r.GetInt(),
-                IsRecipe = false,
-                ShouldBeActive = false
+                IsRecipe = r.GetBool()
             };
-            if (r.AvailableBytes >= 1)
-                msg.IsRecipe = r.GetBool();
-            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
-            if (r.AvailableBytes >= 1)
-                msg.ShouldBeActive = r.GetBool();
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = r.GetBool();
             return msg;
         }
     }
@@ -839,7 +807,6 @@ namespace DWMPHorde.Networking
         public void Serialize(NetWriter w)
         {
             w.Put(Guid ?? string.Empty);
-            // Always-on trailer (same-DLL dual deploy). Legacy readers stop at Guid.
             w.Put(Mode);
             w.Put(ClaimedByPlayerId);
             w.Put(ItemType ?? "");
@@ -853,32 +820,13 @@ namespace DWMPHorde.Networking
             var msg = new DroppedItemPickupMessage
             {
                 Guid = r.GetString(),
-                Mode = ModeRemove,
-                ClaimedByPlayerId = 0,
-                ItemType = "",
-                Amount = 0,
-                Durability = 0f,
-                Ammo = 0
+                Mode = r.GetByte(),
+                ClaimedByPlayerId = r.GetInt(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt()
             };
-            if (r.AvailableBytes >= 1 + 4)
-            {
-                msg.Mode = r.GetByte();
-                msg.ClaimedByPlayerId = r.GetInt();
-                if (r.AvailableBytes >= 2)
-                {
-                    msg.ItemType = r.GetString();
-                    if (r.AvailableBytes >= 4)
-                    {
-                        msg.Amount = r.GetInt();
-                        if (r.AvailableBytes >= 4)
-                        {
-                            msg.Durability = r.GetFloat();
-                            if (r.AvailableBytes >= 4)
-                                msg.Ammo = r.GetInt();
-                        }
-                    }
-                }
-            }
             return msg;
         }
     }
@@ -895,20 +843,11 @@ namespace DWMPHorde.Networking
         public int[] ItemAmmos;
         /// <summary>Stable ID. Empty only if the sender is broken.</summary>
         public string BagId;
-        /// <summary>
-        /// 0.8.63: per-entry recipe flag. ItemTypes stores recipeFor when true.
-        /// Null/absent = pre-0.8.63 (AvailableBytes trailer after BagId).
-        /// </summary>
+        /// <summary>Per-entry recipe flag. ItemTypes stores recipeFor when true.</summary>
         public bool[] IsRecipe;
-        /// <summary>
-        /// 0.8.65: per-entry workbench ItemUpgrade names. Null/absent = pre-0.8.65
-        /// (AvailableBytes trailer after IsRecipe bools).
-        /// </summary>
+        /// <summary>Per-entry workbench ItemUpgrade names.</summary>
         public string[][] ItemUpgrades;
-        /// <summary>
-        /// 0.8.66: per-entry shouldBeActive (flashlight on). Null/absent = pre-0.8.66
-        /// (AvailableBytes trailer after upgrade lists).
-        /// </summary>
+        /// <summary>Per-entry shouldBeActive (flashlight on).</summary>
         public bool[] ShouldBeActive;
 
         public void Serialize(NetWriter w)
@@ -926,12 +865,9 @@ namespace DWMPHorde.Networking
                 w.Put(ItemAmmos != null && i < ItemAmmos.Length ? ItemAmmos[i] : 0);
             }
             w.Put(BagId ?? "");
-            // Recipe trailer (0.8.63). Always written so dual-deploy peers match.
             for (int i = 0; i < count; i++)
                 w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
-            // Upgrade trailer (0.8.65). Always written (count byte per item, may be 0).
             DWMPHorde.Sync.InvItemUpgradeWire.WriteMany(w, ItemUpgrades, count);
-            // shouldBeActive trailer (0.8.66). Always written.
             for (int i = 0; i < count; i++)
                 w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
         }
@@ -947,7 +883,8 @@ namespace DWMPHorde.Networking
                 ExpAmount = r.GetInt()
             };
             int count = r.GetInt();
-            if (count < 0 || count > 4096) count = 0;
+            if (count < 0 || count > 4096)
+                throw new System.IO.InvalidDataException("DeathBagSpawn item count " + count);
             msg.ItemCount = count;
             msg.ItemTypes = new string[count];
             msg.ItemAmounts = new int[count];
@@ -961,19 +898,13 @@ namespace DWMPHorde.Networking
                 msg.ItemAmmos[i] = r.GetInt();
             }
             msg.BagId = r.GetString();
-            if (count > 0 && r.AvailableBytes >= count)
-            {
-                msg.IsRecipe = new bool[count];
-                for (int i = 0; i < count; i++)
-                    msg.IsRecipe[i] = r.GetBool();
-            }
-            msg.ItemUpgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryReadMany(r, count);
-            if (count > 0 && r.AvailableBytes >= count)
-            {
-                msg.ShouldBeActive = new bool[count];
-                for (int i = 0; i < count; i++)
-                    msg.ShouldBeActive[i] = r.GetBool();
-            }
+            msg.IsRecipe = new bool[count];
+            for (int i = 0; i < count; i++)
+                msg.IsRecipe[i] = r.GetBool();
+            msg.ItemUpgrades = DWMPHorde.Sync.InvItemUpgradeWire.ReadMany(r, count);
+            msg.ShouldBeActive = new bool[count];
+            for (int i = 0; i < count; i++)
+                msg.ShouldBeActive[i] = r.GetBool();
             return msg;
         }
     }
@@ -1142,6 +1073,7 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(Health);
             w.Put(Attached);
+            w.Put(HasMaxHealth);
             if (HasMaxHealth)
                 w.Put(MaxHealth);
         }
@@ -1154,13 +1086,11 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 Health = r.GetFloat(),
-                Attached = r.GetByte()
+                Attached = r.GetByte(),
+                HasMaxHealth = r.GetBool()
             };
-            if (r.AvailableBytes >= 4)
-            {
-                msg.HasMaxHealth = true;
+            if (msg.HasMaxHealth)
                 msg.MaxHealth = r.GetFloat();
-            }
             return msg;
         }
     }
@@ -1219,6 +1149,7 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(TargetType);
             w.Put(Burning);
+            w.Put(HasRemainingTime);
             if (HasRemainingTime)
                 w.Put(RemainingTime);
         }
@@ -1231,13 +1162,11 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 TargetType = r.GetByte(),
-                Burning = r.GetByte()
+                Burning = r.GetByte(),
+                HasRemainingTime = r.GetBool()
             };
-            if (r.AvailableBytes >= 4)
-            {
-                msg.HasRemainingTime = true;
+            if (msg.HasRemainingTime)
                 msg.RemainingTime = r.GetFloat();
-            }
             return msg;
         }
     }

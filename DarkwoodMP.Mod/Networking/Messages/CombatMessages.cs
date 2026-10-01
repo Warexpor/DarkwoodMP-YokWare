@@ -72,16 +72,16 @@ namespace DWMPHorde.Networking
         public float AimY;
         public float Distance;
         public float VelX, VelY, VelZ;
-        /// <summary>Stable throw instance id (0 = legacy).</summary>
+        /// <summary>Stable throw instance id (0 = none).</summary>
         public int ThrowId;
         /// <summary>Seconds until light/projectile expires (0 = use prefab default).</summary>
         public float LongevitySec;
         /// <summary>
-        /// Vanilla <see cref="ThrownItem.landTarget"/> after throwItem (0,0,0 = legacy).
+        /// Vanilla <see cref="ThrownItem.landTarget"/> after throwItem (valid when <see cref="HasLandTarget"/>).
         /// Peers use this so checkIfWantToLand / flyTime match the thrower's arc.
         /// </summary>
         public float LandX, LandY, LandZ;
-        /// <summary>True when the Land* fields are present.</summary>
+        /// <summary>True when the Land* fields carry a real land target.</summary>
         public bool HasLandTarget;
 
         public void Serialize(NetWriter w)
@@ -93,8 +93,6 @@ namespace DWMPHorde.Networking
             w.Put(VelX); w.Put(VelY); w.Put(VelZ);
             w.Put(ThrowId);
             w.Put(LongevitySec);
-            // Explicit flag: the receiver used to infer it from "trailer present", which is always
-            // true, so a throw with no land target applied landTarget (0,0,0).
             w.Put(HasLandTarget);
             w.Put(LandX); w.Put(LandY); w.Put(LandZ);
         }
@@ -113,19 +111,12 @@ namespace DWMPHorde.Networking
                 VelY = r.GetFloat(),
                 VelZ = r.GetFloat()
             };
-            if (r.AvailableBytes >= 8)
-            {
-                msg.ThrowId = r.GetInt();
-                msg.LongevitySec = r.GetFloat();
-            }
-            // landTarget trailer: flag + 12 bytes; older peers omit this.
-            if (r.AvailableBytes >= 13)
-            {
-                msg.HasLandTarget = r.GetBool();
-                msg.LandX = r.GetFloat();
-                msg.LandY = r.GetFloat();
-                msg.LandZ = r.GetFloat();
-            }
+            msg.ThrowId = r.GetInt();
+            msg.LongevitySec = r.GetFloat();
+            msg.HasLandTarget = r.GetBool();
+            msg.LandX = r.GetFloat();
+            msg.LandY = r.GetFloat();
+            msg.LandZ = r.GetFloat();
             return msg;
         }
     }

@@ -36,15 +36,16 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void ChapterShareAck_WithoutSharePassTrailerReadsZero()
+    public void ChapterShareAck_TruncatedPayloadIsRejected()
     {
+        // Every peer runs the same protocol (the handshake refuses others), so a short packet is
+        // malformed, never an older layout.
         var w = new NetWriter();
         w.Put(3);
         w.Put(ChapterShareAckMessage.StatusCommitted);
         w.Put("");
-        var back = ChapterShareAckMessage.Deserialize(new NetReader(w.CopyData()));
-        Assert.Equal(3, back.ChapterId);
-        Assert.Equal(0, back.SharePass);
+        Assert.Throws<System.IO.InvalidDataException>(
+            () => ChapterShareAckMessage.Deserialize(new NetReader(w.CopyData())));
     }
 
     [Fact]
@@ -71,7 +72,7 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void ChapterTransition_AckRequiredIsAnOptionalTrailer()
+    public void ChapterTransition_RoundTrips()
     {
         var full = new ChapterTransitionMessage
         {
@@ -82,12 +83,6 @@ public class MessageRoundTripTests
         Assert.True(back.LoadChapterSave);
         Assert.True(back.ExpectWorldShare);
         Assert.True(back.AckRequired);
-
-        // A pre-handshake sender stops before the trailing byte: still readable, AckRequired false.
-        byte[] legacy = Bytes(w => { w.Put(2); w.Put(true); w.Put(true); });
-        var old = ChapterTransitionMessage.Deserialize(new NetReader(legacy));
-        Assert.Equal(2, old.ChapterId);
-        Assert.False(old.AckRequired);
     }
 
     [Fact]
@@ -212,7 +207,7 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void DreamStarted_RoundTripsWithAndWithoutTrailer()
+    public void DreamStarted_RoundTrips()
     {
         var msg = new DreamStartedMessage
         {
@@ -225,13 +220,6 @@ public class MessageRoundTripTests
         Assert.Equal(5, back.SessionId);
         Assert.Equal((byte)3, back.LvlFlags);
         Assert.Equal(new[] { "a", "b" }, back.CompletedPresets);
-
-        // Older sender: position only, no session/completions trailer.
-        byte[] legacy = Bytes(w => { w.Put("d"); w.Put(1f); w.Put(2f); w.Put(3f); });
-        var old = DreamStartedMessage.Deserialize(new NetReader(legacy));
-        Assert.Equal("d", old.PresetName);
-        Assert.Equal(0, old.SessionId);
-        Assert.Empty(old.CompletedPresets);
     }
 
     private static SensorEffectWire[] SampleEffects() => new[]
@@ -283,26 +271,13 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void PlayerAttack_WithoutEffectsRoundTripsAndLegacyPayloadHasNone()
+    public void PlayerAttack_WithoutEffectsRoundTrips()
     {
         var msg = new PlayerAttackMessage { TargetNameHash = 1, Damage = 5, TargetName = "x" };
         var r = new NetReader(Bytes(msg.Serialize));
         var back = PlayerAttackMessage.Deserialize(r);
         Assert.Null(back.Effects);
         Assert.Equal(0, r.AvailableBytes);
-
-        // Pre-trailer sender: payload ends right after CanCutInHalf.
-        byte[] legacy = Bytes(w =>
-        {
-            w.Put((short)3); w.Put(9);
-            w.Put(1f); w.Put(2f); w.Put(3f);
-            w.Put("rat");
-            w.Put(4f); w.Put(5f); w.Put(6f);
-            w.Put(false);
-        });
-        var old = PlayerAttackMessage.Deserialize(new NetReader(legacy));
-        Assert.Equal("rat", old.TargetName);
-        Assert.Null(old.Effects);
     }
 
     [Fact]
@@ -326,31 +301,6 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void DamagePlayer_OlderPayloadsKeepDefaultsAndNoEffects()
-    {
-        // Oldest sender: no NormalHit / CanInterrupt / effects trailers.
-        byte[] oldest = Bytes(w =>
-        {
-            w.Put(10); w.Put(1f); w.Put(2f); w.Put(3f); w.Put(false); w.Put(true);
-        });
-        var a = DamagePlayerMessage.Deserialize(new NetReader(oldest));
-        Assert.Equal(10, a.Damage);
-        Assert.True(a.NormalHit);
-        Assert.True(a.CanInterrupt);
-        Assert.Null(a.Effects);
-
-        // Sender that predates only the effects trailer.
-        byte[] noEffects = Bytes(w =>
-        {
-            w.Put(10); w.Put(1f); w.Put(2f); w.Put(3f); w.Put(false); w.Put(true); w.Put(false); w.Put(false);
-        });
-        var b = DamagePlayerMessage.Deserialize(new NetReader(noEffects));
-        Assert.False(b.NormalHit);
-        Assert.False(b.CanInterrupt);
-        Assert.Null(b.Effects);
-    }
-
-    [Fact]
     public void FriendlyFire_RoundTripsSensorEffects()
     {
         var msg = new FriendlyFireMessage
@@ -366,15 +316,6 @@ public class MessageRoundTripTests
         Assert.Equal(3, back.VictimPlayerId);
         AssertSampleEffects(back.Effects);
         Assert.Equal(0, r.AvailableBytes);
-
-        // Pre-trailer sender: payload ends after VictimPlayerId.
-        byte[] legacy = Bytes(w =>
-        {
-            w.Put(5); w.Put(1f); w.Put(2f); w.Put(3f); w.Put(false); w.Put(4); w.Put(5);
-        });
-        var old = FriendlyFireMessage.Deserialize(new NetReader(legacy));
-        Assert.Equal(5, old.VictimPlayerId);
-        Assert.Null(old.Effects);
     }
 
     [Fact]

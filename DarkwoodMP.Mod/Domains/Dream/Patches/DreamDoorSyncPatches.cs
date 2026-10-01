@@ -75,7 +75,6 @@ namespace DWMPHorde.Patches
                     PosY = pos.y,
                     PosZ = pos.z,
                     DoorName = door.name ?? "",
-                    HasOpenForceTrailer = true,
                     AttemptOnly = true
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
@@ -136,8 +135,7 @@ namespace DWMPHorde.Patches
                     OpenForce = openForce,
                     OpenerPosX = opener.x,
                     OpenerPosY = opener.y,
-                    OpenerPosZ = opener.z,
-                    HasOpenForceTrailer = true
+                    OpenerPosZ = opener.z
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
