@@ -151,8 +151,8 @@ namespace DWMPHorde.Sync
         /// <summary>Per-T scene array, refreshed at most every <see cref="SceneScanTtl"/> seconds.</summary>
         private static class SceneScanCache<T> where T : Component
         {
-            private static T[] _items = Array.Empty<T>();
-            private static float _at = -999f;
+            private static T[] _items = Array.Empty<T>(); // process-scoped: short-TTL scene cache, dropped by InvalidateCommonSceneScanCaches on stop
+            private static float _at = -999f; // process-scoped: short-TTL scene cache, dropped by InvalidateCommonSceneScanCaches on stop
 
             public static T[] Get()
             {

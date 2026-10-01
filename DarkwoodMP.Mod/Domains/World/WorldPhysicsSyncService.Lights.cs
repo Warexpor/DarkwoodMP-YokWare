@@ -314,6 +314,10 @@ namespace DWMPHorde.Sync
             _objectInterp.Clear();
             _lastResolvedByName.Clear();
             _lastFullRbScanTime = -999f;
+            _fullResyncTimer = 0f;
+            _clientUpdateCleanupCounter = 0;
+            _dreamPropItemsCache = null;
+            _dreamPropItemsRootId = 0;
             // Release all client-kinematic rigidbodies on reset
             foreach (var kv in _clientKinematic)
             {
@@ -340,6 +344,8 @@ namespace DWMPHorde.Sync
             _outboundRemoveDebounce.Clear();
             ResetConsumedWorldPickups();
             _pendingLights.Clear();
+            _pendingLightQueuedAt = -1f;
+            _nextPendingLightFlushTime = 0f;
             MovingObjectSoundService.Reset();
             ListTracker<Door>.Clear();
             ListTracker<Generator>.Clear();

@@ -21,21 +21,21 @@ namespace DWMPHorde.Sync
         /// Set true around Explodes.onActivate() calls initiated by a network message
         /// to prevent ExplosionTriggerPatch from re-broadcasting and creating a loop.
         /// </summary>
-        internal static bool _suppressBroadcast;
+        internal static bool _suppressBroadcast; // reset-in: ResetTransientFlags
 
-        private static readonly List<WorldObjectState> _objects = new List<WorldObjectState>();
-        private static readonly List<DoorState> _doors = new List<DoorState>();
-        private static readonly List<TrapState> _traps = new List<TrapState>();
+        private static readonly List<WorldObjectState> _objects = new List<WorldObjectState>(); // process-scoped: per-build scratch
+        private static readonly List<DoorState> _doors = new List<DoorState>(); // process-scoped: per-build scratch
+        private static readonly List<TrapState> _traps = new List<TrapState>(); // process-scoped: per-build scratch
         private static readonly Collider[] _overlap3D = new Collider[2048];
 
         /// <summary>NonAlloc overlap into shared <see cref="_overlap3D"/>.</summary>
         private static int OverlapNear(Vector3 pos, float radius)
             => Physics.OverlapSphereNonAlloc(pos, radius, _overlap3D);
-        private static readonly Dictionary<int, Vector3> _lastPos = new Dictionary<int, Vector3>();
-        private static readonly Dictionary<int, float> _lastMoveTime = new Dictionary<int, float>();
-        private static readonly Dictionary<int, float> _lastClientUpdateTime = new Dictionary<int, float>();
-        private static uint _nextSnapshotSequence;
-        private static int _clientUpdateCleanupCounter;
+        private static readonly Dictionary<int, Vector3> _lastPos = new Dictionary<int, Vector3>(); // reset-in: ResetCore
+        private static readonly Dictionary<int, float> _lastMoveTime = new Dictionary<int, float>(); // reset-in: ResetCore
+        private static readonly Dictionary<int, float> _lastClientUpdateTime = new Dictionary<int, float>(); // reset-in: ResetCore
+        private static uint _nextSnapshotSequence; // reset-in: ResetCore
+        private static int _clientUpdateCleanupCounter; // reset-in: ResetCore
         // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
         // updates. Key = InstanceID, value = Rigidbody + time to release.
         private static readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> _clientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
@@ -44,40 +44,40 @@ namespace DWMPHorde.Sync
         private const float BodyPushSoundHold = 0.05f;
         /// <summary>Use this path only for large corrections; normal pushes interpolate.</summary>
         private const float ClientPushSnapDistance = 8f;
-        private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>();
-        private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>();
+        private static readonly Dictionary<int, float> _bodyPushSoundTimer = new Dictionary<int, float>(); // reset-in: ResetCore
+        private static readonly Dictionary<int, float> _lastPushSoundTime = new Dictionary<int, float>(); // reset-in: ResetCore
         // Manually-managed AudioSource for host->client body-push sound.
         // We bypass AudioController for this because its pooled one-shot
         // AudioObjects get destroyed between 10Hz PhysicsState ticks,
         // making continuous playback impossible.  A looping AudioSource
         // gives us full lifecycle control.
-        private static readonly Dictionary<int, AudioSource> _pushSoundSource = new Dictionary<int, AudioSource>();
+        private static readonly Dictionary<int, AudioSource> _pushSoundSource = new Dictionary<int, AudioSource>(); // reset-in: ResetCore
         // Fade-out tracking for body-push AudioSources.  Stores (startVolume, endTime)
         // so UpdateObjectInterpolation can ramp volume to 0 before destroying.
         // Without this, Stop() is instant and the user hears a click.
         private static readonly Dictionary<int, (float startVol, float endTime)> _pushSoundFade = new Dictionary<int, (float, float)>();
         // Count stationary ticks so tiny position changes do not restart the fade.
-        private static readonly Dictionary<int, int> _pushStationaryCount = new Dictionary<int, int>();
+        private static readonly Dictionary<int, int> _pushStationaryCount = new Dictionary<int, int>(); // reset-in: ResetCore
         private const int StationaryFadeThreshold = 2; // ~0.2s guard at 10Hz
         // Maps object name → InstanceID so the NotifyBodyPushStopped signal can
         // look up the manual AudioSource by object name and start the fade.
-        private static readonly Dictionary<string, int> _pushNameToGid = new Dictionary<string, int>();
+        private static readonly Dictionary<string, int> _pushNameToGid = new Dictionary<string, int>(); // reset-in: ResetCore
         // Reverse: GID → object name, for cleanup convenience.
-        private static readonly Dictionary<int, string> _pushGidToName = new Dictionary<int, string>();
+        private static readonly Dictionary<int, string> _pushGidToName = new Dictionary<int, string>(); // reset-in: ResetCore
         // Gates against fromClient re-entry after _clientKinematic release.
         // Prevents stale PhysicsState (client's 2.5s grace period) from
         // re-triggering NotifyBodyPushStarted after NotifyBodyPushStopped.
         // Value = Time.time when the gate was set (at NotifyBodyPushStopped).
-        private static readonly Dictionary<int, float> _clientKinematicGate = new Dictionary<int, float>();
-        private static readonly Dictionary<int, AudioObject> _pushSoundAO = new Dictionary<int, AudioObject>();
+        private static readonly Dictionary<int, float> _clientKinematicGate = new Dictionary<int, float>(); // reset-in: ResetCore
+        private static readonly Dictionary<int, AudioObject> _pushSoundAO = new Dictionary<int, AudioObject>(); // reset-in: ResetCore
         /// <summary>Object names with an active body-push scrape (start once, stop once).</summary>
-        private static readonly HashSet<string> _bodyPushSoundActive =
+        private static readonly HashSet<string> _bodyPushSoundActive = // reset-in: ResetCore
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Position-based debounce for DestroyObjectByPos / outbound WorldObjectRemoved.
-        private static readonly Dictionary<PosNameKey, float> _destroyDebounce = new Dictionary<PosNameKey, float>();
-        private static readonly List<PosNameKey> _destroyDebounceStaleKeys = new List<PosNameKey>(8);
-        private static readonly Dictionary<PosNameKey, float> _outboundRemoveDebounce = new Dictionary<PosNameKey, float>();
-        private static readonly List<PosNameKey> _outboundRemoveStaleKeys = new List<PosNameKey>(8);
+        private static readonly Dictionary<PosNameKey, float> _destroyDebounce = new Dictionary<PosNameKey, float>(); // reset-in: ResetCore
+        private static readonly List<PosNameKey> _destroyDebounceStaleKeys = new List<PosNameKey>(8); // process-scoped: scratch
+        private static readonly Dictionary<PosNameKey, float> _outboundRemoveDebounce = new Dictionary<PosNameKey, float>(); // reset-in: ResetCore
+        private static readonly List<PosNameKey> _outboundRemoveStaleKeys = new List<PosNameKey>(8); // process-scoped: scratch
         private const float DestroyDebounceTime = 0.5f;
         private const float OutboundRemoveDebounceTime = 0.75f;
         /// <summary>
@@ -168,20 +168,20 @@ namespace DWMPHorde.Sync
         }
 
         // Cooldown tracker for host body-push sound in ApplySnapshot.
-        private static readonly Dictionary<Vector3, bool> _lastDoorOpen = new Dictionary<Vector3, bool>();
-        private static readonly Dictionary<Vector3, bool> _lastTrapTriggered = new Dictionary<Vector3, bool>();
+        private static readonly Dictionary<Vector3, bool> _lastDoorOpen = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
+        private static readonly Dictionary<Vector3, bool> _lastTrapTriggered = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
 
-        private static int _objApplyLogCounter;
-        private static float _objInterpLastLogTime;
-        private static float _scanRadius = 40f;
-        private static float _fullResyncTimer;
+        private static int _objApplyLogCounter; // process-scoped: log throttle
+        private static float _objInterpLastLogTime; // process-scoped: log throttle
+        private static float _scanRadius = 40f; // process-scoped: tuning constant
+        private static float _fullResyncTimer; // reset-in: ResetCore
         // Periodic full resync for free bodies in range.
         private static readonly float FullResyncInterval = 5f;
-        private static float _lastFullRbScanTime = -999f;
+        private static float _lastFullRbScanTime = -999f; // reset-in: ResetCore
         /// <summary>Full RB walk is last-resort; keep rare (overlap + name cache handle the common path).</summary>
         private const float FullRbScanMinInterval = 2f;
         /// <summary>Last successful FindOrSpawn hit by object name (distance-gated; non-unique names OK).</summary>
-        private static readonly Dictionary<string, GameObject> _lastResolvedByName =
+        private static readonly Dictionary<string, GameObject> _lastResolvedByName = // reset-in: ResetCore
             new Dictionary<string, GameObject>(128);
         private const int MaxResolvedByName = 256;
         private const float ResolvedNameMaxDist = 25f;
@@ -190,9 +190,9 @@ namespace DWMPHorde.Sync
         /// final quiet sample. Quiet samples do not refresh the motion timer.
         /// </summary>
         private const float QuietConfirmWindow = 0.15f;
-        private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>();
+        private static readonly Dictionary<int, GameObject> _knownTraps = new Dictionary<int, GameObject>(); // reset-in: ResetCore
         /// <summary>Trap classification per collider root instance id, with last time the scan saw it.</summary>
-        private static readonly Dictionary<int, TrapClassification> _trapResultCache = new Dictionary<int, TrapClassification>();
+        private static readonly Dictionary<int, TrapClassification> _trapResultCache = new Dictionary<int, TrapClassification>(); // reset-in: ResetCore
         private const float TrapResultForgetSeconds = 60f;
 
         private struct TrapClassification
@@ -207,10 +207,10 @@ namespace DWMPHorde.Sync
             public float LastSeen;
             public float LastSent;
         }
-        private static readonly Dictionary<Vector3, StateKeyAge> _doorKeyAge = new Dictionary<Vector3, StateKeyAge>();
-        private static readonly Dictionary<Vector3, StateKeyAge> _trapKeyAge = new Dictionary<Vector3, StateKeyAge>();
-        private static readonly Dictionary<Vector3, StateKeyAge> _generatorKeyAge = new Dictionary<Vector3, StateKeyAge>();
-        private static readonly List<Vector3> _stateKeyScratch = new List<Vector3>(16);
+        private static readonly Dictionary<Vector3, StateKeyAge> _doorKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
+        private static readonly Dictionary<Vector3, StateKeyAge> _trapKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
+        private static readonly Dictionary<Vector3, StateKeyAge> _generatorKeyAge = new Dictionary<Vector3, StateKeyAge>(); // reset-in: ResetCore
+        private static readonly List<Vector3> _stateKeyScratch = new List<Vector3>(16); // process-scoped: scratch
         /// <summary>Keys not scanned for this long (destroyed / out of range) are forgotten.</summary>
         private const float StateKeyForgetSeconds = 30f;
         /// <summary>A still-scanned key is re-sent once its last send is this old, a few per pass.</summary>
@@ -224,8 +224,8 @@ namespace DWMPHorde.Sync
             public float ExpireAt;
             public string ItemType;
         }
-        private static readonly List<ThrownLightTrack> _thrownLights = new List<ThrownLightTrack>(16);
-        private static readonly Dictionary<int, ThrownLightTrack> _thrownById = new Dictionary<int, ThrownLightTrack>(16);
+        private static readonly List<ThrownLightTrack> _thrownLights = new List<ThrownLightTrack>(16); // reset-in: ResetCore
+        private static readonly Dictionary<int, ThrownLightTrack> _thrownById = new Dictionary<int, ThrownLightTrack>(16); // reset-in: ResetCore
 
         /// <summary>Vanilla Flare.waitToDie fade length after longevity elapses.</summary>
         public const float FlareBurnoutFadeSec = 2f;
@@ -236,7 +236,7 @@ namespace DWMPHorde.Sync
             public float Longevity;
         }
         /// <summary>GO instanceId → burn clock from Flare.Start (aim time).</summary>
-        private static readonly Dictionary<int, FlareBurnStart> _flareBurnStarts =
+        private static readonly Dictionary<int, FlareBurnStart> _flareBurnStarts = // reset-in: ResetCore
             new Dictionary<int, FlareBurnStart>(8);
 
         private struct ThrownLightFade
@@ -249,7 +249,7 @@ namespace DWMPHorde.Sync
             /// <summary>Optional sibling (held FlareFx) destroyed after fade completes.</summary>
             public GameObject SiblingDestroy;
         }
-        private static readonly List<ThrownLightFade> _thrownLightFades = new List<ThrownLightFade>(8);
+        private static readonly List<ThrownLightFade> _thrownLightFades = new List<ThrownLightFade>(8); // reset-in: ResetCore
 
         /// <summary>
         /// The network owns the lifetime; keep Flare for flicker and rotation
@@ -273,13 +273,13 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static readonly List<GeneratorState> _generators = new List<GeneratorState>();
-        private static readonly Dictionary<Vector3, bool> _lastGeneratorOn = new Dictionary<Vector3, bool>();
-        private static readonly Dictionary<Vector3, float> _lastGeneratorFuel = new Dictionary<Vector3, float>();
-        private static readonly List<Vector3> _scanCenters = new List<Vector3>(8);
-        private static readonly HashSet<int> _scannedObjectIds = new HashSet<int>();
-        private static readonly List<int> _stalePushSrcKeys = new List<int>(8);
-        private static readonly List<int> _staleKinematicKeys = new List<int>(8);
+        private static readonly List<GeneratorState> _generators = new List<GeneratorState>(); // process-scoped: per-build scratch
+        private static readonly Dictionary<Vector3, bool> _lastGeneratorOn = new Dictionary<Vector3, bool>(); // reset-in: ResetCore
+        private static readonly Dictionary<Vector3, float> _lastGeneratorFuel = new Dictionary<Vector3, float>(); // reset-in: ResetCore
+        private static readonly List<Vector3> _scanCenters = new List<Vector3>(8); // reset-in: ResetCore
+        private static readonly HashSet<int> _scannedObjectIds = new HashSet<int>(); // reset-in: ResetCore
+        private static readonly List<int> _stalePushSrcKeys = new List<int>(8); // process-scoped: scratch
+        private static readonly List<int> _staleKinematicKeys = new List<int>(8); // process-scoped: scratch
 
         // Client free-body packets are ~10 Hz (0.1s). Buffer slightly longer so host
         // retargets mid-lerp instead of finishing each segment into a snap.
@@ -301,9 +301,9 @@ namespace DWMPHorde.Sync
             public Item CachedItem;
             public bool CachedComps;
         }
-        private static readonly Dictionary<int, ObjectInterpState> _objectInterp = new Dictionary<int, ObjectInterpState>();
-        private static readonly List<int> _objectInterpDeadKeys = new List<int>();
-        private static readonly List<int> _objectInterpKeys = new List<int>();
+        private static readonly Dictionary<int, ObjectInterpState> _objectInterp = new Dictionary<int, ObjectInterpState>(); // reset-in: ResetCore
+        private static readonly List<int> _objectInterpDeadKeys = new List<int>(); // process-scoped: scratch
+        private static readonly List<int> _objectInterpKeys = new List<int>(); // process-scoped: scratch
 
 
 

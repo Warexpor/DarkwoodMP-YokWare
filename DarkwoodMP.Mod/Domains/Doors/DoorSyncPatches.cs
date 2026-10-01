@@ -113,7 +113,7 @@ namespace DWMPHorde.Sync
         /// Set to true while inside progressBarCompleted, so ObjectDestroyTrapPatch
         /// can suppress fake removal messages caused by the inventory item being destroyed.
         /// </summary>
-        internal static bool InsideTrapPlacement;
+        internal static bool InsideTrapPlacement; // process-scoped: call-scoped, restored by Finalizer
 
         // Placement capture travels in __state (not statics) so a re-entrant progressBarCompleted
         // cannot overwrite it; the previous InsideTrapPlacement value is restored, not zeroed.

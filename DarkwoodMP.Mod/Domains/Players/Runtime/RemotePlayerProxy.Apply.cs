@@ -195,7 +195,7 @@ namespace DWMPHorde.Players
         }
 
         // Throttled log counter to avoid spamming the log file
-        private static int _pushCollideCount;
+        private static int _pushCollideCount; // process-scoped: log throttle
 
         private void OnCollisionStay(Collision collision)
         {

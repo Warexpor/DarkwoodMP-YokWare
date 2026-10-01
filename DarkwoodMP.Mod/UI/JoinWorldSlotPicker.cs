@@ -12,7 +12,7 @@ namespace DWMPHorde
     /// </summary>
     public sealed class JoinWorldSlotPicker : MonoBehaviour
     {
-        private static JoinWorldSlotPicker _instance;
+        private static JoinWorldSlotPicker _instance; // process-scoped: UI singleton
 
         private const string LockOwner = "slotpicker";
 

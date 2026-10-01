@@ -261,10 +261,10 @@ namespace DWMPHorde.Sync
             for (int i = 0; i < gc; i++) Generators[i].Serialize(w);
         }
 
-        private static WorldObjectState[] _deserObjects = Array.Empty<WorldObjectState>();
-        private static DoorState[] _deserDoors = Array.Empty<DoorState>();
-        private static TrapState[] _deserTraps = Array.Empty<TrapState>();
-        private static GeneratorState[] _deserGenerators = Array.Empty<GeneratorState>();
+        private static WorldObjectState[] _deserObjects = Array.Empty<WorldObjectState>(); // process-scoped: scratch
+        private static DoorState[] _deserDoors = Array.Empty<DoorState>(); // process-scoped: scratch
+        private static TrapState[] _deserTraps = Array.Empty<TrapState>(); // process-scoped: scratch
+        private static GeneratorState[] _deserGenerators = Array.Empty<GeneratorState>(); // process-scoped: scratch
 
         private static void EnsureDeserCapacity<T>(ref T[] buf, int n)
         {

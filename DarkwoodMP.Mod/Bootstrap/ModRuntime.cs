@@ -234,7 +234,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(Audio.LocalAudioService.ResetClipCache);
             NetworkResetRegistry.Register(Audio.LocalAudioService.ResetPeerHearGates);
             NetworkResetRegistry.Register(Audio.VoiceChatService.Reset);
-            NetworkResetRegistry.Register(DreamAudioPlayer.Cleanup);
+            NetworkResetRegistry.Register(DreamAudioPlayer.Reset);
             NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
             NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
             NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
@@ -287,6 +287,8 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(LightStateHelper.ResetTxSignature);
             NetworkResetRegistry.Register(MorningRewardFanOutPatch.Reset);
             NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
+            NetworkResetRegistry.Register(OutsidePadSlots.Reset);
+            NetworkResetRegistry.Register(PlayerControlRouter.Reset);
             NetworkResetRegistry.Register(ResetStaticSessionFlags);
         }
 

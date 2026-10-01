@@ -41,10 +41,9 @@ public class StaticStateResetTests
             string[] parts = rel.Split(sep);
             if (parts.Contains("obj") || parts.Contains("bin"))
                 continue;
-            bool networking = parts[0] == "Networking";
-            bool domainPatches = parts[0] == "Domains" && parts.Length > 3
-                && parts.Skip(2).Take(parts.Length - 3).Contains("Patches");
-            if (networking || domainPatches)
+            // Every runtime folder that can hold session state. Bootstrap/Config/Logging/Harmony
+            // hold process-wide setup only.
+            if (parts[0] is "Networking" or "Domains" or "Core" or "Audio" or "UI" or "Items" or "Patches")
                 yield return f;
         }
     }

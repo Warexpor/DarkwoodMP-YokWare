@@ -51,23 +51,23 @@ namespace DWMPHorde
         private static GameObject _joinSteamBtn;
         private static GameObject _backSubBtn;
 
-        private static PanelView _panelView = PanelView.Root;
-        private static bool _joinViaSteam;
-        private static bool _hostingHint;
+        private static PanelView _panelView = PanelView.Root; // process-scoped: menu UI state
+        private static bool _joinViaSteam; // process-scoped: menu UI state
+        private static bool _hostingHint; // process-scoped: menu UI state
 
-        private static bool _joinPending;
-        private static float _joinStartedAt;
-        private static float _handshakeAt;
-        private static bool _loggedWaitingWorld;
-        private static bool _worldRequest10sSent;
-        private static bool _worldRequest25sSent;
-        private static int _lastUiPoll;
+        private static bool _joinPending; // reset-in: ClearJoinState
+        private static float _joinStartedAt; // process-scoped: read only while _joinPending
+        private static float _handshakeAt; // reset-in: ClearJoinState
+        private static bool _loggedWaitingWorld; // reset-in: ClearJoinState
+        private static bool _worldRequest10sSent; // reset-in: ClearJoinState
+        private static bool _worldRequest25sSent; // reset-in: ClearJoinState
+        private static int _lastUiPoll; // process-scoped: menu UI state
 
-        private static int _boundMenu0Id;
-        private static int _lastScreenW;
-        private static int _lastScreenH;
-        private static bool _menu0WasActive;
-        private static bool _launchLobbyTried;
+        private static int _boundMenu0Id; // process-scoped: menu UI state
+        private static int _lastScreenW; // process-scoped: menu UI state
+        private static int _lastScreenH; // process-scoped: menu UI state
+        private static bool _menu0WasActive; // process-scoped: menu UI state
+        private static bool _launchLobbyTried; // process-scoped: launch-lobby connect is tried once per process
 
         private static GameObject ActiveJoinButton =>
             _joinViaSteam ? _joinSteamBtn : _joinLanBtn;

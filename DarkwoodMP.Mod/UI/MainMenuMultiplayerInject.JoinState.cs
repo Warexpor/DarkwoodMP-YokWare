@@ -67,7 +67,7 @@ namespace DWMPHorde
         private const float FailureLabelSec = 4f;
         private static GameObject _failBtn;
         private static string _failRestore;
-        private static float _failUntil;
+        private static float _failUntil; // process-scoped: menu label timer
 
         private static bool FailureLabelActive =>
             _failBtn != null && _failBtn && Time.realtimeSinceStartup < _failUntil;

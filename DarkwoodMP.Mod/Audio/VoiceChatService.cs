@@ -110,26 +110,26 @@ namespace DWMPHorde.Audio
 
         private static bool _recording;
         private static float _stopLinger;
-        private static ushort _seq;
+        private static ushort _seq; // process-scoped: wrapping packet counter
         private static readonly byte[] _captureBuf = new byte[8192];
-        private static KeyCode _pttKey = KeyCode.V;
+        private static KeyCode _pttKey = KeyCode.V; // process-scoped: config cache, re-parsed after Reset clears _keyParsed
         private static bool _keyParsed;
-        private static AudioClip _carrier;
+        private static AudioClip _carrier; // process-scoped: asset
         private static readonly Dictionary<int, Speaker> _speakers = new Dictionary<int, Speaker>();
-        private static readonly List<int> _reap = new List<int>();
-        private static GameObject _root;
-        private static byte[] _decompressBuf;
-        private static uint _sampleRate;
-        private static bool _localWalkie;
-        private static float _nextWalkieCheck;
-        private static float _nextSteamCheck;
-        private static bool _steamOk;
-        private static bool _steamWarned;
+        private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
+        private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
+        private static byte[] _decompressBuf; // process-scoped: decoder setup
+        private static uint _sampleRate; // process-scoped: decoder setup
+        private static bool _localWalkie; // process-scoped: polled every 0.5 s
+        private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
+        private static float _nextSteamCheck; // process-scoped: Steam availability
+        private static bool _steamOk; // process-scoped: Steam availability
+        private static bool _steamWarned; // process-scoped: Steam availability
         private static bool _walkieTx;
-        private static float _nextRearm;
-        private static float _lastSent;
-        private static int _txPackets;
-        private static float _nextStatsLog;
+        private static float _nextRearm; // process-scoped: rate limit
+        private static float _lastSent; // process-scoped: stats
+        private static int _txPackets; // process-scoped: stats
+        private static float _nextStatsLog; // process-scoped: stats
 
         public static void Reset()
         {
@@ -142,6 +142,8 @@ namespace DWMPHorde.Audio
             }
             _speakers.Clear();
             _keyParsed = false;
+            _stopLinger = 0f;
+            _walkieTx = false;
         }
 
         /// <summary>

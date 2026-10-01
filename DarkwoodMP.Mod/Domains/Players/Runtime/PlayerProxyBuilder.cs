@@ -25,7 +25,7 @@ namespace DWMPHorde.Players
         /// </summary>
         public static bool IsSpawningCoopClone { get; private set; }
 
-        private static float _lastInactiveLog = -999f;
+        private static float _lastInactiveLog = -999f; // process-scoped: log throttle
 
         /// <summary>
         /// Creates a clone of sourcePlayer, strips unwanted components, and attaches the appropriate controller.

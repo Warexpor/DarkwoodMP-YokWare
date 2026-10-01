@@ -11,14 +11,14 @@ namespace DWMPHorde.Sync
     {
         public int NetId;
 
-        private static int _nextHostId = 1;
+        private static int _nextHostId = 1; // process-scoped: not rewound, ids stamped on traps survive a re-host (see ResetSession)
         /// <summary>Each host epoch mints from its own 2^24 block (a promoted host starts a new one).</summary>
         private const int EpochShift = 24;
         /// <summary>Ids at or above this are treated as junk wire values (see NoteSeenId).</summary>
         private const int MaxSaneId = 1 << 30;
         private static readonly Dictionary<int, GameObject> ById = new Dictionary<int, GameObject>(64);
         private static readonly List<PendingTrapApply> Pending = new List<PendingTrapApply>(16);
-        private static readonly List<int> _deadKeys = new List<int>(8);
+        private static readonly List<int> _deadKeys = new List<int>(8); // process-scoped: scratch
         private const int MaxPending = 64;
 
         /// <summary>Pending trap applies waiting for scene objects (CoopPerfProbe).</summary>
@@ -42,6 +42,7 @@ namespace DWMPHorde.Sync
         {
             ById.Clear();
             Pending.Clear();
+            _nextPendingFlushTime = 0f;
         }
 
         /// <summary>

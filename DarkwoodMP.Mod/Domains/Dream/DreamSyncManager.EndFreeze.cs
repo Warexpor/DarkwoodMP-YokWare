@@ -95,9 +95,13 @@ namespace DWMPHorde.Sync
             {
                 // The freeze statics must not outlive the session even when the dream cleanup
                 // above took the ApplyRemoteDreamCleanup branch or threw part-way.
-                UnfreezeWorld(restoreTime: false);
+                UnfreezeWorld(restoreTime: false); // clears _worldFrozen
+                _savedGameTime = 0;
                 _frozenWorldCharacters.Clear();
                 _frozenByComponent.Clear();
+                // The story-end watchdog only stops via ForceLocalDreamCleanup, which runs above
+                // only while a dream is still flagged; a stale defer would gate the next session.
+                ClearStoryEndDefer();
             }
         }
 

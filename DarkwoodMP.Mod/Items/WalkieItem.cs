@@ -18,17 +18,17 @@ namespace DWMPHorde.Items
         private const string DonorType = "junk";
         private const string EmbeddedResourceName = "DWMPHorde.Resources.walkie_talkie.png";
 
-        private static GameObject _templateGo;
-        private static InvItem _template;
-        private static CraftingRecipes _recipes;
-        private static string _donorIconName;
-        private static Texture2D _iconTexture;
-        private static bool _iconTextureFailed;
-        private static bool _langDone;
-        private static float _nextAttempt;
-        private static bool _warnedNoDb;
+        private static GameObject _templateGo; // process-scoped: injected item template
+        private static InvItem _template; // process-scoped: injected item template
+        private static CraftingRecipes _recipes; // process-scoped: injected item template
+        private static string _donorIconName; // process-scoped: injected item template
+        private static Texture2D _iconTexture; // process-scoped: loaded asset
+        private static bool _iconTextureFailed; // process-scoped: loaded asset
+        private static bool _langDone; // process-scoped: one-time injection state
+        private static float _nextAttempt; // process-scoped: one-time injection state
+        private static bool _warnedNoDb; // process-scoped: one-time injection state
         /// <summary>True after icon sprite is in a collection (or texture load failed permanently).</summary>
-        private static bool _iconSettled;
+        private static bool _iconSettled; // process-scoped: one-time injection state
 
         public static void Tick()
         {
