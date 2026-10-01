@@ -64,7 +64,7 @@ namespace DWMPHorde.Patches
             }
 
             // Every remote in falloff range (explosion-style multi-body), not just nearest.
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return false;
 

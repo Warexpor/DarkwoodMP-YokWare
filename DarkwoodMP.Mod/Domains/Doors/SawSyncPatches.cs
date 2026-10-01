@@ -96,7 +96,7 @@ namespace DWMPHorde.Sync
         internal static void SendAbsoluteTo(Saw saw, int playerId)
         {
             if (saw == null || playerId <= 0) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             var msg = BuildMessage(saw);
@@ -108,7 +108,7 @@ namespace DWMPHorde.Sync
         internal static void BroadcastAbsoluteFromHost(Saw saw, string reason)
         {
             if (saw == null) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             var msg = BuildMessage(saw);
@@ -138,7 +138,7 @@ namespace DWMPHorde.Sync
         private static void Postfix(Saw __instance, float __state)
         {
             float delta = 0f;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Client && __state > 0.01f)
                 delta = __state;
             SawSyncHelpers.SendState(__instance, "addFuel", delta);

@@ -222,7 +222,7 @@ namespace DWMPHorde.Sync
 
             // Client → host: delta so concurrent pours sum. Host → peers: absolute.
             float delta = 0f;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Client && __state > 0.01f)
                 delta = __state;
 

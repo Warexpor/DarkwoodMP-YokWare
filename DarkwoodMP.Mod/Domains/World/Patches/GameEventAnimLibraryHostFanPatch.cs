@@ -51,7 +51,7 @@ namespace DWMPHorde.Patches
         {
             __state = null;
             // Host-only fan-out: nothing to track offline / as a client.
-            var hostNet = LanNetworkManager.Instance;
+            var hostNet = ModRuntime.Network;
             if (hostNet == null || hostNet.Role != NetworkRole.Host || !hostNet.IsConnected)
                 return;
             GameEvent ge = GetGameEvent(__instance);
@@ -80,7 +80,7 @@ namespace DWMPHorde.Patches
         {
             if (__state == null) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             // Host-only. Clients applying GameEventsFired write libraries under
             // NetworkApplyGuard — do not echo (avoids loop / spam).
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)

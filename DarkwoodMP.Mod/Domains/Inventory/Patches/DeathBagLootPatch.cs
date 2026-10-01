@@ -23,7 +23,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 pos = __instance.transform.position;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
 
             string bagId = DeathBagNetworkId.GetBagId(__instance.gameObject);
@@ -65,7 +65,7 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client) return;
 
             Inventory.InvType kind = __instance.invType;

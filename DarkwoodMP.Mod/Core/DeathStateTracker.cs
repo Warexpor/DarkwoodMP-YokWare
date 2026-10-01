@@ -32,7 +32,7 @@ namespace DWMPHorde
             {
                 if (_nightParticipantsCaptured)
                     return _nightParticipantIds.Count;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 return net?.RemotePlayerCount ?? 0;
             }
         }
@@ -98,7 +98,7 @@ namespace DWMPHorde
         /// </summary>
         public static void SnapshotNightParticipants()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             int before = _nightParticipantIds.Count;
             bool first = !_nightParticipantsCaptured;
             if (net != null)
@@ -322,7 +322,7 @@ namespace DWMPHorde
         public static bool TryResolveNightMorning(string reason)
         {
             if (_resolvingMorning || PartyWipeDeclared) return false;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             // Role alone, not IsConnected: the leaver is already out of the transport when the
             // disconnect cleanup asks, and a host left alone and night-dead must still resolve.
             if (net == null || net.Role != NetworkRole.Host)

@@ -143,7 +143,7 @@ namespace DWMPHorde.Patches
 
         private static bool IsRemoteDragName(string objectName)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return false;
             return net._remoteDragItemNames != null

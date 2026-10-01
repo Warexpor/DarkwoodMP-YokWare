@@ -15,7 +15,7 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(string pool, string prefab, Vector3 position, Quaternion quaternion)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (pool != "FX") return;
@@ -64,7 +64,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static void TryForwardBlood(string prefab, Vector3 position, Quaternion quaternion)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (string.IsNullOrEmpty(prefab)) return;
@@ -169,7 +169,7 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(Bullet __instance, Collider collider, Vector3 hitPoint)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
 
             if (__instance.objectThatSpawnedMe != null) return;

@@ -180,7 +180,7 @@ namespace DWMPHorde.Patches
             if (_anim != null && _anim.GetClipByName("Death1") != null)
                 _anim.Play("Death1");
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Host)
             {
                 var info = GetComponent<ShadowSyncInfo>();

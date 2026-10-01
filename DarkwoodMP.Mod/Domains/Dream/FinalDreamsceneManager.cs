@@ -36,7 +36,7 @@ namespace DWMPHorde.Sync
             {
                 if (!_isActive || !_localDeadInDream)
                     return false;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null)
                     return true;
                 foreach (int id in net.GetHandshakedPeerIds())
@@ -117,7 +117,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static void ClearPeerDeadInDreamFlags()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
             var ids = new HashSet<int>(_connectedPlayerIds);
             foreach (int id in net.GetHandshakedPeerIds())
@@ -141,7 +141,7 @@ namespace DWMPHorde.Sync
         public static void RefreshConnectedPlayers()
         {
             _connectedPlayerIds.Clear();
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
             foreach (var proxy in net.GetAllProxies())
             {
@@ -191,7 +191,7 @@ namespace DWMPHorde.Sync
 
             ModRuntime.LegacyInfo("[FinalDreamscene] Local player died in dream");
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 net.Broadcast(NetMessageType.FinalDreamsceneDeath,
@@ -232,7 +232,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static void TryHostEndAllDead(string reason)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected && net.Role != NetworkRole.Host)
             {
                 ModRuntime.LegacyInfo(
@@ -297,7 +297,7 @@ namespace DWMPHorde.Sync
 
         private static void EnterDreamSpectator()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Stable order by PlayerId; prefer living proxies (3+ cycle).
@@ -322,7 +322,7 @@ namespace DWMPHorde.Sync
             if (_ending) return;
             _ending = true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
 
             var player = Player.Instance;
             if (player != null)

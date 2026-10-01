@@ -15,7 +15,7 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.Last)]
         private static void Postfix(Player __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (InvItemClass.isNull(__instance.currentItem) || __instance.currentItem.baseClass == null) return;

@@ -218,7 +218,7 @@ namespace DWMPHorde
                 return;
             _lastLocalSend = Time.unscaledTime;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline)
             {
                 AddLine("[System] Not in a session.");

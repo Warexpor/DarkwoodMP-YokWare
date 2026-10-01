@@ -292,7 +292,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void HostBroadcastDreamPropColliders(bool force = false)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
                 return;
             if (!DreamSyncManager.IsDreamActive && (Dreams.Instance == null || !Dreams.Instance.dreaming))

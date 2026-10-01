@@ -24,7 +24,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Host)
                 return true;
 

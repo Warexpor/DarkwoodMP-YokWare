@@ -171,7 +171,7 @@ namespace DWMPHorde.Sync
         private static System.Collections.IEnumerator UnfreezeProxiesAfterDelay(float delay)
         {
             yield return new UnityEngine.WaitForSecondsRealtime(delay);
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) yield break;
 
             foreach (var proxy in net.GetAllProxies())

@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
         {
             if (!IsHost()) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = manager != null ? manager.transform.position : Vector3.zero;
@@ -187,7 +187,7 @@ namespace DWMPHorde.Patches
 
         internal static void SetProxiesHidden(bool hide)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             if (!hide)
@@ -320,7 +320,7 @@ namespace DWMPHorde.Patches
                 && __instance != Dreams.Instance.startTransition)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = __instance.transform.position;
@@ -352,7 +352,7 @@ namespace DWMPHorde.Patches
             if (!CutsceneSyncHelpers.IsMultiplayerConnected()) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = __instance.transform.position;

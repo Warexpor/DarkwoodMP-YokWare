@@ -97,7 +97,7 @@ namespace DWMPHorde
             if (net == null || _joinPending)
                 return;
 
-            var lanReady = net as LanNetworkManager;
+            var lanReady = net;
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
             {
                 SetJoinProgress("CHOOSE SLOT");
@@ -123,7 +123,7 @@ namespace DWMPHorde
 
             if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
             {
-                var lan = net as LanNetworkManager;
+                var lan = net;
                 if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
                 {
                     SetJoinProgress("DOWNLOADING…");
@@ -276,7 +276,7 @@ namespace DWMPHorde
 
         private static void PollPostHandshakeWorldWait()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client || !net.IsHandshakeComplete)
                 return;
             if (!Core.mainMenu)

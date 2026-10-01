@@ -197,7 +197,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             bool remoteInside = false;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 string n = __instance.gameObject != null

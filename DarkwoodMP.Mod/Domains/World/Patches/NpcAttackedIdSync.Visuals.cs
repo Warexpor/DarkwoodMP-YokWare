@@ -214,7 +214,7 @@ namespace DWMPHorde.Patches
         internal static void FlushPendingVisualsIfNeeded(NPC npc)
         {
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
 

@@ -47,7 +47,7 @@ namespace DWMPHorde.Sync
             if (_ownerPlayerId <= 0) return null;
             if (Time.unscaledTime > _until) return null;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return null;
 
             if (_ownerPlayerId == net.LocalPlayerId)

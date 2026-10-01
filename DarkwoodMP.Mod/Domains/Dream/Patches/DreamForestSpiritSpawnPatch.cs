@@ -22,7 +22,7 @@ namespace DWMPHorde.Patches
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
             Transform prefer = pad != null
                 ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f)

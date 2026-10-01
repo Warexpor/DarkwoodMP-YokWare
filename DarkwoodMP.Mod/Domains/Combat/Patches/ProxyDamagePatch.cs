@@ -35,7 +35,7 @@ namespace DWMPHorde.Patches
             RemotePlayerProxy proxy = __instance.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return true;
 
             // Night-dead peer: no further damage (proxy may still exist for corpse pose).

@@ -76,7 +76,7 @@ namespace DWMPHorde.Patches
             if (!GasSyncPolicy.ClientMustNotMutateWorld())
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 net.SendGasTrailSpawn(new GasTrailSpawnMessage
@@ -220,7 +220,7 @@ namespace DWMPHorde.Patches
                 return false;
 
             Vector3 pos = __instance.transform.position;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 net.SendGasIgnite(new GasIgniteMessage

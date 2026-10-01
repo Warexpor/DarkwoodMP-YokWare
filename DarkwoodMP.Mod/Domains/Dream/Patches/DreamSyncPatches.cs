@@ -23,7 +23,7 @@ namespace DWMPHorde.Patches
                 if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
                 if (LanNetworkManager.IsApplyingRemoteState) return true;
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null) return true;
 
                 if (net.Role == NetworkRole.Host)
@@ -143,7 +143,7 @@ namespace DWMPHorde.Patches
                         DreamSession.UpdateActivePreset(resolved);
                     // Vanilla empty path already removed from presetList.
 
-                    var net = LanNetworkManager.Instance;
+                    var net = ModRuntime.Network;
                     if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
                     {
                         // Early resolve so clients that enter getPreset mid-prepare adopt same pick.

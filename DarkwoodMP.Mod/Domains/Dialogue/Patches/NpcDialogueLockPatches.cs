@@ -18,7 +18,7 @@ namespace DWMPHorde.Patches
             if (_npc == null || string.IsNullOrEmpty(_npc.name))
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
 
@@ -111,7 +111,7 @@ namespace DWMPHorde.Patches
             // close() returned early and left npc bound: the conversation is still open.
             if (__instance != null && __instance.npc != null) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             // World-only DialogOutcome SilentClose must not release the speaker's lease.
             // Without this guard HostRelease(localId) can drop the host's real talk lock

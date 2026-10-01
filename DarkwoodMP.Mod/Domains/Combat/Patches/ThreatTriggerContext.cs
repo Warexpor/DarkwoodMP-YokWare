@@ -42,7 +42,7 @@ namespace DWMPHorde.Patches
         {
             if (_lastProxyPlayerId <= 0) return null;
             if (Time.unscaledTime - _lastProxyEnterTime > maxAgeSec) return null;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return null;
             RemotePlayerProxy proxy = net.GetProxy(_lastProxyPlayerId);
             if (proxy == null) return null;

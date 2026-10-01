@@ -95,7 +95,7 @@ namespace DWMPHorde.Sync
                         // also drive kinematic/interp or start body-push scrape,
                         // which fought
                         // DragSync and spammed NotifyBodyPushStarted (logs: 53 starts, thrash).
-                        var netMgr = ModRuntime.Network as LanNetworkManager;
+                        var netMgr = ModRuntime.Network;
                         if (netMgr != null && !string.IsNullOrEmpty(obj.Name)
                             && (netMgr._dragClaims.ContainsKey(obj.Name)
                                 || netMgr._remoteDragItemNames.Contains(obj.Name)))
@@ -217,7 +217,7 @@ namespace DWMPHorde.Sync
                         // Local pusher/dragger owns this free-body. Host snapshot echo must not:
                         // - SetObjectTarget, which can fight local physics while the object is held.
                         // - NoteMoving / ForceStop (double scrape / kill native mid-push)
-                        var echoNet = ModRuntime.Network as LanNetworkManager;
+                        var echoNet = ModRuntime.Network;
                         bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
                             && echoNet._dragClaims.TryGetValue(obj.Name, out int claimPid)
                             && claimPid == echoNet.LocalPlayerId;
@@ -457,8 +457,8 @@ namespace DWMPHorde.Sync
                     // Absolute Fuel when FuelDelta==0 (turnOn/off, late-join, host pour).
                     // Mutate gs before HandlePhysicsState fans out so peers get absolute.
                     bool hostAccum = fromPeer == "client"
-                        && LanNetworkManager.Instance != null
-                        && LanNetworkManager.Instance.Role == NetworkRole.Host;
+                        && ModRuntime.Network != null
+                        && ModRuntime.Network.Role == NetworkRole.Host;
                     for (int gi = 0; gi < gc; gi++)
                     {
                         GeneratorState gs = state.Generators[gi];

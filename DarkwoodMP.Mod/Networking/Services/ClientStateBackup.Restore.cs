@@ -318,7 +318,7 @@ namespace DWMPHorde.Networking
                 if (Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.IsConnected)
                     net.TeleportRemoteProxyTo(pos, 0f);
 

@@ -85,7 +85,7 @@ namespace DWMPHorde.Patches
         private static void RemapUidFieldIfNeeded(NPC npc, bool attacked)
         {
             if (npc == null) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
 
@@ -131,7 +131,7 @@ namespace DWMPHorde.Patches
             float posY = 0f,
             float posZ = 0f)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
             if (string.IsNullOrEmpty(npcName)) return;
 
@@ -183,7 +183,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Character __instance, int __state)
         {
             if (__instance == null || __instance.npc == null) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
             // Host apply of remote hits runs under IsApplyingRemoteState + DialogHostApplyGuard.
             // Still fan attackedID — peers need the mark even when GE fan-out is already handled.
@@ -230,7 +230,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Character __instance, State __state)
         {
             if (__instance == null || __instance.npc == null) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
             // Same as attackedID: fan even under remote-apply so peers get world death marks.
 

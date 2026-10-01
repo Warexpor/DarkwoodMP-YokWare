@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
 
         internal static void BroadcastInfectionSpawn(Vector3 pos)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
@@ -132,7 +132,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 pos = __instance.transform.position;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             net.SendWorldObjectRemoved(new WorldObjectRemovedMessage

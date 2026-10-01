@@ -42,7 +42,7 @@ namespace DWMPHorde.Patches
 
         internal static void SendOxygenGiveMessage()
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             // Host → all; client → host (Forwardable rebroadcasts).
             net.Broadcast(NetMessageType.OxygenTankStash,
@@ -52,7 +52,7 @@ namespace DWMPHorde.Patches
 
         internal static void SendCompressorConvertMessage()
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             net.Broadcast(NetMessageType.CompressorTankConvert,
                 w => new CompressorTankConvertMessage().Serialize(w),

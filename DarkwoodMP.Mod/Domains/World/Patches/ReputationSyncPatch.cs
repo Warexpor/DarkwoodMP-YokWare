@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
 
@@ -99,7 +99,7 @@ namespace DWMPHorde.Patches
         {
             __state = default;
             // Host-only fan-out: nothing to track offline / as a client.
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
             GameEvent ge = GetGameEvent(__instance);
@@ -126,7 +126,7 @@ namespace DWMPHorde.Patches
             string npcName = __state.NpcName;
             int before = __state.RepBefore;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             // Host-only. Clients applying GameEventsFired write Flags locally under
             // NetworkApplyGuard — do not echo ReputationSync (avoids re-entry / spam).
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)

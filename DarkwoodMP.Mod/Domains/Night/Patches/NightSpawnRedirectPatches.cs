@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
             if (!ShouldRedirect())
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -69,8 +69,8 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network?.Role != NetworkRole.Host) return false;
             if (!PlayerPositionManager.HasRemotePlayer) return false;
             if (Player.Instance == null) return false;
-            if (LanNetworkManager.Instance == null) return false;
-            return NightSpawnFarProxies.Fill(LanNetworkManager.Instance, Player.Instance.transform.position).Count > 0;
+            if (ModRuntime.Network == null) return false;
+            return NightSpawnFarProxies.Fill(ModRuntime.Network, Player.Instance.transform.position).Count > 0;
         }
     }
 
@@ -90,7 +90,7 @@ namespace DWMPHorde.Patches
             GameObject destGO = (GameObject)__args[0];
             if (destGO != Player.Instance.gameObject) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -136,7 +136,7 @@ namespace DWMPHorde.Patches
 
             if (Player.Instance == null) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -218,7 +218,7 @@ namespace DWMPHorde.Patches
                 choices.Add(new Body { Pos = t.position, Attack = t });
             }
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 foreach (RemotePlayerProxy proxy in net.GetAllProxies())

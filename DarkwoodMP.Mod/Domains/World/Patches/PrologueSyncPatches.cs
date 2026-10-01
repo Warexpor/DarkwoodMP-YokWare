@@ -39,7 +39,7 @@ namespace DWMPHorde.Patches
         {
             if (!CutsceneSyncHelpers.IsHost() || playerId <= 0)
                 return;
-            LanNetworkManager net = LanNetworkManager.Instance;
+            LanNetworkManager net = ModRuntime.Network;
             if (net == null)
                 return;
             net.SendToPlayer(playerId, NetMessageType.CutsceneSync,
@@ -100,7 +100,7 @@ namespace DWMPHorde.Patches
         {
             if (!CutsceneSyncHelpers.IsHost() || playerId <= 0)
                 return;
-            LanNetworkManager net = LanNetworkManager.Instance;
+            LanNetworkManager net = ModRuntime.Network;
             if (net == null)
                 return;
             net.SendToPlayer(playerId, NetMessageType.CutsceneSync,
@@ -298,7 +298,7 @@ namespace DWMPHorde.Patches
 
         private static void Broadcast(byte action)
         {
-            LanNetworkManager net = LanNetworkManager.Instance;
+            LanNetworkManager net = ModRuntime.Network;
             if (net == null)
                 return;
             net.Broadcast(NetMessageType.CutsceneSync,

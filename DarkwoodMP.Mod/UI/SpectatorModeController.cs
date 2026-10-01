@@ -207,7 +207,7 @@ namespace DWMPHorde.Spectator
             if (!CanUseSpectateKey())
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return;
 
@@ -274,7 +274,7 @@ namespace DWMPHorde.Spectator
         {
             if (!DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead)
                 return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             if (Time.unscaledTime < _nextNoTargetResolveAt)

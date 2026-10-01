@@ -69,7 +69,7 @@ namespace DWMPHorde.Sync
         public static void SendLocalChange(string itemType, int amount)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (string.IsNullOrEmpty(itemType)) return;
 

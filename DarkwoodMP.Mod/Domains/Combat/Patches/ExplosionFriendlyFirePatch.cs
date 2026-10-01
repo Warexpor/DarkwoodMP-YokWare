@@ -35,7 +35,7 @@ namespace DWMPHorde.Patches
         {
             __state = default;
             if (__instance == null) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
 
             __state.Host = true;
@@ -64,7 +64,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Explodes __instance, State __state)
         {
             if (!__state.Host) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host) return;
             if (!net.IsConnected) return;
             if (__instance == null) return;

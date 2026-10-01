@@ -57,11 +57,11 @@ namespace DWMPHorde.Patches
                 AttackerPosY = pos.y,
                 AttackerPosZ = pos.z,
                 CanCutInHalf = dmg >= 80,
-                AttackerPlayerId = LanNetworkManager.Instance?.LocalPlayerId ?? 0,
+                AttackerPlayerId = ModRuntime.Network?.LocalPlayerId ?? 0,
                 VictimPlayerId = proxy.PlayerId,
                 Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
-            LanNetworkManager.Instance?.Send(NetMessageType.FriendlyFire, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Send(NetMessageType.FriendlyFire, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             return false;
         }
@@ -176,7 +176,7 @@ namespace DWMPHorde.Patches
                 Effects = SensorEffectCodec.ToWire(__instance.effects),
                 IsMelee = true
             };
-            LanNetworkManager.Instance?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             // Vanilla's remaining Character-hit steps for a player sensor.
             if (local != null && !InvItemClass.isNull(local.currentItem) && local.currentItem.baseClass.isMelee)
@@ -240,7 +240,7 @@ namespace DWMPHorde.Patches
                 Volume = 1f,
                 Gunshot = false
             };
-            LanNetworkManager.Instance?.Send(NetMessageType.PlayerSound, w => soundMsg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Send(NetMessageType.PlayerSound, w => soundMsg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }

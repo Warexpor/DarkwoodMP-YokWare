@@ -93,7 +93,7 @@ namespace DWMPHorde.Patches
         /// <summary>Proxy-hit handling for one local hitscan ray (detour or scope fallback).</summary>
         internal static void HandleHit(RaycastHit hitInfo)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Projectile sweep (incl. stalled pellets) uses the same layer mask —

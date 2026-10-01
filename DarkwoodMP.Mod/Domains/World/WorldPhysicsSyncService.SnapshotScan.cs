@@ -131,7 +131,7 @@ namespace DWMPHorde.Sync
         internal static short ResolveTrapOccupant(int trapNetId, Vector3 trapPos)
         {
             if (trapNetId <= 0) return 0;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return 0;
 
             Player local = Player.Instance;
@@ -266,7 +266,7 @@ namespace DWMPHorde.Sync
             {
                 _trapResultCache[id] = new TrapClassification { IsTrap = true, LastSeen = now };
                 _knownTraps[id] = root;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.Role == NetworkRole.Host)
                     TrapNetworkId.GetOrMintHost(root);
                 else

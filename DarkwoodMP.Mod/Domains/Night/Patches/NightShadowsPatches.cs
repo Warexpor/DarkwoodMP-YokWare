@@ -72,7 +72,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Player __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
             if (net.Role != NetworkRole.Client)
@@ -116,7 +116,7 @@ namespace DWMPHorde.Patches
             if (info == null || info.OwnerPlayerId <= 0)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return true;
 

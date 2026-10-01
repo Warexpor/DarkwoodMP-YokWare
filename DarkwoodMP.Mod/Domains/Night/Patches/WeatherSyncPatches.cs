@@ -13,7 +13,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Rain __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return true;
 
@@ -29,7 +29,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host) return;
             net.SendWeatherSync();
         }
@@ -40,7 +40,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host) return;
             net.SendWeatherSync();
         }
@@ -51,7 +51,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host) return;
             net.SendWeatherSync();
         }
@@ -62,7 +62,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host) return;
             net.SendWeatherSync();
         }
@@ -86,7 +86,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Rain __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected || __instance == null)
                 return;
 

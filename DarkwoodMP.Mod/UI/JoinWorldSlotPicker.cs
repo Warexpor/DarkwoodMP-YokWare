@@ -40,7 +40,7 @@ namespace DWMPHorde
         /// <summary>The picker is on screen: title menu, share downloaded, still connected, no terminal failure.</summary>
         private static bool IsPickerActive(out LanNetworkManager net)
         {
-            net = ModRuntime.Network as LanNetworkManager;
+            net = ModRuntime.Network;
             var share = net?.WorldSaveShare;
             return share != null
                 && net.Role != NetworkRole.Offline
@@ -105,7 +105,7 @@ namespace DWMPHorde
 
         private void DrawWindow(int id)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             var share = net?.WorldSaveShare;
             if (share == null)
                 return;
@@ -231,7 +231,7 @@ namespace DWMPHorde
 
         private void Commit(int slotId, bool overwriteConfirmed)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             var share = net?.WorldSaveShare;
             if (share == null)
                 return;

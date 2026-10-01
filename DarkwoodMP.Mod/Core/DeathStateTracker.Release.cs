@@ -52,7 +52,7 @@ namespace DWMPHorde
                 _hostMorningEdgeDay = edgeCtrl.day;
 
             if (_resolvingMorning || PartyWipeDeclared) return;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             // Role alone: the host's own release must still run after its last peer left.
             if (net == null || net.Role != NetworkRole.Host)
                 return;

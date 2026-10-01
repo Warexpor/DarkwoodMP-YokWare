@@ -72,7 +72,7 @@ namespace DWMPHorde.Patches
             if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition)) return;
             if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             float vol = Mathf.Clamp01(volume);
             if (vol <= 0f) vol = 1f;
             // Broadcast so host-originated dream SFX reach all clients (Send = first peer only).

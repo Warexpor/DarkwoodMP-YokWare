@@ -50,7 +50,7 @@ namespace DWMPHorde
             if (SessionSettings.LootShareMode == LootShareMode.Off)
                 return 1;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected)
                 return 1;
 

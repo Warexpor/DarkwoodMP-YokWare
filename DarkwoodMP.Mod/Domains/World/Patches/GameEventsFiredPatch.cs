@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
 

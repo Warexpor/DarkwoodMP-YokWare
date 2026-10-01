@@ -37,7 +37,7 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             float range = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
@@ -125,7 +125,7 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return best;
 
             foreach (var proxy in net.GetAllProxies())
@@ -401,7 +401,7 @@ namespace DWMPHorde.Patches
             if (!CharacterTracker.TryGetStableId(__instance, out short id) || id == 0)
                 return;
 
-            LanNetworkManager.Instance?.SendEntityDespawn(id);
+            ModRuntime.Network?.SendEntityDespawn(id);
         }
     }
 }

@@ -68,7 +68,7 @@ namespace DWMPHorde.Patches
             Player player = Player.Instance;
             if (player == null) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Prefer living remotes, stable order by PlayerId (3+ cycling via F4).
@@ -175,7 +175,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Only the host decides when to end the night — clients with wrong

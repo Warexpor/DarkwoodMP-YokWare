@@ -26,7 +26,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(CustomEvent __instance, ref bool __result)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             bool isClient = net != null && net.IsConnected && net.Role == NetworkRole.Client;
 
             if (ScenarioPendingEventState.PendingEventIndex < 0 || ScenarioPendingEventState.PendingScenario == null)
@@ -84,7 +84,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(NightScenario __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
 

@@ -28,7 +28,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             // Clients never start a new chapter. A permadeath "start over" reload
@@ -132,7 +132,7 @@ namespace DWMPHorde.Patches
         internal static void HostCoordinatedChapter(int chapterId, bool generateSave, bool loadChapterSave)
         {
             if (chapterId < 1) chapterId = 1;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             if (generateSave)
@@ -220,7 +220,7 @@ namespace DWMPHorde.Patches
 
             // Capture while peers are still connected: the host roster (stable key -> PlayerId)
             // and the transport identity are gone once they drop the link.
-            var netNow = ModRuntime.Network as LanNetworkManager;
+            var netNow = ModRuntime.Network;
             if (resumeAfter && ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter
                 && netNow != null && netNow.IsConnected && !ChapterSessionResume.IsPending)
                 ChapterSessionResume.CaptureForResume(netNow);
@@ -249,7 +249,7 @@ namespace DWMPHorde.Patches
             {
                 try
                 {
-                    var net = ModRuntime.Network as LanNetworkManager;
+                    var net = ModRuntime.Network;
                     if (net != null && net.Role != NetworkRole.Offline
                         && (net.IsConnected || ChapterSessionResume.IsPending))
                         net.StopNetwork(keepSteamLobby: ChapterSessionResume.KeepSteamLobbyOnStop);
@@ -304,7 +304,7 @@ namespace DWMPHorde.Patches
         {
             if (msg.ChapterId < 1) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Host)
             {
                 if (net.CurrentReceivePlayerId <= 0)
@@ -355,7 +355,7 @@ namespace DWMPHorde.Patches
                 }
 
                 // Capture resume early so share-apply LoadScene still rebinds.
-                var netEarly = ModRuntime.Network as LanNetworkManager;
+                var netEarly = ModRuntime.Network;
                 if (netEarly != null && netEarly.IsConnected)
                     ChapterSessionResume.CaptureForResume(netEarly);
 

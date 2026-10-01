@@ -21,7 +21,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             // Only peers already in the ending may start credits. A living player
@@ -82,7 +82,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return;
             if (Player.Instance == null || !Player.Instance.inEpilogue)

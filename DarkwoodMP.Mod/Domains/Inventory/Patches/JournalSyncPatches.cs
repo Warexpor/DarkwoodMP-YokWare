@@ -19,7 +19,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (string.IsNullOrEmpty(type)) return;
             var msg = new JournalItemMessage { Kind = kind, Type = type };
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             // Broadcast: host → all peers (Send is first-peer-only and breaks 3+).
             // Client → host only; host Forwardable rebroadcasts to the rest.
@@ -298,7 +298,7 @@ namespace DWMPHorde.Patches
             if (_levelBeforeCraft >= 0 && level == _levelBeforeCraft)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
             if (net.Role == NetworkRole.Host)
             {

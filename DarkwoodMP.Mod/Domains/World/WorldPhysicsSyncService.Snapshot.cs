@@ -166,7 +166,7 @@ namespace DWMPHorde.Sync
             _traps.Clear();
             _generators.Clear();
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
 
             // Scan around the local player and, on the host, every remote proxy so
             // free bodies / traps near a far client enter the snapshot (3+ / split map).
@@ -370,7 +370,7 @@ namespace DWMPHorde.Sync
         private static List<Vector3> FillProxyScanPositions()
         {
             _proxyScanPositions.Clear();
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 foreach (var proxy in net.GetAllProxies())

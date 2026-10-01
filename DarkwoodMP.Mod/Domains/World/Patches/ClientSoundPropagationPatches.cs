@@ -36,7 +36,7 @@ namespace DWMPHorde.Patches
                 Volume = 1f,
                 Gunshot = true
             };
-            LanNetworkManager.Instance?.Send(NetMessageType.PlayerSound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Send(NetMessageType.PlayerSound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 
@@ -68,7 +68,7 @@ namespace DWMPHorde.Patches
             _lastScareSendTime = now;
 
             var msg = new PlayerScareMessage { Range = 350f };
-            LanNetworkManager.Instance?.Send(NetMessageType.PlayerScare, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.Network?.Send(NetMessageType.PlayerScare, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }
