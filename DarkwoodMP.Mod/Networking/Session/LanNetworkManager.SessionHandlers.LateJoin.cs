@@ -108,7 +108,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "traps", () => SendTrapBulkTo(playerId));
             LateJoinStep(playerId, "thrownLights", () => Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId));
             // Registry-cheap (no FindObjectsOfType scene thrash).
-            LateJoinStep(playerId, "locations", () => LocationHandlers.SyncExistingLocationsTo(playerId));
+            LateJoinStep(playerId, "locations", () => LocationEnterExitHandlers.SyncExistingLocationsTo(playerId));
             LateJoinStep(playerId, "shadows", () => SendShadowsTo(playerId));
             LateJoinStep(playerId, "droppedItems", () => WorldObjectSendHandlers.SyncExistingDroppedItems(playerId));
             // Night scenario name + fired latch flags (no CustomEvent/RandomEvent.fire).
@@ -206,7 +206,7 @@ namespace DWMPHorde.Networking
                             SendInfectionStatesTo(playerId);
                             break;
                         case 10:
-                            CombatHandlers.SyncExistingDeathBags(playerId);
+                            CombatDeathBagHandlers.SyncExistingDeathBags(playerId);
                             break;
                         case 11:
                             // FindObjectsOfType GameEvents — conservative fired one-shots only.

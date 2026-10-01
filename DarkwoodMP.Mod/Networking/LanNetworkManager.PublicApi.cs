@@ -15,28 +15,32 @@ namespace DWMPHorde.Networking
         /// <summary>Player id of the peer whose message is currently being handled.</summary>
         internal int CurrentReceivePlayerId => _currentReceivePlayerId;
 
-        internal void ResetCombatSessionState() => CombatHandlers.Reset();
+        internal void ResetCombatSessionState()
+        {
+            CombatDeathBagHandlers.Reset();
+            CombatAttackHandlers.Reset();
+        }
 
         internal void RegisterDeathBag(string bagId, DeathDrop drop) =>
-            CombatHandlers.RegisterDeathBag(bagId, drop);
+            CombatDeathBagHandlers.RegisterDeathBag(bagId, drop);
 
         internal void RegisterDeathBagLooted(string bagId) =>
-            CombatHandlers.RegisterDeathBagLooted(bagId);
+            CombatDeathBagHandlers.RegisterDeathBagLooted(bagId);
 
         internal bool IsDeathBagLooted(string bagId) =>
-            CombatHandlers.IsDeathBagLooted(bagId);
+            CombatDeathBagHandlers.IsDeathBagLooted(bagId);
 
         internal void UnregisterDeathBag(string bagId) =>
-            CombatHandlers.UnregisterDeathBag(bagId);
+            CombatDeathBagHandlers.UnregisterDeathBag(bagId);
 
         internal DeathDrop FindDeathBagById(string bagId) =>
-            CombatHandlers.FindDeathBagById(bagId);
+            CombatDeathBagHandlers.FindDeathBagById(bagId);
 
         internal int SanitizePeerDamage(int reported, string context) =>
-            CombatHandlers.SanitizePeerDamage(reported, context);
+            CombatAttackHandlers.SanitizePeerDamage(reported, context);
 
         internal void SendGasStateTo(int targetPlayerId) =>
-            CombatFxHandlers.SendGasStateTo(targetPlayerId);
+            CombatFxGasBurnHandlers.SendGasStateTo(targetPlayerId);
 
         /// <summary>Host late-join: living Infection splats via EntitySpawn (86).</summary>
         internal void SendInfectionStatesTo(int targetPlayerId) =>
@@ -71,25 +75,25 @@ namespace DWMPHorde.Networking
             PlayerInteractHandlers.ClearSpawnedDragProxyItems();
 
         internal void DestroyRemoteItemLight(int playerId) =>
-            PlayerHeldLightHandlers.DestroyRemoteItemLight(playerId);
+            PlayerHeldLightApplyHandlers.DestroyRemoteItemLight(playerId);
 
         internal void DestroyRemoteFlareLight(int playerId) =>
-            PlayerHeldLightHandlers.DestroyRemoteFlareLight(playerId);
+            PlayerHeldLightApplyHandlers.DestroyRemoteFlareLight(playerId);
 
         internal void PackContinuousLights(ref PlayerStateMessage msg, Player local) =>
-            PlayerHeldLightHandlers.PackContinuousLights(ref msg, local);
+            PlayerHeldLightPackHandlers.PackContinuousLights(ref msg, local);
 
         internal void ResetLocalLightSendCache() =>
-            PlayerHeldLightHandlers.ResetLocalLightSendCache();
+            PlayerHeldLightPackHandlers.ResetLocalLightSendCache();
 
         internal static bool TryGetLocalHeldFlareLight(Player local, out Light2D light, out Flare flare) =>
-            PlayerHeldLightNetHandlers.TryGetLocalHeldFlareLight(local, out light, out flare);
+            PlayerHeldLightPackNetHandlers.TryGetLocalHeldFlareLight(local, out light, out flare);
 
         internal static bool TryGetLocalHeldMatchLight(Player local, out Light2D light) =>
-            PlayerHeldLightNetHandlers.TryGetLocalHeldMatchLight(local, out light);
+            PlayerHeldLightPackNetHandlers.TryGetLocalHeldMatchLight(local, out light);
 
         public static bool IsMatchLightItem(Player local) =>
-            PlayerHeldLightNetHandlers.IsMatchLightItem(local);
+            PlayerHeldLightPackNetHandlers.IsMatchLightItem(local);
 
         internal void RemoveRemoteDragIds(string objectName) =>
             PlayerInteractHandlers.RemoveRemoteDragIds(objectName);
@@ -238,30 +242,30 @@ namespace DWMPHorde.Networking
             WorldWeatherTimeHandlers.SendWeatherSyncTo(targetPlayerId);
 
         internal static bool CanSpawnRemoteProxies() =>
-            WorldProxyNetHandlers.CanSpawnRemoteProxies();
+            WorldProxyLifecycleNetHandlers.CanSpawnRemoteProxies();
 
         internal void EnsureRemoteProxy(int playerId) =>
-            WorldProxyHandlers.EnsureRemoteProxy(playerId);
+            WorldProxyLifecycleHandlers.EnsureRemoteProxy(playerId);
 
         public RemotePlayerProxy GetProxy(int playerId) =>
-            WorldProxyHandlers.GetProxy(playerId);
+            WorldProxyLifecycleHandlers.GetProxy(playerId);
 
         public IEnumerable<RemotePlayerProxy> GetAllProxies() =>
-            WorldProxyHandlers.GetAllProxies();
+            WorldProxyLifecycleHandlers.GetAllProxies();
 
         public void TeleportRemoteProxyTo(Vector3 position, float rotY = 0f, int playerId = -1) =>
-            WorldProxyHandlers.TeleportRemoteProxyTo(position, rotY, playerId);
+            WorldProxyLifecycleHandlers.TeleportRemoteProxyTo(position, rotY, playerId);
 
         internal void SendTimeSyncTo(int targetPlayerId) =>
             WorldWeatherTimeHandlers.SendTimeSyncTo(targetPlayerId);
 
         public void ResyncDreamProxiesAfterLocalLoad(string locationName) =>
-            WorldProxyHandlers.ResyncDreamProxiesAfterLocalLoad(locationName);
+            WorldProxyLifecycleHandlers.ResyncDreamProxiesAfterLocalLoad(locationName);
 
-        public int RemotePlayerCount => WorldProxyHandlers.RemotePlayerCount;
+        public int RemotePlayerCount => WorldProxyLifecycleHandlers.RemotePlayerCount;
 
         public IEnumerable<RemotePlayerProxy> EnumerateRemoteProxies() =>
-            WorldProxyHandlers.GetAllProxies();
+            WorldProxyLifecycleHandlers.GetAllProxies();
 
         internal void ResyncWorldLightsForPeer(int targetPlayerId) =>
             WorldLateJoinHandlers.ResyncWorldLightsForPeer(targetPlayerId);

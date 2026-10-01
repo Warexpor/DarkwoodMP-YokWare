@@ -42,7 +42,7 @@ namespace DWMPHorde.Networking
             if (door == null)
             {
                 Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();
-                string want = DialogOutcomeNetHandlers.StripCloneSuffix(doorName);
+                string want = DialogOutcomeCloseNetHandlers.StripCloneSuffix(doorName);
                 Door named = null;
                 float bestNamed = float.MaxValue;
                 for (int i = 0; i < all.Length; i++)
@@ -59,7 +59,7 @@ namespace DWMPHorde.Networking
                     if (dist > NamedDoorFallbackRadius) continue;
                     if (!string.IsNullOrEmpty(want))
                     {
-                        string n = DialogOutcomeNetHandlers.StripCloneSuffix(d.name);
+                        string n = DialogOutcomeCloseNetHandlers.StripCloneSuffix(d.name);
                         if (string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase) && dist < bestNamed)
                         {
                             bestNamed = dist;

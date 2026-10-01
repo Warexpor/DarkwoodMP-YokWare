@@ -155,7 +155,7 @@ namespace DWMPHorde.Networking
         }
         /// <summary>PlayerLightState arrived before proxy existed (phase-3 / early handshake).</summary>
         internal Dictionary<int, PlayerLightStateMessage> PendingPlayerLights =>
-            PlayerLightFxHandlers.PendingPlayerLights;
+            PlayerLightFxApplyHandlers.PendingPlayerLights;
 
         private int _nextThrowId = 1;
 
@@ -270,14 +270,14 @@ namespace DWMPHorde.Networking
             => playerId > 0 && _handshakedPeers.Contains(playerId);
 
         internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx) =>
-            ContainerHandlers.RecordPendingContainerRemove(pos, slotIdx);
+            ContainerPendingHandlers.RecordPendingContainerRemove(pos, slotIdx);
 
         internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount,
             bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0) =>
-            ContainerHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount, isRecipe, itemType, durability, ammo);
+            ContainerPendingHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount, isRecipe, itemType, durability, ammo);
 
         internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx) =>
-            ContainerHandlers.ClearPendingTakePreCount(pos, slotIdx);
+            ContainerPendingHandlers.ClearPendingTakePreCount(pos, slotIdx);
 
         /// <summary>Thin forward: drag claim maps live on <see cref="PlayerInteractNetHandlers"/>.</summary>
         internal Dictionary<string, int> _dragClaims => PlayerInteractHandlers.DragClaims;
@@ -325,20 +325,14 @@ namespace DWMPHorde.Networking
             CombatDeathBagHandlers = new CombatDeathBagNetHandlers(this);
             CombatAttackHandlers = new CombatAttackNetHandlers(this);
             CombatDeathStateHandlers = new CombatDeathStateNetHandlers(this);
-            CombatHandlers = new CombatNetHandlers(
-                CombatDeathBagHandlers, CombatAttackHandlers, CombatDeathStateHandlers);
             DreamHandlers = new DreamNetHandlers(this);
             EpilogueHandlers = new EpilogueNetHandlers(this);
             ContainerPendingHandlers = new ContainerPendingNetHandlers(this);
             ContainerDeathDropHandlers = new ContainerDeathDropNetHandlers(this);
             ContainerLootHandlers = new ContainerLootNetHandlers(this, ContainerPendingHandlers);
-            ContainerHandlers = new ContainerNetHandlers(
-                ContainerLootHandlers, ContainerDeathDropHandlers, ContainerPendingHandlers);
             DialogOutcomeApplyHandlers = new DialogOutcomeApplyNetHandlers(this);
             DialogOutcomeCloseHandlers = new DialogOutcomeCloseNetHandlers(DialogOutcomeApplyHandlers);
             DialogOutcomeApplyHandlers.BindClose(DialogOutcomeCloseHandlers);
-            DialogOutcomeHandlers = new DialogOutcomeNetHandlers(
-                DialogOutcomeApplyHandlers, DialogOutcomeCloseHandlers);
             DialogNpcLockHandlers = new DialogNpcLockNetHandlers(this);
             MapHandlers = new MapNetHandlers(this);
             ExaminableHandlers = new ExaminableNetHandlers(this);
@@ -356,8 +350,6 @@ namespace DWMPHorde.Networking
             PlayerStateHandlers = new PlayerStateNetHandlers(this);
             PlayerHeldLightPackHandlers = new PlayerHeldLightPackNetHandlers(this);
             PlayerHeldLightApplyHandlers = new PlayerHeldLightApplyNetHandlers(this);
-            PlayerHeldLightHandlers = new PlayerHeldLightNetHandlers(
-                PlayerHeldLightPackHandlers, PlayerHeldLightApplyHandlers);
             PlayerPresenceHandlers = new PlayerPresenceNetHandlers(this);
             PlayerInteractHandlers = new PlayerInteractNetHandlers(this);
             PlayerFXHandlers = new PlayerFXNetHandlers(this);
@@ -367,8 +359,6 @@ namespace DWMPHorde.Networking
             GameEventHandlers = new GameEventNetHandlers(this);
             LocationEnterExitHandlers = new LocationEnterExitNetHandlers(this);
             LocationEntityTrapHandlers = new LocationEntityTrapNetHandlers(this);
-            LocationHandlers = new LocationNetHandlers(
-                LocationEnterExitHandlers, LocationEntityTrapHandlers);
             WorldObjectSendHandlers = new WorldObjectSendNetHandlers(this);
             WorldSendHandlers = new WorldSendNetHandlers(this);
             WorldPhysicsHandlers = new WorldPhysicsNetHandlers(this);
@@ -376,16 +366,11 @@ namespace DWMPHorde.Networking
             WorldLateJoinHandlers = new WorldLateJoinNetHandlers(this);
             WorldProxyLifecycleHandlers = new WorldProxyLifecycleNetHandlers(this);
             WorldProxyEffectHandlers = new WorldProxyEffectNetHandlers(this);
-            WorldProxyHandlers = new WorldProxyNetHandlers(
-                WorldProxyLifecycleHandlers, WorldProxyEffectHandlers);
             WorldFxHandlers = new WorldFxNetHandlers(this);
             PlayerLightFxApplyHandlers = new PlayerLightFxApplyNetHandlers(this);
             PlayerLightFxAmbientHandlers = new PlayerLightFxAmbientNetHandlers();
-            PlayerLightFxHandlers = new PlayerLightFxNetHandlers(PlayerLightFxApplyHandlers);
             CombatFxImpactHandlers = new CombatFxImpactNetHandlers(this);
             CombatFxGasBurnHandlers = new CombatFxGasBurnNetHandlers(this);
-            CombatFxHandlers = new CombatFxNetHandlers(
-                CombatFxImpactHandlers, CombatFxGasBurnHandlers);
             SaveHandlers = new SaveNetHandlers(this);
             BulkSyncHandlers = new BulkSyncNetHandlers(this);
             RegisterInboundHandlers();

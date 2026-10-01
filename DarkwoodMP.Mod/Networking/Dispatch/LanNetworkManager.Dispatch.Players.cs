@@ -15,9 +15,9 @@ namespace DWMPHorde.Networking
         private void RegisterPlayersHandlers()
         {
             On(NetMessageType.PlayerState, PlayerStateMessage.Deserialize, m => PlayerStateHandlers.HandlePlayerState(m));
-            On(NetMessageType.PlayerSound, PlayerSoundMessage.Deserialize, m => WorldProxyHandlers.HandlePlayerSound(m));
-            On(NetMessageType.PlayerScare, PlayerScareMessage.Deserialize, m => WorldProxyHandlers.HandlePlayerScare(m));
-            On(NetMessageType.PlayerEffectSync, PlayerEffectSyncMessage.Deserialize, m => WorldProxyHandlers.HandlePlayerEffectSync(m));
+            On(NetMessageType.PlayerSound, PlayerSoundMessage.Deserialize, m => WorldProxyEffectHandlers.HandlePlayerSound(m));
+            On(NetMessageType.PlayerScare, PlayerScareMessage.Deserialize, m => WorldProxyEffectHandlers.HandlePlayerScare(m));
+            On(NetMessageType.PlayerEffectSync, PlayerEffectSyncMessage.Deserialize, m => WorldProxyEffectHandlers.HandlePlayerEffectSync(m));
             OnRaw(NetMessageType.DragSync, payload =>
             {
                 var drag = DragSyncMessage.Deserialize(new NetReader(payload));
@@ -30,7 +30,7 @@ namespace DWMPHorde.Networking
                 if (hostStamps)
                     RelayStamped(w => drag.Serialize(w));
             });
-            On(NetMessageType.PlayerLightState, PlayerLightStateMessage.Deserialize, m => PlayerLightFxHandlers.HandlePlayerLightState(m));
+            On(NetMessageType.PlayerLightState, PlayerLightStateMessage.Deserialize, m => PlayerLightFxApplyHandlers.HandlePlayerLightState(m));
             On(NetMessageType.PlayerAudio, PlayerAudioMessage.Deserialize, m => WorldFxHandlers.HandlePlayerAudio(m));
             On(NetMessageType.PlayerAnimation, PlayerAnimationMessage.Deserialize, m => PlayerFXHandlers.HandlePlayerAnimation(m));
             On(NetMessageType.PlayerAnimLibrary, PlayerAnimLibraryMessage.Deserialize, m => PlayerFXHandlers.HandlePlayerAnimLibrary(m));

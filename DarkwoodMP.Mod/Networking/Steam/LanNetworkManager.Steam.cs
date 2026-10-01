@@ -243,11 +243,11 @@ namespace DWMPHorde.Networking
                 foreach (int id in _remoteProxies.Keys)
                     _steamSoftReconnectProxyIds.Add(id);
                 for (int i = 0; i < _steamSoftReconnectProxyIds.Count; i++)
-                    WorldProxyHandlers.DestroyRemoteProxy(_steamSoftReconnectProxyIds[i]);
+                    WorldProxyLifecycleHandlers.DestroyRemoteProxy(_steamSoftReconnectProxyIds[i]);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
-                LocationHandlers?.ClearMembershipForSoftReconnect();
-                PlayerLightFxHandlers?.ClearPendingPlayerLights();
+                LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
+                PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();

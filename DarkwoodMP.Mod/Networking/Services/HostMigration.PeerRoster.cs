@@ -216,7 +216,7 @@ namespace DWMPHorde.Networking
                 // Host already broadcast DialogNpcLock release; clients still drop
                 // local lease maps so talk is not blocked until 90s expiry.
                 Sync.NpcDialogueLock.ReleaseAllForPlayer(id);
-                WorldProxyHandlers.DestroyRemoteProxy(id);
+                WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
                 _remoteOutsideLocation.Remove(id);
                 _remotePlayers.Remove(id);
                 PlayerPositionManager.RemovePlayer(id);

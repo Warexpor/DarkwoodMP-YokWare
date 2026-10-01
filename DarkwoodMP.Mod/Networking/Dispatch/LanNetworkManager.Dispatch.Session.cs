@@ -29,12 +29,12 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DreamSessionBulk, DreamSessionBulkMessage.Deserialize, m => DreamHandlers.HandleDreamSessionBulk(m));
             On(NetMessageType.ClientStateBackup, ClientStateBackupMessage.Deserialize, m => HandleClientStateBackup(m));
             On(NetMessageType.GameEventsBulk, GameEventsBulkMessage.Deserialize, m => GameEventHandlers.HandleGameEventsBulk(m));
-            On(NetMessageType.HideoutUpgrade, HideoutUpgradeMessage.Deserialize, m => ContainerHandlers.HandleHideoutUpgrade(m));
+            On(NetMessageType.HideoutUpgrade, HideoutUpgradeMessage.Deserialize, m => ContainerLootHandlers.HandleHideoutUpgrade(m));
             On(NetMessageType.JournalBulkSync, JournalBulkSyncMessage.Deserialize, m => JournalHandlers.HandleJournalBulkSync(m));
-            On(NetMessageType.ContainerStateRequest, ContainerStateRequestMessage.Deserialize, m => ContainerHandlers.HandleContainerStateRequest(m));
-            On(NetMessageType.ContainerStateSync, ContainerStateSyncMessage.Deserialize, m => ContainerHandlers.HandleContainerStateSync(m));
-            On(NetMessageType.ContainerTakeDenied, ContainerTakeDeniedMessage.Deserialize, m => ContainerHandlers.HandleContainerTakeDenied(m));
-            On(NetMessageType.ReputationSync, ReputationSyncMessage.Deserialize, m => ContainerHandlers.HandleReputationSync(m));
+            On(NetMessageType.ContainerStateRequest, ContainerStateRequestMessage.Deserialize, m => ContainerDeathDropHandlers.HandleContainerStateRequest(m));
+            On(NetMessageType.ContainerStateSync, ContainerStateSyncMessage.Deserialize, m => ContainerPendingHandlers.HandleContainerStateSync(m));
+            On(NetMessageType.ContainerTakeDenied, ContainerTakeDeniedMessage.Deserialize, m => ContainerLootHandlers.HandleContainerTakeDenied(m));
+            On(NetMessageType.ReputationSync, ReputationSyncMessage.Deserialize, m => ContainerLootHandlers.HandleReputationSync(m));
             On(NetMessageType.WeatherSync, WeatherSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleWeatherSync(m));
             On(NetMessageType.FlagBulkSync, FlagBulkSyncMessage.Deserialize, m => FlagHandlers.HandleFlagBulkSync(m));
             On(NetMessageType.ReputationBulkSync, ReputationBulkSyncMessage.Deserialize, m => BulkSyncHandlers.HandleReputationBulkSync(m));

@@ -249,9 +249,9 @@ namespace DWMPHorde.Networking
             foreach (int id in proxyIds)
             {
                 if (id == _localPlayerId) continue;
-                WorldProxyHandlers.DestroyRemoteProxy(id);
-                PlayerHeldLightHandlers.DestroyRemoteFlareLight(id);
-                PlayerHeldLightHandlers.DestroyRemoteItemLight(id);
+                WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
+                PlayerHeldLightApplyHandlers.DestroyRemoteFlareLight(id);
+                PlayerHeldLightApplyHandlers.DestroyRemoteItemLight(id);
                 _remotePlayers.Remove(id);
             }
 

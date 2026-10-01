@@ -36,10 +36,10 @@ namespace DWMPHorde.Networking
 
                     // Abort lookKeyhole world-only drain. Waiting for portrait boards caused a
                     // multi-second pause before leave-door GE (door finally opens late).
-                    _net.DialogOutcomeHandlers.AbortWorldOnlyDrainForRelease(msg.NpcName, owner);
+                    _net.DialogOutcomeApplyHandlers.AbortWorldOnlyDrainForRelease(msg.NpcName, owner);
 
                     if (prevOwner < 0 || prevOwner == owner)
-                        _net.DialogOutcomeHandlers.HostFireNpcCloseDialogue(msg.NpcName);
+                        _net.DialogOutcomeCloseHandlers.HostFireNpcCloseDialogue(msg.NpcName);
                     return;
                 }
                 if (msg.IsRequest || !msg.Granted)

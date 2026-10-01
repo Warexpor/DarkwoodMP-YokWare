@@ -334,7 +334,7 @@ namespace DWMPHorde.Networking
         {
             _nextCreateLocationAllowedAt = 0f;
             _createLocationInFlight = null;
-            ModRuntime.Network?.LocationHandlers?.ResetForNetworkStop();
+            ModRuntime.Network?.LocationEnterExitHandlers?.ResetForNetworkStop();
         }
 
         internal void ResetForNetworkStop()
