@@ -67,8 +67,9 @@ namespace DWMPHorde.Networking
             string key = SanitizeStableClientKey(stableKey);
             if (string.IsNullOrEmpty(key))
                 return GetLocalSelfBackupPath();
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_k" + key + ".json";
             return GetProfileBackupDirectory() + "/client_backup_k" + key + "_" + campaign + ".json";

@@ -21,19 +21,40 @@ namespace DWMPHorde.Networking
     {
 
         /// <summary>
-        /// After a broadcast world resend (host entered chapter), mark peers for bulk.
+        /// Host: the peer is playing on this link — a phase-3 reconnect, or it has sent an in-world
+        /// PlayerState (clients send none on the title or mid-load). It ignores a world package.
         /// </summary>
-        public void ScheduleLateJoinBulkAfterWorldShare()
+        internal bool IsPeerInWorld(int playerId)
+        {
+            return playerId > 1
+                && (_peersCoopReconnect.Contains(playerId) || _lastPlayerStateSequence.ContainsKey(playerId));
+        }
+
+        /// <summary>
+        /// Host, broadcast resend / new-world share: mute only the peers that will load the package
+        /// (not in-world) and queue their late-join bulk, so their first in-world PlayerState
+        /// unmutes them and the bulk follows. Peers already playing keep their gameplay traffic.
+        /// </summary>
+        internal void MarkTitlePeersLoadingForWorldShare()
         {
             if (_role != NetworkRole.Host)
                 return;
-            foreach (int id in _handshakedPeers)
+            int marked = 0;
+            foreach (int id in EnumeratePeerIds())
             {
-                if (id > 1)
-                    _awaitingLateJoinBulk[id] = 0f;
+                if (id <= 1 || IsPeerInWorld(id))
+                    continue;
+                MarkPeerLoadingWorld(id);
+                if (_handshakedPeers.Contains(id))
+                {
+                    if (!_awaitingLateJoinBulk.ContainsKey(id))
+                        _awaitingLateJoinBulk[id] = 0f;
+                    ReserveIdForJoinPipeline(id);
+                }
+                marked++;
             }
             ModLog.Event(LogCat.Session,
-                "Marked " + _awaitingLateJoinBulk.Count + " peer(s) for late-join bulk after settle");
+                "World share: " + marked + " title peer(s) muted until in-world (late-join bulk queued)");
         }
 
         /// <summary>
@@ -245,7 +266,15 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || playerId <= 0)
                 return;
             if (!_awaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
+            {
+                // In-world PlayerState from a muted peer with no bulk pending: it ignored a world
+                // package (already playing). Nothing else would ever unmute it.
+                if (_peersLoadingWorld.Contains(playerId)
+                    && (_worldSaveShare == null || !_worldSaveShare.IsHostShareRunning)
+                    && !Patches.ChapterTransitionHelpers.IsChapterTransitionActive)
+                    MarkPeerGameplayReady(playerId);
                 return;
+            }
 
             float now = Time.realtimeSinceStartup;
             float settle = _peersCoopReconnect.Contains(playerId)
@@ -338,25 +367,29 @@ namespace DWMPHorde.Networking
             // Share only on the transition to the ready state.
             if (_hostWasShareableForWaitingClients)
                 return;
+
+            // A share already running would coalesce this one away: keep the edge armed and retry
+            // once it is done instead of losing the waiting peers.
+            if (_worldSaveShare != null && _worldSaveShare.IsBusy)
+                return;
             _hostWasShareableForWaitingClients = true;
 
             int waiting = 0;
             foreach (int id in _handshakedPeers)
             {
-                // Phase-3 soft reconnect already has the world; do not re-share.
-                if (id > 1 && !_peersCoopReconnect.Contains(id))
+                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the world.
+                if (id > 1 && !IsPeerInWorld(id))
                     waiting++;
             }
             if (waiting == 0)
                 return;
-            if (_worldSaveShare != null && _worldSaveShare.IsBusy)
-                return;
 
+            // The only automatic "host became ready" share: the broadcast mutes the waiting title
+            // peers and queues their late-join bulk (MarkTitlePeersLoadingForWorldShare).
             ModLog.Event(LogCat.Save,
                 "Host fully in-world with " + waiting
                 + " peer(s) waiting — auto world share (host-ready gate)");
             _worldSaveShare?.ScheduleHostResend();
-            ScheduleLateJoinBulkAfterWorldShare();
         }
 
         /// <summary>Host→all peers: world is fully loaded. Idempotent until host leaves world.</summary>

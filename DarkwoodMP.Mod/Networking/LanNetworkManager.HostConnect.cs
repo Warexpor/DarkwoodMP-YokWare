@@ -198,7 +198,6 @@ namespace DWMPHorde.Networking
             if (wasRole != NetworkRole.Offline)
             {
                 ModLog.BannerSessionStop(wasRole.ToString(), wasLocalId, wasPeers);
-                Disconnected?.Invoke();
             }
 
             _role = NetworkRole.Offline;

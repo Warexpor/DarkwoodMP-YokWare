@@ -321,10 +321,20 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host)
                 return;
 
+            // The file key comes from the connection only: the sender's PlayerId, its Steam id from
+            // the transport, and the StableClientKey it announced at handshake. Identity fields
+            // inside the JSON are client-written and would let one peer overwrite another's backup.
             int playerId = _net.CurrentReceivePlayerId;
+            if (playerId <= 0)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] backup from unknown sender ignored");
+                return;
+            }
             ulong steamId = _net.CurrentReceiveSteamId64;
-            string stableKey = null;
-            _net.TryGetStableClientKeyForPlayer(playerId, out stableKey);
+            if (steamId == 0)
+                _net.TryGetSteamIdForPlayer(playerId, out steamId);
+            _net.TryGetStableClientKeyForPlayer(playerId, out string stableKey);
+
             ClientStateBackupData parsed = null;
             try { parsed = ClientStateBackup.DeserializeFromJson(msg.JsonData); }
             catch (Exception ex)
@@ -332,25 +342,30 @@ namespace DWMPHorde.Networking
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.Log?.LogWarning("[ClientBackup] could not parse backup json: " + ex.Message);
             }
-
-            if (playerId <= 0 && parsed != null && parsed.PlayerId > 0)
-                playerId = parsed.PlayerId;
-            if (steamId == 0 && parsed != null)
-                steamId = ClientStateBackup.TryParseSteamId(parsed.SteamId);
-            if (string.IsNullOrEmpty(stableKey) && parsed != null)
-                stableKey = ClientStateBackup.SanitizeStableClientKey(parsed.StableClientKey);
-            if (playerId > 0 && !string.IsNullOrEmpty(stableKey))
-                _net.NoteStableClientKey(playerId, stableKey);
-
-            // Steam / StableClientKey store do not need PlayerId; bare LAN still does.
-            if (steamId == 0 && string.IsNullOrEmpty(stableKey) && playerId <= 0)
+            if (parsed == null)
             {
-                ModRuntime.Log?.LogWarning(
-                    "[ClientBackup] cannot key backup — unknown sender and no SteamId/StableClientKey");
+                ModRuntime.Log?.LogWarning("[ClientBackup] unreadable backup from p" + playerId + " ignored");
                 return;
             }
 
-            ClientStateBackup.SaveBackupFile(msg.JsonData, playerId, steamId, stableKey);
+            ulong claimedSteam = ClientStateBackup.TryParseSteamId(parsed.SteamId);
+            string claimedKey = ClientStateBackup.SanitizeStableClientKey(parsed.StableClientKey);
+            if ((claimedSteam != 0 && claimedSteam != steamId)
+                || (!string.IsNullOrEmpty(claimedKey)
+                    && !string.Equals(claimedKey, stableKey, StringComparison.OrdinalIgnoreCase))
+                || (parsed.PlayerId > 0 && parsed.PlayerId != playerId))
+            {
+                ModLog.Warn(LogCat.Save,
+                    "[ClientBackup] p" + playerId + " backup claims another identity — stored under the sender's own key");
+            }
+            parsed.PlayerId = playerId;
+            parsed.SteamId = steamId != 0 ? steamId.ToString() : null;
+            parsed.StableClientKey = stableKey;
+            string json = ClientStateBackup.SerializeToJson(parsed);
+            if (string.IsNullOrEmpty(json))
+                return;
+
+            ClientStateBackup.SaveBackupFile(json, playerId, steamId, stableKey);
         }
     }
 }

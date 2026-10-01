@@ -28,11 +28,6 @@ namespace DWMPHorde.Networking
         private const float HostWaitForSaveSeconds = 2.5f;
         private const int MinProfileId = 1;
         private const int MaxProfileId = 5;
-        /// <summary>
-        /// Legacy default receive slot (pre permanent-copy picker). Still used as a soft
-        /// fallback suggestion when PreferredCoopCopySlot is unset and all slots are full.
-        /// </summary>
-        public const int ClientReceiveProfileId = 5;
 
         private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat" };
 
@@ -40,11 +35,6 @@ namespace DWMPHorde.Networking
         private bool _hostShareRunning;
         private bool _clientReceiving;
         private bool _clientApplying;
-        /// <summary>
-        /// Phase-2 offline enter is running. <see cref="Reset"/> (StopNetwork inside that coroutine)
-        /// must not wipe the state it is still using; every other Reset is a real session end.
-        /// </summary>
-        private bool _clientEntering;
         private Action _afterHostShare;
         /// <summary>-1 = all handshaked peers; else only that player id.</summary>
         private int _shareTargetPlayerId = -1;
@@ -103,6 +93,8 @@ namespace DWMPHorde.Networking
 
         public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying
             || _awaitingSlotPick || _awaitingEnterWorld;
+        /// <summary>Host is packing or sending a world package.</summary>
+        public bool IsHostShareRunning => _hostShareRunning;
         /// <summary>Client is mid download, slot pick, or apply of host world package.</summary>
         public bool IsClientReceivingOrApplying =>
             _clientReceiving || _clientApplying || _awaitingSlotPick;
@@ -130,6 +122,8 @@ namespace DWMPHorde.Networking
         public WorldSaveShareService(LanNetworkManager net)
         {
             _net = net;
+            // Automatic host saves check IsQuitting; hook it as soon as networking exists.
+            WorldSaveGuards.EnsureQuitHook();
         }
 
         public void Reset()
@@ -150,9 +144,6 @@ namespace DWMPHorde.Networking
             _rerunBroadcast = false;
             _rerunWaitForSave = false;
             _rerunAfter = null;
-            // Phase-2 enter captures locals then StopNetwork → Reset; do not wipe the enter in progress.
-            if (_clientEntering)
-                return;
             _clientApplying = false;
             _chunkBuffers = null;
             _chunksReceived = 0;
@@ -292,16 +283,26 @@ namespace DWMPHorde.Networking
 
             _afterHostShare = afterShare;
             _shareTargetPlayerId = targetPlayerId;
-            // Mute high-rate entity/physics flood to title joiners only.
+            // Mute high-rate entity/physics flood only for peers that will load this package.
             // Soft-reconnect (AlreadyInWorld) peers must keep receiving PlayerState or
             // they never spawn the host proxy.
             if (targetPlayerId > 0)
             {
                 if (!_net.IsCoopReconnectPeer(targetPlayerId))
                     _net.MarkPeerLoadingWorld(targetPlayerId);
+                _net.ReserveIdForJoinPipeline(targetPlayerId);
+            }
+            else if (afterShare != null || Patches.ChapterTransitionHelpers.IsChapterTransitionActive)
+            {
+                // Chapter share: every peer, in-world ones included, loads the new chapter.
+                _net.MarkAllClientPeersLoadingWorld(excludeCoopReconnect: true);
             }
             else
-                _net.MarkAllClientPeersLoadingWorld(excludeCoopReconnect: true);
+            {
+                // Resend / new world: peers already playing ignore the package (HandleBegin) and
+                // must keep their traffic; title joiners are muted until their first PlayerState.
+                _net.MarkTitlePeersLoadingForWorldShare();
+            }
             _hostShareCoroutine = _net.StartCoroutine(HostShareCoroutine(waitForGameSave, _shareGeneration));
         }
     }

@@ -57,7 +57,7 @@ namespace DWMPHorde.Networking
                     return false;
                 }
 
-                int totalLen = 0;
+                long totalLen = 0;
                 for (int c = 0; c < chunks.Length; c++)
                 {
                     if (chunks[c] == null)
@@ -66,6 +66,11 @@ namespace DWMPHorde.Networking
                         return false;
                     }
                     totalLen += chunks[c].Length;
+                }
+                if (totalLen > MaxInflatedFileBytes)
+                {
+                    error = "Compressed " + name + " too large (" + totalLen + " bytes)";
+                    return false;
                 }
 
                 byte[] compressed = new byte[totalLen];
@@ -76,10 +81,21 @@ namespace DWMPHorde.Networking
                     off += chunks[c].Length;
                 }
 
-                byte[] raw = Inflate(compressed);
-                if (_pendingBegin.UncompressedSizes != null && i < _pendingBegin.UncompressedSizes.Length
-                    && _pendingBegin.UncompressedSizes[i] > 0
-                    && raw.Length != _pendingBegin.UncompressedSizes[i])
+                int declared = _pendingBegin.UncompressedSizes != null && i < _pendingBegin.UncompressedSizes.Length
+                    ? _pendingBegin.UncompressedSizes[i] : 0;
+                if (declared < 0 || declared > MaxInflatedFileBytes)
+                {
+                    error = "Declared size out of range for " + name + " (" + declared + ")";
+                    return false;
+                }
+                byte[] raw;
+                try { raw = Inflate(compressed, declared); }
+                catch (InvalidDataException ex)
+                {
+                    error = "Corrupt or oversized " + name + ": " + ex.Message;
+                    return false;
+                }
+                if (declared > 0 && raw.Length != declared)
                 {
                     error = "Decompressed size mismatch for " + name;
                     return false;
@@ -101,8 +117,9 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Install an inflated package into <paramref name="profileId"/>: files are swapped
-        /// atomically (all or none), then the profile index and co-op meta are updated. Any failure
-        /// rolls the original files back so a slot is never left with files from two chapters.
+        /// atomically (all or none), then the profile index is saved. The swap commits only once
+        /// the index is on disk; a failure before that rolls the original files back (and a crash
+        /// is rolled back at the next start), so a slot never mixes files from two worlds.
         /// </summary>
         private bool CommitInflatedPackage(int profileId, List<VerifiedFile> files, out string error)
         {
@@ -110,7 +127,10 @@ namespace DWMPHorde.Networking
             string profDir = GetProfileDir(profileId);
             Directory.CreateDirectory(profDir);
 
-            var swap = new SlotSwap(profDir, files);
+            var set = new List<KeyValuePair<string, byte[]>>(files.Count);
+            foreach (VerifiedFile f in files)
+                set.Add(new KeyValuePair<string, byte[]>(f.Name, f.Raw));
+            var swap = new SlotSwap(profDir, set);
             if (!swap.TryStageAndSwap(out error))
                 return false;
 
@@ -136,9 +156,29 @@ namespace DWMPHorde.Networking
                 // Mark so PLAY list can tell campaign vs co-op if we ever surface it in vanilla UI.
                 target.bool1 = true;
 
-                MergeProfileIntoDiskIndexAndSave(target);
+                // Index failure propagates to the rollback below (it used to be swallowed inside).
+                if (!MergeProfileIntoDiskIndexAndSave(target))
+                    throw new IOException("profile index could not be saved");
                 Core.currentProfile = target;
+            }
+            catch (Exception ex)
+            {
+                // Files swapped but the index does not describe them: put the old slot back so the
+                // profile index and the files on disk still describe the same world.
+                error = ex.Message;
+                ModLog.Error(LogCat.Save, "Slot " + profileId + " commit failed after file swap — rolling back", ex);
+                swap.Rollback();
+                prevProfile.Restore();
+                Core.currentProfile = prevCurrent;
+                InvalidateDiskProfilesCache();
+                return false;
+            }
 
+            // Commit point: index and files agree. Everything after is metadata.
+            swap.Commit();
+
+            try
+            {
                 try
                 {
                     SaveManager sm = Singleton<SaveManager>.Instance;
@@ -168,6 +208,7 @@ namespace DWMPHorde.Networking
                 CoopWorldCopyMeta.Write(profileId, new CoopWorldCopyMeta
                 {
                     IsCoopCopy = true,
+                    OwnCampaign = false,
                     HostProfileId = _hostSourceProfileId,
                     Chapter = _pendingBegin.ChapterId,
                     Day = _pendingBegin.DayIndex,
@@ -189,18 +230,8 @@ namespace DWMPHorde.Networking
             }
             catch (Exception ex)
             {
-                // Index / meta failed after the files were swapped: put the old slot back so the
-                // profile index and the files on disk still describe the same world.
-                error = ex.Message;
-                ModLog.Error(LogCat.Save, "Slot " + profileId + " commit failed after file swap — rolling back", ex);
-                swap.Rollback();
-                prevProfile.Restore();
-                Core.currentProfile = prevCurrent;
-                InvalidateDiskProfilesCache();
-                return false;
+                ModLog.Error(LogCat.Save, "Co-op meta update after slot " + profileId + " commit failed", ex);
             }
-
-            swap.Finish();
 
             // The world in memory is about to be replaced by the one just written.
             Sync.WorldPhysicsSyncService.Reset();
@@ -326,125 +357,6 @@ namespace DWMPHorde.Networking
                 _profile.timeSaved = _timeSaved;
                 _profile.fullRelease = _fullRelease;
                 _profile.bool1 = _bool1;
-            }
-        }
-
-        /// <summary>
-        /// All-or-nothing replacement of a slot's save files: stage every new file as .dwmp_tmp, move
-        /// the current set aside as .dwmp_bak, rename the staged files into place. Any failure puts
-        /// the original files back; nothing is deleted until <see cref="Finish"/>.
-        /// </summary>
-        private sealed class SlotSwap
-        {
-            private const string TmpExt = ".dwmp_tmp";
-            private const string BakExt = ".dwmp_bak";
-
-            private readonly string _dir;
-            private readonly List<VerifiedFile> _files;
-            private readonly List<string> _staged = new List<string>(3);
-            private readonly List<string> _installed = new List<string>(3);
-            private readonly List<KeyValuePair<string, string>> _aside = new List<KeyValuePair<string, string>>(3);
-
-            public SlotSwap(string dir, List<VerifiedFile> files)
-            {
-                _dir = dir;
-                _files = files;
-            }
-
-            public bool TryStageAndSwap(out string error)
-            {
-                error = null;
-                try
-                {
-                    foreach (VerifiedFile f in _files)
-                    {
-                        string tmp = Path.Combine(_dir, f.Name) + TmpExt;
-                        File.WriteAllBytes(tmp, f.Raw);
-                        _staged.Add(tmp);
-                        if (new FileInfo(tmp).Length != f.Raw.Length)
-                            throw new IOException("short write staging " + f.Name);
-                    }
-
-                    // The whole save set moves aside, including names this package does not carry:
-                    // a stale savch.dat from another chapter must not survive next to the new files.
-                    foreach (string name in FileNames)
-                    {
-                        string dest = Path.Combine(_dir, name);
-                        if (!File.Exists(dest))
-                            continue;
-                        string bak = dest + BakExt;
-                        if (File.Exists(bak))
-                            File.Delete(bak);
-                        File.Move(dest, bak);
-                        _aside.Add(new KeyValuePair<string, string>(dest, bak));
-                    }
-
-                    foreach (VerifiedFile f in _files)
-                    {
-                        string dest = Path.Combine(_dir, f.Name);
-                        File.Move(dest + TmpExt, dest);
-                        _installed.Add(dest);
-                    }
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    error = "could not write the world to disk: " + ex.Message;
-                    ModLog.Error(LogCat.Save, "Slot swap failed in " + _dir + " — rolling back", ex);
-                    Rollback();
-                    return false;
-                }
-            }
-
-            public void Rollback()
-            {
-                foreach (string dest in _installed)
-                    TryDelete(dest);
-                _installed.Clear();
-
-                foreach (KeyValuePair<string, string> pair in _aside)
-                {
-                    try
-                    {
-                        if (File.Exists(pair.Key))
-                            File.Delete(pair.Key);
-                        File.Move(pair.Value, pair.Key);
-                    }
-                    catch (Exception ex)
-                    {
-                        ModLog.Error(LogCat.Save,
-                            "Could not restore " + pair.Key + " from " + pair.Value
-                            + " — the original is still saved as the .dwmp_bak file", ex);
-                    }
-                }
-                _aside.Clear();
-
-                foreach (string tmp in _staged)
-                    TryDelete(tmp);
-                _staged.Clear();
-            }
-
-            /// <summary>New set is live: the backups are no longer needed.</summary>
-            public void Finish()
-            {
-                foreach (KeyValuePair<string, string> pair in _aside)
-                    TryDelete(pair.Value);
-                _aside.Clear();
-                _staged.Clear();
-                _installed.Clear();
-            }
-
-            private static void TryDelete(string path)
-            {
-                try
-                {
-                    if (File.Exists(path))
-                        File.Delete(path);
-                }
-                catch (Exception ex)
-                {
-                    ModLog.Warn(LogCat.Save, "Could not delete " + path + ": " + ex.Message);
-                }
             }
         }
     }
