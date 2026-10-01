@@ -19,6 +19,8 @@ namespace DWMPHorde.Sync
                 && fromPeer.Equals("host", System.StringComparison.OrdinalIgnoreCase)
                 && ModRuntime.Network != null
                 && ModRuntime.Network.Role == Networking.NetworkRole.Client;
+            // Host owns item existence: never spawn a missing item from a client-origin snapshot.
+            bool allowSpawn = ModRuntime.Network == null || ModRuntime.Network.Role != Networking.NetworkRole.Host;
 
             if (state.Objects != null)
             {
@@ -52,7 +54,7 @@ namespace DWMPHorde.Sync
                         }
                     }
 
-                    GameObject go = FindOrSpawnObject(obj);
+                    GameObject go = FindOrSpawnObject(obj, allowSpawn);
 
                     if (go == null)
                     {

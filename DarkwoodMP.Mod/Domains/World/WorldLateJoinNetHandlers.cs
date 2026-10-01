@@ -22,7 +22,8 @@ namespace DWMPHorde.Networking
         /// Host → new peer: all world lights/switchables currently isOn so late join
         /// matches hideout lamps without waiting for a toggle or generator event.
         /// </summary>
-        internal void SyncExistingWorldLightsTo(int targetPlayerId)
+        /// <param name="scope">When set, only lights inside this pad scope are sent.</param>
+        internal void SyncExistingWorldLightsTo(int targetPlayerId, PadScope? scope = null)
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
@@ -37,6 +38,8 @@ namespace DWMPHorde.Networking
                 if (!item.isLight && !item.switchable)
                     continue;
                 if (!item.isOn)
+                    continue;
+                if (scope.HasValue && !scope.Value.Contains(item.transform))
                     continue;
                 if (item.GetComponent<Generator>() != null)
                     continue;
@@ -66,17 +69,20 @@ namespace DWMPHorde.Networking
         /// Host → peer: generator isOn/fuel so restorePower/cutPower matches before lamp bulk applies.
         /// Vanilla generators cycle power only; they must not overwrite per-lamp isOn via LightState.
         /// </summary>
-        internal void SyncExistingGeneratorsTo(int targetPlayerId)
+        /// <param name="scope">When set, only generators inside this pad scope are sent.</param>
+        internal void SyncExistingGeneratorsTo(int targetPlayerId, PadScope? scope = null)
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
 
             IList<Generator> gens = Sync.ListTracker<Generator>.GetAll();
-            int sent = 0;
             const int maxSend = 32;
-            for (int i = 0; i < gens.Count && sent < maxSend; i++)
+            var batch = new List<Sync.GeneratorState>(Mathf.Min(gens.Count, maxSend));
+            for (int i = 0; i < gens.Count && batch.Count < maxSend; i++)
             {
                 Generator gen = gens[i];
                 if (gen == null || gen.gameObject == null || !gen.gameObject.scene.IsValid())
+                    continue;
+                if (scope.HasValue && !scope.Value.Contains(gen.transform))
                     continue;
 
                 Vector3 p = gen.transform.position;
@@ -87,7 +93,7 @@ namespace DWMPHorde.Networking
                 Item itemComp = gen.GetComponent<Item>();
                 string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
 
-                var gs = new Sync.GeneratorState
+                batch.Add(new Sync.GeneratorState
                 {
                     PosX = key.x,
                     PosY = key.y,
@@ -96,27 +102,82 @@ namespace DWMPHorde.Networking
                     Fuel = gen.fuel,
                     LowPower = gen.lowPower,
                     ItemType = itemType
-                };
-                var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
-                    new Sync.PhysicsStateMessage { Generators = new[] { gs } });
-                _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
-                    w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-                sent++;
+                });
             }
 
-            if (sent > 0 || Config.ModConfig.IsVerboseLightSync)
-                ModLog.Event(LogCat.Session, $"[BulkSync] Generators → p{targetPlayerId}: {sent}");
+            // One snapshot carries every generator instead of one reliable packet each.
+            if (batch.Count > 0)
+            {
+                var msg = Sync.WorldPhysicsSyncService.StampSnapshot(
+                    new Sync.PhysicsStateMessage { Generators = batch.ToArray() });
+                _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
+                    w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
+
+            if (batch.Count > 0 || Config.ModConfig.IsVerboseLightSync)
+                ModLog.Event(LogCat.Session, $"[BulkSync] Generators → p{targetPlayerId}: {batch.Count}");
+        }
+
+        /// <summary>Pad resync filter: under the location root, or near the pad anchor (XZ).</summary>
+        internal struct PadScope
+        {
+            public Transform Root;
+            public Vector3 Anchor;
+
+            public bool Contains(Transform t) =>
+                IsUnderOrNearLocation(t, Root, Anchor, PadResyncMaxDistSqr);
         }
 
         /// <summary>
         /// Host: re-push isOn world lights (and gens) after a peer enters a location so
         /// LightState that missed while the grid was unloaded is recovered.
         /// </summary>
+        /// <summary>
+        /// First-enter pad resync scope: objects under the location root, or within this XZ
+        /// radius of the pad (spawned objects not parented to it). The old 2500 u radius covered
+        /// the whole map and sent hundreds of reliable packets on every first enter.
+        /// </summary>
+        internal const float PadResyncMaxDistSqr = 250f * 250f;
+        /// <summary>Opened doors per batched PhysicsState in the pad resync.</summary>
+        private const int PadDoorBatch = 32;
+
         internal void ResyncWorldLightsForPeer(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0) return;
-            SyncExistingGeneratorsTo(targetPlayerId);
-            SyncExistingWorldLightsTo(targetPlayerId);
+            // Only the pad the peer just entered: the rest of the map was covered by the
+            // join-time bulk and live LightState.
+            if (!TryResolvePeerPadScope(targetPlayerId, out PadScope scope))
+            {
+                ModLog.Event(LogCat.Session, $"[BulkSync] pad light resync p{targetPlayerId}: no pad / position");
+                return;
+            }
+            SyncExistingGeneratorsTo(targetPlayerId, scope);
+            SyncExistingWorldLightsTo(targetPlayerId, scope);
+        }
+
+        private bool TryResolvePeerPadScope(int playerId, out PadScope scope)
+        {
+            scope = default;
+            if (_net.RemoteOutsideLocation.TryGetValue(playerId, out string locName)
+                && !string.IsNullOrEmpty(locName))
+            {
+                var ol = Singleton<OutsideLocations>.Instance;
+                Location loc = ol != null ? LocationEnterExitNetHandlers.ResolveOutsideLocation(ol, locName) : null;
+                if (loc != null && loc.gameObject != null)
+                {
+                    Transform root = loc.transform;
+                    scope.Root = root;
+                    scope.Anchor = loc.playerSpawn != null ? loc.playerSpawn.transform.position : root.position;
+                    return true;
+                }
+            }
+            // No resolvable pad: fall back to the area around the peer's last known position.
+            if (PlayerPositionManager.TryGetRemote(playerId, out Vector3 pos, out _))
+            {
+                scope.Anchor = pos;
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -193,11 +254,12 @@ namespace DWMPHorde.Networking
             Vector3 anchor = loc.playerSpawn != null
                 ? loc.playerSpawn.transform.position
                 : (root != null ? root.position : Vector3.zero);
-            const float maxDistSqr = 2500f * 2500f;
+            const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
 
             Door[] doors = WorldQueryHelper.GetCachedSceneComponents<Door>();
             int sent = 0;
             const int maxSend = 128;
+            var batch = new List<DoorState>(PadDoorBatch);
             for (int i = 0; i < doors.Length && sent < maxSend; i++)
             {
                 Door door = doors[i];
@@ -220,7 +282,7 @@ namespace DWMPHorde.Networking
                     if (rb != null) angVel = rb.angularVelocity;
                 }
 
-                var ds = new DoorState
+                batch.Add(new DoorState
                 {
                     PosX = key.x,
                     PosY = key.y,
@@ -230,15 +292,25 @@ namespace DWMPHorde.Networking
                     AngVelX = angVel.x,
                     AngVelY = angVel.y,
                     AngVelZ = angVel.z
-                };
-                var msg = WorldPhysicsSyncService.StampSnapshot(
-                    new PhysicsStateMessage { Doors = new[] { ds } });
-                _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
-                    w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                });
                 sent++;
+                if (batch.Count >= PadDoorBatch)
+                    SendDoorBatch(targetPlayerId, batch);
             }
+            SendDoorBatch(targetPlayerId, batch);
 
             return sent;
+        }
+
+        /// <summary>One reliable PhysicsState for a batch of door states; clears the batch.</summary>
+        private void SendDoorBatch(int targetPlayerId, List<DoorState> batch)
+        {
+            if (batch.Count == 0) return;
+            var msg = WorldPhysicsSyncService.StampSnapshot(
+                new PhysicsStateMessage { Doors = batch.ToArray() });
+            _net.SendToPlayer(targetPlayerId, NetMessageType.PhysicsState,
+                w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            batch.Clear();
         }
 
         /// <summary>
@@ -255,7 +327,7 @@ namespace DWMPHorde.Networking
             Vector3 anchor = loc.playerSpawn != null
                 ? loc.playerSpawn.transform.position
                 : (root != null ? root.position : Vector3.zero);
-            const float maxDistSqr = 2500f * 2500f;
+            const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
 
             Padlock[] pads = WorldQueryHelper.GetCachedSceneComponents<Padlock>();
             int sent = 0;
@@ -303,7 +375,7 @@ namespace DWMPHorde.Networking
             Vector3 anchor = loc.playerSpawn != null
                 ? loc.playerSpawn.transform.position
                 : (root != null ? root.position : Vector3.zero);
-            const float maxDistSqr = 2500f * 2500f;
+            const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
 
             Locked[] locks = WorldQueryHelper.GetCachedSceneComponents<Locked>();
             int sent = 0;

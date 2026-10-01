@@ -28,7 +28,8 @@ namespace DWMPHorde.Networking
             On(NetMessageType.SawState, SawStateMessage.Deserialize, m => StationHandlers.HandleSawState(m));
             On(NetMessageType.FeederState, FeederStateMessage.Deserialize, m => StationHandlers.HandleFeederState(m));
             On(NetMessageType.LureState, LureStateMessage.Deserialize, m => StationHandlers.HandleLureState(m));
-            On(NetMessageType.WorkbenchLock, WorkbenchLockMessage.Deserialize, m => JournalHandlers.HandleWorkbenchLock(m));
+            // Exclusive workbench lock is retired; older peers' packets are ignored.
+            OnRaw(NetMessageType.WorkbenchLock, _ => { });
             On(NetMessageType.TradeSync, TradeSyncMessage.Deserialize, m => TradeHandlers.HandleTradeSync(m));
             On(NetMessageType.TradeInventorySync, TradeInventorySyncMessage.Deserialize, m => TradeHandlers.HandleTradeInventorySync(m));
             On(NetMessageType.ActivateCursorAction, ActivateCursorActionMessage.Deserialize, m => CursorActionHandlers.HandleActivateCursorAction(m));
