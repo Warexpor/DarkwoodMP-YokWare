@@ -11,7 +11,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class NightSpawnFarProxies
     {
-        private static readonly List<RemotePlayerProxy> Buf = new List<RemotePlayerProxy>(8);
+        private static readonly List<RemotePlayerProxy> Buf = new List<RemotePlayerProxy>(8); // process-scoped: scratch buffer, cleared before each use
         private static readonly float FarSqr =
             NightSpawnConstants.FarProxyMinDist * NightSpawnConstants.FarProxyMinDist;
 

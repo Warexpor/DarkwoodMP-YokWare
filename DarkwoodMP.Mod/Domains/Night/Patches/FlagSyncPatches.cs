@@ -18,7 +18,7 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, bool> _lastSentBoolFlags = new Dictionary<string, bool>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, bool> _pendingBoolFlags = new Dictionary<string, bool>();
-        private static readonly List<string> _flushKeys = new List<string>(16);
+        private static readonly List<string> _flushKeys = new List<string>(16); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>
         /// Spatial / per-peer location flags stay local on each peer. Syncing them made
@@ -148,7 +148,7 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, int> _lastSentIntFlags = new Dictionary<string, int>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, int> _pendingIntFlags = new Dictionary<string, int>();
-        private static readonly List<string> _flushKeys = new List<string>(16);
+        private static readonly List<string> _flushKeys = new List<string>(16); // process-scoped: scratch buffer, cleared before each use
 
         public static void Reset()
         {

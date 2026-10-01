@@ -43,6 +43,9 @@ namespace DWMPHorde.Patches
         /// <summary>startDay always precedes startAfterNight; re-arm the once-per-morning guard.</summary>
         internal static void ArmForNewMorning() => _rewardedDay = -1;
 
+        /// <summary>Session end: a reloaded save may replay the same morning.</summary>
+        internal static void Reset() => _rewardedDay = -1;
+
         private static void Postfix(Controller __instance)
         {
             var net = ModRuntime.Network as LanNetworkManager;

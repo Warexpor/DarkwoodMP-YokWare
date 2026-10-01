@@ -241,7 +241,7 @@ namespace DWMPHorde.Networking
             internal set => _explicitApplyingRemoteState = value;
         }
 
-        private static bool _explicitApplyingRemoteState;
+        private static bool _explicitApplyingRemoteState; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         internal static bool GetExplicitApplyingRemoteState() => _explicitApplyingRemoteState;
 
@@ -289,7 +289,7 @@ namespace DWMPHorde.Networking
         /// Suppresses Postfix re-broadcast to prevent loops (unlike the broader
         /// IsApplyingRemoteState which also blocks legitimate HandleMeleeWorldHit
         /// feedback).</summary>
-        internal static bool _processingBarricadeEvent;
+        internal static bool _processingBarricadeEvent; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         // body-push/drag sounds now use native ItemSounds via Rigidbody velocity
         /// <summary>Thin forward: remote drag ids live on <see cref="PlayerInteractNetHandlers"/>.</summary>
@@ -300,7 +300,7 @@ namespace DWMPHorde.Networking
         internal const float DragStopStaleGraceConst = PlayerInteractNetHandlers.DragStopStaleGraceConst;
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
-        internal static bool _isRemoteSaveInProgress;
+        internal static bool _isRemoteSaveInProgress; // reset-in: ResetStaticSessionFlags
 
         /// <summary>
         /// Host: set when a take or place loses a race, so the payload is not

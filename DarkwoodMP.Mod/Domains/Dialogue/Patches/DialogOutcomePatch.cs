@@ -109,8 +109,8 @@ namespace DWMPHorde.Patches
     /// <summary>Skip dest-board commits after onPress (host drain applies dest).</summary>
     internal static class DialogBoardCommit
     {
-        internal static string LastChoiceDest;
-        internal static int LastChoiceTick;
+        internal static string LastChoiceDest; // process-scoped: 2 s TickCount window, self-expiring
+        internal static int LastChoiceTick; // process-scoped: 2 s TickCount window, self-expiring
 
         internal static void NoteChoiceDest(string dest)
         {

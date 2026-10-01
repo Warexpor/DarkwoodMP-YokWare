@@ -48,6 +48,8 @@ namespace DWMPHorde.Config
         /// Linux dual-box testers (Wayland + Wine) set it true in their cfg.
         /// </summary>
         public static ModSetting<bool> FreeCursorForDualBox { get; private set; }
+        /// <summary>Co-op frame-cost probe ([Perf] lines) outside Dev/Trace presets. Off by default.</summary>
+        public static ModSetting<bool> PerfProbe { get; private set; }
         public static ModSetting<int> MaxPlayers { get; private set; }
         public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
         public static ModSetting<int> MaxPeerDamage { get; private set; }
@@ -203,10 +205,10 @@ namespace DWMPHorde.Config
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
 
-            // Support = join/session/combat Events + [Perf] Core without Legacy flood.
+            // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).
             // Dev = LegacyInfo dumps. Trace = max capture (LegacyInfo + VerboseLogging gates).
             LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
-                "Public=quiet. Support=session/join/combat + [Perf] (default). Dev=LegacyInfo dumps. Trace=max capture (Legacy + high-freq Verbose). Dual-box bug packs: Trace on both. Restart after change.");
+                "Public=quiet. Support=session/join/combat (default; [Perf] needs Debug.PerfProbe). Dev=LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose). Dual-box bug packs: Trace on both. Restart after change.");
             LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
                 "Error | Warn | Event | Info | Trace. LegacyInfo runs on LogPreset=Dev or Trace.");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
@@ -236,6 +238,9 @@ namespace DWMPHorde.Config
                 "Force Cursor.lockState=None (skip vanilla Confined). Off by default (vanilla confine). "
                 + "Linux dual-box testers (Hyprland/Wayland, Wine/Proton SecondDarkwood) set this true: "
                 + "Confined ClipCursor traps the mouse and blur-release can freeze the Wine window.");
+            PerfProbe = config.Bind("Debug", "PerfProbe", false,
+                "Co-op frame-cost probe: per-frame timing + [Perf] line every 2 s while connected. "
+                + "Always on under LogPreset=Dev/Trace; set true to capture it under Support/Public.");
 
             // A read-only or locked cfg must not abort startup: every setting is already bound
             // with its in-memory value, the file is only a convenience.
@@ -252,6 +257,9 @@ namespace DWMPHorde.Config
         /// <summary>True when VerboseLightSync is enabled (safe if unbound).</summary>
         public static bool IsVerboseLightSync =>
             VerboseLightSync != null && VerboseLightSync.Value;
+
+        /// <summary>True when the PerfProbe flag is enabled (safe if unbound — defaults off).</summary>
+        public static bool IsPerfProbe => PerfProbe != null && PerfProbe.Value;
 
         /// <summary>True when VerboseEntitySync is enabled (safe if unbound — defaults off).</summary>
         public static bool IsVerboseEntitySync =>

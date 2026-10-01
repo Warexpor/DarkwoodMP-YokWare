@@ -7,8 +7,8 @@ namespace DWMPHorde.Networking
 {
     public static partial class ClientEntityInterpolationService
     {
-        private static Character[] _inactiveScanCache;
-        private static float _inactiveScanCacheTime = -999f;
+        private static Character[] _inactiveScanCache; // process-scoped: short TTL scene-scan cache
+        private static float _inactiveScanCacheTime = -999f; // process-scoped: short TTL scene-scan cache
         private const float InactiveScanCacheTtl = 2f;
 
         private static Character FindInactiveCharacter(string entityName, Vector3 position, float radius)

@@ -18,6 +18,9 @@ namespace DWMPHorde.Patches
         /// <summary>Last sent event-path fingerprint (edge TX logs + dedupe optional).</summary>
         private static string _lastTxSig;
 
+        /// <summary>Session end: the first light TX of the next session always logs.</summary>
+        internal static void ResetTxSignature() => _lastTxSig = null;
+
         internal static PlayerLightStateMessage BuildLightState(Player __instance)
         {
             var msg = new PlayerLightStateMessage { LightOn = false };

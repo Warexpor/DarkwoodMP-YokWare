@@ -21,6 +21,9 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static readonly HashSet<int> RemoteAppliedInstanceIds = new HashSet<int>();
 
+        /// <summary>Session end: ids marked but never consumed (burn destroyed first) must not leak.</summary>
+        internal static void Reset() => RemoteAppliedInstanceIds.Clear();
+
         internal static void MarkRemoteApplied(Burn burn)
         {
             if (burn != null)

@@ -20,9 +20,29 @@ namespace DWMPHorde.Patches
         /// <summary>Maps Sniffer → playerId of the target that triggered the current/next sniff.</summary>
         private static readonly Dictionary<Sniffer, int> _sniffTargetPlayerId = new Dictionary<Sniffer, int>();
 
+        /// <summary>Sniffer instance id → owning Character (Update runs every frame).</summary>
+        private static readonly Dictionary<int, Character> _characterBySniffer = new Dictionary<int, Character>();
+
+        private static readonly AccessTools.FieldRef<Sniffer, float> TimeStartedSniffing =
+            AccessTools.FieldRefAccess<Sniffer, float>("timeStartedSniffing");
+
         public static void Reset()
         {
             _sniffTargetPlayerId.Clear();
+            _characterBySniffer.Clear();
+        }
+
+        private static Character CharacterOf(Sniffer sniffer)
+        {
+            int id = sniffer.GetInstanceID();
+            if (!_characterBySniffer.TryGetValue(id, out Character c) || c == null)
+            {
+                if (_characterBySniffer.Count >= 4096)
+                    _characterBySniffer.Clear();
+                c = sniffer.GetComponent<Character>();
+                _characterBySniffer[id] = c;
+            }
+            return c;
         }
 
         [HarmonyPriority(Priority.Last)]
@@ -35,7 +55,7 @@ namespace DWMPHorde.Patches
             if (__instance.disabled)
                 return false;
 
-            Character charComponent = __instance.GetComponent<Character>();
+            Character charComponent = CharacterOf(__instance);
             if (charComponent == null)
                 return false;
 
@@ -48,8 +68,7 @@ namespace DWMPHorde.Patches
             if (net == null) return false;
 
             // --- Sniff lifecycle ---
-            var tSniff = Traverse.Create(__instance);
-            float timeStarted = tSniff.Field("timeStartedSniffing").GetValue<float>();
+            float timeStarted = TimeStartedSniffing(__instance);
 
             if (__instance.sniffing)
             {
@@ -100,7 +119,7 @@ namespace DWMPHorde.Patches
                 _sniffTargetPlayerId[__instance] = sniffProxy ? closestProxyId : -1; // -1 = host
 
                 __instance.sniffing = true;
-                tSniff.Field("timeStartedSniffing").SetValue(Time.time);
+                TimeStartedSniffing(__instance) = Time.time;
                 AudioController.Play(__instance.sniffSound, __instance.transform);
                 return false;
             }

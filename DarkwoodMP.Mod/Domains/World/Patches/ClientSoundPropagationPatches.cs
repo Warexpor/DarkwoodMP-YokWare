@@ -46,7 +46,7 @@ namespace DWMPHorde.Patches
     {
         // Vanilla loops aimScare every 1s while aimFinished stays true after aiming —
         // without a gate that is PlayerScare:2 every perf window forever.
-        private static float _lastScareSendTime = -999f;
+        private static float _lastScareSendTime = -999f; // process-scoped: rate limiter on the monotonic game clock
         private const float ScareMinIntervalSec = 1.25f;
 
         private static void Postfix(Player __instance)

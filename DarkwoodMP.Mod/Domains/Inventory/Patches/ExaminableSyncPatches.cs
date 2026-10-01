@@ -120,7 +120,7 @@ namespace DWMPHorde.Patches
 
         internal static void Reset()
         {
-            SuppressCount = 0;
+            _suppressCount = 0;
             _bypassCount = 0;
             _flavorSources.Clear();
         }
@@ -263,7 +263,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch]
     public static class GameEventFireFlavorSourcePatch
     {
-        private static System.Reflection.FieldInfo _thisGoField;
+        private static System.Reflection.FieldInfo _thisGoField; // process-scoped: reflection cache
 
         private static bool Prepare() => TargetMethod() != null;
 

@@ -8,6 +8,9 @@ using MelonLoader;
 
 [assembly: MelonInfo(typeof(DWMPHorde.MelonModMain), DWMPHorde.PluginInfo.Name, DWMPHorde.PluginInfo.Version, DWMPHorde.PluginInfo.Authors)]
 [assembly: MelonGame("Acid Wizard Studio", "Darkwood")]
+// ModRuntime.Start applies patches itself (per class, with failure tracking);
+// without this MelonLoader would PatchAll the assembly a second time.
+[assembly: HarmonyDontPatchAll]
 
 namespace DWMPHorde
 {
