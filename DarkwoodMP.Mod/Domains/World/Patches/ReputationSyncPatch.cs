@@ -33,8 +33,7 @@ namespace DWMPHorde.Patches
                 && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
                 return true;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             if (ReputationSyncUtil.IsPerPlayerReputationNpc(__instance))

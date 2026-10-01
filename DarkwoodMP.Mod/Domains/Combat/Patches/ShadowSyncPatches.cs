@@ -68,8 +68,7 @@ namespace DWMPHorde.Patches
             if (prefab != "characters/fakechars/shadow" && prefab != "characters/fakechars/shadow_immortal")
                 return;
 
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             if (!net.IsConnected)
                 return;
@@ -144,8 +143,7 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.Last)]
         private static void Prefix(ShadowCreature __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
 
             var info = __instance.GetComponent<ShadowSyncInfo>();

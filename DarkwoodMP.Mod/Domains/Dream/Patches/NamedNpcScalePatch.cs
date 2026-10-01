@@ -33,8 +33,7 @@ namespace DWMPHorde.Patches
             if (ModConfig.NamedNpcScaleEnabled != null && !ModConfig.NamedNpcScaleEnabled.Value)
                 return false;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return false;
 
             if (Dreams.Instance == null || !Dreams.Instance.dreaming)

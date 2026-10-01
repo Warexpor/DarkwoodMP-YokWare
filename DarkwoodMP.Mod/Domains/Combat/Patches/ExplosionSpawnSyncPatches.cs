@@ -151,8 +151,7 @@ namespace DWMPHorde.Patches
                 log?.LogInfo("[FX] ENTERED flag=true prefab=" + (prefab?.name ?? "null") + " role=" + (ModRuntime.Network?.Role.ToString() ?? "null"));
 
             if (!flag) return;
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (__result == null || prefab == null) return;
 

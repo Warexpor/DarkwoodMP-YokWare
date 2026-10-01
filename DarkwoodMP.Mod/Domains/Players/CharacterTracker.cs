@@ -56,8 +56,7 @@ namespace DWMPHorde.Sync
             // Only the live Host mints IDs. Offline (join phase-2 load) and Client must not:
             // phase-2 used to mint local 1..N, then phase-3 host ids collided → wrong
             // FindByStableId + purge/respawn thrash (client FPS death after enter world).
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return 0;
 
             return AssignId(c);
@@ -300,8 +299,7 @@ namespace DWMPHorde.Sync
                 return;
 
             // Host-only mint. Offline join load + Client: list without id until AssignId(c, hostId).
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
 
             short id = GetCollisionFreeId();

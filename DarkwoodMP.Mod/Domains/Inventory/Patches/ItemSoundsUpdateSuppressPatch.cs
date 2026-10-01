@@ -36,8 +36,7 @@ namespace DWMPHorde.Patches
         private static bool Prefix(ItemSounds __instance)
         {
             // Single-player / not connected: never suppress.
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             if (__instance == null)

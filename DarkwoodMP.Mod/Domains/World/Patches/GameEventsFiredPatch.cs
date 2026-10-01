@@ -48,8 +48,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
 
             // Skip echo while applying a received GameEventsFired. Exception: host

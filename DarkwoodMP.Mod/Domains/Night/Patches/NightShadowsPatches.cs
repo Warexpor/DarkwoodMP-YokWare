@@ -72,8 +72,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Player __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
             if (net.Role != NetworkRole.Client)
                 return true;
@@ -116,8 +115,7 @@ namespace DWMPHorde.Patches
             if (info == null || info.OwnerPlayerId <= 0)
                 return true;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             // Remote-owned shadow must not slap the host local player

@@ -84,8 +84,7 @@ namespace DWMPHorde.Sync
                 return;
             _lastLureFlush = Time.unscaledTime;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
             {
                 _lureOutbox.Clear();
                 return;
@@ -156,8 +155,7 @@ namespace DWMPHorde.Sync
         {
             __state = default;
             if (__instance == null) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
             // Only the death-with-eater path rolls Random (gps_ear / finger / nose drop).

@@ -23,8 +23,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 pos = __instance.transform.position;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             string bagId = DeathBagNetworkId.GetBagId(__instance.gameObject);
             if (string.IsNullOrEmpty(bagId))

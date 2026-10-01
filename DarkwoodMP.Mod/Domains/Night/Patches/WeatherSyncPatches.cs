@@ -29,8 +29,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             net.SendWeatherSync();
         }
     }
@@ -40,8 +39,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             net.SendWeatherSync();
         }
     }
@@ -51,8 +49,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             net.SendWeatherSync();
         }
     }
@@ -62,8 +59,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             net.SendWeatherSync();
         }
     }

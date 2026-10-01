@@ -14,8 +14,7 @@ namespace DWMPHorde.Patches
         {
             InvItemEffect effect = (InvItemEffect)__args[0];
 
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             if (effect.type != CharacterEffectType.burn && effect.type != CharacterEffectType.burnSpecial) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
@@ -61,8 +60,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix(Burn __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
             Character c = __instance.GetComponent<Character>();

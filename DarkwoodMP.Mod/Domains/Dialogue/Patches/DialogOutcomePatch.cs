@@ -54,8 +54,7 @@ namespace DWMPHorde.Patches
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return;
             // Only client → host. Host choices apply locally; FlagSync carries world flags.
             if (net.Role != NetworkRole.Client)
