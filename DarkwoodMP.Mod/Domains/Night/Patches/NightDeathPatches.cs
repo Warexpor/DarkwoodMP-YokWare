@@ -130,7 +130,7 @@ namespace DWMPHorde.Patches
 
             // Night-dead clients skip Save. Other connected-client Saves are blocked by
             // ClientConnectedWorldSaveBlockPatch (host owns Flags); host-coordinated
-            // SaveSync still writes when _isRemoteSaveInProgress.
+            // SaveSync still writes when RemoteSaveInProgress.
             if (ModRuntime.Network.Role != NetworkRole.Host)
             {
                 if (DeathStateTracker.LocalNightDeath)

@@ -35,7 +35,7 @@ namespace DWMPHorde.Networking
                 return;
 
             // Host rebroadcasts the authoritative level below; never relay the raw client value.
-            _net._suppressForwardThisMessage = true;
+            _net.SuppressRelay();
 
             // Levels only go up: a stale or lower client value must not downgrade the host.
             int current = Singleton<Controller>.Instance != null

@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
 
         private void SendContainerDenied(int playerId, ContainerItemMessage msg, string reason, byte mode)
         {
-            _net._suppressForwardThisMessage = true;
+            _net.SuppressRelay();
             string kind = mode == ContainerTakeDeniedMessage.ModePlaceRefund ? "place" : "take";
             ModLog.Event(LogCat.Container,
                 "[Container] H6 deny " + kind + " p" + playerId + " slot=" + msg.SlotIndex

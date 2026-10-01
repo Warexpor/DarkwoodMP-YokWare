@@ -363,7 +363,7 @@ namespace DWMPHorde.Networking
                 Item dragged = local.itemBeingDragged;
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
-                _dragClaims[_lastDraggedItemName] = _localPlayerId;
+                PlayerInteractHandlers.DragClaims[_lastDraggedItemName] = _localPlayerId;
                 // Keep scrape authority so host PhysicsState / DragSync echo cannot arm MOS.
                 DWMPHorde.Audio.ItemMovingSoundHelper.NoteLocalPushAuthority(_lastDraggedItemName);
 

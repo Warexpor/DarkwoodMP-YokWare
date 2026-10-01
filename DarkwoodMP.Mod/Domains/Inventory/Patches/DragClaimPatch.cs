@@ -27,10 +27,10 @@ namespace DWMPHorde.Patches
             string objName = __instance.gameObject.name;
 
             bool nameHeld = net.IsDragClaimedByOther(objName, net.LocalPlayerId)
-                || net._remoteDragItemNames.Contains(objName);
-            bool thisBodyHeld = net._remoteDragItemIds.Contains(__instance.GetInstanceID());
+                || net.PlayerInteractHandlers.RemoteDragItemNames.Contains(objName);
+            bool thisBodyHeld = net.PlayerInteractHandlers.RemoteDragItemIds.Contains(__instance.GetInstanceID());
             bool thisSpotHeld = false;
-            if (nameHeld && !thisBodyHeld && net._remoteDragItemIds.Count == 0
+            if (nameHeld && !thisBodyHeld && net.PlayerInteractHandlers.RemoteDragItemIds.Count == 0
                 && net.LastDragSyncPos.TryGetValue(objName, out Vector3 heldPos))
             {
                 thisSpotHeld = Vector3.Distance(__instance.transform.position, heldPos) <= 2f;
@@ -77,7 +77,7 @@ namespace DWMPHorde.Patches
             if (net == null || !net.IsConnected) return;
 
             // Only broadcast end if WE own the claim (don't clear a remote player's claim).
-            if (net._dragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId)
+            if (net.PlayerInteractHandlers.DragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId)
                 return;
 
             net.NotifyLocalDragEnded(objName);

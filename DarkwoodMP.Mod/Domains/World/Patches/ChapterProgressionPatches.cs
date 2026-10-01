@@ -311,7 +311,7 @@ namespace DWMPHorde.Patches
                     return;
                 // The client's packet is Forwardable. Do not also fan that copy out;
                 // the host reload below broadcasts one coordinated transition.
-                net._suppressForwardThisMessage = true;
+                net.SuppressRelay();
 
                 int hostChapter = 1;
                 if (Singleton<WorldGenerator>.Instance != null && Singleton<WorldGenerator>.Instance.chapterID > 0)

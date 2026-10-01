@@ -125,7 +125,7 @@ namespace DWMPHorde.Patches
 
         internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = -1, int damageAmount = -1, Vector3? attackerPos = null)
         {
-            if (LanNetworkManager._processingBarricadeEvent) { if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] suppressed (processing)"); return; }
+            if (LanNetworkManager.ProcessingBarricadeEvent) { if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] suppressed (processing)"); return; }
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             Vector3 key = new Vector3((float)System.Math.Round(pos.x, 1), (float)System.Math.Round(pos.y, 1), (float)System.Math.Round(pos.z, 1));
             var msg = new BarricadeEventMessage
@@ -441,8 +441,8 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             // Match Door/Window: allow host MeleeWorldHit apply (IsApplyingRemoteState)
-            // to fan BarricadeEvent. Loop stop is _processingBarricadeEvent only.
-            if (LanNetworkManager._processingBarricadeEvent) return;
+            // to fan BarricadeEvent. Loop stop is ProcessingBarricadeEvent only.
+            if (LanNetworkManager.ProcessingBarricadeEvent) return;
             if (!__instance.destructible) return;
 
             // If the client redirected this hit, original getHit was skipped

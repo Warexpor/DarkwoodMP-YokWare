@@ -37,12 +37,12 @@ namespace DWMPHorde.Networking
             _dragScrapeQuietSince = -1f;
 
             if (!string.IsNullOrEmpty(endedName)
-                && _dragClaims.TryGetValue(endedName, out int cid)
+                && PlayerInteractHandlers.DragClaims.TryGetValue(endedName, out int cid)
                 && cid == _localPlayerId)
-                _dragClaims.Remove(endedName);
+                PlayerInteractHandlers.DragClaims.Remove(endedName);
 
             if (!string.IsNullOrEmpty(endedName))
-                _dragEndedAt[endedName] = Time.unscaledTime;
+                PlayerInteractHandlers.DragEndedAt[endedName] = Time.unscaledTime;
 
             if (!IsConnected)
             {

@@ -12,7 +12,7 @@ namespace DWMPHorde.Networking
     public sealed partial class LanNetworkManager
     {
         private float _physicsSendTimer;
-        internal int _physicsRecvLogCounter;
+        internal int PhysicsRecvLogCounter;
         private const float PhysicsSendInterval = 0.1f;
 
         private float _timeSyncTimer;
@@ -23,16 +23,16 @@ namespace DWMPHorde.Networking
         /// </summary>
         private const float TimeSyncInterval = 0.5f;
 
-        internal short _nextShadowId;
-        internal readonly Dictionary<short, ShadowCreature> _shadowTracked = new Dictionary<short, ShadowCreature>();
+        internal short NextShadowId;
+        private readonly Dictionary<short, ShadowCreature> _shadowTracked = new Dictionary<short, ShadowCreature>();
         private float _shadowBroadcastTimer;
         private const float ShadowBroadcastInterval = 0.3f;
 
         public short GetNextShadowId()
         {
-            _nextShadowId++;
-            if (_nextShadowId >= 9999) _nextShadowId = 1;
-            return _nextShadowId;
+            NextShadowId++;
+            if (NextShadowId >= 9999) NextShadowId = 1;
+            return NextShadowId;
         }
 
         public void RegisterShadow(short id, ShadowCreature sc)

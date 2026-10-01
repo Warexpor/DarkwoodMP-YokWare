@@ -82,7 +82,7 @@ namespace DWMPHorde.Networking
             bool fromClient = _net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0;
             if (string.IsNullOrEmpty(msg.Guid))
             {
-                if (fromClient) _net._suppressForwardThisMessage = true;
+                if (fromClient) _net.SuppressRelay();
                 return;
             }
 
@@ -91,7 +91,7 @@ namespace DWMPHorde.Networking
             // peers' pending pickups.
             if (fromClient && msg.Mode != DroppedItemPickupMessage.ModeClaimRequest)
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 ModLog.WarnRate(LogCat.World, "drop-pickup-mode:" + _net.CurrentReceivePlayerId,
                     "[DroppedItemPickup] rejected client mode " + msg.Mode + " from p"
                     + _net.CurrentReceivePlayerId + " guid=" + msg.Guid);
@@ -144,7 +144,7 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Host)
                 return;
             // ClaimRequest must not Forwardable-fan to other clients (host owns grant).
-            _net._suppressForwardThisMessage = true;
+            _net.SuppressRelay();
 
             int claimer = _net.CurrentReceivePlayerId;
             if (claimer <= 0)

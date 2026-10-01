@@ -113,7 +113,7 @@ namespace DWMPHorde.Networking
                     : "Late-join share: sav/savs inconsistent on disk — force-saving once");
                 try
                 {
-                    LanNetworkManager._isRemoteSaveInProgress = true;
+                    LanNetworkManager.RemoteSaveInProgress = true;
                     try
                     {
                         Singleton<SaveManager>.Instance.Save(
@@ -125,7 +125,7 @@ namespace DWMPHorde.Networking
                     }
                     finally
                     {
-                        LanNetworkManager._isRemoteSaveInProgress = false;
+                        LanNetworkManager.RemoteSaveInProgress = false;
                     }
                 }
                 catch (Exception ex)

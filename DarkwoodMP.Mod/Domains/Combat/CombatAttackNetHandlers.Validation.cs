@@ -69,7 +69,7 @@ namespace DWMPHorde.Networking
         /// <summary>Reject a client hit: log and never let the generic relay forward it.</summary>
         private void RejectClientHit(string rateKey, string message)
         {
-            _net._suppressForwardThisMessage = true;
+            _net.SuppressRelay();
             ModLog.WarnRate(LogCat.Combat, rateKey, message);
         }
     }

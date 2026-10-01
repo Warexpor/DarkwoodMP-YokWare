@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
                 ? playerId
                 : (state.PlayerId > 0 ? state.PlayerId : playerId);
             if (!_net.AcceptSnapshotSequence(
-                _net._lastPlayerStateSequence, sequenceSender, state.Sequence, "PlayerState"))
+                _net.LastPlayerStateSequence, sequenceSender, state.Sequence, "PlayerState"))
                 return;
 
             if (_net.Role == NetworkRole.Host)

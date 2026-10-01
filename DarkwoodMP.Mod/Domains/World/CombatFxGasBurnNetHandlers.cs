@@ -32,7 +32,7 @@ namespace DWMPHorde.Networking
                 int playerId = _net.CurrentReceivePlayerId;
                 if (!CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
                 {
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     return;
                 }
 
@@ -47,7 +47,7 @@ namespace DWMPHorde.Networking
                 {
                     ModRuntime.Log?.LogWarning(
                         "[GasTrail] rejected client pour from p" + playerId + " at " + pos);
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     return;
                 }
 
@@ -72,7 +72,7 @@ namespace DWMPHorde.Networking
                 int playerId = _net.CurrentReceivePlayerId;
                 if (!CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
                 {
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     return;
                 }
 
@@ -87,7 +87,7 @@ namespace DWMPHorde.Networking
                 {
                     ModRuntime.Log?.LogWarning(
                         "[GasIgnite] rejected client ignite from p" + playerId + " at " + pos);
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     return;
                 }
 

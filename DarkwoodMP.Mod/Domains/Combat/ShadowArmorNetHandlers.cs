@@ -39,7 +39,7 @@ namespace DWMPHorde.Networking
             {
                 // Clients never set armor state (last writer won, a client could force a break);
                 // they ask for damage, the host applies it and broadcasts the absolute result.
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 if (msg.Destroyed == ShadowArmorSyncHelpers.ModeDamageRequest)
                     HostApplyDamageRequest(msg, _net.CurrentReceivePlayerId);
                 else

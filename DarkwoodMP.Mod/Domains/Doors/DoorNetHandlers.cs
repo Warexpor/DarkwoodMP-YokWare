@@ -96,7 +96,7 @@ namespace DWMPHorde.Networking
             {
                 if (_net.Role == NetworkRole.Host)
                 {
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     DialogHostApplyGuard.RunHostWorldFanout(() =>
                         Core.sendTriggerInfo(door.gameObject, EventTrigger.Type.onTryToOpenLocked));
                     ModRuntime.LegacyInfo(

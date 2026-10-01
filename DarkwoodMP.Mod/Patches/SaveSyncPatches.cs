@@ -9,7 +9,7 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Connected clients must not write DynamicSave / Flags (vanilla Save persists
     /// <c>Flags.SaveState</c>). Host-coordinated SaveSync sets
-    /// <see cref="LanNetworkManager._isRemoteSaveInProgress"/> and is allowed so the
+    /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> and is allowed so the
     /// peer checkpoint matches the host. Other client Saves redirect to personal
     /// backup + host SaveSync via <see cref="SaveSyncPatch"/> Postfix.
     /// </summary>
@@ -25,7 +25,7 @@ namespace DWMPHorde.Patches
                 return true;
             if (!ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(
                     connectedClient: true,
-                    hostCoordinatedSaveInProgress: LanNetworkManager._isRemoteSaveInProgress))
+                    hostCoordinatedSaveInProgress: LanNetworkManager.RemoteSaveInProgress))
                 return true;
 
             ModLog.Event(LogCat.Save,
@@ -37,14 +37,14 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
     /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
-    /// <see cref="LanNetworkManager._isRemoteSaveInProgress"/> prevents rebroadcast loops.
+    /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
     {
         private static void Postfix()
         {
-            if (LanNetworkManager._isRemoteSaveInProgress)
+            if (LanNetworkManager.RemoteSaveInProgress)
                 return;
             // Host applying client dialog must never fan out Saving UI (see DialogHostSilentClose).
             if (HostApplyGuard.Active)

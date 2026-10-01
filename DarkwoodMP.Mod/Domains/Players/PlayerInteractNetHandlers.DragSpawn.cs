@@ -207,9 +207,9 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(objectName)) return;
 
             // Clean the name-based set (cross-peer check)
-            _net._remoteDragItemNames.Remove(objectName);
+            _net.PlayerInteractHandlers.RemoteDragItemNames.Remove(objectName);
 
-            if (_net._remoteDragItemIds.Count == 0) return;
+            if (_net.PlayerInteractHandlers.RemoteDragItemIds.Count == 0) return;
 
             // Clean InstanceID-based set (local PhysicsState skip)
             List<int> toRemove = new List<int>();
@@ -218,11 +218,11 @@ namespace DWMPHorde.Networking
                 if (candidate == null) continue;
                 if (!candidate.gameObject.name.Equals(objectName, StringComparison.OrdinalIgnoreCase)) continue;
                 int id = candidate.GetInstanceID();
-                if (_net._remoteDragItemIds.Contains(id))
+                if (_net.PlayerInteractHandlers.RemoteDragItemIds.Contains(id))
                     toRemove.Add(id);
             }
             foreach (int id in toRemove)
-                _net._remoteDragItemIds.Remove(id);
+                _net.PlayerInteractHandlers.RemoteDragItemIds.Remove(id);
         }
 
         /// <summary>Release isKinematic on items matching the given name.
@@ -235,7 +235,7 @@ namespace DWMPHorde.Networking
             {
                 if (candidate == null) continue;
                 if (!candidate.gameObject.name.Equals(objectName, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!_net._remoteDragItemIds.Contains(candidate.GetInstanceID()))
+                if (!_net.PlayerInteractHandlers.RemoteDragItemIds.Contains(candidate.GetInstanceID()))
                     continue;
                 Rigidbody rb = candidate.GetComponent<Rigidbody>();
                 if (rb != null && rb.isKinematic)

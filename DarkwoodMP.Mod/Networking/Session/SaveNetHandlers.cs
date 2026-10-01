@@ -50,7 +50,7 @@ namespace DWMPHorde.Networking
         internal void SendSaveSync(bool hostAlreadySavedLocally = false)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager._isRemoteSaveInProgress) return;
+            if (LanNetworkManager.RemoteSaveInProgress) return;
             if (_net.Role == NetworkRole.Offline) return;
 
             if (Time.unscaledTime < _deathSaveSyncSuppressUntil)
@@ -171,7 +171,7 @@ namespace DWMPHorde.Networking
                 return;
             if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
                 return;
-            if (LanNetworkManager._isRemoteSaveInProgress)
+            if (LanNetworkManager.RemoteSaveInProgress)
                 return;
             string blocked = WorldSaveGuards.GetAutomaticHostSaveBlockReason(_net);
             if (blocked != null)
@@ -186,7 +186,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Save,
                     "Host leave checkpoint → local Save (intentional StopNetwork)");
-                LanNetworkManager._isRemoteSaveInProgress = true;
+                LanNetworkManager.RemoteSaveInProgress = true;
                 sm.Save(
                     doJson: true,
                     doSaveProfile: true,
@@ -202,7 +202,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager._isRemoteSaveInProgress = false;
+                LanNetworkManager.RemoteSaveInProgress = false;
             }
         }
 

@@ -48,7 +48,7 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
             {
                 // Client stock is not world authority; do not forward the payload.
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
 
                 int senderId = _net.CurrentReceivePlayerId;
                 NpcDialogueLock.HostRenewLeaseForSender(msg.NpcName, senderId);

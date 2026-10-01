@@ -276,7 +276,7 @@ namespace DWMPHorde
         private static void ResetStaticSessionFlags()
         {
             // A share/save coroutine torn down mid-run would otherwise block every later save.
-            LanNetworkManager._isRemoteSaveInProgress = false;
+            LanNetworkManager.RemoteSaveInProgress = false;
         }
 
         /// <summary>
