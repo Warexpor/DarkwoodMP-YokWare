@@ -7,6 +7,10 @@ namespace DWMPHorde.Networking
 {
     public static partial class ClientEntityInterpolationService
     {
+        /// <summary>Phantom → real re-match runs at most this often (full character scan per phantom).</summary>
+        private const float PhantomRematchInterval = 1f;
+        private static float _nextPhantomRematchTime;
+
         public static void ApplySnapshot(EntityStateMessage msg)
         {
             if (msg.Sequence == 0
@@ -41,6 +45,11 @@ namespace DWMPHorde.Networking
             int skipped = 0;
             int pendingAdded = 0;
             bool dump = EntitySyncLog.On && ((_snapshotCount + 1) % 40 == 0);
+            // Phantom re-match: decided once per snapshot, exclude set built lazily once.
+            bool phantomRematch = _spawnedPhantomIds.Count > 0 && Time.time >= _nextPhantomRematchTime;
+            bool phantomExcludeBuilt = false;
+            if (phantomRematch)
+                _nextPhantomRematchTime = Time.time + PhantomRematchInterval;
 
             for (int i = 0; i < msg.Entities.Length; i++)
             {
@@ -80,27 +89,30 @@ namespace DWMPHorde.Networking
                 {
                     // Verify the matched entity's name. FindByStableId can return
                     // the wrong entity when local stable IDs collide with host IDs.
-                    string cname = c.name;
-                    if (cname.EndsWith("(Clone)"))
-                        cname = cname.Substring(0, cname.Length - 7);
-                    bool nameMatches = string.Equals(cname, e.EntityName, System.StringComparison.OrdinalIgnoreCase);
+                    bool nameMatches = CharacterTracker.BaseNameEquals(c.name, e.EntityName);
 
                     if (nameMatches)
                     {
                         // If the matched entity is a phantom, check if a real local entity
                         // now exists nearby (e.g. world chunk just loaded). If so, replace
                         // the phantom with the real entity to avoid duplicates.
-                        if (_spawnedPhantomIds.Contains(e.Index))
+                        if (phantomRematch && _spawnedPhantomIds.Contains(e.Index))
                         {
-                            _phantomReplaceExclude.Clear();
-                            foreach (short sid in _hostSyncedIds)
-                                _phantomReplaceExclude.Add(sid);
-                            _phantomReplaceExclude.Add(e.Index);
+                            if (!phantomExcludeBuilt)
+                            {
+                                _phantomReplaceExclude.Clear();
+                                foreach (short sid in _hostSyncedIds)
+                                    _phantomReplaceExclude.Add(sid);
+                                foreach (short sid in _spawnedPhantomIds)
+                                    _phantomReplaceExclude.Add(sid);
+                                phantomExcludeBuilt = true;
+                            }
                             Character real = CharacterTracker.FindByPositionAndName(
                                 targetPos, e.EntityName, MatchRadius, _phantomReplaceExclude);
                             if (real != null)
                             {
                                 CharacterTracker.AssignId(real, e.Index);
+                                _phantomReplaceExclude.Add(e.Index);
                                 _hostSyncedIds.Add(e.Index);
                                 _everHostSyncedIds.Add(e.Index);
                                 _spawnedPhantomIds.Remove(e.Index);
@@ -131,6 +143,8 @@ namespace DWMPHorde.Networking
                     CharacterTracker.AssignId(c, e.Index);
                     _hostSyncedIds.Add(e.Index);
                     _everHostSyncedIds.Add(e.Index);
+                    if (phantomExcludeBuilt)
+                        _phantomReplaceExclude.Add(e.Index);
                     EnsureEntityAwake(c);
                     EntitySyncLog.Event(() =>
                         "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index

@@ -147,7 +147,12 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo("[ObjectRemove] received destroy request for \"" + msg.ObjectName + "\" at " + pos);
             // Mark consumed before destroy so a same-frame local getDroppedItem Prefix loses.
             Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
-            Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
+            // The host's grant Remove also reaches the claimer, whose own pickup already
+            // destroyed its copy: searching again could only hit some other object.
+            bool ownGrant = _net.Role == NetworkRole.Client
+                && msg.ClaimedByPlayerId > 0 && msg.ClaimedByPlayerId == _net.LocalPlayerId;
+            if (!ownGrant)
+                Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
 
             // Optimistic client lost the host-auth race: refund once via pending.
             if (_net.Role == NetworkRole.Client
@@ -181,7 +186,11 @@ namespace DWMPHorde.Networking
                 return;
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            if (!Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
+            // First claim wins, and only for an object the host actually has: a claim for a
+            // pickup the host never had (or already lost) is denied instead of granted.
+            bool granted = Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName)
+                && Sync.WorldPhysicsSyncService.TryDestroyClaimedWorldPickup(pos, msg.ObjectName);
+            if (!granted)
             {
                 var deny = new WorldObjectRemovedMessage
                 {
@@ -202,8 +211,6 @@ namespace DWMPHorde.Networking
                     "[WorldPickup] deny p" + claimer + " " + msg.ObjectName + " at " + pos);
                 return;
             }
-
-            Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
 
             var remove = new WorldObjectRemovedMessage
             {

@@ -145,7 +145,7 @@ namespace DWMPHorde.Networking
             Vector3 anchor = loc.playerSpawn != null
                 ? loc.playerSpawn.transform.position
                 : (root != null ? root.position : Vector3.zero);
-            const float maxDistSqr = 2500f * 2500f;
+            const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
             return SendWorldBurnStatesFiltered(targetPlayerId, root, anchor, maxDistSqr, 64);
         }
 

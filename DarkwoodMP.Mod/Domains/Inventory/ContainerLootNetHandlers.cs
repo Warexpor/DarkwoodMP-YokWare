@@ -120,23 +120,21 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Only inbound dispatch reaches here: on the host a positive receive id is a client
+            // message (IsApplyingRemoteState is true for every inbound message, so it cannot
+            // tell host-origin from client-origin).
+            bool fromClient = _net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0;
+
             ModRuntime.LegacyInfo($"[Container] HandleContainerItem: {msg.Action} inv={inv.name} type={inv.invType} pos={pos} slot={msg.SlotIndex} type={msg.ItemType} amt={msg.Amount}");
 
             if (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
             {
-            // Apply the removal only if the slot still contains the matching item.
-                // Simultaneous dual-loot: second peer loses the race → deny + refund.
-                if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState)
+                // Apply the removal only if the slot still contains the matching item.
+                // Simultaneous dual-loot: second peer loses the race → deny + refund (no relay).
+                if (fromClient && !TryHostValidateContainerTake(inv, msg, out string denyReason))
                 {
-                    if (!TryHostValidateContainerTake(inv, msg, out string denyReason))
-                    {
-                        if (_net.CurrentReceivePlayerId > 0)
-                            DenyContainerTake(_net.CurrentReceivePlayerId, msg, denyReason);
-                        else
-                            ModLog.Warn(LogCat.Container,
-                                "[Container] local host take race: " + denyReason);
-                        return;
-                    }
+                    DenyContainerTake(_net.CurrentReceivePlayerId, msg, denyReason);
+                    return;
                 }
 
                 if (msg.SlotIndex < inv.slots.Count)
@@ -179,47 +177,33 @@ namespace DWMPHorde.Networking
                             }
                         }
                         // Death bag emptied by take: fan Looted now (do not wait for opener hide).
-                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
-                            && inv.invType == Inventory.InvType.deathDrop)
+                        if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
                             _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                     else
                     {
                         ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot {msg.SlotIndex} already empty (type={msg.ItemType})");
-                        if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0 && !LanNetworkManager.IsApplyingRemoteState)
-                            DenyContainerTake(_net.CurrentReceivePlayerId, msg, "slot empty");
                         // Already empty itemInv; still try to clear the ghost mesh.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
                             catch { /* non-fatal */ }
                         }
-                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
-                            && inv.invType == Inventory.InvType.deathDrop)
+                        if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
                             _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                 }
                 else
                 {
                     ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: slot index {msg.SlotIndex} >= slots count {inv.slots.Count}");
-                    if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0 && !LanNetworkManager.IsApplyingRemoteState)
-                        DenyContainerTake(_net.CurrentReceivePlayerId, msg, "bad slot index");
                 }
             }
             else if (msg.Action == ContainerAction.PlaceItem)
             {
                 // Host trust: reject out-of-bounds place amounts (no silent mint / vanish).
-                if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
-                    && (msg.Amount <= 0 || msg.Amount > MaxContainerPlaceAmount))
+                if (fromClient && (msg.Amount <= 0 || msg.Amount > MaxContainerPlaceAmount))
                 {
-                    if (_net.CurrentReceivePlayerId > 0)
-                        DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "amount out of bounds");
-                    else
-                    {
-                        _net._suppressForwardThisMessage = true;
-                        ModLog.Warn(LogCat.Container,
-                            "[Container] PlaceItem denied — amount out of bounds: " + msg.Amount);
-                    }
+                    DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "amount out of bounds");
                     return;
                 }
 
@@ -248,17 +232,9 @@ namespace DWMPHorde.Networking
                         // Stack merge race: reject if combined stack would exceed the place cap
                         // (otherwise the placer loses the overflow silently).
                         long merged = (long)slot.invItem.amount + msg.Amount;
-                        if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
-                            && merged > MaxContainerPlaceAmount)
+                        if (fromClient && merged > MaxContainerPlaceAmount)
                         {
-                            if (_net.CurrentReceivePlayerId > 0)
-                                DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "stack overflow");
-                            else
-                            {
-                                _net._suppressForwardThisMessage = true;
-                                ModLog.Warn(LogCat.Container,
-                                    "[Container] PlaceItem denied — stack overflow to " + merged);
-                            }
+                            DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "stack overflow");
                             return;
                         }
                         slot.invItem.amount += msg.Amount;
@@ -267,24 +243,16 @@ namespace DWMPHorde.Networking
                         if (msg.IsPlayerPlaced)
                             Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
                     }
-                    else if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState)
+                    else if (fromClient)
                     {
                         // Place race: the slot contains a different type; do not overwrite.
                         // Without a refund the placer already removed the item from their bag
                         // and kept it only in the local container — item vanish on deny.
-                        if (_net.CurrentReceivePlayerId > 0)
-                            DenyContainerPlace(_net.CurrentReceivePlayerId, msg,
-                                "slot occupied by " + slot.invItem.type);
-                        else
-                        {
-                            _net._suppressForwardThisMessage = true;
-                            ModLog.Warn(LogCat.Container,
-                                "[Container] PlaceItem denied — slot occupied by " + slot.invItem.type);
-                        }
+                        DenyContainerPlace(_net.CurrentReceivePlayerId, msg,
+                            "slot occupied by " + slot.invItem.type);
                     }
                 }
-                else if (_net.Role == NetworkRole.Host && !LanNetworkManager.IsApplyingRemoteState
-                    && _net.CurrentReceivePlayerId > 0)
+                else if (fromClient)
                 {
                     DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "bad slot index");
                 }

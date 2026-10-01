@@ -22,10 +22,11 @@ namespace DWMPHorde.Patches
             public int PreCount;
         }
 
-        private static readonly Dictionary<int, Entry> _pending = new Dictionary<int, Entry>(8);
+        private static readonly Dictionary<Sync.WorldPhysicsSyncService.PosNameKey, Entry> _pending =
+            new Dictionary<Sync.WorldPhysicsSyncService.PosNameKey, Entry>(8);
         private static readonly Dictionary<string, Entry> _pendingGuid = new Dictionary<string, Entry>(8);
 
-        private static int Key(float x, float y, float z, string objectName)
+        private static Sync.WorldPhysicsSyncService.PosNameKey Key(float x, float y, float z, string objectName)
         {
             return Sync.WorldPhysicsSyncService.MakePosNameKey(x, y, z, objectName);
         }
@@ -53,7 +54,7 @@ namespace DWMPHorde.Patches
         internal static bool TryTake(float x, float y, float z, string objectName,
             out string itemType, out int amount, out int preCount, out string recipeFor)
         {
-            int k = Key(x, y, z, objectName);
+            var k = Key(x, y, z, objectName);
             if (_pending.TryGetValue(k, out Entry e))
             {
                 _pending.Remove(k);

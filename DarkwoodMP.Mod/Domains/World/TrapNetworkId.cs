@@ -12,6 +12,10 @@ namespace DWMPHorde.Sync
         public int NetId;
 
         private static int _nextHostId = 1;
+        /// <summary>Each host epoch mints from its own 2^24 block (a promoted host starts a new one).</summary>
+        private const int EpochShift = 24;
+        /// <summary>Ids at or above this are treated as junk wire values (see NoteSeenId).</summary>
+        private const int MaxSaneId = 1 << 30;
         private static readonly Dictionary<int, GameObject> ById = new Dictionary<int, GameObject>(64);
         private static readonly List<PendingTrapApply> Pending = new List<PendingTrapApply>(16);
         private static readonly List<int> _deadKeys = new List<int>(8);
@@ -38,6 +42,40 @@ namespace DWMPHorde.Sync
         {
             ById.Clear();
             Pending.Clear();
+        }
+
+        /// <summary>
+        /// Call right after host promotion (after the world reset). The promoted host only saw the
+        /// ids of traps it had loaded; other peers can hold higher ids from the old host for traps
+        /// it never saw. Re-register every id already stamped in the scene, then move minting into
+        /// a fresh epoch block above anything the previous host could have handed out.
+        /// </summary>
+        public static void OnPromotedToHost()
+        {
+            TrapNetworkId[] stamped = null;
+            try
+            {
+                WorldQueryHelper.InvalidateSceneScanCache<TrapNetworkId>();
+                stamped = WorldQueryHelper.GetCachedSceneComponents<TrapNetworkId>();
+            }
+            catch { /* scene not ready: fall back to the ids already noted */ }
+            if (stamped != null)
+            {
+                for (int i = 0; i < stamped.Length; i++)
+                {
+                    TrapNetworkId t = stamped[i];
+                    if (t == null || t.NetId <= 0) continue;
+                    NoteSeenId(t.NetId);
+                    if (!ById.TryGetValue(t.NetId, out var cur) || cur == null)
+                        ById[t.NetId] = t.gameObject;
+                }
+            }
+
+            long highest = (long)_nextHostId - 1;
+            long nextBlock = ((highest >> EpochShift) + 1) << EpochShift;
+            if (nextBlock < MaxSaneId)
+                _nextHostId = (int)nextBlock;
+            ModRuntime.LegacyInfo("[TrapId] promoted host mints from " + _nextHostId);
         }
 
         public static int GetId(GameObject go)
@@ -104,8 +142,19 @@ namespace DWMPHorde.Sync
                 ById[existing] = go;
                 return existing;
             }
-            int id = _nextHostId++;
-            if (_nextHostId <= 0) _nextHostId = 1;
+            // Skip ids another live trap already holds (never mint a duplicate).
+            int id = 0;
+            for (int attempts = 0; attempts < 1024; attempts++)
+            {
+                int candidate = _nextHostId;
+                _nextHostId = candidate >= MaxSaneId - 1 ? 1 : candidate + 1;
+                if (candidate <= 0) continue;
+                if (ById.TryGetValue(candidate, out var holder) && holder != null && holder != go)
+                    continue;
+                id = candidate;
+                break;
+            }
+            if (id <= 0) return 0;
             Ensure(go, id);
             return id;
         }

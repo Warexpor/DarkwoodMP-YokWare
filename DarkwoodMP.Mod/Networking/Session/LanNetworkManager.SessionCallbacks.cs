@@ -91,7 +91,6 @@ namespace DWMPHorde.Networking
             ShadowArmorHandlers?.ClearPending();
             WorldBurnHandlers?.ClearPending();
             StationSyncHelpers.Reset();
-            WorkbenchOpenLock.Reset();
             BarricadeHandlers?.ClearPendingBarricades();
             NightHandlers?.ClearPendingScenario();
             GameEventHandlers?.ClearPendingGameEvents();
