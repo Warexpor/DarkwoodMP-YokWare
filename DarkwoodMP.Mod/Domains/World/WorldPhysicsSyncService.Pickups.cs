@@ -57,7 +57,7 @@ namespace DWMPHorde.Sync
             float now = Time.time;
             if (useDebounce)
             {
-                if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy)
+                if (_s.DestroyDebounce.TryGetValue(posKey, out float lastDestroy)
                     && (now - lastDestroy) < DestroyDebounceTime)
                 {
                     if (ModRuntime.VerboseLogging)
@@ -114,7 +114,7 @@ namespace DWMPHorde.Sync
             }
 
             if (useDebounce)
-                _destroyDebounce[posKey] = now;
+                _s.DestroyDebounce[posKey] = now;
             if (best == null)
             {
                 // Debounce stays claimed so follow-up removes of an already-gone object skip the scan.
@@ -148,15 +148,15 @@ namespace DWMPHorde.Sync
 
         private static void PruneDestroyDebounce(float now)
         {
-            if (_destroyDebounce.Count <= 64) return;
+            if (_s.DestroyDebounce.Count <= 64) return;
             _destroyDebounceStaleKeys.Clear();
-            foreach (var kv in _destroyDebounce)
+            foreach (var kv in _s.DestroyDebounce)
             {
                 if (now - kv.Value >= DestroyDebounceTime || kv.Value > now)
                     _destroyDebounceStaleKeys.Add(kv.Key);
             }
             for (int i = 0; i < _destroyDebounceStaleKeys.Count; i++)
-                _destroyDebounce.Remove(_destroyDebounceStaleKeys[i]);
+                _s.DestroyDebounce.Remove(_destroyDebounceStaleKeys[i]);
             _destroyDebounceStaleKeys.Clear();
         }
 

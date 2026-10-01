@@ -82,7 +82,7 @@ namespace DWMPHorde.Sync
         {
             if (go == null) return;
             float lon = longevity > 0.05f ? longevity : 3f;
-            _flareBurnStarts[go.GetInstanceID()] = new FlareBurnStart
+            _s.Thrown.FlareBurnStarts[go.GetInstanceID()] = new FlareBurnStart
             {
                 StartTime = Time.time,
                 Longevity = lon
@@ -99,7 +99,7 @@ namespace DWMPHorde.Sync
             float total = lon + FlareBurnoutFadeSec;
             if (go == null)
                 return total;
-            if (!_flareBurnStarts.TryGetValue(go.GetInstanceID(), out FlareBurnStart b))
+            if (!_s.Thrown.FlareBurnStarts.TryGetValue(go.GetInstanceID(), out FlareBurnStart b))
                 return total;
             float elapsed = Time.time - b.StartTime;
             float remain = (b.Longevity + FlareBurnoutFadeSec) - elapsed;
@@ -130,13 +130,13 @@ namespace DWMPHorde.Sync
                 ItemType = itemType ?? ""
             };
             // Replace existing same throwId
-            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            for (int i = _s.Thrown.ThrownLights.Count - 1; i >= 0; i--)
             {
-                if (_thrownLights[i].ThrowId == throwId)
-                    _thrownLights.RemoveAt(i);
+                if (_s.Thrown.ThrownLights[i].ThrowId == throwId)
+                    _s.Thrown.ThrownLights.RemoveAt(i);
             }
-            _thrownLights.Add(track);
-            _thrownById[throwId] = track;
+            _s.Thrown.ThrownLights.Add(track);
+            _s.Thrown.ThrownById[throwId] = track;
             ModRuntime.LegacyInfo($"[ThrowableTrack] host local throwId={throwId} type={itemType} untilFade={(expireAt - Time.time).ToString("F2")} untilDark={remainingUntilDark.ToString("F2")}");
             // Event so Public/Support presets still see flare track (LegacyInfo is Dev-only).
             Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableTrack] host local throwId=" + throwId
@@ -213,8 +213,8 @@ namespace DWMPHorde.Sync
 
         internal static List<GameObject> GetKnownTrapsSnapshot()
         {
-            var list = new List<GameObject>(_knownTraps.Count);
-            foreach (var go in _knownTraps.Values)
+            var list = new List<GameObject>(_s.KnownTraps.Count);
+            foreach (var go in _s.KnownTraps.Values)
                 if (go != null) list.Add(go);
             return list;
         }

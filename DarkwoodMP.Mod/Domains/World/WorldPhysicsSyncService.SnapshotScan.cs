@@ -59,13 +59,13 @@ namespace DWMPHorde.Sync
                     if (rb != null) angVel = rb.angularVelocity;
                 }
 
-                bool stateChanged = !_lastDoorOpen.TryGetValue(key, out bool wasOpened) || wasOpened != opened;
+                bool stateChanged = !_s.LastDoorOpen.TryGetValue(key, out bool wasOpened) || wasOpened != opened;
                 bool isMoving = opened && angVel.sqrMagnitude > 0.01f;
-                NoteStateKey(_doorKeyAge, key, stateChanged || isMoving);
+                NoteStateKey(_s.DoorKeyAge, key, stateChanged || isMoving);
 
                 if (stateChanged || isMoving)
                 {
-                    _lastDoorOpen[key] = opened;
+                    _s.LastDoorOpen[key] = opened;
 
                     if (_doors.Count < 64)
                     {
@@ -92,25 +92,25 @@ namespace DWMPHorde.Sync
         {
             // Remove dead entries
             _snapStaleIntKeys.Clear();
-            foreach (var kv in _knownTraps)
+            foreach (var kv in _s.KnownTraps)
             {
                 if (kv.Value == null)
                     _snapStaleIntKeys.Add(kv.Key);
             }
             for (int di = 0; di < _snapStaleIntKeys.Count; di++)
-                _knownTraps.Remove(_snapStaleIntKeys[di]);
+                _s.KnownTraps.Remove(_snapStaleIntKeys[di]);
 
-            foreach (GameObject go in _knownTraps.Values)
+            foreach (GameObject go in _s.KnownTraps.Values)
             {
                 if (go == null) continue;
                 Vector3 pos = go.transform.position;
                 Vector3 key = new Vector3((float)Math.Round(pos.x, 1), (float)Math.Round(pos.y, 1), (float)Math.Round(pos.z, 1));
                 bool triggered = ReadTrapTriggered(go);
-                bool changed = !_lastTrapTriggered.TryGetValue(key, out bool was) || was != triggered;
-                NoteStateKey(_trapKeyAge, key, changed);
+                bool changed = !_s.LastTrapTriggered.TryGetValue(key, out bool was) || was != triggered;
+                NoteStateKey(_s.TrapKeyAge, key, changed);
                 if (changed)
                 {
-                    _lastTrapTriggered[key] = triggered;
+                    _s.LastTrapTriggered[key] = triggered;
                     if (_traps.Count < 32)
                     {
                         int trapId = TrapNetworkId.GetOrMintHost(go);
@@ -191,21 +191,21 @@ namespace DWMPHorde.Sync
                 bool isOn = gen.isOn;
                 float fuel = gen.fuel;
 
-                bool onChanged = !_lastGeneratorOn.TryGetValue(key, out bool was) || was != isOn;
+                bool onChanged = !_s.LastGeneratorOn.TryGetValue(key, out bool was) || was != isOn;
                 bool fuelChanged = false;
                 if (!onChanged)
                 {
-                    if (!_lastGeneratorFuel.TryGetValue(key, out float lastFuel))
+                    if (!_s.LastGeneratorFuel.TryGetValue(key, out float lastFuel))
                         fuelChanged = true;
                     else if (Mathf.Abs(fuel - lastFuel) > 10f)
                         fuelChanged = true;
                 }
 
-                NoteStateKey(_generatorKeyAge, key, onChanged || fuelChanged);
+                NoteStateKey(_s.GeneratorKeyAge, key, onChanged || fuelChanged);
                 if (onChanged || fuelChanged)
                 {
-                    _lastGeneratorOn[key] = isOn;
-                    _lastGeneratorFuel[key] = fuel;
+                    _s.LastGeneratorOn[key] = isOn;
+                    _s.LastGeneratorFuel[key] = fuel;
 
                     if (_generators.Count < 8)
                     {
@@ -242,30 +242,30 @@ namespace DWMPHorde.Sync
             if (root == null) return;
 
             int id = root.GetInstanceID();
-            if (_knownTraps.ContainsKey(id)) return;
+            if (_s.KnownTraps.ContainsKey(id)) return;
             float now = Time.time;
 
             // Already classified
-            if (_trapResultCache.TryGetValue(id, out TrapClassification known))
+            if (_s.TrapResultCache.TryGetValue(id, out TrapClassification known))
             {
                 known.LastSeen = now;
-                _trapResultCache[id] = known;
-                if (known.IsTrap && !_knownTraps.ContainsKey(id))
-                    _knownTraps[id] = root;
+                _s.TrapResultCache[id] = known;
+                if (known.IsTrap && !_s.KnownTraps.ContainsKey(id))
+                    _s.KnownTraps[id] = root;
                 return;
             }
 
             if (!TrapNetworkId.IsWorldTrap(root))
             {
-                _trapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
+                _s.TrapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
                 return;
             }
 
             // Verify by checking for a "triggered"/"snapped"/"sprung" bool field
             if (HasTrapField(root))
             {
-                _trapResultCache[id] = new TrapClassification { IsTrap = true, LastSeen = now };
-                _knownTraps[id] = root;
+                _s.TrapResultCache[id] = new TrapClassification { IsTrap = true, LastSeen = now };
+                _s.KnownTraps[id] = root;
                 var net = ModRuntime.Network;
                 if (net != null && net.Role == NetworkRole.Host)
                     TrapNetworkId.GetOrMintHost(root);
@@ -274,7 +274,7 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                _trapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
+                _s.TrapResultCache[id] = new TrapClassification { IsTrap = false, LastSeen = now };
             }
         }
 
@@ -347,13 +347,13 @@ namespace DWMPHorde.Sync
         private static void PruneTrapResultCache(float now)
         {
             _snapStaleIntKeys.Clear();
-            foreach (var kv in _trapResultCache)
+            foreach (var kv in _s.TrapResultCache)
             {
                 if (now - kv.Value.LastSeen > TrapResultForgetSeconds)
                     _snapStaleIntKeys.Add(kv.Key);
             }
             for (int i = 0; i < _snapStaleIntKeys.Count; i++)
-                _trapResultCache.Remove(_snapStaleIntKeys[i]);
+                _s.TrapResultCache.Remove(_snapStaleIntKeys[i]);
             _snapStaleIntKeys.Clear();
         }
 
