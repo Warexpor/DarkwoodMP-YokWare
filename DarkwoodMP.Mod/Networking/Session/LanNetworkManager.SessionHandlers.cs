@@ -45,41 +45,11 @@ namespace DWMPHorde.Networking
                 // Host id may not be 1 after host-grant migration.
                 int hostId = _hostPlayerId > 0 ? _hostPlayerId : 1;
                 _handshakedPeers.Add(hostId);
-                // Rebind provisional peer slot if host id changed.
+                // Rebind the provisional host slot if the host id changed (host-grant migration).
                 if (_currentReceivePeer != null)
-                {
-                    int oldKey = -1;
-                    foreach (var kvp in _peers)
-                    {
-                        if (kvp.Value == _currentReceivePeer) { oldKey = kvp.Key; break; }
-                    }
-                    if (oldKey > 0 && oldKey != hostId)
-                    {
-                        _peers.Remove(oldKey);
-                        _peers[hostId] = _currentReceivePeer;
-                    }
-                    else if (oldKey < 0)
-                        _peers[hostId] = _currentReceivePeer;
-                }
+                    _lanPeers.Set(hostId, _currentReceivePeer);
                 else if (IsSteamSession && _currentReceiveSteamId.IsValid())
-                {
-                    int oldKey = -1;
-                    foreach (var kvp in _steamPeers)
-                    {
-                        if (kvp.Value == _currentReceiveSteamId) { oldKey = kvp.Key; break; }
-                    }
-                    if (oldKey > 0 && oldKey != hostId)
-                    {
-                        _steamPeers.Remove(oldKey);
-                        _steamPeers[hostId] = _currentReceiveSteamId;
-                        _steamIdToPlayer[_currentReceiveSteamId.m_SteamID] = hostId;
-                    }
-                    else if (oldKey < 0)
-                    {
-                        _steamPeers[hostId] = _currentReceiveSteamId;
-                        _steamIdToPlayer[_currentReceiveSteamId.m_SteamID] = hostId;
-                    }
-                }
+                    _steamPeers.Set(hostId, _currentReceiveSteamId);
 
                 _migrationInProgress = false;
                 _migrationRetryCount = 0;
@@ -133,9 +103,9 @@ namespace DWMPHorde.Networking
                         RejectPeerWorld(playerId, 0, "Wrong host password. Ask the host for the password and set it in your settings.");
                         return;
                     }
-                    _steamPasswordOk.Add(sid);
+                    _steamPeers.MarkPasswordOk(sid);
                     // The accept path only sent the host Handshake; the rest of the join follows now.
-                    if (_steamUnauthSince.Remove(playerId))
+                    if (_steamPeers.ClearUnauthenticated(playerId))
                         CompleteHostPeerJoin(playerId, sendHandshake: false);
                 }
                 // Migration reconnect: client put preferred id in Handshake.PlayerId.

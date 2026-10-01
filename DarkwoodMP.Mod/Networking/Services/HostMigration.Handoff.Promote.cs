@@ -195,8 +195,7 @@ namespace DWMPHorde.Networking
             }
 
             int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            _steamPeers[hostKey] = hostSid;
-            _steamIdToPlayer[sid] = hostKey;
+            _steamPeers.Set(hostKey, hostSid);
             NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
             StatusText = "Migrating → Steam " + sid + " as p" + keepId;
             ModLog.Event(LogCat.Network,
@@ -286,7 +285,7 @@ namespace DWMPHorde.Networking
             string key = Config.ModConfig.GetConnectionKey();
             NetPeer peer = _net.Connect(address, port, key);
             int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            _peers[hostKey] = peer;
+            _lanPeers.Set(hostKey, peer);
             NoteSessionPort(port);
             StatusText = "Migrating → " + address + ":" + port + " as p" + keepId;
             ModLog.Event(LogCat.Network,
@@ -301,13 +300,13 @@ namespace DWMPHorde.Networking
                 return provisionalId;
             if (preferredId == _localPlayerId)
                 return provisionalId;
-            if (_peers.ContainsKey(preferredId))
+            if (_lanPeers.Contains(preferredId))
                 return provisionalId;
             if (!reservedForResume && !TryConsumeMigrationReservation(preferredId, LanAddressOf(peer)))
                 return provisionalId;
 
-            _peers.Remove(provisionalId);
-            _peers[preferredId] = peer;
+            if (!_lanPeers.Rebind(provisionalId, preferredId))
+                return provisionalId;
             RebindPlayerIdState(provisionalId, preferredId);
 
             ModLog.Event(LogCat.Network,

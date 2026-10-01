@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
             _handoffInProgress = true;
             BroadcastPeerRoster();
 
-            if (IsSteamSession && _steamPeers.TryGetValue(elect, out CSteamID electSid))
+            if (IsSteamSession && _steamPeers.TryGetSteamId(elect, out CSteamID electSid))
                 Steam.TransferLobbyOwner(electSid);
 
             Broadcast(NetMessageType.HostHandoff, w => new HostHandoffMessage
