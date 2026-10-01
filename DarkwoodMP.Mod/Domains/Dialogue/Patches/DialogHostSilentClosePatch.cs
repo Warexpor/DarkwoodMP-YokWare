@@ -16,7 +16,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(DialogueWindow __instance)
         {
-            if (!DialogHostApplyGuard.Active)
+            if (!DialogHostApplyGuard.DialogueApplyActive)
                 return true;
             if (__instance == null)
                 return false;

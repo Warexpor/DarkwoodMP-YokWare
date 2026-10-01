@@ -45,16 +45,56 @@ namespace DWMPHorde
             float dz = toZ - fromZ;
             return dx * dx + dy * dy + dz * dz <= maxRange * maxRange;
         }
+
+        /// <summary>
+        /// Per-peer token bucket for client-reported hits: refill both buckets for
+        /// <paramref name="elapsed"/> seconds, then take one attack and
+        /// <paramref name="damage"/> damage. Nothing is taken when either bucket is short.
+        /// </summary>
+        public static bool TryConsumeAttackBudget(
+            ref float attackTokens, ref float damageTokens, float elapsed, int damage,
+            float attackRate, float attackBurst, float damageRate, float damageBurst)
+        {
+            if (elapsed > 0f && IsFinite(elapsed))
+            {
+                attackTokens += elapsed * attackRate;
+                if (attackTokens > attackBurst) attackTokens = attackBurst;
+                damageTokens += elapsed * damageRate;
+                if (damageTokens > damageBurst) damageTokens = damageBurst;
+            }
+            if (damage < 0) damage = 0;
+            if (attackTokens < 1f || damageTokens < damage)
+                return false;
+            attackTokens -= 1f;
+            damageTokens -= damage;
+            return true;
+        }
     }
 
     /// <summary>
-    /// Dream objects must be resolved under the active dream Location. A global
-    /// name fallback is unsafe because overworld and dream copies share names.
+    /// BulletImpact spawns a prefab by name on every peer: only the impact / blood FX the
+    /// mod's own senders emit (BulletFXSyncPatch, HitscanImpactSyncPatch, proxy / FF blood).
     /// </summary>
-    public static class DreamResolutionPolicy
+    public static class ImpactFxPolicy
     {
-        public static bool CanUseGlobalNameFallback(bool dreamActive)
-            => !dreamActive;
+        private const string BloodPrefix = "FX/Bloodsplats/";
+
+        public static bool IsAllowedBulletImpact(string pool, string prefab)
+        {
+            if (string.IsNullOrEmpty(prefab))
+                return false;
+            if (!string.IsNullOrEmpty(pool))
+            {
+                // Core.AddPooledPrefab("FX", ...) wall / projectile hit and projectile blood.
+                return pool == "FX" && (prefab == "bullet_hit_1" || prefab == "Shotsplat1");
+            }
+            // Core.AddPrefab blood splats: one name directly under FX/Bloodsplats/.
+            if (!prefab.StartsWith(BloodPrefix, System.StringComparison.OrdinalIgnoreCase))
+                return false;
+            string leaf = prefab.Substring(BloodPrefix.Length);
+            return leaf.Length > 0 && leaf.IndexOf('/') < 0 && leaf.IndexOf('\\') < 0
+                && leaf.IndexOf("..", System.StringComparison.Ordinal) < 0;
+        }
     }
 
     /// <summary>Component-level AI suppression must not depend on Character lookup.</summary>

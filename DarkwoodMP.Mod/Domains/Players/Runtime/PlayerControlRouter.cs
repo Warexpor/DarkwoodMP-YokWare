@@ -51,9 +51,14 @@ namespace DWMPHorde.Players
 
         private static int _nextAutoId = -1;
 
+        /// <summary>
+        /// Idempotent: a local co-op clone is registered by PlayerProxyBuilder and again by the
+        /// registerMe prefix; the second call must not add a duplicate entry.
+        /// </summary>
         public static void RegisterSecond(Player player)
         {
             if (player == null) return;
+            if (GetProxyByInstance(player) != null) return;
             while (_proxies.ContainsKey(_nextAutoId))
                 _nextAutoId--;
             _proxies[_nextAutoId--] = player;

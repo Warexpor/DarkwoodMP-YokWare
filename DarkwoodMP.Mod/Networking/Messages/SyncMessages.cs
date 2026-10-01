@@ -200,6 +200,13 @@ namespace DWMPHorde.Networking
         public bool Granted;
         public bool Release;
         public bool IsRequest;
+        /// <summary>
+        /// The lock's world: the NPC is the dream-pad twin (true) or the overworld one. The
+        /// requester's view on a request; the host's decision on grant / deny / release.
+        /// </summary>
+        public bool Dream;
+        /// <summary>Client lease renewal of a talk already open: never a fresh grant on the host.</summary>
+        public bool Renewal;
 
         public void Serialize(NetWriter w)
         {
@@ -208,16 +215,24 @@ namespace DWMPHorde.Networking
             w.Put(Granted);
             w.Put(Release);
             w.Put(IsRequest);
+            w.Put(Dream);
+            w.Put(Renewal);
         }
 
-        public static DialogNpcLockMessage Deserialize(NetReader r) => new DialogNpcLockMessage
+        public static DialogNpcLockMessage Deserialize(NetReader r)
         {
-            NpcName = r.GetString(),
-            OwnerPlayerId = r.GetInt(),
-            Granted = r.GetBool(),
-            Release = r.GetBool(),
-            IsRequest = r.GetBool()
-        };
+            var msg = new DialogNpcLockMessage
+            {
+                NpcName = r.GetString(),
+                OwnerPlayerId = r.GetInt(),
+                Granted = r.GetBool(),
+                Release = r.GetBool(),
+                IsRequest = r.GetBool()
+            };
+            msg.Dream = r.AvailableBytes >= 1 && r.GetBool();
+            msg.Renewal = r.AvailableBytes >= 1 && r.GetBool();
+            return msg;
+        }
     }
 
     /// <summary>

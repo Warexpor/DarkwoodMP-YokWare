@@ -22,6 +22,21 @@ namespace DWMPHorde
                 || (dreams != null && (dreams.dreaming || dreams.switchingDream));
         }
 
+        /// <summary>Controller.day at the host's last morning edge (startDay); -1 when none.</summary>
+        private static int _hostMorningEdgeDay = -1;
+
+        /// <summary>
+        /// Host: this day's morning edge already ran and the host's own clock is outside the
+        /// night-death window. A client "night" death now comes from a lagging client clock
+        /// and must not be recorded as a night death after the release.
+        /// </summary>
+        public static bool HostMorningAlreadyReleased()
+        {
+            if (_hostMorningEdgeDay < 0) return false;
+            Controller ctrl = Singleton<Controller>.Instance;
+            return ctrl != null && ctrl.day == _hostMorningEdgeDay && !IsNightDeathWindow();
+        }
+
         /// <summary>
         /// Host, from <c>Controller.startDay</c>: somebody survived to dawn, so every
         /// night-dead peer (host included) is released now, the way vanilla's death-time
@@ -30,9 +45,16 @@ namespace DWMPHorde
         /// </summary>
         public static void HostReleaseNightDeadAtMorning(string reason)
         {
+            // Recorded before the guards: an all-dead resolve (skipDay inside
+            // TryResolveNightMorning) is a morning edge too.
+            Controller edgeCtrl = Singleton<Controller>.Instance;
+            if (edgeCtrl != null)
+                _hostMorningEdgeDay = edgeCtrl.day;
+
             if (_resolvingMorning || PartyWipeDeclared) return;
             var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+            // Role alone: the host's own release must still run after its last peer left.
+            if (net == null || net.Role != NetworkRole.Host)
                 return;
 
             // Night-dead remotes are released regardless of who is dreaming: each peer
