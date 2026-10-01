@@ -201,7 +201,7 @@ namespace DWMPHorde.Networking
             }
             if (loc.events == null || loc.events.Count == 0) return;
 
-            ModRuntime.LegacyInfo("[LocationSync] host onEnterLocation for '" + locName + "'");
+            ModRuntime.LegacyInfo($"[LocationSync] host onEnterLocation for '{locName}'");
             DialogHostApplyGuard.RunHostWorldFanout(() =>
             {
                 for (int i = 0; i < loc.events.Count; i++)

@@ -344,12 +344,12 @@ namespace DWMPHorde.Sync
                         && Vector3.Distance(npc.transform.position, pad.position) > DreamPadRadius))
                 {
                     ModRuntime.LegacyInfo(
-                        "[DialogLock] skip onEnterDialogue — NPC '" + npcName + "' not on the dream pad");
+                        $"[DialogLock] skip onEnterDialogue — NPC '{npcName}' not on the dream pad");
                     return;
                 }
             }
 
-            ModRuntime.LegacyInfo("[DialogLock] host onEnterDialogue for " + npcName);
+            ModRuntime.LegacyInfo($"[DialogLock] host onEnterDialogue for {npcName}");
             // Stamp dialogue owner before BeginWorldOnly so GameEventsFired carries the speaker.
             bool pushed = ownerPlayerId > 0;
             if (pushed) GeFireActorContext.Push(ownerPlayerId);

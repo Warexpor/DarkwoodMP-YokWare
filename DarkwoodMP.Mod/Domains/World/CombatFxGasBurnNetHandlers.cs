@@ -53,7 +53,7 @@ namespace DWMPHorde.Networking
 
                 Sync.WorldPhysicsSyncService.SpawnGasTrail(pos);
                 ModRuntime.LegacyInfo(
-                    "[GasTrail] host adopted client pour from p" + playerId + " at " + pos);
+                    $"[GasTrail] host adopted client pour from p{playerId} at {pos}");
                 return;
             }
 
@@ -93,7 +93,7 @@ namespace DWMPHorde.Networking
 
                 Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos);
                 ModRuntime.LegacyInfo(
-                    "[GasIgnite] host adopted client ignite from p" + playerId + " at " + pos);
+                    $"[GasIgnite] host adopted client ignite from p{playerId} at {pos}");
                 return;
             }
 

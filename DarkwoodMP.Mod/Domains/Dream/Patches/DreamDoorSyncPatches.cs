@@ -78,7 +78,7 @@ namespace DWMPHorde.Patches
                     AttemptOnly = true
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[DoorSync] locked attempt " + door.name + " at " + pos);
+            ModRuntime.LegacyInfo($"[DoorSync] locked attempt {door.name} at {pos}");
         }
 
         internal static void BroadcastDoorOpened(Door door, float openForce = 0f)

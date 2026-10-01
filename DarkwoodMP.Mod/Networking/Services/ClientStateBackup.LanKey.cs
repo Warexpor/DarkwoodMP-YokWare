@@ -34,7 +34,7 @@ namespace DWMPHorde.Networking
                     Directory.CreateDirectory(dir);
                 File.WriteAllText(path, minted);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] minted LAN StableClientKey " + minted.Substring(0, 8) + "…");
+                    $"[ClientBackup] minted LAN StableClientKey {minted.Substring(0, 8)}…");
                 return minted;
             }
             catch (Exception ex)

@@ -55,7 +55,7 @@ namespace DWMPHorde.Networking
                     if (_pendingChainStates.Count >= MaxPendingChainStates)
                         _pendingChainStates.RemoveAt(0);
                     _pendingChainStates.Add(msg);
-                    ModRuntime.LegacyInfo("[ChainSync] queued (chain not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[ChainSync] queued (chain not loaded) at {pos}");
                 }
                 return;
             }

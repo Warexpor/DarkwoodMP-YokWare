@@ -103,12 +103,12 @@ namespace DWMPHorde.Sync
                     && Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
                 {
                     QueuePendingLight(ls);
-                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
+                    ModRuntime.LegacyInfo($"[LightApply] {ls.ItemName} not found at {pos} — queued");
                 }
                 else if (queueIfMissing && !clientSide)
                 {
                     QueuePendingLight(ls);
-                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
+                    ModRuntime.LegacyInfo($"[LightApply] {ls.ItemName} not found at {pos} — queued");
                 }
                 return false;
             }
@@ -117,7 +117,7 @@ namespace DWMPHorde.Sync
             if (ls.IsOn == item.isOn)
                 return true;
 
-            ModRuntime.LegacyInfo("[LightApply] " + item.name + " isOn=" + ls.IsOn + " from " + fromPeer);
+            ModRuntime.LegacyInfo($"[LightApply] {item.name} isOn={ls.IsOn} from {fromPeer}");
 
             // Vanilla player path is Item.switchMe(): playSwitch() then turnOn/turnOff.
             // Remote state only had turnOn/turnOff. Many lamps put the click

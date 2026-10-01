@@ -42,10 +42,7 @@ namespace DWMPHorde.Networking
             if (_pendingForceAnnounceReason == null)
             {
                 ModRuntime.LegacyInfo(
-                    "[LocationSync] ForceAnnounce queued (" + tag
-                    + ") — await settle (loadingGame=" + Core.loadingGame
-                    + " ol.loading=" + (ol != null && ol.loading)
-                    + " inPad=" + (ol != null && ol.playerInOutsideLocation) + ")");
+                    $"[LocationSync] ForceAnnounce queued ({tag}) — await settle (loadingGame={Core.loadingGame} ol.loading={(ol != null && ol.loading)} inPad={(ol != null && ol.playerInOutsideLocation)})");
             }
             _pendingForceAnnounceReason = tag;
         }
@@ -81,8 +78,7 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(_pendingForceAnnounceReason)) return;
             ModRuntime.LegacyInfo(
-                "[LocationSync] ForceAnnounce pending cleared (" + why + "): "
-                + _pendingForceAnnounceReason);
+                $"[LocationSync] ForceAnnounce pending cleared ({why}): {_pendingForceAnnounceReason}");
             _pendingForceAnnounceReason = null;
         }
 
@@ -174,7 +170,7 @@ namespace DWMPHorde.Networking
                 }
 
                 ModRuntime.LegacyInfo(
-                    "[LocationSync] flush deferred createLocation after local loading: " + locName);
+                    $"[LocationSync] flush deferred createLocation after local loading: {locName}");
                 if (localNeedsPad)
                     NoteRemoteLocationCreate(locName);
                 ol.createLocation(locName);

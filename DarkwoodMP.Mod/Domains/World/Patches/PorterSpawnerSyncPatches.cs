@@ -89,8 +89,7 @@ namespace DWMPHorde.Patches
                 loc.characters.gameObject,
                 worldSpace: true);
             ModRuntime.LegacyInfo(
-                "[PorterWhistle] host placed porterSpawner at " + spawnAt
-                + " loc=" + loc.name);
+                $"[PorterWhistle] host placed porterSpawner at {spawnAt} loc={loc.name}");
             return true;
         }
 
@@ -199,7 +198,7 @@ namespace DWMPHorde.Patches
                 Player.Instance.displayMessage(Language.Get("Playermsg_somethingHappened", "UI"));
 
             ModRuntime.LegacyInfo(
-                "[PorterWhistle] client deferred spawnPorter → host at " + pos);
+                $"[PorterWhistle] client deferred spawnPorter → host at {pos}");
             return false;
         }
     }

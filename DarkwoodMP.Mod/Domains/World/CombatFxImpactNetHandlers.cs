@@ -150,7 +150,7 @@ namespace DWMPHorde.Networking
                     door = WorldQueryHelper.FindDoorByPosLoose(pos, 3f);
                 if (door == null)
                 {
-                    ModRuntime.LegacyInfo("[MeleeWorldHit] door not found at " + pos);
+                    ModRuntime.LegacyInfo($"[MeleeWorldHit] door not found at {pos}");
                     return;
                 }
                 DialogHostApplyGuard.RunHostWorldFanout(() =>
@@ -165,7 +165,7 @@ namespace DWMPHorde.Networking
                     window = WorldQueryHelper.FindWindowByPosLoose(pos, 3f);
                 if (window == null)
                 {
-                    ModRuntime.LegacyInfo("[MeleeWorldHit] window not found at " + pos);
+                    ModRuntime.LegacyInfo($"[MeleeWorldHit] window not found at {pos}");
                     return;
                 }
                 DialogHostApplyGuard.RunHostWorldFanout(() =>
@@ -179,7 +179,7 @@ namespace DWMPHorde.Networking
                 // match on XZ with a wider radius before giving up.
                 if (TryHitDestructibleItemAt(pos, 25f, damage, attackerT))
                     return;
-                ModRuntime.LegacyInfo("[MeleeWorldHit] destructible item not found at " + pos);
+                ModRuntime.LegacyInfo($"[MeleeWorldHit] destructible item not found at {pos}");
             }
         }
 
@@ -200,7 +200,7 @@ namespace DWMPHorde.Networking
             // skip host-echoed secondaries so the stomper/remote doesn't double debris.
             if (ExplosionSpawnFlagTracker.ShouldSkipExplosionSpawnObject(pos))
             {
-                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local FX recent) " + msg.PrefabName + " at " + pos);
+                ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip (local FX recent) {msg.PrefabName} at {pos}");
                 return;
             }
             // SpawnObject often arrives before ExplosionTrigger (same-frame host onActivate).
@@ -216,7 +216,7 @@ namespace DWMPHorde.Networking
             }
             if (localExpl != null && localExpl.spawnObject != null)
             {
-                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local Explodes owns secondaries) " + msg.PrefabName + " at " + pos);
+                ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip (local Explodes owns secondaries) {msg.PrefabName} at {pos}");
                 return;
             }
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
@@ -234,14 +234,14 @@ namespace DWMPHorde.Networking
                     if (prefab != null)
                     {
                         foundPath = path;
-                        ModRuntime.LegacyInfo("[ExplosionSpawnRecv] found prefab at " + path);
+                        ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] found prefab at {path}");
                         break;
                     }
                 }
                 if (prefab != null)
                 {
                     Core.AddPrefab(prefab, pos, rot, null, false);
-                    ModRuntime.LegacyInfo("[ExplosionSpawnRecv] spawned " + msg.PrefabName + " at " + pos + " rot=" + rot.eulerAngles + " (loaded from " + foundPath + ")");
+                    ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] spawned {msg.PrefabName} at {pos} rot={rot.eulerAngles} (loaded from {foundPath})");
                 }
                 else
                 {

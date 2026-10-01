@@ -60,7 +60,7 @@ namespace DWMPHorde.Sync
             // DreamStartRequest; getPreset("") would keep returning it for the next random dream.
             if (DreamSession.IsFailureCleanup(reason))
                 DreamSession.ClearPendingHostPreset();
-            ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
+            ModRuntime.LegacyInfo($"[DreamSync] ForceLocalDreamCleanup: {reason}");
             ClearRemoteDreamRoster();
             FadeOutDreamTransition();
             _earlyEntryTransitionPlayed = false;

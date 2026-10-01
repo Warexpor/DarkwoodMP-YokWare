@@ -183,8 +183,7 @@ namespace DWMPHorde.Patches
                     if (Time.unscaledTime - waitStart > BodyWaitTimeoutSec)
                     {
                         ModRuntime.LegacyInfo(
-                            "[Death] Party wipe outcome: shared death body still flagged running after "
-                            + BodyWaitTimeoutSec + "s — continuing");
+                            $"[Death] Party wipe outcome: shared death body still flagged running after {BodyWaitTimeoutSec}s — continuing");
                         SharedPermadeathDeath.ResetBodies();
                         break;
                     }

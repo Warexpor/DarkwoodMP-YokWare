@@ -56,7 +56,7 @@ namespace DWMPHorde.Networking
                     if (_pendingConstructibles.Count >= MaxPendingConstructibles)
                         _pendingConstructibles.RemoveAt(0);
                     _pendingConstructibles.Add(msg);
-                    ModRuntime.LegacyInfo("[ConstructibleSync] queued (not loaded yet) at " + pos);
+                    ModRuntime.LegacyInfo($"[ConstructibleSync] queued (not loaded yet) at {pos}");
                 }
                 else
                 {
@@ -68,11 +68,11 @@ namespace DWMPHorde.Networking
             // Already built locally; do not re-fire the game event or construct twice.
             if (best.constructed)
             {
-                ModRuntime.LegacyInfo("[ConstructibleSync] already constructed " + best.name + " at " + pos);
+                ModRuntime.LegacyInfo($"[ConstructibleSync] already constructed {best.name} at {pos}");
                 return;
             }
 
-            ModRuntime.LegacyInfo("[ConstructibleSync] constructing " + best.name + " at " + pos);
+            ModRuntime.LegacyInfo($"[ConstructibleSync] constructing {best.name} at {pos}");
             // Always pass manual=false on the receiving side; the
             // constructing player already consumed ingredients locally.
             // Using manual=true would crash (ConstructionMenu.Instance.
@@ -402,7 +402,7 @@ namespace DWMPHorde.Networking
                 padlocks++;
             }
             if (padlocks > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Padlocks → p" + targetPlayerId + ": " + padlocks);
+                ModRuntime.LegacyInfo($"[BulkSync] Padlocks → p{targetPlayerId}: {padlocks}");
         }
 
         /// <summary>Host join bulk: unlocked Locked components.</summary>
@@ -427,7 +427,7 @@ namespace DWMPHorde.Networking
                 locked++;
             }
             if (locked > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Lockeds → p" + targetPlayerId + ": " + locked);
+                ModRuntime.LegacyInfo($"[BulkSync] Lockeds → p{targetPlayerId}: {locked}");
         }
 
         /// <summary>Host join bulk: InteractiveItem isOn.</summary>
@@ -455,7 +455,7 @@ namespace DWMPHorde.Networking
                 interactive++;
             }
             if (interactive > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Interactives → p" + targetPlayerId + ": " + interactive);
+                ModRuntime.LegacyInfo($"[BulkSync] Interactives → p{targetPlayerId}: {interactive}");
         }
     }
 }

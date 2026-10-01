@@ -29,7 +29,7 @@ namespace DWMPHorde.Sync
             if (_objectInterp.Count > 0 && now - _objInterpLastLogTime >= 30f)
             {
                 _objInterpLastLogTime = now;
-                ModRuntime.LegacyInfo("[ObjInterp] active=" + _objectInterp.Count);
+                ModRuntime.LegacyInfo($"[ObjInterp] active={_objectInterp.Count}");
             }
 
             for (int oi = 0; oi < _objectInterpKeys.Count; oi++)
@@ -248,8 +248,7 @@ namespace DWMPHorde.Sync
                         snd.playStop();
                 }
 
-                ModRuntime.LegacyInfo("[GeneratorApply] isOn " + wasOn + "→" + gen.isOn
-                    + " fuel=" + fuel.ToString("F0") + " at " + gen.transform.position);
+                ModRuntime.LegacyInfo($"[GeneratorApply] isOn {wasOn}→{gen.isOn} fuel={fuel.ToString("F0")} at {gen.transform.position}");
             }
 
             if (gen.lowPower != lowPower)
@@ -350,7 +349,7 @@ namespace DWMPHorde.Sync
                 w => msg.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
-                "[DreamPropCollider] host broadcast " + nEntries + " collider(s)");
+                $"[DreamPropCollider] host broadcast {nEntries} collider(s)");
         }
 
         /// <summary>Client: apply host dream collider isTrigger flags.</summary>
@@ -372,10 +371,10 @@ namespace DWMPHorde.Sync
                     RepairSceneFixedLightPhysics(go);
                 applied++;
                 ModRuntime.LegacyInfo(
-                    "[DreamPropCollider] " + go.name + " isTrigger→" + e.IsTrigger);
+                    $"[DreamPropCollider] {go.name} isTrigger→{e.IsTrigger}");
             }
             if (applied > 0)
-                ModRuntime.LegacyInfo("[DreamPropCollider] applied " + applied);
+                ModRuntime.LegacyInfo($"[DreamPropCollider] applied {applied}");
         }
 
         private static GameObject FindDreamPropForCollider(string name, Vector3 pos)

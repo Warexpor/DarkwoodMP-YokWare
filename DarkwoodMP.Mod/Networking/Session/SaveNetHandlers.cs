@@ -239,9 +239,7 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.ClientStateBackup,
                 w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[ClientBackup] sent backup to host (" + (data.InventoryItems?.Count ?? 0)
-                + " items, " + (data.Skills?.Count ?? 0) + " skills, pos=("
-                + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
+            ModRuntime.LegacyInfo($"[ClientBackup] sent backup to host ({(data.InventoryItems?.Count ?? 0)} items, {(data.Skills?.Count ?? 0)} skills, pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
         }
     }
 }

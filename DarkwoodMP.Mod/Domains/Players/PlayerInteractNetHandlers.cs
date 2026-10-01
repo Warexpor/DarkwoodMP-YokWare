@@ -83,8 +83,7 @@ namespace DWMPHorde.Networking
                 && (Time.unscaledTime - endedAt) < LanNetworkManager.DragStopStaleGraceConst)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] ignore stale IsDragging for " + msg.ObjectName
-                        + " (stop " + (Time.unscaledTime - endedAt).ToString("F2") + "s ago)");
+                    ModRuntime.LegacyInfo($"[DragSync] ignore stale IsDragging for {msg.ObjectName} (stop {(Time.unscaledTime - endedAt).ToString("F2")}s ago)");
                 return;
             }
 
@@ -111,7 +110,7 @@ namespace DWMPHorde.Networking
             if (locallyDraggingThis && msg.IsDragging
                 && msg.ClaimedByPlayerId >= 0 && msg.ClaimedByPlayerId != _net.LocalPlayerId)
             {
-                ModRuntime.LegacyInfo("[DragSync] remote player " + msg.ClaimedByPlayerId + " claimed " + msg.ObjectName + " — force-stopping local drag");
+                ModRuntime.LegacyInfo($"[DragSync] remote player {msg.ClaimedByPlayerId} claimed {msg.ObjectName} — force-stopping local drag");
                 Player.Instance.itemBeingDragged.stopDragging(force: true);
                 _net.WasDragging = false;
                 _net.LastDraggedItemName = null;
@@ -140,7 +139,7 @@ namespace DWMPHorde.Networking
                     // after claim clear cannot re-arm scrape on observers.
                     if (_net.Role == NetworkRole.Host && !string.IsNullOrEmpty(msg.ObjectName))
                         NotifyBodyPushStopped(msg.ObjectName);
-                    ModRuntime.LegacyInfo("[DragSync] STOP IsDragging=false for " + msg.ObjectName + " — ForceStopByName issued");
+                    ModRuntime.LegacyInfo($"[DragSync] STOP IsDragging=false for {msg.ObjectName} — ForceStopByName issued");
                 }
 
                 _net.PlayerInteractHandlers.LastDragSyncPos.Remove(msg.ObjectName);
@@ -169,11 +168,11 @@ namespace DWMPHorde.Networking
                 item = SpawnDraggedItem(msg);
                 if (item == null)
                 {
-                    ModRuntime.LegacyInfo("[DragSync] cannot spawn \"" + msg.ObjectName + "\" type=" + msg.ItemType);
+                    ModRuntime.LegacyInfo($"[DragSync] cannot spawn \"{msg.ObjectName}\" type={msg.ItemType}");
                     return;
                 }
                 _spawnedDragProxyItems.Add(item.GetInstanceID());
-                ModRuntime.LegacyInfo("[DragSync] spawned " + item.name + " for remote drag");
+                ModRuntime.LegacyInfo($"[DragSync] spawned {item.name} for remote drag");
             }
             else if (item.beingDragged || (Player.Instance != null && Player.Instance.dragging && Player.Instance.itemBeingDragged == item))
             {
@@ -254,7 +253,7 @@ namespace DWMPHorde.Networking
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DragSync] " + item.name + " -> " + targetPos);
+                ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos}");
         }
     }
 }

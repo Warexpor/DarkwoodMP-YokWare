@@ -61,7 +61,7 @@ namespace DWMPHorde.Sync
                     && (now - lastDestroy) < DestroyDebounceTime)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
+                        ModRuntime.LegacyInfo($"[ObjectDestroy] debounced duplicate at {pos}");
                     return false;
                 }
                 PruneDestroyDebounce(now);
@@ -118,7 +118,7 @@ namespace DWMPHorde.Sync
             if (best == null)
             {
                 // Debounce stays claimed so follow-up removes of an already-gone object skip the scan.
-                ModRuntime.LegacyInfo("[ObjectDestroy] miss name=\"" + (objectName ?? "") + "\" at " + pos);
+                ModRuntime.LegacyInfo($"[ObjectDestroy] miss name=\"{(objectName ?? "")}\" at {pos}");
                 return false;
             }
 
@@ -142,8 +142,7 @@ namespace DWMPHorde.Sync
                 UnityEngine.Object.DestroyImmediate(best);
             }
             finally { TraverseHack.ApplyingFromNetwork = false; }
-            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + (destroyedName ?? "") + "\" at " + pos
-                + " d=" + Mathf.Sqrt(bestDistSq).ToString("F1"));
+            ModRuntime.LegacyInfo($"[ObjectDestroy] destroyed \"{(destroyedName ?? "")}\" at {pos} d={Mathf.Sqrt(bestDistSq).ToString("F1")}");
             return true;
         }
 

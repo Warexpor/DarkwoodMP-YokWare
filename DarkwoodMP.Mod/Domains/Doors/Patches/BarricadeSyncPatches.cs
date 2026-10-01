@@ -101,8 +101,7 @@ namespace DWMPHorde.Patches
                 sent++;
             }
             if (sent > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Barricade removed-boards isWindow="
-                    + isWindow + " → p" + targetPlayerId + ": " + sent);
+                ModRuntime.LegacyInfo($"[BulkSync] Barricade removed-boards isWindow={isWindow} → p{targetPlayerId}: {sent}");
             return sent;
         }
 
@@ -455,7 +454,7 @@ namespace DWMPHorde.Patches
             int health = __instance.health;
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[World] " + __instance.name + " dmg=" + damage + " health=" + health + " destroyed=" + destroyed + " pos=" + pos);
+                ModRuntime.LegacyInfo($"[World] {__instance.name} dmg={damage} health={health} destroyed={destroyed} pos={pos}");
 
             BarricadeSyncHelpers.SendBarricadeEvent(
                 pos, 2,

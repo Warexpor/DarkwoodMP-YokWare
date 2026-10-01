@@ -119,7 +119,7 @@ namespace DWMPHorde.Sync
                     }
                     finally { DialogHostApplyGuard.EndWorldOnly(); }
                 }
-                ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
+                ModRuntime.LegacyInfo($"[TrapApply] silent disarm (no FX) {go.name}");
                 return;
             }
 
@@ -194,8 +194,7 @@ namespace DWMPHorde.Sync
                     // visual path and own the end state (destroyOnExplode).
                     string prefabName = expl.explosionPrefab != null ? expl.explosionPrefab.name : "";
                     string soundId = ResolveExplosionSoundId(expl.explodeSound ?? "", go.name, expl) ?? "";
-                    ModRuntime.LegacyInfo("[TrapApply] mushroom blast VFX (Explodes) " + go.name
-                        + " prefab=" + prefabName + " sound=" + soundId + " at " + go.transform.position);
+                    ModRuntime.LegacyInfo($"[TrapApply] mushroom blast VFX (Explodes) {go.name} prefab={prefabName} sound={soundId} at {go.transform.position}");
                     SpawnExplosionVisual(go.transform.position, go.name, prefabName, soundId);
 
                     if (trig != null && trig.alertRadius > 0f)
@@ -281,8 +280,7 @@ namespace DWMPHorde.Sync
                 local.startingInBearTrap = false;
                 local.endingInBearTrap = false;
                 local.inBearTrap = false;
-                ModRuntime.LegacyInfo("[TrapApply] released local inBearTrap near trap at " + trapPos
-                    + " xz=" + UnityEngine.Mathf.Sqrt(xzSq).ToString("F1"));
+                ModRuntime.LegacyInfo($"[TrapApply] released local inBearTrap near trap at {trapPos} xz={UnityEngine.Mathf.Sqrt(xzSq).ToString("F1")}");
             }
             catch (System.Exception ex)
             {
@@ -366,7 +364,7 @@ namespace DWMPHorde.Sync
             if (gen != null)
                 ListTracker<Generator>.Add(gen);
 
-            ModRuntime.LegacyInfo("[GeneratorSync] spawned type=" + gs.ItemType + " at " + pos);
+            ModRuntime.LegacyInfo($"[GeneratorSync] spawned type={gs.ItemType} at {pos}");
             return gen;
         }
 

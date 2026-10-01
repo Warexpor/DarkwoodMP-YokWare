@@ -195,9 +195,7 @@ namespace DWMPHorde.Players
                 if (!string.Equals(_lastEmitterClipMiss, clipName, System.StringComparison.Ordinal))
                 {
                     _lastEmitterClipMiss = clipName;
-                    ModRuntime.LegacyInfo("[Light] emitter clip miss type="
-                        + (_emitterItem.type ?? "?") + " clip=" + clipName
-                        + " keys=" + ep.typesDict.Count);
+                    ModRuntime.LegacyInfo($"[Light] emitter clip miss type={(_emitterItem.type ?? "?")} clip={clipName} keys={ep.typesDict.Count}");
                 }
                 // Fallback Idle so flame still follows something while walking unknown clips.
                 if (ep.typesDict.TryGetValue("Idle", out var idleFb)

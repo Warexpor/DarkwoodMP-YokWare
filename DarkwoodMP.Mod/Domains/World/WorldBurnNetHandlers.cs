@@ -56,7 +56,7 @@ namespace DWMPHorde.Networking
                     if (_pending.Count >= MaxPendingWorldBurns)
                         _pending.RemoveAt(0);
                     _pending.Add(msg);
-                    ModRuntime.LegacyInfo("[WorldBurnSync] queued (target not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[WorldBurnSync] queued (target not loaded) at {pos}");
                 }
                 return;
             }

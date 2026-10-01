@@ -74,7 +74,7 @@ namespace DWMPHorde.Patches
             __state = default;
             try
             {
-                ModRuntime.LegacyInfo("[PickupPrefix] getDroppedItem called on " + __instance.name);
+                ModRuntime.LegacyInfo($"[PickupPrefix] getDroppedItem called on {__instance.name}");
 
                 // Co-op rescue: sprung beartrap becomes isDroppedItem; picking it up must free
                 // anyone still stuck (local here + peer DestroyObjectByPos) and grant loot.
@@ -102,7 +102,7 @@ namespace DWMPHorde.Patches
                 bool hasGuid = ident != null && !string.IsNullOrEmpty(ident.Id);
                 if (hasGuid && LanNetworkManager.IsDropGuidConsumed(ident.Id))
                 {
-                    ModRuntime.LegacyInfo("[PickupPrefix] guid already consumed: " + ident.Id);
+                    ModRuntime.LegacyInfo($"[PickupPrefix] guid already consumed: {ident.Id}");
                     UnityEngine.Object.Destroy(__instance.gameObject);
                     if (__state.BeganTrapGuard)
                         TrapPickupGuard.End(__instance);
@@ -140,8 +140,7 @@ namespace DWMPHorde.Patches
                     if (!isTrap
                         && WorldPhysicsSyncService.IsWorldPickupConsumed(cPos.x, cPos.y, cPos.z, cName))
                     {
-                        ModRuntime.LegacyInfo("[PickupPrefix] world pickup already consumed: "
-                            + cName + " at " + cPos);
+                        ModRuntime.LegacyInfo($"[PickupPrefix] world pickup already consumed: {cName} at {cPos}");
                         UnityEngine.Object.Destroy(__instance.gameObject);
                         if (__state.BeganTrapGuard)
                             TrapPickupGuard.End(__instance);

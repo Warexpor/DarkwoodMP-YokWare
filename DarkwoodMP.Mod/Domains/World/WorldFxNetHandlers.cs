@@ -144,7 +144,7 @@ namespace DWMPHorde.Networking
             }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            ModRuntime.LegacyInfo("[ObjectRemove] received destroy request for \"" + msg.ObjectName + "\" at " + pos);
+            ModRuntime.LegacyInfo($"[ObjectRemove] received destroy request for \"{msg.ObjectName}\" at {pos}");
             // Mark consumed before destroy so a same-frame local getDroppedItem Prefix loses.
             Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
             // The host's grant Remove also reaches the claimer, whose own pickup already

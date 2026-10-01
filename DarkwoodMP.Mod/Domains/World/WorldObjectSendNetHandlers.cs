@@ -85,7 +85,7 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            ModRuntime.LegacyInfo("[ItemSpawn] sending " + msg.ItemType + " at " + msg.PosX + "," + msg.PosY + "," + msg.PosZ);
+            ModRuntime.LegacyInfo($"[ItemSpawn] sending {msg.ItemType} at {msg.PosX},{msg.PosY},{msg.PosZ}");
             // One-shot spawn: a lost Unreliable packet means the item never exists on that peer.
             _net.Broadcast(NetMessageType.ItemSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

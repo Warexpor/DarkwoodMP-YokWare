@@ -117,8 +117,7 @@ namespace DWMPHorde.Networking
                     && !padNotReady)
                 {
                     ModRuntime.LegacyInfo(
-                        "[GameEventsSync] drop missing ephemeral FX '" + msg.EventName
-                        + "' (no client GE — not queued)");
+                        $"[GameEventsSync] drop missing ephemeral FX '{msg.EventName}' (no client GE — not queued)");
                     return true;
                 }
 

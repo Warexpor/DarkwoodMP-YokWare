@@ -229,7 +229,7 @@ namespace DWMPHorde.Sync
                 {
                     // NotifyBodyPushStopped force-stops native+MOS on all roles + broadcast.
                     LanNetworkManager.NotifyBodyPushStopped(oName);
-                    ModRuntime.LegacyInfo("[SND] body-push stop " + oName);
+                    ModRuntime.LegacyInfo($"[SND] body-push stop {oName}");
                 }
 
                 _bodyPushSoundTimer.Remove(id);

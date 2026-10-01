@@ -69,8 +69,7 @@ namespace DWMPHorde.Patches
             else
                 component.attackPlayer();
             ModRuntime.LegacyInfo(
-                "[DreamSpirit] spawned forestSpirit_bunkerDream near " + who
-                + " stickyOwner=" + ownerId + " at " + position);
+                $"[DreamSpirit] spawned forestSpirit_bunkerDream near {who} stickyOwner={ownerId} at {position}");
             return false;
         }
     }

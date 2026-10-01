@@ -111,7 +111,7 @@ namespace DWMPHorde.Networking
                     return false;
             }
 
-            ModRuntime.LegacyInfo("[CursorActionSync] host onActivate " + item.name + " at " + pos);
+            ModRuntime.LegacyInfo($"[CursorActionSync] host onActivate {item.name} at {pos}");
             Item target = item;
             int actorId = ModRuntime.Network?.CurrentReceivePlayerId ?? 0;
             DialogHostApplyGuard.RunHostWorldFanoutForPlayer(actorId, () =>
@@ -131,8 +131,7 @@ namespace DWMPHorde.Networking
                         var lan = ModRuntime.Network;
                         lan?.SendTimeSyncTo(-1);
                         ModRuntime.LegacyInfo(
-                            "[CursorActionSync] host TimeSkip " + item.name
-                            + " time " + before + "→" + ctrl.CurrentTime);
+                            $"[CursorActionSync] host TimeSkip {item.name} time {before}→{ctrl.CurrentTime}");
                     }
                 }
             }

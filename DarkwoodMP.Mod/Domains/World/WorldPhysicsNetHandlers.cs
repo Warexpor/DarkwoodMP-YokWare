@@ -64,7 +64,7 @@ namespace DWMPHorde.Networking
             }
 
             if ((oc > 0 || dc > 0 || tc > 0 || gc > 0) && ++_net.PhysicsRecvLogCounter % 30 == 0 && ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[Physics] objects=" + oc + " doors=" + dc + " traps=" + tc + " gens=" + gc + " from " + fromPeer);
+                ModRuntime.LegacyInfo($"[Physics] objects={oc} doors={dc} traps={tc} gens={gc} from {fromPeer}");
 
             if (_net.Role == NetworkRole.Client)
             {
@@ -132,7 +132,7 @@ namespace DWMPHorde.Networking
         internal void HandleItemSpawn(ItemSpawnMessage msg)
         {
             string fromPeer = (_net.Role == NetworkRole.Host) ? "client" : "host";
-            ModRuntime.LegacyInfo("[ItemSpawn] received " + msg.ItemType + " at " + msg.PosX + "," + msg.PosY + "," + msg.PosZ + " from " + fromPeer);
+            ModRuntime.LegacyInfo($"[ItemSpawn] received {msg.ItemType} at {msg.PosX},{msg.PosY},{msg.PosZ} from {fromPeer}");
 
             // Bike-bell (porterWhistle): world spawn of Events/porterSpawner, not the InvItem
             // trap prefab. ItemsDatabase.hasItem("porterWhistle") is true — must branch first.

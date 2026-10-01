@@ -31,7 +31,7 @@ namespace DWMPHorde.Patches
                     && !LanNetworkManager.IsApplyingRemoteState)
                 {
                     ModRuntime.LegacyInfo(
-                        "[DreamSync] Block startDreaming — party already completed: " + preset);
+                        $"[DreamSync] Block startDreaming — party already completed: {preset}");
                     __state = true;
                     return false;
                 }
@@ -208,7 +208,7 @@ namespace DWMPHorde.Patches
                 if (Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.refreshPosition(dest, instant: true, force: true);
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] post-endDreaming snap off pad → " + dest);
+                    $"[DreamSync] post-endDreaming snap off pad → {dest}");
             }
             catch (System.Exception ex)
             {

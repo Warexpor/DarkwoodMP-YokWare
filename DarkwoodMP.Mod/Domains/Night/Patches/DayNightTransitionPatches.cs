@@ -70,7 +70,7 @@ namespace DWMPHorde.Patches
                 return;
             net.SendTimeSyncTo(-1);
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DayNight] host " + reason + " → TimeSync");
+                ModRuntime.LegacyInfo($"[DayNight] host {reason} → TimeSync");
         }
     }
 

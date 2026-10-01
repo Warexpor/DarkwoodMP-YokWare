@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.ItemType))
             {
-                ModRuntime.LegacyInfo("[DragSync] no ItemType to spawn \"" + msg.ObjectName + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] no ItemType to spawn \"{msg.ObjectName}\"");
                 return null;
             }
 
@@ -72,21 +72,21 @@ namespace DWMPHorde.Networking
 
             if (!Singleton<ItemsDatabase>.Instance.hasItem(msg.ItemType))
             {
-                ModRuntime.LegacyInfo("[DragSync] ItemsDatabase has no item type \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] ItemsDatabase has no item type \"{msg.ItemType}\"");
                 return null;
             }
 
             InvItem itemDef = Singleton<ItemsDatabase>.Instance.getItem(msg.ItemType, instantiate: false);
             if (itemDef == null || itemDef.item == null)
             {
-                ModRuntime.LegacyInfo("[DragSync] no prefab for \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] no prefab for \"{msg.ItemType}\"");
                 return null;
             }
 
             GameObject prefab = itemDef.item as GameObject;
             if (prefab == null)
             {
-                ModRuntime.LegacyInfo("[DragSync] prefab is not a GameObject for \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] prefab is not a GameObject for \"{msg.ItemType}\"");
                 return null;
             }
 
@@ -139,7 +139,7 @@ namespace DWMPHorde.Networking
                     if (!string.IsNullOrEmpty(objectName) && !go.name.Equals(objectName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    ModRuntime.LegacyInfo("[DragSync] destroying proxy-spawned " + go.name);
+                    ModRuntime.LegacyInfo($"[DragSync] destroying proxy-spawned {go.name}");
                     UnityEngine.Object.Destroy(go);
                 }
                 toRemove.Add(id);
@@ -259,7 +259,7 @@ namespace DWMPHorde.Networking
                 Player.Instance.itemBeingDragged.gameObject.name.Equals(name, StringComparison.OrdinalIgnoreCase))
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] early-return hit for " + name + " (itemBeingDragged)");
+                    ModRuntime.LegacyInfo($"[DragSync] early-return hit for {name} (itemBeingDragged)");
                 return Player.Instance.itemBeingDragged;
             }
 
@@ -289,7 +289,7 @@ namespace DWMPHorde.Networking
             if (best != null)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] found " + best.gameObject.name + " near pos (" + bestDist.ToString("F1") + " u)");
+                    ModRuntime.LegacyInfo($"[DragSync] found {best.gameObject.name} near pos ({bestDist.ToString("F1")} u)");
                 return best;
             }
 
@@ -317,7 +317,7 @@ namespace DWMPHorde.Networking
                 if (bestGlobal != null)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[DragSync] found " + bestGlobal.gameObject.name + " via global scan (" + bestGlobalDist.ToString("F1") + " u)");
+                        ModRuntime.LegacyInfo($"[DragSync] found {bestGlobal.gameObject.name} via global scan ({bestGlobalDist.ToString("F1")} u)");
                     return bestGlobal;
                 }
             }

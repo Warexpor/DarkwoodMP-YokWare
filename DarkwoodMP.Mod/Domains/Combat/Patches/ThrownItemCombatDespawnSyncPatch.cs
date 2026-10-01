@@ -114,8 +114,7 @@ namespace DWMPHorde.Patches
                 Durability = __state.Durability,
                 Ammo = __state.Ammo
             });
-            ModRuntime.LegacyInfo("[ThrownDespawn] host combat left world → WOR "
-                + __state.ObjectName + " at " + __state.Pos);
+            ModRuntime.LegacyInfo($"[ThrownDespawn] host combat left world → WOR {__state.ObjectName} at {__state.Pos}");
         }
     }
 

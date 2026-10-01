@@ -63,7 +63,7 @@ namespace DWMPHorde.Networking
                 try { player.refreshRecipes(); }
                 catch { /* Crafting UI may be null mid-load */ }
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored recipes count=" + player.recipes.Count);
+                    $"[ClientBackup] restored recipes count={player.recipes.Count}");
             }
             catch (System.Exception ex)
             {
@@ -103,7 +103,7 @@ namespace DWMPHorde.Networking
                     applied++;
                 }
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored active effects count=" + applied);
+                    $"[ClientBackup] restored active effects count={applied}");
             }
             catch (System.Exception ex)
             {
@@ -139,7 +139,7 @@ namespace DWMPHorde.Networking
                     player.craftedItems.Add(new StringAndInt(entry.Type, count));
                 }
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored craftedItems count=" + player.craftedItems.Count);
+                    $"[ClientBackup] restored craftedItems count={player.craftedItems.Count}");
             }
             catch (System.Exception ex)
             {
@@ -165,7 +165,7 @@ namespace DWMPHorde.Networking
             int added = Sync.MultiplayerMapManager.RestoreLocalMarkersFromBackup(positions);
             if (added > 0)
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored local map markers +" + added);
+                    $"[ClientBackup] restored local map markers +{added}");
         }
 
     }

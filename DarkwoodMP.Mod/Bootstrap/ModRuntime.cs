@@ -35,12 +35,30 @@ namespace DWMPHorde
         /// </summary>
         public static void LegacyInfo(string message)
         {
-            if (Log == null || message == null) return;
-            var preset = Logging.ModLog.CurrentPreset;
-            if (preset != Logging.LogPreset.Dev && preset != Logging.LogPreset.Trace)
-                return;
+            if (message == null || !LegacyLoggingEnabled) return;
             // Rate-limit: same message prefix at most ~2/sec
             Logging.ModLog.LegacyRateLimited(message);
+        }
+
+        /// <summary>
+        /// Interpolated-string overload: with the preset below Dev the string is never built, so
+        /// the many hot-path <c>LegacyInfo($"...")</c> calls cost one check instead of an allocation.
+        /// </summary>
+        public static void LegacyInfo(Logging.LegacyLogHandler message)
+        {
+            if (message.Enabled)
+                Logging.ModLog.LegacyRateLimited(message.ToStringAndClear());
+        }
+
+        /// <summary>Legacy dumps are on (Dev or Trace preset and a logger bound).</summary>
+        public static bool LegacyLoggingEnabled
+        {
+            get
+            {
+                if (Log == null) return false;
+                var preset = Logging.ModLog.CurrentPreset;
+                return preset == Logging.LogPreset.Dev || preset == Logging.LogPreset.Trace;
+            }
         }
 
         private static bool _running;

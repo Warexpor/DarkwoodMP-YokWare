@@ -137,10 +137,7 @@ namespace DWMPHorde.Sync
             }
             _thrownLights.Add(track);
             _thrownById[throwId] = track;
-            ModRuntime.LegacyInfo("[ThrowableTrack] host local throwId=" + throwId
-                + " type=" + itemType
-                + " untilFade=" + (expireAt - Time.time).ToString("F2")
-                + " untilDark=" + remainingUntilDark.ToString("F2"));
+            ModRuntime.LegacyInfo($"[ThrowableTrack] host local throwId={throwId} type={itemType} untilFade={(expireAt - Time.time).ToString("F2")} untilDark={remainingUntilDark.ToString("F2")}");
             // Event so Public/Support presets still see flare track (LegacyInfo is Dev-only).
             Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableTrack] host local throwId=" + throwId
                 + " type=" + itemType
@@ -198,7 +195,7 @@ namespace DWMPHorde.Sync
                 primary.LightRadius = 650f;
                 primary.LightIntensity = 1f;
                 primary.LightColor = new Color(1f, 0.5f, 0.1f);
-                ModRuntime.LegacyInfo("[ThrowableSpawn] added fallback Light2D for " + itemType);
+                ModRuntime.LegacyInfo($"[ThrowableSpawn] added fallback Light2D for {itemType}");
             }
 
             if (!primary.gameObject.activeSelf)
@@ -211,9 +208,7 @@ namespace DWMPHorde.Sync
                 ctrl.logicLights.Add(primary);
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[ThrowableSpawn] flare light ok " + itemType
-                    + " radius=" + primary.LightRadius
-                    + " intensity=" + primary.LightIntensity);
+                ModRuntime.LegacyInfo($"[ThrowableSpawn] flare light ok {itemType} radius={primary.LightRadius} intensity={primary.LightIntensity}");
         }
 
         internal static List<GameObject> GetKnownTrapsSnapshot()

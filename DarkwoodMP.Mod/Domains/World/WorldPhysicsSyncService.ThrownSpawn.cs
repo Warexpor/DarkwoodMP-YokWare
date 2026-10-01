@@ -251,13 +251,7 @@ namespace DWMPHorde.Sync
 
             if (!visualOnly)
                 Core.addToSaveable(go, isDynamic: true);
-            ModRuntime.LegacyInfo("[ThrowableSpawn] spawned " + msg.ItemType
-                + " throwId=" + msg.ThrowId + " life=" + msg.LongevitySec
-                + " at " + spawnPos + " aimY=" + msg.AimY + " dist=" + distance
-                + " vel=" + vel.magnitude.ToString("F1")
-                + " land=" + landTarget
-                + " grounded=" + grounded
-                + " visualOnly=" + visualOnly);
+            ModRuntime.LegacyInfo($"[ThrowableSpawn] spawned {msg.ItemType} throwId={msg.ThrowId} life={msg.LongevitySec} at {spawnPos} aimY={msg.AimY} dist={distance} vel={vel.magnitude.ToString("F1")} land={landTarget} grounded={grounded} visualOnly={visualOnly}");
         }
 
         /// <summary>

@@ -102,7 +102,7 @@ namespace DWMPHorde.Sync
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DialogTree] applied '" + name + "'");
+                ModRuntime.LegacyInfo($"[DialogTree] applied '{name}'");
         }
 
         /// <summary>Host late-join: send every progressed dialogue tree to one peer.</summary>
