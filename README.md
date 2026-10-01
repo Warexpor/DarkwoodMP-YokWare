@@ -4,8 +4,8 @@ Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.127** |
-| Wire | Horde protocol **27** |
+| Product | YokWare Branch **0.8.128** |
+| Wire | Horde protocol **28** |
 | Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
 | Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
 | License | GPLv3, see [LICENSE](LICENSE) |
@@ -205,5 +205,5 @@ Warexpor and Yokyy co-author the YokWare Branch. See
 GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
 [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Current ship: **0.8.127**, protocol **27**. See
+Current ship: **0.8.128**, protocol **28**. See
 [CHANGELOG.md](CHANGELOG.md).
