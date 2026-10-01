@@ -194,7 +194,7 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             // DialogHostApplyGuard: host replaying client dialogue close must fan out DoorState.
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             var msg = WorldPhysicsSyncService.StampSnapshot(
                 new PhysicsStateMessage { Doors = new[] { door } });
             _net.Broadcast(NetMessageType.PhysicsState, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

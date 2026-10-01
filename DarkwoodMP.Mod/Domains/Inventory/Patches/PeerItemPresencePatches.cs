@@ -9,7 +9,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix(object[] __args)
         {
-            if (DialogHostApplyGuard.Active) return;
+            if (HostApplyGuard.Active) return;
             if (__args == null || __args.Length < 1) return;
             string type = __args[0] as string;
             if (string.IsNullOrEmpty(type)) return;
@@ -25,7 +25,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix(InvItemClass __instance)
         {
-            if (DialogHostApplyGuard.Active) return;
+            if (HostApplyGuard.Active) return;
             if (__instance == null || string.IsNullOrEmpty(__instance.type)) return;
             int amt = __instance.amount;
             PeerItemPresence.SendLocalChange(__instance.type, amt);
@@ -40,7 +40,7 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix(Inventory __instance, string type)
         {
-            if (DialogHostApplyGuard.Active) return;
+            if (HostApplyGuard.Active) return;
             if (string.IsNullOrEmpty(type)) return;
             if (Player.Instance == null || Player.Instance.Hotbar == null) return;
             if (!ReferenceEquals(__instance, Player.Instance.Hotbar)) return;

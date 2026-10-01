@@ -191,7 +191,7 @@ namespace DWMPHorde.Patches
             // ActionState so peers latch examined / displayedDescriptionPool. Prefix
             // still blocks Request re-send under apply. ActionState apply sets fields
             // only (no examine()), and host ignores inbound ActionState — no echo.
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
             if (!NetGuard.Host(out var net)) return;

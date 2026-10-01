@@ -34,12 +34,6 @@ namespace DWMPHorde.Sync
         public static bool SuppressPersonalRewards => HostApplyGuard.Active;
 
         /// <summary>
-        /// Host is applying any remote peer's world action, client combat hits included
-        /// (same as <see cref="HostApplyGuard.Active"/>). Generic fan-out gates read this.
-        /// </summary>
-        public static bool Active => HostApplyGuard.Active;
-
-        /// <summary>
         /// Host is replaying a remote peer's dialogue (no host UI session). Dialogue
         /// presentation gates read this; a client combat hit does not set it.
         /// </summary>

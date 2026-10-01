@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager._isRemoteSaveInProgress)
                 return;
             // Host applying client dialog must never fan out Saving UI (see DialogHostSilentClose).
-            if (DialogHostApplyGuard.Active)
+            if (HostApplyGuard.Active)
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;

@@ -92,7 +92,7 @@ namespace DWMPHorde.Patches
             // NetworkApplyGuard. As with the door GameEvent exception, still fan out story flags
             // so the speaking client unlocks the next dialogue options.
             if (LanNetworkManager.IsApplyingRemoteState
-                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                && !DWMPHorde.Sync.HostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network;
@@ -198,7 +198,7 @@ namespace DWMPHorde.Patches
 
             // See FlagSyncBoolPatch. DialogOutcome world-only must still FlagSync.
             if (LanNetworkManager.IsApplyingRemoteState
-                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                && !DWMPHorde.Sync.HostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network;
