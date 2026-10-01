@@ -41,7 +41,7 @@ namespace DWMPHorde.Networking
         internal LocationEntityTrapNetHandlers LocationEntityTrapHandlers { get; private set; }
         internal PlayerFXNetHandlers PlayerFXHandlers { get; private set; }
 
-        // Batch 4 — Combat / FX / Players / World send+state
+        // Combat / FX / Players / World send+state
         internal CombatDeathBagNetHandlers CombatDeathBagHandlers { get; private set; }
         internal CombatAttackNetHandlers CombatAttackHandlers { get; private set; }
         internal CombatDeathStateNetHandlers CombatDeathStateHandlers { get; private set; }

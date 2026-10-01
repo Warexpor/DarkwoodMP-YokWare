@@ -258,7 +258,7 @@ namespace DWMPHorde.Sync
 
         public static Door FindDoorByPosLoose(Vector3 pos, float radius)
         {
-            // Tracker first (tight), then looser match, then physics overlap (B7).
+            // Tracker first (tight), then looser match, then physics overlap.
             Door d = ListTracker<Door>.FindByPosition(pos, 0.5f);
             if (d != null) return d;
             d = ListTracker<Door>.FindByPosition(pos, Mathf.Min(1.5f, radius));

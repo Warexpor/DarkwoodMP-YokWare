@@ -10,7 +10,7 @@ namespace DWMPHorde.Harmony
     /// <summary>
     /// Prefix return false on an IEnumerator target without setting __result yields
     /// StartCoroutine(null) → Unity "Value cannot be null. Parameter name: routine"
-    /// (same class as the 0.8.37 HelpMessage / GameEvent.fire suppress NRE).
+    /// (the same failure as a suppressed HelpMessage / GameEvent.fire coroutine).
     /// Always assign <see cref="Empty"/> when skipping a coroutine method.
     /// Also resolves compiler-generated coroutine state machines for MoveNext patches.
     /// </summary>

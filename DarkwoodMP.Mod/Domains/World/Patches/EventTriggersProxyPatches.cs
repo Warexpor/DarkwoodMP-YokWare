@@ -22,7 +22,7 @@ namespace DWMPHorde.Patches
     /// One-shots stay host-auth: GameEventsFiredPatch Prefix blocks client one-shot
     /// fire(); host broadcasts; client Apply under NetworkApplyGuard.
     ///
-    /// Occupancy (0.8.44): vanilla <c>entered</c>/<c>exited</c> assumes one body.
+    /// Occupancy: vanilla <c>entered</c>/<c>exited</c> assumes one body.
     /// The prior proxy guard (<c>entered != 0 &amp;&amp; isComponentAtPos</c>) treated a
     /// second peer as a multi-collider of the first — skipped <c>entered++</c> entirely,
     /// so the first body leaving fired exit while the second was still inside.
@@ -239,7 +239,7 @@ namespace DWMPHorde.Patches
             __instance.exited++;
             if (__instance.exited >= __instance.entered)
             {
-                // Belt (0.8.45): if another proxy is still in the occupancy set, counters
+                // Belt: if another proxy is still in the occupancy set, counters
                 // drifted vs the set (local Postfix enter++ / multi-collider). Defer exit
                 // fire so delayed one-shots do not latch while a peer body remains inside.
                 if (EventTriggersProxyOccupancy.HasAny(__instance))

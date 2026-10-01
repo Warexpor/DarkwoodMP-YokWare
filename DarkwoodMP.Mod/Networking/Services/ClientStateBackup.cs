@@ -51,12 +51,12 @@ namespace DWMPHorde.Networking
         /// Hotbar slot index that was selected at Collect (vanilla InvSlot.selected).
         /// Inventory.SaveState omits this; co-op restores onto a host-loaded body whose
         /// selected flag may be wrong, so we persist it explicitly.
-        /// −1 = unset (pre-0.8.60 JSON) — restore leaves leftover selected flags alone.
+        /// −1 = unset (older JSON) — restore leaves leftover selected flags alone.
         /// </summary>
         public int HotbarSelectedSlot = -1;
         /// <summary>
         /// Active CharacterEffects (bleed, poison, hunger, wards, …) — vanilla
-        /// Player.SaveState.chEffS. Absent/empty on pre-0.8.60 backups.
+        /// Player.SaveState.chEffS. Absent/empty on older backups.
         /// </summary>
         public List<EffectEntry> ActiveEffects;
         /// <summary>
@@ -72,12 +72,12 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Personal craft counts (vanilla Player.SaveState.craftedItems /
         /// timesCraftedLimit). WorldSaveShare loads the HOST list first.
-        /// Null on pre-0.8.61 backups — restore skips.
+        /// Null on older backups — restore skips.
         /// </summary>
         public List<CraftedEntry> CraftedItems;
         /// <summary>
         /// Vanilla PlayerSkills.SaveState.canActivateSkill (active-skill cooldown gate).
-        /// Pre-0.8.61 JSON defaults true — restore never locks skills from legacy.
+        /// Older JSON defaults true — restore never locks skills from legacy.
         /// </summary>
         public bool CanActivateSkill = true;
     }
@@ -129,7 +129,7 @@ namespace DWMPHorde.Networking
         public bool ShouldBeActive;
         /// <summary>
         /// Workbench ItemUpgrade names (vanilla SaveState.upgrades). Null/empty on
-        /// pre-0.8.59 backups — restore skips (same as no upgrades).
+        /// older backups — restore skips (same as no upgrades).
         /// </summary>
         public List<string> Upgrades;
         /// <summary>

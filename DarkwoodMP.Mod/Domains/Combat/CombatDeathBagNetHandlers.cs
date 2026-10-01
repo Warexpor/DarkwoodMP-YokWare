@@ -83,7 +83,7 @@ namespace DWMPHorde.Networking
                     {
                         if (!InvItemClass.isNull(slot.invItem))
                         {
-                            // 0.8.63: recipes share type "recipe" — wire craftable + IsRecipe.
+                            // recipes share type "recipe" — wire craftable + IsRecipe.
                             bool isRecipe = slot.invItem.isRecipe;
                             types.Add(isRecipe ? slot.invItem.recipeFor : slot.invItem.type);
                             amounts.Add(slot.invItem.amount);

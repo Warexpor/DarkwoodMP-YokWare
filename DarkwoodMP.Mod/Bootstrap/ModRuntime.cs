@@ -258,7 +258,7 @@ namespace DWMPHorde
             // Chapter resume pending must survive StopNetwork during chapter tear;
             // do NOT register ChapterSessionResume.Reset on network stop.
 
-            // --- Reset registrations added in 0.8.127 ---
+            // --- Reset registrations ---
             NetworkResetRegistry.Register(ChatHud.Reset);
             NetworkResetRegistry.Register(HostCheckFrequenciesPostfix.Reset);
             NetworkResetRegistry.Register(NightShadowsRateLimit.Reset);
@@ -313,7 +313,7 @@ namespace DWMPHorde
             _runtimeRoot = root;
 
             Network = root.AddComponent<LanNetworkManager>();
-            // Entity spawner is a separate plugin: YokWare.EntitySpawner (F5).
+            // Entity spawner is a separate plugin: YokWare.EntitySpawner.
             root.AddComponent<CursorConfineFocusGuard>();
 
             MultiplayerMenu.EnsureExists();

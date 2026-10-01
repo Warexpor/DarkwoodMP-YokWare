@@ -203,7 +203,7 @@ namespace DWMPHorde.Config
                 "Distance (m) beyond which proximity voice is silent.");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
-            // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
+            // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
             // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).
             // Dev = LegacyInfo dumps. Trace = max capture (LegacyInfo + VerboseLogging gates).

@@ -13,8 +13,8 @@ namespace DWMPHorde.Sync
             new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
     }
 
-    // Door.open fan-out lives solely in Patches.DoorOpenSyncPatch (DoorOpen + DoorState).
-    // The old Sync.DoorOpenPatch was removed in 0.8.0 — it double-fired DoorState.
+    // Door.open fan-out lives solely in Patches.DoorOpenSyncPatch (DoorOpen + DoorState);
+    // a second Door.open patch here would double-fire DoorState.
 
     /// <summary>Harmony patch: intercepts Door.close() and broadcasts the close state to all peers.</summary>
     [HarmonyPatch(typeof(Door), "close")]

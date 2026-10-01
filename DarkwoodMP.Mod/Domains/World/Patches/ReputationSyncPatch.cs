@@ -136,7 +136,7 @@ namespace DWMPHorde.Patches
             Flags.NPCState st = flags.getNPCState(npcName);
             if (st == null || st.reputation == before) return;
 
-            // Include attackedID/dead trailers so a rep-only packet cannot wipe 0.8.93/94 marks.
+            // Include attackedID/dead so a reputation-only update cannot wipe those marks.
             NpcAttackedIdSync.BroadcastFromHost(
                 npcName, st.reputation, st.attackedID,
                 hasDead: true, dead: st.dead, deadId: st.deadID);

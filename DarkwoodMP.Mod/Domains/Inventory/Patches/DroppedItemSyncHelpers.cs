@@ -31,7 +31,7 @@ namespace DWMPHorde.Patches
             int ammo = 0;
             if (item.baseClass != null && item.baseClass.hasAmmo)
                 ammo = item.ammo;
-            // 0.8.63: recipes share type "recipe" — wire craftable + IsRecipe (trade/container parity).
+            // recipes share type "recipe" — wire craftable + IsRecipe (trade/container parity).
             bool isRecipe = item.isRecipe;
             string wireType = isRecipe ? item.recipeFor : item.type;
 

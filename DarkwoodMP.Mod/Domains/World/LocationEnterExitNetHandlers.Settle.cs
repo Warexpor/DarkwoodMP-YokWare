@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
 
                 // Settle announce covers soft-reconnect sticky ForceAnnounce mid ol.loading.
                 ClearPendingForceAnnounce("location settle");
-                // Local loading screen done — retry remote pads deferred by 0.8.39 guard.
+                // Local loading screen done — retry remote pads deferred while it was up.
                 TryFlushDeferredCreatesWhileLocalLoading();
 
                 ModRuntime.LegacyInfo(

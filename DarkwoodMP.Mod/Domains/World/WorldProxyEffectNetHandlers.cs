@@ -120,8 +120,8 @@ namespace DWMPHorde.Networking
             float vol = cs.footstepVolume * volumeModifier;
 
             // Local playback of a remote peer's steps must not re-enter AudioController
-            // forward patches (0.8.31 ForwardWorldObjectSound would echo feet back to
-            // the runner → doubled footsteps on the client).
+            // forward patches (ForwardWorldObjectSound would echo feet back to the runner
+            // → doubled footsteps on the client).
             // Use explicit flag (same pattern as NetworkApplyGuard) — ApplyingFromNetwork
             // getter ORs NetworkApplyGuard.IsActive and must not be used as prev/restore.
             bool prevNet = TraverseHack.GetExplicitFlag();

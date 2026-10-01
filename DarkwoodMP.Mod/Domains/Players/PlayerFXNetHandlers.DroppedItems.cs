@@ -28,7 +28,7 @@ namespace DWMPHorde.Networking
             // Allow client drops through the GUID-based system (DroppedItemIdentifier +
             // LanNetworkManager.ConsumedDropGuids) prevents multiplication: when one player picks
             // up, the other player's copy is destroyed via DroppedItemPickupMessage.
-            // 0.8.63: ItemType is recipeFor when IsRecipe (vanilla ctor flips type to "recipe").
+            // ItemType is recipeFor when IsRecipe (vanilla ctor flips type to "recipe").
             if (Singleton<ItemsDatabase>.Instance == null || !Singleton<ItemsDatabase>.Instance.hasItem(msg.ItemType))
             {
                 ModRuntime.Log?.LogWarning("[DroppedItemSpawn] unknown item type: " + msg.ItemType

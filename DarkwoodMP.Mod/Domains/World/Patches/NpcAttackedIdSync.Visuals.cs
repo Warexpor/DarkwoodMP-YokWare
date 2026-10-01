@@ -6,8 +6,8 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Portrait / anim-library trailers for live ReputationSync (0.8.96/97) and
-    /// late-join ReputationBulkSync (0.8.115). Queues when the NPC body is missing.
+    /// Portrait / anim-library trailers for live ReputationSync and
+    /// late-join ReputationBulkSync. Queues when the NPC body is missing.
     /// </summary>
     internal static partial class NpcAttackedIdSync
     {
@@ -38,7 +38,7 @@ namespace DWMPHorde.Patches
 
         /// <summary>
         /// Host: fill sparse portrait / anim-library trailers for ReputationBulk from
-        /// live NPC bodies (mirrors live ReputationSync 0.8.96/97).
+        /// live NPC bodies (mirrors live ReputationSync).
         /// </summary>
         internal static void FillBulkVisualTrailers(ref ReputationBulkSyncMessage msg)
         {

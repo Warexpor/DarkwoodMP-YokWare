@@ -312,7 +312,7 @@ namespace DWMPHorde.Patches
     /// delayed action is displaying — location hints must not appear for a peer who
     /// is not there. GE proximity is re-checked via <see cref="GameEventFireFlavorSourcePatch"/>.
     /// Postfix-hide (not Prefix-null): vanilla assigns <c>.texts</c> on the return without
-    /// a null check (Batch 41 — remaining Hideout1_tutorial_02 MoveNext NRE after HelpMessage
+    /// a null check (remaining Hideout1_tutorial_02 MoveNext NRE after HelpMessage
     /// Postfix-hide alone).
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.displayMessage),

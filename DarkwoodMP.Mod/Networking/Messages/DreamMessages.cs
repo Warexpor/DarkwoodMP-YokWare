@@ -142,7 +142,7 @@ namespace DWMPHorde.Networking
         public bool SessionActive;
         public string ActivePreset;
         public int SessionId;
-        /// <summary>0.8.79 trailer: live pad position so a joiner can enter the dream.</summary>
+        /// <summary>live pad position so a joiner can enter the dream.</summary>
         public bool HasPadPosition;
         public float PadX, PadY, PadZ;
 

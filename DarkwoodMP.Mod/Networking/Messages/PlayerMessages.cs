@@ -289,7 +289,7 @@ namespace DWMPHorde.Networking
         public bool CanCutInHalf;
         /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the host to apply to the target. Trailing count + effects; null = none.</summary>
         public SensorEffectWire[] Effects;
-        /// <summary>Melee sensor hit: the host applies the short melee range. Trailer after Effects; absent = ranged.</summary>
+        /// <summary>Melee sensor hit: the host applies the short melee range (false = ranged).</summary>
         public bool IsMelee;
 
         public void Serialize(NetWriter w)

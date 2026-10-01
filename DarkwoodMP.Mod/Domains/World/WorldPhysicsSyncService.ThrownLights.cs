@@ -302,7 +302,7 @@ namespace DWMPHorde.Sync
                 Vector3 p = t.Go.transform.position;
                 // Peer needs remaining-until-dark (= until fade start + fade).
                 float remain = Mathf.Max(0.15f, (t.ExpireAt - now) + FlareBurnoutFadeSec);
-                // Distance=0 + zero vel + no land → grounded spawn branch (F7).
+                // Distance=0 + zero vel + no land → grounded spawn branch.
                 var msg = new ThrowableSpawnMessage
                 {
                     ItemType = t.ItemType ?? "flare",
