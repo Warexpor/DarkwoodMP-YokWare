@@ -26,19 +26,41 @@ public class ReleaseConsistencyTests
     }
 
     [Fact]
-    public void Csproj_VersionMatchesPluginInfo()
+    public void Csproj_DerivesVersionFromPluginInfo()
     {
-        Assert.Equal(PluginInfo.Version, Regex.Match(Csproj, @"<Version>([^<]+)</Version>").Groups[1].Value);
-        Assert.Equal(PluginInfo.Version + "-path-b",
+        // The csproj must read the version from PluginInfo.cs, not carry its own copy.
+        string version = Regex.Match(Csproj, @"<Version>([^<]+)</Version>").Groups[1].Value;
+        Assert.Contains("PluginInfo.cs", version);
+        Assert.DoesNotMatch(@"\d+\.\d+\.\d+", version);
+        Assert.Equal("$(Version)-path-b",
             Regex.Match(Csproj, @"<InformationalVersion>([^<]+)</InformationalVersion>").Groups[1].Value);
+
+        // The regex the csproj uses must actually find the version in PluginInfo.cs.
+        string pattern = Regex.Match(version, @"'(const string Version = [^']+)'").Groups[1].Value;
+        string pluginInfo = TestPaths.Read("DarkwoodMP.Mod", "Bootstrap", "PluginInfo.cs");
+        Assert.Equal(PluginInfo.Version, Regex.Match(pluginInfo, pattern).Groups[1].Value);
     }
 
     [Fact]
-    public void AssemblyInfo_VersionMatchesPluginInfo()
+    public void AssemblyInfo_DerivesVersionFromPluginInfo()
     {
-        string expected = PluginInfo.Version + ".0";
-        Assert.Equal(expected, Regex.Match(AssemblyInfo, @"AssemblyVersion\(""([^""]+)""\)").Groups[1].Value);
-        Assert.Equal(expected, Regex.Match(AssemblyInfo, @"AssemblyFileVersion\(""([^""]+)""\)").Groups[1].Value);
+        Assert.Contains(@"AssemblyVersion(DWMPHorde.PluginInfo.Version + "".0"")", AssemblyInfo);
+        Assert.Contains(@"AssemblyFileVersion(DWMPHorde.PluginInfo.Version + "".0"")", AssemblyInfo);
+    }
+
+    [Fact]
+    public void Docs_DoNotRestateTheProductVersion()
+    {
+        // Only README (checked above) and CHANGELOG carry the number; other docs point to README.
+        string[][] docs =
+        {
+            new[] { "CONTRIBUTORS.md" },
+            new[] { "DarkwoodMP.Mod", "docs", "CONFIG.md" },
+            new[] { "DarkwoodMP.Mod", "docs", "COOP_COVERAGE.md" },
+            new[] { "DarkwoodMP.Mod", "docs", "PLAYTEST.md" },
+        };
+        foreach (string[] doc in docs)
+            Assert.DoesNotContain(PluginInfo.Version, TestPaths.Read(doc));
     }
 
     [Fact]
@@ -55,8 +77,6 @@ public class ReleaseConsistencyTests
         Assert.True(ship.Success, "README 'Current ship' line missing");
         Assert.Equal(PluginInfo.Version, ship.Groups[1].Value);
         Assert.Equal(PluginInfo.ProtocolVersion.ToString(), ship.Groups[2].Value);
-
-        Assert.Contains("YokWare Branch " + PluginInfo.Version + " / Path B", readme);
 
         var highest = Regex.Match(readme, @"highest assigned message ID is (\d+) \(`(\w+)`\)");
         Assert.True(highest.Success, "README 'highest assigned message ID' sentence missing");

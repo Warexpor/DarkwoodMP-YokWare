@@ -1,4 +1,4 @@
-# YokWare Branch configuration (0.8.127)
+# YokWare Branch configuration
 
 One INI file, same section/key shape on both loaders. It is created on first launch
 with every key and its description; edit it with the game closed.

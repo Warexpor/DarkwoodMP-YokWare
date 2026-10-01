@@ -23,4 +23,4 @@ Path B vs Path A is a load-path choice, not a ranking of people.
 ## Contributing
 
 Pull requests welcome under **GPLv3**. The supported product line is Path B
-`0.8.x`, currently **0.8.127**, with Horde protocol **27**.
+`0.8.x`; the current version and Horde protocol are in the README.

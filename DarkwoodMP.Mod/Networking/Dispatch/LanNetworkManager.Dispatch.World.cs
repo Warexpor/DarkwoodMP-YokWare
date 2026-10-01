@@ -117,7 +117,7 @@ namespace DWMPHorde.Networking
                                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                                 if (stamp) marker.PlayerId = _currentReceivePlayerId;
                                 MapHandlers.HandleMapMarker(marker);
-                                if (stamp) RelayStamped(NetMessageType.MapMarker, w => marker.Serialize(w));
+                                if (stamp) RelayStamped(w => marker.Serialize(w));
                                 return true;
                             }
                         case NetMessageType.MapMarkerRemove:
@@ -126,7 +126,7 @@ namespace DWMPHorde.Networking
                                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                                 if (stamp) marker.PlayerId = _currentReceivePlayerId;
                                 MapHandlers.HandleMapMarkerRemove(marker);
-                                if (stamp) RelayStamped(NetMessageType.MapMarkerRemove, w => marker.Serialize(w));
+                                if (stamp) RelayStamped(w => marker.Serialize(w));
                                 return true;
                             }
                         case NetMessageType.MapElementDiscovered:
@@ -151,7 +151,7 @@ namespace DWMPHorde.Networking
                                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                                 if (stamp) enter.PlayerId = _currentReceivePlayerId;
                                 LocationHandlers.HandleLocationEnter(enter);
-                                if (stamp) RelayStamped(NetMessageType.LocationEnter, w => enter.Serialize(w));
+                                if (stamp) RelayStamped(w => enter.Serialize(w));
                                 return true;
                             }
                         case NetMessageType.LocationExit:
@@ -160,7 +160,7 @@ namespace DWMPHorde.Networking
                                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                                 if (stamp) exit.PlayerId = _currentReceivePlayerId;
                                 LocationHandlers.HandleLocationExit(exit);
-                                if (stamp) RelayStamped(NetMessageType.LocationExit, w => exit.Serialize(w));
+                                if (stamp) RelayStamped(w => exit.Serialize(w));
                                 return true;
                             }
                         case NetMessageType.EntitySpawn:

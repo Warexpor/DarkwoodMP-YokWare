@@ -91,6 +91,7 @@ namespace DWMPHorde.Networking
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
+                _rejectedPeers.Clear();
                 _awaitingLateJoinBulk.Clear();
                 _pendingHeavyLateJoinBulk.Clear();
                 _peersLoadingWorld.Clear();
@@ -157,6 +158,7 @@ namespace DWMPHorde.Networking
             DWMPHorde.Audio.MovingObjectSoundService.Reset();
             _handshakeComplete = false;
             _handshakedPeers.Clear();
+            _rejectedPeers.Clear();
             // Clean up per-player light objects before clearing state
             foreach (var state in _remotePlayers.Values)
             {

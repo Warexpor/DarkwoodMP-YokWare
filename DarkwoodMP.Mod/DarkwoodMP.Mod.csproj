@@ -27,8 +27,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>0.8.127</Version>
-    <InformationalVersion>0.8.127-path-b</InformationalVersion>
+    <!-- Single source of the product version: Bootstrap/PluginInfo.cs (const Version). -->
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Bootstrap/PluginInfo.cs')), 'const string Version = "([^"]+)"').Groups[1].Value)</Version>
+    <InformationalVersion>$(Version)-path-b</InformationalVersion>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
