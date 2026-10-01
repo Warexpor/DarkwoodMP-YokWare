@@ -62,8 +62,8 @@ namespace DWMPHorde.Networking
                 msg.CompressedSizes[i] = r.GetInt();
                 msg.ChunkCounts[i] = r.GetInt();
             }
-            msg.CampaignId = r.AvailableBytes > 0 ? r.GetString() : null;
-            msg.SharePass = r.AvailableBytes >= 4 ? r.GetInt() : 0;
+            msg.CampaignId = r.GetString();
+            msg.SharePass = r.GetInt();
             return msg;
         }
     }
@@ -141,8 +141,8 @@ namespace DWMPHorde.Networking
         public static HostWorldReadyMessage Deserialize(NetReader r) => new HostWorldReadyMessage
         {
             Ready = r.GetBool(),
-            ChapterId = r.AvailableBytes >= 4 ? r.GetInt() : 0,
-            DayIndex = r.AvailableBytes >= 4 ? r.GetInt() : 0
+            ChapterId = r.GetInt(),
+            DayIndex = r.GetInt()
         };
     }
 }

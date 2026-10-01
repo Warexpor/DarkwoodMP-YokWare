@@ -6,7 +6,7 @@ namespace DWMPHorde.Networking
         PlaceItem = 1,
         RemoveItem = 2,
         Searched = 3,
-        /// <summary>0.8.86: client closed a world container. Host replays onCloseContainer.</summary>
+        /// <summary>Client closed a world container. Host replays onCloseContainer.</summary>
         CloseContainer = 4
     }
 
@@ -20,11 +20,11 @@ namespace DWMPHorde.Networking
         public float Durability;
         public int Ammo;
         public bool IsPlayerPlaced;
-        /// <summary>0.8.62: ItemType is recipeFor when true. Absent on pre-0.8.62 packets.</summary>
+        /// <summary>ItemType is recipeFor when true.</summary>
         public bool IsRecipe;
-        /// <summary>0.8.65: workbench ItemUpgrade names. Absent on pre-0.8.65 packets.</summary>
+        /// <summary>Workbench ItemUpgrade names.</summary>
         public string[] Upgrades;
-        /// <summary>0.8.66: flashlight / toggle on. Absent on pre-0.8.66 packets.</summary>
+        /// <summary>Flashlight / toggle on.</summary>
         public bool ShouldBeActive;
 
         public void Serialize(NetWriter w)
@@ -56,13 +56,10 @@ namespace DWMPHorde.Networking
                 Durability = r.GetFloat(),
                 Ammo = r.GetInt(),
                 IsPlayerPlaced = r.GetBool(),
-                ShouldBeActive = false
+                IsRecipe = r.GetBool()
             };
-            if (r.AvailableBytes >= 1)
-                msg.IsRecipe = r.GetBool();
-            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
-            if (r.AvailableBytes >= 1)
-                msg.ShouldBeActive = r.GetBool();
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = r.GetBool();
             return msg;
         }
     }
@@ -84,10 +81,10 @@ namespace DWMPHorde.Networking
 
     /// <summary>
     /// Host→client deny for container take OR place races.
-    /// Mode 0 (default / legacy): take/remove lost — remove optimistic loot from player.
+    /// Mode 0: take/remove lost — remove optimistic loot from player.
     /// Mode 1: place lost (slot type clash / bad amount) — add item back to player;
     /// host also pushes ContainerStateSync so the container slot is corrected.
-    /// Durability/Ammo trailers are optional (AvailableBytes); used for place refund.
+    /// Durability/Ammo/Upgrades/ShouldBeActive describe the item for the place refund.
     /// </summary>
     public struct ContainerTakeDeniedMessage
     {
@@ -102,9 +99,9 @@ namespace DWMPHorde.Networking
         public byte Mode;
         public float Durability;
         public int Ammo;
-        /// <summary>0.8.65: place-refund workbench upgrades. Absent on pre-0.8.65.</summary>
+        /// <summary>Place-refund workbench upgrades.</summary>
         public string[] Upgrades;
-        /// <summary>0.8.66: place-refund shouldBeActive. Absent on pre-0.8.66.</summary>
+        /// <summary>Place-refund shouldBeActive.</summary>
         public bool ShouldBeActive;
 
         public void Serialize(NetWriter w)
@@ -130,22 +127,12 @@ namespace DWMPHorde.Networking
                 SlotIndex = r.GetByte(),
                 ItemType = r.GetString(),
                 Amount = r.GetInt(),
-                Mode = ModeTakeRefund,
-                Durability = 0f,
-                Ammo = 0,
-                ShouldBeActive = false
+                Mode = r.GetByte(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt()
             };
-            // Trailer: Mode [+ Durability + Ammo] [+ upgrades] [+ shouldBeActive].
-            // Legacy 0.8.44 packets stop after Amount.
-            if (r.AvailableBytes >= 1)
-                msg.Mode = r.GetByte();
-            if (r.AvailableBytes >= 4)
-                msg.Durability = r.GetFloat();
-            if (r.AvailableBytes >= 4)
-                msg.Ammo = r.GetInt();
-            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
-            if (r.AvailableBytes >= 1)
-                msg.ShouldBeActive = r.GetBool();
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = r.GetBool();
             return msg;
         }
     }
@@ -157,11 +144,11 @@ namespace DWMPHorde.Networking
         public int Amount;
         public float Durability;
         public int Ammo;
-        /// <summary>0.8.62: vanilla InvItemClass.isRecipe. ItemType is recipeFor when set.</summary>
+        /// <summary>Vanilla InvItemClass.isRecipe. ItemType is recipeFor when set.</summary>
         public bool IsRecipe;
-        /// <summary>0.8.65: workbench ItemUpgrade names. Null/absent = pre-0.8.65.</summary>
+        /// <summary>Workbench ItemUpgrade names.</summary>
         public string[] Upgrades;
-        /// <summary>0.8.66: shouldBeActive (flashlight on). Absent on pre-0.8.66.</summary>
+        /// <summary>shouldBeActive (flashlight on).</summary>
         public bool ShouldBeActive;
     }
 
@@ -185,13 +172,10 @@ namespace DWMPHorde.Networking
                 w.Put(Slots[i].Durability);
                 w.Put(Slots[i].Ammo);
             }
-            // 0.8.62 recipe trailer (one bool per slot). Dual-deploy writes always.
             for (int i = 0; i < SlotCount; i++)
                 w.Put(Slots[i].IsRecipe);
-            // 0.8.65 upgrade trailer (count+names per slot). Dual-deploy writes always.
             for (int i = 0; i < SlotCount; i++)
                 DWMPHorde.Sync.InvItemUpgradeWire.Write(w, i < Slots.Length ? Slots[i].Upgrades : null);
-            // 0.8.66 shouldBeActive trailer (one bool per slot). Dual-deploy writes always.
             for (int i = 0; i < SlotCount; i++)
                 w.Put(i < Slots.Length && Slots[i].ShouldBeActive);
         }
@@ -206,7 +190,8 @@ namespace DWMPHorde.Networking
                 EntityHash = r.GetInt(),
                 SlotCount = r.GetInt()
             };
-            if (msg.SlotCount < 0 || msg.SlotCount > 4096) msg.SlotCount = 0;
+            if (msg.SlotCount < 0 || msg.SlotCount > 4096)
+                throw new System.IO.InvalidDataException("ContainerStateSync slot count " + msg.SlotCount);
             msg.Slots = new SlotStateEntry[msg.SlotCount];
             for (int i = 0; i < msg.SlotCount; i++)
             {
@@ -219,21 +204,12 @@ namespace DWMPHorde.Networking
                     Ammo = r.GetInt()
                 };
             }
-            if (msg.SlotCount > 0 && r.AvailableBytes >= msg.SlotCount)
-            {
-                for (int i = 0; i < msg.SlotCount; i++)
-                    msg.Slots[i].IsRecipe = r.GetBool();
-            }
-            if (msg.SlotCount > 0 && r.AvailableBytes >= 1)
-            {
-                for (int i = 0; i < msg.SlotCount; i++)
-                    msg.Slots[i].Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
-            }
-            if (msg.SlotCount > 0 && r.AvailableBytes >= msg.SlotCount)
-            {
-                for (int i = 0; i < msg.SlotCount; i++)
-                    msg.Slots[i].ShouldBeActive = r.GetBool();
-            }
+            for (int i = 0; i < msg.SlotCount; i++)
+                msg.Slots[i].IsRecipe = r.GetBool();
+            for (int i = 0; i < msg.SlotCount; i++)
+                msg.Slots[i].Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            for (int i = 0; i < msg.SlotCount; i++)
+                msg.Slots[i].ShouldBeActive = r.GetBool();
             return msg;
         }
     }

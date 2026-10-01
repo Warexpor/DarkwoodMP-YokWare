@@ -69,15 +69,13 @@ namespace DWMPHorde.Networking
                 effects[i].Serialize(w);
         }
 
-        /// <summary>
-        /// Reads the optional trailer written by <see cref="WriteList"/>. Peers that predate it end the
-        /// payload earlier: that is "no effects" (null), as is an explicit count of 0.
-        /// </summary>
+        /// <summary>Reads what <see cref="WriteList"/> wrote; null for an empty list.</summary>
         public static SensorEffectWire[] ReadList(NetReader r)
         {
-            if (r.AvailableBytes < 1) return null;
             int count = r.GetByte();
             if (count == 0) return null;
+            if (count > MaxEffects)
+                throw new System.IO.InvalidDataException("sensor effect count " + count + " exceeds " + MaxEffects);
             var list = new SensorEffectWire[count];
             for (int i = 0; i < count; i++)
                 list[i] = Deserialize(r);

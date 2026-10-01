@@ -8,8 +8,7 @@ namespace DWMPHorde.Sync
     /// Mirrors ClientStateBackup MakeItemEntry / ApplyItemUpgrades for death-bag,
     /// ground drop, and container Place/StateSync so peer copies keep damage/dur
     /// modifiers when an upgraded item moves between players.
-    /// Trailer: byte count (0–32) + count length-prefixed strings. Dual-deploy via
-    /// AvailableBytes (absent on pre-0.8.65 packets).
+    /// Wire: byte count (0–32) + count length-prefixed strings.
     /// </summary>
     internal static class InvItemUpgradeWire
     {
@@ -62,16 +61,13 @@ namespace DWMPHorde.Sync
                 w.Put(names[i] ?? "");
         }
 
-        /// <summary>
-        /// AvailableBytes trailer. Returns null when absent (legacy) or count 0.
-        /// </summary>
-        internal static string[] TryRead(NetReader r)
+        /// <summary>Reads what <see cref="Write"/> wrote; null for an empty list.</summary>
+        internal static string[] Read(NetReader r)
         {
-            if (r == null || r.AvailableBytes < 1)
-                return null;
             int n = r.GetByte();
             if (n <= 0) return null;
-            if (n > MaxUpgrades) n = MaxUpgrades;
+            if (n > MaxUpgrades)
+                throw new System.IO.InvalidDataException("upgrade list of " + n + " exceeds " + MaxUpgrades);
             var names = new string[n];
             for (int i = 0; i < n; i++)
                 names[i] = r.GetString();
@@ -88,17 +84,14 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>
-        /// Reads itemCount upgrade lists when at least one trailer byte remains.
-        /// Null when absent (pre-0.8.65).
-        /// </summary>
-        internal static string[][] TryReadMany(NetReader r, int itemCount)
+        /// <summary>Reads what <see cref="WriteMany"/> wrote for <paramref name="itemCount"/> items.</summary>
+        internal static string[][] ReadMany(NetReader r, int itemCount)
         {
-            if (r == null || itemCount <= 0 || r.AvailableBytes < 1)
+            if (itemCount <= 0)
                 return null;
             var all = new string[itemCount][];
             for (int i = 0; i < itemCount; i++)
-                all[i] = TryRead(r);
+                all[i] = Read(r);
             return all;
         }
     }

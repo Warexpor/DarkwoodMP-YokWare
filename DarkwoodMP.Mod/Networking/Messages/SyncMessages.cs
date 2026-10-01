@@ -49,19 +49,19 @@ namespace DWMPHorde.Networking
         public int[] Amounts;
         /// <summary>True when this stock belongs to the dream-pad copy, not the overworld twin.</summary>
         public bool InDream;
-        /// <summary>Which body, when two traders share a name. Missing on old packets.</summary>
+        /// <summary>Which body, when two traders share a name (valid when HasPos).</summary>
         public bool HasPos;
         public float PosX, PosY, PosZ;
         /// <summary>
-        /// 0.8.62: per-entry recipe flag. ItemTypes stores recipeFor when true
-        /// (vanilla InvItemClass ctor flips type to "recipe"). Null/absent = pre-0.8.62.
+        /// Per-entry recipe flag. ItemTypes stores recipeFor when true
+        /// (vanilla InvItemClass ctor flips type to "recipe").
         /// </summary>
         public bool[] IsRecipe;
-        /// <summary>0.8.62: absolute durability per entry. Null/absent = pre-0.8.62.</summary>
+        /// <summary>Absolute durability per entry.</summary>
         public float[] Durabilities;
-        /// <summary>0.8.68: per-entry workbench upgrade names. Null/absent = pre-0.8.68.</summary>
+        /// <summary>Per-entry workbench upgrade names.</summary>
         public string[][] Upgrades;
-        /// <summary>0.8.68: per-entry shouldBeActive (flashlight on). Absent = pre-0.8.68.</summary>
+        /// <summary>Per-entry shouldBeActive (flashlight on).</summary>
         public bool[] ShouldBeActive;
 
         public void Serialize(NetWriter w)
@@ -78,15 +78,12 @@ namespace DWMPHorde.Networking
             w.Put(PosX);
             w.Put(PosY);
             w.Put(PosZ);
-            // Recipe/durability trailer (0.8.62). Always written so dual-deploy peers match.
             for (int i = 0; i < ItemCount; i++)
                 w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
             for (int i = 0; i < ItemCount; i++)
                 w.Put(Durabilities != null && i < Durabilities.Length ? Durabilities[i] : 0f);
-            // 0.8.68 upgrade trailer (count+names per entry). Dual-deploy writes always.
             for (int i = 0; i < ItemCount; i++)
                 DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades != null && i < Upgrades.Length ? Upgrades[i] : null);
-            // 0.8.68 shouldBeActive trailer (one bool per entry). Dual-deploy writes always.
             for (int i = 0; i < ItemCount; i++)
                 w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
         }
@@ -94,48 +91,33 @@ namespace DWMPHorde.Networking
         public static TradeInventorySyncMessage Deserialize(NetReader r)
         {
             var msg = new TradeInventorySyncMessage { NpcName = r.GetString(), ItemCount = r.GetInt() };
-            if (msg.ItemCount < 0 || msg.ItemCount > 4096) msg.ItemCount = 0;
-            msg.ItemTypes = new string[msg.ItemCount];
-            msg.Amounts = new int[msg.ItemCount];
-            for (int i = 0; i < msg.ItemCount; i++)
+            if (msg.ItemCount < 0 || msg.ItemCount > 4096)
+                throw new System.IO.InvalidDataException("TradeInventorySync item count " + msg.ItemCount);
+            int n = msg.ItemCount;
+            msg.ItemTypes = new string[n];
+            msg.Amounts = new int[n];
+            for (int i = 0; i < n; i++)
             {
                 msg.ItemTypes[i] = r.GetString();
                 msg.Amounts[i] = r.GetInt();
             }
-            if (r.AvailableBytes >= 1)
-                msg.InDream = r.GetBool();
-            if (r.AvailableBytes >= 13)
-            {
-                msg.HasPos = r.GetBool();
-                msg.PosX = r.GetFloat();
-                msg.PosY = r.GetFloat();
-                msg.PosZ = r.GetFloat();
-            }
-            // 0.8.62 trailer: ItemCount bools + ItemCount floats.
-            int trailer = msg.ItemCount * 5;
-            if (msg.ItemCount > 0 && r.AvailableBytes >= trailer)
-            {
-                msg.IsRecipe = new bool[msg.ItemCount];
-                msg.Durabilities = new float[msg.ItemCount];
-                for (int i = 0; i < msg.ItemCount; i++)
-                    msg.IsRecipe[i] = r.GetBool();
-                for (int i = 0; i < msg.ItemCount; i++)
-                    msg.Durabilities[i] = r.GetFloat();
-            }
-            // 0.8.68 upgrade trailer.
-            if (msg.ItemCount > 0 && r.AvailableBytes >= 1)
-            {
-                msg.Upgrades = new string[msg.ItemCount][];
-                for (int i = 0; i < msg.ItemCount; i++)
-                    msg.Upgrades[i] = DWMPHorde.Sync.InvItemUpgradeWire.TryRead(r);
-            }
-            // 0.8.68 shouldBeActive trailer.
-            if (msg.ItemCount > 0 && r.AvailableBytes >= msg.ItemCount)
-            {
-                msg.ShouldBeActive = new bool[msg.ItemCount];
-                for (int i = 0; i < msg.ItemCount; i++)
-                    msg.ShouldBeActive[i] = r.GetBool();
-            }
+            msg.InDream = r.GetBool();
+            msg.HasPos = r.GetBool();
+            msg.PosX = r.GetFloat();
+            msg.PosY = r.GetFloat();
+            msg.PosZ = r.GetFloat();
+            msg.IsRecipe = new bool[n];
+            msg.Durabilities = new float[n];
+            for (int i = 0; i < n; i++)
+                msg.IsRecipe[i] = r.GetBool();
+            for (int i = 0; i < n; i++)
+                msg.Durabilities[i] = r.GetFloat();
+            msg.Upgrades = new string[n][];
+            for (int i = 0; i < n; i++)
+                msg.Upgrades[i] = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = new bool[n];
+            for (int i = 0; i < n; i++)
+                msg.ShouldBeActive[i] = r.GetBool();
             return msg;
         }
     }
@@ -229,8 +211,8 @@ namespace DWMPHorde.Networking
                 Release = r.GetBool(),
                 IsRequest = r.GetBool()
             };
-            msg.Dream = r.AvailableBytes >= 1 && r.GetBool();
-            msg.Renewal = r.AvailableBytes >= 1 && r.GetBool();
+            msg.Dream = r.GetBool();
+            msg.Renewal = r.GetBool();
             return msg;
         }
     }
@@ -393,9 +375,9 @@ namespace DWMPHorde.Networking
                 HostPlayerId = r.GetInt(),
                 SessionPort = r.GetInt()
             };
-            int n = r.AvailableBytes >= 1 ? r.GetByte() : 0;
-            if (n < 0) n = 0;
-            if (n > 32) n = 32;
+            int n = r.GetByte();
+            if (n > 32)
+                throw new System.IO.InvalidDataException("PeerRoster entry count " + n);
             msg.Entries = new PeerRosterEntry[n];
             for (int i = 0; i < n; i++)
                 msg.Entries[i] = PeerRosterEntry.Deserialize(r);
@@ -512,18 +494,15 @@ namespace DWMPHorde.Networking
         {
             w.Put(NpcName ?? "");
             w.Put(Reputation);
-            // Trailer: hasAttackedId + int. Pre-0.8.93 peers stop after Reputation.
             w.Put(HasAttackedId);
             if (HasAttackedId)
                 w.Put(AttackedId);
-            // 0.8.94: hasDead + dead + deadID. Pre-0.8.94 peers stop after attacked trailer.
             w.Put(HasDead);
             if (HasDead)
             {
                 w.Put(Dead);
                 w.Put(DeadId);
             }
-            // 0.8.96: hasPortrait + portrait int + applyDialogue + pos. Pre-0.8.96 stop after dead.
             w.Put(HasPortrait);
             if (HasPortrait)
             {
@@ -533,7 +512,6 @@ namespace DWMPHorde.Networking
                 w.Put(PosY);
                 w.Put(PosZ);
             }
-            // 0.8.97: hasAnimLibrary + library string + pos. Pre-0.8.97 stop after portrait.
             w.Put(HasAnimLibrary);
             if (HasAnimLibrary)
             {
@@ -551,57 +529,31 @@ namespace DWMPHorde.Networking
                 NpcName = r.GetString(),
                 Reputation = r.GetInt()
             };
-            if (r.AvailableBytes >= 1)
+            msg.HasAttackedId = r.GetBool();
+            if (msg.HasAttackedId)
+                msg.AttackedId = r.GetInt();
+            msg.HasDead = r.GetBool();
+            if (msg.HasDead)
             {
-                msg.HasAttackedId = r.GetBool();
-                if (msg.HasAttackedId && r.AvailableBytes >= 4)
-                    msg.AttackedId = r.GetInt();
-                else
-                    msg.HasAttackedId = false;
+                msg.Dead = r.GetBool();
+                msg.DeadId = r.GetInt();
             }
-            // 0.8.94+: hasDead + bool + int. Pre-0.8.94: no trailer.
-            if (r.AvailableBytes >= 1)
+            msg.HasPortrait = r.GetBool();
+            if (msg.HasPortrait)
             {
-                msg.HasDead = r.GetBool();
-                if (msg.HasDead && r.AvailableBytes >= 5)
-                {
-                    msg.Dead = r.GetBool();
-                    msg.DeadId = r.GetInt();
-                }
-                else
-                    msg.HasDead = false;
+                msg.PortraitType = r.GetInt();
+                msg.ApplyDialoguePortrait = r.GetBool();
+                msg.PosX = r.GetFloat();
+                msg.PosY = r.GetFloat();
+                msg.PosZ = r.GetFloat();
             }
-            // 0.8.96+: hasPortrait + int + bool + 3 floats (18 bytes after flag).
-            if (r.AvailableBytes >= 1)
+            msg.HasAnimLibrary = r.GetBool();
+            if (msg.HasAnimLibrary)
             {
-                msg.HasPortrait = r.GetBool();
-                if (msg.HasPortrait && r.AvailableBytes >= 17)
-                {
-                    msg.PortraitType = r.GetInt();
-                    msg.ApplyDialoguePortrait = r.GetBool();
-                    msg.PosX = r.GetFloat();
-                    msg.PosY = r.GetFloat();
-                    msg.PosZ = r.GetFloat();
-                }
-                else
-                    msg.HasPortrait = false;
-            }
-            // 0.8.97+: hasAnimLibrary + string + 3 floats.
-            if (r.AvailableBytes >= 1)
-            {
-                msg.HasAnimLibrary = r.GetBool();
-                if (msg.HasAnimLibrary)
-                {
-                    msg.AnimLibraryName = r.GetString();
-                    if (r.AvailableBytes >= 12)
-                    {
-                        msg.PosX = r.GetFloat();
-                        msg.PosY = r.GetFloat();
-                        msg.PosZ = r.GetFloat();
-                    }
-                    else
-                        msg.HasAnimLibrary = false;
-                }
+                msg.AnimLibraryName = r.GetString();
+                msg.PosX = r.GetFloat();
+                msg.PosY = r.GetFloat();
+                msg.PosZ = r.GetFloat();
             }
             return msg;
         }
@@ -730,7 +682,7 @@ namespace DWMPHorde.Networking
     public struct JournalBulkSyncMessage
     {
         public string[] NoteTypes, KeyTypes, QuestItemTypes, JournalEntryTypes;
-        /// <summary>Journal locationsDict keys (0.8.61). AvailableBytes trailer.</summary>
+        /// <summary>Journal locationsDict keys.</summary>
         public string[] LocationTypes;
 
         public void Serialize(NetWriter w)
@@ -747,11 +699,9 @@ namespace DWMPHorde.Networking
                 NoteTypes = ReadArray(r),
                 KeyTypes = ReadArray(r),
                 QuestItemTypes = ReadArray(r),
-                JournalEntryTypes = ReadArray(r)
+                JournalEntryTypes = ReadArray(r),
+                LocationTypes = ReadArray(r)
             };
-            // Pre-0.8.61 peers omit LocationTypes; AvailableBytes-safe.
-            if (r.AvailableBytes >= 4)
-                msg.LocationTypes = ReadArray(r);
             return msg;
         }
 
@@ -845,23 +795,18 @@ namespace DWMPHorde.Networking
         public string[] NpcNames;
         public int[] Reputations;
         public bool[] Dead;
-        /// <summary>Host Flags.NPCState.wantsToTalk (0.8.55). End-of-message trailer; AvailableBytes-safe.</summary>
+        /// <summary>Host Flags.NPCState.wantsToTalk.</summary>
         public bool[] WantsToTalk;
-        /// <summary>Host Flags.NPCState.attackedID (0.8.93). Trailer after wantsToTalk.</summary>
+        /// <summary>Host Flags.NPCState.attackedID.</summary>
         public int[] AttackedIds;
-        /// <summary>Host Flags.NPCState.deadID (0.8.94). Trailer after attackedID; Dead bool is legacy.</summary>
+        /// <summary>Host Flags.NPCState.deadID.</summary>
         public int[] DeadIds;
-        /// <summary>
-        /// 0.8.115: sparse NPC.portraitType after GameEvent CharacterModify (live had this
-        /// on ReputationSync 0.8.96; bulk did not). Per-slot HasPortrait + payload.
-        /// </summary>
+        /// <summary>Sparse NPC.portraitType after GameEvent CharacterModify (per-slot HasPortrait + payload).</summary>
         public bool[] HasPortrait;
         public int[] PortraitTypes;
         public bool[] ApplyDialoguePortrait;
         public float[] PortraitPosX, PortraitPosY, PortraitPosZ;
-        /// <summary>
-        /// 0.8.115: sparse Character.animationLibraryOverride (live 0.8.97).
-        /// </summary>
+        /// <summary>Sparse Character.animationLibraryOverride (per-slot HasAnimLibrary + payload).</summary>
         public bool[] HasAnimLibrary;
         public string[] AnimLibraryNames;
         public float[] AnimPosX, AnimPosY, AnimPosZ;
@@ -874,153 +819,82 @@ namespace DWMPHorde.Networking
                 w.Put(NpcNames?[i] ?? "");
                 w.Put(Reputations != null && i < Reputations.Length ? Reputations[i] : 0);
                 w.Put(Dead != null && i < Dead.Length && Dead[i]);
-            }
-            // Trailer after legacy fields so 0.8.54 readers stop at Dead without desync.
-            w.Put(true); // hasWantsToTalkTrailer
-            for (int i = 0; i < NpcCount; i++)
                 w.Put(WantsToTalk == null || i >= WantsToTalk.Length || WantsToTalk[i]);
-            // 0.8.93: attackedID per NPC. Pre-0.8.93 peers stop after wantsToTalk.
-            w.Put(true); // hasAttackedIdTrailer
-            for (int i = 0; i < NpcCount; i++)
                 w.Put(AttackedIds != null && i < AttackedIds.Length ? AttackedIds[i] : 0);
-            // 0.8.94: deadID per NPC. Pre-0.8.94 peers stop after attackedID.
-            w.Put(true); // hasDeadIdTrailer
-            for (int i = 0; i < NpcCount; i++)
                 w.Put(DeadIds != null && i < DeadIds.Length ? DeadIds[i] : 0);
-            // 0.8.115: sparse portrait trailer. Pre-0.8.115 peers stop after deadID.
-            w.Put(true); // hasPortraitTrailer
-            for (int i = 0; i < NpcCount; i++)
-            {
-                bool has = HasPortrait != null && i < HasPortrait.Length && HasPortrait[i];
-                w.Put(has);
-                if (!has) continue;
-                w.Put(PortraitTypes != null && i < PortraitTypes.Length ? PortraitTypes[i] : 0);
-                w.Put(ApplyDialoguePortrait != null && i < ApplyDialoguePortrait.Length
-                    && ApplyDialoguePortrait[i]);
-                w.Put(PortraitPosX != null && i < PortraitPosX.Length ? PortraitPosX[i] : 0f);
-                w.Put(PortraitPosY != null && i < PortraitPosY.Length ? PortraitPosY[i] : 0f);
-                w.Put(PortraitPosZ != null && i < PortraitPosZ.Length ? PortraitPosZ[i] : 0f);
-            }
-            // 0.8.115: sparse anim-library trailer. Pre-0.8.115 peers stop after portrait.
-            w.Put(true); // hasAnimLibraryTrailer
-            for (int i = 0; i < NpcCount; i++)
-            {
-                bool has = HasAnimLibrary != null && i < HasAnimLibrary.Length && HasAnimLibrary[i];
-                w.Put(has);
-                if (!has) continue;
-                w.Put(AnimLibraryNames != null && i < AnimLibraryNames.Length
-                    ? (AnimLibraryNames[i] ?? "") : "");
-                w.Put(AnimPosX != null && i < AnimPosX.Length ? AnimPosX[i] : 0f);
-                w.Put(AnimPosY != null && i < AnimPosY.Length ? AnimPosY[i] : 0f);
-                w.Put(AnimPosZ != null && i < AnimPosZ.Length ? AnimPosZ[i] : 0f);
+
+                bool portrait = HasPortrait != null && i < HasPortrait.Length && HasPortrait[i];
+                w.Put(portrait);
+                if (portrait)
+                {
+                    w.Put(PortraitTypes != null && i < PortraitTypes.Length ? PortraitTypes[i] : 0);
+                    w.Put(ApplyDialoguePortrait != null && i < ApplyDialoguePortrait.Length
+                        && ApplyDialoguePortrait[i]);
+                    w.Put(PortraitPosX != null && i < PortraitPosX.Length ? PortraitPosX[i] : 0f);
+                    w.Put(PortraitPosY != null && i < PortraitPosY.Length ? PortraitPosY[i] : 0f);
+                    w.Put(PortraitPosZ != null && i < PortraitPosZ.Length ? PortraitPosZ[i] : 0f);
+                }
+
+                bool anim = HasAnimLibrary != null && i < HasAnimLibrary.Length && HasAnimLibrary[i];
+                w.Put(anim);
+                if (anim)
+                {
+                    w.Put(AnimLibraryNames != null && i < AnimLibraryNames.Length
+                        ? (AnimLibraryNames[i] ?? "") : "");
+                    w.Put(AnimPosX != null && i < AnimPosX.Length ? AnimPosX[i] : 0f);
+                    w.Put(AnimPosY != null && i < AnimPosY.Length ? AnimPosY[i] : 0f);
+                    w.Put(AnimPosZ != null && i < AnimPosZ.Length ? AnimPosZ[i] : 0f);
+                }
             }
         }
 
         public static ReputationBulkSyncMessage Deserialize(NetReader r)
         {
             var msg = new ReputationBulkSyncMessage { NpcCount = r.GetInt() };
-            if (msg.NpcCount < 0 || msg.NpcCount > 4096) msg.NpcCount = 0;
-            msg.NpcNames = new string[msg.NpcCount];
-            msg.Reputations = new int[msg.NpcCount];
-            msg.Dead = new bool[msg.NpcCount];
-            msg.WantsToTalk = new bool[msg.NpcCount];
-            msg.AttackedIds = new int[msg.NpcCount];
-            msg.DeadIds = new int[msg.NpcCount];
-            msg.HasPortrait = new bool[msg.NpcCount];
-            msg.PortraitTypes = new int[msg.NpcCount];
-            msg.ApplyDialoguePortrait = new bool[msg.NpcCount];
-            msg.PortraitPosX = new float[msg.NpcCount];
-            msg.PortraitPosY = new float[msg.NpcCount];
-            msg.PortraitPosZ = new float[msg.NpcCount];
-            msg.HasAnimLibrary = new bool[msg.NpcCount];
-            msg.AnimLibraryNames = new string[msg.NpcCount];
-            msg.AnimPosX = new float[msg.NpcCount];
-            msg.AnimPosY = new float[msg.NpcCount];
-            msg.AnimPosZ = new float[msg.NpcCount];
-            for (int i = 0; i < msg.NpcCount; i++)
+            if (msg.NpcCount < 0 || msg.NpcCount > 4096)
+                throw new System.IO.InvalidDataException("ReputationBulkSync NPC count " + msg.NpcCount);
+            int n = msg.NpcCount;
+            msg.NpcNames = new string[n];
+            msg.Reputations = new int[n];
+            msg.Dead = new bool[n];
+            msg.WantsToTalk = new bool[n];
+            msg.AttackedIds = new int[n];
+            msg.DeadIds = new int[n];
+            msg.HasPortrait = new bool[n];
+            msg.PortraitTypes = new int[n];
+            msg.ApplyDialoguePortrait = new bool[n];
+            msg.PortraitPosX = new float[n];
+            msg.PortraitPosY = new float[n];
+            msg.PortraitPosZ = new float[n];
+            msg.HasAnimLibrary = new bool[n];
+            msg.AnimLibraryNames = new string[n];
+            msg.AnimPosX = new float[n];
+            msg.AnimPosY = new float[n];
+            msg.AnimPosZ = new float[n];
+            for (int i = 0; i < n; i++)
             {
                 msg.NpcNames[i] = r.GetString();
                 msg.Reputations[i] = r.GetInt();
                 msg.Dead[i] = r.GetBool();
-                msg.WantsToTalk[i] = true; // fail open for talkTo() story gates
-            }
-            // 0.8.55+: bool hasTrailer + NpcCount wants bits. Pre-0.8.55: no trailer.
-            if (r.AvailableBytes >= 1 + msg.NpcCount)
-            {
-                bool hasTrailer = r.GetBool();
-                if (hasTrailer)
+                msg.WantsToTalk[i] = r.GetBool();
+                msg.AttackedIds[i] = r.GetInt();
+                msg.DeadIds[i] = r.GetInt();
+                msg.HasPortrait[i] = r.GetBool();
+                if (msg.HasPortrait[i])
                 {
-                    for (int i = 0; i < msg.NpcCount; i++)
-                        msg.WantsToTalk[i] = r.GetBool();
+                    msg.PortraitTypes[i] = r.GetInt();
+                    msg.ApplyDialoguePortrait[i] = r.GetBool();
+                    msg.PortraitPosX[i] = r.GetFloat();
+                    msg.PortraitPosY[i] = r.GetFloat();
+                    msg.PortraitPosZ[i] = r.GetFloat();
                 }
-            }
-            // 0.8.93+: bool hasTrailer + NpcCount ints. Pre-0.8.93: no trailer.
-            if (r.AvailableBytes >= 1 + 4 * msg.NpcCount)
-            {
-                bool hasAttacked = r.GetBool();
-                if (hasAttacked)
+                msg.HasAnimLibrary[i] = r.GetBool();
+                if (msg.HasAnimLibrary[i])
                 {
-                    for (int i = 0; i < msg.NpcCount; i++)
-                        msg.AttackedIds[i] = r.GetInt();
-                }
-            }
-            // 0.8.94+: bool hasTrailer + NpcCount ints. Pre-0.8.94: no trailer.
-            if (r.AvailableBytes >= 1 + 4 * msg.NpcCount)
-            {
-                bool hasDeadId = r.GetBool();
-                if (hasDeadId)
-                {
-                    for (int i = 0; i < msg.NpcCount; i++)
-                        msg.DeadIds[i] = r.GetInt();
-                }
-            }
-            // 0.8.115+: sparse portrait. Variable length — stop if bytes run out.
-            if (r.AvailableBytes >= 1)
-            {
-                bool hasPortraitTrailer = r.GetBool();
-                if (hasPortraitTrailer)
-                {
-                    for (int i = 0; i < msg.NpcCount; i++)
-                    {
-                        if (r.AvailableBytes < 1) break;
-                        bool has = r.GetBool();
-                        msg.HasPortrait[i] = has;
-                        if (!has) continue;
-                        if (r.AvailableBytes < 17)
-                        {
-                            msg.HasPortrait[i] = false;
-                            break;
-                        }
-                        msg.PortraitTypes[i] = r.GetInt();
-                        msg.ApplyDialoguePortrait[i] = r.GetBool();
-                        msg.PortraitPosX[i] = r.GetFloat();
-                        msg.PortraitPosY[i] = r.GetFloat();
-                        msg.PortraitPosZ[i] = r.GetFloat();
-                    }
-                }
-            }
-            // 0.8.115+: sparse anim library.
-            if (r.AvailableBytes >= 1)
-            {
-                bool hasAnimTrailer = r.GetBool();
-                if (hasAnimTrailer)
-                {
-                    for (int i = 0; i < msg.NpcCount; i++)
-                    {
-                        if (r.AvailableBytes < 1) break;
-                        bool has = r.GetBool();
-                        msg.HasAnimLibrary[i] = has;
-                        if (!has) continue;
-                        msg.AnimLibraryNames[i] = r.GetString();
-                        if (r.AvailableBytes < 12)
-                        {
-                            msg.HasAnimLibrary[i] = false;
-                            break;
-                        }
-                        msg.AnimPosX[i] = r.GetFloat();
-                        msg.AnimPosY[i] = r.GetFloat();
-                        msg.AnimPosZ[i] = r.GetFloat();
-                    }
+                    msg.AnimLibraryNames[i] = r.GetString();
+                    msg.AnimPosX[i] = r.GetFloat();
+                    msg.AnimPosY[i] = r.GetFloat();
+                    msg.AnimPosZ[i] = r.GetFloat();
                 }
             }
             return msg;
@@ -1188,10 +1062,9 @@ namespace DWMPHorde.Networking
                 TimeToFadeOutFog_Hours = r.GetFloat(),
                 TimeToFadeOutFog_Day = r.GetInt(),
                 FogFadedOutToday = r.GetBool(),
-                FogIsActive = r.GetBool()
+                FogIsActive = r.GetBool(),
+                Strike = r.GetByte()
             };
-            if (r.AvailableBytes >= 1)
-                msg.Strike = r.GetByte();
             return msg;
         }
     }

@@ -3,6 +3,22 @@ using UnityEngine;
 
 namespace DWMPHorde.Networking
 {
+    internal static class DreamWire
+    {
+        internal const int MaxPresets = 256;
+
+        internal static string[] ReadPresets(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0 || n > MaxPresets)
+                throw new System.IO.InvalidDataException("completed preset count " + n);
+            var presets = new string[n];
+            for (int i = 0; i < n; i++)
+                presets[i] = r.GetString();
+            return presets;
+        }
+    }
+
     public struct DreamStartedMessage
     {
         public string PresetName;
@@ -34,16 +50,9 @@ namespace DWMPHorde.Networking
                 LocPosZ = r.GetFloat(),
                 CompletedPresets = System.Array.Empty<string>()
             };
-            if (r.AvailableBytes >= 9)
-            {
-                msg.SessionId = r.GetInt();
-                msg.LvlFlags = r.GetByte();
-                int n = r.GetInt();
-                if (n < 0 || n > 256) n = 0;
-                msg.CompletedPresets = new string[n];
-                for (int i = 0; i < n; i++)
-                    msg.CompletedPresets[i] = r.GetString();
-            }
+            msg.SessionId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
             return msg;
         }
 
@@ -87,16 +96,9 @@ namespace DWMPHorde.Networking
                 OutcomeName = r.GetString(),
                 CompletedPresets = System.Array.Empty<string>()
             };
-            if (r.AvailableBytes >= 9)
-            {
-                msg.SessionId = r.GetInt();
-                msg.LvlFlags = r.GetByte();
-                int n = r.GetInt();
-                if (n < 0 || n > 256) n = 0;
-                msg.CompletedPresets = new string[n];
-                for (int i = 0; i < n; i++)
-                    msg.CompletedPresets[i] = r.GetString();
-            }
+            msg.SessionId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
             return msg;
         }
 
@@ -127,10 +129,8 @@ namespace DWMPHorde.Networking
         public static DreamStartRequestMessage Deserialize(NetReader r)
         {
             var msg = new DreamStartRequestMessage { PresetName = r.GetString() };
-            if (r.AvailableBytes >= 4)
-                msg.RequestId = r.GetInt();
-            if (r.AvailableBytes >= 1)
-                msg.LvlFlags = r.GetByte();
+            msg.RequestId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
             return msg;
         }
     }
@@ -172,30 +172,15 @@ namespace DWMPHorde.Networking
                 LvlFlags = r.GetByte(),
                 SessionActive = r.GetBool(),
                 ActivePreset = r.GetString(),
-                CompletedPresets = System.Array.Empty<string>(),
-                SessionId = 0
             };
-            int n = r.GetInt();
-            if (n < 0 || n > 256) n = 0;
-            msg.CompletedPresets = new string[n];
-            for (int i = 0; i < n; i++)
-                msg.CompletedPresets[i] = r.GetString();
-            // Older payloads may omit the trailing session ID.
-            if (r.AvailableBytes >= 4)
-                msg.SessionId = r.GetInt();
-            if (r.AvailableBytes >= 1)
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
+            msg.SessionId = r.GetInt();
+            msg.HasPadPosition = r.GetBool();
+            if (msg.HasPadPosition)
             {
-                msg.HasPadPosition = r.GetBool();
-                if (msg.HasPadPosition && r.AvailableBytes >= 12)
-                {
-                    msg.PadX = r.GetFloat();
-                    msg.PadY = r.GetFloat();
-                    msg.PadZ = r.GetFloat();
-                }
-                else
-                {
-                    msg.HasPadPosition = false;
-                }
+                msg.PadX = r.GetFloat();
+                msg.PadY = r.GetFloat();
+                msg.PadZ = r.GetFloat();
             }
             return msg;
         }
@@ -239,7 +224,7 @@ namespace DWMPHorde.Networking
         public static DreamChainStartMessage Deserialize(NetReader r) => new DreamChainStartMessage
         {
             NextPresetName = r.GetString(),
-            SessionId = r.AvailableBytes >= 4 ? r.GetInt() : 0
+            SessionId = r.GetInt()
         };
     }
 
@@ -421,7 +406,7 @@ namespace DWMPHorde.Networking
             ChapterId = r.GetInt(),
             LoadChapterSave = r.GetBool(),
             ExpectWorldShare = r.GetBool(),
-            AckRequired = r.AvailableBytes >= 1 && r.GetBool()
+            AckRequired = r.GetBool()
         };
     }
 
@@ -468,7 +453,7 @@ namespace DWMPHorde.Networking
                 Status = r.GetByte(),
                 Reason = r.GetString()
             };
-            msg.SharePass = r.AvailableBytes >= 4 ? r.GetInt() : 0;
+            msg.SharePass = r.GetInt();
             return msg;
         }
     }

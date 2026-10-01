@@ -17,8 +17,7 @@ namespace DWMPHorde.Networking
         /// </summary>
         public short HostPlayerId;
         /// <summary>
-        /// Client→host: install-scoped LAN StableClientKey (empty on host→client / old peers).
-        /// Optional trailing; AvailableBytes-safe.
+        /// Client→host: install-scoped LAN StableClientKey (empty on host→client).
         /// </summary>
         public string StableClientKey;
         /// <summary>
@@ -55,8 +54,10 @@ namespace DWMPHorde.Networking
                 ProtocolVersion = reader.GetInt(),
                 PlayerId = reader.GetShort(),
             };
-            // Older payloads may omit the trailing fields. Read each field only
-            // when enough bytes remain so a short payload stays parseable.
+            // The handshake is how a peer on another protocol is told so: everything after
+            // ProtocolVersion is read tolerantly, so any older or newer layout still parses far
+            // enough for HandleHandshake to reject it with a clear mismatch instead of a malformed
+            // packet drop.
             if (reader.AvailableBytes >= 1)
                 msg.AlreadyInWorld = reader.GetBool();
             if (reader.AvailableBytes >= 2)
@@ -270,15 +271,10 @@ namespace DWMPHorde.Networking
             }
 
             msg.AfterNightActive = reader.GetBool();
-            // Trailer: TrapNetId(int) + Remain(byte) + FlashAimY(short) = 7 bytes; + HasNightShadows bool = 8
-            if (reader.AvailableBytes >= 7)
-            {
-                msg.TrapNetId = reader.GetInt();
-                msg.HeldLightRemain01 = reader.GetByte();
-                msg.FlashAimY = reader.GetShort();
-                if (reader.AvailableBytes >= 1)
-                    msg.HasNightShadows = reader.GetBool();
-            }
+            msg.TrapNetId = reader.GetInt();
+            msg.HeldLightRemain01 = reader.GetByte();
+            msg.FlashAimY = reader.GetShort();
+            msg.HasNightShadows = reader.GetBool();
             return msg;
         }
     }
@@ -324,7 +320,7 @@ namespace DWMPHorde.Networking
                 CanCutInHalf = r.GetBool()
             };
             msg.Effects = SensorEffectWire.ReadList(r);
-            msg.IsMelee = r.AvailableBytes >= 1 && r.GetBool();
+            msg.IsMelee = r.GetBool();
             return msg;
         }
     }
@@ -363,17 +359,10 @@ namespace DWMPHorde.Networking
                 AttackerPosZ = r.GetFloat(),
                 CanCutInHalf = r.GetBool(),
                 ShowRedScreen = r.GetBool(),
-                // Older peers omit these trailers, so retain the default values.
-                NormalHit = true,
-                CanInterrupt = true
+                NormalHit = r.GetBool(),
+                CanInterrupt = r.GetBool()
             };
-            if (r.AvailableBytes > 0)
-                msg.NormalHit = r.GetBool();
-            if (r.AvailableBytes > 0)
-            {
-                msg.CanInterrupt = r.GetBool();
-                msg.Effects = SensorEffectWire.ReadList(r);
-            }
+            msg.Effects = SensorEffectWire.ReadList(r);
             return msg;
         }
     }
@@ -645,10 +634,8 @@ namespace DWMPHorde.Networking
                 PosZ = r.GetFloat(),
                 IsStopSignal = r.GetBool(),
                 ObjectName = r.GetString(),
-                StickToSender = true
+                StickToSender = r.GetBool()
             };
-            if (r.AvailableBytes >= 1)
-                msg.StickToSender = r.GetBool();
             return msg;
         }
     }
