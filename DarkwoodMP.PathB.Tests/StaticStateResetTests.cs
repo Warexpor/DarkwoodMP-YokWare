@@ -86,7 +86,7 @@ public class StaticStateResetTests
             string src = File.ReadAllText(f);
             foreach (Match m in ResetMethod.Matches(src))
             {
-                map.TryGetValue(m.Groups[1].Value, out string? prev);
+                map.TryGetValue(m.Groups[1].Value, out string prev);
                 map[m.Groups[1].Value] = (prev ?? "") + "\n" + MethodBody(src, m).ToLowerInvariant();
             }
         }
@@ -121,7 +121,7 @@ public class StaticStateResetTests
                 if (resetIn.Success)
                 {
                     string method = resetIn.Groups[1].Value;
-                    if (resetBodies.TryGetValue(method, out string? text) && text.Contains(Normalize(name)))
+                    if (resetBodies.TryGetValue(method, out string text) && text.Contains(Normalize(name)))
                         continue;
                     offenders.Add(rel + ": " + name + " (reset-in " + method + " missing or does not touch it)");
                     continue;
