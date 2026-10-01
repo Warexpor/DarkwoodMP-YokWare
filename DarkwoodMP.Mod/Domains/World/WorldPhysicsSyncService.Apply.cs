@@ -59,6 +59,10 @@ namespace DWMPHorde.Sync
                     if (go == null)
                     {
                         objFailed++;
+                        // Host: the object does not exist here, so it must not be relayed either
+                        // (another client would spawn its own copy). The handler compacts these out.
+                        if (!allowSpawn)
+                            state.Objects[oi].Name = null;
                         continue;
                     }
 
