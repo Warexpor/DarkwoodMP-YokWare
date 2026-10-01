@@ -64,6 +64,13 @@ namespace DWMPHorde.Patches
         private static readonly HashSet<int> Tracked = new HashSet<int>();
         private static readonly HashSet<int> DestroyQueued = new HashSet<int>();
 
+        /// <summary>Session end: drop anything a torn-down onCollide never released.</summary>
+        internal static void Reset()
+        {
+            Tracked.Clear();
+            DestroyQueued.Clear();
+        }
+
         internal static void NoteDestroyMe(GameObject go)
         {
             if (Tracked.Count == 0 || go == null)

@@ -35,6 +35,7 @@ namespace DWMPHorde.Patches
         {
             _lastProxyPlayerId = 0;
             _lastProxyEnterTime = -999f;
+            _lastProxyEnterPos = Vector3.zero;
         }
 
         public static Transform TryGetRecentProxyTransform(float maxAgeSec)

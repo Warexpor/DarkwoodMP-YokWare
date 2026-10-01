@@ -7,8 +7,8 @@ namespace DWMPHorde.Patches
 {
     public static class InventorySafety
     {
-        private static readonly List<Player> _playerBuffer = new List<Player>();
-        private static readonly List<Inventory> _invBuffer = new List<Inventory>();
+        private static readonly List<Player> _playerBuffer = new List<Player>(); // process-scoped: scratch buffer, cleared before each use
+        private static readonly List<Inventory> _invBuffer = new List<Inventory>(); // process-scoped: scratch buffer, cleared before each use
 
         public static void HealSlot(InvItemClass item)
         {

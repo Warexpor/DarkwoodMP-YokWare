@@ -4,6 +4,7 @@ using DWMPHorde.Spectator;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -11,6 +12,7 @@ namespace DWMPHorde.Patches
     /// Distance-cull world SFX so far-away networked sounds don't spam.
     /// Must NEVER touch menu music / global music / ambience.
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "_PlayAsSound")]
     public static class AudioSuppressionPatch
     {

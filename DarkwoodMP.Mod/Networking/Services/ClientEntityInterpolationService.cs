@@ -29,8 +29,8 @@ namespace DWMPHorde.Networking
         private static readonly Dictionary<short, EntityInterpState> _states = new Dictionary<short, EntityInterpState>(64);
         private static readonly Dictionary<short, Vector3> _displayPositions = new Dictionary<short, Vector3>(64);
         private static readonly Dictionary<short, float> _displayRotations = new Dictionary<short, float>(64);
-        private static readonly List<short> _stateKeys = new List<short>(64);
-        private static readonly List<short> _staleKeys = new List<short>(16);
+        private static readonly List<short> _stateKeys = new List<short>(64); // process-scoped: scratch buffer, cleared before each use
+        private static readonly List<short> _staleKeys = new List<short>(16); // process-scoped: scratch buffer, cleared before each use
 
         private const float SnapshotInterval = 0.1f;
         private const float MaxInterpDelay = 0.3f;
@@ -117,7 +117,7 @@ namespace DWMPHorde.Networking
         }
         private static readonly List<PendingEntry> _pendingMatches = new List<PendingEntry>(16);
         /// <summary>Scratch exclude set for phantom→real replace (no per-entity HashSet alloc).</summary>
-        private static readonly HashSet<short> _phantomReplaceExclude = new HashSet<short>();
+        private static readonly HashSet<short> _phantomReplaceExclude = new HashSet<short>(); // process-scoped: scratch buffer, cleared before each use
 
         private static float _firstSnapshotTime;
 

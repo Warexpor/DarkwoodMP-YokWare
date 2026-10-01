@@ -3,6 +3,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -19,7 +20,7 @@ namespace DWMPHorde.Patches
     internal static class EntitySoundSyncHelper
     {
         /// <summary>True while host <see cref="CharacterSounds.playEscapingLoop"/> runs (suppress nested Idle).</summary>
-        internal static bool InsideEscapingLoop;
+        internal static bool InsideEscapingLoop; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         private static float EntitySoundRange =>
             ClientEntityInterpolationService.ClientInterestDistance;
@@ -84,6 +85,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playIdleLoop", new[] { typeof(string), typeof(bool) })]
     public static class HostIdleLoopPatch
     {
@@ -108,6 +110,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "destroySounds")]
     public static class HostDestroySoundsPatch
     {
@@ -118,6 +121,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playGrowl")]
     public static class HostGrowlSoundPatch
     {
@@ -138,6 +142,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playEscapingLoop")]
     public static class HostEscapingSoundPatch
     {
@@ -164,6 +169,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playSingleInstance", new[] { typeof(string) })]
     public static class HostSingleInstanceSoundPatch
     {
@@ -213,6 +219,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "play", new[] { typeof(string), typeof(bool) })]
     public static class HostCharacterPlaySoundPatch
     {
@@ -252,6 +259,7 @@ namespace DWMPHorde.Patches
         }
     }
 
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playGetHitByAxe1")]
     public static class HostGetHitSoundPatch
     {
@@ -285,6 +293,7 @@ namespace DWMPHorde.Patches
     /// Client host-synced: die2 must be soundless — EntitySound Death is sole authority
     /// (prevents die2 + EntitySound + BeartrapDeath anim DeathSound triple).
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(Character), "die2")]
     public static class ClientDie2SoundlessPatch
     {
@@ -301,6 +310,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Client host-synced: foot SFX come from host PlayerAudio enemy path.</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(CharacterSounds), "playFootHitGround", new[] { typeof(float) })]
     public static class ClientFootHitSuppressPatch
     {

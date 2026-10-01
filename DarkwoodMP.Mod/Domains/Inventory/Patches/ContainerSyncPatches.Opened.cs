@@ -22,7 +22,7 @@ namespace DWMPHorde.Patches
         /// the 0.8.114 choke on <c>removeItemAmountFromPlayer</c> nests inside those
         /// and must not SendFullDiff again (duplicate RemoveItem → host deny/refund).
         /// </summary>
-        private static int _snapshotDepth;
+        private static int _snapshotDepth; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         internal static void PrefixSnapshot(ref ContainerSnapshotState state)
         {

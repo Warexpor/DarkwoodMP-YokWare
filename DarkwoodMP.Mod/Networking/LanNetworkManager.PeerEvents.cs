@@ -15,7 +15,7 @@ namespace DWMPHorde.Networking
     {
         private enum ForwardableKind { None, Direct, Player }
 
-        private static readonly Dictionary<NetMessageType, ForwardableKind> _forwardableMap = BuildForwardableMap();
+        private static readonly Dictionary<NetMessageType, ForwardableKind> _forwardableMap = BuildForwardableMap(); // process-scoped: built once from message attributes
 
         private static Dictionary<NetMessageType, ForwardableKind> BuildForwardableMap()
         {
@@ -31,7 +31,7 @@ namespace DWMPHorde.Networking
             return map;
         }
 
-        private static readonly HashSet<NetMessageType> _hostOnlyTypes = BuildHostOnlySet();
+        private static readonly HashSet<NetMessageType> _hostOnlyTypes = BuildHostOnlySet(); // process-scoped: constant type set
 
         private static HashSet<NetMessageType> BuildHostOnlySet()
         {

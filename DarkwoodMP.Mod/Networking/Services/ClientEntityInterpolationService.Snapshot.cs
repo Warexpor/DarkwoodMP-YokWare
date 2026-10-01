@@ -9,7 +9,7 @@ namespace DWMPHorde.Networking
     {
         /// <summary>Phantom → real re-match runs at most this often (full character scan per phantom).</summary>
         private const float PhantomRematchInterval = 1f;
-        private static float _nextPhantomRematchTime;
+        private static float _nextPhantomRematchTime; // process-scoped: rate limiter on the monotonic game clock
 
         public static void ApplySnapshot(EntityStateMessage msg)
         {

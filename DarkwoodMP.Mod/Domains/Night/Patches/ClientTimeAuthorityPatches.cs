@@ -7,39 +7,58 @@ namespace DWMPHorde.Patches
     /// The host is the sole day/night clock authority.
     /// Client must not advance CurrentTime / fire refreshTime edges, but must still
     /// run FixedUpdate inventory refresh (hotbar durability timers, etc.).
+    /// Gated on role (not peer count) so a brief host drop does not run the local clock;
+    /// the overridden value is restored once, on session end (<see cref="Reset"/>).
     /// </summary>
     [HarmonyPatch(typeof(Controller), "FixedUpdate")]
     public static class ClientTimeFixedUpdateSuppressPatch
     {
-        private static bool _forcedDoUpdateTimeOff;
+        /// <summary>Controller whose DoUpdateTime we forced off (vanilla wanted it on).</summary>
+        private static Controller _forcedOn;
+
+        internal static bool IsClientRole()
+        {
+            var net = ModRuntime.Network;
+            // Session = role set (not PeerCount>0): a peer-less moment is still the host's clock.
+            return net != null && CoopTimePolicy.ShouldSuppressClientClock(
+                net.Role != NetworkRole.Offline, net.Role == NetworkRole.Client);
+        }
+
+        /// <summary>Session end: hand the clock back to vanilla exactly once.</summary>
+        public static void Reset()
+        {
+            Controller ctrl = _forcedOn;
+            _forcedOn = null;
+            if (ctrl != null)
+                ctrl.DoUpdateTime = true;
+        }
 
         private static void Prefix(Controller __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected
-                || !CoopTimePolicy.ShouldSuppressClientClock(net.IsConnected, net.Role == NetworkRole.Client))
+            if (__instance == null) return;
+            if (!IsClientRole())
             {
-                // Restore if we left co-op while forced off.
-                if (_forcedDoUpdateTimeOff && __instance != null)
-                {
-                    __instance.DoUpdateTime = true;
-                    _forcedDoUpdateTimeOff = false;
-                }
+                if (_forcedOn == null) return;
+                // Promoted to host: migration already reclaimed the clock, never write here.
+                // Dropped to Offline without StopNetwork (failed promote): restore once now.
+                if (ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host)
+                    _forcedOn = null;
+                else
+                    Reset();
                 return;
             }
 
-            if (__instance == null) return;
             // Keep refreshActiveItemsInInventories; only block CurrentTime++ / refreshTime.
             if (__instance.DoUpdateTime)
             {
                 __instance.DoUpdateTime = false;
-                _forcedDoUpdateTimeOff = true;
+                _forcedOn = __instance;
             }
         }
     }
 
     /// <summary>
-    /// Belt-and-suspenders: if anything still calls refreshTime on a connected client
+    /// Belt-and-suspenders: if anything still calls refreshTime on a client
     /// (TimeSync used to; other systems might), strip day-chain edge handlers and only
     /// run ambient/clock UI. Host path unchanged.
     /// </summary>
@@ -48,10 +67,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Controller __instance, bool afterGameLoad)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
-                return true;
-            if (!CoopTimePolicy.ShouldSuppressClientClock(net.IsConnected, net.Role == NetworkRole.Client))
+            if (!ClientTimeFixedUpdateSuppressPatch.IsClientRole())
                 return true;
             // Applying remote TimeSync or any client-side refreshTime: no startDay/etc.
             try
@@ -76,11 +92,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix()
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
-                return true;
-            return !CoopTimePolicy.ShouldSuppressClientClock(
-                net.IsConnected, net.Role == NetworkRole.Client);
+            return !ClientTimeFixedUpdateSuppressPatch.IsClientRole();
         }
     }
 }

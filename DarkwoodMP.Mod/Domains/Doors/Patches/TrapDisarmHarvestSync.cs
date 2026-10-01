@@ -13,7 +13,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     public static class TrapDisarmHarvestTracker
     {
-        public static int SilentDisarmDepth;
+        public static int SilentDisarmDepth; // process-scoped: call-scoped, unwound by its Finalizer/finally
         public static bool IsSilentDisarm => SilentDisarmDepth > 0;
     }
 

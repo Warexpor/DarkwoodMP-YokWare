@@ -7,19 +7,26 @@ namespace DWMPHorde.Patches
 {
     internal static class ExplosionSpawnFlagTracker
     {
-        public static bool IsInsideSpawnObjects;
+        public static bool IsInsideSpawnObjects; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>True when spawnObjects() is running for a host-synced ThrownItem (duplicate of client throw).</summary>
-        public static bool IsHostSynced;
+        public static bool IsHostSynced; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>The Explodes instance whose onActivate() is currently executing. Set in Prefix, used by AddPrefab Postfix to filter out explosionPrefab.</summary>
-        public static Explodes CurrentExplodes;
+        public static Explodes CurrentExplodes; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>Re-entrancy counter: increments on Prefix, decrements on Postfix.
         /// Prevents nested explosions from clearing flags prematurely.</summary>
-        public static int ActivationDepth;
+        public static int ActivationDepth; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         // After local Explodes already ran spawnObjects (local stomp or SpawnExplosionVisual),
         // host may still send ExplosionSpawnObject for the same secondaries; debounce those.
         private static float _localExplodeFxUntil;
         private static Vector3 _localExplodeFxPos;
+
+        /// <summary>Session end: drop the local-explosion debounce window.</summary>
+        public static void Reset()
+        {
+            _localExplodeFxUntil = 0f;
+            _localExplodeFxPos = Vector3.zero;
+        }
 
         public static void NoteLocalExplodeFx(Vector3 pos)
         {
@@ -133,15 +140,11 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(Object), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabObjectPatch"/> (one detour for all features).</remarks>
     public static class ExplosionObjectSpawnSyncPatch
     {
-        private static void Postfix(ref GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, Object prefab, Vector3 position, Quaternion quaternion)
         {
-            UnityEngine.Object prefab = (UnityEngine.Object)__args[0];
-            Vector3 position = (Vector3)__args[1];
-            Quaternion quaternion = (Quaternion)__args[2];
-
             bool flag = ExplosionSpawnFlagTracker.IsInsideSpawnObjects;
             var log = ModRuntime.Log;
             if (flag && ModRuntime.VerboseLogging)

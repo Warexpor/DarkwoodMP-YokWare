@@ -218,6 +218,6 @@ namespace DWMPHorde.Networking
         /// <summary>GUIDs of dropped items that have already been picked up (host-authoritative).
         /// Prevents item multiplication when both players pick up the same GUID
         /// network message is processed.</summary>
-        internal static readonly HashSet<string> _consumedDropGuids = new HashSet<string>();
+        internal static readonly HashSet<string> _consumedDropGuids = new HashSet<string>(); // reset-in: ResetConsumedDropGuids
     }
 }

@@ -8,19 +8,89 @@ using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
+    /// <summary>
+    /// Per-instance component lookups for <see cref="HostCanSeeEnemyPatch"/> (canSeeEnemy
+    /// runs for every awake AI each think tick). Cleared on session reset.
+    /// </summary>
+    internal static class CanSeeComponentCache
+    {
+        private struct Entry
+        {
+            public Sniffer Sniffer;
+            public Collider Collider;
+        }
+
+        private const int MaxEntries = 4096;
+        private static readonly Dictionary<int, Entry> _byCharacter = new Dictionary<int, Entry>();
+        private static readonly Dictionary<int, bool> _isProxyTarget = new Dictionary<int, bool>();
+        private static int _hostPlayerId;
+        private static CharBase _hostCharBase;
+
+        internal static void Get(Character c, out Sniffer sniffer, out Collider collider)
+        {
+            int id = c.GetInstanceID();
+            if (!_byCharacter.TryGetValue(id, out Entry e))
+            {
+                if (_byCharacter.Count >= MaxEntries)
+                    _byCharacter.Clear();
+                e = new Entry { Sniffer = c.GetComponent<Sniffer>(), Collider = c.GetComponent<Collider>() };
+                _byCharacter[id] = e;
+            }
+            sniffer = e.Sniffer;
+            collider = e.Collider;
+        }
+
+        internal static CharBase HostCharBase()
+        {
+            Player p = Player.Instance;
+            if (p == null)
+                return null;
+            int id = p.GetInstanceID();
+            if (id != _hostPlayerId || _hostCharBase == null)
+            {
+                _hostPlayerId = id;
+                _hostCharBase = p.GetComponent<CharBase>();
+            }
+            return _hostCharBase;
+        }
+
+        internal static bool IsProxy(Transform target)
+        {
+            int id = target.GetInstanceID();
+            if (!_isProxyTarget.TryGetValue(id, out bool isProxy))
+            {
+                if (_isProxyTarget.Count >= MaxEntries)
+                    _isProxyTarget.Clear();
+                isProxy = target.GetComponent<RemotePlayerProxy>() != null;
+                _isProxyTarget[id] = isProxy;
+            }
+            return isProxy;
+        }
+
+        internal static void Reset()
+        {
+            _byCharacter.Clear();
+            _isProxyTarget.Clear();
+            _hostPlayerId = 0;
+            _hostCharBase = null;
+        }
+    }
+
     [HarmonyPatch(typeof(Character), "canSeeEnemy")]
     public static class HostCanSeeEnemyPatch
     {
         [HarmonyPriority(Priority.Last)]
         private static void Postfix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            // Solo host (no remotes yet / all left) keeps vanilla targeting untouched.
+            if (!HostPlayerIdentity.HostWithRemotes())
                 return;
             if (__instance.dummy || __instance.blind || !__instance.alive)
                 return;
 
             var net = LanNetworkManager.Instance;
             if (net == null) return;
+            CanSeeComponentCache.Get(__instance, out Sniffer entitySniffer, out Collider myCollider);
 
             // --- CASE 3: no or wrong target; acquire the closest player (host or proxy) ---
             // onlyAttackPlayer entities never set target on proxies via vanilla canSeeEnemy.
@@ -32,7 +102,7 @@ namespace DWMPHorde.Patches
                 Transform closestPlayer = null;
                 float closestD = float.MaxValue;
 
-                CharBase hostCB = Player.Instance?.GetComponent<CharBase>();
+                CharBase hostCB = CanSeeComponentCache.HostCharBase();
                 if (hostCB != null && !hostCB.invisible && !hostCB.ignoreMe
                     && __instance.charactersInSight.Contains(hostCB))
                 {
@@ -48,7 +118,7 @@ namespace DWMPHorde.Patches
                 if (!ProxyDistanceHelper.ProxyIsFar(__instance) && net != null)
                 {
                     float acqRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-                    Sniffer sn = __instance.GetComponent<Sniffer>();
+                    Sniffer sn = entitySniffer;
                     float sniffR = sn != null ? sn.radius : 0f;
                     if (sniffR > acqRange) acqRange = sniffR;
 
@@ -123,12 +193,12 @@ namespace DWMPHorde.Patches
             // --- CASE 1: Entity is already chasing a proxy ---
             // Check if the host is detectable and add to charactersInSight
             // so checkForNewEnemyCloserThanTarget can switch to the closer player.
-            if (__instance.target != null && __instance.target.GetComponent<RemotePlayerProxy>() != null)
+            if (__instance.target != null && CanSeeComponentCache.IsProxy(__instance.target))
             {
                 Player hostPlayer = Player.Instance;
                 if (hostPlayer == null) return;
 
-                CharBase hostCB = hostPlayer.GetComponent<CharBase>();
+                CharBase hostCB = CanSeeComponentCache.HostCharBase();
                 if (hostCB == null || hostCB.invisible || hostCB.ignoreMe) return;
                 if (__instance.charactersInSight.Contains(hostCB)) return;
 
@@ -153,8 +223,7 @@ namespace DWMPHorde.Patches
                 // Path B: smell detection bypasses FOV and raycast.
                 else
                 {
-                    Sniffer sniffer = __instance.GetComponent<Sniffer>();
-                    if (sniffer != null && distToHost < sniffer.radius)
+                    if (entitySniffer != null && distToHost < entitySniffer.radius)
                     {
                         __instance.charactersInSight.Add(hostCB);
                     }
@@ -171,9 +240,8 @@ namespace DWMPHorde.Patches
                     || __instance.target == Player.Instance._transform))
             {
                 float stickRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-                Sniffer stickSniff = __instance.GetComponent<Sniffer>();
-                if (stickSniff != null && stickSniff.radius > stickRange)
-                    stickRange = stickSniff.radius;
+                if (entitySniffer != null && entitySniffer.radius > stickRange)
+                    stickRange = entitySniffer.radius;
                 stickRange *= 1.5f;
                 float hostStickDist = Core.trueDistance(
                     __instance.transform.position, Player.Instance._transform.position);
@@ -185,7 +253,6 @@ namespace DWMPHorde.Patches
             // Find the closest detectable proxy and start chasing it.
             float maxDist = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
             float sniffRadius = 0f;
-            var entitySniffer = __instance.GetComponent<Sniffer>();
             if (entitySniffer != null)
                 sniffRadius = entitySniffer.radius;
             if (sniffRadius > maxDist)
@@ -219,7 +286,6 @@ namespace DWMPHorde.Patches
                 }
                 else
                 {
-                    Collider myCollider = __instance.GetComponent<Collider>();
                     if (Physics.Raycast(__instance.transform.position, toRemote, out var hit, dist, 18909185))
                     {
                         if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
@@ -264,7 +330,7 @@ namespace DWMPHorde.Patches
 
             // Closest-player identity replaces the old "only target proxy if host not visible"
             // that made the client second-class whenever host was still in sight list).
-            CharBase hostCharBase = Player.Instance?.GetComponent<CharBase>();
+            CharBase hostCharBase = CanSeeComponentCache.HostCharBase();
             bool hostVisible = hostCharBase != null && !hostCharBase.invisible && !hostCharBase.ignoreMe
                 && __instance.charactersInSight.Contains(hostCharBase);
             float hostDist = hostVisible && Player.Instance != null

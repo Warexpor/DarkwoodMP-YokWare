@@ -1,6 +1,7 @@
 using DWMPHorde.Config;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -58,6 +59,7 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>Rewrite Confined/Locked to None so Wine never ClipCursor-confines.</summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(UnityEngine.Cursor), "set_lockState")]
     public static class CursorLockStatePatch
     {

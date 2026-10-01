@@ -24,7 +24,7 @@ namespace DWMPHorde.Networking
         }
 
         private static readonly NetWriter _hotPacketWriter = new NetWriter();
-        private static byte[] _hotPacketBuf = Array.Empty<byte>();
+        private static byte[] _hotPacketBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>
         /// Hot-path packet build into recycled buffers. <paramref name="writeBody"/> must not

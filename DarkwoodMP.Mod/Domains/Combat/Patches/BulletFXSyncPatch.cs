@@ -43,17 +43,19 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class HitscanBloodPatch
     {
         private static float _lastBloodForwardTime = -1f;
         private static Vector3 _lastBloodForwardPos;
         private static string _lastBloodForwardPrefab;
 
-        [HarmonyPriority(Priority.Last)]
-        private static void Prefix(string prefab, Vector3 position, Quaternion quaternion)
+        /// <summary>Session end: forget the last forwarded splat (dedupe window).</summary>
+        internal static void Reset()
         {
-            TryForwardBlood(prefab, position, quaternion);
+            _lastBloodForwardTime = -1f;
+            _lastBloodForwardPos = Vector3.zero;
+            _lastBloodForwardPrefab = null;
         }
 
         /// <summary>

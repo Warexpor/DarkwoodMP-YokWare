@@ -70,7 +70,7 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `LogPreset` | `Support` | `Public` is quiet; `Support` adds session/join/combat plus `[Perf]`; `Dev` adds `LegacyInfo` dumps; `Trace` is maximum capture. Restart after changing it. |
+| `LogPreset` | `Support` | `Public` is quiet; `Support` adds session/join/combat (`[Perf]` only with `Debug.PerfProbe`); `Dev` adds `LegacyInfo` dumps and `[Perf]`; `Trace` is maximum capture. Restart after changing it. |
 | `LogMinLevel` | `Event` | `Error`, `Warn`, `Event`, `Info` or `Trace`. `LegacyInfo` runs on `LogPreset` Dev or Trace. |
 | `LogExtraCategories` | empty | Extra Event categories on top of the preset, comma separated: Core, Network, Session, Combat, Entity, Physics, Container, World, AI, Dream, Death, Audio, UI, Save. |
 | `LogTraceCategories` | `none` | Categories allowed to emit Trace when the preset is not full Trace, or `none`. |
@@ -87,3 +87,4 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 | `VerboseLightSync` | `false` | Transition-only light sync logs (flare/flash on/off, join bulk). |
 | `VerboseEntitySync` | `false` | Deep entity sync logs (anim, interpolation, hit reaction, damage, spawn/despawn), rate-limited. Also enables Entity/Combat/AI Trace under Support. Turn on for dual-box diagnosis. |
 | `FreeCursorForDualBox` | `false` | Force `Cursor.lockState = None` (skip vanilla Confined). Linux dual-box testers on Hyprland/Wayland with a Wine/Proton SecondDarkwood set this to `true`: Confined ClipCursor traps the mouse and the blur-release can freeze the Wine window. Leave false for normal single-window play. |
+| `PerfProbe` | `false` | Co-op frame-cost probe: per-frame timing plus a `[Perf]` line every 2 s while connected. Always on under `LogPreset` Dev/Trace; set `true` to capture it under Support/Public. |

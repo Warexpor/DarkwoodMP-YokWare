@@ -254,7 +254,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class WorldPickupWireGuard
     {
-        private static int _depth;
+        private static int _depth; // process-scoped: call-scoped, unwound by its Finalizer/finally
         public static bool IsActive => _depth > 0;
         public static void Begin() => _depth++;
         public static void End()
@@ -269,8 +269,8 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class TrapPickupGuard
     {
-        private static int _depth;
-        private static Inventory _inv;
+        private static int _depth; // process-scoped: call-scoped, unwound by its Finalizer/finally
+        private static Inventory _inv; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         public static bool IsActive => _depth > 0;
 
