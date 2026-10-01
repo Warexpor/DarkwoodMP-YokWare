@@ -28,7 +28,7 @@ namespace DWMPHorde.Sync
         /// <summary>Tracked count at which destroyed entries are swept from the list and every map.</summary>
         private static int _pruneAtCount = PruneBaseCount;
         private const int PruneBaseCount = 512;
-        private static readonly List<Character> _pruneKeys = new List<Character>();
+        private static readonly List<Character> _pruneKeys = new List<Character>(); // process-scoped: scratch
         private const string CloneSuffix = "(Clone)";
 
         /// <summary>
@@ -264,7 +264,7 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        private static Character[] _copyBuf = new Character[64];
+        private static Character[] _copyBuf = new Character[64]; // process-scoped: scratch
 
         /// <summary>
         /// Copy tracked characters into a reusable buffer. Returns count.
@@ -348,7 +348,7 @@ namespace DWMPHorde.Sync
                 _recycleGraceUntil.Remove(_recycleGraceScratch[i]);
         }
 
-        private static readonly List<short> _recycleGraceScratch = new List<short>(16);
+        private static readonly List<short> _recycleGraceScratch = new List<short>(16); // process-scoped: scratch
 
         private static void HoldRecycledId(short sid)
         {

@@ -23,7 +23,7 @@ namespace DWMPHorde
         }
 
         /// <summary>Controller.day at the host's last morning edge (startDay); -1 when none.</summary>
-        private static int _hostMorningEdgeDay = -1;
+        private static int _hostMorningEdgeDay = -1; // reset-in: ResetSession
 
         /// <summary>
         /// Host: this day's morning edge already ran and the host's own clock is outside the

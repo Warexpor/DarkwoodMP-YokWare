@@ -6,7 +6,7 @@ namespace DWMPHorde.Players
 {
     public static class PlayerControlRouter
     {
-        private static Player _main;
+        private static Player _main; // process-scoped: the local player, re-registered by registerMe on each world load
         private static readonly Dictionary<int, Player> _proxies = new Dictionary<int, Player>();
 
         public static Player MainPlayer => _main;
@@ -50,6 +50,16 @@ namespace DWMPHorde.Players
         }
 
         private static int _nextAutoId = -1;
+
+        /// <summary>
+        /// Network stop: every registered proxy belongs to the session (StopNetwork destroys them),
+        /// and Unity destroys them only at frame end, so HasSecond would stay true until then.
+        /// </summary>
+        internal static void Reset()
+        {
+            _proxies.Clear();
+            _nextAutoId = -1;
+        }
 
         /// <summary>
         /// Idempotent: a local co-op clone is registered by PlayerProxyBuilder and again by the

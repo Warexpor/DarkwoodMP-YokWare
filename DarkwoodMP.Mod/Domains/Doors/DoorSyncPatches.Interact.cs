@@ -20,7 +20,7 @@ namespace DWMPHorde.Sync
         /// True while vanilla switchMe runs: it calls switchOn/switchOff itself, and those patches
         /// must not send a second (duplicate, well-heal-ignoring) message for the same toggle.
         /// </summary>
-        [ThreadStatic] private static int _insideSwitchMe;
+        [ThreadStatic] private static int _insideSwitchMe; // process-scoped: call-scoped, unwound by Finalizer
         internal static bool InsideSwitchMe => _insideSwitchMe > 0;
 
         private static void Prefix(InteractiveItem __instance, out bool __state)

@@ -17,7 +17,7 @@ namespace DWMPHorde.Patches
     {
         private static string _cached;
         private static bool _logged;
-        private static bool _swapRecoveryDone;
+        private static bool _swapRecoveryDone; // process-scoped: once per process, before any profile read
 
         private static void Postfix(ref string __result)
         {

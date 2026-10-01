@@ -39,6 +39,8 @@ namespace DWMPHorde.Sync
             _pendingDiscoveries.Clear();
             _discoveryLookup.Clear();
             _discoveryLookupSource = null;
+            _nextDiscoveryFlushAt = 0f;
+            _lastDiscoveryRescanAt = -999f;
         }
 
         internal static void QueuePendingDiscovery(string elementName)

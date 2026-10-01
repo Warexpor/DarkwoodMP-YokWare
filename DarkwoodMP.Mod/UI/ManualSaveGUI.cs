@@ -19,7 +19,7 @@ namespace DWMPHorde
 
     public sealed class ManualSaveGUI : MonoBehaviour
     {
-        private static ManualSaveGUI _instance;
+        private static ManualSaveGUI _instance; // process-scoped: UI singleton
         private bool _visible;
         private Rect _windowRect;
         private bool _windowRectInitialized;

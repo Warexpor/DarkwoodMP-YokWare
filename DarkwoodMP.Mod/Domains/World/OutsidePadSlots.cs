@@ -68,6 +68,16 @@ namespace DWMPHorde.Sync
         // ---- state ----------------------------------------------------------------------------
 
         /// <summary>
+        /// Network stop: host-assigned slots belong to that session. The host re-derives its map
+        /// from the live pad transforms on the next allocation (see <see cref="SeedFromWorld"/>).
+        /// </summary>
+        internal static void Reset()
+        {
+            Logic.Reset();
+            _owner = null;
+        }
+
+        /// <summary>
         /// Bind to the current <see cref="OutsideLocations"/>. A new instance (new world / chapter load)
         /// means every previous assignment is meaningless.
         /// </summary>

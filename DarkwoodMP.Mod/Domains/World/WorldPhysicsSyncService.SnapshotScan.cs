@@ -358,7 +358,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Returns true if the GameObject has a component with a trap-related boolean field.</summary>
-        private static readonly List<Component> _trapCompScratch = new List<Component>(8);
+        private static readonly List<Component> _trapCompScratch = new List<Component>(8); // process-scoped: scratch
 
         private static bool HasTrapField(GameObject go)
         {

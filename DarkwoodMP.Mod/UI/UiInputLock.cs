@@ -20,10 +20,10 @@ namespace DWMPHorde
     /// </summary>
     public static class UiInputLock
     {
-        private static readonly HashSet<string> Owners = new HashSet<string>();
-        private static bool _forced;
-        private static int _releasedFrame = -1;
-        private static GameObject _driverGo;
+        private static readonly HashSet<string> Owners = new HashSet<string>(); // process-scoped: overlay owners re-Set every frame; ModRuntime.Stop calls ReleaseAll
+        private static bool _forced; // process-scoped: overlay input lock
+        private static int _releasedFrame = -1; // process-scoped: overlay input lock
+        private static GameObject _driverGo; // process-scoped: DontDestroyOnLoad driver
 
         /// <summary>True while any overlay holds the lock.</summary>
         public static bool IsHeld => Owners.Count > 0;

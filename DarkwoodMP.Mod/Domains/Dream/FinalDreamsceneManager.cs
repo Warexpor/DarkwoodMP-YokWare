@@ -248,6 +248,7 @@ namespace DWMPHorde.Sync
             _isActive = false;
             _localDeadInDream = false;
             _ending = false;
+            AllowDeathEndPass = false;
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
         }

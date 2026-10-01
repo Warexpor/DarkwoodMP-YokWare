@@ -60,6 +60,7 @@ namespace DWMPHorde.Sync
         public static void ResetTransientFlags()
         {
             _explicitApplyingFromNetwork = false;
+            WorldPhysicsSyncService._suppressBroadcast = false;
             InsideCharacterSounds = false;
             IsInsideLocalExplosion = false;
             IsInsidePlayerBulletCollision = false;
@@ -117,11 +118,11 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static MethodInfo _doorOpenMethod;
-        private static MethodInfo _doorCloseMethod;
-        private static ParameterInfo[] _doorOpenPars = Array.Empty<ParameterInfo>();
-        private static ParameterInfo[] _doorClosePars = Array.Empty<ParameterInfo>();
-        private static object[] _doorInvokeArgs = Array.Empty<object>();
+        private static MethodInfo _doorOpenMethod; // process-scoped: reflection cache
+        private static MethodInfo _doorCloseMethod; // process-scoped: reflection cache
+        private static ParameterInfo[] _doorOpenPars = Array.Empty<ParameterInfo>(); // process-scoped: reflection cache
+        private static ParameterInfo[] _doorClosePars = Array.Empty<ParameterInfo>(); // process-scoped: reflection cache
+        private static object[] _doorInvokeArgs = Array.Empty<object>(); // process-scoped: scratch
 
         private static void EnsureDoorMethodsCached()
         {

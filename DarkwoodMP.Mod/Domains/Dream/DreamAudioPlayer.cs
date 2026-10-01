@@ -63,7 +63,7 @@ namespace DWMPHorde.Sync
             source.PlayOneShot(clip, Mathf.Clamp01(vol * itemScale));
         }
 
-        public static void Cleanup()
+        public static void Reset()
         {
             if (!_initialized) return;
             if (_sources != null && _sources.Length > 0 && _sources[0] != null)

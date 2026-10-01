@@ -348,12 +348,12 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        private static WorldObjectState[] _snapObjects = Array.Empty<WorldObjectState>();
-        private static DoorState[] _snapDoors = Array.Empty<DoorState>();
-        private static TrapState[] _snapTraps = Array.Empty<TrapState>();
-        private static GeneratorState[] _snapGenerators = Array.Empty<GeneratorState>();
-        private static readonly List<Vector3> _proxyScanPositions = new List<Vector3>(8);
-        private static readonly List<int> _snapStaleIntKeys = new List<int>(16);
+        private static WorldObjectState[] _snapObjects = Array.Empty<WorldObjectState>(); // process-scoped: scratch
+        private static DoorState[] _snapDoors = Array.Empty<DoorState>(); // process-scoped: scratch
+        private static TrapState[] _snapTraps = Array.Empty<TrapState>(); // process-scoped: scratch
+        private static GeneratorState[] _snapGenerators = Array.Empty<GeneratorState>(); // process-scoped: scratch
+        private static readonly List<Vector3> _proxyScanPositions = new List<Vector3>(8); // process-scoped: scratch
+        private static readonly List<int> _snapStaleIntKeys = new List<int>(16); // process-scoped: scratch
 
         private static void CopyGrow<T>(List<T> src, ref T[] buf, out int count)
         {

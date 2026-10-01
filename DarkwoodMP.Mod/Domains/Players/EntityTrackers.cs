@@ -11,7 +11,7 @@ namespace DWMPHorde.Sync
     public static class ListTracker<T> where T : Component
     {
         private static readonly List<T> _items = new List<T>(64);
-        private static float _lastCleanupTime;
+        private static float _lastCleanupTime; // process-scoped: prune throttle
         private const float CleanupInterval = 30f;
 
         /// <summary>Returns the tracked list (may contain nulls between cleanups).</summary>

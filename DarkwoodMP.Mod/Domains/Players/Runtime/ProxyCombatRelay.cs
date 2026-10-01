@@ -16,8 +16,8 @@ namespace DWMPHorde.Players
             public int VictimId;
         }
 
-        private static readonly HashSet<PairKey> GetHitMarkedThisFrame = new HashSet<PairKey>();
-        private static int _lastFrame = -1;
+        private static readonly HashSet<PairKey> GetHitMarkedThisFrame = new HashSet<PairKey>(); // process-scoped: per-frame set, cleared on frame change
+        private static int _lastFrame = -1; // process-scoped: per-frame set, cleared on frame change
 
         private static void EnsureFrame()
         {

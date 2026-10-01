@@ -236,8 +236,8 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static int _aggroLogCounter;
-        private static float _lastAggroLogTime;
+        private static int _aggroLogCounter; // process-scoped: log throttle
+        private static float _lastAggroLogTime; // process-scoped: log throttle
 
         /// <summary>
         /// Host tick: make hostile Characters notice remote proxies (FOV/smell/nearView).

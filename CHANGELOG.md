@@ -115,8 +115,10 @@ manual-save load, and a Steam client that drops and rejoins.
   own registry.
 - Wire messages read exactly what they write; the dead "older peer" trailer branches are
   removed (the handshake already refuses other protocols).
-- Session statics found leaking are reset, and a structural test requires every new
-  session static to be reset or marked process-scoped.
+- Session statics found leaking are reset (pending light queue times, dream story-end
+  deferral, unused final-dream death pass, client pad-slot owners, proxy registry, voice
+  walkie/linger flags, among others), and a structural test over every runtime folder
+  requires each static to be reset on network stop or marked process-scoped.
 - Tests: a reflection round-trip over all 136 message types, carried-state round trips,
   whole-tree Harmony rules (Finalizer for Prefix/Postfix flags, coroutine prefixes,
   narrow exception swallowing) replace the source-text greps; the 500-line file cap is

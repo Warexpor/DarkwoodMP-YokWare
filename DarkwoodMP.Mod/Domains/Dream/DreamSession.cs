@@ -26,7 +26,7 @@ namespace DWMPHorde.Sync
         public static string PresetName { get; private set; }
         public static int SessionId { get; private set; }
 
-        private static int _nextSessionId = 1;
+        private static int _nextSessionId = 1; // process-scoped: must stay monotonic across reconnects (peers compare session ids)
         private static readonly HashSet<string> _completedPresets =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -52,7 +52,7 @@ namespace DWMPHorde.Sync
 
         /// <summary>How long a session may sit in Starting before the watchdog cleans it up.</summary>
         private const float StartingTimeoutSec = 60f;
-        private static int _startingEpoch;
+        private static int _startingEpoch; // process-scoped: monotonic watchdog epoch
 
         public static bool IsActive =>
             Current == State.Starting || Current == State.Active || Current == State.Ending;

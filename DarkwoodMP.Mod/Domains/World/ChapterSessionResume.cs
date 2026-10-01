@@ -20,7 +20,7 @@ namespace DWMPHorde.Sync
         private static bool _wasHost;
         private static int _port;
         private static string _hostAddress;
-        private static bool _hooked;
+        private static bool _hooked; // process-scoped: hook-installed flag
         private static bool _steam;
         private static ulong _steamLobbyId;
         private static Dictionary<string, int> _hostRoster;

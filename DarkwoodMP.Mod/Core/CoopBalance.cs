@@ -15,7 +15,7 @@ namespace DWMPHorde
         /// Hideout furnace fuels — type keys from EN_Items.bytes (*_name).
         /// Also scaled: any vanilla prefab with isExpItem (ItemDoublePickupPatch).
         /// </summary>
-        public static readonly HashSet<string> UpgradeItemTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        public static readonly HashSet<string> UpgradeItemTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) // process-scoped: static item table
         {
             "exp_mushroom",              // Odd-looking mushroom
             "exp_nightMushroom",         // Odd-looking, glowing mushroom
@@ -35,8 +35,8 @@ namespace DWMPHorde
             "exp_bio3_nightMushroom_01"
         };
 
-        private static string _cachedAllowlistRaw;
-        private static HashSet<string> _cachedNpcAllowlist;
+        private static string _cachedAllowlistRaw; // process-scoped: config cache keyed by the raw value
+        private static HashSet<string> _cachedNpcAllowlist; // process-scoped: config cache keyed by the raw value
 
         /// <summary>
         /// Party loot/NPC multiplier. Offline or Off → 1;

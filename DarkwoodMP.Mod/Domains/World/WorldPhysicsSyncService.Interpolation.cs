@@ -255,13 +255,13 @@ namespace DWMPHorde.Sync
                 gen.setLowPower(lowPower);
         }
 
-        private static float _nextDreamPropColliderBroadcast;
+        private static float _nextDreamPropColliderBroadcast; // process-scoped: rate limit
         private const float DreamPropColliderMinInterval = 0.35f;
-        private static Item[] _dreamPropItemsCache;
-        private static int _dreamPropItemsRootId;
-        private static readonly System.Collections.Generic.List<DreamPropColliderMessage.Entry> _dreamPropEntries =
+        private static Item[] _dreamPropItemsCache; // reset-in: ResetCore
+        private static int _dreamPropItemsRootId; // reset-in: ResetCore
+        private static readonly System.Collections.Generic.List<DreamPropColliderMessage.Entry> _dreamPropEntries = // process-scoped: scratch
             new System.Collections.Generic.List<DreamPropColliderMessage.Entry>(64);
-        private static DreamPropColliderMessage.Entry[] _dreamPropEntryBuf =
+        private static DreamPropColliderMessage.Entry[] _dreamPropEntryBuf = // process-scoped: scratch
             System.Array.Empty<DreamPropColliderMessage.Entry>();
 
         /// <summary>Drop pad Item cache on dream enter/exit so collider fan-out rescans.</summary>
@@ -424,6 +424,6 @@ namespace DWMPHorde.Sync
         /// LightState that arrived before the Item existed (unloaded location grid).
         /// Flushed by <see cref="TryFlushPendingLights"/> once the world is ready.
         /// </summary>
-        private static readonly List<LightStateMessage> _pendingLights = new List<LightStateMessage>(32);
+        private static readonly List<LightStateMessage> _pendingLights = new List<LightStateMessage>(32); // reset-in: ResetCore
     }
 }
