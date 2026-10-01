@@ -93,16 +93,10 @@ namespace DWMPHorde.Networking
                 LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
                 PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
-                _handshakeComplete = false;
-                _handshakedPeers.Clear();
-                _rejectedPeers.Clear();
-                _awaitingLateJoinBulk.Clear();
-                _pendingHeavyLateJoinBulk.Clear();
-                _peersLoadingWorld.Clear();
-                _peersCoopReconnect.Clear();
-                _hostWasShareableForWaitingClients = false;
-                _hostWorldReadyEmitted = false;
-                _clientHostWorldReady = false;
+                _session.Link = new LinkState();
+                _session.HostWasShareableForWaitingClients = false;
+                _session.HostWorldReadyEmitted = false;
+                _session.ClientHostWorldReady = false;
                 NoteSoftReconnectAttempt(address, port, 0);
             }
             else
@@ -160,9 +154,6 @@ namespace DWMPHorde.Networking
             _dragScrapeQuietSince = -1f;
             PlayerInteractHandlers?.ClearDragSessionState();
             DWMPHorde.Audio.MovingObjectSoundService.Reset();
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
-            _rejectedPeers.Clear();
             // Clean up per-player light objects before clearing state
             foreach (var state in _remotePlayers.Values)
             {
@@ -174,7 +165,6 @@ namespace DWMPHorde.Networking
             _remotePlayers.Clear();
             ShutdownSteamBackend(leaveLobby: !keepSteamLobby);
             ClearAllPeerSlots();
-            ClearAllStableClientKeys();
             ResetWorldIdentityState();
             _sendTimer = 0f;
             _nextPlayerStateSequence = 0;

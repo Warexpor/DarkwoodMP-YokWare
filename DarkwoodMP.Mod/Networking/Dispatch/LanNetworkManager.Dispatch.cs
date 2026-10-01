@@ -31,8 +31,6 @@ namespace DWMPHorde.Networking
             NetMessageType.GasTrailSpawn,
         };
 
-        /// <summary>Host: last PlayerLightState / PlayerAnimLibrary body per client (key = playerId, type).</summary>
-        private readonly Dictionary<long, byte[]> _stickyPlayerPayloads = new Dictionary<long, byte[]>();
 
         private static long StickyKey(int playerId, NetMessageType type)
             => ((long)playerId << 8) | (byte)type;
@@ -40,8 +38,8 @@ namespace DWMPHorde.Networking
         /// <summary>Host: forget a leaver's cached presentation state.</summary>
         private void ClearStickyPlayerPayloads(int playerId)
         {
-            _stickyPlayerPayloads.Remove(StickyKey(playerId, NetMessageType.PlayerLightState));
-            _stickyPlayerPayloads.Remove(StickyKey(playerId, NetMessageType.PlayerAnimLibrary));
+            _session.StickyPlayerPayloads.Remove(StickyKey(playerId, NetMessageType.PlayerLightState));
+            _session.StickyPlayerPayloads.Remove(StickyKey(playerId, NetMessageType.PlayerAnimLibrary));
         }
 
         /// <summary>
@@ -50,9 +48,9 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void ReplayStickyPlayerStateTo(int joinerId)
         {
-            if (_stickyPlayerPayloads.Count == 0)
+            if (_session.StickyPlayerPayloads.Count == 0)
                 return;
-            foreach (var kv in _stickyPlayerPayloads)
+            foreach (var kv in _session.StickyPlayerPayloads)
             {
                 int origin = (int)(kv.Key >> 8);
                 var innerType = (NetMessageType)(byte)(kv.Key & 0xFF);
@@ -139,9 +137,9 @@ namespace DWMPHorde.Networking
             string why = null;
             if (_currentReceivePlayerId <= 0)
                 why = "unknown peer";
-            else if (_rejectedPeers.Contains(_currentReceivePlayerId))
+            else if (_session.Link.Rejected.Contains(_currentReceivePlayerId))
                 why = "refused peer";
-            else if (type != NetMessageType.Handshake && !_handshakedPeers.Contains(_currentReceivePlayerId))
+            else if (type != NetMessageType.Handshake && !_session.Link.Handshaked.Contains(_currentReceivePlayerId))
                 why = "no handshake yet";
             else if (_hostOnlyTypes.Contains(type))
                 why = "host-only type";
@@ -255,7 +253,7 @@ namespace DWMPHorde.Networking
             // carried the host's own light / anim library, so a client who joined after another
             // client lit a lantern or equipped a weapon saw that player bare).
             if (sender > 1 && (type == NetMessageType.PlayerLightState || type == NetMessageType.PlayerAnimLibrary))
-                _stickyPlayerPayloads[StickyKey(sender, type)] = body;
+                _session.StickyPlayerPayloads[StickyKey(sender, type)] = body;
 
             if (!_forwardableMap.TryGetValue(type, out var fwdKind))
                 return;

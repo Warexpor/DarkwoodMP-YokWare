@@ -203,7 +203,7 @@ namespace DWMPHorde.Networking
                 // local lease maps so talk is not blocked until 90s expiry.
                 Sync.NpcDialogueLock.ReleaseAllForPlayer(id);
                 WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
-                _remoteOutsideLocation.Remove(id);
+                _session.RemoteOutsideLocation.Remove(id);
                 _remotePlayers.Remove(id);
                 PlayerPositionManager.RemovePlayer(id);
                 DestroyRemoteFlareLight(id);

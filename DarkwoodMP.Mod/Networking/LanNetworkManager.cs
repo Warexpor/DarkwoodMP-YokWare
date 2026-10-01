@@ -23,6 +23,12 @@ namespace DWMPHorde.Networking
         public const float SendInterval = 0.033f;
 
         private NetManager _net;
+        /// <summary>
+        /// Per-session peer bookkeeping. StopNetwork replaces it; a transport stop (migration, soft
+        /// reconnect) replaces its <see cref="SessionState.Link"/>.
+        /// </summary>
+        private SessionState _session = new SessionState();
+
         /// <summary>LAN (LiteNetLib) peers by player id.</summary>
         private readonly LanPeerTable _lanPeers = new LanPeerTable();
         private NetworkRole _role = NetworkRole.Offline;
@@ -36,11 +42,8 @@ namespace DWMPHorde.Networking
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
         private uint _nextPlayerStateSequence;
-        private readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
-        internal Dictionary<int, uint> LastPhysicsStateSequence => _lastPhysicsStateSequence;
-        private readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
-        internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _lastReliablePhysicsStateSequence;
-        private readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
+        internal Dictionary<int, uint> LastPhysicsStateSequence => _session.Link.LastPhysicsStateSequence;
+        internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _session.Link.LastReliablePhysicsStateSequence;
         private float _proxyAggroTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
@@ -49,7 +52,7 @@ namespace DWMPHorde.Networking
 
         internal bool WasDragging { get => _wasDragging; set => _wasDragging = value; }
         internal string LastDraggedItemName { get => _lastDraggedItemName; set => _lastDraggedItemName = value; }
-        internal Dictionary<int, uint> LastPlayerStateSequence => _lastPlayerStateSequence;
+        internal Dictionary<int, uint> LastPlayerStateSequence => _session.Link.LastPlayerStateSequence;
         internal Dictionary<string, Vector3> LastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
         internal Dictionary<string, float> DragEndedAt => PlayerInteractHandlers.DragEndedAt;
         /// <summary>Local E-drag scrape intent (player walking). False → reliable quiet stop for peers.</summary>
@@ -59,17 +62,11 @@ namespace DWMPHorde.Networking
         private const float DragScrapeStopSpeed = 1f;
         private const float DragScrapeStopGrace = 0.05f;
 
-        /// <summary>
-        /// Local side is ready to exchange gameplay traffic.
-        /// Host: true once at least one peer has completed handshake (never cleared when more peers join).
-        /// Client: true after receiving host handshake.
-        /// </summary>
-        private bool _handshakeComplete;
 
         internal bool HandshakeComplete
         {
-            get => _handshakeComplete;
-            set => _handshakeComplete = value;
+            get => _session.Link.HandshakeComplete;
+            set => _session.Link.HandshakeComplete = value;
         }
 
         internal bool AcceptSnapshotSequence(
@@ -103,14 +100,8 @@ namespace DWMPHorde.Networking
         /// Per-peer handshake tracking on the host. Prevents a newly joining peer from
         /// freezing gameplay traffic for peers that are already ready.
         /// </summary>
-        internal HashSet<int> HandshakedPeers => _handshakedPeers;
-        private readonly HashSet<int> _handshakedPeers = new HashSet<int>();
+        internal HashSet<int> HandshakedPeers => _session.Link.Handshaked;
 
-        /// <summary>
-        /// Host: peers refused by <see cref="RejectPeerWorld"/> during their drop grace. Nothing they
-        /// send is processed and fan-out skips them.
-        /// </summary>
-        private readonly HashSet<int> _rejectedPeers = new HashSet<int>();
 
         private int _nextPlayerId = 2;
         private int _localPlayerId = 1; // Host is always player 1
@@ -144,17 +135,7 @@ namespace DWMPHorde.Networking
 
         private int _nextThrowId = 1;
 
-        /// <summary>
-        /// Peers awaiting late-join bulk. Value = realtime of first in-world PlayerState
-        /// (0 = share done, not seen in-world yet). Bulk after ClientBulkSettleSeconds.
-        /// </summary>
-        private readonly Dictionary<int, float> _awaitingLateJoinBulk = new Dictionary<int, float>();
 
-        /// <summary>
-        /// Heavy sticky-world bulk after the light dump (FindObjects scans). Value = next phase index.
-        /// One phase per peer per frame so host join frame does not freeze.
-        /// </summary>
-        private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
         private const int HeavyLateJoinPhaseCount = 12; // weather through fired GameEvents bulk
 
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
@@ -162,35 +143,14 @@ namespace DWMPHorde.Networking
         /// <summary>Phase-3 reconnect: client finished offline load, so use a short settle.</summary>
         private const float CoopReconnectBulkSettleSeconds = 1.5f;
 
-        /// <summary>
-        /// Host: peers mid world-download or LoadScene. Gameplay traffic is held
-        /// while the client loads a save and may stop polling network events.
-        /// Cleared on first in-world PlayerState or disconnect.
-        /// </summary>
-        private readonly HashSet<int> _peersLoadingWorld = new HashSet<int>();
-
-        /// <summary>
-        /// Host: peers that reconnected with AlreadyInWorld during phase 3.
-        /// These peers use a shorter late-join bulk settle.
-        /// </summary>
-        private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
-
-        /// <summary>
-        /// Host: last observed HostHasShareableWorld for rising-edge auto-share to title clients.
-        /// </summary>
-        private bool _hostWasShareableForWaitingClients;
-
-        /// <summary>Host: HostWorldReady already broadcast for the current in-world stay.</summary>
-        private bool _hostWorldReadyEmitted;
-
-        /// <summary>Client: host announced fully in-world (or WorldSaveBegin implied it).</summary>
-        private bool _clientHostWorldReady;
 
 
-        /// <summary>Remote peer OutsideLocation membership (location sync / late-join).</summary>
-        private readonly Dictionary<int, string> _remoteOutsideLocation = new Dictionary<int, string>();
 
-        internal Dictionary<int, string> RemoteOutsideLocation => _remoteOutsideLocation;
+
+
+
+
+        internal Dictionary<int, string> RemoteOutsideLocation => _session.RemoteOutsideLocation;
 
 
         public NetworkRole Role => _role;
@@ -213,7 +173,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Handshaked peer IDs used for session and night-death accounting.</summary>
-        public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
+        public IEnumerable<int> GetHandshakedPeerIds() => _session.Link.Handshaked;
 
         /// <summary>
         /// True while applying inbound/remote state. ORs <see cref="NetworkApplyGuard.IsActive"/>
@@ -252,7 +212,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>True if this player id completed handshake with us.</summary>
         internal bool IsHandshakedPeer(int playerId)
-            => playerId > 0 && _handshakedPeers.Contains(playerId);
+            => playerId > 0 && _session.Link.Handshaked.Contains(playerId);
 
         internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx) =>
             ContainerPendingHandlers.RecordPendingContainerRemove(pos, slotIdx);
@@ -301,7 +261,7 @@ namespace DWMPHorde.Networking
         public WorldSaveShareService WorldSaveShare => _worldSaveShare;
 
         /// <summary>True when local side has finished protocol handshake with at least one peer.</summary>
-        public bool IsHandshakeComplete => _handshakeComplete;
+        public bool IsHandshakeComplete => _session.Link.HandshakeComplete;
 
         private void Awake()
         {

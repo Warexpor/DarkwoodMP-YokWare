@@ -71,11 +71,11 @@ namespace DWMPHorde.Networking
         {
             if (excludePlayerId > 0 && peerId == excludePlayerId)
                 return false;
-            if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(peerId))
+            if (_session.Link.Rejected.Count > 0 && _session.Link.Rejected.Contains(peerId))
                 return false;
             switch (filter)
             {
-                case FanOutFilter.SkipLoading: return !_peersLoadingWorld.Contains(peerId);
+                case FanOutFilter.SkipLoading: return !_session.Link.LoadingWorld.Contains(peerId);
                 case FanOutFilter.GameplayReady: return IsPeerReadyForGameplay(peerId);
                 default: return true;
             }
@@ -155,7 +155,7 @@ namespace DWMPHorde.Networking
                     continue;
                 if (gameplayReadyOnly && !IsPeerReadyForGameplay(peerId))
                     continue;
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
+                if (skipLoadingPeers && _session.Link.LoadingWorld.Contains(peerId))
                     continue;
                 int budget;
                 if (IsSteamSession)
@@ -189,7 +189,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>Send a message to all connected peers.</summary>
         /// <param name="skipLoadingPeers">
-        /// When true, skip peers in <see cref="_peersLoadingWorld"/> (title join / LoadScene).
+        /// When true, skip peers in <see cref="_session.Link.LoadingWorld"/> (title join / LoadScene).
         /// World share must pass false (default) so targeted broadcast resends still land.
         /// </param>
         public void SendToAll(NetMessageType type, Action<NetWriter> writeBody,
@@ -227,7 +227,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 1)
                 return;
-            if (_peersLoadingWorld.Add(playerId))
+            if (_session.Link.LoadingWorld.Add(playerId))
                 ModLog.Event(LogCat.Session, "Peer " + playerId + " marked loading-world (gameplay flood muted)");
         }
 
@@ -241,7 +241,7 @@ namespace DWMPHorde.Networking
             {
                 if (id > 1)
                 {
-                    if (excludeCoopReconnect && _peersCoopReconnect.Contains(id))
+                    if (excludeCoopReconnect && _session.Link.CoopReconnect.Contains(id))
                         continue;
                     MarkPeerLoadingWorld(id);
                 }
@@ -251,7 +251,7 @@ namespace DWMPHorde.Networking
         /// <summary>Host: peer reconnected with AlreadyInWorld (soft join pipeline phase 3).</summary>
         public bool IsCoopReconnectPeer(int playerId)
         {
-            return playerId > 1 && _peersCoopReconnect.Contains(playerId);
+            return playerId > 1 && _session.Link.CoopReconnect.Contains(playerId);
         }
 
         /// <summary>Host: joiner sent its first in-world PlayerState.</summary>
@@ -259,14 +259,14 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 1)
                 return;
-            if (_peersLoadingWorld.Remove(playerId))
+            if (_session.Link.LoadingWorld.Remove(playerId))
                 ModLog.Event(LogCat.Session, "Peer " + playerId + " gameplay-ready (first PlayerState)");
         }
 
         /// <summary>Host: true if peer should receive high-rate gameplay packets.</summary>
         public bool IsPeerReadyForGameplay(int playerId)
         {
-            return playerId > 0 && !_peersLoadingWorld.Contains(playerId);
+            return playerId > 0 && !_session.Link.LoadingWorld.Contains(playerId);
         }
 
         /// <summary>

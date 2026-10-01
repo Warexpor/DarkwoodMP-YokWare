@@ -105,7 +105,7 @@ namespace DWMPHorde.Networking
                 int id = ids[i];
                 if (!peers.IsRoutable(id))
                     continue;
-                if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(id))
+                if (_session.Link.Rejected.Count > 0 && _session.Link.Rejected.Contains(id))
                     continue;
                 yield return id;
             }
@@ -227,15 +227,10 @@ namespace DWMPHorde.Networking
                 LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
                 PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
-                _handshakeComplete = false;
-                _handshakedPeers.Clear();
-                _awaitingLateJoinBulk.Clear();
-                _pendingHeavyLateJoinBulk.Clear();
-                _peersLoadingWorld.Clear();
-                _peersCoopReconnect.Clear();
-                _hostWasShareableForWaitingClients = false;
-                _hostWorldReadyEmitted = false;
-                _clientHostWorldReady = false;
+                _session.Link = new LinkState();
+                _session.HostWasShareableForWaitingClients = false;
+                _session.HostWorldReadyEmitted = false;
+                _session.ClientHostWorldReady = false;
                 NoteSoftReconnectAttempt(null, 0, lobbyId.m_SteamID);
             }
             else

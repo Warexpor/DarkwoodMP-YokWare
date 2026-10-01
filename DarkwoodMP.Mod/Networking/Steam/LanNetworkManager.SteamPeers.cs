@@ -71,8 +71,8 @@ namespace DWMPHorde.Networking
             int playerId = _nextPlayerId++;
             _steamPeers.Set(playerId, remote);
 
-            if (_handshakedPeers.Count == 0)
-                _handshakeComplete = false;
+            if (_session.Link.Handshaked.Count == 0)
+                _session.Link.HandshakeComplete = false;
             StatusText = $"Steam player {playerId} connected";
             ModLog.Event(LogCat.Network,
                 $"Steam player {playerId} connected sid={remote.m_SteamID} (peers={_steamPeers.Count})");
@@ -135,8 +135,8 @@ namespace DWMPHorde.Networking
         /// <summary>Shared client post-connect (outbound Handshake) for LAN and Steam.</summary>
         private void CompleteClientPeerJoin()
         {
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
 
             bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
             short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;

@@ -54,13 +54,13 @@ namespace DWMPHorde.Networking
             {
                 playerId = _nextPlayerId++;
                 _lanPeers.Set(playerId, peer);
-                // Keep _handshakeComplete set when additional peers join; that
+                // Keep _session.Link.HandshakeComplete set when additional peers join; that
                 // froze PlayerState/drag traffic for every already-ready client.
                 // Only block gameplay until the first peer completes handshake.
-                if (_handshakedPeers.Count == 0)
-                    _handshakeComplete = false;
+                if (_session.Link.Handshaked.Count == 0)
+                    _session.Link.HandshakeComplete = false;
                 StatusText = $"Player {playerId} connected";
-                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_lanPeers.Count}, ready={_handshakedPeers.Count})");
+                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_lanPeers.Count}, ready={_session.Link.Handshaked.Count})");
                 CompleteHostPeerJoin(playerId);
             }
             else
@@ -88,7 +88,7 @@ namespace DWMPHorde.Networking
                 if (playerId > 0)
                 {
                     OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: true, reasonTag: "peer disconnect");
-                    StatusText = $"Player {playerId} left ({_lanPeers.Count} remaining, ready={_handshakedPeers.Count})";
+                    StatusText = $"Player {playerId} left ({_lanPeers.Count} remaining, ready={_session.Link.Handshaked.Count})";
                 }
             }
             else
@@ -105,7 +105,7 @@ namespace DWMPHorde.Networking
                     return;
                 // Connect-failure reasons only mean "never got in" before the handshake; after it
                 // (e.g. PeerNotFound on a host that crashed) the loss is real and migration applies.
-                if (!_handshakeComplete && IsConnectFailureReason(disconnectInfo.Reason))
+                if (!_session.Link.HandshakeComplete && IsConnectFailureReason(disconnectInfo.Reason))
                 {
                     OnClientLinkFailed(disconnectInfo.Reason.ToString());
                     return;
@@ -124,7 +124,7 @@ namespace DWMPHorde.Networking
         {
             // Capture before Remove so TryLeaveUnoccupied sees remaining occupants only.
             string leftLoc = null;
-            _remoteOutsideLocation.TryGetValue(playerId, out leftLoc);
+            _session.RemoteOutsideLocation.TryGetValue(playerId, out leftLoc);
 
             Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
@@ -136,25 +136,25 @@ namespace DWMPHorde.Networking
                 _lanPeers.Remove(playerId);
             // Steam path already called RemovePeerSlot before this.
 
-            _handshakedPeers.Remove(playerId);
-            _rejectedPeers.Remove(playerId);
+            _session.Link.Handshaked.Remove(playerId);
+            _session.Link.Rejected.Remove(playerId);
             // A peer that rebinds to this id later counts from a low sequence again; the old
             // high-water marks would drop its unreliable packets until it overtook them.
-            _lastPlayerStateSequence.Remove(playerId);
-            _lastPhysicsStateSequence.Remove(playerId);
-            _lastReliablePhysicsStateSequence.Remove(playerId);
-            bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
-                && !_peersCoopReconnect.Contains(playerId)
-                && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
-            bool expectedJoinDetach = _peersLoadingWorld.Contains(playerId)
-                && !_peersCoopReconnect.Contains(playerId);
+            _session.Link.LastPlayerStateSequence.Remove(playerId);
+            _session.Link.LastPhysicsStateSequence.Remove(playerId);
+            _session.Link.LastReliablePhysicsStateSequence.Remove(playerId);
+            bool wasLoadingOnly = _session.Link.LoadingWorld.Contains(playerId)
+                && !_session.Link.CoopReconnect.Contains(playerId)
+                && (!_session.Link.AwaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
+            bool expectedJoinDetach = _session.Link.LoadingWorld.Contains(playerId)
+                && !_session.Link.CoopReconnect.Contains(playerId);
 
-            _awaitingLateJoinBulk.Remove(playerId);
-            _pendingHeavyLateJoinBulk.Remove(playerId);
-            _peersLoadingWorld.Remove(playerId);
-            _peersCoopReconnect.Remove(playerId);
-            if (_handshakedPeers.Count == 0)
-                _handshakeComplete = false;
+            _session.Link.AwaitingLateJoinBulk.Remove(playerId);
+            _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
+            _session.Link.LoadingWorld.Remove(playerId);
+            _session.Link.CoopReconnect.Remove(playerId);
+            if (_session.Link.Handshaked.Count == 0)
+                _session.Link.HandshakeComplete = false;
 
             // Capture last known pos BEFORE RemovePlayer so LocationExit fan-out
             // carries a real world point (zeros confused living-exit teleport path).
@@ -180,7 +180,7 @@ namespace DWMPHorde.Networking
 
             // Membership + leave-unoccupied + LocationExit fan-out to remaining peers.
             LocationEnterExitHandlers?.NotifyRemotePeerDisconnected(playerId, leftLoc, lastX, lastY, lastZ);
-            _remoteOutsideLocation.Remove(playerId);
+            _session.RemoteOutsideLocation.Remove(playerId);
 
             if (!expectedJoinDetach && !wasLoadingOnly)
             {

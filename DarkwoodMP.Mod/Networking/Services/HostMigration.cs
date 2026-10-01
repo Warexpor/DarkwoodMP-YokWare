@@ -105,12 +105,8 @@ namespace DWMPHorde.Networking
             }
             ShutdownSteamBackend(leaveLobby: leaveSteamLobby);
             ClearAllPeerSlots();
-            _handshakedPeers.Clear();
-            _handshakeComplete = false;
-            _peersLoadingWorld.Clear();
-            _peersCoopReconnect.Clear();
-            _awaitingLateJoinBulk.Clear();
-            _pendingHeavyLateJoinBulk.Clear();
+            // The next link starts with no peers: handshakes, join pipeline and sequence counters go.
+            _session.Link = new LinkState();
             EntityStateBroadcastService.Stop();
             ResetInboundSequenceState();
         }
@@ -122,10 +118,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void ResetInboundSequenceState()
         {
+            // Per-sender PlayerState / PhysicsState counters live on the link and go with it.
             ClientEntityInterpolationService.ResetSnapshotSequence();
-            _lastPlayerStateSequence.Clear();
-            _lastPhysicsStateSequence.Clear();
-            _lastReliablePhysicsStateSequence.Clear();
         }
 
         /// <summary>Record the target of an in-world reconnect so a failed attempt can be retried.</summary>
@@ -233,9 +227,9 @@ namespace DWMPHorde.Networking
 
         private void TickPeerRosterGossip()
         {
-            if (_role != NetworkRole.Host || !IsConnected || !_handshakeComplete)
+            if (_role != NetworkRole.Host || !IsConnected || !_session.Link.HandshakeComplete)
                 return;
-            if (_handshakedPeers.Count == 0)
+            if (_session.Link.Handshaked.Count == 0)
                 return;
 
             _peerRosterTimer += Time.unscaledDeltaTime;

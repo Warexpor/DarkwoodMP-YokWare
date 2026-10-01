@@ -66,24 +66,20 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Clear host session maps that are not covered by NetworkResetRegistry.</summary>
+        /// <summary>
+        /// Network stop: a fresh <see cref="SessionState"/> (peer bookkeeping, presence caches, stable
+        /// keys, world-ready flags) and the handler pending queues that NetworkResetRegistry does not own.
+        /// </summary>
         internal void ResetSessionNetworkState()
         {
-            _stickyPlayerPayloads.Clear();
+            _session = new SessionState();
             Shadows.Reset();
             NightHandlers?.ClearShadowLookups();
             ContainerPendingHandlers?.ClearPendingContainerState();
             ContainerLootHandlers?.ClearPendingHideoutUpgrades();
             FlagHandlers?.ClearPendingFlags();
             JournalHandlers?.ClearPendingJournal();
-            _awaitingLateJoinBulk.Clear();
-            _pendingHeavyLateJoinBulk.Clear();
-            _peersLoadingWorld.Clear();
-            _peersCoopReconnect.Clear();
             SaveHandlers?.Reset();
-            _hostWasShareableForWaitingClients = false;
-            _hostWorldReadyEmitted = false;
-            _clientHostWorldReady = false;
             TradeHandlers?.ClearPendingTradeInventories();
             LockHandlers?.ClearConstructibleState();
             StationHandlers?.ClearPendingStations();
@@ -96,7 +92,6 @@ namespace DWMPHorde.Networking
             GameEventHandlers?.ClearPendingGameEvents();
             LockHandlers?.ClearPendingLocks();
             CombatFxImpactHandlers?.ClearMeleeHitDebounce();
-            _remoteOutsideLocation.Clear();
         }
     }
 }
