@@ -23,7 +23,7 @@ references only (no game DLLs in the build environment): every change was compil
 checked for new errors on both loaders and the test suite passes, but **runtime is not
 playtested**. First things to run: two players looting the same container slot,
 a saw convert while the other player takes wood, host migration and reconnect, a
-manual-save load, and a Steam client that drops and rejoins.
+manual-save load, and a Steam client that drops and rejoins (`PLAYTEST.md` section 0).
 
 ### Item duplication and loss
 
@@ -123,6 +123,16 @@ manual-save load, and a Steam client that drops and rejoins.
   whole-tree Harmony rules (Finalizer for Prefix/Postfix flags, coroutine prefixes,
   narrow exception swallowing) replace the source-text greps; the 500-line file cap is
   gone. CI now runs on `dev`. The product version has one source (PluginInfo).
+- Transport seam: LAN and Steam peers sit behind one `IPeerTable` (count, route,
+  rebind, drop, roster address); the fan-out and session code no longer branch on the
+  backend, and a LAN receive resolves its sender in O(1) instead of a linear scan.
+- Per-peer bookkeeping (handshake, refused, loading, late-join bulk, sequence
+  high-water marks) is one `LinkState` replaced whenever the transport stops; it sits in
+  a `SessionState` replaced on network stop. The heavy late-join retry counter leaked
+  across sessions before this.
+- `WorldPhysicsSyncService` keeps its ~40 session collections in one session object
+  that a reset swaps out (thrown lights survive a host promotion on purpose).
+- New `docs/ARCHITECTURE.md`: source layout and the rules a change has to follow.
 - Comments no longer narrate version/batch history; 0.8.99 and earlier moved to
   `CHANGELOG-ARCHIVE.md`.
 

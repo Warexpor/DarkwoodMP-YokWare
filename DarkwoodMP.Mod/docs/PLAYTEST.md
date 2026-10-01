@@ -7,8 +7,31 @@ Dual-box (Steam host + SecondDarkwood client) first, then a 3-player run
 status lives in `CHANGELOG.md` and `COOP_COVERAGE.md`. Attach **both** loader logs
 to any failure (`LOGGING.md`).
 
-Setup for every run: `LogPreset=Support` (or `Trace` for a bug pack) on every box,
-same DLL everywhere.
+Setup for every run: `LogPreset=Support` with `PerfProbe = true` (or `Trace` for a
+bug pack) on every box, same DLL everywhere.
+
+## 0. First checks for the current release
+
+The latest `CHANGELOG.md` entry rewrote host validation, relay and session reset
+without a playtest. Run these first; each one maps to a fix listed there.
+
+- [ ] Startup log has `Harmony: N patch classes applied, 0 critical / ...`. With a
+      critical failure, Host and Join show the "Multiplayer disabled" text and refuse.
+- [ ] Two players loot the same container slot at once: one gets it, the other is
+      refunded exactly (section 5 in detail).
+- [ ] Saw: one player converts while the other takes wood; both end on the host's
+      stock, no wood created or lost.
+- [ ] A client drags a body / talks on the walkie while doors and pickups happen:
+      the drag and voice stay smooth and the events are not delayed (relays keep the
+      unreliable method).
+- [ ] Host migration, then the old host reconnects: it gets its old player id, no
+      stuck "loading" peer, no doubled inventory (section 7).
+- [ ] Load a manual save from the title screen while hosting: inventory and stats
+      are the slot's, not the pre-load character's.
+- [ ] Steam client drops (kill the process) and rejoins the same lobby: one player
+      entity, not two; with a host password set, the rejoin still has to pass it.
+- [ ] Stop and host again in the same game process: no leftover remote players,
+      thrown flares, kinematic bodies or pending container takes from the last session.
 
 ## 1. Deploy and version check
 
@@ -112,4 +135,8 @@ same DLL everywhere.
 ## Log checks after each run
 
 - No `FATAL`, no unhandled exception stacks, no `Patch target missing`.
-- `[Perf]` lines on both roles; no `[PerfCliff]` (`scripts/check-dualbox-perf.sh`).
+- `[Perf]` lines on both roles (needs `PerfProbe = true` under Support); no
+  `[PerfCliff]` (`scripts/check-dualbox-perf.sh`).
+- Host: no `Dropping <type> from pN (host-only type)` in a normal run (a client sent
+  something only the host may send: bug). `(no handshake yet)` / `(refused peer)` are
+  expected only around a join or a kick; attach the log if they show up mid-session.

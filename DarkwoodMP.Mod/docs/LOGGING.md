@@ -4,7 +4,7 @@
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `LogPreset` | **Support** | Session/join/combat Events + Core `[Perf]` without Legacy flood |
+| `LogPreset` | **Support** | Session/join/combat Events without Legacy flood (`[Perf]` needs `PerfProbe`) |
 | `LogMinLevel` | Event | Drop Info/Trace under Support |
 | `LogRedactIPs` | **true** | Mask IPv4 in log lines (privacy-safe for shared packs; set false to see full IPs on your own LAN) |
 | `LogRedactPaths` | false (local dual-box) | Absolute paths → filename only |
@@ -12,8 +12,9 @@
 | `VerboseLogging` | false | Deprecated compatibility switch; forces Trace when the preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
 | `VerboseEntitySync` | false | Deep entity anim/interp/reaction/damage Trace+Event (rate-limited). Turn on for dual-box diagnosis |
+| `PerfProbe` | false | Co-op frame-cost probe and the `[Perf]` lines. Always on under Dev/Trace; turn on to get them under Support/Public |
 
-Config file (section **`[Logging]`**, plus **`[Debug]`** for the `Verbose*` switches):
+Config file (section **`[Logging]`**, plus **`[Debug]`** for the `Verbose*` and `PerfProbe` switches):
 
 - BepInEx: `BepInEx/config/com.yokware.branch.cfg`
 - MelonLoader: `UserData/YokWare/com.yokware.branch.cfg`
@@ -26,16 +27,17 @@ Every key is listed in [`CONFIG.md`](CONFIG.md).
 | Preset | Who | What you get |
 |--------|-----|----------------|
 | **Public** | Quiet play | Core, Network, Session, Dream, Death, Save Events |
-| **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container + **`[Perf]`** |
-| **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps (large logs) |
+| **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container (+ **`[Perf]`** with `PerfProbe=true`) |
+| **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps + **`[Perf]`** (large logs) |
 | **Trace** | **Max capture** | All categories + Trace + **`LegacyInfo`** + **`VerboseLogging` gates** (largest logs; dual-box FPS cost) |
 
-**Important:** `ModRuntime.LegacyInfo` runs on `LogPreset=Dev` or **`Trace`**.
-Use **Trace on both** installs for maximum dual-box capture.
+**Important:** `ModRuntime.LegacyInfo` runs on `LogPreset=Dev` or **`Trace`**
+(below that its messages are not even formatted). Use **Trace on both** installs
+for maximum dual-box capture.
 
 ## Stutter / hitch triage (dual-box)
 
-1. Prefer **Trace** (max) or **Support** on **both** installs, same mod build.  
+1. Prefer **Trace** (max), or **Support** with `PerfProbe = true`, on **both** installs, same mod build.  
 2. Reproduce; quit cleanly.  
 3. Attach **both** `BepInEx/LogOutput.log` files.  
 4. Or run the gate script (defaults to this machine’s Steam + SecondDarkwood paths):
