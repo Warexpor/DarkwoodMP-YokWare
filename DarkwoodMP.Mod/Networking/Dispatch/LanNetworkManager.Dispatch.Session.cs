@@ -11,191 +11,78 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
-        /// <summary>Inbound dispatch slice: Session.</summary>
-        private bool TryDispatchSession(NetMessageType type, byte[] payload)
+        /// <summary>Inbound handlers: Session.</summary>
+        private void RegisterSessionHandlers()
         {
-            switch (type)
+            On(NetMessageType.Handshake, HandshakeMessage.Deserialize, m => HandleHandshake(m));
+            On(NetMessageType.SessionSettings, SessionSettingsMessage.Deserialize, m => HandleSessionSettings(m));
+            On(NetMessageType.WorldSession, WorldSessionMessage.Deserialize, m => HandleWorldSession(m));
+            OnRaw(NetMessageType.SaveSync, _ => HandleSaveSync());
+            On(NetMessageType.TimeSync, TimeSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleTimeSync(m));
+            On(NetMessageType.SleepEndRequest, SleepEndRequestMessage.Deserialize, m => NightHandlers.HandleSleepEndRequest(m));
+            On(NetMessageType.AfterNightEndRequest, AfterNightEndRequestMessage.Deserialize, m => NightHandlers.HandleAfterNightEndRequest(m));
+            On(NetMessageType.PeerRoster, PeerRosterMessage.Deserialize, m => HandlePeerRoster(m));
+            On(NetMessageType.HostHandoff, HostHandoffMessage.Deserialize, m => HandleHostHandoff(m));
+            On(NetMessageType.ScenarioSync, ScenarioSyncMessage.Deserialize, m => NightHandlers.HandleScenarioSync(m));
+            On(NetMessageType.ScenarioEventFired, ScenarioEventFiredMessage.Deserialize, m => NightHandlers.HandleScenarioEventFired(m));
+            On(NetMessageType.FlagSync, FlagSyncMessage.Deserialize, m => FlagHandlers.HandleFlagSync(m));
+            On(NetMessageType.DreamSessionBulk, DreamSessionBulkMessage.Deserialize, m => DreamHandlers.HandleDreamSessionBulk(m));
+            On(NetMessageType.ClientStateBackup, ClientStateBackupMessage.Deserialize, m => HandleClientStateBackup(m));
+            On(NetMessageType.GameEventsBulk, GameEventsBulkMessage.Deserialize, m => GameEventHandlers.HandleGameEventsBulk(m));
+            On(NetMessageType.HideoutUpgrade, HideoutUpgradeMessage.Deserialize, m => ContainerHandlers.HandleHideoutUpgrade(m));
+            On(NetMessageType.JournalBulkSync, JournalBulkSyncMessage.Deserialize, m => JournalHandlers.HandleJournalBulkSync(m));
+            On(NetMessageType.ContainerStateRequest, ContainerStateRequestMessage.Deserialize, m => ContainerHandlers.HandleContainerStateRequest(m));
+            On(NetMessageType.ContainerStateSync, ContainerStateSyncMessage.Deserialize, m => ContainerHandlers.HandleContainerStateSync(m));
+            On(NetMessageType.ContainerTakeDenied, ContainerTakeDeniedMessage.Deserialize, m => ContainerHandlers.HandleContainerTakeDenied(m));
+            On(NetMessageType.ReputationSync, ReputationSyncMessage.Deserialize, m => ContainerHandlers.HandleReputationSync(m));
+            On(NetMessageType.WeatherSync, WeatherSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleWeatherSync(m));
+            On(NetMessageType.FlagBulkSync, FlagBulkSyncMessage.Deserialize, m => FlagHandlers.HandleFlagBulkSync(m));
+            On(NetMessageType.ReputationBulkSync, ReputationBulkSyncMessage.Deserialize, m => BulkSyncHandlers.HandleReputationBulkSync(m));
+            On(NetMessageType.ScenarioStateSync, ScenarioSyncMessage.Deserialize, m => BulkSyncHandlers.HandleScenarioStateSync(m));
+            On(NetMessageType.ScenarioStateBulk, ScenarioStateBulkMessage.Deserialize, m => BulkSyncHandlers.HandleScenarioStateBulk(m));
+            On(NetMessageType.HideoutStateSync, HideoutStateSyncMessage.Deserialize, m => BulkSyncHandlers.HandleHideoutStateSync(m));
+            On(NetMessageType.WorkbenchLevelSync, WorkbenchLevelMessage.Deserialize, m => BulkSyncHandlers.HandleWorkbenchLevelSync(m));
+            On(NetMessageType.MapStateSync, MapStateSyncMessage.Deserialize, m => BulkSyncHandlers.HandleMapStateSync(m));
+            On(NetMessageType.PlayerSkillsSync, PlayerSkillsSyncMessage.Deserialize, m => BulkSyncHandlers.HandlePlayerSkillsSync(m));
+            On(NetMessageType.WorldSaveBegin, WorldSaveBeginMessage.Deserialize, m => _worldSaveShare?.HandleBegin(m));
+            On(NetMessageType.WorldSaveChunk, WorldSaveChunkMessage.Deserialize, m => _worldSaveShare?.HandleChunk(m));
+            On(NetMessageType.WorldSaveEnd, WorldSaveEndMessage.Deserialize, m => _worldSaveShare?.HandleEnd(m));
+            On(NetMessageType.WorldRequest, WorldRequestMessage.Deserialize, m => HandleWorldRequest(m));
+            On(NetMessageType.HostWorldReady, HostWorldReadyMessage.Deserialize, m => HandleHostWorldReady(m));
+            OnRaw(NetMessageType.ChatMessage, payload =>
             {
-                        case NetMessageType.Handshake:
-                            HandleHandshake(HandshakeMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.SessionSettings:
-                            HandleSessionSettings(SessionSettingsMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorldSession:
-                            HandleWorldSession(WorldSessionMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.SaveSync:
-                            HandleSaveSync();
-                            return true;
-                        case NetMessageType.TimeSync:
-                            WorldWeatherTimeHandlers.HandleTimeSync(TimeSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.SleepEndRequest:
-                            NightHandlers.HandleSleepEndRequest(
-                                SleepEndRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.AfterNightEndRequest:
-                            NightHandlers.HandleAfterNightEndRequest(
-                                AfterNightEndRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.PeerRoster:
-                            HandlePeerRoster(PeerRosterMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.HostHandoff:
-                            HandleHostHandoff(HostHandoffMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ScenarioSync:
-                            NightHandlers.HandleScenarioSync(
-                                ScenarioSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ScenarioEventFired:
-                            NightHandlers.HandleScenarioEventFired(
-                                ScenarioEventFiredMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.FlagSync:
-                            FlagHandlers.HandleFlagSync(
-                                FlagSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DreamSessionBulk:
-                            DreamHandlers.HandleDreamSessionBulk(
-                                DreamSessionBulkMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ClientStateBackup:
-                            HandleClientStateBackup(ClientStateBackupMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.GameEventsBulk:
-                            GameEventHandlers.HandleGameEventsBulk(
-                                GameEventsBulkMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.HideoutUpgrade:
-                            ContainerHandlers.HandleHideoutUpgrade(
-                                HideoutUpgradeMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.JournalBulkSync:
-                            JournalHandlers.HandleJournalBulkSync(
-                                JournalBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ContainerStateRequest:
-                            ContainerHandlers.HandleContainerStateRequest(
-                                ContainerStateRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ContainerStateSync:
-                            ContainerHandlers.HandleContainerStateSync(
-                                ContainerStateSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ContainerTakeDenied:
-                            ContainerHandlers.HandleContainerTakeDenied(
-                                ContainerTakeDeniedMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ReputationSync:
-                            ContainerHandlers.HandleReputationSync(
-                                ReputationSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WeatherSync:
-                            WorldWeatherTimeHandlers.HandleWeatherSync(WeatherSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.FlagBulkSync:
-                            FlagHandlers.HandleFlagBulkSync(
-                                FlagBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ReputationBulkSync:
-                            BulkSyncHandlers.HandleReputationBulkSync(
-                                ReputationBulkSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ScenarioStateSync:
-                            BulkSyncHandlers.HandleScenarioStateSync(
-                                ScenarioSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ScenarioStateBulk:
-                            BulkSyncHandlers.HandleScenarioStateBulk(
-                                ScenarioStateBulkMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.HideoutStateSync:
-                            BulkSyncHandlers.HandleHideoutStateSync(
-                                HideoutStateSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorkbenchLevelSync:
-                            BulkSyncHandlers.HandleWorkbenchLevelSync(
-                                WorkbenchLevelMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.MapStateSync:
-                            BulkSyncHandlers.HandleMapStateSync(
-                                MapStateSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.PlayerSkillsSync:
-                            BulkSyncHandlers.HandlePlayerSkillsSync(
-                                PlayerSkillsSyncMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorldSaveBegin:
-                            _worldSaveShare?.HandleBegin(WorldSaveBeginMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorldSaveChunk:
-                            _worldSaveShare?.HandleChunk(WorldSaveChunkMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorldSaveEnd:
-                            _worldSaveShare?.HandleEnd(WorldSaveEndMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.WorldRequest:
-                            HandleWorldRequest(WorldRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.HostWorldReady:
-                            HandleHostWorldReady(HostWorldReadyMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ChatMessage:
-                            {
-                                var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                    chat.SenderId = _currentReceivePlayerId;
-                                // Sanitize peer input (Yokyy had no length/content clamp)
-                                if (chat.Message != null && chat.Message.Length > 160)
-                                    chat.Message = chat.Message.Substring(0, 160);
-                                if (chat.SenderName != null && chat.SenderName.Length > 32)
-                                    chat.SenderName = chat.SenderName.Substring(0, 32);
-                                // Skip echo of our own send (we already drew locally)
-                                if (chat.SenderId != _localPlayerId)
-                                {
-                                    // A HUD failure must not cost the other peers the relay below.
-                                    try { ChatHud.OnRemote(chat); }
-                                    catch (System.Exception ex)
-                                    {
-                                        ModLog.Warn(LogCat.Network, "ChatHud.OnRemote failed: " + ex.Message);
-                                    }
-                                }
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                {
-                                    // Relay the sanitised, host-stamped body ourselves. The generic Forwardable
-                                    // relay re-sends the raw inbound payload (client-claimed SenderId, no
-                                    // length clamp), so it is suppressed (same pattern as VoiceData).
-                                    var chatWriter = new NetWriter();
-                                    chat.Serialize(chatWriter);
-                                    byte[] chatBody = chatWriter.CopyData();
-                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.ChatMessage,
-                                        w => w.PutRaw(chatBody), DeliveryMethod.ReliableOrdered);
-                                    _suppressForwardThisMessage = true;
-                                }
-                                return true;
-                            }
-                        case NetMessageType.VoiceData:
-                            {
-                                var voice = VoiceDataMessage.Deserialize(new NetReader(payload));
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                    voice.PlayerId = _currentReceivePlayerId;
-                                Audio.VoiceChatService.OnVoiceData(voice);
-                                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
-                                {
-                                    var vw = new NetWriter();
-                                    voice.Serialize(vw);
-                                    byte[] body = vw.CopyData();
-                                    SendToAllExcept(_currentReceivePlayerId, NetMessageType.VoiceData,
-                                        w => w.PutRaw(body), DeliveryMethod.Unreliable);
-                                    _suppressForwardThisMessage = true;
-                                }
-                                return true;
-                            }
-                default:
-                    return false;
-            }
+                var chat = ChatMessagePayload.Deserialize(new NetReader(payload));
+                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                    chat.SenderId = _currentReceivePlayerId;
+                // Sanitize peer input (Yokyy had no length/content clamp)
+                if (chat.Message != null && chat.Message.Length > 160)
+                    chat.Message = chat.Message.Substring(0, 160);
+                if (chat.SenderName != null && chat.SenderName.Length > 32)
+                    chat.SenderName = chat.SenderName.Substring(0, 32);
+                // Skip echo of our own send (we already drew locally)
+                if (chat.SenderId != _localPlayerId)
+                {
+                    // A HUD failure must not cost the other peers the relay below.
+                    try { ChatHud.OnRemote(chat); }
+                    catch (System.Exception ex)
+                    {
+                        ModLog.Warn(LogCat.Network, "ChatHud.OnRemote failed: " + ex.Message);
+                    }
+                }
+                // Relay the sanitised, host-stamped body, not the raw payload (client-claimed
+                // SenderId, no length clamp).
+                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                    RelayStamped(w => chat.Serialize(w));
+            });
+            OnRaw(NetMessageType.VoiceData, payload =>
+            {
+                var voice = VoiceDataMessage.Deserialize(new NetReader(payload));
+                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                    voice.PlayerId = _currentReceivePlayerId;
+                Audio.VoiceChatService.OnVoiceData(voice);
+                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                    RelayStamped(w => voice.Serialize(w));
+            });
         }
     }
 }

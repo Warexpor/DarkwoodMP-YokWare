@@ -69,6 +69,35 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>Inbound handler per message type (deserialize + handle), filled once in Awake.</summary>
+        private readonly Dictionary<NetMessageType, Action<byte[]>> _inboundHandlers =
+            new Dictionary<NetMessageType, Action<byte[]>>();
+
+        /// <summary>Register a typed handler: the body is deserialized, then handed over.</summary>
+        private void On<T>(NetMessageType type, Func<NetReader, T> deserialize, Action<T> handle)
+            => OnRaw(type, payload => handle(deserialize(new NetReader(payload))));
+
+        /// <summary>Register a handler that works on the raw body (stamping, custom relay).</summary>
+        private void OnRaw(NetMessageType type, Action<byte[]> handle)
+        {
+            if (_inboundHandlers.ContainsKey(type))
+                throw new InvalidOperationException("Duplicate inbound handler for " + type);
+            _inboundHandlers[type] = handle;
+        }
+
+        /// <summary>Message types the dispatcher handles (tests / diagnostics).</summary>
+        internal ICollection<NetMessageType> HandledMessageTypes => _inboundHandlers.Keys;
+
+        private void RegisterInboundHandlers()
+        {
+            _inboundHandlers.Clear();
+            RegisterSessionHandlers();
+            RegisterCombatHandlers();
+            RegisterPlayersHandlers();
+            RegisterWorldHandlers();
+            RegisterDialogueDreamHandlers();
+        }
+
         /// <summary>Host: body the generic Forwardable relay sends instead of the raw inbound payload.</summary>
         private byte[] _relayPayloadOverride;
 
@@ -166,11 +195,11 @@ namespace DWMPHorde.Networking
             {
                 try
                 {
-                    if (!(TryDispatchSession(type, payload)
-                        || TryDispatchCombat(type, payload)
-                        || TryDispatchPlayers(type, payload)
-                        || TryDispatchWorld(type, payload)
-                        || TryDispatchDialogueDream(type, payload)))
+                    if (_inboundHandlers.TryGetValue(type, out Action<byte[]> handle))
+                    {
+                        handle(payload);
+                    }
+                    else
                     {
                         relay = false;
                         if (NetLogThrottle.ShouldLog("unhandled:" + (int)type, 10f, out int dropped))

@@ -289,7 +289,7 @@ namespace DWMPHorde.Networking
         /// Either peer: compressed Steam Voice samples. The host fans out
         /// unreliable voice data without forwarding it again.
         /// </summary>
-        VoiceData = 129,
+        [Forwardable] VoiceData = 129,
         /// <summary>
         /// Client→host: `CustomCursorAction.onActivate`, such as the dream-bed
         /// "Lie down" action.
