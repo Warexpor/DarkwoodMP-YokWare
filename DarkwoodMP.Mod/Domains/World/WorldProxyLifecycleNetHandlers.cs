@@ -61,18 +61,18 @@ namespace DWMPHorde.Networking
                 proxy.PlayerId = playerId;
                 _net.RemoteProxies[playerId] = proxy;
                 proxy.OnFootstep += (pId, running) => _net.WorldProxyEffectHandlers.HandleProxyFootstep(pId, running);
-                PlayerLightFxNetHandlers.RemoveClonedEmitters(proxy.transform);
+                PlayerLightFxAmbientNetHandlers.RemoveClonedEmitters(proxy.transform);
                 // Do not snap to the local Player; that stacks bodies on join until the first
                 // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
 
-                if (_net.PlayerLightFxHandlers.PendingPlayerLights.TryGetValue(playerId, out PlayerLightStateMessage pendingLight))
+                if (_net.PlayerLightFxApplyHandlers.PendingPlayerLights.TryGetValue(playerId, out PlayerLightStateMessage pendingLight))
                 {
-                    _net.PlayerLightFxHandlers.PendingPlayerLights.Remove(playerId);
+                    _net.PlayerLightFxApplyHandlers.PendingPlayerLights.Remove(playerId);
                     // Re-enter apply with a temporary receive id so GetProxy path works.
                     int prevRecv = _net.CurrentReceivePlayerId;
                     _net.AssignCurrentReceivePlayerId(playerId);
-                    try { _net.PlayerLightFxHandlers.HandlePlayerLightState(pendingLight); }
+                    try { _net.PlayerLightFxApplyHandlers.HandlePlayerLightState(pendingLight); }
                     finally { _net.AssignCurrentReceivePlayerId(prevRecv); }
                     ModLog.Event(LogCat.World,
                         $"[Light] applied pending state for p{playerId} after proxy create");
@@ -199,7 +199,7 @@ namespace DWMPHorde.Networking
             {
                 var ol = Singleton<OutsideLocations>.Instance;
                 string canon = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
-                Location loc = LocationNetHandlers.ResolveOutsideLocation(ol, canon);
+                Location loc = LocationEnterExitNetHandlers.ResolveOutsideLocation(ol, canon);
                 if (loc == null && Dreams.Instance != null)
                     loc = Dreams.Instance.dreamLocation;
                 if (loc == null) return;
@@ -212,7 +212,7 @@ namespace DWMPHorde.Networking
                     if (!Sync.DreamSyncManager.IsRemoteInDream(kvp.Key))
                         continue;
                     _net.RemoteOutsideLocation[kvp.Key] = canon;
-                    _net.LocationHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
+                    _net.LocationEnterExitHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
                 }
             }
             catch (System.Exception ex)

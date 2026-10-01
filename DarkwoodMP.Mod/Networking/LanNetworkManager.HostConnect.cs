@@ -86,12 +86,12 @@ namespace DWMPHorde.Networking
                     "ConnectToHost soft reconnect (keep world / entity state) → " + address + ":" + port);
                 StopTransportOnly("phase3 soft reconnect");
                 foreach (int id in new List<int>(_remoteProxies.Keys))
-                    WorldProxyHandlers.DestroyRemoteProxy(id);
+                    WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
                 _remoteProxies.Clear();
                 _remotePlayers.Clear();
                 // Proxies gone — drop sticky membership so host LocationEnter re-places.
-                LocationHandlers?.ClearMembershipForSoftReconnect();
-                PlayerLightFxHandlers?.ClearPendingPlayerLights();
+                LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
+                PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
                 _handshakeComplete = false;
                 _handshakedPeers.Clear();
@@ -150,9 +150,9 @@ namespace DWMPHorde.Networking
             ResetCombatSessionState();
             ResetSessionNetworkState();
             foreach (int id in new List<int>(_remoteProxies.Keys))
-                WorldProxyHandlers.DestroyRemoteProxy(id);
+                WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
             _remoteProxies.Clear();
-            PlayerLightFxHandlers?.ClearPendingPlayerLights();
+            PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
             _wasDragging = false;
             _lastDraggedItemName = null;

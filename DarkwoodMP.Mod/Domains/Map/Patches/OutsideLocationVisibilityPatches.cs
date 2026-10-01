@@ -20,7 +20,7 @@ namespace DWMPHorde.Patches
             {
                 if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
                     return;
-                net.LocationHandlers.OnLocalOutsideLocationSettled(locationName);
+                net.LocationEnterExitHandlers.OnLocalOutsideLocationSettled(locationName);
                 // Virgin pad just registered — drop stale Padlock/Locked/GE/Interactive/
                 // Constructible/Chain/Burn/Trigger scans so pending flush and host
                 // first-enter SoftMatch see pad children (not a 3s TTL miss).
@@ -81,7 +81,7 @@ namespace DWMPHorde.Patches
             {
                 if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
                     return;
-                net.LocationHandlers.OnLocalReturnedToWorld();
+                net.LocationEnterExitHandlers.OnLocalReturnedToWorld();
                 WorldPhysicsSyncService.TryFlushPendingLights();
             }
             catch (System.Exception ex)
@@ -112,7 +112,7 @@ namespace DWMPHorde.Patches
                 if (Player.Instance != null && Player.Instance.whereAmI != null)
                     Player.Instance.whereAmI.checkWhereAmI();
 
-                net.LocationHandlers.OnLocalReturnedToWorldAfterDeath();
+                net.LocationEnterExitHandlers.OnLocalReturnedToWorldAfterDeath();
                 WorldPhysicsSyncService.TryFlushPendingLights();
                 ModRuntime.LegacyInfo(
                     "[LocationSync] death grid hygiene — World grid + refresh + LocationExit");
@@ -203,7 +203,7 @@ namespace DWMPHorde.Patches
                 string n = __instance.gameObject != null
                     ? __instance.gameObject.name
                     : __instance.name;
-                if (net.LocationHandlers.IsAnyRemoteInOutsideLocation(n))
+                if (net.LocationEnterExitHandlers.IsAnyRemoteInOutsideLocation(n))
                     remoteInside = true;
             }
 

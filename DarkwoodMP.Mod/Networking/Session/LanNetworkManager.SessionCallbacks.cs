@@ -73,7 +73,8 @@ namespace DWMPHorde.Networking
             _shadowTracked.Clear();
             _nextShadowId = 0;
             NightHandlers?.ClearShadowLookups();
-            ContainerHandlers?.ClearPendingContainerState();
+            ContainerPendingHandlers?.ClearPendingContainerState();
+            ContainerLootHandlers?.ClearPendingHideoutUpgrades();
             FlagHandlers?.ClearPendingFlags();
             JournalHandlers?.ClearPendingJournal();
             _awaitingLateJoinBulk.Clear();
@@ -95,7 +96,7 @@ namespace DWMPHorde.Networking
             NightHandlers?.ClearPendingScenario();
             GameEventHandlers?.ClearPendingGameEvents();
             LockHandlers?.ClearPendingLocks();
-            CombatFxHandlers?.ClearMeleeHitDebounce();
+            CombatFxImpactHandlers?.ClearMeleeHitDebounce();
             _remoteOutsideLocation.Clear();
         }
     }

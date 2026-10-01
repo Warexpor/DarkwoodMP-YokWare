@@ -44,11 +44,11 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("flushPending");
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             FlagHandlers.TryFlushPendingFlags();
-            LocationHandlers?.TryFlushPendingForceAnnounce();
+            LocationEnterExitHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
             Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
             BulkSyncHandlers?.TryFlushPendingHideoutState();
-            ContainerHandlers?.TryFlushPendingHideoutUpgrades();
+            ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();
             TradeHandlers.TryFlushPendingTradeInventories();
             LockHandlers.TryFlushPendingConstructibles();
             StationHandlers.TryFlushPendingSawStates();
@@ -95,7 +95,7 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("meleeDebounce");
-            CombatFxHandlers?.TickMeleeHitDebounceCleanup();
+            CombatFxImpactHandlers?.TickMeleeHitDebounceCleanup();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (!IsConnected || !_handshakeComplete)
@@ -130,7 +130,7 @@ namespace DWMPHorde.Networking
                 {
                     _proxyAggroTimer = 0f;
                     if (perf) ClientPerfProbe.BeginUpdateSegment("proxyAggro");
-                    WorldProxyHandlers.ProxyAggroCheck();
+                    WorldProxyLifecycleHandlers.ProxyAggroCheck();
                     if (perf) ClientPerfProbe.EndUpdateSegment();
                 }
 
@@ -227,7 +227,7 @@ namespace DWMPHorde.Networking
             if (_effectSyncTimer >= 2f)
             {
                 _effectSyncTimer = 0f;
-                WorldProxyHandlers.SendPlayerEffects();
+                WorldProxyEffectHandlers.SendPlayerEffects();
             }
 
             // Both sides: send own position to the other side at ~30 Hz

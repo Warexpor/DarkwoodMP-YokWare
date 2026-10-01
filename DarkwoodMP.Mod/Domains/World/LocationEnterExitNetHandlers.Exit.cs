@@ -43,7 +43,7 @@ namespace DWMPHorde.Networking
                 && _net.PeerRosterCount > 0
                 && !_net.IsPlayerListedInPeerRoster(playerId))
             {
-                _net.WorldProxyHandlers.DestroyRemoteProxy(playerId);
+                _net.WorldProxyLifecycleHandlers.DestroyRemoteProxy(playerId);
                 ModRuntime.LegacyInfo(
                     $"[LocationSync] player {playerId} left session → destroyed proxy (was loc={leftLoc ?? "-"})");
                 return;

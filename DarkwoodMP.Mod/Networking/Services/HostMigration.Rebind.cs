@@ -146,11 +146,11 @@ namespace DWMPHorde.Networking
             }
 
             if (_remoteProxies.ContainsKey(from))
-                WorldProxyHandlers.DestroyRemoteProxy(from);
+                WorldProxyLifecycleHandlers.DestroyRemoteProxy(from);
             DestroyRemoteFlareLight(from);
             DestroyRemoteItemLight(from);
             PlayerPositionManager.RemovePlayer(from);
-            PlayerLightFxHandlers?.ClearPendingPlayerLightsFor(from);
+            PlayerLightFxApplyHandlers?.ClearPendingPlayerLightsFor(from);
             PlayerFXHandlers?.ClearPendingAnimLibrary(from);
             Sync.PeerItemPresence.ClearPlayer(from);
 

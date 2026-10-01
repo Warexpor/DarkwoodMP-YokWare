@@ -19,7 +19,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.LightState, LightStateMessage.Deserialize, m => WorldPhysicsHandlers.HandleLightState(m));
             On(NetMessageType.EntityState, EntityStateMessage.Deserialize, m => PlayerPresenceHandlers.HandleEntityState(m));
             On(NetMessageType.EntityDespawn, EntityDespawnMessage.Deserialize, m => WorldObjectSendHandlers.HandleEntityDespawn(m));
-            On(NetMessageType.ContainerItem, ContainerItemMessage.Deserialize, m => ContainerHandlers.HandleContainerItem(m));
+            On(NetMessageType.ContainerItem, ContainerItemMessage.Deserialize, m => ContainerLootHandlers.HandleContainerItem(m));
             On(NetMessageType.BarricadeEvent, BarricadeEventMessage.Deserialize, m => BarricadeHandlers.HandleBarricadeEvent(m));
             On(NetMessageType.WorkbenchLevel, WorkbenchLevelMessage.Deserialize, m => JournalHandlers.HandleWorkbenchLevel(m));
             On(NetMessageType.JournalItem, JournalItemMessage.Deserialize, m => JournalHandlers.HandleJournalItem(m));
@@ -67,7 +67,7 @@ namespace DWMPHorde.Networking
                 var enter = LocationEnterMessage.Deserialize(new NetReader(payload));
                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                 if (stamp) enter.PlayerId = _currentReceivePlayerId;
-                LocationHandlers.HandleLocationEnter(enter);
+                LocationEnterExitHandlers.HandleLocationEnter(enter);
                 if (stamp) RelayStamped(w => enter.Serialize(w));
             });
             OnRaw(NetMessageType.LocationExit, payload =>
@@ -75,11 +75,11 @@ namespace DWMPHorde.Networking
                 var exit = LocationExitMessage.Deserialize(new NetReader(payload));
                 bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
                 if (stamp) exit.PlayerId = _currentReceivePlayerId;
-                LocationHandlers.HandleLocationExit(exit);
+                LocationEnterExitHandlers.HandleLocationExit(exit);
                 if (stamp) RelayStamped(w => exit.Serialize(w));
             });
-            On(NetMessageType.EntitySpawn, EntitySpawnMessage.Deserialize, m => LocationHandlers.HandleEntitySpawn(m));
-            On(NetMessageType.TrapTriggered, TrapTriggeredMessage.Deserialize, m => LocationHandlers.HandleTrapTriggered(m));
+            On(NetMessageType.EntitySpawn, EntitySpawnMessage.Deserialize, m => LocationEntityTrapHandlers.HandleEntitySpawn(m));
+            On(NetMessageType.TrapTriggered, TrapTriggeredMessage.Deserialize, m => LocationEntityTrapHandlers.HandleTrapTriggered(m));
             On(NetMessageType.LocationPadSlotRequest, LocationPadSlotRequestMessage.Deserialize, m => OutsidePadSlots.HandleRequest(this, _currentReceivePlayerId, m));
             On(NetMessageType.LocationPadSlotSync, LocationPadSlotSyncMessage.Deserialize, m => OutsidePadSlots.HandleSync(this, m));
             On(NetMessageType.TrapBulk, TrapBulkMessage.Deserialize, m => WorldObjectSendHandlers.HandleTrapBulk(m));

@@ -260,9 +260,9 @@ namespace DWMPHorde.Networking
 
         private void CleanupDeadHostLocal(int deadHost)
         {
-            WorldProxyHandlers.DestroyRemoteProxy(deadHost);
-            PlayerHeldLightHandlers.DestroyRemoteFlareLight(deadHost);
-            PlayerHeldLightHandlers.DestroyRemoteItemLight(deadHost);
+            WorldProxyLifecycleHandlers.DestroyRemoteProxy(deadHost);
+            PlayerHeldLightApplyHandlers.DestroyRemoteFlareLight(deadHost);
+            PlayerHeldLightApplyHandlers.DestroyRemoteItemLight(deadHost);
             if (_remotePlayers.ContainsKey(deadHost))
                 _remotePlayers.Remove(deadHost);
             PlayerPositionManager.RemovePlayer(deadHost);

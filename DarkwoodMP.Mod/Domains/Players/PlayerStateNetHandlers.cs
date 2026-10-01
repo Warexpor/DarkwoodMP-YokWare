@@ -128,7 +128,7 @@ namespace DWMPHorde.Networking
                     proxy.RemoteRunning = state.Running;
                     proxy.RemoteLocomotion = (SecondPlayerAnimController.LocomotionState)state.LocomotionState;
                     proxy.ApplyNetworkState(netState);
-                    _net.PlayerHeldLightHandlers.HandleRemoteContinuousLights(state, playerId);
+                    _net.PlayerHeldLightApplyHandlers.HandleRemoteContinuousLights(state, playerId);
 
                     // DISABLED on join path: removeAfterNightEffect() is a full-screen native
                     // morning/event sequence. A joining client's AfterNightActive=false packet
@@ -222,7 +222,7 @@ namespace DWMPHorde.Networking
                 };
 
                 proxy.ApplyNetworkState(remoteState);
-                _net.PlayerHeldLightHandlers.HandleRemoteContinuousLights(state, remotePlayerId);
+                _net.PlayerHeldLightApplyHandlers.HandleRemoteContinuousLights(state, remotePlayerId);
             }
         }
     }

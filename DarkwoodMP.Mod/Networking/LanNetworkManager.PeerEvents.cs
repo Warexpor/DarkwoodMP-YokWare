@@ -172,12 +172,12 @@ namespace DWMPHorde.Networking
                 lastX = lastPos.x; lastY = lastPos.y; lastZ = lastPos.z;
             }
 
-            WorldProxyHandlers.DestroyRemoteProxy(playerId);
+            WorldProxyLifecycleHandlers.DestroyRemoteProxy(playerId);
             DestroyRemoteFlareLight(playerId);
             DestroyRemoteItemLight(playerId);
             _remotePlayers.Remove(playerId);
             PlayerPositionManager.RemovePlayer(playerId);
-            PlayerLightFxHandlers?.ClearPendingPlayerLightsFor(playerId);
+            PlayerLightFxApplyHandlers?.ClearPendingPlayerLightsFor(playerId);
             PlayerFXHandlers?.ClearPendingAnimLibrary(playerId);
             Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
 
@@ -187,7 +187,7 @@ namespace DWMPHorde.Networking
             _peerRosterTimer = 0f;
 
             // Membership + leave-unoccupied + LocationExit fan-out to remaining peers.
-            LocationHandlers?.NotifyRemotePeerDisconnected(playerId, leftLoc, lastX, lastY, lastZ);
+            LocationEnterExitHandlers?.NotifyRemotePeerDisconnected(playerId, leftLoc, lastX, lastY, lastZ);
             _remoteOutsideLocation.Remove(playerId);
 
             if (!expectedJoinDetach && !wasLoadingOnly)

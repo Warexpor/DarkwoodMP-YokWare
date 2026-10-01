@@ -165,7 +165,7 @@ namespace DWMPHorde.Networking
             switch (innerType)
             {
                 case NetMessageType.PlayerLightState:
-                    _net.PlayerLightFxHandlers.HandlePlayerLightState(
+                    _net.PlayerLightFxApplyHandlers.HandlePlayerLightState(
                         PlayerLightStateMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerAudio:
@@ -179,7 +179,7 @@ namespace DWMPHorde.Networking
                     HandlePlayerAnimation(PlayerAnimationMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerBurning:
-                    _net.CombatFxHandlers.HandlePlayerBurning(
+                    _net.CombatFxGasBurnHandlers.HandlePlayerBurning(
                         PlayerBurningMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerDied:
@@ -187,14 +187,14 @@ namespace DWMPHorde.Networking
                         PlayerDiedMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerEffectSync:
-                    _net.WorldProxyHandlers.HandlePlayerEffectSync(
+                    _net.WorldProxyEffectHandlers.HandlePlayerEffectSync(
                         PlayerEffectSyncMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.PlayerAnimLibrary:
                     HandlePlayerAnimLibrary(PlayerAnimLibraryMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.ThrowableSpawn:
-                    _net.CombatFxHandlers.HandleThrowableSpawn(
+                    _net.CombatFxImpactHandlers.HandleThrowableSpawn(
                         ThrowableSpawnMessage.Deserialize(new NetReader(innerPayload)));
                     break;
                 case NetMessageType.DreamEnded:

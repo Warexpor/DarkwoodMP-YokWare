@@ -178,7 +178,7 @@ namespace DWMPHorde.Networking
                         }
                         // Death bag emptied by take: fan Looted now (do not wait for opener hide).
                         if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
-                            _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
+                            _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                     else
                     {
@@ -190,7 +190,7 @@ namespace DWMPHorde.Networking
                             catch { /* non-fatal */ }
                         }
                         if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
-                            _net.CombatHandlers?.TryHostFanDeathBagEmptied(inv);
+                            _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                 }
                 else
