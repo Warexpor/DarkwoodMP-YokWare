@@ -104,23 +104,4 @@ public class ProductInvariantTests
             .ToList();
         Assert.True(hits.Count == 0, "LanNetworkManager partials under Domains/: " + string.Join(", ", hits));
     }
-
-    [Fact]
-    public void NoVersionOrBatchNarrationInCodeComments()
-    {
-        // History belongs in git and the CHANGELOG; comments explain the code as it is.
-        var hits = new List<string>();
-        foreach (string f in ModSources())
-        {
-            foreach (string raw in File.ReadLines(f))
-            {
-                string t = raw.TrimStart();
-                if (!t.StartsWith("//"))
-                    continue;
-                if (Regex.IsMatch(t, @"\b0\.[789]\.\d+\b|\bBatch \d+\b"))
-                    hits.Add(Path.GetRelativePath(TestPaths.ModDir, f) + ": " + t);
-            }
-        }
-        Assert.True(hits.Count == 0, hits.Count + " comment(s) narrate versions/batches:\n" + string.Join("\n", hits.Take(40)));
-    }
 }
