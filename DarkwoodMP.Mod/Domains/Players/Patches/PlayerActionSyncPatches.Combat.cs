@@ -125,7 +125,7 @@ namespace DWMPHorde.Patches
                 throwId = lan.MintThrowId();
             if (isFlare)
             {
-                // Remaining until fully dark from aim-start clock (F4), not a fresh longevity+2.
+                // Remaining until fully dark from aim-start clock, not a fresh longevity+2.
                 float lonFallback = 3f;
                 if (capture.HeldItem != null)
                 {
@@ -156,7 +156,7 @@ namespace DWMPHorde.Patches
                 HasLandTarget = hasLand
             });
 
-            // Host must track own throw — never receives own ThrowableSpawn (F3).
+            // Host must track own throw — never receives own ThrowableSpawn.
             // ClaimFlareLifetime so vanilla waitToDie yields to host expire track (V4).
             if (isFlare && throwId > 0 && capture.HeldItem != null
                 && ModRuntime.Network.Role == NetworkRole.Host)

@@ -5,7 +5,7 @@ namespace DWMPHorde.Sync
     /// createItem maps Amount→ammo for hasAmmo firearms; always overwrite ammo when
     /// hasAmmo so empty mags (Ammo=0 on wire) stay empty instead of Amount=1.
     /// Durability on the wire is absolute — assign even when 0 (broken item).
-    /// shouldBeActive mirrors ClientStateBackup (0.8.59) for flashlight on/off.
+    /// shouldBeActive mirrors ClientStateBackup for flashlight on/off.
     /// </summary>
     internal static class InvItemTransferApply
     {

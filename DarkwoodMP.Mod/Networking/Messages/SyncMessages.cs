@@ -470,22 +470,22 @@ namespace DWMPHorde.Networking
     {
         public string NpcName;
         public int Reputation;
-        /// <summary>0.8.93: host Flags.NPCState.attackedID. Absent = legacy rep-only packet.</summary>
+        /// <summary>Host Flags.NPCState.attackedID (valid when HasAttackedId).</summary>
         public bool HasAttackedId;
         public int AttackedId;
-        /// <summary>0.8.94: host Flags.NPCState.dead + deadID. Absent = do not touch death fields.</summary>
+        /// <summary>Host Flags.NPCState.dead + deadID (valid when HasDead; otherwise death fields are left alone).</summary>
         public bool HasDead;
         public bool Dead;
         public int DeadId;
-        /// <summary>0.8.96: NPC.portraitType after GameEvent CharacterModify. Absent = leave portrait.</summary>
+        /// <summary>NPC.portraitType after GameEvent CharacterModify (valid when HasPortrait).</summary>
         public bool HasPortrait;
         public int PortraitType;
         /// <summary>Vanilla activeModifier: also write characterDialogue.portraitType.</summary>
         public bool ApplyDialoguePortrait;
         public float PosX, PosY, PosZ;
         /// <summary>
-        /// 0.8.97: Character.animationLibraryOverride after GameEvent CharacterModify.
-        /// Absent = leave library. String is the Resources path vanilla's setter loads.
+        /// Character.animationLibraryOverride after GameEvent CharacterModify.
+        /// Valid when HasAnimLibrary. String is the Resources path vanilla's setter loads.
         /// </summary>
         public bool HasAnimLibrary;
         public string AnimLibraryName;

@@ -210,7 +210,7 @@ namespace DWMPHorde.Networking
                     }
                     if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] found window={window.name} barricaded={window.barricaded} hp={window.barricadeHealth}");
 
-                    // B3: vanilla setBarricadeState / destroyBarricade for graph tags + sprites
+                    // vanilla setBarricadeState / destroyBarricade for graph tags + sprites
                     if (msg.Action == BarricadeAction.Built)
                     {
                         window.barricadeState = 3;

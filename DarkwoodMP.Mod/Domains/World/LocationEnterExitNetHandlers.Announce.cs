@@ -52,7 +52,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Tick / settle: fire queued ForceAnnounce once playerInOutsideLocation is true.
-        /// Also retry remote createLocation deferred while local ol.loading (0.8.39 guard).
+        /// Also retry remote createLocation deferred while local ol.loading.
         /// </summary>
         internal void TryFlushPendingForceAnnounce()
         {

@@ -19,7 +19,7 @@ namespace DWMPHorde.Patches
         /// <summary>
         /// Outermost wrap only. Craft/repair/upgrade/construct/HammerWork already
         /// snapshot around the whole action (including product stack into the pile);
-        /// the 0.8.114 choke on <c>removeItemAmountFromPlayer</c> nests inside those
+        /// the choke on <c>removeItemAmountFromPlayer</c> nests inside those
         /// and must not SendFullDiff again (duplicate RemoveItem → host deny/refund).
         /// </summary>
         private static int _snapshotDepth; // process-scoped: call-scoped, unwound by its Finalizer/finally
@@ -158,7 +158,7 @@ namespace DWMPHorde.Patches
     /// when <c>doneBuilding</c> loops <c>currentConstruction.requirements</c>
     /// through <c>removeItemAmountFromPlayer(..., includeAdditionalInventory:
     /// true)</c> — same shared-pile hole as construct. World plank state already
-    /// fans via <c>BarricadeEvent</c> (0.8.109 alert stays there; this patch
+    /// fans via <c>BarricadeEvent</c> (the noise alert stays there; this patch
     /// does not alert). Gate on finish only so mid-swing hammers send nothing.
     /// </summary>
     [HarmonyPatch(typeof(Player), "checkFrameTrigger")]
@@ -185,8 +185,8 @@ namespace DWMPHorde.Patches
     /// <c>removeItemAmountFromPlayer(..., includeAdditionalInventory: true)</c>
     /// drain — including GameEvent <c>addOrRemoveInvItem</c>. Entry patches
     /// (craft/repair/upgrade/construct/HammerWork) still snapshot the outer
-    /// action; nested choke Prefix is skipped via snapshot depth (0.8.116).
-    /// Covers GE actor apply (0.8.99) where the remove runs after
+    /// action; nested choke Prefix is skipped via snapshot depth.
+    /// Covers GE actor apply where the remove runs after
     /// <c>WaitForSeconds</c> (NetworkApplyGuard already gone) while the
     /// workbench pile can still be open (e.g. container story triggers).
     /// </summary>

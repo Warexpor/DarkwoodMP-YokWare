@@ -122,7 +122,7 @@ namespace DWMPHorde.Patches
                 ? Player.Instance.transform.position
                 : pos);
 
-            // 0.8.64: DoorOpen carries OpenForce + opener. DoorState alone was skipped on
+            // DoorOpen carries OpenForce + opener. DoorState alone was skipped on
             // peers after DoorOpen flipped opened (Physics apply early-out), so thump
             // (45000 → door_hit_run) and hinge direction never applied.
             net.Broadcast(NetMessageType.DoorOpen,

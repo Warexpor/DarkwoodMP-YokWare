@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
 
         /// <summary>
         /// Door.Update owns start/stop of hinge scrape on every peer that has the
-        /// door swinging. Networking those loops (0.8.31 allowObjectLoop) left an
+        /// door swinging. Networking those loops left an
         /// orphan AudioController loop on peers because Stop is never forwarded.
         /// </summary>
         internal static bool IsDoorOwnedRotatingLoop(string audioID)

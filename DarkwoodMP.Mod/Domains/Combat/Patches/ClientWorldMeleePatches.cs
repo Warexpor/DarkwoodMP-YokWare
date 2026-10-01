@@ -14,7 +14,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class ClientWorldMeleeRedirectHelper
     {
-        // B5: local combat FX already played on redirect; suppress apply-side hit FX briefly.
+        // local combat FX already played on redirect; suppress apply-side hit FX briefly.
         private static readonly Dictionary<string, float> _fxSuppressUntil = new Dictionary<string, float>(16);
         // Local open-door swing already applied — skip network BarricadeEvent re-force.
         private static readonly Dictionary<string, float> _swingSuppressUntil = new Dictionary<string, float>(16);

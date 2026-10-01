@@ -15,15 +15,11 @@ namespace DWMPHorde.Patches
     /// Restock path: host-only randomizeTraderInv, then absolute push.
     /// Join path: host SendTradeInventoriesTo(playerId) for every trader NPC.
     ///
-    /// 0.8.62: wire carries isRecipe + absolute durability per stack. Pre-0.8.62
-    /// collapsed every recipe to type "recipe" (lost recipeFor) and client trade
-    /// replies could poison the host stock.
-    /// 0.8.67: empty-mag firearms (ammo=0) stay on the wire; broken items keep
-    /// absolute durability 0 (same apply hole class as container 0.8.66).
-    /// 0.8.68: workbench upgrades + shouldBeActive on absolute stock (player-sold
-    /// upgraded / flashlight-on items). NPC InventoryRandom stock rarely has
-    /// upgrades; trailer still required for sold items. Dual-deploy via
-    /// AvailableBytes like ContainerStateSync.
+    /// The wire carries isRecipe + absolute durability per stack (recipes keep their
+    /// recipeFor instead of collapsing to type "recipe", so client trade replies cannot
+    /// poison the host stock). Empty-mag firearms (ammo=0) stay on the wire and broken
+    /// items keep absolute durability 0. Workbench upgrades + shouldBeActive travel per
+    /// entry for player-sold upgraded / flashlight-on items.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "acceptTrade")]
     public static class TradeSyncAcceptPatch
@@ -191,8 +187,8 @@ namespace DWMPHorde.Patches
                 if (string.IsNullOrEmpty(type)) continue;
                 bool hasAmmo = it.baseClass != null && it.baseClass.hasAmmo;
                 int amt = hasAmmo ? it.ammo : it.amount;
-                // Empty-mag firearms must stay on the wire (Amounts=0). Pre-0.8.67
-                // skipped amt<=0 and peers never saw sold/restocked empty guns.
+                // Empty-mag firearms must stay on the wire (Amounts=0), or peers never
+                // see sold/restocked empty guns.
                 if (amt <= 0 && !isRecipe && !hasAmmo) continue;
                 if (amt < 0) amt = 0;
                 if (amt <= 0 && isRecipe) amt = 1;
@@ -316,9 +312,8 @@ namespace DWMPHorde.Patches
                     InvItemClass created = slot.createItem(type, amount, 1f,
                         InvItem.ModifierQuality.none, isRecipe);
                     if (created == null) continue;
-                    // Trailer present: always assign absolute durability (0 = broken).
-                    // Pre-0.8.67 absDur>0 left createItem's full bar. No trailer
-                    // (pre-0.8.62): leave createItem default.
+                    // Always assign absolute durability (0 = broken); createItem's
+                    // default is a full bar.
                     bool hasActive = msg.ShouldBeActive != null && i < msg.ShouldBeActive.Length;
                     bool active = hasActive && msg.ShouldBeActive[i];
                     if (hasAbsDur && hasActive)

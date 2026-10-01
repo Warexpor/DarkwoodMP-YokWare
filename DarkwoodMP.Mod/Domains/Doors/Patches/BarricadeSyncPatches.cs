@@ -12,7 +12,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class BarricadeSyncHelpers
     {
-        // B4: while getHit is running, destroyBarricade() is called inside vanilla
+        // while getHit is running, destroyBarricade() is called inside vanilla
         // before GetHit Postfix — suppress destroy patch send; GetHit owns the event.
         // Nesting-aware depth: door A getHit can nest into door/window B; a single id
         // would clear A's suppress early and double-send destroyBarricade.
@@ -198,7 +198,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Door __instance)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            // B4: destroyBarricade called from inside getHit — GetHit Postfix sends instead
+            // destroyBarricade called from inside getHit — GetHit Postfix sends instead
             if (BarricadeSyncHelpers.IsInsideGetHit(__instance.GetInstanceID()))
                 return;
             BarricadeSyncHelpers.SendBarricadeEvent(__instance.transform.position, 0, BarricadeAction.Destroyed, 0, false);

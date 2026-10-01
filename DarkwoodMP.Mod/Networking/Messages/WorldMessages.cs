@@ -235,7 +235,7 @@ namespace DWMPHorde.Networking
         public string ObjectName;
         /// <summary>0 = remove (default), 1 = claim request, 2 = claim deny.</summary>
         public byte Mode;
-        /// <summary>ModeRemove: player id that won the pickup (0 = unknown / legacy).</summary>
+        /// <summary>ModeRemove: player id that won the pickup (0 = unknown).</summary>
         public int ClaimedByPlayerId;
         public string ItemType;
         public int Amount;
@@ -542,12 +542,12 @@ namespace DWMPHorde.Networking
     {
         public float PosX, PosY, PosZ;
         public string DoorName;
-        /// <summary>0.8.64: real Door.open OpenForce (thump=45000 → door_hit_run). Absent = legacy.</summary>
+        /// <summary>Real Door.open OpenForce (thump=45000 → door_hit_run).</summary>
         public float OpenForce;
-        /// <summary>0.8.64: opener world pos for hinge force direction. Absent = legacy door pos.</summary>
+        /// <summary>Opener world pos for hinge force direction.</summary>
         public float OpenerPosX, OpenerPosY, OpenerPosZ;
         /// <summary>True when OpenForce/Opener trailer was present on the wire.</summary>
-        /// <summary>0.8.90: client tried a padlocked door. Host fires the story trigger and does not open.</summary>
+        /// <summary>client tried a padlocked door. Host fires the story trigger and does not open.</summary>
         public bool AttemptOnly;
 
         public void Serialize(NetWriter w)
@@ -742,11 +742,11 @@ namespace DWMPHorde.Networking
         public int Amount;
         public float Durability;
         public int Ammo;
-        /// <summary>0.8.63: ItemType is recipeFor when true. Absent on pre-0.8.63 packets.</summary>
+        /// <summary>ItemType is recipeFor when true.</summary>
         public bool IsRecipe;
-        /// <summary>0.8.65: workbench ItemUpgrade names. Absent on pre-0.8.65 packets.</summary>
+        /// <summary>Workbench ItemUpgrade names.</summary>
         public string[] Upgrades;
-        /// <summary>0.8.66: flashlight / toggle on. Absent on pre-0.8.66 packets.</summary>
+        /// <summary>Flashlight / toggle on.</summary>
         public bool ShouldBeActive;
 
         public void Serialize(NetWriter w)

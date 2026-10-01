@@ -7,19 +7,19 @@ namespace DWMPHorde.Networking
 {
     /// <summary>
     /// ClientStateBackup restore helpers for recipes, hotbar selection,
-    /// CharacterEffects, personal map markers, and craftedItems (0.8.60+).
+    /// CharacterEffects, personal map markers, and craftedItems.
     /// </summary>
     public static partial class ClientStateBackup
     {
         /// <summary>
         /// Mark the backup hotbar slot as selected without InvSlot.select()
-        /// (that forces shouldBeActive=true). Pre-0.8.60 JSON defaults to 0.
+        /// (that forces shouldBeActive=true). Older JSON defaults to 0.
         /// </summary>
         private static void ApplyHotbarSelectedSlot(Player player, int selectedSlot)
         {
             if (player?.Hotbar?.slots == null || player.Hotbar.slots.Count == 0)
                 return;
-            // −1 / out-of-range: pre-0.8.60 backup or corrupt — keep host-loaded flags.
+            // −1 / out-of-range: older backup or corrupt — keep host-loaded flags.
             if (selectedSlot < 0)
                 return;
             int count = player.Hotbar.slots.Count;
@@ -85,7 +85,7 @@ namespace DWMPHorde.Networking
 
             try
             {
-                // Null ActiveEffects = pre-0.8.60 backup (skip). Empty list = clear host effects.
+                // Null ActiveEffects = older backup (skip). Empty list = clear host effects.
                 player.effects.removeAllEffects();
                 int applied = 0;
                 for (int i = 0; i < data.ActiveEffects.Count; i++)
@@ -113,7 +113,7 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Mirror vanilla Player.SaveState.loadValues craftedItems assign.
-        /// Null CraftedItems = pre-0.8.61 backup (leave host-loaded counts).
+        /// Null CraftedItems = older backup (leave host-loaded counts).
         /// Empty list = clear host counts (client never limited-crafted).
         /// </summary>
         private static void RestoreCraftedItems(ClientStateBackupData data)

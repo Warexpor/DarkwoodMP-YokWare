@@ -12,7 +12,7 @@ namespace DWMPHorde.Patches
     /// Clients need them for wolfman despawn-on-death, onlyOneInstance dedup, and
     /// EventTriggerRequirement.npcStateIsDead. UniqueIds are per-peer SaveManager
     /// counters, so clients remap host ids onto the local SaveableObject when present.
-    /// Portrait / anim visual trailers live in the Visuals partial (0.8.96/97/115).
+    /// Portrait / anim visual trailers live in the Visuals partial.
     /// </summary>
     internal static partial class NpcAttackedIdSync
     {

@@ -27,7 +27,7 @@ namespace DWMPHorde.Networking
         /// still false). Retry on settle / Tick flush — do not invent a pad name on the world map.
         /// </summary>
         private string _pendingForceAnnounceReason;
-        /// <summary>Remote pads deferred because local OutsideLocations.loading (0.8.39 guard).</summary>
+        /// <summary>Remote pads deferred because local OutsideLocations.loading.</summary>
         private readonly HashSet<string> _deferredCreateWhileLocalLoading =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

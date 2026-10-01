@@ -49,7 +49,7 @@ namespace DWMPHorde.Networking
                 msg.AttackedIds[i] = flags.npcStates[i].attackedID;
                 msg.DeadIds[i] = flags.npcStates[i].deadID;
             }
-            // 0.8.115: same portrait / anim trailers live ReputationSync already fans.
+            // same portrait / anim trailers live ReputationSync already fans.
             Patches.NpcAttackedIdSync.FillBulkVisualTrailers(ref msg);
             _net.SendBulkOrAll(NetMessageType.ReputationBulkSync, w => msg.Serialize(w), targetPlayerId);
         }
