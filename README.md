@@ -28,9 +28,14 @@ All peers in a session must use the same mod version and protocol.
   day/night clock where the mod has a multiplayer path.
 - Clients present host state and suppress the local systems that would create
   duplicate world simulation.
+- The host validates client requests against its own world, drops message types
+  only the host may send, and relays a client message to the other clients only
+  after applying it.
 
 The highest assigned message ID is 146 (`SessionSettings`). Voice data uses message
-129 when Steam voice is enabled.
+129 when Steam voice is enabled. How the code is organised, and the rules for
+adding messages, handlers, patches and session state, are in
+[DarkwoodMP.Mod/docs/ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md).
 
 ---
 
@@ -157,9 +162,13 @@ Build the solution:
 
 `dotnet build DarkwoodMP.sln -c Release`
 
-Run the product and wire tests:
+Run the tests (no game install needed; .NET 8 SDK):
 
 `dotnet test DarkwoodMP.PathB.Tests -c Release`
+
+They cover wire round-trips for every message, dispatch coverage, the Harmony
+and session-reset rules, policy helpers, and release consistency (version,
+protocol, docs). CI runs them on every push and pull request to `dev` and `main`.
 
 `LiteNetLib` version 1.3.5 comes from NuGet. Game and loader assemblies are
 resolved from the local installation.
@@ -175,13 +184,14 @@ parity.
 
 Known deferred or runtime-dependent areas include:
 
-- full dual-box and three-player campaign soak (msgs 134–138 + new host-auth
-  gates still code-covered only)
+- full dual-box and three-player campaign soak: every domain is code-covered,
+  runtime verification is still pending (start with
+  [PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md))
 - wrong-save warning UI: **code shipped** — slot picker `[DIFFERENT CAMPAIGN]`
   + overwrite confirm; backup refuse → in-world / join `WRONG SAVE` via
   `WrongSaveWarning`. Dual-box / multi-slot UX still soak-pending.
-- complete interaction-lock coverage (workbench exclusive lock parked since
-  0.7.40 playtest ask — both players may share a bench; msg **119** reserved)
+- complete interaction-lock coverage (no workbench exclusive lock by design:
+  both players may share a bench; msg **119** stays reserved)
 - some dream, spectator, and dialogue presentation edge cases (parked as
   presentation-only in `COOP_COVERAGE.md` — not world-authority gaps)
 - host migration during a dream
