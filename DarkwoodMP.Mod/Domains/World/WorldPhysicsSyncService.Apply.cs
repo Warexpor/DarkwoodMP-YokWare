@@ -97,8 +97,8 @@ namespace DWMPHorde.Sync
                         // DragSync and spammed NotifyBodyPushStarted (logs: 53 starts, thrash).
                         var netMgr = ModRuntime.Network;
                         if (netMgr != null && !string.IsNullOrEmpty(obj.Name)
-                            && (netMgr._dragClaims.ContainsKey(obj.Name)
-                                || netMgr._remoteDragItemNames.Contains(obj.Name)))
+                            && (netMgr.PlayerInteractHandlers.DragClaims.ContainsKey(obj.Name)
+                                || netMgr.PlayerInteractHandlers.RemoteDragItemNames.Contains(obj.Name)))
                         {
                             objSkipped++;
                             continue;
@@ -219,7 +219,7 @@ namespace DWMPHorde.Sync
                         // - NoteMoving / ForceStop (double scrape / kill native mid-push)
                         var echoNet = ModRuntime.Network;
                         bool localDragClaim = echoNet != null && !string.IsNullOrEmpty(obj.Name)
-                            && echoNet._dragClaims.TryGetValue(obj.Name, out int claimPid)
+                            && echoNet.PlayerInteractHandlers.DragClaims.TryGetValue(obj.Name, out int claimPid)
                             && claimPid == echoNet.LocalPlayerId;
                         bool localDraggingItem = false;
                         try

@@ -214,7 +214,7 @@ namespace DWMPHorde.Networking
             if (!ImpactFxPolicy.IsAllowedBulletImpact(msg.PoolName, msg.PrefabName)
                 || !CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ))
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 ModLog.WarnRate(LogCat.Combat, "impact-reject:" + _net.CurrentReceivePlayerId,
                     "[BulletFX] rejected BulletImpact '" + msg.PrefabName + "' pool='" + msg.PoolName
                     + "' from p" + _net.CurrentReceivePlayerId);

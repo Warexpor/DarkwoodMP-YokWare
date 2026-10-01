@@ -91,15 +91,15 @@ namespace DWMPHorde.Sync
                 // through PhysicsState, or both paths can start scrape audio.
                 // (start/stop thrash) and could echo MOS onto the dragging client.
                 if (net != null && !string.IsNullOrEmpty(rootName)
-                    && (net._dragClaims.ContainsKey(rootName)
-                        || net._remoteDragItemNames.Contains(rootName)))
+                    && (net.PlayerInteractHandlers.DragClaims.ContainsKey(rootName)
+                        || net.PlayerInteractHandlers.RemoteDragItemNames.Contains(rootName)))
                     continue;
                 if (itemComp != null && (itemComp.beingDragged
                     || (Player.Instance != null && Player.Instance.dragging
                         && Player.Instance.itemBeingDragged == itemComp)))
                     continue;
 
-                if (net != null && net._remoteDragItemIds.Contains(rootId))
+                if (net != null && net.PlayerInteractHandlers.RemoteDragItemIds.Contains(rootId))
                     continue;
 
                 if (rootGo.GetComponentInParent<Jumpable>() != null)

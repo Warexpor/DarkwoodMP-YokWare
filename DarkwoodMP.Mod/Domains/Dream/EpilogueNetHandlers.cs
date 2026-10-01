@@ -61,7 +61,7 @@ namespace DWMPHorde.Networking
                             ModRuntime.LegacyInfo(
                                 "[Epilogue] Host ignored credits SceneLoad — not in epilogue "
                                 + "(living peer must not be dragged by a remote ending)");
-                            _net._suppressForwardThisMessage = true;
+                            _net.SuppressRelay();
                             return;
                         }
                         ModRuntime.LegacyInfo(
@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
                         return;
                     }
 
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                     ModRuntime.LegacyInfo(
                         $"[Epilogue] Rejected inbound SceneLoad from p{_net.CurrentReceivePlayerId}: {msg.SceneName}");
                 }

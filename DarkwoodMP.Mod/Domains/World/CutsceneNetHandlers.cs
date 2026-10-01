@@ -29,7 +29,7 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
                 && !IsClientRequestAction(msg.Action))
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 ModLog.Warn(LogCat.Session,
                     "[Cutscene] dropped host-only action " + msg.Action + " from p" + _net.CurrentReceivePlayerId);
                 return;

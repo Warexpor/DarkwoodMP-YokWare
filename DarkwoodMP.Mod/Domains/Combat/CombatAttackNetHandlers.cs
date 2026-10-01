@@ -253,7 +253,7 @@ namespace DWMPHorde.Networking
             // FriendlyFire is Forwardable: every reject below also stops the raw relay.
             if (!SessionSettings.FriendlyFireEnabled)
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 return;
             }
 
@@ -318,7 +318,7 @@ namespace DWMPHorde.Networking
             // Never apply FF to self (attacker == victim) from a bad packet.
             if (victimPlayerId == atkPlayerId)
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 return;
             }
 
@@ -340,14 +340,14 @@ namespace DWMPHorde.Networking
             if ((victimPlayerId > 0 && DeathStateTracker.IsRemoteNightDead(victimPlayerId))
                 || ((victimPlayerId == _net.LocalPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalNightDeath))
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 return;
             }
 
             int damage = SanitizePeerDamage(msg.Damage, "FriendlyFire");
             if (damage <= 0)
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 return;
             }
 
@@ -356,7 +356,7 @@ namespace DWMPHorde.Networking
             float now = Time.time;
             if (_ffDebounce.TryGetValue(debounceKey, out float last) && now - last < FriendlyFireDebounceSec)
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 EntitySyncLog.CombatTrace("ff:deb",
                     "[FriendlyFire] debounced atk=" + atkPlayerId + "→vic=" + victimPlayerId
                     + " dmg=" + damage, 1f);
@@ -365,7 +365,7 @@ namespace DWMPHorde.Networking
 
             if (!TryConsumeBudget(atkPlayerId, damage, "FriendlyFire"))
             {
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
                 return;
             }
             _ffDebounce[debounceKey] = now;

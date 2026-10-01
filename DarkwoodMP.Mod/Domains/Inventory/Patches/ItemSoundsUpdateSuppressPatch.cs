@@ -145,8 +145,8 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null)
                 return false;
-            return net._remoteDragItemNames != null
-                && net._remoteDragItemNames.Contains(objectName);
+            return net.PlayerInteractHandlers.RemoteDragItemNames != null
+                && net.PlayerInteractHandlers.RemoteDragItemNames.Contains(objectName);
         }
     }
 }

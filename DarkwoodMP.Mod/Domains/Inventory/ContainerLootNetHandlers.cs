@@ -108,14 +108,14 @@ namespace DWMPHorde.Networking
                     DenyContainerTake(_net.CurrentReceivePlayerId, msg, "no inventory");
                 }
                 if (msg.Action == ContainerAction.CloseContainer && _net.Role == NetworkRole.Host)
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                 return;
             }
 
             if (msg.Action == ContainerAction.CloseContainer)
             {
                 if (_net.Role == NetworkRole.Host)
-                    _net._suppressForwardThisMessage = true;
+                    _net.SuppressRelay();
                 FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onCloseContainer, msg);
                 return;
             }

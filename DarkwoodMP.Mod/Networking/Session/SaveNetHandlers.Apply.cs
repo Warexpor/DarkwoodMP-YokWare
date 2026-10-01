@@ -18,7 +18,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role == NetworkRole.Offline)
                 return;
-            if (LanNetworkManager._isRemoteSaveInProgress)
+            if (LanNetworkManager.RemoteSaveInProgress)
                 return;
 
             if (_net.Role == NetworkRole.Host)
@@ -62,7 +62,7 @@ namespace DWMPHorde.Networking
 
         private void ApplySaveSyncLocalSave(string reason)
         {
-            if (LanNetworkManager._isRemoteSaveInProgress)
+            if (LanNetworkManager.RemoteSaveInProgress)
                 return;
 
             SaveManager sm = Singleton<SaveManager>.Instance;
@@ -79,7 +79,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            LanNetworkManager._isRemoteSaveInProgress = true;
+            LanNetworkManager.RemoteSaveInProgress = true;
             try
             {
                 ModLog.Event(LogCat.Save,
@@ -107,7 +107,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager._isRemoteSaveInProgress = false;
+                LanNetworkManager.RemoteSaveInProgress = false;
             }
         }
 

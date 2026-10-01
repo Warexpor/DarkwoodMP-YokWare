@@ -149,7 +149,7 @@ namespace DWMPHorde.Audio
             // Host PhysicsState / DragSync echo: claim table covers frames where
             // touchingColliders / beingDragged briefly miss (hinge timing).
             if (ModRuntime.Network is Networking.LanNetworkManager net
-                && net._dragClaims.TryGetValue(objectName, out int claimer)
+                && net.PlayerInteractHandlers.DragClaims.TryGetValue(objectName, out int claimer)
                 && claimer == net.LocalPlayerId)
                 return true;
 
@@ -267,7 +267,7 @@ namespace DWMPHorde.Audio
                     if (item.beingDragged) continue;
                     if (p.dragging && p.itemBeingDragged == item) continue;
                     if (net is Networking.LanNetworkManager lnm
-                        && (lnm._dragClaims.ContainsKey(name) || lnm._remoteDragItemNames.Contains(name)))
+                        && (lnm.PlayerInteractHandlers.DragClaims.ContainsKey(name) || lnm.PlayerInteractHandlers.RemoteDragItemNames.Contains(name)))
                         continue;
 
                     stillContact = _stillContactScratch;
@@ -340,7 +340,7 @@ namespace DWMPHorde.Audio
             // Never body-push-stop a live drag claim (would sleep RB mid E-drag).
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net != null
-                && (net._dragClaims.ContainsKey(objectName) || net._remoteDragItemNames.Contains(objectName)))
+                && (net.PlayerInteractHandlers.DragClaims.ContainsKey(objectName) || net.PlayerInteractHandlers.RemoteDragItemNames.Contains(objectName)))
                 return;
             Player p = Player.Instance;
             if (p != null && p.dragging && p.itemBeingDragged != null

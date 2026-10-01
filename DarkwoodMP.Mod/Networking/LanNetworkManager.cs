@@ -32,38 +32,26 @@ namespace DWMPHorde.Networking
 
         internal WorldSyncService WorldSync => _worldSync;
 
-        internal int PhysicsRecvLogCounter
-        {
-            get => _physicsRecvLogCounter;
-            set => _physicsRecvLogCounter = value;
-        }
-
         internal Dictionary<short, ShadowCreature> ShadowTracked => _shadowTracked;
-        internal short NextShadowId
-        {
-            get => _nextShadowId;
-            set => _nextShadowId = value;
-        }
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
         private uint _nextPlayerStateSequence;
-        internal readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
+        private readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
         internal Dictionary<int, uint> LastPhysicsStateSequence => _lastPhysicsStateSequence;
-        internal readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
+        private readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
         internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _lastReliablePhysicsStateSequence;
-        internal readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
+        private readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
         private float _proxyAggroTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
-        internal bool _wasDragging;
-        internal string _lastDraggedItemName;
+        private bool _wasDragging;
+        private string _lastDraggedItemName;
 
         internal bool WasDragging { get => _wasDragging; set => _wasDragging = value; }
         internal string LastDraggedItemName { get => _lastDraggedItemName; set => _lastDraggedItemName = value; }
         internal Dictionary<int, uint> LastPlayerStateSequence => _lastPlayerStateSequence;
         internal Dictionary<string, Vector3> LastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
         internal Dictionary<string, float> DragEndedAt => PlayerInteractHandlers.DragEndedAt;
-        internal static HashSet<string> ConsumedDropGuids => _consumedDropGuids;
         /// <summary>Local E-drag scrape intent (player walking). False → reliable quiet stop for peers.</summary>
         private bool _dragScrapeActive;
         private float _dragScrapeQuietSince = -1f;
@@ -117,7 +105,7 @@ namespace DWMPHorde.Networking
         /// freezing gameplay traffic for peers that are already ready.
         /// </summary>
         internal HashSet<int> HandshakedPeers => _handshakedPeers;
-        internal readonly HashSet<int> _handshakedPeers = new HashSet<int>();
+        private readonly HashSet<int> _handshakedPeers = new HashSet<int>();
 
         /// <summary>
         /// Host: peers refused by <see cref="RejectPeerWorld"/> during their drop grace. Nothing they
@@ -278,7 +266,6 @@ namespace DWMPHorde.Networking
             ContainerPendingHandlers.ClearPendingTakePreCount(pos, slotIdx);
 
         /// <summary>Thin forward: drag claim maps live on <see cref="PlayerInteractNetHandlers"/>.</summary>
-        internal Dictionary<string, int> _dragClaims => PlayerInteractHandlers.DragClaims;
 
         internal bool IsDragClaimedByOther(string objectName, int localPlayerId) =>
             PlayerInteractHandlers.IsDragClaimedByOther(objectName, localPlayerId);
@@ -287,24 +274,26 @@ namespace DWMPHorde.Networking
         /// Suppresses Postfix re-broadcast to prevent loops (unlike the broader
         /// IsApplyingRemoteState which also blocks legitimate HandleMeleeWorldHit
         /// feedback).</summary>
-        internal static bool _processingBarricadeEvent; // process-scoped: call-scoped, unwound by its Finalizer/finally
+        internal static bool ProcessingBarricadeEvent; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         // body-push/drag sounds now use native ItemSounds via Rigidbody velocity
         /// <summary>Thin forward: remote drag ids live on <see cref="PlayerInteractNetHandlers"/>.</summary>
-        internal HashSet<int> _remoteDragItemIds => PlayerInteractHandlers.RemoteDragItemIds;
-        internal HashSet<string> _remoteDragItemNames => PlayerInteractHandlers.RemoteDragItemNames;
-        internal Dictionary<string, Vector3> _lastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
-        internal Dictionary<string, float> _dragEndedAt => PlayerInteractHandlers.DragEndedAt;
         internal const float DragStopStaleGraceConst = PlayerInteractNetHandlers.DragStopStaleGraceConst;
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
-        internal static bool _isRemoteSaveInProgress; // reset-in: ResetStaticSessionFlags
+        internal static bool RemoteSaveInProgress; // reset-in: ResetStaticSessionFlags
 
         /// <summary>
         /// Host: set when a take or place loses a race, so the payload is not
         /// forwarded.
         /// </summary>
-        internal bool _suppressForwardThisMessage;
+        private bool _suppressForwardThisMessage;
+
+        /// <summary>
+        /// Inside an inbound handler: do not relay this message to the other clients (the handler
+        /// rejected it, or fans out its own corrected copy). Cleared before the next message.
+        /// </summary>
+        internal void SuppressRelay() => _suppressForwardThisMessage = true;
 
 
         public event Action Connected;

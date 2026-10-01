@@ -71,7 +71,7 @@ namespace DWMPHorde.Networking
         {
             _stickyPlayerPayloads.Clear();
             _shadowTracked.Clear();
-            _nextShadowId = 0;
+            NextShadowId = 0;
             NightHandlers?.ClearShadowLookups();
             ContainerPendingHandlers?.ClearPendingContainerState();
             ContainerLootHandlers?.ClearPendingHideoutUpgrades();

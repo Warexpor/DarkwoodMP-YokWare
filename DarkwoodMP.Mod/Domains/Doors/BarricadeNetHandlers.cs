@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
         internal void ApplyBarricadeEvent(BarricadeEventMessage msg, bool queueIfMissing)
         {
             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] HANDLE type={msg.IsWindow} act={msg.Action} hp={msg.Health} pos=({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) mainHp={msg.MainHealth}");
-            LanNetworkManager._processingBarricadeEvent = true;
+            LanNetworkManager.ProcessingBarricadeEvent = true;
             try
             {
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
@@ -244,7 +244,7 @@ namespace DWMPHorde.Networking
                     }
                 }
             }
-            finally { LanNetworkManager._processingBarricadeEvent = false; }
+            finally { LanNetworkManager.ProcessingBarricadeEvent = false; }
         }
 
         /// <summary>

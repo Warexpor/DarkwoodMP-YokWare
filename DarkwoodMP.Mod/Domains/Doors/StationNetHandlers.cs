@@ -55,7 +55,7 @@ namespace DWMPHorde.Networking
             // Host owns saw stock: a client message is a request, never relayed raw. The host
             // answers with its own absolute state (now or when the deferred apply runs).
             if (_net.Role == NetworkRole.Host && senderId > 0)
-                _net._suppressForwardThisMessage = true;
+                _net.SuppressRelay();
             ApplySawState(msg, senderId, queueIfMissing: true);
         }
 

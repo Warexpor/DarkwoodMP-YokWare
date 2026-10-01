@@ -120,7 +120,7 @@ namespace DWMPHorde.Networking
                 InnerType = (byte)NetMessageType.PlayerDied,
                 InnerPayload = inner.CopyData()
             };
-            _net._suppressForwardThisMessage = true;
+            _net.SuppressRelay();
             _net.SendToAllExcept(playerId, NetMessageType.RemotePlayerForward,
                 w => fwd.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
             return false;
