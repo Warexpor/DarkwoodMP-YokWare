@@ -292,8 +292,7 @@ namespace DWMPHorde.Spectator
         /// <summary>Switch camera to the lowest-PlayerId living remote proxy.</summary>
         private bool TryRetargetLivingProxy()
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return false;
+            if (!NetGuard.Connected(out var net)) return false;
 
             var living = net.GetAllProxies()
                 .Where(p => p != null && p.GetComponent<CharBase>()?.alive != false)

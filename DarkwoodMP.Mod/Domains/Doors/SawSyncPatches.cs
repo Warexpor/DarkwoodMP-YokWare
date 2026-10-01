@@ -96,8 +96,7 @@ namespace DWMPHorde.Sync
         internal static void SendAbsoluteTo(Saw saw, int playerId)
         {
             if (saw == null || playerId <= 0) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             var msg = BuildMessage(saw);
             net.SendToPlayer(playerId, NetMessageType.SawState, w => msg.Serialize(w),
@@ -108,8 +107,7 @@ namespace DWMPHorde.Sync
         internal static void BroadcastAbsoluteFromHost(Saw saw, string reason)
         {
             if (saw == null) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             var msg = BuildMessage(saw);
             net.Broadcast(NetMessageType.SawState, w => msg.Serialize(w),

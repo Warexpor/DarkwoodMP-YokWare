@@ -143,8 +143,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             if (__instance == null || !__instance.trader)
                 return;
@@ -234,8 +233,7 @@ namespace DWMPHorde.Patches
         public static void BroadcastNpcInventory(NPC npc)
         {
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.ConnectedHost(out var net)) return;
 
             var msg = BuildMessage(npc);
             ModRuntime.LegacyInfo(

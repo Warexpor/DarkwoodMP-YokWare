@@ -46,8 +46,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingBoolFlags.Count == 0) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
@@ -160,8 +159,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingIntFlags.Count == 0) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;

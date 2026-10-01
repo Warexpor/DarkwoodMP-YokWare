@@ -52,8 +52,7 @@ namespace DWMPHorde.Patches
         private static void TryFallbackShot(Player player)
         {
             if (player == null || player != Player.Instance) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (InvItemClass.isNull(player.currentItem) || player.currentItem.baseClass == null) return;
             // Projectile weapons hit through FastProjectile / Bullet.onCollide, not a ray.
             if (player.currentItem.baseClass.item != null) return;
@@ -93,8 +92,7 @@ namespace DWMPHorde.Patches
         /// <summary>Proxy-hit handling for one local hitscan ray (detour or scope fallback).</summary>
         internal static void HandleHit(RaycastHit hitInfo)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Projectile sweep (incl. stalled pellets) uses the same layer mask —
             // damage for those is Bullet.onCollide → ProxyDamagePatch, never HitscanFF.

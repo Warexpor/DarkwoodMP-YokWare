@@ -43,8 +43,7 @@ namespace DWMPHorde.Patches
 
         internal static void BroadcastInfectionSpawn(Vector3 pos)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             var msg = BuildSpawnMessage(pos);

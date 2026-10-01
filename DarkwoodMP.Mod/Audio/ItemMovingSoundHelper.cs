@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Networking;
 
 namespace DWMPHorde.Audio
 {
@@ -232,8 +233,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         public static void TickLocalPushScrapeStop()
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             Player p = Player.Instance;
             if (p == null) return;

@@ -179,8 +179,7 @@ namespace DWMPHorde.Patches
         /// <summary>Host: a client reported the outcome of its chapter world share.</summary>
         internal static void HandleChapterShareAck(ChapterShareAckMessage msg)
         {
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             int pid = net.CurrentReceivePlayerId;
             if (pid <= 1)
@@ -270,8 +269,7 @@ namespace DWMPHorde.Patches
         {
             if (!_clientAckRequired || !ChapterShareExpected)
                 return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return;
             float now = Time.unscaledTime;
             if (!force && now - _clientProgressAckAt < ClientProgressAckIntervalSec)

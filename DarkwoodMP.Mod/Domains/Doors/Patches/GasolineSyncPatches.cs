@@ -243,8 +243,7 @@ namespace DWMPHorde.Patches
             if (__state) return;
             if (__instance == null || !__instance.burning) return;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             // Host owns fire spread: it reports every puddle that ignites, so a client puddle
             // lit from the network must not also spread to neighbours on its own timer

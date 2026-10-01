@@ -194,8 +194,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
 
             // Host (local or via request): fan out examined state to all clients.
             Vector3 p = __instance.transform.position;

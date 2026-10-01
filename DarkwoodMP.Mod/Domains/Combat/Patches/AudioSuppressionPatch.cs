@@ -49,8 +49,7 @@ namespace DWMPHorde.Patches
             }
 
             // Single-player / not connected: do not interfere with vanilla audio.
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             Vector3 pos = worldPosition;

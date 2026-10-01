@@ -207,8 +207,7 @@ namespace DWMPHorde.Spectator
             if (!CanUseSpectateKey())
                 return;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return;
 
             // Prefer alive proxies, ordered by player ID for a stable F4 cycle.
@@ -274,8 +273,7 @@ namespace DWMPHorde.Spectator
         {
             if (!DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead)
                 return;
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             if (Time.unscaledTime < _nextNoTargetResolveAt)
                 return;

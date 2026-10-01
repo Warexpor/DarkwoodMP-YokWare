@@ -50,8 +50,7 @@ namespace DWMPHorde
             if (SessionSettings.LootShareMode == LootShareMode.Off)
                 return 1;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return 1;
 
             int announced = SessionSettings.PartyMultiplier;

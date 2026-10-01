@@ -64,8 +64,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Explodes __instance, State __state)
         {
             if (!__state.Host) return;
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             if (!net.IsConnected) return;
             if (__instance == null) return;
             if (!__state.OrigAffectsPlayer) return;

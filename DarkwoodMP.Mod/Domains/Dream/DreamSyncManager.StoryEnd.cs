@@ -69,8 +69,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void NotifyPeersStoryEndBeginning(string presetName, string outcomeName)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             if (_dreamEndBroadcastSent)
                 return;

@@ -17,8 +17,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Controller __instance, bool byKillingTrader)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return true;
@@ -42,8 +41,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Controller __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
@@ -66,8 +64,7 @@ namespace DWMPHorde.Patches
 
         internal static void FlushHostTime(string reason)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
@@ -199,8 +196,7 @@ namespace DWMPHorde.Patches
             // Role only, not IsConnected: the disconnect cleanup calls this after the leaver is
             // already out of the roster, and when it was the last peer the host is no longer
             // "connected" — the morning would then never end for a host already outside.
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null || !ctrl.isAfterNight)
@@ -281,8 +277,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Location __instance, Collider _collider)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return true;
             if (__instance == null || __instance.isSubLocation || !__instance.playerBase)
                 return true;

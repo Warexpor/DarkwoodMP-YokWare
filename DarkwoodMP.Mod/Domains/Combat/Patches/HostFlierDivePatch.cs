@@ -14,8 +14,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Flier __instance)
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return true;
 
             Character character = __instance.GetComponent<Character>();

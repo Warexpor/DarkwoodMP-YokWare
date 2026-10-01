@@ -141,8 +141,7 @@ namespace DWMPHorde.Patches
             if (__instance.isNightTrader) return;
             if (!byPlayer && attackerTransform == null) return;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
             // Mirror vanilla Character.getHit blood spawn for the wire (local already spawned).

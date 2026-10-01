@@ -87,8 +87,7 @@ namespace DWMPHorde.Patches
             if (__instance == null || !__instance.active)
                 return true;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             int id = __instance.GetInstanceID();
