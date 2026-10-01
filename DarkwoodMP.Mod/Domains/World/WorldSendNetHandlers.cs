@@ -44,15 +44,36 @@ namespace DWMPHorde.Networking
                 isDead ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
         }
 
+        /// <summary>
+        /// Host: forget a shadow. A final dead update goes out first so clients play Death1 and drop
+        /// the lookup.
+        /// </summary>
+        internal void UnregisterShadow(short id)
+        {
+            if (!_net.Shadows.TryRemove(id, out ShadowCreature sc) || sc == null)
+                return;
+            Vector3 p = sc.transform.position;
+            SendShadowStateUpdate(new ShadowStateUpdateMessage
+            {
+                ShadowId = id,
+                PosX = p.x,
+                PosY = p.y,
+                PosZ = p.z,
+                RotY = sc.transform.rotation.eulerAngles.y,
+                DistanceToPlayer = sc.distanceToPlayer,
+                Flags = 2 // dead
+            });
+        }
+
         internal void BroadcastShadowStates()
         {
             if (_net.Role != NetworkRole.Host) return;
             if (!_net.IsConnected) return;
-            if (_net.ShadowTracked.Count == 0) return;
+            if (_net.Shadows.Tracked.Count == 0) return;
 
             // Clean dead/null shadows (send death first), broadcast living ones.
             List<short> deadIds = null;
-            foreach (var kvp in _net.ShadowTracked)
+            foreach (var kvp in _net.Shadows.Tracked)
             {
                 if (kvp.Value == null || kvp.Value.dead)
                 {
@@ -92,7 +113,7 @@ namespace DWMPHorde.Networking
             if (deadIds != null)
             {
                 for (int i = 0; i < deadIds.Count; i++)
-                    _net.ShadowTracked.Remove(deadIds[i]);
+                    _net.Shadows.Tracked.Remove(deadIds[i]);
             }
         }
 
@@ -102,13 +123,13 @@ namespace DWMPHorde.Networking
         internal void SendShadowsTo(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host) return;
-            if (_net.ShadowTracked.Count == 0) return;
+            if (_net.Shadows.Tracked.Count == 0) return;
 
             _net.SendBulkOrAll(NetMessageType.ShadowEvent,
                 w => new ShadowEventMessage().Serialize(w), targetPlayerId);
 
             int sent = 0;
-            foreach (var kvp in _net.ShadowTracked)
+            foreach (var kvp in _net.Shadows.Tracked)
             {
                 ShadowCreature sc = kvp.Value;
                 if (sc == null || sc.dead) continue;

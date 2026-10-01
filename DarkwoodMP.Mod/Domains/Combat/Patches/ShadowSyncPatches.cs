@@ -78,7 +78,7 @@ namespace DWMPHorde.Patches
             var info = __result.GetComponent<ShadowSyncInfo>();
             if (info == null)
                 info = __result.AddComponent<ShadowSyncInfo>();
-            info.ShadowId = net.GetNextShadowId();
+            info.ShadowId = net.Shadows.MintId();
             info.ShadowType = (byte)(prefab == "characters/fakechars/shadow_immortal" ? 1 : 0);
             info.OwnerPlayerId = ownerId;
 
@@ -115,7 +115,7 @@ namespace DWMPHorde.Patches
 
             var sc = __result.GetComponent<ShadowCreature>();
             if (sc != null)
-                net.RegisterShadow(info.ShadowId, sc);
+                net.Shadows.Register(info.ShadowId, sc);
 
             Vector3 pos = __result.transform.position;
             float rotY = __result.transform.rotation.eulerAngles.y;
@@ -148,7 +148,7 @@ namespace DWMPHorde.Patches
 
             var info = __instance.GetComponent<ShadowSyncInfo>();
             if (info != null)
-                net.UnregisterShadow(info.ShadowId);
+                net.WorldSendHandlers.UnregisterShadow(info.ShadowId);
         }
     }
 }

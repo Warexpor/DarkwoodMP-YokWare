@@ -185,7 +185,7 @@ namespace DWMPHorde.Patches
             {
                 var info = GetComponent<ShadowSyncInfo>();
                 if (info != null)
-                    net.UnregisterShadow(info.ShadowId);
+                    net.WorldSendHandlers.UnregisterShadow(info.ShadowId);
             }
 
             Destroy(this, 2f);

@@ -32,7 +32,6 @@ namespace DWMPHorde.Networking
 
         internal WorldSyncService WorldSync => _worldSync;
 
-        internal Dictionary<short, ShadowCreature> ShadowTracked => _shadowTracked;
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
         private uint _nextPlayerStateSequence;

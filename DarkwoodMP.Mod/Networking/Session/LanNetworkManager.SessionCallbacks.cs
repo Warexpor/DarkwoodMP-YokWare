@@ -70,8 +70,7 @@ namespace DWMPHorde.Networking
         internal void ResetSessionNetworkState()
         {
             _stickyPlayerPayloads.Clear();
-            _shadowTracked.Clear();
-            NextShadowId = 0;
+            Shadows.Reset();
             NightHandlers?.ClearShadowLookups();
             ContainerPendingHandlers?.ClearPendingContainerState();
             ContainerLootHandlers?.ClearPendingHideoutUpgrades();

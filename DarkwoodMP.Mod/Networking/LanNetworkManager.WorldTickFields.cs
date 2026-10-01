@@ -6,8 +6,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// Host tick timers and shadow tracking fields used by <see cref="LanNetworkManager"/> Update
-    /// and BulkSync reset. Kept on the partial class so accessors in the main file stay valid.
+    /// Host tick timers used by <see cref="LanNetworkManager"/> Update, and the shadow registry.
     /// </summary>
     public sealed partial class LanNetworkManager
     {
@@ -23,42 +22,9 @@ namespace DWMPHorde.Networking
         /// </summary>
         private const float TimeSyncInterval = 0.5f;
 
-        internal short NextShadowId;
-        private readonly Dictionary<short, ShadowCreature> _shadowTracked = new Dictionary<short, ShadowCreature>();
+        /// <summary>Host: shadow creatures by network id.</summary>
+        internal ShadowRegistry Shadows { get; } = new ShadowRegistry();
         private float _shadowBroadcastTimer;
         private const float ShadowBroadcastInterval = 0.3f;
-
-        public short GetNextShadowId()
-        {
-            NextShadowId++;
-            if (NextShadowId >= 9999) NextShadowId = 1;
-            return NextShadowId;
-        }
-
-        public void RegisterShadow(short id, ShadowCreature sc)
-        {
-            _shadowTracked[id] = sc;
-        }
-
-        public void UnregisterShadow(short id)
-        {
-            // Emit a final dead update so clients play Death1 and drop the lookup
-            // before we forget the id (BroadcastShadowStates used to drop silently).
-            if (_shadowTracked.TryGetValue(id, out ShadowCreature sc) && sc != null)
-            {
-                Vector3 p = sc.transform.position;
-                SendShadowStateUpdate(new ShadowStateUpdateMessage
-                {
-                    ShadowId = id,
-                    PosX = p.x,
-                    PosY = p.y,
-                    PosZ = p.z,
-                    RotY = sc.transform.rotation.eulerAngles.y,
-                    DistanceToPlayer = sc.distanceToPlayer,
-                    Flags = 2 // dead
-                });
-            }
-            _shadowTracked.Remove(id);
-        }
     }
 }
