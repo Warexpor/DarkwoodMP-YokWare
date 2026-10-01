@@ -257,9 +257,8 @@ namespace DWMPHorde.Networking
                     try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
                     _dialogWorldDrainCo = null;
                     _drainNpcName = null;
+                    // The stopped drain held no guard scope across its waits; nothing to unwind.
                     DialogHostApplyGuard.EndDrain();
-                    while (DialogHostApplyGuard.Active)
-                        DialogHostApplyGuard.EndWorldOnly();
                     // Scrub leftover oven/keyhole backdrop before the next world-only apply.
                     // SilentClose nulls dw.npc — re-bind after scrub (lookAtBottle→lookAtPot NRE).
                     try

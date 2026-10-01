@@ -322,8 +322,10 @@ public class ProductInvariantTests
 
         // Batch 44 / 0.8.74: DialogClientWorldDefer + pickup guards — End only in
         // Postfix left sticky Active / WireGuard / TrapPickupGuard on throw.
-        var defer = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dialogue", "Patches", "DialogClientWorldDeferPatches.cs"));
-        Assert.Contains("DialogClientWorldDeferBoardPatch", defer);
+        // displayNextBoard has exactly one patch class; defer End / drain scope / forbidInputs
+        // clear all run in its Finalizer.
+        var defer = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dialogue", "Patches", "DialogDisplayNextBoardPatch.cs"));
+        Assert.Contains("DialogDisplayNextBoardPatch", defer);
         Assert.Contains("[HarmonyFinalizer]", defer);
         Assert.Contains("DialogClientWorldDefer.End()", defer);
         Assert.Matches(@"static void Finalizer\([^)]*\)", defer);
@@ -343,11 +345,15 @@ public class ProductInvariantTests
         Assert.Contains("private static void Finalizer()", disarm);
         Assert.Contains("SilentDisarmDepth--", disarm);
 
-        var hostBoard = File.ReadAllText(Path.Combine(ModDir, "Domains", "Dialogue", "Patches", "DialogHostPresentationSuppressPatches.cs"));
-        Assert.Contains("DialogHostStaleBoardGuardPatch", hostBoard);
-        Assert.Contains("[HarmonyFinalizer]", hostBoard);
-        Assert.Contains("private static void Finalizer(DialogueWindow __instance)", hostBoard);
-        Assert.Contains("Core.forbidInputs = false", hostBoard);
+        Assert.Contains("private static void Finalizer(DialogueWindow __instance, BoardState __state)", defer);
+        Assert.Contains("Core.forbidInputs = false", defer);
+        Assert.Contains("DialogHostApplyGuard.EndDrainScope(", defer);
+        var dialoguePatches = Directory.GetFiles(Path.Combine(ModDir, "Domains", "Dialogue", "Patches"), "*.cs");
+        int nextBoardHooks = 0;
+        foreach (var f in dialoguePatches)
+            nextBoardHooks += System.Text.RegularExpressions.Regex.Matches(
+                File.ReadAllText(f), @"HarmonyPatch\(typeof\(DialogueWindow\), ""displayNextBoard""\)").Count;
+        Assert.Equal(1, nextBoardHooks);
 
         // Batch 46 / 0.8.76: loot-share disarm arm + trap-place pending — clear only in
         // Postfix left sticky _disarmType / _pendingShares / _pendingType on throw.

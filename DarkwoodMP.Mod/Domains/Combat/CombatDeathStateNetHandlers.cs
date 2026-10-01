@@ -59,6 +59,11 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Host)
                 Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
 
+            // The client decides IsNight on its own clock. After the host's morning edge a
+            // lagging client would otherwise be recorded night-dead and spectate all day.
+            if (isNight && _net.Role == NetworkRole.Host && DeathStateTracker.HostMorningAlreadyReleased())
+                isNight = HostDowngradeStaleNightDeath(playerId, msg);
+
             if (isNight)
             {
                 DeathStateTracker.OnRemoteNightDeath(playerId, deathPos, msg.PermadeathEligible);
@@ -87,6 +92,38 @@ namespace DWMPHorde.Networking
 
             if (_net.Role == NetworkRole.Host)
                 RequestRemoteDeathSave();
+        }
+
+        /// <summary>
+        /// Host: a client reported a night death after this morning's release. Release that
+        /// client now (it already entered night-death spectate locally) and relay the death to
+        /// the other peers as a day death instead of the raw night flag.
+        /// </summary>
+        /// <returns>The corrected IsNight (always false).</returns>
+        private bool HostDowngradeStaleNightDeath(int playerId, PlayerDiedMessage msg)
+        {
+            Controller ctrl = Singleton<Controller>.Instance;
+            int day = ctrl != null ? ctrl.day : 0;
+            ModLog.Event(LogCat.Death,
+                $"p{playerId} night death arrived after the morning release (day {day}) — treated as day death");
+
+            _net.SendToPlayer(playerId, NetMessageType.NightDeathRelease,
+                w => new NightDeathReleaseMessage { Day = day }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+
+            msg.IsNight = false;
+            var inner = new NetWriter();
+            msg.Serialize(inner);
+            var fwd = new RemotePlayerForwardMessage
+            {
+                OriginalPlayerId = playerId,
+                InnerType = (byte)NetMessageType.PlayerDied,
+                InnerPayload = inner.CopyData()
+            };
+            _net._suppressForwardThisMessage = true;
+            _net.SendToAllExcept(playerId, NetMessageType.RemotePlayerForward,
+                w => fwd.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            return false;
         }
 
         /// <summary>Minimum spacing of the host world saves a remote day death asks for.</summary>

@@ -87,6 +87,22 @@ namespace DWMPHorde.Sync
 
         public static void OnDisconnected()
         {
+            try
+            {
+                OnDisconnectedCleanup();
+            }
+            finally
+            {
+                // The freeze statics must not outlive the session even when the dream cleanup
+                // above took the ApplyRemoteDreamCleanup branch or threw part-way.
+                UnfreezeWorld(restoreTime: false);
+                _frozenWorldCharacters.Clear();
+                _frozenByComponent.Clear();
+            }
+        }
+
+        private static void OnDisconnectedCleanup()
+        {
             CancelPendingEntries();
             FinalDreamsceneManager.OnDisconnected();
 
@@ -203,14 +219,32 @@ namespace DWMPHorde.Sync
             return c != null && !_frozenWorldCharacters.Contains(c);
         }
 
+        /// <summary>
+        /// Per-freeze answer per component instance. Host AI prefixes ask this every frame for
+        /// every AI component; Object.name allocates and GetComponentInParent walks the
+        /// hierarchy, while the answer cannot change until the freeze ends.
+        /// </summary>
+        private static readonly Dictionary<int, bool> _frozenByComponent = new Dictionary<int, bool>(512);
+
         public static bool IsWorldFrozenForComponent(Component comp)
         {
             if (!_worldFrozen) return false;
             if (comp == null) return false;
-            if (Player.Instance != null && comp.gameObject == Player.Instance.gameObject) return false;
-            if (comp.name.Contains("RemotePlayer")) return false;
-            Character c = comp.GetComponentInParent<Character>();
-            return c != null && _frozenWorldCharacters.Contains(c);
+            int id = comp.GetInstanceID();
+            if (_frozenByComponent.TryGetValue(id, out bool frozen))
+                return frozen;
+            if (_frozenByComponent.Count > 8192)
+                _frozenByComponent.Clear();
+
+            frozen = false;
+            if (!(Player.Instance != null && comp.gameObject == Player.Instance.gameObject)
+                && !comp.name.Contains("RemotePlayer"))
+            {
+                Character c = comp.GetComponentInParent<Character>();
+                frozen = c != null && _frozenWorldCharacters.Contains(c);
+            }
+            _frozenByComponent[id] = frozen;
+            return frozen;
         }
 
         public static void FreezeWorld()
@@ -226,6 +260,7 @@ namespace DWMPHorde.Sync
             // spawned later are exempt so dream AI continues to work).
             int nAll = CharacterTracker.CopyAll(out Character[] all);
             _frozenWorldCharacters.Clear();
+            _frozenByComponent.Clear();
             for (int i = 0; i < nAll; i++)
             {
                 Character c = all[i];
@@ -255,6 +290,7 @@ namespace DWMPHorde.Sync
             }
 
             _frozenWorldCharacters.Clear();
+            _frozenByComponent.Clear();
         }
 
     }

@@ -85,9 +85,6 @@ namespace DWMPHorde
         public const int Hard = 10;
         public const int Nightmare = 20;
 
-        public static bool ClientUsesSharedDeath(bool connectedClient, int difficulty, int livesBeforeDeath)
-            => connectedClient && IsPermadeathDeath(difficulty, livesBeforeDeath);
-
         /// <summary>
         /// Connected host and clients share one death model: a death that vanilla
         /// would turn into permadeath is rewritten to the normal night/day death.

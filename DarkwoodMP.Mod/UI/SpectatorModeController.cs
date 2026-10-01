@@ -176,18 +176,24 @@ namespace DWMPHorde.Spectator
                         return;
                     if (holdDeathSpectate)
                     {
-                        // Hold: wait for all-dead / host morning / dream end resolve.
+                        // Nobody left to follow: the host hands a night death to the morning
+                        // resolve (it resolves only once every remaining peer is dead too).
+                        // Otherwise hold for all-dead / host morning / dream end.
+                        TryHandOffNoTargetToMorning();
                         return;
                     }
                     ForceExit();
                     return;
                 }
                 // If current target died, switch to next living proxy when possible.
-                var cb = _followTarget.GetComponentInParent<CharBase>();
+                var cb = FollowTargetCharBase();
                 if (cb != null && !cb.alive
                     && (DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead))
                 {
                     if (TryRetargetLivingProxy())
+                        return;
+                    TryHandOffNoTargetToMorning();
+                    if (!IsSpectating)
                         return;
                 }
                 SyncProxyVision();
@@ -242,6 +248,39 @@ namespace DWMPHorde.Spectator
                 }
                 SwitchToTarget(targets[_spectateTargetIndex].transform);
             }
+        }
+
+        private Transform _cachedCharBaseTarget;
+        private CharBase _cachedCharBase;
+
+        /// <summary>CharBase of the follow target, looked up once per target.</summary>
+        private CharBase FollowTargetCharBase()
+        {
+            if (_cachedCharBaseTarget != _followTarget)
+            {
+                _cachedCharBaseTarget = _followTarget;
+                _cachedCharBase = _followTarget != null ? _followTarget.GetComponentInParent<CharBase>() : null;
+            }
+            return _cachedCharBase;
+        }
+
+        private float _nextNoTargetResolveAt;
+
+        /// <summary>
+        /// Host, night-dead, no living proxy to follow: ask the all-dead morning resolve
+        /// (throttled). A client waits for the host's release / AllDeadTrigger instead.
+        /// </summary>
+        private void TryHandOffNoTargetToMorning()
+        {
+            if (!DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead)
+                return;
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || net.Role != NetworkRole.Host)
+                return;
+            if (Time.unscaledTime < _nextNoTargetResolveAt)
+                return;
+            _nextNoTargetResolveAt = Time.unscaledTime + 1f;
+            DeathStateTracker.TryResolveNightMorning("spectator: no living target");
         }
 
         /// <summary>

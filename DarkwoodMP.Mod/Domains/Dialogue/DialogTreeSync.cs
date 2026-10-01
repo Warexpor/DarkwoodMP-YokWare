@@ -32,7 +32,7 @@ namespace DWMPHorde.Sync
             // Same class as door GE / FlagSync: world-only dialog apply must fan out.
             if (!force
                 && LanNetworkManager.IsApplyingRemoteState
-                && !DialogHostApplyGuard.Active)
+                && !HostApplyGuard.Active)
                 return;
             if (cd == null || string.IsNullOrEmpty(cd.name)) return;
 
