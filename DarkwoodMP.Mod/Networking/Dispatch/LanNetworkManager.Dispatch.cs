@@ -134,10 +134,12 @@ namespace DWMPHorde.Networking
         /// </summary>
         private bool HostAcceptsInbound(NetMessageType type)
         {
-            if (_role != NetworkRole.Host || _currentReceivePlayerId <= 0)
+            if (_role != NetworkRole.Host)
                 return true;
             string why = null;
-            if (_rejectedPeers.Contains(_currentReceivePlayerId))
+            if (_currentReceivePlayerId <= 0)
+                why = "unknown peer";
+            else if (_rejectedPeers.Contains(_currentReceivePlayerId))
                 why = "refused peer";
             else if (type != NetMessageType.Handshake && !_handshakedPeers.Contains(_currentReceivePlayerId))
                 why = "no handshake yet";
