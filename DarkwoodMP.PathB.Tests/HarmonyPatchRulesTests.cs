@@ -147,4 +147,17 @@ public class HarmonyPatchRulesTests
         Assert.True(offenders.Count == 0,
             "finalizers swallowing every exception:\n" + string.Join("\n", offenders));
     }
+
+    [Theory]
+    [InlineData("DialogueWindow", "displayNextBoard")]
+    public void ConsolidatedTargets_HaveExactlyOnePatchClass(string type, string method)
+    {
+        // These hooks were merged into one patch class so their checks run in one fixed order;
+        // a second independent patch on the same method would reintroduce order-dependent state.
+        int hooks = 0;
+        var pattern = new Regex(@"HarmonyPatch\(typeof\(" + type + @"\),\s*""" + method + @"""");
+        foreach (string file in Directory.EnumerateFiles(TestPaths.ModDir, "*.cs", SearchOption.AllDirectories))
+            hooks += pattern.Matches(File.ReadAllText(file)).Count;
+        Assert.Equal(1, hooks);
+    }
 }

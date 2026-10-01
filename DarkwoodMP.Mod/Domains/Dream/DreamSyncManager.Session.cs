@@ -131,8 +131,19 @@ namespace DWMPHorde.Sync
         /// falls back to local/remote flags for solo or mid-transition.
         /// </summary>
         public static bool IsDreamActive =>
-            DreamSession.IsActive || _localDreamActive || _remoteDreamActive.Values.Any(v => v)
+            DreamSession.IsActive || _localDreamActive || AnyRemoteDreamActive()
             || _earlyEntryTransitionPlayed;
+
+        /// <summary>Hot path (per-frame resolvers): struct enumerator, no LINQ allocation.</summary>
+        private static bool AnyRemoteDreamActive()
+        {
+            foreach (var kvp in _remoteDreamActive)
+            {
+                if (kvp.Value)
+                    return true;
+            }
+            return false;
+        }
 
         public static bool IsLocalDreamActive => _localDreamActive;
 

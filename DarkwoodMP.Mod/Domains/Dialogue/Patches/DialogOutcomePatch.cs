@@ -29,15 +29,6 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
-    public static class DialogOutcomeNextBoardPatch
-    {
-        private static void Prefix()
-        {
-            DialogOutcomeIndexPatch.ResetCounter();
-        }
-    }
-
     /// <summary>
     /// Client: after choosing a dialogue option, tell the host so story flags /
     /// items / reputation apply on the authoritative machine (even if the host

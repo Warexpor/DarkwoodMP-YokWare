@@ -293,6 +293,8 @@ namespace DWMPHorde.Networking
         public bool CanCutInHalf;
         /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the host to apply to the target. Trailing count + effects; null = none.</summary>
         public SensorEffectWire[] Effects;
+        /// <summary>Melee sensor hit: the host applies the short melee range. Trailer after Effects; absent = ranged.</summary>
+        public bool IsMelee;
 
         public void Serialize(NetWriter w)
         {
@@ -303,6 +305,7 @@ namespace DWMPHorde.Networking
             w.Put(TargetPosX); w.Put(TargetPosY); w.Put(TargetPosZ);
             w.Put(CanCutInHalf);
             SensorEffectWire.WriteList(w, Effects);
+            w.Put(IsMelee);
         }
 
         public static PlayerAttackMessage Deserialize(NetReader r)
@@ -321,6 +324,7 @@ namespace DWMPHorde.Networking
                 CanCutInHalf = r.GetBool()
             };
             msg.Effects = SensorEffectWire.ReadList(r);
+            msg.IsMelee = r.AvailableBytes >= 1 && r.GetBool();
             return msg;
         }
     }

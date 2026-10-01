@@ -97,7 +97,7 @@ namespace DWMPHorde.Patches
             // ProcessInboundMessage holds IsApplyingRemoteState for all inbound applies.
             // DialogOutcome world-only Door.open is host-authoritative and MUST fan out
             // (was silently dropped when NetworkApplyGuard became a real class).
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
             var net = ModRuntime.Network as LanNetworkManager;
@@ -197,7 +197,7 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
             Vector3 pos = __instance.transform.position;
@@ -220,7 +220,7 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active)
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
 
             // Re-use DoorOpen with name prefix so client applies unblock+open attempt.

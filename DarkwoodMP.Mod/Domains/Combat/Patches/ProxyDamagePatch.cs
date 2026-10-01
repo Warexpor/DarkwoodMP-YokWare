@@ -77,7 +77,7 @@ namespace DWMPHorde.Patches
                 : proxy.transform.position;
             int dmg = Mathf.Max(1, Mathf.RoundToInt(damage));
             int attackerId = ProxyCombatRelay.ResolveAttackerPlayerId(attackerTransform, net.LocalPlayerId);
-            ProxyCombatRelay.TryMarkGetHitRelay(attackerId, proxy.PlayerId);
+            ProxyCombatRelay.MarkGetHitRelay(attackerId, proxy.PlayerId);
 
             if (net.Role == NetworkRole.Host)
             {

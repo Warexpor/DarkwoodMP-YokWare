@@ -34,57 +34,6 @@ namespace DWMPHorde
             if (now >= heldExpireAt) return false;
             return heldOwnerId == ownerId;
         }
-
-        /// <summary>
-        /// Legacy single-slot helper (tests / docs). Different NPCs do not block each other;
-        /// same NPC uses <see cref="CanAcquireNpcSlot"/>.
-        /// </summary>
-        public static bool CanAcquire(
-            string lockedNpc,
-            int lockedOwnerId,
-            float lockExpireAt,
-            string requestNpc,
-            int requestOwnerId,
-            float now)
-        {
-            if (string.IsNullOrEmpty(requestNpc)) return false;
-            // No hold, or different NPC (parallel talks OK).
-            if (string.IsNullOrEmpty(lockedNpc)
-                || !string.Equals(lockedNpc, requestNpc, System.StringComparison.Ordinal))
-                return true;
-            return CanAcquireNpcSlot(lockedOwnerId, lockExpireAt, requestOwnerId, now);
-        }
-
-        /// <summary>
-        /// Multi-NPC map simulation: holding one NPC must not overwrite another
-        /// NPC's lock.
-        /// </summary>
-        public static bool SimulateMultiNpcAcquire(
-            System.Collections.Generic.Dictionary<string, int> owners,
-            System.Collections.Generic.Dictionary<string, float> expires,
-            string requestNpc,
-            int requestOwnerId,
-            float now)
-        {
-            if (owners == null || expires == null || string.IsNullOrEmpty(requestNpc))
-                return false;
-
-            int heldOwner = -1;
-            float heldExpire = 0f;
-            if (owners.TryGetValue(requestNpc, out int o)
-                && expires.TryGetValue(requestNpc, out float e))
-            {
-                heldOwner = o;
-                heldExpire = e;
-            }
-
-            if (!CanAcquireNpcSlot(heldOwner, heldExpire, requestOwnerId, now))
-                return false;
-
-            owners[requestNpc] = requestOwnerId;
-            expires[requestNpc] = now + DefaultLeaseSeconds;
-            return true;
-        }
     }
 
     /// <summary>
@@ -99,9 +48,10 @@ namespace DWMPHorde
             => mpConnected && localNightDeath && !allDeadAtNight;
 
         /// <summary>
-        /// After a remote disconnect during night death: only advance morning when the
-        /// host is night-dead and every relevant player is accounted for as dead.
-        /// An alive leaver with no remotes left must not trigger skipDay.
+        /// After a remote disconnect during night death: advance morning when the host is
+        /// night-dead and every remaining player is accounted for as dead. With no remotes
+        /// left the host is a lone dead player, so it resolves like vanilla solo death
+        /// whether or not the leaver was alive; otherwise it would spectate nobody forever.
         /// </summary>
         public static bool ShouldResolveMorningOnDisconnect(
             bool localNightDead,
@@ -111,7 +61,7 @@ namespace DWMPHorde
         {
             if (!localNightDead) return false;
             if (remainingRemoteCount <= 0)
-                return leaverWasNightDead;
+                return true;
             return remainingRemoteDeadCount >= remainingRemoteCount;
         }
 
