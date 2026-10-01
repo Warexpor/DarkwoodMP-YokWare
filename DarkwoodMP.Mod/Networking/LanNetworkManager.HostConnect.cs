@@ -181,7 +181,6 @@ namespace DWMPHorde.Networking
             _shadowBroadcastTimer = 0f;
             _effectSyncTimer = 0f;
             ResetLocalLightSendCache();
-            _worldSync?.Reset();
             _worldSaveShare?.Reset();
 
             if (_net != null)
