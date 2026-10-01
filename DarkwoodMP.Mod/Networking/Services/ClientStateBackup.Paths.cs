@@ -46,8 +46,9 @@ namespace DWMPHorde.Networking
         {
             if (playerId <= 0)
                 return GetLocalSelfBackupPath();
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_p" + playerId + ".json";
             return GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + campaign + ".json";
@@ -60,8 +61,9 @@ namespace DWMPHorde.Networking
         {
             if (steamId == 0)
                 return GetLocalSelfBackupPath();
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_s" + steamId + ".json";
             return GetProfileBackupDirectory() + "/client_backup_s" + steamId + "_" + campaign + ".json";
@@ -82,8 +84,9 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static string GetLocalSelfBackupPath()
         {
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_self.json";
             return GetProfileBackupDirectory() + "/client_backup_self_" + campaign + ".json";

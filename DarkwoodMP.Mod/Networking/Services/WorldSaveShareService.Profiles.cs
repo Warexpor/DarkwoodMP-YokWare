@@ -53,17 +53,19 @@ namespace DWMPHorde.Networking
                 CoopWorldCopyMeta coop = CoopWorldCopyMeta.TryLoad(id);
                 info.HasSave = hasFiles || (gp != null && gp.Active && gp.day > 0);
                 info.IsEmpty = !info.HasSave;
-                info.IsCoopCopy = coop != null && coop.IsCoopCopy;
+                // Host's own campaign (or an old meta that stamped it) is a campaign, not a copy.
+                info.IsCoopCopy = coop != null && coop.IsReceivedCoopCopy;
                 info.Day = gp != null ? gp.day : (coop != null ? coop.Day : 0);
                 info.Chapter = gp != null ? gp.chapter : (coop != null ? coop.Chapter : 0);
                 info.TimeSaved = gp != null ? (gp.timeSaved ?? "") : "";
                 if (coop != null)
                 {
-                    info.CoopNote = "Co-op copy"
-                        + (string.IsNullOrEmpty(coop.LastRefreshedAt)
-                            ? (string.IsNullOrEmpty(coop.JoinedAt) ? "" : " · joined " + coop.JoinedAt)
-                            : " · refreshed " + coop.LastRefreshedAt)
-                        + (string.IsNullOrEmpty(coop.HostAddress) ? "" : " · " + coop.HostAddress);
+                    if (info.IsCoopCopy)
+                        info.CoopNote = "Co-op copy"
+                            + (string.IsNullOrEmpty(coop.LastRefreshedAt)
+                                ? (string.IsNullOrEmpty(coop.JoinedAt) ? "" : " · joined " + coop.JoinedAt)
+                                : " · refreshed " + coop.LastRefreshedAt)
+                            + (string.IsNullOrEmpty(coop.HostAddress) ? "" : " · " + coop.HostAddress);
                     // Same-as-incoming uses cached package fingerprint (not re-inflate every OnGUI).
                     if (_awaitingSlotPick && !string.IsNullOrEmpty(_pendingPackageFingerprint)
                         && !string.IsNullOrEmpty(coop.ContentFingerprint))
@@ -125,8 +127,5 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>
-        /// Menu: user confirmed enter after download. Starts phase 2 offline load → phase 3.
-        /// </summary>
     }
 }
