@@ -117,7 +117,7 @@ namespace DWMPHorde.Networking
             _net = CreateNetManager();
             _net.Start();
             string key = Config.ModConfig.GetConnectionKey();
-            _peers[1] = _net.Connect(address, port, key);
+            _lanPeers.Set(1, _net.Connect(address, port, key));
             StatusText = "Connecting to " + address + ":" + port;
             // Event line is IP-redacted under Public; Trace keeps detail for Dev/Trace only.
             ModLog.Event(LogCat.Network, "Connecting to " + address + ":" + port

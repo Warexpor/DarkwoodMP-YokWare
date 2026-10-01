@@ -16,33 +16,27 @@ namespace DWMPHorde.Networking
     {
         private SteamCoopTransport _steam;
         private ConnectionBackend _backend = ConnectionBackend.None;
-        private readonly Dictionary<int, CSteamID> _steamPeers = new Dictionary<int, CSteamID>();
-        private readonly Dictionary<ulong, int> _steamIdToPlayer = new Dictionary<ulong, int>();
+        /// <summary>Steam SNS peers by player id (created in Awake).</summary>
+        private SteamPeerTable _steamPeers;
         private readonly List<int> _steamSoftReconnectProxyIds = new List<int>(8);
-        /// <summary>Host: Steam peers whose Handshake carried the right host password.</summary>
-        private readonly HashSet<ulong> _steamPasswordOk = new HashSet<ulong>();
 
         private static bool HostRequiresPassword()
             => !string.IsNullOrEmpty(Config.ModConfig.HostPassword?.Value?.Trim());
 
-        /// <summary>Host: Steam peers accepted but not yet password-verified → accept time.</summary>
-        private readonly Dictionary<int, float> _steamUnauthSince = new Dictionary<int, float>();
+        /// <summary>Unverified Steam peers get nothing but the handshake while this is true.</summary>
+        private bool SteamPasswordGateActive() => _role == NetworkRole.Host && HostRequiresPassword();
+
+        /// <summary>The active backend's peer table.</summary>
+        private IPeerTable Peers => IsSteamSession ? (IPeerTable)_steamPeers : _lanPeers;
+
         /// <summary>A lobby member that never sends a valid Handshake is dropped, freeing its player slot.</summary>
         private const float SteamUnauthGraceSec = 20f;
 
         private void TickSteamUnauthTimeout()
         {
-            if (_steamUnauthSince.Count == 0 || _role != NetworkRole.Host)
+            if (!_steamPeers.HasUnauthenticated || _role != NetworkRole.Host)
                 return;
-            float now = UnityEngine.Time.unscaledTime;
-            List<int> expired = null;
-            foreach (var kvp in _steamUnauthSince)
-            {
-                if (now - kvp.Value < SteamUnauthGraceSec)
-                    continue;
-                if (expired == null) expired = new List<int>();
-                expired.Add(kvp.Key);
-            }
+            List<int> expired = _steamPeers.CollectExpiredUnauthenticated(UnityEngine.Time.unscaledTime, SteamUnauthGraceSec);
             if (expired == null)
                 return;
             foreach (int playerId in expired)
@@ -74,7 +68,7 @@ namespace DWMPHorde.Networking
             steamId = 0;
             if (!IsSteamSession || playerId <= 0)
                 return false;
-            if (_steamPeers.TryGetValue(playerId, out CSteamID sid) && sid.IsValid() && sid.m_SteamID != 0)
+            if (_steamPeers.TryGetSteamId(playerId, out CSteamID sid) && sid.IsValid() && sid.m_SteamID != 0)
             {
                 steamId = sid.m_SteamID;
                 return true;
@@ -96,71 +90,55 @@ namespace DWMPHorde.Networking
             }
         }
 
-        internal int PeerCount => IsSteamSession ? _steamPeers.Count : _peers.Count;
+        internal int PeerCount => Peers.Count;
 
+        /// <summary>
+        /// Player ids that may receive session traffic: refused peers and (Steam) lobby members that
+        /// have not proved the host password are left out; they only get messages sent to them by id.
+        /// </summary>
         internal IEnumerable<int> EnumeratePeerIds()
         {
-            if (IsSteamSession)
+            IPeerTable peers = Peers;
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
             {
-                // A lobby member that has not proved the host password gets nothing but the handshake
-                // exchange (sent by id): no world state, chat, roster or entity stream.
-                bool gate = _role == NetworkRole.Host && HostRequiresPassword();
-                foreach (var kvp in _steamPeers)
-                {
-                    if (gate && !_steamPasswordOk.Contains(kvp.Value.m_SteamID))
-                        continue;
-                    if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(kvp.Key))
-                        continue;
-                    yield return kvp.Key;
-                }
-            }
-            else
-            {
-                foreach (int id in _peers.Keys)
-                {
-                    if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(id))
-                        continue;
-                    yield return id;
-                }
+                int id = ids[i];
+                if (!peers.IsRoutable(id))
+                    continue;
+                if (_rejectedPeers.Count > 0 && _rejectedPeers.Contains(id))
+                    continue;
+                yield return id;
             }
         }
 
-        private bool HasPeer(int playerId)
-        {
-            return IsSteamSession ? _steamPeers.ContainsKey(playerId) : _peers.ContainsKey(playerId);
-        }
+        private bool HasPeer(int playerId) => Peers.Contains(playerId);
 
         private void RemovePeerSlot(int playerId)
         {
             if (IsSteamSession)
             {
-                if (_steamPeers.TryGetValue(playerId, out CSteamID sid))
+                if (_steamPeers.TryGetSteamId(playerId, out CSteamID sid))
                 {
                     _steamPeers.Remove(playerId);
-                    _steamIdToPlayer.Remove(sid.m_SteamID);
-                    _steamPasswordOk.Remove(sid.m_SteamID);
-                    _steamUnauthSince.Remove(playerId);
                     Steam.CloseSession(sid);
                 }
             }
             else
             {
-                _peers.Remove(playerId);
+                _lanPeers.Remove(playerId);
             }
         }
 
         private void ClearAllPeerSlots()
         {
-            if (_steamPeers.Count > 0)
+            IReadOnlyList<int> steamIds = _steamPeers.Ids;
+            for (int i = 0; i < steamIds.Count; i++)
             {
-                foreach (var kvp in _steamPeers)
-                    Steam.CloseSession(kvp.Value);
+                if (_steamPeers.TryGetSteamId(steamIds[i], out CSteamID sid))
+                    Steam.CloseSession(sid);
             }
             _steamPeers.Clear();
-            _steamIdToPlayer.Clear();
-            _steamPasswordOk.Clear();
-            _steamUnauthSince.Clear();
-            _peers.Clear();
+            _lanPeers.Clear();
             _currentReceiveSteamId = CSteamID.Nil;
         }
 
@@ -351,8 +329,7 @@ namespace DWMPHorde.Networking
             }
 
             int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            _steamPeers[hostKey] = hostSid;
-            _steamIdToPlayer[hostSid.m_SteamID] = hostKey;
+            _steamPeers.Set(hostKey, hostSid);
             Steam.AcceptSession(hostSid);
             CompleteClientPeerJoin();
             StatusText = _migrationInProgress
@@ -393,7 +370,7 @@ namespace DWMPHorde.Networking
         {
             if (_backend != ConnectionBackend.Steam)
                 return;
-            if (_steamIdToPlayer.TryGetValue(remote.m_SteamID, out int playerId))
+            if (_steamPeers.TryGetPlayerId(remote.m_SteamID, out int playerId))
             {
                 HandleSteamPeerDisconnected(playerId, "SNS fail");
                 return;
@@ -416,9 +393,12 @@ namespace DWMPHorde.Networking
 
         internal void CloseAllSteamSessions()
         {
-            foreach (var kvp in _steamPeers)
+            IReadOnlyList<int> ids = _steamPeers.Ids;
+            for (int i = 0; i < ids.Count; i++)
             {
-                try { Steam.CloseSession(kvp.Value); }
+                if (!_steamPeers.TryGetSteamId(ids[i], out CSteamID sid))
+                    continue;
+                try { Steam.CloseSession(sid); }
                 catch { /* tear */ }
             }
         }

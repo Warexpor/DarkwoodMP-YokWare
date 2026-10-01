@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using LiteNetLib;
@@ -81,32 +82,22 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// The one fan-out loop behind every broadcast. Walks the peer table directly (struct
-        /// enumerators, no per-send allocation) and applies the same gates as EnumeratePeerIds.
+        /// The one fan-out loop behind every broadcast: walks the active peer table by index (no
+        /// per-send allocation) with the same gates as EnumeratePeerIds.
         /// </summary>
         private void SendFramedToPeers(byte[] data, int length, DeliveryMethod method,
             FanOutFilter filter, int excludePlayerId)
         {
             if (data == null || length <= 0)
                 return;
-            if (IsSteamSession)
+            IPeerTable peers = Peers;
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
             {
-                bool passwordGate = _role == NetworkRole.Host && HostRequiresPassword();
-                foreach (var kvp in _steamPeers)
-                {
-                    if (passwordGate && !_steamPasswordOk.Contains(kvp.Value.m_SteamID))
-                        continue;
-                    if (!PassesFanOut(kvp.Key, filter, excludePlayerId))
-                        continue;
-                    Steam.Send(kvp.Value, data, length, method);
-                }
-                return;
-            }
-            foreach (var kvp in _peers)
-            {
-                if (!PassesFanOut(kvp.Key, filter, excludePlayerId))
+                int id = ids[i];
+                if (!peers.IsRoutable(id) || !PassesFanOut(id, filter, excludePlayerId))
                     continue;
-                SendToLanPeer(kvp.Value, kvp.Key, data, length, method);
+                peers.Send(id, data, length, method);
             }
         }
 
@@ -142,67 +133,7 @@ namespace DWMPHorde.Networking
                 return;
             if (length > data.Length)
                 length = data.Length;
-            if (IsSteamSession)
-            {
-                SendSteamToPlayer(playerId, data, length, method);
-                return;
-            }
-            if (!_peers.TryGetValue(playerId, out NetPeer peer))
-                return;
-            SendToLanPeer(peer, playerId, data, length, method);
-        }
-
-        /// <summary>LiteNetLib only fragments the two reliable unsequenced methods; the rest must fit one datagram.</summary>
-        private static bool CanFragment(DeliveryMethod method)
-            => method == DeliveryMethod.ReliableOrdered || method == DeliveryMethod.ReliableUnordered;
-
-        /// <summary>
-        /// One LAN peer send that can never throw out of the frame. A packet too big for a single
-        /// datagram on an unfragmentable method (Unreliable / Sequenced) is promoted to
-        /// ReliableOrdered, which LiteNetLib fragments; hot streams are chunked below the limit by
-        /// their senders so this is the backstop for everything else.
-        /// </summary>
-        private static void SendToLanPeer(NetPeer peer, int playerId, byte[] data, int length,
-            DeliveryMethod method)
-        {
-            if (!CanFragment(method))
-            {
-                int max = peer.GetMaxSinglePacketSize(method);
-                if (length > max)
-                {
-                    if (NetLogThrottle.ShouldLog("send-promote:" + (int)(data[0]), 5f, out int dropped))
-                        ModLog.Warn(LogCat.Network,
-                            "Send " + (NetMessageType)data[0] + " " + length + "B exceeds " + method
-                            + " limit " + max + "B to p" + playerId + " — sent ReliableOrdered instead"
-                            + NetLogThrottle.SuppressedSuffix(dropped));
-                    method = DeliveryMethod.ReliableOrdered;
-                }
-            }
-
-            try
-            {
-                peer.Send(data, 0, length, method);
-            }
-            catch (TooBigPacketException ex)
-            {
-                // Must never escape: this runs inside Update/PollEvents and would abort the frame
-                // for every peer. Rate-limited because the same oversize send repeats every tick.
-                if (NetLogThrottle.ShouldLog("send-toobig:" + (int)(data[0]), 5f, out int dropped))
-                    ModLog.Error(LogCat.Network,
-                        "Send " + (NetMessageType)data[0] + " " + length + "B to p" + playerId
-                        + " rejected by LiteNetLib (" + method + "): " + ex.Message
-                        + NetLogThrottle.SuppressedSuffix(dropped));
-            }
-            catch (System.Exception ex)
-            {
-                // Same guarantee for anything else the socket layer throws (peer torn down between
-                // the enumeration and the send, socket closed): one peer's failure stays its own.
-                if (NetLogThrottle.ShouldLog("send-fail:" + (int)(data[0]), 5f, out int dropped))
-                    ModLog.Error(LogCat.Network,
-                        "Send " + (NetMessageType)data[0] + " " + length + "B to p" + playerId
-                        + " failed (" + method + "): " + ex.GetType().Name + ": " + ex.Message
-                        + NetLogThrottle.SuppressedSuffix(dropped));
-            }
+            Peers.Send(playerId, data, length, method);
         }
 
         /// <summary>Steam SNS fragments internally, but a lost fragment drops the message — keep hot chunks near one packet.</summary>
@@ -229,10 +160,12 @@ namespace DWMPHorde.Networking
                 int budget;
                 if (IsSteamSession)
                     budget = SteamUnreliableChunkBytes;
-                else if (_peers.TryGetValue(peerId, out NetPeer peer))
-                    budget = peer.GetMaxSinglePacketSize(DeliveryMethod.Unreliable);
                 else
-                    budget = DefaultUnreliableChunkBytes;
+                {
+                    budget = _lanPeers.MaxSinglePacketSize(peerId, DeliveryMethod.Unreliable);
+                    if (budget <= 0)
+                        budget = DefaultUnreliableChunkBytes;
+                }
                 if (budget < min)
                     min = budget;
             }

@@ -45,15 +45,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Get the PlayerId for a given NetPeer, or -1 if unknown.</summary>
-        private int GetPlayerId(NetPeer peer)
-        {
-            foreach (var kvp in _peers)
-            {
-                if (kvp.Value == peer)
-                    return kvp.Key;
-            }
-            return -1;
-        }
+        private int GetPlayerId(NetPeer peer) => _lanPeers.IdOf(peer);
 
         public void OnPeerConnected(NetPeer peer)
         {
@@ -61,19 +53,19 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
             {
                 playerId = _nextPlayerId++;
-                _peers[playerId] = peer;
+                _lanPeers.Set(playerId, peer);
                 // Keep _handshakeComplete set when additional peers join; that
                 // froze PlayerState/drag traffic for every already-ready client.
                 // Only block gameplay until the first peer completes handshake.
                 if (_handshakedPeers.Count == 0)
                     _handshakeComplete = false;
                 StatusText = $"Player {playerId} connected";
-                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_peers.Count}, ready={_handshakedPeers.Count})");
+                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_lanPeers.Count}, ready={_handshakedPeers.Count})");
                 CompleteHostPeerJoin(playerId);
             }
             else
             {
-                _peers[1] = peer; // Host is always player 1 for client
+                _lanPeers.Set(1, peer); // Host is always player 1 for client
                 StatusText = "Connected to host";
                 ModLog.Event(LogCat.Network, "Connected to host");
                 CompleteClientPeerJoin();
@@ -96,7 +88,7 @@ namespace DWMPHorde.Networking
                 if (playerId > 0)
                 {
                     OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: true, reasonTag: "peer disconnect");
-                    StatusText = $"Player {playerId} left ({_peers.Count} remaining, ready={_handshakedPeers.Count})";
+                    StatusText = $"Player {playerId} left ({_lanPeers.Count} remaining, ready={_handshakedPeers.Count})";
                 }
             }
             else
@@ -141,7 +133,7 @@ namespace DWMPHorde.Networking
             ClearStickyPlayerPayloads(playerId);
 
             if (removeLanSlot)
-                _peers.Remove(playerId);
+                _lanPeers.Remove(playerId);
             // Steam path already called RemovePeerSlot before this.
 
             _handshakedPeers.Remove(playerId);

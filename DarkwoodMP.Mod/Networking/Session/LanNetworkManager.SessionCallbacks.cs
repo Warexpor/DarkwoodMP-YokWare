@@ -49,8 +49,8 @@ namespace DWMPHorde.Networking
                 }
 
                 int maxPlayers = ModConfig.MaxPlayers != null ? ModConfig.MaxPlayers.Value : 8;
-                // Host counts as 1; _peers are clients
-                if (_peers.Count + 1 >= maxPlayers)
+                // Host counts as 1; the peer table holds the clients.
+                if (_lanPeers.Count + 1 >= maxPlayers)
                 {
                     ModLog.Event(LogCat.Network, $"Rejecting connection — max players ({maxPlayers}) reached");
                     request.Reject();
@@ -58,7 +58,7 @@ namespace DWMPHorde.Networking
                 }
 
                 request.AcceptIfKey(ModConfig.GetConnectionKey());
-                ModLog.Event(LogCat.Network, $"Connection accepted (will be peer #{_peers.Count + 1})");
+                ModLog.Event(LogCat.Network, $"Connection accepted (will be peer #{_lanPeers.Count + 1})");
             }
             else
             {

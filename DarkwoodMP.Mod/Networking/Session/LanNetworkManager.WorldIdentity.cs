@@ -156,13 +156,13 @@ namespace DWMPHorde.Networking
             ModLog.Warn(LogCat.Session, "Refused peer " + playerId + " still connected — dropping");
             if (IsSteamSession)
             {
-                if (_steamPeers.TryGetValue(playerId, out Steamworks.CSteamID sid))
+                if (_steamPeers.TryGetSteamId(playerId, out Steamworks.CSteamID sid))
                 {
                     Steam.CloseSession(sid);
                     HandleSteamPeerDisconnected(playerId, reason);
                 }
             }
-            else if (_peers.TryGetValue(playerId, out NetPeer peer))
+            else if (_lanPeers.TryGetPeer(playerId, out NetPeer peer))
             {
                 peer.Disconnect();
             }

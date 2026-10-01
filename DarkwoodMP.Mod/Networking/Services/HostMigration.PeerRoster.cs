@@ -61,24 +61,7 @@ namespace DWMPHorde.Networking
                 Port = _sessionPort
             });
 
-            foreach (var kvp in _peers)
-            {
-                NetPeer peer = kvp.Value;
-                if (peer == null) continue;
-                IPAddress ip = peer.Address;
-                if (ip == null) continue;
-                if (ip.IsIPv4MappedToIPv6)
-                    ip = ip.MapToIPv4();
-                string addr = ip.ToString();
-                if (string.IsNullOrEmpty(addr) || addr == "0.0.0.0")
-                    continue;
-                list.Add(new PeerRosterEntry
-                {
-                    PlayerId = kvp.Key,
-                    Address = addr,
-                    Port = _sessionPort
-                });
-            }
+            AddPeerRosterEntries(list, _lanPeers, _sessionPort);
             return list;
         }
 
@@ -97,17 +80,20 @@ namespace DWMPHorde.Networking
                 });
             }
 
-            foreach (var kvp in _steamPeers)
-            {
-                if (!kvp.Value.IsValid()) continue;
-                list.Add(new PeerRosterEntry
-                {
-                    PlayerId = kvp.Key,
-                    Address = kvp.Value.m_SteamID.ToString(),
-                    Port = port
-                });
-            }
+            AddPeerRosterEntries(list, _steamPeers, port);
             return list;
+        }
+
+        private static void AddPeerRosterEntries(List<PeerRosterEntry> list, IPeerTable peers, int port)
+        {
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string addr = peers.RosterAddress(ids[i]);
+                if (addr == null)
+                    continue;
+                list.Add(new PeerRosterEntry { PlayerId = ids[i], Address = addr, Port = port });
+            }
         }
 
         /// <summary>Roster Address is a SteamID64 decimal string (not IPv4).</summary>

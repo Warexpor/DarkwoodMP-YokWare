@@ -23,7 +23,8 @@ namespace DWMPHorde.Networking
         public const float SendInterval = 0.033f;
 
         private NetManager _net;
-        private readonly Dictionary<int, NetPeer> _peers = new Dictionary<int, NetPeer>();
+        /// <summary>LAN (LiteNetLib) peers by player id.</summary>
+        private readonly LanPeerTable _lanPeers = new LanPeerTable();
         private NetworkRole _role = NetworkRole.Offline;
         private readonly Dictionary<int, RemotePlayerProxy> _remoteProxies = new Dictionary<int, RemotePlayerProxy>();
 
@@ -305,6 +306,7 @@ namespace DWMPHorde.Networking
         private void Awake()
         {
             ModRuntime.AttachNetwork(this);
+            _steamPeers = new SteamPeerTable(() => Steam, SteamPasswordGateActive);
             _worldSync = new WorldSyncService();
             _worldSaveShare = new WorldSaveShareService(this);
             CombatDeathBagHandlers = new CombatDeathBagNetHandlers(this);

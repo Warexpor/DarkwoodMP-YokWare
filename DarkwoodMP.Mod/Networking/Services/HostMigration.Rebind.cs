@@ -133,7 +133,6 @@ namespace DWMPHorde.Networking
             MoveKey(_lastReliablePhysicsStateSequence, from, to);
             MoveKey(_stableKeyByPlayer, from, to);
             MoveKey(_remoteOutsideLocation, from, to);
-            MoveKey(_steamUnauthSince, from, to);
             MoveSticky(from, to, NetMessageType.PlayerLightState);
             MoveSticky(from, to, NetMessageType.PlayerAnimLibrary);
 
