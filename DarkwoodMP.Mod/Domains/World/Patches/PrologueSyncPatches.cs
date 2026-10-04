@@ -160,9 +160,10 @@ namespace DWMPHorde.Patches
             Core.forbidInputs = true;
             CutsceneSyncHelpers.SetProxiesHidden(true);
 
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try { ui.showPrologueText(); }
-            finally { LanNetworkManager.IsApplyingRemoteState = false; }
+            finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1); }
 
             ctrl.Invoke(delegate
             {

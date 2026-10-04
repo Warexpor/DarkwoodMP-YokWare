@@ -22,6 +22,7 @@ namespace DWMPHorde.Sync
             // Order: restore player, destroy dream, unfreeze, then apply world and journal effects.
             string pendingOutcome = outcomeName ?? "";
 
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -140,7 +141,9 @@ namespace DWMPHorde.Sync
                     Singleton<WorldGrid>.Instance.setGrid("World");
                 }
 
-                player.endDreaming(true);
+                // Vanilla passes the outcome's dontLieDown: a bed wake-up unless the outcome skips it.
+                DreamPreset.Outcome endOutcome = ResolveOutcome(dreams, pendingOutcome);
+                player.endDreaming(endOutcome == null || endOutcome.dontLieDown);
 
                 if (endDiving && Singleton<Controller>.Instance != null)
                 {
@@ -190,7 +193,7 @@ namespace DWMPHorde.Sync
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
             }
 
             // positionCopy can be a pad coordinate on a remote-entry path; the saved overworld pose
@@ -211,14 +214,50 @@ namespace DWMPHorde.Sync
             var spec = SpectatorModeController.Instance;
             if (spec != null && spec.IsSpectating)
                 spec.ExitWithoutPositionRestore();
+            FinalDreamsceneManager.OnLocalWokeUp();
+            ReleaseDreamInputLocks();
 
             // World events after forest is live again.
             if (!string.IsNullOrEmpty(pendingOutcome) && dreams.preset != null)
             {
+                bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try { ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: true); }
-                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+                finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2); }
             }
+        }
+
+        /// <summary>Vanilla Dreams.getOutcome: the named outcome, else "default", else the first.</summary>
+        private static DreamPreset.Outcome ResolveOutcome(Dreams dreams, string outcomeName)
+        {
+            if (dreams == null || dreams.preset == null || dreams.preset.outcomes == null)
+                return null;
+            var outcomes = dreams.preset.outcomes;
+            for (int i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i] != null && outcomes[i].name == outcomeName)
+                    return outcomes[i];
+            }
+            for (int i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i] != null && outcomes[i].name == "default")
+                    return outcomes[i];
+            }
+            return outcomes.Count > 0 ? outcomes[0] : null;
+        }
+
+        /// <summary>
+        /// The input locks a dream leaves that only its own exit transition clears
+        /// (DreamTransition.onLoaded): a dream death forbids inputs, and doNotUnforbidInputsOnStart
+        /// dreams pin them with cantChangeForbidInputs. A hard cleanup (all-dead end on a client,
+        /// reject, disconnect, host lost) never plays that transition.
+        /// </summary>
+        internal static void ReleaseDreamInputLocks()
+        {
+            Core.cantChangeForbidInputs = false;
+            var controller = Singleton<Controller>.Instance;
+            Core.forbidInputs = controller != null && controller.playingCutscene;
+            Core.EnteringDream = false;
         }
 
         /// <param name="worldEvents">
@@ -230,7 +269,7 @@ namespace DWMPHorde.Sync
 
             // Hard cleanup can still carry a story outcome name; dead peers restore inventory
             // only (createInvItem / journal grants skipped).
-            if (!worldEvents && FinalDreamsceneManager.IsLocalDead)
+            if (!worldEvents && FinalDreamsceneManager.WasLocalDeadThisDream)
             {
                 ModRuntime.LegacyInfo(
                     "[DreamDeath] ApplyOutcomeEffects — local dead, personal rewards skipped");

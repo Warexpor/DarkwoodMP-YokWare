@@ -25,108 +25,125 @@ namespace DWMPHorde.Networking
 
         internal void HandleEntitySound(EntitySoundMessage msg)
         {
-            // Host already plays live AI audio; only remote peers apply.
-            // (Keep host out even if a packet is mis-routed / Forwardable echo.)
+            // The host plays its creatures' sounds itself.
             if (_net.Role == NetworkRole.Host) return;
+            if (string.IsNullOrEmpty(msg.SoundId)) return;
 
             Character c = CharacterTracker.FindByStableId(msg.HostId);
-            if (c == null || c.sounds == null)
+            CharacterSounds s = c != null ? c.sounds : null;
+            if (s == null)
             {
                 EntitySyncLog.Reaction("snd:miss",
-                    "[EntitySound] no char/sounds id=" + msg.HostId
-                    + " type=" + msg.SoundType, 2f);
+                    "[EntitySound] no char/sounds id=" + msg.HostId + " kind=" + msg.Kind, 2f);
                 return;
             }
-
-            // Match entity visual interest + send cull (not the shorter DefaultMaxAudioDistance).
-            Vector3 cpos = c.transform != null ? c.transform.position : Vector3.zero;
-            if (!ClientEntityInterpolationService.IsInClientInterest(cpos))
-            {
-                EntitySyncLog.Reaction("snd:far",
-                    "[EntitySound] cull interest id=" + msg.HostId
-                    + " type=" + msg.SoundType, 3f);
+            // Outside interest the copy is not driven: it stands where it was last seen.
+            if (!ClientEntityInterpolationService.IsInClientInterest(c.transform.position))
                 return;
-            }
 
-            EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundType,
+            EntitySyncLog.Reaction(msg.HostId + ":" + msg.Kind,
                 "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
-                + " type=" + msg.SoundType
-                + (string.IsNullOrEmpty(msg.LoopName) ? "" : " loop=" + msg.LoopName), 0.35f);
+                + " kind=" + msg.Kind + " id=" + msg.SoundId, 0.35f);
 
-            // Prevent CharacterSounds → AudioController patches from re-forwarding.
+            if (msg.Kind == EntitySoundKind.Death)
+            {
+                ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
+                return;
+            }
+            if (msg.Kind == EntitySoundKind.GetHit
+                && ClientEntityInterpolationService.ConsumeLocalHitEcho(msg.HostId, msg.AttackerId))
+            {
+                EntitySyncLog.Reaction("snd:echo",
+                    "[EntitySound] GetHit already shown locally id=" + msg.HostId, 0.5f);
+                return;
+            }
+
+            // The host already applied vanilla's guards (underwater, underground); play as its call did.
             bool prevNet = TraverseHack.GetExplicitFlag();
+            bool prevInside = TraverseHack.InsideCharacterSounds;
             TraverseHack.SetExplicitFlag(true);
             TraverseHack.InsideCharacterSounds = true;
             try
             {
-                // Replay vanilla CharacterSounds API (decompile: play*, playIdleLoop, destroySounds).
-                // Component may be disabled on host-synced entities; method calls still play one-shots.
-                switch (msg.SoundType)
+                // Reverb on the copy comes from CharBase.isInside, which only checkGround refreshes.
+                c.checkGround();
+                switch (msg.Kind)
                 {
-                    case EntitySoundType.Growl:
-                        c.sounds.playGrowl();
+                    case EntitySoundKind.Play:
+                        s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
-                    case EntitySoundType.Curious:
-                        if (!string.IsNullOrEmpty(c.sounds.curious))
-                            c.sounds.playSingleInstance(c.sounds.curious);
+                    case EntitySoundKind.Single:
+                        if (s.playedAO != null && s.playedAO.IsPlaying() && s.playedAO.transform.parent == s.transform)
+                            s.playedAO.Stop();
+                        s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
-                    case EntitySoundType.Aggressive:
-                        if (!string.IsNullOrEmpty(c.sounds.aggressive))
-                            c.sounds.playSingleInstance(c.sounds.aggressive);
+                    case EntitySoundKind.Attached:
+                        AudioController.Play(msg.SoundId, s.transform, Mathf.Clamp01(msg.Volume));
                         break;
-                    case EntitySoundType.Defensive:
-                        if (!string.IsNullOrEmpty(c.sounds.defensive))
-                            c.sounds.playSingleInstance(c.sounds.defensive);
-                        break;
-                    case EntitySoundType.Idle:
-                        // Empty LoopName = destroySounds stop (host idle stop / despawn).
-                        if (string.IsNullOrEmpty(msg.LoopName))
-                            c.sounds.destroySounds();
-                        else
-                            // forceReplace=true so idle→aggressive loop swaps like host.
-                            c.sounds.playIdleLoop(msg.LoopName, true);
-                        break;
-                    case EntitySoundType.Escaping:
-                        c.sounds.playEscapingLoop();
-                        break;
-                    case EntitySoundType.EscapingStart:
-                        if (!string.IsNullOrEmpty(c.sounds.escapingStart))
-                            c.sounds.playSingleInstance(c.sounds.escapingStart);
-                        break;
-                    case EntitySoundType.EscapingStart2:
-                        if (!string.IsNullOrEmpty(c.sounds.escapingStart2))
-                            c.sounds.play(c.sounds.escapingStart2);
-                        break;
-                    case EntitySoundType.Attack1:
-                        if (!string.IsNullOrEmpty(c.sounds.attack1))
-                            c.sounds.play(c.sounds.attack1);
-                        break;
-                    case EntitySoundType.Attack2:
-                        if (!string.IsNullOrEmpty(c.sounds.attack2))
-                            c.sounds.play(c.sounds.attack2);
-                        break;
-                    case EntitySoundType.Death:
-                        // Same path as Alive->dead snap; play at most one death SFX.
-                        ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
-                        break;
-                    case EntitySoundType.GetHit:
-                        // Attacker already played the local hit presentation; skip the echo.
-                        if (ClientEntityInterpolationService.ShouldIgnoreGetHitEcho(msg.HostId))
-                        {
-                            EntitySyncLog.Reaction("snd:echo",
-                                "[EntitySound] GetHit echo skipped id=" + msg.HostId, 0.5f);
-                            break;
-                        }
-                        c.sounds.playGetHitByAxe1();
+                    case EntitySoundKind.GetHit:
+                        AudioController.Play(msg.SoundId, s.transform);
                         break;
                     default:
-                        ModRuntime.Log?.LogWarning($"[EntitySound] Unhandled EntitySoundType: {msg.SoundType}");
+                        EntitySyncLog.Reaction("snd:kind", "[EntitySound] unknown kind " + msg.Kind, 5f);
                         break;
                 }
             }
             finally
             {
-                TraverseHack.InsideCharacterSounds = false;
+                TraverseHack.InsideCharacterSounds = prevInside;
+                TraverseHack.SetExplicitFlag(prevNet);
+            }
+        }
+
+        /// <summary>
+        /// A banshee screams at a player or stops: its sight light on every peer; the scream on
+        /// the victim's own body, the shake and the overlay only for the victim (vanilla
+        /// bansheeAgitated / onBansheeSeePlayer / onBansheeOutOfSightOfPlayer, Character.cs).
+        /// </summary>
+        internal void HandleBansheeAgitation(BansheeAgitationMessage msg)
+        {
+            if (_net.Role == NetworkRole.Host) return;
+            Character banshee = CharacterTracker.FindByStableId(msg.HostId);
+            BansheeVictims.SetSightLight(banshee, msg.Agitated);
+            if (msg.VictimId != _net.LocalPlayerId)
+                return;
+            Player p = Player.Instance;
+            if (p == null || p._transform == null)
+                return;
+
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                if (msg.Agitated)
+                {
+                    if (p.bansheeAgitatedSoundAO == null)
+                        p.bansheeAgitatedSoundAO = AudioController.Play("banshee_agitated_player", p._transform);
+                    if (banshee == null)
+                        return;
+                    float dist = Mathf.Max(1f, Core.trueDistance(banshee.transform, p._transform));
+                    Singleton<CamMain>.Instance.shake(0.5f, 1200f / dist);
+                    if (msg.Overlay)
+                    {
+                        Singleton<UI>.Instance.initBansheeOverlay();
+                        Core.tweenAlpha(Singleton<UI>.Instance.bansheeOverlay.gameObject,
+                            Mathf.Clamp(70f / dist, 0f, 0.5f), 0.5f, timeScaleDependent: true);
+                    }
+                }
+                else
+                {
+                    if (p.bansheeAgitatedSoundAO != null)
+                    {
+                        p.bansheeAgitatedSoundAO.Stop(1f);
+                        p.bansheeAgitatedSoundAO = null;
+                    }
+                    Singleton<UI>.Instance.initBansheeOverlay();
+                    Core.tweenAlpha(Singleton<UI>.Instance.bansheeOverlay.gameObject, 0f, 0.5f, timeScaleDependent: true);
+                    Singleton<UI>.Instance.wantToRemoveBansheeOverlay();
+                }
+            }
+            finally
+            {
                 TraverseHack.SetExplicitFlag(prevNet);
             }
         }

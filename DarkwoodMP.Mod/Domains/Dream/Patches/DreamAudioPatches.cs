@@ -32,6 +32,11 @@ namespace DWMPHorde.Patches
             // The host's own player sounds travel as PlayerAudio (allowed in dreams).
             if (parentObj != null && (PlayerAudioHelper.IsPlayerTransform(parentObj) || PlayerAudioHelper.IsPlayerChild(parentObj)))
                 return false;
+            // A synced creature's direct plays (footsteps, shots) go as EntitySound on its copy.
+            if (parentObj != null && PlayerAudioHelper.IsEnemyTransform(parentObj)
+                && CharacterTracker.TryGetStableId(parentObj.GetComponent<Character>(), out short creatureId)
+                && creatureId != 0)
+                return false;
             // A forwarded loop is a bare positional play nothing ever stops.
             if (LocalAudioService.IsLoopingItem(audioID))
                 return false;

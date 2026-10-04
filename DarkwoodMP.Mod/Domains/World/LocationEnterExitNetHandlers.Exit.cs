@@ -28,12 +28,18 @@ namespace DWMPHorde.Networking
             _net.RemoteOutsideLocation.Remove(playerId);
             _pendingPlaceOnLocationResolve.Remove(playerId);
 
-            // ALWAYS run host leave-unoccupied after Remove — even when proxy spawn is
-            // deferred (loadingGame). Previously an early return skipped this and left
-            // bunkers active with zero remotes until a later exit.
+            MovePeerOutOfLocation(playerId, msg, leftLoc);
+
+            // Last one out: leave the pad so its exit events fire and its AI stops. After the
+            // proxy moved: HostLocationLeaveKeepRemotePatch keeps a pad with a proxy standing
+            // in it, and the leaver's proxy was still on the pad. Runs on every path, also when
+            // the proxy could not be moved yet (join load).
             if (_net.Role == NetworkRole.Host)
                 TryLeaveUnoccupiedOutsideLocation(leftLoc);
+        }
 
+        private void MovePeerOutOfLocation(int playerId, LocationExitMessage msg, string leftLoc)
+        {
             // Disconnect fan-out: peer already gone from roster → destroy proxy, do NOT
             // Teleport (EnsureRemoteProxy would recreate a frozen ghost). Living peers
             // who walked out remain in roster and teleport below.
@@ -59,8 +65,7 @@ namespace DWMPHorde.Networking
             }
 
             // Do not call leaveAllLocations(); it deactivates locations the local player
-            // may still be inside (2p/3+ desync / blackout). Last occupant: leave
-            // only that pad so exit events fire once nobody remains.
+            // may still be inside (2p/3+ desync / blackout).
             Vector3 worldPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             _net.TeleportRemoteProxyTo(worldPos, playerId: playerId);
             ModRuntime.LegacyInfo($"[LocationSync] player {playerId} exited → proxy at {worldPos}");
@@ -179,37 +184,6 @@ namespace DWMPHorde.Networking
 
             if (sent > 0)
                 ModLog.Event(LogCat.Session, $"[BulkSync] LocationEnter x{sent} → p{targetPlayerId}");
-        }
-
-        /// <summary>
-        /// Vanilla enter events run in Location.OnActivated, which only the local
-        /// visitor calls. A client visit never reached the host. Fire once, when
-        /// the first party member enters and the host is not already inside.
-        /// </summary>
-        private void TryFireRemoteLocationEnterEvents(OutsideLocations ol, Location loc, string locName, int playerId)
-        {
-            if (loc == null || ol == null) return;
-            if (Core.loadingGame) return;
-            if (ol.playerInOutsideLocation
-                && CoopWorldPresencePolicy.LocationNamesMatch(ol.currentLocationName ?? "", locName))
-                return;
-            foreach (var kvp in _net.RemoteOutsideLocation)
-            {
-                if (kvp.Key == playerId) continue;
-                if (CoopWorldPresencePolicy.LocationNamesMatch(kvp.Value ?? "", locName))
-                    return;
-            }
-            if (loc.events == null || loc.events.Count == 0) return;
-
-            ModRuntime.LegacyInfo($"[LocationSync] host onEnterLocation for '{locName}'");
-            DialogHostApplyGuard.RunHostWorldFanout(() =>
-            {
-                for (int i = 0; i < loc.events.Count; i++)
-                {
-                    if (loc.events[i] != null)
-                        Core.sendTriggerInfo(loc.events[i].gameObject, EventTrigger.Type.onEnterLocation);
-                }
-            });
         }
     }
 }

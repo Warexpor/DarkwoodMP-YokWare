@@ -132,7 +132,7 @@ namespace DWMPHorde.Patches
             if (!__instance.dreaming)
                 return;
 
-            // Must run before OnLocalDreamEnded (clears IsLocalDead). Exit video already played
+            // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
             DowngradeSuccessRewardsIfDeadInDream(__instance);
 
@@ -168,10 +168,13 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
             if (__instance != null && __instance.dreaming)
                 return; // chained transfer still dreaming
+            // Back in the overworld whichever path ran endDreaming.
+            if (__instance != null && !__instance.switchingDream)
+                FinalDreamsceneManager.OnLocalWokeUp();
+            if (LanNetworkManager.IsApplyingRemoteState)
+                return;
 
             try
             {
@@ -223,7 +226,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams)
         {
-            if (!FinalDreamsceneManager.IsLocalDead) return;
+            if (!FinalDreamsceneManager.WasLocalDeadThisDream) return;
             string outcome = dreams.outcome ?? "";
             if (string.IsNullOrEmpty(outcome) || outcome == "playerDeath")
                 return;
@@ -291,6 +294,56 @@ namespace DWMPHorde.Patches
                     return go.name;
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Client, chained dream: the host's DreamChainStart loads the next pocket
+    /// (DreamSyncManager.OnDreamChain). Vanilla wantToSwitchDream at the end of the exit video
+    /// would also destroy the current pocket and prepare the next one itself: a second pad,
+    /// a local Save, a bogus start request, and, when the host's pocket loaded first, the new
+    /// pocket destroyed under the player. The client keeps only vanilla's player reset between
+    /// pockets, and only while the host's pocket has not started loading.
+    /// </summary>
+    [HarmonyPatch(typeof(Dreams), "wantToSwitchDream")]
+    public static class ClientDreamSwitchPatch
+    {
+        private static bool Prefix(Dreams __instance, ref bool __result)
+        {
+            if (!NetGuard.Connected(out var net) || net.Role != NetworkRole.Client)
+                return true;
+            if (!DreamSession.IsActive)
+                return true;
+            var outcome = Traverse.Create(__instance).Field("outcomePreset").GetValue<DreamPreset.Outcome>();
+            string dest = null;
+            if (outcome?.effects != null)
+            {
+                for (int i = 0; i < outcome.effects.Count; i++)
+                {
+                    var e = outcome.effects[i];
+                    if (e != null && e.type == DreamPreset.Outcome.Effect.Type.transferToDream && e.destPrefab != null)
+                    {
+                        dest = e.destPrefab.name;
+                        break;
+                    }
+                }
+            }
+            if (dest == null)
+                return true; // no transfer: vanilla returns false and endDreaming follows
+
+            __result = true;
+            __instance.switchingDream = true;
+            __instance.wantToDream = true;
+            if (string.Equals(DreamSyncManager.ChainPocketLoading, dest, System.StringComparison.OrdinalIgnoreCase))
+            {
+                ModRuntime.LegacyInfo("[DreamSync] Client chain switch — host pocket already loading: " + dest);
+                return false;
+            }
+            Player.Instance?.endDreaming(outcome.dontLieDown);
+            Player.Instance?.Hotbar.clear();
+            Player.Instance?.Hotbar.refresh();
+            ModRuntime.LegacyInfo("[DreamSync] Client chain switch — waiting for host pocket: " + dest);
+            return false;
         }
     }
 }

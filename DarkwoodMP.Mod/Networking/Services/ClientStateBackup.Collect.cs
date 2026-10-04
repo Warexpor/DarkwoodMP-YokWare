@@ -306,6 +306,13 @@ namespace DWMPHorde.Networking
             if (!IsDreamPadCoordinate(live))
                 return live;
 
+            // Inside a cellar / bunker / house pad (every pad slot is past the pad bound): the world
+            // point vanilla keeps for the return trip, so a rejoin lands where the player went in.
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol != null && ol.playerInOutsideLocation
+                && ol.positionCopy.sqrMagnitude > 0.01f && !IsDreamPadCoordinate(ol.positionCopy))
+                return ol.positionCopy;
+
             // Overworld flags but body still on pad (corrupted positionCopy / mid-end).
             if (Dreams.Instance != null)
             {

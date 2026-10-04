@@ -112,6 +112,15 @@ namespace DWMPHorde.Sync
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             if (!_pending) return;
+            // Back at the title ("Darkwood", Core.returnToMainMenu) instead of the chapter: the
+            // transition was abandoned. Kept armed, the resume fired on a later, unrelated chapter
+            // load (a single-player save) and reconnected or rehosted by itself.
+            if (string.Equals(scene.name, "Darkwood", System.StringComparison.OrdinalIgnoreCase))
+            {
+                ModLog.Event(LogCat.Session, "[ChapterResume] returned to the title — resume dropped");
+                Reset();
+                return;
+            }
             if (scene.name != null
                 && scene.name.StartsWith("chapter", System.StringComparison.OrdinalIgnoreCase))
             {

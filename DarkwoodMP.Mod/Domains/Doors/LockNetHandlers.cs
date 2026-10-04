@@ -200,6 +200,7 @@ namespace DWMPHorde.Networking
             // Client local fire is blocked; host apply sits under NetworkApplyGuard and
             // would swallow GameEventsFired unless wrapped in RunHostWorldFanout.
             // switchOn/Off do not open the InteractiveItem UI (that is switchMe/open).
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -220,7 +221,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
             }
         }
 
@@ -243,6 +244,7 @@ namespace DWMPHorde.Networking
             }
 
             bool wasLocked = best.locked;
+            bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -255,7 +257,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2);
             }
 
             // Host-only: mirror Padlock.unlock(manually:true) trigger fan-out.
@@ -300,6 +302,7 @@ namespace DWMPHorde.Networking
             }
 
             bool wasLocked = best.locked;
+            bool prevApply3 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -308,7 +311,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply3);
             }
 
             // Host: client key/lockpick path sent onActivate locally (one-shot GE blocked).

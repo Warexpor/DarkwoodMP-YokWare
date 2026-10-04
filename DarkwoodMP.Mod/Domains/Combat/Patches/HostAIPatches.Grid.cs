@@ -39,10 +39,14 @@ namespace DWMPHorde.Patches
                 for (int i = 0; i < nodes.Count; i++)
                 {
                     Vector2 np = nodes[i].position;
+                    // Not forced: a forced enter re-ran Cullable.show() (SetActive, enableComponents)
+                    // on every object in every node near a remote at each refresh. Nodes near a
+                    // remote are never left (WorldGridNodeLeavePatch), so a plain enter only
+                    // shows a node a remote just reached.
                     if (CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true,
                         Mathf.Abs(proxyPos.x - np.x) <= activationRange
                         && Mathf.Abs(proxyPos.z - np.y) <= activationRange))
-                        nodes[i].enter(true);
+                        nodes[i].enter(false);
                 }
             }
         }

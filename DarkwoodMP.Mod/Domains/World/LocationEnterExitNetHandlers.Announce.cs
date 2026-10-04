@@ -173,7 +173,7 @@ namespace DWMPHorde.Networking
                     $"[LocationSync] flush deferred createLocation after local loading: {locName}");
                 if (localNeedsPad)
                     NoteRemoteLocationCreate(locName);
-                ol.createLocation(locName);
+                RemotePadSpawn.Spawn(ol, locName);
             }
         }
 

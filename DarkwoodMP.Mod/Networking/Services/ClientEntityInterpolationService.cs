@@ -113,8 +113,18 @@ namespace DWMPHorde.Networking
         private static readonly HashSet<short> _everHostSyncedIds = new HashSet<short>();
         private static readonly Dictionary<Character, float> _unmatchedSince = new Dictionary<Character, float>(64);
         private static readonly Dictionary<Character, float> _pendingCorpseSince = new Dictionary<Character, float>(16);
-        private static readonly Dictionary<short, float> _localHitEchoIgnoreUntil = new Dictionary<short, float>(16);
-        private const float LocalHitEchoIgnoreSec = 0.35f;
+        private struct LocalHit
+        {
+            public int Count;
+            public float LastAt;
+        }
+        /// <summary>
+        /// This client's own melee hits it already showed (sound + flinch), per host id (0: target
+        /// not yet matched), until the host's GetHit for each comes back stamped with this
+        /// client as attacker. A hit the host rejected never comes back; it ages out.
+        /// </summary>
+        private static readonly Dictionary<short, LocalHit> _localHitsAwaitingEcho = new Dictionary<short, LocalHit>(16);
+        private const float LocalHitEchoWindowSec = 2f;
         /// <summary>
         /// After ApplyHostDespawn: ignore EntityState for this id briefly so late
         /// snapshots cannot re-claim the deferred-Destroy GO (same-name recycle race).
@@ -220,8 +230,12 @@ namespace DWMPHorde.Networking
             short id = hostId;
             if (id == 0)
                 CharacterTracker.TryGetStableId(c, out id);
-            if (id != 0)
-                _localHitEchoIgnoreUntil[id] = Time.unscaledTime + LocalHitEchoIgnoreSec;
+            _localHitsAwaitingEcho.TryGetValue(id, out LocalHit pending);
+            if (Time.unscaledTime - pending.LastAt > LocalHitEchoWindowSec)
+                pending.Count = 0;
+            pending.Count++;
+            pending.LastAt = Time.unscaledTime;
+            _localHitsAwaitingEcho[id] = pending;
 
             EntitySyncLog.Reaction(id.ToString(),
                 "[LocalHit] presentation id=" + id + " " + (c.name ?? ""), 0.25f);
@@ -246,22 +260,40 @@ namespace DWMPHorde.Networking
             }
         }
 
-        public static bool ShouldIgnoreGetHitEcho(short hostId)
+        /// <summary>
+        /// True if this host GetHit is the echo of a hit this client already showed: it carries this
+        /// client as attacker and one of its shown hits on that body (or on a then-unmatched one)
+        /// is still waiting. Another player's hit, an AI hit or a gun hit (nothing shown) plays.
+        /// </summary>
+        public static bool ConsumeLocalHitEcho(short hostId, int attackerId)
         {
-            if (hostId == 0) return false;
-            if (!_localHitEchoIgnoreUntil.TryGetValue(hostId, out float until))
+            var net = ModRuntime.Network;
+            if (net == null || attackerId < 0 || attackerId != net.LocalPlayerId)
                 return false;
-            if (Time.unscaledTime >= until)
+            return TakeLocalHit(hostId) || TakeLocalHit(0);
+        }
+
+        private static bool TakeLocalHit(short id)
+        {
+            if (!_localHitsAwaitingEcho.TryGetValue(id, out LocalHit pending))
+                return false;
+            if (pending.Count <= 0 || Time.unscaledTime - pending.LastAt > LocalHitEchoWindowSec)
             {
-                _localHitEchoIgnoreUntil.Remove(hostId);
+                _localHitsAwaitingEcho.Remove(id);
                 return false;
             }
+            pending.Count--;
+            if (pending.Count == 0)
+                _localHitsAwaitingEcho.Remove(id);
+            else
+                _localHitsAwaitingEcho[id] = pending;
             return true;
         }
 
         /// <summary>
-        /// Death SFX on Alive→dead snap (lag-comp / Y-cull-safe). EntitySound Death is
-        /// deduped via <see cref="ShouldIgnoreDeathEcho"/>.
+        /// The host's death line for this body (EntitySound Death), played once per death: the
+        /// host can send it from both play and playSingleInstance. An old corpse coming into
+        /// view gets none (the host's own init-dead path is soundless too).
         /// </summary>
         public static void NoteLocalDeathPresentation(Character c, short hostId)
         {
@@ -279,11 +311,6 @@ namespace DWMPHorde.Networking
             TraverseHack.InsideCharacterSounds = true;
             try { cs.play(cs.death); }
             finally { TraverseHack.InsideCharacterSounds = false; }
-        }
-
-        public static bool ShouldIgnoreDeathEcho(short hostId)
-        {
-            return hostId != 0 && _localDeathSoundPlayed.Contains(hostId);
         }
 
         public static void NoteClientDeathForCorpse(Character c)
@@ -355,7 +382,7 @@ namespace DWMPHorde.Networking
             _inactiveScanCacheTime = -999f;
             _unmatchedSince.Clear();
             _pendingCorpseSince.Clear();
-            _localHitEchoIgnoreUntil.Clear();
+            _localHitsAwaitingEcho.Clear();
             _localDeathSoundPlayed.Clear();
             _recentlyDespawnedUntil.Clear();
             _pendingMatches.Clear();

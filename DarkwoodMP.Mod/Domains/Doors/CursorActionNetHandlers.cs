@@ -164,9 +164,11 @@ namespace DWMPHorde.Networking
             }
 
             ModRuntime.LegacyInfo(
-                $"[LocationTransport] createLocation '{msg.LocationName}' fromWorld={msg.FromWorld}");
-            // Vanilla createLocation: loading screen + spawn-if-needed + transport.
-            ol.createLocation(msg.LocationName);
+                $"[LocationTransport] prepareLocation '{msg.LocationName}' fromWorld={msg.FromWorld}");
+            // Vanilla prepareLocation: black screen, spawn the pad if needed, then transport.
+            // (createLocation only spawns: the client was never moved, and an already spawned pad
+            // threw on the duplicate spawnedLocations key.)
+            ol.prepareLocation(msg.LocationName);
         }
 
         private static CustomCursorAction FindCustomCursorAction(Vector3 pos, string name)

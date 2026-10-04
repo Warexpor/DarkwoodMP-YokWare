@@ -17,8 +17,12 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Player __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+            // The host spawns the spirit and streams it; a client's own spawn (a replayed game
+            // event's runFunction) was an unsynced second spirit chasing only that client.
+            if (ModRuntime.Network.Role != NetworkRole.Host)
+                return false;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
 

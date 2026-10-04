@@ -123,6 +123,7 @@ namespace DWMPHorde.Networking
             {
                 if (perf) ClientPerfProbe.BeginUpdateSegment("entityBroadcast");
                 EntityStateBroadcastService.Tick();
+                Patches.HostLocationLeaveKeepRemotePatch.TickHost();
                 if (perf) ClientPerfProbe.EndUpdateSegment();
 
                 _proxyAggroTimer += Time.deltaTime;

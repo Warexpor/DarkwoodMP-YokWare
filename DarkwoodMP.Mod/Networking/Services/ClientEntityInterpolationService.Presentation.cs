@@ -279,7 +279,6 @@ namespace DWMPHorde.Networking
             if (!already)
             {
                 EnsureDeathAnimation(c, entityId, hostClip, hostFrame);
-                NoteLocalDeathPresentation(c, entityId);
                 EntitySyncLog.Event(() =>
                     "[ClientDeath] present " + c.name + "(id=" + entityId
                     + ") clip=" + (hostClip ?? ""));
@@ -420,7 +419,7 @@ namespace DWMPHorde.Networking
             _everHostSyncedIds.Remove(entityId);
             _audioStoppedIds.Remove(entityId);
             _deathAnimationPlayed.Remove(entityId);
-            _localHitEchoIgnoreUntil.Remove(entityId);
+            _localHitsAwaitingEcho.Remove(entityId);
             _localDeathSoundPlayed.Remove(entityId);
             _recentlyDespawnedUntil[entityId] = Time.unscaledTime + DespawnSnapshotIgnoreSec;
             // A recycled id is a different body; the host re-sends its descriptor.
@@ -435,6 +434,8 @@ namespace DWMPHorde.Networking
 
             if (c != null && c.gameObject != null)
             {
+                // Its loop is pooled: stop it before the body goes, as vanilla removeMe does.
+                Audio.EntityLoopSync.Stop(c);
                 EntitySyncLog.Event(() =>
                     "[ClientDespawn] id=" + entityId + " " + c.name);
                 Object.Destroy(c.gameObject);

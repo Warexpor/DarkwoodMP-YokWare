@@ -13,10 +13,50 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
+        /// <summary>
+        /// This dream's preset as <c>Dreams.preset</c>. It was set only when null, so every later
+        /// dream on a client ran with the first one's music, health, items, time and outcomes,
+        /// and its exit tore down the old pad's grid instead of the new one.
+        /// </summary>
+        private static void AssignDreamPreset(string presetName)
+        {
+            if (Dreams.Instance == null || string.IsNullOrEmpty(presetName))
+                return;
+            DreamPreset preset = FindDreamPreset(presetName);
+            if (preset != null)
+                Dreams.Instance.preset = preset;
+            else
+                ModRuntime.Log?.LogWarning("[DreamSync] No dream preset named " + presetName);
+        }
+
+        /// <summary>
+        /// The preset vanilla prepareDream(name) would use: <c>Dreams.allPresets</c> by object name
+        /// (its allPresetDict), else the DreamPresets resource. Null if the game has none.
+        /// </summary>
+        internal static DreamPreset FindDreamPreset(string presetName)
+        {
+            if (string.IsNullOrEmpty(presetName))
+                return null;
+            var all = Dreams.Instance != null ? Dreams.Instance.allPresets : null;
+            if (all != null)
+            {
+                for (int i = 0; i < all.Count; i++)
+                {
+                    if (all[i] != null && all[i].gameObject.name == presetName)
+                        return all[i];
+                }
+            }
+            GameObject presetGO = Resources.Load("DreamPresets/" + presetName) as GameObject;
+            return presetGO != null ? presetGO.GetComponent<DreamPreset>() : null;
+        }
+
         private static IEnumerator LoadDreamSceneCoroutine(string locationName, Vector3 position, bool _, int playerId = 0)
         {
             int gen = _entryGeneration;
             int sid = DreamSession.SessionId;
+            // Vanilla prepareDream sets Dreams.preset for every dream; a peer that loads the pad
+            // itself never runs it, so set it here (start, exit, outcomes and cleanup all read it).
+            AssignDreamPreset(locationName);
             yield return null;
 
             if (EntryStale(gen, sid))
@@ -88,6 +128,19 @@ namespace DWMPHorde.Sync
                 ? component.playerSpawn.transform.position
                 : position;
 
+            // Vanilla transportToLocation (dream branch) leaves the outside location the dreamer
+            // stood in; the exit's enter() then re-activates it. Left entered, it ran during the
+            // dream and the exit's enter() was a no-op.
+            try
+            {
+                Location origin = player.whereAmI != null ? player.whereAmI.bigLocation : null;
+                if (origin != null && origin.isOutsideLocation)
+                    origin.leave(force: true);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] leave origin location: " + ex.Message);
+            }
             player.teleportTo(spawnPos, Quaternion.Euler(90f, 0f, 0f));
             ApplyDreamCameraEffects(locationName);
 
@@ -108,15 +161,11 @@ namespace DWMPHorde.Sync
             // proper animation library, dream health, etc. (same as vanilla initiator).
             if (Dreams.Instance != null && !Dreams.Instance.dreaming && !IsDreamCompleted(playerId, locationName))
             {
+                bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try
                 {
-                    if (Dreams.Instance.preset == null)
-                    {
-                        GameObject presetGO = Resources.Load("DreamPresets/" + locationName) as GameObject;
-                        if (presetGO != null)
-                            Dreams.Instance.preset = presetGO.GetComponent<DreamPreset>();
-                    }
+                    AssignDreamPreset(locationName);
                     // Resources path skips getPreset random removal; keep the one-shot pool aligned.
                     DreamSession.MirrorPoolRemove(locationName);
                     Dreams.Instance.dreamLocation = component;
@@ -136,13 +185,31 @@ namespace DWMPHorde.Sync
                 }
                 finally
                 {
-                    LanNetworkManager.IsApplyingRemoteState = false;
+                    LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
                 }
             }
             else if (IsDreamCompleted(playerId, locationName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] Blocked remote startDreaming — already completed: {locationName}");
             }
+
+            // Vanilla Dreams.onLocationSpawned → OutsideLocations.onSpawnedLocation runs
+            // WorldGenerator.initComponents 5 frames on. The pad's Doors, GameEvents, characters,
+            // item sounds and random inventories queued their init there while loading was set;
+            // without this pass they never initialized on a peer's dream pad.
+            Singleton<Controller>.Instance?.waitFramesAndRun(delegate
+            {
+                try
+                {
+                    var gen = Singleton<WorldGenerator>.Instance;
+                    if (gen != null && gen.finished)
+                        gen.initComponents(_logMessages: false);
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[DreamSync] dream pad initComponents: " + ex.Message);
+                }
+            }, 5);
 
             // Vanilla: onLocationSpawned → startDreaming → enter → OnActivated → checkEnterEvents.
             // We entered earlier for render; wait for activateOverTime, then apply queued

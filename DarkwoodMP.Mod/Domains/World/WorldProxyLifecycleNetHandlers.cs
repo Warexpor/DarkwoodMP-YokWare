@@ -204,7 +204,7 @@ namespace DWMPHorde.Networking
                     loc = Dreams.Instance.dreamLocation;
                 if (loc == null) return;
 
-                loc.enter(force: true);
+                LocationEnterExitNetHandlers.EnsureEntered(loc);
                 foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_net.RemoteProxies))
                 {
                     if (kvp.Key == _net.LocalPlayerId) continue;

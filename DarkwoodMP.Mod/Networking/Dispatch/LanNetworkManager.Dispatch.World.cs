@@ -24,6 +24,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.WorkbenchLevel, WorkbenchLevelMessage.Deserialize, m => JournalHandlers.HandleWorkbenchLevel(m));
             On(NetMessageType.JournalItem, JournalItemMessage.Deserialize, m => JournalHandlers.HandleJournalItem(m));
             On(NetMessageType.EntitySound, EntitySoundMessage.Deserialize, m => WorldFxHandlers.HandleEntitySound(m));
+            On(NetMessageType.BansheeAgitation, BansheeAgitationMessage.Deserialize, m => WorldFxHandlers.HandleBansheeAgitation(m));
             On(NetMessageType.WorldObjectRemoved, WorldObjectRemovedMessage.Deserialize, m => WorldFxHandlers.HandleWorldObjectRemoved(m));
             On(NetMessageType.SawState, SawStateMessage.Deserialize, m => StationHandlers.HandleSawState(m));
             On(NetMessageType.FeederState, FeederStateMessage.Deserialize, m => StationHandlers.HandleFeederState(m));

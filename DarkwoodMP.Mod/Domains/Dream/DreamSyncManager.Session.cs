@@ -110,6 +110,9 @@ namespace DWMPHorde.Sync
                 ClearPreDreamState();
                 WorldQueryHelper.InvalidateCommonSceneScanCaches();
             }
+            FinalDreamsceneManager.OnLocalWokeUp();
+            ReleaseDreamInputLocks();
+            _entryTransitionSeen = false;
             _localDreamActive = false;
             _localDreamPreset = null;
             _hostOrderedDreamEnd = false;
@@ -287,6 +290,8 @@ namespace DWMPHorde.Sync
                     }
                     var started = DreamStartedMessage.Build(
                         presetName, locationPosition.x, locationPosition.y, locationPosition.z);
+                    started.EntryTransition = _entryTransitionSeen;
+                    _entryTransitionSeen = false;
                     net.Broadcast(NetMessageType.DreamStarted,
                         w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
