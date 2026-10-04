@@ -265,6 +265,10 @@ namespace DWMPHorde.Patches
             foreach (var p in net.GetAllProxies())
             {
                 if (p == null) continue;
+                // Vanilla never senses a dead, invisible or ignored player (smell included).
+                CharBase pcb = p.CachedCharBase;
+                if (pcb != null && (!pcb.alive || pcb.invisible || pcb.ignoreMe)) continue;
+                if (DeathStateTracker.IsRemoteNightDead(p.PlayerId)) continue;
                 Transform pt = p.transform;
                 Vector3 toRemote = pt.position - __instance.transform.position;
                 float dist = toRemote.magnitude;

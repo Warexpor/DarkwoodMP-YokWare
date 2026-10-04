@@ -36,7 +36,7 @@ namespace DWMPHorde.Sync
         private const float ArrivalGrace = 3f;
         private static float _nextTick;
         private static float _arrivedAt = -1f;
-        private static bool _wardGiven; // reset-in: RemoveWard (called from Reset)
+        private const float WardDuration = 20000000f; // marks the village ward (see RemoveWard)
 
         /// <summary>Local player is in the village and sees (or stands close to) a villager.</summary>
         internal static bool LocalSeesVillager { get; private set; }
@@ -222,28 +222,30 @@ namespace DWMPHorde.Sync
         private static void UpdateWard(bool inVillage)
         {
             Player p = Player.Instance;
-            bool shelter = inVillage && Indoors(p);
-            if (shelter)
+            if (p.effects == null)
+                return;
+            if (inVillage && Indoors(p))
             {
-                if (p.effects != null && !p.effects.hasEffectType(CharacterEffectType.shadowWard))
-                {
-                    p.effects.activate(new InvItemEffect { type = CharacterEffectType.shadowWard, duration = 20000000f });
-                    _wardGiven = true;
-                }
+                if (!p.effects.hasEffectType(CharacterEffectType.shadowWard))
+                    p.effects.activate(new InvItemEffect { type = CharacterEffectType.shadowWard, duration = WardDuration });
             }
-            else if (!shelter && _wardGiven)
+            else
             {
                 RemoveWard();
             }
         }
 
+        /// <summary>
+        /// Our ward is told apart from the hideout's by its duration, not by a flag: a session
+        /// backup restores effects, and a flag-tracked ward restored that way was never removed.
+        /// </summary>
         private static void RemoveWard()
         {
-            if (!_wardGiven)
-                return;
-            _wardGiven = false;
             Player p = Player.Instance;
-            if (p != null && p.effects != null)
+            if (p == null || p.effects == null)
+                return;
+            CharacterEffect e = p.effects.getEffect(CharacterEffectType.shadowWard);
+            if (e != null && e.duration == WardDuration)
                 p.effects.deleteThisTypeOfEffect(CharacterEffectType.shadowWard);
         }
 

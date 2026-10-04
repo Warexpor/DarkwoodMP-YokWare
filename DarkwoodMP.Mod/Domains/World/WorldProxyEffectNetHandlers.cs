@@ -25,11 +25,48 @@ namespace DWMPHorde.Networking
             if (!_net.RemoteProxies.TryGetValue(playerId, out var proxy)) return;
             Transform proxyT = proxy.transform;
             float range = running ? 350f : 150f;
-            Character.alertInArea(proxyT.position, range, false, 1f);
+            // Vanilla Player footsteps alert nobody while invisible (chameleon / ninja).
+            CharBase cb = proxy.CachedCharBase;
+            if (cb == null || !cb.invisible)
+                Character.alertInArea(proxyT.position, range, false, 1f);
             PlayProxyFootstepSound(proxy, running);
         }
 
-        internal void SendPlayerEffects()
+        /// <summary>
+        /// Vanilla <c>Player.setInvisible</c> for a peer: going invisible makes everything attacking
+        /// it stop, and the body shows at 30% alpha.
+        /// </summary>
+        private static void ApplyInvisible(RemotePlayerProxy proxy, bool invisible)
+        {
+            Transform proxyT = proxy.transform;
+            if (invisible && ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host)
+            {
+                Character[] all;
+                int n = CharacterTracker.CopyAll(out all);
+                for (int i = 0; i < n; i++)
+                {
+                    Character c = all[i];
+                    if (c != null && (c.target == proxyT || c.superTarget == proxyT))
+                        c.stopAttacking(proxyT);
+                }
+            }
+            Color tint = new Color(1f, 1f, 1f, invisible ? 0.3f : 1f);
+            tk2dBaseSprite torso = proxyT.GetComponent<tk2dBaseSprite>();
+            if (torso != null)
+                torso.color = tint;
+            Transform legs = proxyT.Find("PlayerLegs");
+            tk2dBaseSprite legsSprite = legs != null ? legs.GetComponent<tk2dBaseSprite>() : null;
+            if (legsSprite != null)
+                legsSprite.color = tint;
+        }
+
+        private int _lastEffectFlags = -1;
+
+        /// <summary>
+        /// Every tick: a change (ward, ninja, forest skills, ignoreMe) goes out at once, since host
+        /// AI and the night worm act on it; otherwise a keepalive every 2 s for new peers.
+        /// </summary>
+        internal void SendPlayerEffects(bool keepalive)
         {
             Player local = Player.Instance;
             if (local == null) return;
@@ -48,6 +85,9 @@ namespace DWMPHorde.Networking
                 Poisoned = localCb != null && localCb.poisoned,
                 Bleeding = localCb != null && localCb.bleeding
             };
+            if (!keepalive && msg.Flags == _lastEffectFlags)
+                return;
+            _lastEffectFlags = msg.Flags;
             _net.Broadcast(NetMessageType.PlayerEffectSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -67,6 +107,8 @@ namespace DWMPHorde.Networking
             CharBase cb = proxy.CachedCharBase;
             if (cb != null)
             {
+                if (msg.Invisible != cb.invisible)
+                    ApplyInvisible(proxy, msg.Invisible);
                 cb.invisible = msg.Invisible;
                 cb.ignoreMe = msg.IgnoreMe;
                 // Visual flags only; DoT stays local on the owning player.
@@ -174,42 +216,48 @@ namespace DWMPHorde.Networking
             Vector3 proxyPos = proxyT.position;
             float range = msg.Range;
 
-            // Primary: Physics.OverlapSphere-based alert (finds entities with active colliders)
+            // Vanilla Character.alertInArea, as for the local player's own sounds. Characters culled
+            // out of the world (inactive) do not hear, exactly as they would not for the host.
             Character.alertInArea(proxyPos, range, msg.DangerousSound, msg.Volume, msg.Gunshot);
-
-            // Fallback: directly alert all tracked characters within range, even if their
-            // colliders or chunks are briefly inactive when the message arrives.
-            int nAll = CharacterTracker.CopyAll(out Character[] all);
-            for (int i = 0; i < nAll; i++)
-            {
-                Character c = all[i];
-                if (c == null) continue;
-                if (c.deaf || !c.alive) continue;
-                if (c.name.Contains("Player") || c.name.Contains("RemotePlayer"))
-                    continue;
-
-                float dist = Vector3.Distance(c.transform.position, proxyPos);
-                if (dist <= range)
-                {
-                    if (!c.gameObject.activeSelf)
-                        c.gameObject.SetActive(true);
-                    if (!c.enabled)
-                        c.enabled = true;
-
-                    c.heardSound(proxyPos, range, msg.DangerousSound, msg.Volume, msg.Gunshot);
-                }
-            }
         }
 
         internal void HandlePlayerScare(PlayerScareMessage msg)
         {
-            if (_net.Role != NetworkRole.Host) return;
+            if (_net.Role != NetworkRole.Host)
+            {
+                // Host relay of a peer's scary face: the effect only.
+                if (msg.ScaryFace && _net.RemoteProxies.TryGetValue(msg.CasterId, out var caster) && caster != null)
+                    Core.AddPrefab("FX/skills/scaryface_prefab", caster.transform.position, Quaternion.Euler(90f, 0f, 0f), null);
+                return;
+            }
             int playerId = _net.CurrentReceivePlayerId;
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
             if (proxy == null) return;
 
             Transform proxyT = proxy.transform;
-            Character.scareInArea(proxyT.position, msg.Range);
+            if (!msg.ScaryFace)
+            {
+                // The client's aim scare is always 350 (ClientAimScarePatch).
+                Character.scareInArea(proxyT.position, Mathf.Min(msg.Range, 350f));
+                return;
+            }
+
+            // Vanilla PlayerSkill.activate "scaryFace" around the caster's body.
+            Vector3 pos = proxyT.position;
+            Collider[] buf = WorldQueryHelper.SharedOverlapBuf;
+            int hits = Physics.OverlapSphereNonAlloc(pos, 500f, buf);
+            for (int i = 0; i < hits; i++)
+            {
+                Collider col = buf[i];
+                if (col == null || col.gameObject.layer != 11 && col.gameObject.layer != 21)
+                    continue;
+                Character c = col.gameObject.GetComponent<Character>();
+                if (c != null && c.GetComponent<NPC>() == null)
+                    c.runAway(pos);
+            }
+            Core.AddPrefab("FX/skills/scaryface_prefab", pos, Quaternion.Euler(90f, 0f, 0f), null);
+            var relay = new PlayerScareMessage { ScaryFace = true, CasterId = (short)playerId };
+            _net.SendToAllExcept(playerId, NetMessageType.PlayerScare, w => relay.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
     }

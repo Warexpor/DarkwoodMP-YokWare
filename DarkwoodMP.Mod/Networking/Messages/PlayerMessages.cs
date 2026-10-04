@@ -439,12 +439,23 @@ namespace DWMPHorde.Networking
     public struct PlayerScareMessage
     {
         public float Range;
+        /// <summary>The scary-face skill (vanilla <c>PlayerSkill.activate</c>), not an aim scare.</summary>
+        public bool ScaryFace;
+        /// <summary>Host relay of a scary face: who cast it (0 on a client's own send).</summary>
+        public short CasterId;
 
-        public void Serialize(NetWriter w) => w.Put(Range);
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Range);
+            w.Put(ScaryFace);
+            w.Put(CasterId);
+        }
 
         public static PlayerScareMessage Deserialize(NetReader r) => new PlayerScareMessage
         {
-            Range = r.GetFloat()
+            Range = r.GetFloat(),
+            ScaryFace = r.GetBool(),
+            CasterId = r.GetShort()
         };
     }
 

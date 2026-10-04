@@ -227,11 +227,10 @@ namespace DWMPHorde.Networking
             Sync.NightVillage.Tick(this);
 
             _effectSyncTimer += Time.deltaTime;
-            if (_effectSyncTimer >= 2f)
-            {
+            bool effectKeepalive = _effectSyncTimer >= 2f;
+            if (effectKeepalive)
                 _effectSyncTimer = 0f;
-                WorldProxyEffectHandlers.SendPlayerEffects();
-            }
+            WorldProxyEffectHandlers.SendPlayerEffects(effectKeepalive);
 
             // Both sides: send own position to the other side at ~30 Hz
             string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);

@@ -111,6 +111,8 @@ namespace DWMPHorde.Patches
         private static void Postfix(Character __result)
         {
             if (__result == null || !__result.temporarySpawned) return;
+            // Night monsters at the hideout keep the hideout's waypoints (vanilla).
+            if (NightSpawnGetFreeSpotPatch.InsideNightSpawn) return;
             if (ModRuntime.Network?.Role != NetworkRole.Host) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
             if (__result.waypoints != null)
