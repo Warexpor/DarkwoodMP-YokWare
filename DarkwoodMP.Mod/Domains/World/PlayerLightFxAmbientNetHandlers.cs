@@ -109,11 +109,16 @@ namespace DWMPHorde.Networking
 
                 float radius = msg.LightRadius > 0f ? msg.LightRadius : 450f;
                 light.LightRadius = radius;
-                light.LightIntensity = msg.LightIntensity > 0f ? msg.LightIntensity : 1f;
-                if (msg.LightColorR + msg.LightColorG + msg.LightColorB > 0.01f)
-                    light.LightColor = new Color(msg.LightColorR, msg.LightColorG, msg.LightColorB, 0f);
-                else
-                    light.LightColor = new Color(1f, 0.85f, 0.45f, 0f);
+                // The lantern is vanilla's own light dot widened (Player.modifyLightDot): it looks
+                // exactly like the local player's dot, only bigger. The message colour is not the
+                // dot's (the sender packs white, or its flashlight's colour while one is held).
+                Light2D dot = LocalLightDot();
+                if (dot != null)
+                {
+                    light.LightColor = dot.LightColor;
+                    light.LightIntensity = dot.LightIntensity;
+                    light.ShadowLayer = dot.ShadowLayer;
+                }
                 light.LightConeAngle = 360f;
                 // Render + AI graph for area light, but this is NOT Player.Instance.lightDot.
                 light.lightsPlayer = true;
@@ -143,6 +148,14 @@ namespace DWMPHorde.Networking
                 UnityEngine.Object.Destroy(ambientT.gameObject);
                 ModLog.Event(LogCat.World, $"[Light] remote lantern OFF p{playerId}");
             }
+        }
+
+        private static Light2D LocalLightDot()
+        {
+            if (Player.Instance == null)
+                return null;
+            Transform t = FindChildIncludingInactive(Player.Instance.transform, "PlayerLightDot");
+            return t != null ? t.GetComponent<Light2D>() : null;
         }
 
         /// <summary>Factory radial only; never Instantiate(PlayerLightDot).</summary>

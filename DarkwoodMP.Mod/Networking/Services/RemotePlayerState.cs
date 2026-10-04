@@ -48,6 +48,20 @@ namespace DWMPHorde.Networking
         public bool AppliedItemLight;
         public bool AppliedAmbient;
         public float AppliedLightRadius;
+        /// <summary>Last PlayerLightState received, re-applied when the proxy is rebuilt.</summary>
+        public PlayerLightStateMessage? LastLight;
+
+        /// <summary>A new proxy body shows nothing yet: the next light state must apply.</summary>
+        public void ForgetAppliedLight()
+        {
+            AppliedLightItemType = null;
+            AppliedLightOn = false;
+            AppliedFlash = false;
+            AppliedEmitter = false;
+            AppliedItemLight = false;
+            AppliedAmbient = false;
+            AppliedLightRadius = 0f;
+        }
 
         // Drag tracking: InstanceIDs of items being dragged by this remote player.
         // Used by PhysicsState to skip these items (prevents drag from fighting physics sync).

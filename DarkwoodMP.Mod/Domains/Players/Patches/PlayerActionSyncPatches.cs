@@ -244,6 +244,38 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Vanilla tears the held torch flame down here directly when the player lies down (sleep,
+    /// dream, respawn), dives or fakes death: those paths set fists without an item switch, so
+    /// the peers' copy of the flame stayed lit. Send the light state whenever it happens.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.removeItemEmitters))]
+    public static class PlayerLightEmittersRemovedPatch
+    {
+        private static void Postfix(Player __instance)
+        {
+            if (__instance == null || __instance != Player.Instance) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            LightStateHelper.SendLightState(__instance, "removeItemEmitters");
+        }
+    }
+
+    /// <summary><c>fakeDeathAni</c> sets fists only after removing the emitters: send again then.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.fakeDeathAni))]
+    public static class PlayerLightFakeDeathPatch
+    {
+        private static void Postfix(Player __instance)
+        {
+            if (__instance == null || __instance != Player.Instance) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            LightStateHelper.SendLightState(__instance, "fakeDeathAni");
+        }
+    }
+
+    /// <summary>
     /// Also sync light state when switching items (torch/flashlight might activate on equip).
     /// </summary>
     [HarmonyPatch(typeof(Player), "onDoneSwitchingItem")]

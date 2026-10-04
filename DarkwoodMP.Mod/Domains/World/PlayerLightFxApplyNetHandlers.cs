@@ -63,6 +63,7 @@ namespace DWMPHorde.Networking
             }
 
             var remoteState = _net.GetOrCreateState(playerId);
+            remoteState.LastLight = msg;
 
             // Normalize ambient-only type: empty ↔ "lantern" must not re-apply (TX thrash critical).
             if (msg.HasAmbientLight && string.IsNullOrEmpty(msg.ItemType)
@@ -109,7 +110,8 @@ namespace DWMPHorde.Networking
             if (flashT != null)
             {
                 flashT.gameObject.SetActive(msg.IsFlashlight && msg.LightOn);
-                if (msg.IsFlashlight && msg.LightOn && msg.LightRadius > 0f)
+                // With the lantern on, LightRadius is the lantern's: the stream owns the cone then.
+                if (msg.IsFlashlight && msg.LightOn && msg.LightRadius > 0f && !msg.HasAmbientLight)
                 {
                     Light2D lt = flashT.GetComponent<Light2D>();
                     if (lt != null)
@@ -172,8 +174,6 @@ namespace DWMPHorde.Networking
             // disabled-but-still-in-logicLights → looked like lantern on both characters.
             // Dedicated RemoteLanternAmbient only on the proxy that owns the lantern.
             bool wantAmbient = msg.HasAmbientLight && msg.LightOn && msg.LightRadius > 0f;
-            if (msg.IsFlashlight && msg.LightOn)
-                wantAmbient = false;
             PlayerLightFxAmbientNetHandlers.ApplyRemoteLanternAmbient(proxy, playerId, wantAmbient, msg);
 
             // Clean up torch/lantern emitters when switching to non-emitter item
