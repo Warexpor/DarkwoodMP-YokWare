@@ -506,26 +506,50 @@ namespace DWMPHorde.Networking
             set => Flags = (byte)((Flags & ~128) | (value ? 128 : 0));
         }
 
-        public void Serialize(NetWriter w) => w.Put(Flags);
+        public byte Flags2;
+
+        /// <summary>The player is on fire (a Burn component): joiners and missed burn messages converge on it.</summary>
+        public bool Burning
+        {
+            get => (Flags2 & 1) != 0;
+            set => Flags2 = (byte)((Flags2 & ~1) | (value ? 1 : 0));
+        }
+        /// <summary>The burn is vanilla burnSpecial (no fire particles or sound).</summary>
+        public bool BurnSpecial
+        {
+            get => (Flags2 & 2) != 0;
+            set => Flags2 = (byte)((Flags2 & ~2) | (value ? 2 : 0));
+        }
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Flags);
+            w.Put(Flags2);
+        }
+
         public static PlayerEffectSyncMessage Deserialize(NetReader r)
-            => new PlayerEffectSyncMessage { Flags = r.GetByte() };
+            => new PlayerEffectSyncMessage { Flags = r.GetByte(), Flags2 = r.GetByte() };
     }
 
     public struct PlayerBurningMessage
     {
         public bool IsBurning;
         public float BurnTime;
+        /// <summary>Vanilla burnSpecial (a curse burn): no fire particles or sound, as on the owner.</summary>
+        public bool Special;
 
         public void Serialize(NetWriter w)
         {
             w.Put(IsBurning);
             w.Put(BurnTime);
+            w.Put(Special);
         }
 
         public static PlayerBurningMessage Deserialize(NetReader r) => new PlayerBurningMessage
         {
             IsBurning = r.GetBool(),
-            BurnTime = r.GetFloat()
+            BurnTime = r.GetFloat(),
+            Special = r.GetBool()
         };
     }
 

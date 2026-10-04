@@ -129,7 +129,11 @@ namespace DWMPHorde.Networking
                     BagId = bagId,
                     IsRecipe = recipes.ToArray(),
                     ItemUpgrades = upgrades.ToArray(),
-                    ShouldBeActive = actives.ToArray()
+                    ShouldBeActive = actives.ToArray(),
+                    HasMarker = bag.additionalMapMarker != null,
+                    MarkerX = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.x : 0f,
+                    MarkerY = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.y : 0f,
+                    MarkerZ = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.z : 0f
                 };
 
                 _net.SendToPlayer(targetPlayerId, NetMessageType.DeathBagSpawn,
@@ -257,7 +261,14 @@ namespace DWMPHorde.Networking
 
             DeathDrop deathDrop = bagGO.GetComponent<DeathDrop>();
             if (deathDrop != null)
+            {
                 deathDrop.expAmount = msg.ExpAmount;
+                // Vanilla dropBody inside a location marks its entrance on the map; the bag
+                // removes the marker when it goes (DeathDrop.OnDestroy).
+                if (msg.HasMarker && deathDrop.additionalMapMarker == null)
+                    deathDrop.additionalMapMarker = Core.AddPrefab("Objects/_Unique/deathDrop_marker",
+                        new Vector3(msg.MarkerX, msg.MarkerY, msg.MarkerZ), Quaternion.Euler(90f, 0f, 0f), null);
+            }
 
             Sync.DeathBagNetworkId.Ensure(bagGO, bagId, msg.InWater);
             if (deathDrop != null)

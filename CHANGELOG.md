@@ -5,7 +5,9 @@
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
-`WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity;
+`WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
+`PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
+the location marker, `ThrowableSpawn` the recoverable weapon;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -231,6 +233,33 @@ The mod's lantern copy follows that; these were the real faults around it.
   matched by name only (every "chair" in a hideout), so a peer grabbing another chair
   force-stopped yours, and your stop could go unsent. They are now matched by the
   dragged object's position as well.
+
+### More players, fewer surprises
+
+- **Joiners never saw a player already on fire, and curse burns showed full flames.**
+  Burning now rides on the player's effect state too (joiners and missed messages
+  converge), and vanilla's curse burn (`burnSpecial`) shows no flames or sound, as on
+  the owner.
+- **Story triggers could go by a stale "who holds what".** The host's view of the
+  clients' items only followed pickups and removals; drags, chest moves, drops and death
+  left it stale, so a "player has item" trigger could fire with nobody holding the item,
+  or never. Clients now compare their bag once a second and send every change, zeros
+  included.
+- **A client could skip the shared opening movie for itself.** It woke up early in the
+  unprepared start while the others still watched. The host's movie now ends for
+  everyone when the host skips it; a client's skip key waits.
+- **No map marker for a peer's death inside a location.** Vanilla marks the location's
+  entrance on the map; peers now get the marker too, and it goes with the bag.
+- **A warded client did not scare off the monsters after it.** Vanilla's monsters run
+  from a player in the lit hideout (or with the forest-spirit ward); for a client they
+  did so only when their detection happened to pick that client. Now a monster after a
+  warded client runs, as from the host.
+- **A client's molotov could set off the barrel next to it.** An explosion request now
+  matches the object by name at that spot, on the host and on the peers' visual side
+  (where it could destroy the neighbouring barrel's copy).
+- **A thrown axe or spear came back as a fresh one.** Vanilla puts the thrown weapon
+  itself in the thrown object; other players' copies were new. They now carry its wear
+  and upgrades.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

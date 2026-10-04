@@ -92,7 +92,11 @@ namespace DWMPHorde.Patches
                 BagId = bagId,
                 IsRecipe = recipes.ToArray(),
                 ItemUpgrades = upgrades.ToArray(),
-                ShouldBeActive = actives.ToArray()
+                ShouldBeActive = actives.ToArray(),
+                HasMarker = deathDrop.additionalMapMarker != null,
+                MarkerX = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.x : 0f,
+                MarkerY = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.y : 0f,
+                MarkerZ = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.z : 0f
             };
 
             net.Broadcast(NetMessageType.DeathBagSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

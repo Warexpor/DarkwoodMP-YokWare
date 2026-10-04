@@ -13,9 +13,64 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<int, Dictionary<string, int>> _byPlayer =
             new Dictionary<int, Dictionary<string, int>>();
 
+        private static readonly Dictionary<string, int> _lastSent = new Dictionary<string, int>(); // reset-in: Reset
+        private static readonly Dictionary<string, int> _scratch = new Dictionary<string, int>(); // process-scoped: scratch, cleared before each use
+        private static readonly List<string> _gone = new List<string>(); // process-scoped: scratch, cleared before each use
+        private static float _nextSweep; // reset-in: Reset
+
         public static void Reset()
         {
             _byPlayer.Clear();
+            _lastSent.Clear();
+            _nextSweep = 0f;
+        }
+
+        /// <summary>
+        /// Client, once a second: the whole bag and hotbar against what the host was last told,
+        /// sending every change (a type that is gone goes out as 0). The event hooks only cover
+        /// grants and removals; drags, chest moves, drops and death left the host's view stale,
+        /// so a "has item" story trigger could fire with nobody holding it, or never fire.
+        /// </summary>
+        internal static void Tick(LanNetworkManager net)
+        {
+            float now = UnityEngine.Time.unscaledTime;
+            if (now < _nextSweep)
+                return;
+            _nextSweep = now + 1f;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client || Player.Instance == null || Core.loadingGame)
+                return;
+
+            _scratch.Clear();
+            Count(Player.Instance.Inventory);
+            Count(Player.Instance.Hotbar);
+
+            foreach (var kv in _scratch)
+            {
+                if (!_lastSent.TryGetValue(kv.Key, out int sent) || sent != kv.Value)
+                    SendLocalChange(kv.Key, kv.Value);
+            }
+            _gone.Clear();
+            foreach (var kv in _lastSent)
+            {
+                if (!_scratch.ContainsKey(kv.Key))
+                    _gone.Add(kv.Key);
+            }
+            for (int i = 0; i < _gone.Count; i++)
+                SendLocalChange(_gone[i], 0);
+        }
+
+        private static void Count(Inventory inv)
+        {
+            if (inv == null || inv.slots == null)
+                return;
+            for (int i = 0; i < inv.slots.Count; i++)
+            {
+                InvItemClass it = inv.slots[i] != null ? inv.slots[i].invItem : null;
+                if (InvItemClass.isNull(it) || string.IsNullOrEmpty(it.type))
+                    continue;
+                _scratch.TryGetValue(it.type, out int n);
+                _scratch[it.type] = n + it.amount;
+            }
         }
 
         /// <summary>Drop presence for a disconnected peer (avoids ghost haveItem after leave).</summary>
@@ -84,6 +139,10 @@ namespace DWMPHorde.Sync
                 return;
             }
 
+            if (amount > 0)
+                _lastSent[itemType] = amount;
+            else
+                _lastSent.Remove(itemType);
             var msg = new PeerHasItemMessage
             {
                 PlayerId = net.LocalPlayerId,

@@ -225,6 +225,7 @@ namespace DWMPHorde.Networking
             // Include host effect flags so clients can present shadow and forest
             // spirit wards.
             Sync.NightVillage.Tick(this);
+            Sync.PeerItemPresence.Tick(this);
 
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;

@@ -129,8 +129,8 @@ namespace DWMPHorde.Networking
         public void SendLiquidStopBurning(Vector3 pos) =>
             WorldSendHandlers.SendLiquidStopBurning(pos);
 
-        public void SendPlayerBurning(bool isBurning, float burnTime = 0) =>
-            WorldSendHandlers.SendPlayerBurning(isBurning, burnTime);
+        public void SendPlayerBurning(bool isBurning, float burnTime = 0, bool special = false) =>
+            WorldSendHandlers.SendPlayerBurning(isBurning, burnTime, special);
 
         public void SendExplosionSpawnObject(string prefabName, Vector3 pos, Vector3 rot) =>
             WorldSendHandlers.SendExplosionSpawnObject(prefabName, pos, rot);
