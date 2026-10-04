@@ -2,16 +2,21 @@ using System;
 using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using UnityEngine;
 
 namespace DWMPHorde.Audio
 {
     /// <summary>
-    /// Scrape loop owner for networked drag/body-push.
-    /// Mirrors vanilla <see cref="ItemSounds"/> moving path:
-    /// - start when motion is reported
-    /// - on stop: <c>AudioObject.Stop(0.5f)</c> the same frame motion ends
-    ///   (ItemSounds.Update else-branch). Do not invent a shorter fade.
+    /// Scrape loop owner for networked drag/body-push. It is vanilla
+    /// <see cref="ItemSounds"/>.Update's moving branch, driven by network motion instead of the
+    /// local rigidbody:
+    /// - start: <c>AudioController.Play(id, transform, volumeModifier)</c>, with the id chosen
+    ///   by ground exactly like vanilla (<c>movingSound</c>, or <c>movingSound_grass</c> off a
+    ///   Ground), so the clip pick, Sound volume slider, indoor reverb and wall occlusion are
+    ///   the game's own;
+    /// - surface change: stop the old loop with the vanilla 0.5 s fade and start the new id;
+    /// - stop: <c>AudioObject.Stop(0.5f)</c> the same frame motion ends.
     /// MP lag came from *late stop decisions* (1s stale, multi-tick wait),
     /// not from the vanilla 0.5s fade itself.
     /// </summary>
@@ -23,42 +28,43 @@ namespace DWMPHorde.Audio
         public const float VanillaMovingStopFade = 0.5f;
         public const float IntentionalStopFade = ItemMovingSoundHelper.IntentionalStopFade;
         private const float DefaultFadeSeconds = VanillaMovingStopFade;
-        private const int OcclusionLayerMask = GameplayConstants.DefaultOcclusionLayerMask;
 
         private sealed class Entry
         {
-            public AudioSource Source;
+            public AudioObject Ao;
             public GameObject Host;
             public string SoundId;
-            public float BaseVolume;
             public int StationaryTicks;
             public bool Fading;
-            public float FadeStartVol;
-            public float FadeEndTime;
-            public float FadeDuration;
         }
 
         private static readonly Dictionary<string, Entry> _byName =
             new Dictionary<string, Entry>(StringComparer.Ordinal);
+        private static readonly List<string> _reap = new List<string>(8); // process-scoped: scratch
 
         public static void Reset()
         {
             foreach (var kv in _byName)
             {
-                if (kv.Value?.Source != null)
-                    UnityEngine.Object.Destroy(kv.Value.Source);
+                if (Owns(kv.Value))
+                    kv.Value.Ao.Stop();
             }
             _byName.Clear();
         }
 
+        /// <summary>
+        /// The loop vanilla ItemSounds.Update would play for this object where it stands:
+        /// <c>movingSound</c> on a Ground, <c>movingSound_grass</c> off one; nothing without a
+        /// <c>movingSound</c> (vanilla returns early).
+        /// </summary>
         public static string ResolveMovingSoundId(ItemSounds sounds)
         {
-            if (sounds == null) return null;
-            if (!string.IsNullOrEmpty(sounds.movingSound))
-                return sounds.movingSound;
-            if (!string.IsNullOrEmpty(sounds.movingSound_grass))
+            if (sounds == null || string.IsNullOrEmpty(sounds.movingSound))
+                return null;
+            if (!string.IsNullOrEmpty(sounds.movingSound_grass)
+                && Ground.getGround(sounds.transform.position) == null)
                 return sounds.movingSound_grass;
-            return null;
+            return sounds.movingSound;
         }
 
         /// <summary>Object is moving; start or keep the loop and cancel any fade.
@@ -88,8 +94,7 @@ namespace DWMPHorde.Audio
                 return;
 
             ItemMovingSoundHelper.MarkRemoteScrape(objectName);
-            float volume = Mathf.Clamp01(sounds.volumeModifier * LocalAudioService.GetItemVolumeScale(soundId));
-            EnsurePlaying(go, objectName, soundId, volume);
+            EnsurePlaying(go, objectName, soundId, sounds.volumeModifier);
         }
 
         // IsLocalSimOwner was removed because the proximity/live-RB heuristic silenced host-to-client scrape.
@@ -99,7 +104,7 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (!_byName.TryGetValue(objectName, out Entry e) || e == null || e.Source == null)
+            if (!_byName.TryGetValue(objectName, out Entry e) || !Owns(e))
                 return;
             if (e.Fading)
                 return;
@@ -109,6 +114,7 @@ namespace DWMPHorde.Audio
                 BeginFade(objectName, DefaultFadeSeconds);
         }
 
+        /// <param name="volume">The AudioController play volume (vanilla passes <c>volumeModifier</c>).</param>
         public static void EnsurePlaying(GameObject go, string objectName, string soundId, float volume)
         {
             if (go == null || string.IsNullOrEmpty(objectName) || string.IsNullOrEmpty(soundId))
@@ -127,53 +133,35 @@ namespace DWMPHorde.Audio
             // MOS is the remote-owner path; keep native ItemSounds suppressed.
             ItemMovingSoundHelper.MarkRemoteScrape(objectName);
 
-            if (_byName.TryGetValue(objectName, out Entry existing) && existing != null)
+            if (_byName.TryGetValue(objectName, out Entry existing))
             {
-                if (existing.Fading && existing.Source != null)
-                {
-                    existing.Source.volume = existing.BaseVolume > 0f ? existing.BaseVolume : volume;
-                    existing.Fading = false;
-                    ModLog.Info(LogCat.Audio, "[MOS] re-arm canceled fade for " + objectName);
-                }
-
                 existing.StationaryTicks = 0;
-
-                if (existing.Source != null && existing.Source.isPlaying
+                if (Owns(existing) && !existing.Fading
                     && existing.Host == go && existing.SoundId == soundId)
-                {
-                    existing.BaseVolume = volume;
-                    if (!existing.Fading)
-                        existing.Source.volume = volume;
                     return;
-                }
 
-                // Host/source stale; rebuild.
-                if (existing.Source != null)
-                    UnityEngine.Object.Destroy(existing.Source);
+                // Fading, surface changed or host replaced: vanilla lets the old loop finish its
+                // 0.5 s fade and starts a fresh one.
+                if (Owns(existing) && !existing.Fading)
+                    existing.Ao.Stop(VanillaMovingStopFade);
                 _byName.Remove(objectName);
             }
 
-            AudioClip clip = LocalAudioService.ResolveClip(soundId);
-            if (clip == null)
-                return;
-
-            var src = go.AddComponent<AudioSource>();
-            src.clip = clip;
-            src.loop = true;
-            src.volume = Mathf.Clamp01(volume);
-            src.spatialBlend = 1f;
-            src.minDistance = LocalAudioService.DefaultMinSpatialDistance;
-            src.maxDistance = LocalAudioService.DefaultMaxSpatialDistance;
-            src.rolloffMode = AudioRolloffMode.Linear;
-            src.playOnAwake = false;
-            src.Play();
+            AudioObject ao;
+            // Our own replay of a remote scrape: the AudioController forward patches must not
+            // send it back out.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try { ao = AudioController.Play(soundId, go.transform, Mathf.Max(0f, volume)); }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
+            if (ao == null)
+                return; // out of hearing range (AudioSuppression) or unknown id; next motion tick retries
 
             _byName[objectName] = new Entry
             {
-                Source = src,
+                Ao = ao,
                 Host = go,
                 SoundId = soundId,
-                BaseVolume = src.volume,
                 StationaryTicks = 0,
                 Fading = false
             };
@@ -183,7 +171,7 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (!_byName.TryGetValue(objectName, out Entry e) || e == null || e.Source == null)
+            if (!_byName.TryGetValue(objectName, out Entry e) || !Owns(e))
                 return;
             if (e.Fading)
                 return;
@@ -194,10 +182,8 @@ namespace DWMPHorde.Audio
                 return;
             }
 
+            e.Ao.Stop(fadeSeconds);
             e.Fading = true;
-            e.FadeStartVol = e.Source.volume;
-            e.FadeDuration = Mathf.Max(0.01f, fadeSeconds);
-            e.FadeEndTime = Time.time + e.FadeDuration;
             e.StationaryTicks = 0;
         }
 
@@ -205,52 +191,44 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (!_byName.TryGetValue(objectName, out Entry e))
+            if (_byName.TryGetValue(objectName, out Entry e))
             {
-                ItemMovingSoundHelper.ClearRemoteScrape(objectName);
-                return;
+                if (Owns(e))
+                    e.Ao.Stop();
+                _byName.Remove(objectName);
             }
-
-            if (e?.Source != null)
-            {
-                e.Source.Stop();
-                UnityEngine.Object.Destroy(e.Source);
-            }
-            _byName.Remove(objectName);
             ItemMovingSoundHelper.ClearRemoteScrape(objectName);
         }
 
-        /// <summary>True if MOS currently owns a (possibly fading) source for this name.</summary>
+        /// <summary>True if MOS currently owns a (possibly fading) loop for this name.</summary>
         public static bool IsPlaying(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return false;
-            return _byName.TryGetValue(objectName, out Entry e)
-                && e != null && e.Source != null && e.Source.isPlaying;
+            return _byName.TryGetValue(objectName, out Entry e) && Owns(e);
         }
 
         /// <summary>True while a scrape fade-out is in progress (not fully stopped).</summary>
         public static bool IsFading(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return false;
-            return _byName.TryGetValue(objectName, out Entry e)
-                && e != null && e.Fading && e.Source != null;
+            return _byName.TryGetValue(objectName, out Entry e) && e.Fading && Owns(e);
         }
 
         /// <summary>
-        /// Stop MOS source. Optional <paramref name="alsoKillAudioController"/> kills every
-        /// AudioController object with the same clip ID, only for intentional local ForceStop
-        /// (drag release). Soft/network stops must pass false or the local pusher's native
-        /// scrape is murdered and re-arms as a double/triple.
+        /// Stop the MOS loop. With <paramref name="owner"/>, also stop every AudioController
+        /// loop of <paramref name="soundId"/> playing on that object (a native ItemSounds AO whose
+        /// field was already cleared); only for intentional local ForceStop (drag release).
+        /// Never a scene-wide kill by id: other objects share the same scrape ids.
         /// </summary>
         public static void StopAllVariants(string objectName, string soundId, float fadeSec = DefaultFadeSeconds,
-            bool alsoKillAudioController = true)
+            Transform owner = null)
         {
             if (fadeSec <= 0f)
                 StopImmediate(objectName);
             else
                 BeginFade(objectName, fadeSec);
 
-            if (!alsoKillAudioController || string.IsNullOrEmpty(soundId))
+            if (owner == null || string.IsNullOrEmpty(soundId))
                 return;
 
             try
@@ -259,7 +237,7 @@ namespace DWMPHorde.Audio
                 if (playing == null) return;
                 foreach (var ao in playing)
                 {
-                    if (ao != null)
+                    if (ao != null && ao.transform.parent == owner && !ao.isFadingOut)
                         ao.Stop(fadeSec); // same as ItemSounds.Update stop path
                 }
             }
@@ -288,81 +266,36 @@ namespace DWMPHorde.Audio
                 BeginFade(objectName, fadeSec);
         }
 
-        /// <summary>Call once per frame (from physics interp LateUpdate path).</summary>
+        /// <summary>Call once per frame (from physics interp LateUpdate path): reap finished loops.</summary>
         public static void Tick()
         {
             if (_byName.Count == 0)
                 return;
 
-            float now = Time.time;
-            List<string> remove = null;
-
+            _reap.Clear();
             foreach (var kv in _byName)
             {
-                Entry e = kv.Value;
-                if (e == null || e.Source == null)
-                {
-                    if (remove == null) remove = new List<string>();
-                    remove.Add(kv.Key);
-                    continue;
-                }
-
-                if (e.Fading)
-                {
-                    if (now >= e.FadeEndTime)
-                    {
-                        e.Source.Stop();
-                        UnityEngine.Object.Destroy(e.Source);
-                        if (remove == null) remove = new List<string>();
-                        remove.Add(kv.Key);
-                        continue;
-                    }
-
-                    float t = 1f - ((e.FadeEndTime - now) / e.FadeDuration);
-                    e.Source.volume = Mathf.Lerp(e.FadeStartVol, 0f, Mathf.Clamp01(t));
-                }
-                else
-                {
-                    ApplyOcclusion(e.Source);
-                }
+                if (!Owns(kv.Value))
+                    _reap.Add(kv.Key);
             }
-
-            if (remove != null)
+            for (int i = 0; i < _reap.Count; i++)
             {
-                for (int i = 0; i < remove.Count; i++)
-                {
-                    ItemMovingSoundHelper.ClearRemoteScrape(remove[i]);
-                    _byName.Remove(remove[i]);
-                }
+                ItemMovingSoundHelper.ClearRemoteScrape(_reap[i]);
+                _byName.Remove(_reap[i]);
             }
         }
 
-        private static void ApplyOcclusion(AudioSource src)
+        /// <summary>
+        /// AudioObjects are pooled: a held reference stays ours only while it still plays our id
+        /// on our object. A finished or recycled one is never stopped or reused through it.
+        /// </summary>
+        private static bool Owns(Entry e)
         {
-            if (src == null || !src.isPlaying)
-                return;
-
-            Vector3 listener = LocalAudioService.GetListenPosition();
-            Vector3 srcPos = src.transform.position;
-            Vector3 dir = listener - srcPos;
-            float dist = dir.magnitude;
-            if (dist < 0.1f)
-                return;
-
-            bool occluded = Physics.Raycast(srcPos, dir.normalized, dist, OcclusionLayerMask);
-            var lpf = src.GetComponent<AudioLowPassFilter>();
-            if (occluded)
-            {
-                if (lpf == null)
-                {
-                    lpf = src.gameObject.AddComponent<AudioLowPassFilter>();
-                    lpf.cutoffFrequency = 1500f;
-                }
-            }
-            else if (lpf != null)
-            {
-                UnityEngine.Object.Destroy(lpf);
-            }
+            if (e == null || e.Ao == null || e.Host == null)
+                return false;
+            AudioObject ao = e.Ao;
+            return ao.audioID == e.SoundId && ao.transform.parent == e.Host.transform
+                && (ao.IsPlaying() || ao.IsPaused());
         }
     }
 }

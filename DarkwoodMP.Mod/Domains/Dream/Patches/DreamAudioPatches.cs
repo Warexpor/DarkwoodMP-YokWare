@@ -13,7 +13,7 @@ namespace DWMPHorde.Patches
         /// player SFX via PlayerAudio; bidirectional DreamAudio was flooding both ends
         /// (client→host 30+ pkt/2s) and stacking on local ambients.
         /// </summary>
-        internal static bool ShouldForward(string audioID, Vector3 worldPosition)
+        internal static bool ShouldForward(string audioID, Vector3 worldPosition, Transform parentObj)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return false;
@@ -24,6 +24,16 @@ namespace DWMPHorde.Patches
             if (Dreams.Instance == null || !Dreams.Instance.dreaming)
                 return false;
             if (string.IsNullOrEmpty(audioID))
+                return false;
+            // Peers replay these themselves: creature sounds through EntitySound, synced object
+            // and game-event sounds through their own replay. Forwarding them too doubled them.
+            if (TraverseHack.InsideCharacterSounds || ReplayOwnedSound.Active)
+                return false;
+            // The host's own player sounds travel as PlayerAudio (allowed in dreams).
+            if (parentObj != null && (PlayerAudioHelper.IsPlayerTransform(parentObj) || PlayerAudioHelper.IsPlayerChild(parentObj)))
+                return false;
+            // A forwarded loop is a bare positional play nothing ever stops.
+            if (LocalAudioService.IsLoopingItem(audioID))
                 return false;
 
             // Each peer already plays music/ambience/BGM from their local dream scene.
@@ -67,9 +77,9 @@ namespace DWMPHorde.Patches
     public static class DreamAudioPlayPrefix
     {
         [HarmonyPriority(Priority.Last)]
-        private static void Prefix(string audioID, float volume, Vector3 worldPosition)
+        private static void Prefix(string audioID, float volume, Vector3 worldPosition, Transform parentObj)
         {
-            if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition)) return;
+            if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition, parentObj)) return;
             if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
 
             var net = ModRuntime.Network;

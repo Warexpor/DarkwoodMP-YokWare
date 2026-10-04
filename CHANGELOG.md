@@ -3,14 +3,99 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.129**. The current Horde wire protocol is **29** (bumped in 0.8.129: enemy
-attack fan-out `EnemyAttack` 147 / `EnemyHitConfirm` 148, host clock on entity
-snapshots, entity name/prefab sent only on first sends and the 1 s resync, shadow
-flag on `DamagePlayer`; 28 held for 0.8.128 only).
+**0.8.130**. The current Horde wire protocol is **30** (bumped in 0.8.130:
+`PlayerAudio` drops its unused stop-signal and object-name fields; 29 held for
+0.8.129 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.130 — Sound pass: one owner per sound
+
+Branch `dev-entity-sync-remaster`, on top of 0.8.129. **Protocol 29 → 30.** Product
+**0.8.129 → 0.8.130**. Built and unit-tested; **runtime is not playtested**. Found by
+a code audit of the sound sync, not by a report.
+
+### Doubled and endless world sounds on peers
+
+- **Every synced object sound played twice on peers.** The host (and each client)
+  forwarded every world-object sound as `PlayerAudio`, and the peer also re-ran the
+  same vanilla method from synced state, which plays its own sound. Doubled: door
+  open and close (`Door.openSound` is randomized per peer, so two different clips),
+  barricade and door hits and breaks, lamp and switch clicks, light and generator
+  start/stop, and game event sounds. Now a sound played inside a vanilla method that
+  peers re-run (`Door.open/close/getHit/destroyBarricade/destroyDoor`, every
+  `ItemSounds` play method, the `GameEvent.fire` body) is owned by that replay and
+  never forwarded (`Audio/ReplayOwnedSound.cs`). Host-only spirit FX game events
+  (`def_glow` / `def_shadow`, never fanned out) keep the forward.
+- **Forwarded loops never stopped.** A forwarded object loop (fire, generator hum,
+  radio, stove, a host's crate scrape) played on peers as a bare positional sound,
+  and nothing forwards a stop. No looping sound is forwarded any more; each peer's own
+  copy of the object plays and stops its loops.
+- **Game event replays echoed back.** A replayed event's sound steps run after its
+  delay, outside the apply guard, so the peer forwarded them back to the sender. The
+  replay scope now covers those steps.
+- **Barricade replay now plays vanilla's sounds.** A barricade break played the break
+  sound and then a hit sound; a door break played its break sound twice; a metal door
+  hit played the wood hit instead of the metal clang. The replay now plays exactly what
+  `Door.getHit` played on the sender.
+- **A silent forwarded play stopped the sound everywhere.** A world play at volume 0
+  arrived as `AudioController.Stop(id)`, killing every instance of that id on the peer.
+  Silent plays are no longer sent and are ignored on arrival.
+
+### Forwarded world and creature sounds on clients
+
+- **World sounds landed on the host's body.** Rules meant for a player's own sounds
+  were applied to every forwarded sound: a door's `door_hit_metal` (also a player
+  blocked-hit sound) and any id containing `activate` / `switch`+`light` were moved to
+  the host's stand-in, and ids containing `_get` / `_hide` played 2D in the listener's
+  head. They now apply only to the sender's own player sounds (`StickToSender`).
+- **Per-player hear gate flipped by world sounds.** World sounds from the host shared
+  the host body's sticky range gate; they now use the stateless range band.
+
+### Scrape (drag / push) sounds on peers
+
+- **Scrape loop rebuilt on the game's audio path.** `MovingObjectSoundService` played
+  a raw `AudioSource`: always the first clip, outside the Sound volume slider and the
+  game's fades, its own occlusion filter, and always `movingSound`. It now plays exactly
+  vanilla `ItemSounds.Update`: `AudioController.Play(id, object, volumeModifier)`, the
+  grass scrape off a Ground, stop with the 0.5 s fade.
+- **Drag release stopped every scrape in the world.** The release stop killed every
+  playing `AudioObject` with that scrape id, including other crates being pushed by
+  other players. It now stops only loops on the released object.
+- **Drag release could hit the wrong crate.** The stop looked the object up with
+  `GameObject.Find(name)` (first same-named object anywhere, e.g. a dream-pad twin)
+  and zeroed its velocity. It now resolves the object nearest the local player.
+- Removed the `PlayerAudio` stop-signal and object-name fields and their receive
+  branches; nothing has sent them since 0.7.76.
+
+### Dream audio
+
+- **Creature sounds doubled in dreams.** Host dream audio forwarding also sent
+  `CharacterSounds` that `EntitySound` already plays, and the host's own player sounds
+  that `PlayerAudio` already carries. Both are skipped now, as are replay-owned sounds
+  and loops.
+- **Dream sounds bypassed the Sound slider.** Clients played them on raw
+  `AudioSource`s with a hand-rolled clip lookup (first clip only, many ids unresolved).
+  They now play through `AudioController`. The clip lookup cache is gone.
+
+### Voice
+
+- **Proximity voice only worked when touching.** `VoiceRangeFull` / `VoiceRangeMax`
+  defaulted to 8 / 28 labelled metres, but the game measures in units where a body is
+  about 40 across and peer sounds carry 650. New keys `VoiceFullVolumeDistance` (150)
+  and `VoiceMaxDistance` (650); the old keys are ignored (config key change). Voice is
+  now heard from the listen position (the followed player while spectating).
+
+### Smaller
+
+- AudioController forward prefixes return before any component lookup when no
+  session is live (they ran on every parented sound in single player).
+- `ItemSounds.Update` suppression and drag stop use a cached field accessor instead
+  of a `Traverse` per call.
 
 ---
 

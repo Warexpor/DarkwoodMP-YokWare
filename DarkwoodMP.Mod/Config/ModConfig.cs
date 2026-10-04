@@ -63,8 +63,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoicePttKey { get; private set; }
         public static ModSetting<float> VoiceVolume { get; private set; }
         public static ModSetting<float> VoiceGain { get; private set; }
-        public static ModSetting<float> VoiceRangeFull { get; private set; }
-        public static ModSetting<float> VoiceRangeMax { get; private set; }
+        public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
+        public static ModSetting<float> VoiceMaxDistance { get; private set; }
         public static ModSetting<string> WalkieItemName { get; private set; }
 
         /// <summary>
@@ -197,10 +197,11 @@ namespace DWMPHorde.Config
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
                 "Gain applied after Steam DecompressVoice.");
-            VoiceRangeFull = config.Bind("Voice", "VoiceRangeFull", 8f,
-                "Distance (m) at which proximity voice is full volume.");
-            VoiceRangeMax = config.Bind("Voice", "VoiceRangeMax", 28f,
-                "Distance (m) beyond which proximity voice is silent.");
+            // Game units, like every other range here (a body is about 40 across).
+            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
+                "Distance (game units) within which proximity voice is at full volume.");
+            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
+                "Distance (game units) beyond which proximity voice is silent (same as other peer sounds).");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.

@@ -71,6 +71,9 @@ namespace DWMPHorde.Networking
         {
             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] HANDLE type={msg.IsWindow} act={msg.Action} hp={msg.Health} pos=({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) mainHp={msg.MainHealth}");
             LanNetworkManager.ProcessingBarricadeEvent = true;
+            // The hit / destroy sounds below are this peer's replay of the sender's Door.getHit;
+            // they are never forwarded (also from the pending flush, which runs outside Dispatch).
+            DWMPHorde.Audio.ReplayOwnedSound.Enter();
             try
             {
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
@@ -134,13 +137,19 @@ namespace DWMPHorde.Networking
                         bool playCombatFx = msg.DamageAmount >= 0
                             && !DWMPHorde.Patches.ClientWorldMeleeRedirectHelper.ShouldSuppressApplyFx(0, pos);
 
-                        // Apply barricade state changes
+                        // Same sounds as vanilla Door.getHit on the sender: one destroy sound when
+                        // the barricade or the door breaks (played by destroyBarricade /
+                        // destroyDoor themselves), otherwise one hit — the metal clang for a metal
+                        // door the hit could not damage, the wood hit for everything else.
+                        int barricadeBefore = door.barricadeHealth;
+                        bool broke = false;
                         if (msg.Action == BarricadeAction.Destroyed)
                         {
                             if (door.barricaded)
-                                door.destroyBarricade(silent: true);
-                            if (playCombatFx)
-                                AudioController.Play("woodenObject_destroy", door.body?.position ?? pos);
+                            {
+                                door.destroyBarricade(silent: !playCombatFx);
+                                broke = true;
+                            }
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door destroyed");
                             MaybeAlertHostRemoteHammer(msg, door.transform.position);
                         }
@@ -150,7 +159,10 @@ namespace DWMPHorde.Networking
                             {
                                 door.barricadeHealth = msg.Health;
                                 if (door.barricadeHealth <= 0)
-                                    door.destroyBarricade(silent: true);
+                                {
+                                    door.destroyBarricade(silent: !playCombatFx);
+                                    broke = true;
+                                }
                             }
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door damaged hp={msg.Health}");
                         }
@@ -160,19 +172,26 @@ namespace DWMPHorde.Networking
                         {
                             if (msg.MainHealth <= 0 && !door.destroyed)
                             {
-                                door.destroyDoor();
-                                if (playCombatFx)
-                                    AudioController.Play("woodenObject_destroy", door.body?.position ?? pos);
+                                door.destroyDoor(silently: !playCombatFx);
                                 if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door main destroyed");
                             }
                             else
                             {
-                                Traverse.Create(door).Field("health").SetValue(msg.MainHealth);
-                                if (playCombatFx && door.body != null)
+                                int healthBefore = door.health;
+                                door.health = msg.MainHealth;
+                                if (playCombatFx && !broke && !door.destroyed && door.body != null)
                                 {
-                                    Core.AddPrefab("particles/door_hit_melee", door.body.position,
-                                        Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
-                                    AudioController.Play("woodenObject_hit", door.body);
+                                    bool undamaged = healthBefore == msg.MainHealth && barricadeBefore == door.barricadeHealth;
+                                    if (door.type == Door.Type.metal && undamaged)
+                                    {
+                                        AudioController.Play("door_hit_metal", door.transform);
+                                    }
+                                    else
+                                    {
+                                        Core.AddPrefab("particles/door_hit_melee", door.body.position,
+                                            Quaternion.Euler(90f, 0f, 0f), null, worldSpace: true);
+                                        AudioController.Play("woodenObject_hit", door.body);
+                                    }
                                 }
                             }
                         }
@@ -244,7 +263,11 @@ namespace DWMPHorde.Networking
                     }
                 }
             }
-            finally { LanNetworkManager.ProcessingBarricadeEvent = false; }
+            finally
+            {
+                DWMPHorde.Audio.ReplayOwnedSound.Exit();
+                LanNetworkManager.ProcessingBarricadeEvent = false;
+            }
         }
 
         /// <summary>

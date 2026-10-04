@@ -65,7 +65,12 @@ namespace DWMPHorde.Patches
             // Keep foot/walk_clothes local-or-proxy-owned. Enemy feet use ForwardSound
             // (fromPlayer: false) on the enemy path above; proxy feet must not re-enter.
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: true)) return;
-            ForwardSound(audioID, volume, position, requireRateLimit: volume > 0.001f, fromPlayer: false, allowObjectLoop: true);
+            // Silent start (vanilla fades it in by volume afterwards): nothing to hear on a peer.
+            if (volume <= 0.001f) return;
+            // A loop needs an owner that can stop it; a forwarded copy is a bare positional play
+            // nothing ever stops. Object loops come from the peer's own replay of the object.
+            if (LocalAudioService.IsLoopingItem(audioID)) return;
+            ForwardSound(audioID, volume, position, fromPlayer: false, allowObjectLoop: true);
         }
 
         /// <summary>
@@ -82,6 +87,17 @@ namespace DWMPHorde.Patches
             if (!TrapNetworkId.IsWorldTrap(trig.gameObject)) return false;
             if (string.IsNullOrEmpty(trig.activateSound)) return false;
             return string.Equals(audioID, trig.activateSound, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Live session, not replaying a peer's sound, and not inside a vanilla method every peer
+        /// re-runs itself (<see cref="ReplayOwnedSound"/>): only then is any forward possible.
+        /// </summary>
+        internal static bool CanForward()
+        {
+            var net = ModRuntime.Network;
+            return net != null && net.IsConnected && !TraverseHack.ApplyingFromNetwork
+                && !ReplayOwnedSound.Active;
         }
 
         internal static bool IsPlayerTransform(Transform t)
@@ -118,6 +134,8 @@ namespace DWMPHorde.Patches
         private static void Prefix(string audioID, Transform parentObj)
         {
             if (parentObj == null) return;
+            // Single-player / replaying a peer: skip the per-play component lookups below.
+            if (!PlayerAudioHelper.CanForward()) return;
             if (HostBansheeAgitatedPatch.SuppressHostScreamForward
                 && audioID != null
                 && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
@@ -162,6 +180,8 @@ namespace DWMPHorde.Patches
         private static void Prefix(string audioID, Transform parentObj, float volume)
         {
             if (parentObj == null) return;
+            // Single-player / replaying a peer: skip the per-play component lookups below.
+            if (!PlayerAudioHelper.CanForward()) return;
             if (HostBansheeAgitatedPatch.SuppressHostScreamForward
                 && audioID != null
                 && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
@@ -202,6 +222,7 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void Prefix(string audioID, Vector3 worldPosition, Transform parentObj)
         {
+            if (!PlayerAudioHelper.CanForward()) return;
             // Parentless world/ambient plays must not flood the network; each peer
             // already runs local ambience / other sync messages cover combat FX.
             if (parentObj == null)
@@ -272,10 +293,8 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void Prefix(string audioID)
         {
+            if (!PlayerAudioHelper.CanForward()) return;
             var net = ModRuntime.Network;
-            if (net == null || net.Role == NetworkRole.Offline) return;
-            if (!net.IsConnected) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
             if (LocalAudioService.IsPersonalOrUiSound(audioID)) return;
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!LocalAudioService.IsAllowlistedNoParentSound(audioID)) return;

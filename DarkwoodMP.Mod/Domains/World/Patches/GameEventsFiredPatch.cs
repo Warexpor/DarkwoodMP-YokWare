@@ -42,6 +42,18 @@ namespace DWMPHorde.Patches
             return true;
         }
 
+        /// <summary>
+        /// Host-spawned spirit FX: a client rarely has a durable GameEvents at those coords, so
+        /// they are never fanned out (broadcasting queued FindObjectsOfType forever, dream-end
+        /// stutter) and peers do not replay them.
+        /// </summary>
+        internal static bool IsHostOnlyFx(string eventName)
+        {
+            return !string.IsNullOrEmpty(eventName)
+                && (eventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || eventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
         private static void Postfix(GameEvents __instance, bool __state)
         {
             if (__instance == null) return;
@@ -74,10 +86,7 @@ namespace DWMPHorde.Patches
 
             string eventName = __instance.name ?? "";
 
-            // Host-spawned spirit FX — client rarely has a durable GameEvents at those
-            // coords; broadcasting queued FindObjectsOfType forever (dream-end stutter).
-            if (eventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || eventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (IsHostOnlyFx(eventName))
                 return;
 
             // Dream scene can keep ticking one frame after session End — don't fan out.

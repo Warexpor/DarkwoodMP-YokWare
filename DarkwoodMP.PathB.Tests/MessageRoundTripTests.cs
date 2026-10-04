@@ -376,6 +376,22 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void PlayerAudio_RoundTrips()
+    {
+        var msg = new PlayerAudioMessage
+        {
+            SoundId = "door_hit_metal", Volume = 0.5f, PosX = 1f, PosY = 2f, PosZ = 3f, StickToSender = false
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PlayerAudioMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("door_hit_metal", back.SoundId);
+        Assert.Equal(0.5f, back.Volume);
+        Assert.Equal(3f, back.PosZ);
+        Assert.False(back.StickToSender);
+    }
+
+    [Fact]
     public void FriendlyFire_RoundTripsSensorEffects()
     {
         var msg = new FriendlyFireMessage
