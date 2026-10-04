@@ -76,6 +76,12 @@ namespace DWMPHorde.Networking
         public short ClipFrame;
         public bool Alive;
         public byte HealthPct;
+        /// <summary>
+        /// Name and prefab path never change for one host id, so they travel only when
+        /// <see cref="HasDescriptor"/> is set (first sends of an id and the 1 s full resync).
+        /// The client caches them per id.
+        /// </summary>
+        public bool HasDescriptor;
         public string EntityName;
         public string PrefabPath;
         /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
@@ -131,37 +137,52 @@ namespace DWMPHorde.Networking
             w.Put(ClipFrame);
             w.Put(Alive);
             w.Put(HealthPct);
-            w.Put(EntityName ?? "");
-            w.Put(PrefabPath ?? "");
             w.Put(Flags);
+            w.Put(HasDescriptor);
+            if (HasDescriptor)
+            {
+                w.Put(EntityName ?? "");
+                w.Put(PrefabPath ?? "");
+            }
         }
 
-        public static EntitySnapshotNet Deserialize(NetReader r) => new EntitySnapshotNet
+        public static EntitySnapshotNet Deserialize(NetReader r)
         {
-            Index = r.GetShort(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            RotY = r.GetFloat(),
-            Clip = r.GetString(),
-            ClipFrame = r.GetShort(),
-            Alive = r.GetBool(),
-            HealthPct = r.GetByte(),
-            EntityName = r.GetString(),
-            PrefabPath = r.GetString(),
-            Flags = r.GetByte()
-        };
+            var e = new EntitySnapshotNet
+            {
+                Index = r.GetShort(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotY = r.GetFloat(),
+                Clip = r.GetString(),
+                ClipFrame = r.GetShort(),
+                Alive = r.GetBool(),
+                HealthPct = r.GetByte(),
+                Flags = r.GetByte(),
+                HasDescriptor = r.GetBool()
+            };
+            if (e.HasDescriptor)
+            {
+                e.EntityName = r.GetString();
+                e.PrefabPath = r.GetString();
+            }
+            return e;
+        }
     }
 
     public struct EntityStateMessage
     {
         /// <summary>Monotonic per-sender sequence for the unreliable batch.</summary>
         public uint Sequence;
+        /// <summary>Host clock (unscaled seconds since start) when the batch was sampled. Clients interpolate on this timeline.</summary>
+        public float HostTime;
         public EntitySnapshotNet[] Entities;
 
         public void Serialize(NetWriter w)
         {
             w.Put(Sequence);
+            w.Put(HostTime);
             int count = Entities != null ? Entities.Length : 0;
             w.Put(count);
             for (int i = 0; i < count; i++)
@@ -171,13 +192,14 @@ namespace DWMPHorde.Networking
         public static EntityStateMessage Deserialize(NetReader r)
         {
             uint sequence = r.GetUInt();
+            float hostTime = r.GetFloat();
             int count = r.GetInt();
             if (count < 0 || count > 4096)
                 throw new InvalidDataException("Entity snapshot count is out of range: " + count);
             var arr = new EntitySnapshotNet[count];
             for (int i = 0; i < count; i++)
                 arr[i] = EntitySnapshotNet.Deserialize(r);
-            return new EntityStateMessage { Sequence = sequence, Entities = arr };
+            return new EntityStateMessage { Sequence = sequence, HostTime = hostTime, Entities = arr };
         }
     }
 

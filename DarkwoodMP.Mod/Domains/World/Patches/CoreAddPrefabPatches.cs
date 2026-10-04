@@ -37,7 +37,8 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Single detour on <c>Core.AddPrefab(Object, …)</c>: gas-trail gate/relay (First),
-    /// then explosion spawn-object relay. Arguments bound by position (__0..__2).
+    /// explosion spawn-object relay, then the enemy ranged-attack capture (EnemyAttack).
+    /// Arguments bound by position (__0..__2).
     /// </summary>
     [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(Object), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
     public static class CoreAddPrefabObjectPatch
@@ -52,6 +53,7 @@ namespace DWMPHorde.Patches
         {
             GasolineTrailObjectSpawnPatch.OnAddPrefab(__result, __0, __1);
             ExplosionObjectSpawnSyncPatch.OnAddPrefab(__result, __0, __1, __2);
+            DefenderAttackContext.NoteSpawned(__result);
         }
     }
 }

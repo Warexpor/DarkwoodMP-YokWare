@@ -12,8 +12,32 @@ bug pack) on every box, same DLL everywhere.
 
 ## 0. First checks for the current release
 
-The latest `CHANGELOG.md` entry rewrote host validation, relay and session reset
-without a playtest. Run these first; each one maps to a fix listed there.
+The latest `CHANGELOG.md` entry (entity sync remaster) moved enemy-hit judging to the player being hit and
+changed how clients interpolate enemies. Run these first. `LogPreset=Support` shows
+the `[EnemyAttack] local hit` / `confirmed hit` lines; `Trace` adds every attack sent
+and re-created.
+
+- [ ] Client fights a dog / villager: a step back out of the swing on the client
+      screen is a miss; standing in it is a hit. Client log has
+      `[EnemyAttack] local hit by melee` per hit, and no `[DamagePlayer] local took`
+      from the same enemy (no double damage).
+- [ ] Same enemy attacks twice in a row: the client sees both swings.
+- [ ] Host watches the client get hit: hit sound and blood on the client's body; a
+      third player sees the blood too.
+- [ ] Host gets hit while a client stands next to it: the host takes vanilla damage;
+      the client is not hit by the host's swing unless the swing reaches it on the
+      client's own screen.
+- [ ] A ranged / throwing enemy (bullets, rocks) shoots at the client: the shot is
+      visible on the client and only hits when it reaches the client there.
+- [ ] Enemies near the client move smoothly at chase speed, stop cleanly (no slide
+      past the stop point and snap back), and appear with the right body after a
+      late join (at most a 1 s wait).
+- [ ] Night shadows on a client: the hit is flat (`shadow` in the `[DamagePlayer]`
+      line), no armor reduction, no interrupt.
+- [ ] Banshee scream near a client: one scream, the client's camera shakes, the host
+      does not get a second scream.
+
+Still open from the previous entry (host validation, relay and session reset):
 
 - [ ] Startup log has `Harmony: N patch classes applied, 0 critical / ...`. With a
       critical failure, Host and Join show the "Multiplayer disabled" text and refuse.

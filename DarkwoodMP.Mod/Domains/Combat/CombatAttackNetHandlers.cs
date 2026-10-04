@@ -234,7 +234,15 @@ namespace DWMPHorde.Networking
 
             EntitySyncLog.Damage(
                 "[DamagePlayer] local took " + damage
-                + " cut=" + msg.CanCutInHalf + " interrupt=" + msg.CanInterrupt);
+                + " cut=" + msg.CanCutInHalf + " interrupt=" + msg.CanInterrupt
+                + (msg.ShadowHit ? " shadow" : ""));
+            if (msg.ShadowHit)
+            {
+                // Vanilla MeleeSensor with shadowSensor: flat, no armor, no interrupt.
+                local.getHitByShadow(damage);
+                SensorEffectCodec.Apply(local.effects, msg.Effects, "DamagePlayer");
+                return;
+            }
             local.getHit(
                 damage,
                 null,

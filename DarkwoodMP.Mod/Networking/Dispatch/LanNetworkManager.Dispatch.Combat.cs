@@ -16,6 +16,8 @@ namespace DWMPHorde.Networking
         {
             On(NetMessageType.PlayerAttack, PlayerAttackMessage.Deserialize, m => CombatAttackHandlers.HandlePlayerAttack(m));
             On(NetMessageType.DamagePlayer, DamagePlayerMessage.Deserialize, m => CombatAttackHandlers.HandleDamagePlayer(m));
+            On(NetMessageType.EnemyAttack, EnemyAttackMessage.Deserialize, m => EnemyAttackNetHandlers.HandleEnemyAttack(m));
+            On(NetMessageType.EnemyHitConfirm, EnemyHitConfirmMessage.Deserialize, m => EnemyAttackNetHandlers.HandleEnemyHitConfirm(m));
             On(NetMessageType.PlayerDied, PlayerDiedMessage.Deserialize, m => CombatDeathStateHandlers.HandlePlayerDied(m));
             On(NetMessageType.DeathBagSpawn, DeathBagSpawnMessage.Deserialize, m => CombatDeathBagHandlers.HandleDeathBagSpawn(m));
             On(NetMessageType.DeathBagLooted, DeathBagLootedMessage.Deserialize, m => CombatDeathBagHandlers.HandleDeathBagLooted(m));

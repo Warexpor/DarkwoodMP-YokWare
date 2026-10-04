@@ -46,11 +46,13 @@ public class NetMessageContractTests
         Assert.Equal(143, (byte)NetMessageType.LocationPadSlotSync);
         Assert.Equal(144, (byte)NetMessageType.NightDeathRelease);
         Assert.Equal(145, (byte)NetMessageType.MorningReward);
-        // 146 (SessionSettings) is the highest id; resolved by name so a rename fails with a clear message.
-        Assert.True(Enum.TryParse("SessionSettings", out NetMessageType sessionSettings),
-            "NetMessageType.SessionSettings (146) is missing");
-        Assert.Equal(146, (byte)sessionSettings);
-        Assert.Equal(146, (byte)NetMessageType._Highest);
+        Assert.Equal(146, (byte)NetMessageType.SessionSettings);
+        Assert.Equal(147, (byte)NetMessageType.EnemyAttack);
+        // 148 (EnemyHitConfirm) is the highest id; resolved by name so a rename fails with a clear message.
+        Assert.True(Enum.TryParse("EnemyHitConfirm", out NetMessageType enemyHitConfirm),
+            "NetMessageType.EnemyHitConfirm (148) is missing");
+        Assert.Equal(148, (byte)enemyHitConfirm);
+        Assert.Equal(148, (byte)NetMessageType._Highest);
     }
 
     [Fact]

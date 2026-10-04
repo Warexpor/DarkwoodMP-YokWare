@@ -177,4 +177,119 @@ namespace DWMPHorde.Networking
             Damage = r.GetInt()
         };
     }
+    /// <summary>
+    /// Host→clients: one host enemy attack frame (vanilla <c>Character.melee</c>,
+    /// <c>rangedAttack</c> or <c>spawnProjectile</c>). Each client re-creates the attack on
+    /// its own copy of the enemy, and only that client's own player can be hit by it
+    /// ("defender decides"); the host copy no longer hits remote-player stand-ins.
+    /// </summary>
+    public struct EnemyAttackMessage
+    {
+        /// <summary>Melee sensor; <see cref="Name"/> is the prefab name in the "Sensors" pool.</summary>
+        public const byte KindMelee = 0;
+        /// <summary>Ranged <c>SensorType</c>; <see cref="Name"/> is the <c>SensorType.name</c>.</summary>
+        public const byte KindRangedSensor = 1;
+        /// <summary>Activity projectile; <see cref="Name"/> is the pooled prefab name.</summary>
+        public const byte KindPooledProjectile = 2;
+
+        public short EntityId;
+        public byte Kind;
+        public string Name;
+        /// <summary>Host clock when the attack fired (same clock as <see cref="EntityStateMessage.HostTime"/>).</summary>
+        public float HostTime;
+        /// <summary>Host position of the attacker (melee) or of the projectile spawn (ranged).</summary>
+        public float PosX, PosY, PosZ;
+        /// <summary>Melee: attacker yaw. Ranged: projectile yaw, accuracy roll included.</summary>
+        public float RotY;
+        /// <summary>Final damage, the attacker's strength modifier already applied for melee.</summary>
+        public float Damage;
+        /// <summary>Host attack clip and frame at the attack moment (presentation).</summary>
+        public string Clip;
+        public short ClipFrame;
+        /// <summary>Ranged ThrownItem flight; the fields below are written only when true.</summary>
+        public bool Thrown;
+        public float VelX, VelY, VelZ;
+        public float LandX, LandY, LandZ;
+        public float FlyTime;
+        public float Drag;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(EntityId);
+            w.Put(Kind);
+            w.Put(Name ?? "");
+            w.Put(HostTime);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(RotY);
+            w.Put(Damage);
+            w.Put(Clip ?? "");
+            w.Put(ClipFrame);
+            w.Put(Thrown);
+            if (Thrown)
+            {
+                w.Put(VelX); w.Put(VelY); w.Put(VelZ);
+                w.Put(LandX); w.Put(LandY); w.Put(LandZ);
+                w.Put(FlyTime);
+                w.Put(Drag);
+            }
+        }
+
+        public static EnemyAttackMessage Deserialize(NetReader r)
+        {
+            var m = new EnemyAttackMessage
+            {
+                EntityId = r.GetShort(),
+                Kind = r.GetByte(),
+                Name = r.GetString(),
+                HostTime = r.GetFloat(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotY = r.GetFloat(),
+                Damage = r.GetFloat(),
+                Clip = r.GetString(),
+                ClipFrame = r.GetShort(),
+                Thrown = r.GetBool()
+            };
+            if (m.Thrown)
+            {
+                m.VelX = r.GetFloat(); m.VelY = r.GetFloat(); m.VelZ = r.GetFloat();
+                m.LandX = r.GetFloat(); m.LandY = r.GetFloat(); m.LandZ = r.GetFloat();
+                m.FlyTime = r.GetFloat();
+                m.Drag = r.GetFloat();
+            }
+            return m;
+        }
+    }
+
+    /// <summary>
+    /// Client→host: this client's own player was hit by an enemy attack it re-created from
+    /// <see cref="EnemyAttackMessage"/>. The damage is already applied on the client; the
+    /// host only shows the hit (sound, blood) on that player's stand-in for everyone else.
+    /// </summary>
+    public struct EnemyHitConfirmMessage
+    {
+        public short EntityId;
+        public byte Kind;
+        public int Damage;
+        public float HitX, HitY, HitZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(EntityId);
+            w.Put(Kind);
+            w.Put(Damage);
+            w.Put(HitX); w.Put(HitY); w.Put(HitZ);
+        }
+
+        public static EnemyHitConfirmMessage Deserialize(NetReader r) => new EnemyHitConfirmMessage
+        {
+            EntityId = r.GetShort(),
+            Kind = r.GetByte(),
+            Damage = r.GetInt(),
+            HitX = r.GetFloat(),
+            HitY = r.GetFloat(),
+            HitZ = r.GetFloat()
+        };
+    }
 }

@@ -23,6 +23,8 @@ namespace DWMPHorde.Patches
 
             // Skip if inside Bullet.onCollide — BulletFXSyncPatch handles projectile weapons
             if (TraverseHack.IsInsidePlayerBulletCollision) return;
+            // Enemy bullet (host original or client copy): every peer shows its own impact.
+            if (DefenderAttackContext.InsideProjectileCollide > 0) return;
 
             Player player = Player.Instance;
             if (player == null) return;

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DWMPHorde.Audio;
 using DWMPHorde.Sync;
 using UnityEngine;
 
@@ -61,7 +62,35 @@ namespace DWMPHorde.Networking
 
                 float elapsed = now - state.arrivalTime;
 
-                if (elapsed > MaxInterpDelay)
+                if (state.Timeline.Count > 0 && _hostClock.HasEstimate)
+                {
+                    TimelineSample pose;
+                    if (elapsed > MaxInterpDelay)
+                    {
+                        // Nothing new: the host skips a body that does not change. Sit on its
+                        // last host pose until the next snapshot.
+                        pose = state.Timeline.Newest;
+                        state.hasTarget = false;
+                        state.staleSince = now;
+                    }
+                    else
+                    {
+                        Vector3 listen = LocalAudioService.GetListenPosition();
+                        Vector3 at = state.targetPosition;
+                        float dx = at.x - listen.x;
+                        float dz = at.z - listen.z;
+                        float want = dx * dx + dz * dz <= NearBandDistance * NearBandDistance
+                            ? NearInterpDelay : FarInterpDelay;
+                        state.delay = state.delay <= 0f
+                            ? want
+                            : Mathf.MoveTowards(state.delay, want, DelaySlewPerSec * Time.unscaledDeltaTime);
+                        float renderTime = _hostClock.ToHost(Time.unscaledTime) - state.delay;
+                        state.Timeline.Sample(renderTime, MaxExtrapolateSec, out pose);
+                    }
+                    _displayPositions[id] = new Vector3(pose.X, pose.Y, pose.Z);
+                    _displayRotations[id] = pose.RotY;
+                }
+                else if (elapsed > MaxInterpDelay)
                 {
                     _displayPositions[id] = state.targetPosition;
                     _displayRotations[id] = state.targetRotY;

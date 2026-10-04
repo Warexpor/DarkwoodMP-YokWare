@@ -45,6 +45,11 @@ namespace DWMPHorde.Patches
             if (proxyCb != null && !proxyCb.alive)
                 return false;
 
+            // Host enemy throw landing on this stand-in: that player's own client re-creates
+            // the throw and decides the direct hit (EnemyAttack). Its blast stays host-decided.
+            if (net.Role == NetworkRole.Host && DefenderAttackContext.IsHostThrownDirectHit)
+                return false;
+
             // Player-sourced vs AI/env:
             // - Melee: byPlayer=true (MeleeSensor)
             // - Player projectile: attackerTransform null + player bullet flag
