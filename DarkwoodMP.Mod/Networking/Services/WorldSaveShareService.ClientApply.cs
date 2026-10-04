@@ -228,7 +228,7 @@ namespace DWMPHorde.Networking
             if (matchSlot >= MinProfileId && matchSlot <= MaxProfileId
                 && !Patches.ChapterTransitionHelpers.ChapterShareExpected)
             {
-                GameProfile target = EnsureProfileSlot(matchSlot, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
+                GameProfile target = EnsureProfileSlot(matchSlot, _pendingBegin.DayIndex, _pendingBegin.ChapterId, _pendingBegin.Difficulty);
                 Core.currentProfile = target;
                 try
                 {

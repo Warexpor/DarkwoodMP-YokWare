@@ -103,7 +103,7 @@ namespace DWMPHorde.Networking
             _pendingCloseDialogueNpc = null;
         }
 
-        /// <summary>A dropped queued outcome may have been holding back that NPC's close: run it now.</summary>
+        /// <summary>A queued outcome may have been holding back that NPC's close: run it once none is left.</summary>
         private void ReplayDeferredCloseIfIdle(string npcName)
         {
             if (_dialogWorldDrainCo != null || HasDeferredApplyFor(npcName))
@@ -113,9 +113,6 @@ namespace DWMPHorde.Networking
             _pendingCloseDialogueNpc = null;
             _close.HostFireNpcCloseDialogue(npcName);
         }
-
-        /// <summary>A queued outcome older than this is stale (the conversation has moved on).</summary>
-        private const float DeferredApplyMaxAgeSec = 15f;
 
         private void DeferApply(DialogOutcomeSyncMessage msg)
         {
@@ -132,36 +129,33 @@ namespace DWMPHorde.Networking
                 _deferredApplyCo = _net.StartCoroutine(DrainDeferredApplies());
         }
 
+        /// <summary>
+        /// A peer's dialogue outcome is its quest progress (flags, story events, shared reputation;
+        /// the items already changed hands on the peer). It is never dropped: it waits, in order,
+        /// until the host's one dialogue window is free, including while the host talks to that
+        /// same NPC. Only the end of the session clears the queue (<see cref="ClearPendingApply"/>).
+        /// </summary>
         private System.Collections.IEnumerator DrainDeferredApplies()
         {
-            float deadline = Time.realtimeSinceStartup + 120f;
             try
             {
-                while (_deferredApplies.Count > 0 && Time.realtimeSinceStartup < deadline)
+                while (_deferredApplies.Count > 0)
                 {
                     DeferredApply next = _deferredApplies[0];
                     var dw = Singleton<UI>.Instance?.dialogueWindow;
                     NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(next.Msg.NpcName);
-                    // Stale: too old, or the host has since opened its own talk with that NPC (replaying
-                    // now would display a node over the host's live window).
                     bool hostTalkingToIt = dw != null && npc != null && Player.Instance != null
                         && Player.Instance.inDialogue && dw.opened && dw.npc == npc;
-                    if (Time.realtimeSinceStartup - next.QueuedAt > DeferredApplyMaxAgeSec || hostTalkingToIt)
-                    {
-                        _deferredApplies.RemoveAt(0);
-                        ModRuntime.Log?.LogWarning(
-                            "[DialogOutcome] dropped stale deferred outcome NPC=" + next.Msg.NpcName
-                            + (hostTalkingToIt ? " (host now talking to it)" : " (too old)"));
-                        ReplayDeferredCloseIfIdle(next.Msg.NpcName);
-                        continue;
-                    }
-                    if (dw != null && ApplyBusyFor(dw, npc, next.Msg.NpcName))
+                    if (hostTalkingToIt || dw != null && ApplyBusyFor(dw, npc, next.Msg.NpcName))
                     {
                         yield return new WaitForSecondsRealtime(0.25f);
                         continue;
                     }
 
                     _deferredApplies.RemoveAt(0);
+                    float waited = Time.realtimeSinceStartup - next.QueuedAt;
+                    if (waited > 5f)
+                        ModRuntime.LegacyInfo($"[DialogOutcome] applying outcome NPC={next.Msg.NpcName} after {waited:F0}s wait");
                     // Outside the inbound packet: stamp the sender as the GE actor explicitly.
                     bool pushed = next.From > 0 && GeFireActorContext.Depth == 0;
                     if (pushed) GeFireActorContext.Push(next.From);
@@ -171,14 +165,9 @@ namespace DWMPHorde.Networking
                         ModRuntime.Log?.LogWarning("[DialogOutcome] deferred apply failed: " + ex.Message);
                     }
                     finally { if (pushed) GeFireActorContext.Pop(); }
-                }
-
-                if (_deferredApplies.Count > 0)
-                {
-                    ModRuntime.Log?.LogWarning(
-                        "[DialogOutcome] dropped " + _deferredApplies.Count
-                        + " deferred outcome(s) — host window stayed busy");
-                    _deferredApplies.Clear();
+                    ReplayDeferredCloseIfIdle(next.Msg.NpcName);
+                    // One outcome per frame: an apply that queued itself again cannot spin.
+                    yield return null;
                 }
             }
             finally

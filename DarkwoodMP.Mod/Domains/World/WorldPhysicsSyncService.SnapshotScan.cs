@@ -195,7 +195,9 @@ namespace DWMPHorde.Sync
                 {
                     if (!_s.LastGeneratorFuel.TryGetValue(key, out float lastFuel))
                         fuelChanged = true;
-                    else if (Mathf.Abs(fuel - lastFuel) > 10f)
+                    // Every unit: a client pours against its own copy (vanilla stops at maxFuel),
+                    // so a copy 10 behind poured up to 10 units of gasoline into a full tank.
+                    else if (Mathf.Abs(fuel - lastFuel) >= 1f)
                         fuelChanged = true;
                 }
 

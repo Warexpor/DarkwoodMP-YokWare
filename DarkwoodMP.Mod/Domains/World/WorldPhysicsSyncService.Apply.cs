@@ -499,6 +499,16 @@ namespace DWMPHorde.Sync
                             state.Generators[gi] = gs;
                             ModRuntime.LegacyInfo($"[GeneratorSync] host-auth addFuel +{delta.ToString("F0")} {before.ToString("F0")}→{gen.fuel.ToString("F0")} at {gPos}");
                         }
+                        else if (hostAccum)
+                        {
+                            // A client's switch: the host's fuel stands (the client's copy lags
+                            // the host's drain and would overwrite it); the fan-out carries it.
+                            ApplyGeneratorState(gen, gs.IsOn, gen.fuel, gs.LowPower);
+                            gs.Fuel = gen.fuel;
+                            gs.IsOn = gen.isOn;
+                            gs.LowPower = gen.lowPower;
+                            state.Generators[gi] = gs;
+                        }
                         else
                         {
                             ApplyGeneratorState(gen, gs.IsOn, gs.Fuel, gs.LowPower);

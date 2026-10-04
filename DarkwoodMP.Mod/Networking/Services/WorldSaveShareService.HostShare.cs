@@ -333,6 +333,7 @@ namespace DWMPHorde.Networking
                 CompressedSizes = new int[files.Count],
                 ChunkCounts = new int[files.Count],
                 CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId),
+                Difficulty = Core.currentProfile != null ? (int)Core.currentProfile.difficulty : 0,
                 // A broadcast opens a new pass; a per-peer re-send belongs to the running one, so the
                 // other peers' acks for the broadcast stay valid.
                 SharePass = _shareTargetPlayerId > 0

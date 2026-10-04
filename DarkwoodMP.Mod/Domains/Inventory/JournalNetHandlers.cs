@@ -37,10 +37,12 @@ namespace DWMPHorde.Networking
             // Host rebroadcasts the authoritative level below; never relay the raw client value.
             _net.SuppressRelay();
 
-            // Levels only go up: a stale or lower client value must not downgrade the host.
+            // A client sends this only after it paid for one upgrade (vanilla workbenchLevel++).
+            // Ahead of the host: take it. Not ahead: someone upgraded the same level at the same
+            // time, and both paid, so this one is the next level (taking the max lost a level).
             int current = Singleton<Controller>.Instance != null
                 ? Singleton<Controller>.Instance.workbenchLevel : 0;
-            int level = Math.Max(current, msg.Level);
+            int level = msg.Level > current ? msg.Level : current + 1;
             if (level != current)
                 ApplyWorkbenchLevel(level);
             _net.BulkSyncHandlers.SendWorkbenchLevelSync();
@@ -87,6 +89,17 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Vanilla marks a key, note or quest item picked up while dreaming (<c>inDream</c>) and
+        /// clears it from the journal when the dream ends. One picked up by a peer during the
+        /// shared dream is a dream item here too, or it outlived the dream on every other peer.
+        /// </summary>
+        private static bool PickedInDream()
+        {
+            var dreams = Singleton<Dreams>.Instance;
+            return dreams != null && dreams.dreaming || DreamSyncManager.IsDreamActive;
+        }
+
         internal void HandleJournalItem(JournalItemMessage msg)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
@@ -99,6 +112,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Note note = new Journal.Note();
                         note.type = msg.Type;
+                        note.inDream = PickedInDream();
                         note.timePickedUp = Singleton<Controller>.Instance != null
                             ? Singleton<Controller>.Instance.CurrentTime : 0;
                         journal.notesDict.Add(msg.Type, note);
@@ -110,6 +124,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Key key = new Journal.Key();
                         key.type = msg.Type;
+                        key.inDream = PickedInDream();
                         journal.keysDict.Add(msg.Type, key);
                         journal.showJournalInfoPopup("Key", msg.Type);
                     }
@@ -119,6 +134,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Item item = new Journal.Item();
                         item.type = msg.Type;
+                        item.inDream = PickedInDream();
                         journal.itemsDict.Add(msg.Type, item);
                         journal.showJournalInfoPopup("InvItem", msg.Type);
                     }

@@ -156,13 +156,26 @@ namespace DWMPHorde
         /// Vanilla transportToHome without its world mutations (return characters to
         /// spawn, clear traps): those belong to the host on a connected client.
         /// </summary>
-        private static void TeleportClientHome(Player player)
+        internal static void TeleportClientHome(Player player)
+        {
+            Location home = HomeLocation(player);
+            if (home == null)
+            {
+                ModRuntime.Log?.LogWarning("[Death] transport home: no home location — left in place");
+                return;
+            }
+            player.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+        }
+
+        /// <summary>The hideout a player respawns in (vanilla: its oven's location), else any hideout.</summary>
+        internal static Location HomeLocation(Player player)
         {
             Location home = null;
-            if (player.experienceMachine != null)
+            if (player != null && player.experienceMachine != null)
                 home = player.experienceMachine.transform.GetLocation();
             if (home == null || home.playerSpawn == null)
             {
+                home = null;
                 var wg = Singleton<WorldGenerator>.Instance;
                 if (wg != null && wg.locations != null)
                 {
@@ -177,12 +190,38 @@ namespace DWMPHorde
                     }
                 }
             }
-            if (home == null || home.playerSpawn == null)
-            {
-                ModRuntime.Log?.LogWarning("[Death] morning release: no home location — left in place");
+            return home;
+        }
+
+        /// <summary>
+        /// Host, for a peer that respawns at home after a day death: vanilla transportToHome's
+        /// world half (characters around home back to their spawn points, infection and armed
+        /// traps within 100 of the spawn cleared), run on the world everyone shares. Vanilla
+        /// destroys infection without its own sync, so peers are told here.
+        /// </summary>
+        internal static void HostClearHomeForRespawn()
+        {
+            if (!Core.worldGenFinished() || !Core.randomGeneration)
                 return;
+            Player host = Player.Instance;
+            Location home = HomeLocation(host);
+            if (host == null || home == null)
+                return;
+            Vector3 spawn = home.playerSpawn.transform.position;
+            home.returnCharactersAroundMeToSpawnPoint();
+            var net = ModRuntime.Network;
+            Collider[] buf = WorldQueryHelper.SharedOverlapBuf;
+            int n = Physics.OverlapSphereNonAlloc(Core.getYPos(spawn, PosType.low1), 100f, buf, 2);
+            for (int i = 0; i < n; i++)
+            {
+                Infection inf = buf[i] != null ? buf[i].GetComponent<Infection>() : null;
+                if (inf == null || net == null)
+                    continue;
+                Vector3 p = inf.transform.position;
+                net.SendWorldObjectRemoved(new WorldObjectRemovedMessage { PosX = p.x, PosY = p.y, PosZ = p.z, ObjectName = "infection_splat" });
             }
-            player.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+            host.removeDangerousStuffToPlayerAround(spawn, 100f);
+            ModLog.Event(LogCat.Death, "Peer respawned home — home area cleared on the host");
         }
     }
 }
