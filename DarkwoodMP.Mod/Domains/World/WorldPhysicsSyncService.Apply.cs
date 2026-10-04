@@ -336,9 +336,10 @@ namespace DWMPHorde.Sync
             int doorApplied = 0, doorFailed = 0, doorSkipped = 0;
             if (state.Doors != null)
             {
+                bool prevNet = TraverseHack.GetExplicitFlag();
                 try
                 {
-                    TraverseHack.ApplyingFromNetwork = true;
+                    TraverseHack.SetExplicitFlag(true);
                     int dc = state.EffectiveDoorCount;
                     for (int di = 0; di < dc; di++)
                     {
@@ -389,7 +390,7 @@ namespace DWMPHorde.Sync
                 }
                 finally
                 {
-                    TraverseHack.ApplyingFromNetwork = false;
+                    TraverseHack.SetExplicitFlag(prevNet);
                 }
                 if (doorApplied > 0 || doorFailed > 0)
                     if (ModRuntime.VerboseLogging)
@@ -399,9 +400,10 @@ namespace DWMPHorde.Sync
             int trapApplied = 0, trapSkipped = 0;
             if (state.Traps != null)
             {
+                bool prevNet2 = TraverseHack.GetExplicitFlag();
                 try
                 {
-                    TraverseHack.ApplyingFromNetwork = true;
+                    TraverseHack.SetExplicitFlag(true);
                     int tc = state.EffectiveTrapCount;
                     for (int ti = 0; ti < tc; ti++)
                     {
@@ -442,7 +444,7 @@ namespace DWMPHorde.Sync
                 }
                 finally
                 {
-                    TraverseHack.ApplyingFromNetwork = false;
+                    TraverseHack.SetExplicitFlag(prevNet2);
                 }
                 if (trapApplied > 0 || trapSkipped > 0)
                     if (ModRuntime.VerboseLogging)
@@ -451,10 +453,11 @@ namespace DWMPHorde.Sync
 
             if (state.Generators != null)
             {
+                bool prevNet3 = TraverseHack.GetExplicitFlag();
                 try
                 {
                     // Guard turnOn/turnOff/setLowPower patches from re-sending
-                    TraverseHack.ApplyingFromNetwork = true;
+                    TraverseHack.SetExplicitFlag(true);
                     int gc = state.EffectiveGeneratorCount;
                     // Host: client FuelDelta accumulates (concurrent pour underfuel fix).
                     // Absolute Fuel when FuelDelta==0 (turnOn/off, late-join, host pour).
@@ -492,7 +495,7 @@ namespace DWMPHorde.Sync
                 }
                 finally
                 {
-                    TraverseHack.ApplyingFromNetwork = false;
+                    TraverseHack.SetExplicitFlag(prevNet3);
                 }
             }
         }

@@ -381,16 +381,17 @@ namespace DWMPHorde.Sync
 
             Quaternion rot = Quaternion.Euler(obj.RotX, obj.RotY, obj.RotZ);
             GameObject spawned;
+            bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
-                TraverseHack.ApplyingFromNetwork = true;
+                TraverseHack.SetExplicitFlag(true);
                 spawned = Core.AddPrefab(prefab, targetPos, rot, null);
                 if (spawned == null)
                     spawned = UnityEngine.Object.Instantiate(prefab, targetPos, rot);
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
 
             if (spawned != null)

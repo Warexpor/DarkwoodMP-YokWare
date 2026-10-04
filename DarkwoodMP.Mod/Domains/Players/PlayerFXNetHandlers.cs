@@ -232,7 +232,8 @@ namespace DWMPHorde.Networking
 
             // Wrap in ApplyingFromNetwork to prevent HitscanBloodPatch and similar
             // patches from re-forwarding this blood back to the sender.
-            TraverseHack.ApplyingFromNetwork = true;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             try
             {
                 if (string.IsNullOrEmpty(msg.PoolName))
@@ -245,7 +246,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
 
             // Blood is visual-only; bullet_hit_1 is for walls / projectile impacts.
@@ -311,9 +312,10 @@ namespace DWMPHorde.Networking
             if (!string.IsNullOrEmpty(itemDef.attackSound))
             {
                 Vector3 shotPos = firePos;
-                if (LocalAudioService.IsNearListener(shotPos, LocalAudioService.DefaultMaxAudioDistance))
+                if (LocalAudioService.IsNearListenerPeerBand(shotPos, LocalAudioService.AudibleRange(itemDef.attackSound)))
                 {
-                    TraverseHack.ApplyingFromNetwork = true;
+                    bool prevNet = TraverseHack.GetExplicitFlag();
+                    TraverseHack.SetExplicitFlag(true);
                     try
                     {
                         var audioObj = AudioController.Play(itemDef.attackSound, shotPos, proxyT, 1f);
@@ -327,7 +329,7 @@ namespace DWMPHorde.Networking
                             audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
                         }
                     }
-                    finally { TraverseHack.ApplyingFromNetwork = false; }
+                    finally { TraverseHack.SetExplicitFlag(prevNet); }
                 }
             }
 

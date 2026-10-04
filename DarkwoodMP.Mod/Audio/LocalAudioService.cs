@@ -375,6 +375,84 @@ namespace DWMPHorde.Audio
             return false;
         }
 
+        private struct Audibility
+        {
+            public bool Known;
+            public bool Spatial;
+            public float MaxDistance;
+            public bool Loop;
+        }
+
+        /// <summary>Per id: how the game itself plays it (AudioItem + its AudioObject prefab).</summary>
+        private static readonly Dictionary<string, Audibility> _audibility = new Dictionary<string, Audibility>(StringComparer.OrdinalIgnoreCase); // process-scoped: asset data cache
+
+        /// <summary>
+        /// The game's own settings for this id: whether its source is 3D and how far it carries
+        /// (<c>AudioController.GetAudioItemMaxDistance</c>: the item's override, else its AudioObject
+        /// prefab's AudioSource), and whether it loops.
+        /// </summary>
+        private static Audibility GetAudibility(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return default;
+            if (_audibility.TryGetValue(audioID, out Audibility cached))
+                return cached;
+            Audibility a = default;
+            try
+            {
+                AudioItem item = AudioController.GetAudioItem(audioID);
+                if (item == null)
+                    return default; // unknown here or audio not ready: not cached, asked again later
+                GameObject prefab = item.AudioObjectPrefab != null
+                    ? item.AudioObjectPrefab
+                    : item.category != null ? item.category.GetAudioObjectPrefab() : null;
+                AudioSource src = prefab != null ? prefab.GetComponent<AudioSource>() : null;
+                if (src == null)
+                    return default;
+                a.Known = true;
+                a.Spatial = src.spatialBlend >= 0.99f;
+                a.MaxDistance = item.overrideAudioSourceSettings ? item.audioSource_MaxDistance : src.maxDistance;
+                a.Loop = item.Loop != AudioItem.LoopMode.DoNotLoop;
+            }
+            catch
+            {
+                return default;
+            }
+            _audibility[audioID] = a;
+            return a;
+        }
+
+        /// <summary>
+        /// How far from the listener this sound is worth playing: a 3D sound as far as the game
+        /// lets it carry (never less than the peer range, which peer sounds are spatialized to);
+        /// a 2D sound has no falloff of its own, so the peer range.
+        /// </summary>
+        public static float AudibleRange(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            if (a.Known && a.Spatial)
+                return Mathf.Max(a.MaxDistance, DefaultMaxAudioDistance);
+            return DefaultMaxAudioDistance;
+        }
+
+        /// <summary>
+        /// A 3D loop: it keeps playing while the listener moves, and its own rolloff silences it
+        /// far away, as in vanilla. Culling it at start left it silent for good once the listener
+        /// walked up (a fire or generator started out of range never became audible).
+        /// </summary>
+        public static bool IsSpatialLoop(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            return a.Known && a.Spatial && a.Loop;
+        }
+
+        /// <summary>Source max distance the game would use for this id (peer range when 2D or unknown).</summary>
+        public static float SpatialMaxDistance(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            return a.Known && a.Spatial ? a.MaxDistance : DefaultMaxSpatialDistance;
+        }
+
         /// <summary>True when the AudioItem loops (anything but DoNotLoop).</summary>
         public static bool IsLoopingItem(string audioID)
         {

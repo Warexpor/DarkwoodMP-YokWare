@@ -4,8 +4,8 @@
 
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.130**. The current Horde wire protocol is **30** (bumped in 0.8.130:
-`PlayerAudio` drops its unused stop-signal and object-name fields; 29 held for
-0.8.129 only).
+`PlayerAudio` drops its unused stop-signal and object-name fields, `LightState`
+gains `Switched`; 29 held for 0.8.129 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
@@ -55,6 +55,33 @@ a code audit of the sound sync, not by a report.
   head. They now apply only to the sender's own player sounds (`StickToSender`).
 - **Per-player hear gate flipped by world sounds.** World sounds from the host shared
   the host body's sticky range gate; they now use the stateless range band.
+
+- **Lamp replay clicked on every state change.** Peers played the switch click for
+  every lamp toggle, including power restores, scripted toggles and the late-join bulk
+  (a click from every lit lamp on joining), and added an end sound vanilla never plays
+  for an unpowered lamp. `LightState` now carries `Switched` (set inside
+  `Item.switchMe`); the click plays only then, and the rest is the item's own
+  `turnOn` / `turnOff` sounds.
+
+### Hearing range: each sound's own
+
+- **Every sound past 690 was cut while connected.** The host keeps areas around
+  remote players awake, so a cull is needed, but a fixed 690 (XZ) was shorter than
+  many vanilla sounds carry (gunshots, explosions, screams), on the host's own world
+  too. A sound is now culled only beyond its own range: a 3D sound as far as the game
+  lets it carry (the item's override, else its AudioObject prefab's `maxDistance`),
+  never less than the 650 peer range; a 2D sound at the peer range
+  (`LocalAudioService.AudibleRange`). The same range gates peer sounds on arrival, peer
+  gunshots, explosions and dream sounds, and sets the falloff of a forwarded world sound
+  (it used the item override only, else 650).
+- **A loop started out of range stayed silent.** The cull ran once at play, so a fire,
+  generator or creature idle loop that started far away never became audible when the
+  listener walked up. 3D loops are no longer culled; their own falloff silences them
+  far away, as in vanilla.
+- **Apply flag clobbered.** Several replays (peer sounds, creature sounds, lamps, blood,
+  object spawn and destroy, trap and door state, generators, liquid fire) cleared the
+  network-apply flag when done, even when an outer scope had set it. They now save and
+  restore it.
 
 ### Scrape (drag / push) sounds on peers
 

@@ -117,34 +117,28 @@ namespace DWMPHorde.Sync
 
             ModRuntime.LegacyInfo($"[LightApply] {item.name} isOn={ls.IsOn} from {fromPeer}");
 
-            // Vanilla player path is Item.switchMe(): playSwitch() then turnOn/turnOff.
-            // Remote state only had turnOn/turnOff. Many lamps put the click
-            // in switchSound only.
-            // (startSound/endSound empty), so peers saw the light change with no SFX.
-            TraverseHack.ApplyingFromNetwork = true;
+            // Same sounds as the sender: Item.switchMe plays the switch click, then turnOn /
+            // turnOff play the item's own start / loop / stop (replay-owned, never forwarded).
+            // Explicit flag saved and restored: an outer apply scope must survive this replay.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             try
             {
-                ItemSounds sounds = item.GetComponent<ItemSounds>();
-                if (sounds != null)
-                    sounds.playSwitch();
+                if (ls.Switched)
+                {
+                    ItemSounds sounds = item.GetComponent<ItemSounds>();
+                    if (sounds != null)
+                        sounds.playSwitch();
+                }
 
                 if (ls.IsOn)
                     DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
                 else
                     DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
-
-                // turnOff only calls playStop when hasPower. Unpowered lamps still need
-                // the end one-shot if switchSound was empty and endSound is set.
-                if (!ls.IsOn && sounds != null && !item.hasPower
-                    && !string.IsNullOrEmpty(sounds.endSound)
-                    && string.IsNullOrEmpty(sounds.switchSound))
-                {
-                    AudioController.Play(sounds.endSound, item.transform, sounds.volumeModifier);
-                }
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
             return true;
         }

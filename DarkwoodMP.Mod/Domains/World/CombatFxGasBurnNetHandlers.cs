@@ -205,12 +205,13 @@ namespace DWMPHorde.Networking
                 var liq = WorldQueryHelper.SharedOverlapBuf[i].GetComponent<Liquid>();
                 if (liq != null)
                 {
-                    TraverseHack.ApplyingFromNetwork = true;
+                    bool prevNet = TraverseHack.GetExplicitFlag();
+                    TraverseHack.SetExplicitFlag(true);
                     try
                     {
                         Traverse.Create(liq).Method("stopBurning").GetValue();
                     }
-                    finally { TraverseHack.ApplyingFromNetwork = false; }
+                    finally { TraverseHack.SetExplicitFlag(prevNet); }
                     break;
                 }
             }

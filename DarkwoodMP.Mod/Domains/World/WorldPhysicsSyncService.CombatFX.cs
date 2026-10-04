@@ -18,8 +18,8 @@ namespace DWMPHorde.Sync
             if (string.IsNullOrEmpty(id))
                 return;
 
-            // Distance cull (same budget as other world SFX).
-            if (!LocalAudioService.IsNearListener(pos, LocalAudioService.DefaultMaxAudioDistance))
+            // Distance cull: as far as the game lets this explosion carry.
+            if (!LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.AudibleRange(id)))
                 return;
 
             bool prev = TraverseHack.GetExplicitFlag();
