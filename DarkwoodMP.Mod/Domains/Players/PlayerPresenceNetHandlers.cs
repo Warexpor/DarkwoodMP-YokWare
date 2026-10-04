@@ -23,9 +23,6 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
-        /// <summary>Any remote currently reports InBearTrap; prefer <see cref="IsTrapOccupied"/>.</summary>
-        internal bool HasAnyTrappedPlayer => _net.RemotePlayers.Values.Any(s => s.InBearTrap);
-
         /// <summary>True when the remote peer has shadow protection (torch, lantern, LightArea, etc.).</summary>
         internal bool IsRemotePlayerHasLightProtection(int playerId) => _net.RemotePlayers.TryGetValue(playerId, out var state) && state.HasLightProtection;
 
@@ -37,73 +34,6 @@ namespace DWMPHorde.Networking
                 if (kv.Value != null && kv.Value.InBearTrap && kv.Value.TrapNetId > 0)
                     yield return new System.Collections.Generic.KeyValuePair<int, int>(kv.Key, kv.Value.TrapNetId);
             }
-        }
-
-        /// <summary>
-        /// Per-trap occupancy: block loot/disarm only for the trap a player is locked in.
-        /// Local + remotes; falls back to position proximity if TrapNetId missing.
-        /// </summary>
-        internal bool IsTrapOccupied(GameObject trapGo)
-        {
-            if (trapGo == null) return false;
-
-            int trapId = Sync.TrapNetworkId.GetId(trapGo);
-            Vector3 trapPos = trapGo.transform.position;
-
-            Player local = Player.Instance;
-            if (local != null && local.inBearTrap)
-            {
-                int localTrap = Sync.TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
-                    hostMint: _net.Role == NetworkRole.Host);
-                if (trapId > 0 && localTrap == trapId)
-                    return true;
-                // XZ only: trap Y is often -10 while the player stands at ~16.
-                if (trapId <= 0)
-                {
-                    float ldx = local.transform.position.x - trapPos.x;
-                    float ldz = local.transform.position.z - trapPos.z;
-                    if (ldx * ldx + ldz * ldz < 4f)
-                        return true;
-                }
-            }
-
-            foreach (var kv in _net.RemotePlayers)
-            {
-                var st = kv.Value;
-                if (st == null || !st.InBearTrap)
-                    continue;
-                if (trapId > 0 && st.TrapNetId == trapId)
-                    return true;
-                if (st.TrapNetId <= 0)
-                {
-                    float rdx = st.BearTrapPos.x - trapPos.x;
-                    float rdz = st.BearTrapPos.z - trapPos.z;
-                    if (rdx * rdx + rdz * rdz < 6.25f)
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        internal bool IsRemotePlayerTrappedNear(Vector3 trapPos)
-        {
-            // Prefer GO-based occupancy when a trap exists at pos.
-            GameObject go = Sync.WorldPhysicsSyncService.FindTrapByPos(trapPos);
-            if (go != null)
-                return IsTrapOccupied(go);
-
-            foreach (var st in _net.RemotePlayers.Values)
-            {
-                if (st != null && st.InBearTrap)
-                {
-                    float rdx = st.BearTrapPos.x - trapPos.x;
-                    float rdz = st.BearTrapPos.z - trapPos.z;
-                    if (rdx * rdx + rdz * rdz < 6.25f)
-                        return true;
-                }
-            }
-            return false;
         }
 
         internal void HandleEntityState(EntityStateMessage msg)

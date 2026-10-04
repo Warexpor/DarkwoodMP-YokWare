@@ -89,7 +89,7 @@ namespace DWMPHorde.Patches
                     if (isTrap)
                     {
                         Vector3 pos = __instance.transform.position;
-                        WorldPhysicsSyncService.ReleaseLocalBearTrapIfNear(pos);
+                        LocalBearTrap.ReleaseIfRemoved(go, pos);
                         // Mark so container RemoveItem for the trap's junk slot is not sent —
                         // host would miss the inventory (already destroying) and deny/refund.
                         TrapPickupGuard.Begin(__instance);

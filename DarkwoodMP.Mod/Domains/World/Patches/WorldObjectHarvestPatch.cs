@@ -70,7 +70,7 @@ namespace DWMPHorde.Patches
             // Co-op rescue: local destroy of an occupied trap frees the stuck body here
             // (peer is freed via WorldObjectRemoved → DestroyObjectByPos).
             if (isTrap)
-                WorldPhysicsSyncService.ReleaseLocalBearTrapIfNear(p);
+                LocalBearTrap.ReleaseIfRemoved(go, p);
             Vector3 key = new Vector3(
                 Mathf.Round(p.x * 10f) / 10f,
                 Mathf.Round(p.y * 10f) / 10f,

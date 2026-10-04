@@ -105,8 +105,6 @@ namespace DWMPHorde.Sync
                         if (TryWriteBool(tr, "triggered", true)) break;
                     }
                 }
-                // Disarm while occupied: vanilla interrupt clears inBearTrap (BeartrapStop).
-                ReleaseLocalBearTrapIfNear(go.transform.position);
                 // Client Item.disarm fired onDisarmed locally, where one-shots are blocked.
                 // Host apply used switchToTriggered and skipped that trigger.
                 if (ModRuntime.Network is LanNetworkManager trapNet && trapNet.Role == NetworkRole.Host)
@@ -206,8 +204,9 @@ namespace DWMPHorde.Sync
                 if (trig != null && trig.alertRadius > 0f)
                     Character.alertInArea(go.transform.position, trig.alertRadius, dangerousSound: false, 1f);
 
-                // Visual sprite + name change (matches original game's OnAfterTrigger call via waitFramesAndRun)
-                if (trig != null)
+                // Visual sprite + name change (vanilla OnAfterTrigger runs it a frame later); a trap
+                // that does not stay after triggering is removed instead (end of this block).
+                if (trig != null && (trig.staysAfterTriggering || trig.multipleTrigger))
                     trig.switchToTriggered();
 
                 // Cancel disarm in progress
@@ -239,55 +238,13 @@ namespace DWMPHorde.Sync
                     if (item != null)
                         item.invItem = null;
                 }
-            }
-        }
 
-        /// <summary>
-        /// Free local player still flagged inBearTrap near this trap (silent disarm, co-op pickup/remove).
-        /// XZ only — trap Y is often underground. Also matches by TrapNetId when Resolve works.
-        /// </summary>
-        internal static void ReleaseLocalBearTrapIfNear(Vector3 trapPos)
-        {
-            Player local = Player.Instance;
-            if (local == null) return;
-            if (!local.inBearTrap && !local.startingInBearTrap && !local.endingInBearTrap)
-                return;
-
-            float dx = local.transform.position.x - trapPos.x;
-            float dz = local.transform.position.z - trapPos.z;
-            float xzSq = dx * dx + dz * dz;
-            bool near = xzSq <= 8f * 8f;
-
-            // Prefer NetId match when occupancy resolve works (N-peer / far vertical).
-            if (!near)
-            {
-                var net = ModRuntime.Network as Networking.LanNetworkManager;
-                int localTrap = TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
-                    hostMint: net != null && net.Role == Networking.NetworkRole.Host);
-                if (localTrap > 0)
+                if (trig != null && !trig.staysAfterTriggering && !trig.multipleTrigger)
                 {
-                    GameObject atPos = FindTrapByPos(trapPos);
-                    if (atPos != null && TrapNetworkId.GetId(atPos) == localTrap)
-                        near = true;
+                    trig.active = false;
+                    trig.canDisarm = false;
+                    Core.RemovePooledPrefab(go.transform);
                 }
-            }
-
-            if (!near) return;
-            try
-            {
-                local.interruptAllActions(doDropItem: false, stopBeartrap: true);
-                // Belt: interrupt clears flags; ensure anim state cannot re-stick.
-                local.startingInBearTrap = false;
-                local.endingInBearTrap = false;
-                local.inBearTrap = false;
-                ModRuntime.LegacyInfo($"[TrapApply] released local inBearTrap near trap at {trapPos} xz={UnityEngine.Mathf.Sqrt(xzSq).ToString("F1")}");
-            }
-            catch (System.Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[TrapApply] interruptAllActions failed: " + ex.Message);
-                local.inBearTrap = false;
-                local.startingInBearTrap = false;
-                local.endingInBearTrap = false;
             }
         }
 

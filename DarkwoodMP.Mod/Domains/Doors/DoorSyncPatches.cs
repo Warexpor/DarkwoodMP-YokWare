@@ -105,6 +105,46 @@ namespace DWMPHorde.Sync
         }
     }
 
+    /// <summary>
+    /// Host: a trap that does not stay after triggering is removed by vanilla
+    /// (<c>Core.RemovePooledPrefab</c>, pooled, no Destroy) without <c>switchToTriggered</c>, so
+    /// <see cref="TrapSwitchPatch"/> never sees it. Broadcast it here; peers play the spring and
+    /// remove their copy (<c>ApplyTrapState</c>).
+    /// </summary>
+    [HarmonyPatch(typeof(Trigger), "OnAfterTrigger", typeof(Collider), typeof(bool))]
+    public static class TrapVanishSyncPatch
+    {
+        private static void Prefix(Trigger __instance, out Vector3 __state)
+        {
+            __state = __instance != null ? __instance.transform.position : Vector3.zero;
+        }
+
+        private static void Postfix(Trigger __instance, Vector3 __state)
+        {
+            if (__instance == null || __instance.staysAfterTriggering || __instance.multipleTrigger
+                || __instance.loadedFromSave)
+                return;
+            if (!NetGuard.ConnectedHost(out LanNetworkManager net))
+                return;
+            if (TraverseHack.ApplyingFromNetwork || TrapDisarmHarvestTracker.IsSilentDisarm)
+                return;
+            if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
+            Vector3 key = WorldPos.Key(__state);
+            int trapId = TrapNetworkId.GetOrMintHost(__instance.gameObject);
+            net.SendTrapState(new TrapState
+            {
+                PosX = key.x,
+                PosY = key.y,
+                PosZ = key.z,
+                Triggered = true,
+                TrapNetId = trapId,
+                OccupantPlayerId = 0
+            });
+            ModRuntime.LegacyInfo($"[TrapSync] send sprung-and-gone {__instance.name} id={trapId} at {key}");
+        }
+    }
+
     /// <summary>Harmony patch: intercepts Player.progressBarCompleted (item placement) and broadcasts the spawn.</summary>
     [HarmonyPatch(typeof(Player), "progressBarCompleted")]
     public static class TrapPlacementPatch
@@ -159,7 +199,8 @@ namespace DWMPHorde.Sync
                 PosZ = __state.Pos.z,
                 RotX = euler.x,
                 RotY = euler.y,
-                RotZ = euler.z
+                RotZ = euler.z,
+                PlacerId = (short)ModRuntime.Network.LocalPlayerId
             });
             ModRuntime.LegacyInfo($"[ItemSpawn] sent {__state.Type} at {__state.Pos}");
         }

@@ -46,16 +46,8 @@ namespace DWMPHorde.Networking
         internal void SendInfectionStatesTo(int targetPlayerId) =>
             DWMPHorde.Patches.InfectionSyncHelpers.SendInfectionStatesTo(this, targetPlayerId);
 
-        public bool HasAnyTrappedPlayer => PlayerPresenceHandlers.HasAnyTrappedPlayer;
-
         public bool IsRemotePlayerHasLightProtection(int playerId) =>
             PlayerPresenceHandlers.IsRemotePlayerHasLightProtection(playerId);
-
-        public bool IsTrapOccupied(GameObject trapGo) =>
-            PlayerPresenceHandlers.IsTrapOccupied(trapGo);
-
-        public bool IsRemotePlayerTrappedNear(Vector3 trapPos) =>
-            PlayerPresenceHandlers.IsRemotePlayerTrappedNear(trapPos);
 
         public static void NotifyBodyPushStarted(GameObject go)
         {
