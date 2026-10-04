@@ -39,7 +39,8 @@ namespace DWMPHorde.Patches
             if (__result == null) return;
             InvItemClass item = DroppedItemSyncHelpers.GetItemFromSpawned(__result);
             if (item == null) return;
-            string prefab = __instance.inWater ? "Items/DroppedItem_water" : "Items/DroppedItem";
+            // Vanilla spawnDroppedInvItemm always uses the plain prefab, in water too.
+            const string prefab = "Items/DroppedItem";
             DroppedItemSyncHelpers.SendDrop(__result, item, prefab);
         }
     }
@@ -82,10 +83,8 @@ namespace DWMPHorde.Patches
                 if (ModRuntime.Network != null && ModRuntime.Network.IsConnected && __instance != null)
                 {
                     GameObject go = __instance.gameObject;
-                    string name = go != null && go.name != null ? go.name.ToLowerInvariant() : "";
-                    string itemName = __instance.name != null ? __instance.name.ToLowerInvariant() : "";
-                    isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go)
-                        || TrapNameHelper.IsTrap(name) || TrapNameHelper.IsTrap(itemName);
+                    // Object flags only: display names ("Teddy bear") made ordinary items look like traps.
+                    isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go);
                     if (isTrap)
                     {
                         Vector3 pos = __instance.transform.position;
@@ -294,18 +293,6 @@ namespace DWMPHorde.Patches
                 _depth = 0;
                 _inv = null;
             }
-        }
-    }
-
-    /// <summary>
-    /// Helper for identifying trap GameObjects by name.
-    /// </summary>
-    internal static class TrapNameHelper
-    {
-        public static bool IsTrap(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            return name.Contains("trap") || name.Contains("bear") || name.Contains("snap") || name.Contains("animal");
         }
     }
 }

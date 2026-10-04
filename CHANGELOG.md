@@ -5,7 +5,7 @@
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
-`WorldSaveBegin` gains `Difficulty`;
+`WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -211,6 +211,26 @@ The mod's lantern copy follows that; these were the real faults around it.
   10, so pouring stops at a full tank.
 - **Two players upgrading the workbench at once lost a level.** Both paid; the host now
   counts both.
+
+### Dropped items and dragging
+
+- **A dropped item landed in different places.** Vanilla throws a dropped item forward;
+  only the dropper's copy moved, the others stayed at the feet, and a later pickup by
+  position could miss and lose the item. The throw now travels with the drop. Items
+  dropped through vanilla's second drop path in water also use the right prefab.
+- **Joiners got duplicate dropped items.** A joiner's world comes from the host's save,
+  which already holds the items lying on the ground; the join snapshot then sent them
+  again. The saved copy is now adopted instead of spawning a second one.
+- **A denied pickup could take back the wrong weapon.** The refund now prefers the copy
+  with the durability and ammo that was picked up.
+- **A teddy bear counted as a trap.** Trap checks on pickups read display names ("bear",
+  "animal"); they now use the object's own trap flags only.
+- **Losing a race for a scaled stack kept the loot-share bonus.** The refund now takes
+  the bonus back with the stack.
+- **Dragging one of two identical objects stopped the other player's drag.** Drags were
+  matched by name only (every "chair" in a hideout), so a peer grabbing another chair
+  force-stopped yours, and your stop could go unsent. They are now matched by the
+  dragged object's position as well.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

@@ -224,6 +224,9 @@ namespace DWMPHorde.Networking
         internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx) =>
             ContainerPendingHandlers.ClearPendingTakePreCount(pos, slotIdx);
 
+        internal void AddPendingTakeShareExtra(Vector3 pos, int slotIdx, int extra) =>
+            ContainerPendingHandlers.AddPendingTakeShareExtra(pos, slotIdx, extra);
+
         /// <summary>Thin forward: drag claim maps live on <see cref="PlayerInteractNetHandlers"/>.</summary>
 
         internal bool IsDragClaimedByOther(string objectName, int localPlayerId) =>

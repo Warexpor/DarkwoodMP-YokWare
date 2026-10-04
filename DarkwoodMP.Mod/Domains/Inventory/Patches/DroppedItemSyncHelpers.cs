@@ -25,6 +25,10 @@ namespace DWMPHorde.Patches
 
             Vector3 pos = spawned.position;
             Vector3 euler = spawned.eulerAngles;
+            // Vanilla throws the drop forward; peers give their copy the same push so it comes
+            // to rest where the dropper's does (pickups are matched by position).
+            Rigidbody rb = spawned.GetComponent<Rigidbody>();
+            Vector3 vel = rb != null ? rb.velocity : Vector3.zero;
 
             int amt = item.amount;
             float dur = item.durability;
@@ -51,7 +55,10 @@ namespace DWMPHorde.Patches
                 Ammo = ammo,
                 IsRecipe = isRecipe,
                 Upgrades = Sync.InvItemUpgradeWire.CollectNames(item),
-                ShouldBeActive = item.shouldBeActive
+                ShouldBeActive = item.shouldBeActive,
+                VelX = vel.x,
+                VelY = vel.y,
+                VelZ = vel.z
             });
         }
 
@@ -102,7 +109,7 @@ namespace DWMPHorde.Patches
             // Lost to an inbound claim/remove that already consumed on this machine.
             if (!WorldObjectSendNetHandlers.TryConsumeDropGuid(guid))
             {
-                WorldPickupClaimPending.Refund(itemType, amount, preCount, "guid local consume lost", recipeFor);
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "guid local consume lost", recipeFor, durability, ammo);
                 return;
             }
 
@@ -123,7 +130,7 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            WorldPickupClaimPending.RecordGuid(guid, itemType, amount, preCount, recipeFor);
+            WorldPickupClaimPending.RecordGuid(guid, itemType, amount, preCount, recipeFor, durability, ammo);
             var claim = new DroppedItemPickupMessage
             {
                 Guid = guid,
@@ -155,7 +162,7 @@ namespace DWMPHorde.Patches
             // Lost to an inbound claim/remove that already consumed on this machine.
             if (!WorldPhysicsSyncService.TryConsumeWorldPickup(pos.x, pos.y, pos.z, sendName))
             {
-                WorldPickupClaimPending.Refund(itemType, amount, preCount, "local consume lost", recipeFor);
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "local consume lost", recipeFor, durability, ammo);
                 return;
             }
 
@@ -179,7 +186,7 @@ namespace DWMPHorde.Patches
             }
 
             // Client: keep optimistic grant; host decides. Pending enables deny refund.
-            WorldPickupClaimPending.Record(pos.x, pos.y, pos.z, sendName, itemType, amount, preCount, recipeFor);
+            WorldPickupClaimPending.Record(pos.x, pos.y, pos.z, sendName, itemType, amount, preCount, recipeFor, durability, ammo);
             var claim = new WorldObjectRemovedMessage
             {
                 PosX = pos.x,
@@ -242,8 +249,8 @@ namespace DWMPHorde.Patches
             pos = worldItem.transform.position;
             sendName = worldItem.name;
             GameObject go = worldItem.gameObject;
-            isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go)
-                || TrapNameHelper.IsTrap(sendName != null ? sendName.ToLowerInvariant() : "");
+            // Object flags only: display names ("Teddy bear") made ordinary items look like traps.
+            isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go);
 
             // Sprung beartrap isDroppedItem keeps slot type "junk" / "Scrap metal".
             // Always send the trap GO name so peer DestroyObjectByPos frees + matches

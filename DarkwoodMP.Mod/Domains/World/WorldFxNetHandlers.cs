@@ -255,9 +255,9 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
             if (Patches.WorldPickupClaimPending.TryTake(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName,
-                out string type, out int amt, out int pre, out string recipeFor))
+                out string type, out int amt, out int pre, out string recipeFor, out float dur, out int ammo))
             {
-                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny", recipeFor);
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny", recipeFor, dur, ammo);
                 return;
             }
             // No pending entry: the host-won Remove (ClaimedBy=host) already refunded this claim.

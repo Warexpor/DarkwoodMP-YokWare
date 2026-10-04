@@ -246,7 +246,11 @@ namespace DWMPHorde.Patches
             if (!_pendingShares.TryGetValue(slot, out PendingShare share))
                 return;
             _pendingShares.Remove(slot);
+            int extra = share.Active ? share.BaseAmount * (GetItemMultiplier() - 1) : 0;
             ApplyPendingShare(ref share, path);
+            // A take the host denies (another player won the race) refunds the extra with it.
+            if (extra > 0 && slot?.inventory != null && ModRuntime.Network is Networking.LanNetworkManager net)
+                net.AddPendingTakeShareExtra(slot.inventory.transform.position, slot.inventory.slots.IndexOf(slot), extra);
         }
 
         [HarmonyPriority(Priority.Last)]
