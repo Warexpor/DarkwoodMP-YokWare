@@ -1,4 +1,5 @@
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -159,6 +160,8 @@ namespace DWMPHorde.Networking
             }
             if (itemSent > 0)
                 ModRuntime.LegacyInfo($"[BulkSync] Barricade items → p{targetPlayerId}: {itemSent}");
+            if (itemSent >= maxItems || sent >= maxSend)
+                ModLog.Warn(LogCat.Session, $"[BulkSync] Barricade items → p{targetPlayerId}: cap {maxItems} reached, later damaged items not sent");
             return itemSent;
         }
 
