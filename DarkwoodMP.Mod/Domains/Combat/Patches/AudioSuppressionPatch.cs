@@ -83,28 +83,20 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            // Peer proxy SFX: XZ + exit band so spatial rolloff can fade without Play flicker
-            // at exactly 650 (hard bool gate caused enter/exit hitch).
+            // Each sound is culled only beyond its own range (LocalAudioService.AudibleRange):
+            // a 3D sound as far as the game lets it carry, a 2D one at the peer range. The host
+            // keeps areas around remote players awake, so far sounds there are not played.
+            if (LocalAudioService.IsSpatialLoop(audioID))
+                return true;
+
+            // Peer proxy SFX: the stand-in's position, XZ + exit band so spatial rolloff can fade
+            // without Play flicker at the edge.
             if (parentObj != null
                 && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
-            {
-                Vector3 proxyPos = parentObj.position;
-                if (pos == Vector3.zero)
-                    pos = proxyPos;
-                return LocalAudioService.IsNearListenerPeerBand(
-                    pos, LocalAudioService.DefaultMaxAudioDistance);
-            }
-
-            // Host CharacterSounds (dog growl/aggro near client): entity interest is 1400 XZ,
-            // not the 650 peer band; otherwise host hears silence while clients get EntitySound.
-            if (TraverseHack.InsideCharacterSounds)
-            {
-                return LocalAudioService.IsNearAnyListener(
-                    pos, ClientEntityInterpolationService.ClientInterestDistance);
-            }
+                pos = parentObj.position;
 
             // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
-            if (LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
+            if (LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.AudibleRange(audioID)))
                 return true;
 
             __result = null;

@@ -170,13 +170,14 @@ namespace DWMPHorde.Patches
 
                 float yRot = player.transform.eulerAngles.y;
                 string bloodPrefab = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
-                TraverseHack.ApplyingFromNetwork = true;
+                bool prevNet = TraverseHack.GetExplicitFlag();
+                TraverseHack.SetExplicitFlag(true);
                 try
                 {
                     Core.AddPrefab(bloodPrefab, hitPoint,
                         Quaternion.Euler(90f, yRot + Random.Range(-20f, 20f), 0f), null);
                 }
-                finally { TraverseHack.ApplyingFromNetwork = false; }
+                finally { TraverseHack.SetExplicitFlag(prevNet); }
 
                 // Play spatialized bullet impact sound at the hit point so the
                 // shooter hears the direction the proxy was hit from.

@@ -133,15 +133,16 @@ namespace DWMPHorde.Sync
                     Core.RemovePooledPrefab(best.transform);
             }
             catch { /* ignore */ }
+            bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
-                TraverseHack.ApplyingFromNetwork = true;
+                TraverseHack.SetExplicitFlag(true);
                 // Co-op rescue: free anyone still flagged inBearTrap near this destroy pose.
                 ReleaseLocalBearTrapIfNear(best.transform.position);
 
                 UnityEngine.Object.DestroyImmediate(best);
             }
-            finally { TraverseHack.ApplyingFromNetwork = false; }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
             ModRuntime.LegacyInfo($"[ObjectDestroy] destroyed \"{(destroyedName ?? "")}\" at {pos} d={Mathf.Sqrt(bestDistSq).ToString("F1")}");
             return true;
         }

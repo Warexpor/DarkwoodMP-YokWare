@@ -22,6 +22,11 @@ on the peer that did NOT cause the sound:
 - [ ] Toggle a lamp / switch and start the generator: one click and one start sound;
       after turning the generator off its hum stops on every peer.
 - [ ] Set something on fire, let it burn out: the fire loop stops on every peer.
+- [ ] Start a fire or the generator, walk away past hearing, come back: it is audible
+      again on the way in.
+- [ ] A gunshot or explosion well beyond 700 from you (host and client): heard
+      faintly, as far as single player carries it.
+- [ ] Late join near lit lamps: no burst of switch clicks.
 - [ ] Host drags a crate across grass, then floor, near the client: the client hears
       the grass scrape then the floor scrape, and it stops with the crate. While that
       runs, another crate dragged elsewhere keeps its own scrape when the first is let go.

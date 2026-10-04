@@ -54,7 +54,8 @@ namespace DWMPHorde.Networking
                 + (string.IsNullOrEmpty(msg.LoopName) ? "" : " loop=" + msg.LoopName), 0.35f);
 
             // Prevent CharacterSounds → AudioController patches from re-forwarding.
-            TraverseHack.ApplyingFromNetwork = true;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             TraverseHack.InsideCharacterSounds = true;
             try
             {
@@ -126,7 +127,7 @@ namespace DWMPHorde.Networking
             finally
             {
                 TraverseHack.InsideCharacterSounds = false;
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
         }
 
@@ -292,15 +293,18 @@ namespace DWMPHorde.Networking
 
             // The sticky per-peer gate tracks that peer's body; world sounds from the same sender
             // are all over the map and would flip it, so they use the stateless band.
+            float range = LocalAudioService.AudibleRange(msg.SoundId);
             if (fromPlayer && playerId > 0)
             {
-                if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, LocalAudioService.DefaultMaxAudioDistance))
+                if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, range))
                     return;
             }
-            else if (!LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
+            else if (!LocalAudioService.IsNearListenerPeerBand(pos, range))
                 return;
 
-            TraverseHack.ApplyingFromNetwork = true;
+            // Explicit flag saved and restored: an outer apply scope must survive this replay.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             try
             {
                 Transform parent = null;
@@ -389,15 +393,16 @@ namespace DWMPHorde.Networking
                             AudioItem item = AudioController.GetAudioItem(msg.SoundId);
                             float itemMin = (item != null && item.overrideAudioSourceSettings)
                                 ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
-                            float itemMax = (item != null && item.overrideAudioSourceSettings)
-                                ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
+                            // The range the game gives this id (its prefab's when not overridden),
+                            // the same range the hear gate above used.
+                            float itemMax = LocalAudioService.SpatialMaxDistance(msg.SoundId);
                             audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
                             audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
                         }
                     }
                 }
             }
-            finally { TraverseHack.ApplyingFromNetwork = false; }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
         }
 
     }

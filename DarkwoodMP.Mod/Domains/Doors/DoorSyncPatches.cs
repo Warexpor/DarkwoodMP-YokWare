@@ -274,6 +274,26 @@ namespace DWMPHorde.Sync
     // Vanilla only restorePower/cutPower (isOn sticky). GeneratorState is enough.
     // Per-lamp player toggles still go through Item.turnOn/turnOff → LightState.
 
+    /// <summary>
+    /// True inside Item.switchMe (the player's own toggle), which plays the switch click before
+    /// turnOn/turnOff. Power restores, scripts and the late-join bulk toggle without a click.
+    /// </summary>
+    [HarmonyPatch(typeof(Item), "switchMe")]
+    public static class ItemSwitchMeScopePatch
+    {
+        private static int _depth; // process-scoped: call-scoped, unwound by the Finalizer
+
+        internal static bool Active => _depth > 0;
+
+        private static void Prefix() => _depth++;
+
+        private static void Finalizer()
+        {
+            if (_depth > 0)
+                _depth--;
+        }
+    }
+
     /// <summary>Harmony patch: intercepts Item.turnOn (lights, switchable items) and broadcasts the state.</summary>
     [HarmonyPatch(typeof(Item), "turnOn")]
     public static class ItemTurnOnPatch
@@ -298,7 +318,8 @@ namespace DWMPHorde.Sync
                 PosZ = p.z,
                 IsOn = true,
                 ItemName = __instance.name,
-                ItemType = itemType
+                ItemType = itemType,
+                Switched = ItemSwitchMeScopePatch.Active
             });
             ModRuntime.LegacyInfo($"[LightSync] send turnOn {__instance.name} type={itemType}");
         }
@@ -328,7 +349,8 @@ namespace DWMPHorde.Sync
                 PosZ = p.z,
                 IsOn = false,
                 ItemName = __instance.name,
-                ItemType = itemType
+                ItemType = itemType,
+                Switched = ItemSwitchMeScopePatch.Active
             });
             ModRuntime.LegacyInfo($"[LightSync] send turnOff {__instance.name} type={itemType}");
         }

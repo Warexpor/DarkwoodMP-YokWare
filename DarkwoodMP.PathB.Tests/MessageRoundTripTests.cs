@@ -392,6 +392,21 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void LightState_RoundTripsSwitched()
+    {
+        var msg = new LightStateMessage
+        {
+            PosX = 1f, PosY = 2f, PosZ = 3f, IsOn = true, ItemName = "lamp", ItemType = "lamp_oil", Switched = true
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = LightStateMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.True(back.IsOn);
+        Assert.True(back.Switched);
+        Assert.Equal("lamp_oil", back.ItemType);
+    }
+
+    [Fact]
     public void FriendlyFire_RoundTripsSensorEffects()
     {
         var msg = new FriendlyFireMessage

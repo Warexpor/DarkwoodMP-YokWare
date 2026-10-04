@@ -9,6 +9,8 @@ namespace DWMPHorde.Networking
         public bool IsOn;
         public string ItemName;
         public string ItemType;
+        /// <summary>Toggled by hand (Item.switchMe): vanilla played the switch click first.</summary>
+        public bool Switched;
 
         public void Serialize(NetWriter w)
         {
@@ -16,6 +18,7 @@ namespace DWMPHorde.Networking
             w.Put(IsOn);
             w.Put(ItemName ?? string.Empty);
             w.Put(ItemType ?? string.Empty);
+            w.Put(Switched);
         }
 
         public static LightStateMessage Deserialize(NetReader r) => new LightStateMessage
@@ -25,7 +28,8 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             IsOn = r.GetBool(),
             ItemName = r.GetString(),
-            ItemType = r.GetString()
+            ItemType = r.GetString(),
+            Switched = r.GetBool()
         };
     }
 

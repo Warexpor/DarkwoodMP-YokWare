@@ -25,9 +25,10 @@ namespace DWMPHorde.Networking
         {
             if (msg.Entries == null || msg.Entries.Length == 0) return;
             int applied = 0, pending = 0;
+            bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
-                TraverseHack.ApplyingFromNetwork = true;
+                TraverseHack.SetExplicitFlag(true);
                 for (int i = 0; i < msg.Entries.Length; i++)
                 {
                     var e = msg.Entries[i];
@@ -51,7 +52,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
             ModLog.Event(LogCat.Session, "[BulkSync] Trap bulk applied=" + applied + " pending=" + pending);
         }

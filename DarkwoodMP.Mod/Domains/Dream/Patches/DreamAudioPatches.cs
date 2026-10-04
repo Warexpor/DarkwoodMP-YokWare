@@ -61,7 +61,7 @@ namespace DWMPHorde.Patches
 
             // Match suppression: do not ship far dream SFX to spectators/peers.
             if (worldPosition != Vector3.zero
-                && !LocalAudioService.IsNearAnyListener(worldPosition, LocalAudioService.DefaultMaxAudioDistance))
+                && !LocalAudioService.IsNearAnyListener(worldPosition, LocalAudioService.AudibleRange(audioID)))
                 return false;
 
             return true;
