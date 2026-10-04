@@ -210,8 +210,11 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in nightId {msg.NightId}");
 
             CustomEvent ce = scenario.customEventAndInts[msg.EventIndex].customEvent;
+            // Location events belong to a world location; never replay one into a location pad.
+            var olLocal = Singleton<OutsideLocations>.Instance;
             bool outside = Player.Instance == null || Player.Instance.whereAmI == null
-                || Player.Instance.whereAmI.bigLocation == null;
+                || Player.Instance.whereAmI.bigLocation == null
+                || (olLocal != null && olLocal.playerInOutsideLocation);
             if (ce != null && ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent)
             {
                 if (outside)

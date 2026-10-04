@@ -98,7 +98,11 @@ namespace DWMPHorde.Networking
             // Visual transitions via public API (startRain / stopRain / fog)
             if (msg.Raining != wasRaining)
             {
-                if (msg.Raining)
+                // Inside a location pad the rain stays out of sight until return (and inside
+                // an underground one vanilla startRain would not start it at all).
+                if (msg.Raining && Patches.PadWeather.LocalInPad())
+                    Patches.PadWeather.StartHidden(rain);
+                else if (msg.Raining)
                     rain.Raining = true;
                 else
                     rain.Raining = false;
@@ -127,6 +131,7 @@ namespace DWMPHorde.Networking
                 && Player.Instance != null
                 && Player.Instance.whereAmI != null
                 && !Player.Instance.whereAmI.inUndergroundLocation
+                && !Patches.PadWeather.LocalInPad()
                 && Singleton<CamMain>.Instance != null
                 && Singleton<CamMain>.Instance.lightning != null)
             {
@@ -191,7 +196,10 @@ namespace DWMPHorde.Networking
                 ctrl.isAfterNight = true;
                 try
                 {
-                    if (Player.Instance != null && Player.Instance.effects != null)
+                    // Vanilla's end-of-night effect is for the player at home; one out in the
+                    // forest or inside a location at dawn gets no morning, only the flag.
+                    if (Player.Instance != null && Player.Instance.effects != null
+                        && Patches.MorningHideoutHold.LocalPositionInside())
                         ctrl.addAfterNightEffect();
                 }
                 catch (System.Exception ex)
@@ -229,25 +237,9 @@ namespace DWMPHorde.Networking
             if (msg.Day > prevDay)
                 ApplyClientPersonalNewDay(prevDay, msg.Day);
 
-            // refreshTime() is suppressed on clients, so fedToday never clears and
-            // onFeedStart / tryToActivateHunger never runs. Personal only — no world chain.
-            if (!dreamClock && Player.Instance != null)
-            {
-                if (CoopTimePolicy.ShouldClearFedToday(
-                        (int)prevTime, msg.CurrentTime, prevDay, msg.Day, (int)ctrl.dayTime))
-                    Player.Instance.fedToday = false;
+            if (!dreamClock)
+                PlayClientNightCues(ctrl, (int)prevTime, msg.CurrentTime);
 
-                int feedAt = (int)ctrl.nightTime - 30;
-                if (CoopTimePolicy.LiveStepCrossedMinute((int)prevTime, msg.CurrentTime, feedAt))
-                {
-                    try { ctrl.tryToActivateHunger(); }
-                    catch (System.Exception ex)
-                    {
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.Log?.LogWarning("[TimeSync] tryToActivateHunger: " + ex.Message);
-                    }
-                }
-            }
 
             // Clear soft invuln from suppressed startBeforeDay if still set.
             if (Player.Instance != null && Player.Instance.invulnerable
@@ -296,6 +288,29 @@ namespace DWMPHorde.Networking
                 try { ctrl.updateAmbientLight(); }
                 catch { /* non-fatal */ }
             }
+        }
+
+        /// <summary>
+        /// The personal cues of vanilla <c>refreshTime</c>, which never runs on a client: "night is
+        /// coming" for a player not at home, "light the oven" for one at home with the ward out,
+        /// and the end-of-night sound. Vanilla fires on the exact minute; TimeSync can step over it.
+        /// </summary>
+        private static void PlayClientNightCues(Controller ctrl, int prevTime, int newTime)
+        {
+            Player p = Player.Instance;
+            if (p == null || p.whereAmI == null)
+                return;
+            Location big = p.whereAmI.bigLocation;
+            if (ctrl.isHardNight
+                && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, (int)ctrl.nightTime - 130)
+                && (big == null || !big.playerBase))
+                p.displayMessage(Language.Get("Playermsg_nightComing", "UI"));
+            if (ctrl.isHardNight
+                && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, (int)ctrl.nightTime - 20)
+                && big != null && big.playerBase && big.shadowWard != null && !big.shadowWard.activeInHierarchy)
+                p.displayMessage(Language.Get("Playermsg_nightMustLightOven", "UI"));
+            if (CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, 1360))
+                AudioController.Play("endOfNight_pre");
         }
 
         /// <summary>

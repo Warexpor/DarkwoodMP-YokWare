@@ -225,6 +225,8 @@ namespace DWMPHorde.Patches
                 {
                     if (proxy == null || proxy.RemoteHasShadowWard) continue;
                     if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId)) continue;
+                    // The worm hunts the open world; a peer inside a location pad is out of reach.
+                    if (!net.RemotePlayers.TryGetValue(proxy.PlayerId, out RemotePlayerState st) || !st.InOpenWorld) continue;
                     CharBase cb = proxy.CachedCharBase;
                     if (cb != null && !cb.alive) continue;
                     choices.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
@@ -239,6 +241,7 @@ namespace DWMPHorde.Patches
         private static bool HostEligible(Player host)
         {
             if (host.ignoreNightSickness) return false;
+            if (!HostSharedClockPatch.LocalInOpenWorld()) return false;
             if (DeathStateTracker.LocalNightDeath) return false;
             if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
                 return false;

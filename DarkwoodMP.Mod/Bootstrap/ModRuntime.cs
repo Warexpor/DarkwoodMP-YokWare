@@ -287,6 +287,8 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ExplosionSpawnFlagTracker.Reset);
             NetworkResetRegistry.Register(LightStateHelper.ResetTxSignature);
             NetworkResetRegistry.Register(MorningRewardFanOutPatch.Reset);
+            NetworkResetRegistry.Register(HostAwayMorning.Reset);
+            NetworkResetRegistry.Register(PadWeather.Reset);
             NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);

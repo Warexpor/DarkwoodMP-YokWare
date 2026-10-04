@@ -24,6 +24,9 @@ namespace DWMPHorde.Patches
             {
                 if (p == null)
                     continue;
+                // Night spawns belong to the open world, never a location pad or a loading peer.
+                if (!net.RemotePlayers.TryGetValue(p.PlayerId, out RemotePlayerState st) || !st.InOpenWorld)
+                    continue;
                 Vector3 d = p.transform.position - from;
                 if (d.sqrMagnitude >= FarSqr)
                     Buf.Add(p);

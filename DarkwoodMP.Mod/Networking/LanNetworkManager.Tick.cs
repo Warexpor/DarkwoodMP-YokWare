@@ -265,6 +265,7 @@ namespace DWMPHorde.Networking
                 HasLightProtection = local.isInLight,
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
+                InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
                 TrapNetId = local.inBearTrap
                     ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
                     : 0

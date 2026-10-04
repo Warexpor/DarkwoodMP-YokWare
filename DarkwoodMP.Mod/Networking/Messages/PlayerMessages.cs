@@ -125,6 +125,11 @@ namespace DWMPHorde.Networking
         /// <summary>Optional trailer for the per-player NightShadows effect.</summary>
         public bool HasNightShadows;
         public bool AfterNightActive;
+        /// <summary>
+        /// Sender is in the open world, where vanilla would run its clock: not inside an
+        /// outside location, not dreaming, not loading or in the opening movie. Trailer.
+        /// </summary>
+        public bool InOpenWorld;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -209,6 +214,7 @@ namespace DWMPHorde.Networking
             writer.Put(HeldLightRemain01);
             writer.Put(FlashAimY);
             writer.Put(HasNightShadows);
+            writer.Put(InOpenWorld);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -275,6 +281,7 @@ namespace DWMPHorde.Networking
             msg.HeldLightRemain01 = reader.GetByte();
             msg.FlashAimY = reader.GetShort();
             msg.HasNightShadows = reader.GetBool();
+            msg.InOpenWorld = reader.GetBool();
             return msg;
         }
     }
