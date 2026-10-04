@@ -63,6 +63,8 @@ namespace DWMPHorde.Networking
 
             if (sent > 0 || Config.ModConfig.IsVerboseLightSync)
                 ModLog.Event(LogCat.Session, $"[BulkSync] World lights → p{targetPlayerId}: on={sent}");
+            if (sent >= maxSend)
+                ModLog.Warn(LogCat.Session, $"[BulkSync] World lights → p{targetPlayerId}: cap {maxSend} reached, later lamps not sent");
         }
 
         /// <summary>
