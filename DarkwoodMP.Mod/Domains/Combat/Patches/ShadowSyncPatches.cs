@@ -51,7 +51,20 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
 
-            net.SendShadowEvent(new ShadowEventMessage());
+            net.SendShadowEvent(new ShadowEventMessage { OwnerId = (short)net.LocalPlayerId });
+        }
+    }
+
+    /// <summary>Host: the shadow wave ended (vanilla Player.endShadows): clients end theirs.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.endShadows))]
+    public static class HostShadowEndSyncPatch
+    {
+        private static void Postfix()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+                return;
+            net.SendShadowEvent(new ShadowEventMessage { End = true });
         }
     }
 

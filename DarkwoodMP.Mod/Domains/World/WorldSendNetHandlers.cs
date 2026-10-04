@@ -126,7 +126,7 @@ namespace DWMPHorde.Networking
             if (_net.Shadows.Tracked.Count == 0) return;
 
             _net.SendBulkOrAll(NetMessageType.ShadowEvent,
-                w => new ShadowEventMessage().Serialize(w), targetPlayerId);
+                w => new ShadowEventMessage { OwnerId = 0 }.Serialize(w), targetPlayerId);
 
             int sent = 0;
             foreach (var kvp in _net.Shadows.Tracked)
