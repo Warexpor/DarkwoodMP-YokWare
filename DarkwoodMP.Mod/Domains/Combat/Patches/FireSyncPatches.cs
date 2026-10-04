@@ -113,7 +113,7 @@ namespace DWMPHorde.Patches
 
             if (__instance.GetComponent<Player>() == null) return;
 
-            net.SendPlayerBurning(true, effect.duration);
+            net.SendPlayerBurning(true, effect.duration, effect.type == CharacterEffectType.burnSpecial);
             ModRuntime.LegacyInfo("[PlayerBurnSync] sent player burn start");
         }
     }

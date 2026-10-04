@@ -893,6 +893,9 @@ namespace DWMPHorde.Networking
         public string[][] ItemUpgrades;
         /// <summary>Per-entry shouldBeActive (flashlight on).</summary>
         public bool[] ShouldBeActive;
+        /// <summary>Died inside a location: vanilla's map marker at the location's entrance (deathDrop_marker).</summary>
+        public bool HasMarker;
+        public float MarkerX, MarkerY, MarkerZ;
 
         public void Serialize(NetWriter w)
         {
@@ -914,6 +917,8 @@ namespace DWMPHorde.Networking
             DWMPHorde.Sync.InvItemUpgradeWire.WriteMany(w, ItemUpgrades, count);
             for (int i = 0; i < count; i++)
                 w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
+            w.Put(HasMarker);
+            w.Put(MarkerX); w.Put(MarkerY); w.Put(MarkerZ);
         }
 
         public static DeathBagSpawnMessage Deserialize(NetReader r)
@@ -949,6 +954,10 @@ namespace DWMPHorde.Networking
             msg.ShouldBeActive = new bool[count];
             for (int i = 0; i < count; i++)
                 msg.ShouldBeActive[i] = r.GetBool();
+            msg.HasMarker = r.GetBool();
+            msg.MarkerX = r.GetFloat();
+            msg.MarkerY = r.GetFloat();
+            msg.MarkerZ = r.GetFloat();
             return msg;
         }
     }

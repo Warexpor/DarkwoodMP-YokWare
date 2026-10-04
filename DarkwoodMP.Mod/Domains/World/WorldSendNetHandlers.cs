@@ -184,10 +184,10 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.LiquidStopBurning, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendPlayerBurning(bool isBurning, float burnTime = 0)
+        internal void SendPlayerBurning(bool isBurning, float burnTime = 0, bool special = false)
         {
             if (!_net.IsConnected) return;
-            var msg = new PlayerBurningMessage { IsBurning = isBurning, BurnTime = burnTime };
+            var msg = new PlayerBurningMessage { IsBurning = isBurning, BurnTime = burnTime, Special = special };
             _net.Broadcast(NetMessageType.PlayerBurning, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 

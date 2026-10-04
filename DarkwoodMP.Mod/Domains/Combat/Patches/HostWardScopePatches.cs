@@ -32,6 +32,8 @@ namespace DWMPHorde.Patches
             Player host = Player.Instance;
             if (host == null)
                 return;
+            if (__instance.afraidOfHideout || __instance.afraidOfForestSpiritWard)
+                FleePeerWard(__instance, host);
             bool hostWard = host.effects != null
                 && (__instance.afraidOfHideout && host.effects.hasEffectType(CharacterEffectType.shadowWard)
                     || __instance.afraidOfForestSpiritWard && host.effects.hasEffectType(CharacterEffectType.forestSpiritWard));
@@ -64,6 +66,37 @@ namespace DWMPHorde.Patches
                 HostWardMask.Active = false;
             if (__state.RestoreConstant && __instance != null)
                 __instance.constantlyAttackPlayer = true;
+        }
+
+        /// <summary>
+        /// Vanilla's ward branch for a peer: the character after a warded peer runs from it (and
+        /// despawns; from a forest-spirit ward it also goes blind and despawns 10 s later),
+        /// whether or not it has seen that peer this tick.
+        /// </summary>
+        private static void FleePeerWard(Character c, Player host)
+        {
+            Transform body = BodyOf(c, host);
+            if (body == null || body == host.transform)
+                return;
+            RemotePlayerProxy proxy = body.GetComponent<RemotePlayerProxy>();
+            if (proxy == null)
+                return;
+            if (c.afraidOfHideout && proxy.RemoteHasShadowWard)
+            {
+                c.runAway(body.position);
+                c.wantToDespawn = true;
+            }
+            if (c.afraidOfForestSpiritWard && proxy.RemoteHasForestSpiritWard && !c.blind)
+            {
+                c.runAway(body.position);
+                c.blind = true;
+                Character fleeing = c;
+                Singleton<Controller>.Instance.Invoke(delegate
+                {
+                    if (fleeing != null)
+                        fleeing.wantToDespawn = true;
+                }, 10f, timeScaleDependent: true);
+            }
         }
 
         private static Transform BodyOf(Character c, Player host)

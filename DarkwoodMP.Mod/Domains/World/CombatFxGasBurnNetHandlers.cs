@@ -131,34 +131,39 @@ namespace DWMPHorde.Networking
         internal void HandlePlayerBurning(PlayerBurningMessage msg)
         {
             int playerId = _net.CurrentReceivePlayerId;
-            RemotePlayerProxy proxy = _net.GetProxy(playerId);
+            ApplyProxyBurn(_net.GetProxy(playerId), playerId, msg.IsBurning, msg.Special, msg.BurnTime);
+        }
+
+        /// <summary>Fire on a peer's proxy: the owner's look (vanilla burnSpecial: no particles, no sound).</summary>
+        internal static void ApplyProxyBurn(RemotePlayerProxy proxy, int playerId, bool burning, bool special, float burnTime)
+        {
             if (proxy == null) return;
             bool prev = TraverseHack.GetExplicitFlag();
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                if (msg.IsBurning)
+                var burn = proxy.GetComponent<Burn>();
+                if (burning && burn == null)
                 {
-                    var burn = proxy.GetComponent<Burn>();
-                    if (burn == null)
-                    {
-                        burn = proxy.gameObject.AddComponent<Burn>();
-                        burn.burnTime = msg.BurnTime;
-                        ModRuntime.LegacyInfo($"[PlayerBurnSync] applied Burn to proxy for player {playerId}");
-                    }
+                    burn = proxy.gameObject.AddComponent<Burn>();
+                    // Set before Burn starts (next frame): vanilla's own burnSpecial does the same.
+                    burn.noParticle = special;
+                    burn.noSound = special;
+                    // The owner ends it (stop message or effect state), not a local timer.
+                    burn.burnTime = burnTime > 0f ? burnTime : ProxyBurnHoldSec;
+                    ModRuntime.LegacyInfo($"[PlayerBurnSync] applied Burn to proxy for player {playerId} special={special}");
                 }
-                else
+                else if (!burning && burn != null)
                 {
-                    var burn = proxy.GetComponent<Burn>();
-                    if (burn != null)
-                    {
-                        burn.stop();
-                        ModRuntime.LegacyInfo($"[PlayerBurnSync] removed Burn from proxy for player {playerId}");
-                    }
+                    burn.stop();
+                    ModRuntime.LegacyInfo($"[PlayerBurnSync] removed Burn from proxy for player {playerId}");
                 }
             }
             finally { TraverseHack.SetExplicitFlag(prev); }
         }
+
+        /// <summary>A proxy burn joined mid-fire has no known end: held until the owner's state says out.</summary>
+        private const float ProxyBurnHoldSec = 600f;
 
         /// <summary>
         /// Host: push existing flammable liquid trails (+ burning state) to a joiner

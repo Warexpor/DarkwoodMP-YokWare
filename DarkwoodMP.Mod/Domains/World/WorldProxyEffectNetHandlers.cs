@@ -83,11 +83,14 @@ namespace DWMPHorde.Networking
                 Invisible = local.invisible,
                 IgnoreMe = local.ignoreMe,
                 Poisoned = localCb != null && localCb.poisoned,
-                Bleeding = localCb != null && localCb.bleeding
+                Bleeding = localCb != null && localCb.bleeding,
+                Burning = local.GetComponent<Burn>() != null,
+                BurnSpecial = local.effects != null && local.effects.hasEffectType(CharacterEffectType.burnSpecial)
             };
-            if (!keepalive && msg.Flags == _lastEffectFlags)
+            int flags = msg.Flags | (msg.Flags2 << 8);
+            if (!keepalive && flags == _lastEffectFlags)
                 return;
-            _lastEffectFlags = msg.Flags;
+            _lastEffectFlags = flags;
             _net.Broadcast(NetMessageType.PlayerEffectSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -115,6 +118,8 @@ namespace DWMPHorde.Networking
                 cb.poisoned = msg.Poisoned;
                 cb.bleeding = msg.Bleeding;
             }
+            // A joiner, or a missed burn message: converge on the owner's fire.
+            CombatFxGasBurnNetHandlers.ApplyProxyBurn(proxy, playerId, msg.Burning, msg.BurnSpecial, 0f);
         }
 
         /// <summary>

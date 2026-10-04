@@ -338,6 +338,29 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// The opening movie is the host's: the skip key on a client ran vanilla
+    /// <c>WorldGenerator.activatePlayer</c> there, freeing the client to walk around the
+    /// unprepared start while everyone else still watched (the host's end fixed it up later).
+    /// While the host's movie plays, a client's skip key does nothing; the host's skip ends it
+    /// for everyone. Dream transition skips (no intro playing) are untouched.
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), nameof(Controller.skipCurrentMovie))]
+    public static class PrologueClientSkipPatch
+    {
+        private static bool Prefix(ref bool __result)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
+                return true;
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            if (wg == null || !wg.playingIntro)
+                return true;
+            __result = false;
+            return false;
+        }
+    }
+
     /// <summary>Clients do not start their own opening movie. The host's copy is the one everyone sees.</summary>
     [HarmonyPatch(typeof(UI), "showPrologueText")]
     public static class PrologueTextSyncPatch

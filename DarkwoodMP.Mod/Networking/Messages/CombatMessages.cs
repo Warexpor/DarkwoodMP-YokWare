@@ -83,6 +83,10 @@ namespace DWMPHorde.Networking
         public float LandX, LandY, LandZ;
         /// <summary>True when the Land* fields carry a real land target.</summary>
         public bool HasLandTarget;
+        /// <summary>A weapon picked back up after the throw (vanilla recoverableAfterThrown): its wear and upgrades ride along.</summary>
+        public bool Recoverable;
+        public float Durability;
+        public string[] Upgrades;
 
         public void Serialize(NetWriter w)
         {
@@ -95,6 +99,9 @@ namespace DWMPHorde.Networking
             w.Put(LongevitySec);
             w.Put(HasLandTarget);
             w.Put(LandX); w.Put(LandY); w.Put(LandZ);
+            w.Put(Recoverable);
+            w.Put(Durability);
+            DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
         }
 
         public static ThrowableSpawnMessage Deserialize(NetReader r)
@@ -117,6 +124,9 @@ namespace DWMPHorde.Networking
             msg.LandX = r.GetFloat();
             msg.LandY = r.GetFloat();
             msg.LandZ = r.GetFloat();
+            msg.Recoverable = r.GetBool();
+            msg.Durability = r.GetFloat();
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
             return msg;
         }
     }

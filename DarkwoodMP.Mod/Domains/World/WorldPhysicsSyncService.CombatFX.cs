@@ -91,23 +91,37 @@ namespace DWMPHorde.Sync
 
         private const float DreamPadRadius = 250f;
 
-        public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false, string soundId = null)
+        /// <summary>
+        /// The Explodes at that spot with that name, else a same-named one close by (the host moved
+        /// or rolled it). Any Explodes within reach used to do: a client's molotov landing by a
+        /// barrel set the barrel off on the host (whose blast is the only one that hurts) and
+        /// blew up the barrel's copy on the peers.
+        /// </summary>
+        private static Explodes FindExplodesAt(Vector3 pos, string objectName)
         {
             int nearbyN = OverlapNear(pos, 1.5f);
-            Explodes target = null;
+            Explodes unnamed = null;
+            string want = DialogOutcomeCloseNetHandlers.StripCloneSuffix(objectName ?? "");
             for (int i = 0; i < nearbyN; i++)
             {
                 if (_overlap3D[i] == null) continue;
                 Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
-                if (expl != null)
-                {
-                    target = expl;
-                    break;
-                }
+                if (expl == null) continue;
+                if (string.IsNullOrEmpty(want)
+                    || string.Equals(DialogOutcomeCloseNetHandlers.StripCloneSuffix(expl.name), want, StringComparison.Ordinal))
+                    return expl;
+                if (unnamed == null)
+                    unnamed = expl;
             }
+            Explodes named = ResolveExplodesByNameNear(objectName, pos);
+            if (named != null)
+                return named;
+            return string.IsNullOrEmpty(want) ? unnamed : null;
+        }
 
-            if (target == null)
-                target = ResolveExplodesByNameNear(objectName, pos);
+        public static void TriggerExplosion(Vector3 pos, string objectName, bool flaming = false, string soundId = null)
+        {
+            Explodes target = FindExplodesAt(pos, objectName);
 
             if (target != null)
             {
@@ -143,20 +157,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void SpawnExplosionVisual(Vector3 pos, string objectName, string prefabName, string soundId)
         {
-            Explodes target = null;
-
-            // Position first: the barrel under the explosion.
-            int nearbyN = OverlapNear(pos, 1.5f);
-            for (int i = 0; i < nearbyN; i++)
-            {
-                if (_overlap3D[i] == null) continue;
-                Explodes expl = _overlap3D[i].GetComponentInParent<Explodes>();
-                if (expl != null) { target = expl; break; }
-            }
-
-            // Then a same-named Explodes close to the reported position (host moved/rolled it).
-            if (target == null)
-                target = ResolveExplodesByNameNear(objectName, pos);
+            Explodes target = FindExplodesAt(pos, objectName);
 
             // Sound is independent of visual success. Play first so already-activated or
             // destroyed mushrooms still boom on peers.

@@ -46,6 +46,24 @@ namespace DWMPHorde.Sync
                 return;
             }
 
+            // The thrower's weapon itself, as vanilla throwItem puts it in the thrown object's slot,
+            // so whoever picks it back up gets that weapon (its wear and upgrades), not a new one.
+            if (msg.Recoverable)
+            {
+                Inventory inv = go.GetComponent<Inventory>();
+                if (inv != null && inv.slots != null && inv.slots.Count > 0)
+                {
+                    InvSlot slot = inv.slots[0];
+                    slot.inventory = inv;
+                    InvItemClass created = slot.createItem(msg.ItemType, 1, 1f, InvItem.ModifierQuality.none, false);
+                    if (!InvItemClass.isNull(created))
+                    {
+                        InvItemTransferApply.ApplyMeta(created, msg.Durability, 0, false);
+                        InvItemUpgradeWire.Apply(created, msg.Upgrades);
+                    }
+                }
+            }
+
             // Mirror ThrownItem.Awake ignorePlayerCollisions + avoid proxy / local player clips
             // that fire onCollide / fireOnCollideOnAnyCollision at spawn (molotov/match).
             Collider itemCol = go.GetComponent<Collider>();

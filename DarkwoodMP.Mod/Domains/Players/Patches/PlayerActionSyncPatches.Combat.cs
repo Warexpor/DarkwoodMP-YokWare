@@ -137,8 +137,25 @@ namespace DWMPHorde.Patches
                 longevity = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
                     capture.HeldItem, lonFallback);
             }
+            // Vanilla throwItem put the thrown weapon itself (wear, upgrades) in the thrown object's
+            // slot when it can be picked back up; peers' copies carry the same weapon.
+            bool recoverable = false;
+            float recDurability = 0f;
+            string[] recUpgrades = null;
+            Inventory thrownInv = capture.HeldItem != null ? capture.HeldItem.GetComponent<Inventory>() : null;
+            InvItemClass thrownItem = thrownInv != null && thrownInv.slots != null && thrownInv.slots.Count > 0
+                ? thrownInv.slots[0].invItem : null;
+            if (!InvItemClass.isNull(thrownItem) && thrownItem.baseClass != null && thrownItem.baseClass.recoverableAfterThrown)
+            {
+                recoverable = true;
+                recDurability = thrownItem.durability;
+                recUpgrades = Sync.InvItemUpgradeWire.CollectNames(thrownItem);
+            }
             ModRuntime.Network.SendThrowableSpawn(new ThrowableSpawnMessage
             {
+                Recoverable = recoverable,
+                Durability = recDurability,
+                Upgrades = recUpgrades,
                 ItemType = capture.ItemType,
                 PosX = pos.x,
                 PosY = pos.y,
