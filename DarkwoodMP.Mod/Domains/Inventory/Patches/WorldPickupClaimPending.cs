@@ -20,6 +20,9 @@ namespace DWMPHorde.Patches
             public string RecipeFor;
             public int Amount;
             public int PreCount;
+            /// <summary>The taken copy (vanilla items of one type differ in wear and ammo).</summary>
+            public float Durability;
+            public int Ammo;
         }
 
         private static readonly Dictionary<Sync.WorldPhysicsSyncService.PosNameKey, Entry> _pending =
@@ -32,7 +35,7 @@ namespace DWMPHorde.Patches
         }
 
         internal static void Record(float x, float y, float z, string objectName,
-            string itemType, int amount, int preCount, string recipeFor = null)
+            string itemType, int amount, int preCount, string recipeFor = null, float durability = -1f, int ammo = 0)
         {
             if (string.IsNullOrEmpty(objectName) || string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
@@ -41,7 +44,9 @@ namespace DWMPHorde.Patches
                 ItemType = itemType,
                 RecipeFor = recipeFor,
                 Amount = amount,
-                PreCount = preCount
+                PreCount = preCount,
+                Durability = durability,
+                Ammo = ammo
             };
         }
 
@@ -52,7 +57,8 @@ namespace DWMPHorde.Patches
 
         /// <summary>Take pending once; returns false if none.</summary>
         internal static bool TryTake(float x, float y, float z, string objectName,
-            out string itemType, out int amount, out int preCount, out string recipeFor)
+            out string itemType, out int amount, out int preCount, out string recipeFor,
+            out float durability, out int ammo)
         {
             var k = Key(x, y, z, objectName);
             if (_pending.TryGetValue(k, out Entry e))
@@ -62,12 +68,16 @@ namespace DWMPHorde.Patches
                 recipeFor = e.RecipeFor;
                 amount = e.Amount;
                 preCount = e.PreCount;
+                durability = e.Durability;
+                ammo = e.Ammo;
                 return true;
             }
             itemType = null;
             recipeFor = null;
             amount = 0;
             preCount = -1;
+            durability = -1f;
+            ammo = 0;
             return false;
         }
 
@@ -80,7 +90,7 @@ namespace DWMPHorde.Patches
         // --- GUID drop claim pending (DroppedItemPickup host-auth) ---
 
         internal static void RecordGuid(string guid, string itemType, int amount, int preCount,
-            string recipeFor = null)
+            string recipeFor = null, float durability = -1f, int ammo = 0)
         {
             if (string.IsNullOrEmpty(guid) || string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
@@ -89,7 +99,9 @@ namespace DWMPHorde.Patches
                 ItemType = itemType,
                 RecipeFor = recipeFor,
                 Amount = amount,
-                PreCount = preCount
+                PreCount = preCount,
+                Durability = durability,
+                Ammo = ammo
             };
         }
 
@@ -100,7 +112,7 @@ namespace DWMPHorde.Patches
         }
 
         internal static bool TryTakeGuid(string guid, out string itemType, out int amount,
-            out int preCount, out string recipeFor)
+            out int preCount, out string recipeFor, out float durability, out int ammo)
         {
             if (!string.IsNullOrEmpty(guid) && _pendingGuid.TryGetValue(guid, out Entry e))
             {
@@ -109,20 +121,24 @@ namespace DWMPHorde.Patches
                 recipeFor = e.RecipeFor;
                 amount = e.Amount;
                 preCount = e.PreCount;
+                durability = e.Durability;
+                ammo = e.Ammo;
                 return true;
             }
             itemType = null;
             recipeFor = null;
             amount = 0;
             preCount = -1;
+            durability = -1f;
+            ammo = 0;
             return false;
         }
 
         internal static void TryRefundIfPendingGuid(string guid, string reason)
         {
-            if (!TryTakeGuid(guid, out string type, out int amt, out int pre, out string recipeFor))
+            if (!TryTakeGuid(guid, out string type, out int amt, out int pre, out string recipeFor, out float dur, out int ammo))
                 return;
-            Refund(type, amt, pre, reason, recipeFor);
+            Refund(type, amt, pre, reason, recipeFor, dur, ammo);
         }
 
         /// <summary>
@@ -130,7 +146,7 @@ namespace DWMPHorde.Patches
         /// <paramref name="recipeFor"/> non-empty: the item is that recipe (live type "recipe").
         /// </summary>
         internal static void Refund(string itemType, int amount, int preCount, string reason,
-            string recipeFor = null)
+            string recipeFor = null, float durability = -1f, int ammo = 0)
         {
             if (string.IsNullOrEmpty(itemType) || amount <= 0)
                 return;
@@ -155,7 +171,7 @@ namespace DWMPHorde.Patches
                 }
 
                 int removed = ContainerSyncHelpers.RemoveGrantedFromPlayer(
-                    wireType, isRecipe, Math.Min(toRemove, totalNow), -1f, 0);
+                    wireType, isRecipe, Math.Min(toRemove, totalNow), durability, ammo);
 
                 ModLog.Event(LogCat.World,
                     "[WorldPickup] refunded " + (isRecipe ? "recipe:" : "") + wireType + " x" + removed
@@ -177,9 +193,9 @@ namespace DWMPHorde.Patches
         /// <summary>Lost race: consume pending + refund once.</summary>
         internal static void TryRefundIfPending(float x, float y, float z, string objectName, string reason)
         {
-            if (!TryTake(x, y, z, objectName, out string type, out int amt, out int pre, out string recipeFor))
+            if (!TryTake(x, y, z, objectName, out string type, out int amt, out int pre, out string recipeFor, out float dur, out int ammo))
                 return;
-            Refund(type, amt, pre, reason, recipeFor);
+            Refund(type, amt, pre, reason, recipeFor, dur, ammo);
         }
     }
 }

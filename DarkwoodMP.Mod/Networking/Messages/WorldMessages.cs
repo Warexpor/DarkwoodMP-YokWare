@@ -786,6 +786,8 @@ namespace DWMPHorde.Networking
         public string[] Upgrades;
         /// <summary>Flashlight / toggle on.</summary>
         public bool ShouldBeActive;
+        /// <summary>The throw vanilla gives a dropped item (Rigidbody velocity); zero for a resting one.</summary>
+        public float VelX, VelY, VelZ;
 
         public void Serialize(NetWriter w)
         {
@@ -800,6 +802,7 @@ namespace DWMPHorde.Networking
             w.Put(IsRecipe);
             DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
             w.Put(ShouldBeActive);
+            w.Put(VelX); w.Put(VelY); w.Put(VelZ);
         }
 
         public static DroppedItemSpawnMessage Deserialize(NetReader r)
@@ -822,6 +825,9 @@ namespace DWMPHorde.Networking
             };
             msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
             msg.ShouldBeActive = r.GetBool();
+            msg.VelX = r.GetFloat();
+            msg.VelY = r.GetFloat();
+            msg.VelZ = r.GetFloat();
             return msg;
         }
     }

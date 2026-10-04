@@ -35,6 +35,8 @@ namespace DWMPHorde.Networking
             /// <summary>&lt; 0 when unknown.</summary>
             public float Durability;
             public int Ammo;
+            /// <summary>Loot-share extra the take put in the bag on top of the stack (refunded with it).</summary>
+            public int ShareExtra;
             /// <summary>Time.realtimeSinceStartup when the take was sent.</summary>
             public float RecordedAt;
         }
@@ -107,6 +109,16 @@ namespace DWMPHorde.Networking
                 Ammo = ammo,
                 RecordedAt = now
             };
+        }
+
+        /// <summary>The loot share added <paramref name="extra"/> on top of this take (ItemDoublePickupPatch).</summary>
+        internal void AddPendingTakeShareExtra(Vector3 pos, int slotIdx, int extra)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
+            if (extra <= 0 || !_pendingTakePreCounts.TryGetValue(key, out PendingTake take))
+                return;
+            take.ShareExtra += extra;
+            _pendingTakePreCounts[key] = take;
         }
 
         /// <summary>

@@ -145,8 +145,9 @@ namespace DWMPHorde.Networking
                 if (take.PreCount >= 0)
                 {
                     // Precise refund: only the surplus since the take, never more than the
-                    // denied amount (items of this type gained elsewhere meanwhile stay).
-                    toRemove = Math.Min(msg.Amount, Math.Max(0, totalNow - take.PreCount));
+                    // denied amount plus the loot-share extra that came with it (items of this
+                    // type gained elsewhere meanwhile stay).
+                    toRemove = Math.Min(msg.Amount + take.ShareExtra, Math.Max(0, totalNow - take.PreCount));
                 }
                 else if (cursorCancelled)
                 {

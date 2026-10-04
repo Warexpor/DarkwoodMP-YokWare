@@ -76,8 +76,12 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net == null || !net.IsConnected) return;
 
-            // Only broadcast end if WE own the claim (don't clear a remote player's claim).
-            if (net.PlayerInteractHandlers.DragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId)
+            // Only broadcast end if WE own the claim (don't clear a remote player's claim). Names
+            // repeat: a peer's claim on another same-named object (its drag is elsewhere) is not
+            // this one, and our end must still go out.
+            if (net.PlayerInteractHandlers.DragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId
+                && net.LastDragSyncPos.TryGetValue(objName, out Vector3 peerDragPos)
+                && Core.trueDistance(peerDragPos, __instance.transform.position) <= 60f)
                 return;
 
             net.NotifyLocalDragEnded(objName);

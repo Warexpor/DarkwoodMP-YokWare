@@ -15,6 +15,33 @@ namespace DWMPHorde.Networking
     /// <summary>Dropped-item spawn/pickup + GUID host-auth claim (composed for 0.8).</summary>
     internal sealed partial class PlayerFXNetHandlers
     {
+        /// <summary>A dropped item with no GUID, of this item and amount, lying at this spot (XZ: drops sit below the ground plane).</summary>
+        private static GameObject FindUntaggedDrop(Vector3 pos, string wireType, bool isRecipe, int amount)
+        {
+            Collider[] buf = WorldQueryHelper.SharedOverlapBuf;
+            int n = Physics.OverlapSphereNonAlloc(pos, 30f, buf);
+            for (int i = 0; i < n; i++)
+            {
+                Collider c = buf[i];
+                if (c == null)
+                    continue;
+                Item item = c.GetComponentInParent<Item>();
+                if (item == null || !item.isDroppedItem || item.GetComponent<Players.DroppedItemIdentifier>() != null)
+                    continue;
+                float dx = item.transform.position.x - pos.x, dz = item.transform.position.z - pos.z;
+                if (dx * dx + dz * dz > 1.5f * 1.5f)
+                    continue;
+                Inventory inv = item.GetComponent<Inventory>();
+                InvItemClass held = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
+                if (InvItemClass.isNull(held) || held.isRecipe != isRecipe || held.amount != amount)
+                    continue;
+                string type = held.isRecipe ? held.recipeFor : held.type;
+                if (type == wireType)
+                    return item.gameObject;
+            }
+            return null;
+        }
+
         internal void HandleDroppedItemSpawn(DroppedItemSpawnMessage msg)
         {
             if (string.IsNullOrEmpty(msg.Guid) || string.IsNullOrEmpty(msg.PrefabPath) || string.IsNullOrEmpty(msg.ItemType))
@@ -39,6 +66,19 @@ namespace DWMPHorde.Networking
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
 
+            // A joiner's world comes from the host's save, which already holds drops that were on
+            // the ground when it was written (saved without their GUID). The join snapshot then
+            // sends them again: tag the saved copy instead of spawning a second one.
+            GameObject saved = FindUntaggedDrop(pos, msg.ItemType, msg.IsRecipe, msg.Amount);
+            if (saved != null)
+            {
+                var adopted = saved.AddComponent<Players.DroppedItemIdentifier>();
+                adopted.Id = msg.Guid;
+                Players.DroppedItemIdentifier.Register(adopted);
+                ModRuntime.LegacyInfo($"[DroppedItemSpawn] adopted saved drop {msg.ItemType} x{msg.Amount} guid={msg.Guid}");
+                return;
+            }
+
             GameObject go = Core.AddPrefab(msg.PrefabPath, pos, rot, Core.ItemContainer);
             if (go == null) return;
 
@@ -62,6 +102,12 @@ namespace DWMPHorde.Networking
 
             Core.addToSaveable(go, isDynamic: true);
             Singleton<WorldGrid>.Instance?.registerToNode(go);
+            if (msg.VelX != 0f || msg.VelY != 0f || msg.VelZ != 0f)
+            {
+                Rigidbody rb = go.GetComponent<Rigidbody>();
+                if (rb != null)
+                    rb.velocity = new Vector3(msg.VelX, msg.VelY, msg.VelZ);
+            }
 
             var ident = go.AddComponent<Players.DroppedItemIdentifier>();
             ident.Id = msg.Guid;
@@ -193,9 +239,9 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
             if (Patches.WorldPickupClaimPending.TryTakeGuid(msg.Guid,
-                out string type, out int amt, out int pre, out string recipeFor))
+                out string type, out int amt, out int pre, out string recipeFor, out float dur, out int ammo))
             {
-                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "guid claim deny", recipeFor);
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "guid claim deny", recipeFor, dur, ammo);
                 return;
             }
 

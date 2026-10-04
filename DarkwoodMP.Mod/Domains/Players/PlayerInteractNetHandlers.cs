@@ -66,6 +66,9 @@ namespace DWMPHorde.Networking
             return false;
         }
 
+        /// <summary>A peer's drag this close to the local player's dragged body is that body.</summary>
+        private const float SameDraggedBodyRadius = 60f;
+
         internal void HandleDragSync(DragSyncMessage msg)
         {
             // Host: the transport peer is the only trustworthy claimer id; an embedded id could
@@ -94,10 +97,14 @@ namespace DWMPHorde.Networking
                 _net.PlayerInteractHandlers.DragEndedAt.Remove(msg.ObjectName);
             }
 
+            // Names repeat (every "chair" in a hideout): the same object only when the peer's
+            // grab is where the local player's dragged body is, or two players dragging two
+            // identical chairs force-stopped each other.
             bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
                 Player.Instance.itemBeingDragged != null &&
                 string.Equals(Player.Instance.itemBeingDragged.gameObject.name, msg.ObjectName,
-                    System.StringComparison.Ordinal);
+                    System.StringComparison.Ordinal)
+                && Core.trueDistance(Player.Instance.itemBeingDragged.transform.position, targetPos) <= SameDraggedBodyRadius;
 
             // For the local DragSync echo, native ItemSounds already owns scrape,
             // applying MOS here doubles the sound for the dragging client.
