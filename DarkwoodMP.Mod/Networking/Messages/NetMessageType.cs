@@ -379,7 +379,18 @@ namespace DWMPHorde.Networking
         /// and when the host changes them in the F2 menu.
         /// </summary>
         [HostOnly] SessionSettings = 146,
+        /// <summary>
+        /// Host→clients: a host enemy attack frame (melee sensor or projectile). Each client
+        /// re-creates it on its own copy of the enemy; only that client's own player can be
+        /// hit ("defender decides"). Added in protocol 29.
+        /// </summary>
+        [HostOnly] EnemyAttack = 147,
+        /// <summary>
+        /// Client→host: a re-created enemy attack hit this client's own player (damage already
+        /// applied there). Host shows the hit on the stand-in for the other peers. Protocol 29.
+        /// </summary>
+        EnemyHitConfirm = 148,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 146
+        _Highest = 148
     }
 }

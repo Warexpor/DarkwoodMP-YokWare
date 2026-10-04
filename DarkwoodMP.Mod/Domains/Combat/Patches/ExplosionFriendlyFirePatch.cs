@@ -34,6 +34,8 @@ namespace DWMPHorde.Patches
         private static void Prefix(Explodes __instance, ref State __state)
         {
             __state = default;
+            // Nesting depth so an enemy throw's blast is not read as its direct hit.
+            DefenderAttackContext.ExplodeDepth++;
             if (__instance == null) return;
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected) return;
@@ -57,6 +59,8 @@ namespace DWMPHorde.Patches
         // Finalizer (not Postfix): affectsPlayer must be handed back even if explode throws.
         private static void Finalizer(Explodes __instance, State __state)
         {
+            if (DefenderAttackContext.ExplodeDepth > 0)
+                DefenderAttackContext.ExplodeDepth--;
             if (__state.Host && __instance != null)
                 __instance.affectsPlayer = __state.OrigAffectsPlayer;
         }

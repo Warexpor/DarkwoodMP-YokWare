@@ -10,12 +10,21 @@ namespace DWMPHorde.Networking
     /// <summary>
     /// Periodically snapshots nearby entity positions and states, then broadcasts them
     /// to connected peers (LAN LiteNetLib or Steam P2P) on an unreliable channel.
+    /// Bodies near a remote player go out at 20 Hz, the rest at 10 Hz; every batch carries
+    /// the host clock so clients interpolate on the host timeline.
     /// </summary>
     public static class EntityStateBroadcastService
     {
         private static float _sendTimer;
         private static uint _nextSnapshotSequence;
-        private const float SendInterval = 0.1f;
+        private const float SendInterval = 0.05f;
+        /// <summary>Bodies within this XZ radius of a remote player are sent every tick; the rest every other tick.</summary>
+        private const float NearRemoteBand = 800f;
+        /// <summary>Ticks between full resyncs (dirty cache cleared, descriptors re-sent): 1 s.</summary>
+        private const int FullResyncTicks = 20;
+        /// <summary>Sends of a new / changed id that carry its name and prefab path.</summary>
+        private const int DescriptorSends = 3;
+        private static int _tick;
 
         /// <summary>Per-tick entity cap (split across packets by <see cref="SendChunked"/>); keeps dense night scenes from starving later entities.</summary>
         private const int MaxEntitiesPerPacket = 256;
@@ -23,9 +32,23 @@ namespace DWMPHorde.Networking
         private const float PriorityDistance = 1400f;
         private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
-        /// <summary>Stable stripped name / prefab path — avoid Unity <c>name</c> + Substring + GetComponent every 10 Hz.</summary>
-        private static readonly Dictionary<short, string> _cachedEntityNames = new Dictionary<short, string>(128);
-        private static readonly Dictionary<short, string> _cachedPrefabPaths = new Dictionary<short, string>(128);
+        /// <summary>
+        /// Stable stripped name / prefab path per id, keyed to the body that owned the id when
+        /// cached (ids are recycled after a despawn grace) — avoids Unity <c>name</c> +
+        /// Substring + GetComponent per send.
+        /// </summary>
+        private struct Descriptor
+        {
+            public Character Owner;
+            public string Name;
+            public string PrefabPath;
+            public int SendsLeft;
+        }
+        private static readonly Dictionary<short, Descriptor> _descriptors = new Dictionary<short, Descriptor>(128);
+        /// <summary>Ids that changed last send: one more unchanged send pins the stop pose on clients.</summary>
+        private static readonly HashSet<short> _settle = new HashSet<short>();
+        private static readonly HashSet<short> _settleNext = new HashSet<short>();
+        private static bool _fullResyncTick;
         /// <summary>Round-robin start index so a full tracker list is not starved by the per-packet cap.</summary>
         private static int _scanStart;
 
@@ -56,8 +79,9 @@ namespace DWMPHorde.Networking
         private static byte[] _bodyBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
         /// <summary>End offset of entry i inside the serialized body (chunk boundaries).</summary>
         private static int[] _entryEnd = new int[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
-        /// <summary>Framed bytes besides entries: type + Sequence + count.</summary>
-        private const int FrameBytes = 1 + 4 + 4;
+        /// <summary>Framed bytes besides entries: type + Sequence + HostTime + count.</summary>
+        private const int FrameBytes = 1 + 4 + 4 + 4;
+        private static float _batchHostTime;
 
         /// <summary>
         /// Serialize the dirty entities once, then cut them into packets that each fit the smallest
@@ -90,6 +114,7 @@ namespace DWMPHorde.Networking
                 _snapWriter.Reset();
                 _snapWriter.Put((byte)NetMessageType.EntityState);
                 _snapWriter.Put(++_nextSnapshotSequence);
+                _snapWriter.Put(_batchHostTime);
                 _snapWriter.Put(end - start);
                 _snapWriter.PutRaw(_bodyBuf, startOff, endOff - startOff);
                 _snapWriter.CopyDataInto(ref _snapSendBuf, out int sendLen);
@@ -112,12 +137,18 @@ namespace DWMPHorde.Networking
             if (_buffer.Length < maxEntities)
                 _buffer = new EntitySnapshotNet[maxEntities];
 
-            // Full resync every ~1s (10 ticks) to correct drift
-            if (++_fullResyncCounter >= 10)
+            // Full resync every ~1s: every body in range is sent (lost packets, late joiners),
+            // with its descriptor. Only real changes earn a settle send afterwards.
+            _fullResyncTick = false;
+            if (++_fullResyncCounter >= FullResyncTicks)
             {
                 _fullResyncCounter = 0;
-                _lastSent.Clear();
+                _fullResyncTick = true;
             }
+            // Far bodies (no remote within NearRemoteBand) only on even ticks: 10 Hz.
+            bool farTick = (++_tick & 1) == 0 || _fullResyncTick;
+            _batchHostTime = Time.unscaledTime;
+            _settleNext.Clear();
 
             int count = 0;
 
@@ -125,6 +156,7 @@ namespace DWMPHorde.Networking
             // Matches WorldGrid proxy cull / client interest (XZ).
             float maxDistSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
             float priorityDistSq = PriorityDistance * PriorityDistance;
+            float nearBandSq = NearRemoteBand * NearRemoteBand;
 
             if (_scanStart < 0 || _scanStart >= nAll)
                 _scanStart = 0;
@@ -159,12 +191,27 @@ namespace DWMPHorde.Networking
                     if (dHost > maxDistSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, maxDistSq))
                         continue;
 
-                    if (!TryBuildSnapshot(c, cPos, out EntitySnapshotNet snap))
+                    if (!farTick && !(nearRemote && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, nearBandSq)))
+                    {
+                        // Not its tick: keep its settle send for the next one.
+                        short waitId = CharacterTracker.GetStableId(c);
+                        if (waitId != 0 && _settle.Contains(waitId))
+                            _settleNext.Add(waitId);
+                        continue;
+                    }
+
+                    short sid = CharacterTracker.GetStableId(c);
+                    bool settle = sid != 0 && _settle.Contains(sid);
+                    if (!TryBuildSnapshot(c, cPos, settle || _fullResyncTick, out EntitySnapshotNet snap))
                         continue;
 
                     // Dirty-check: skip if nothing changed since last send
-                    if (_lastSent.TryGetValue(snap.Index, out var last) && !HasChanged(last, snap))
+                    bool changed = !_lastSent.TryGetValue(snap.Index, out var last) || HasChanged(last, snap);
+                    if (!changed && !settle && !_fullResyncTick)
                         continue;
+                    // Moved this send: one more send after it stops pins the final pose.
+                    if (changed)
+                        _settleNext.Add(snap.Index);
 
                     _lastSent[snap.Index] = snap;
                     _buffer[count] = snap;
@@ -174,6 +221,25 @@ namespace DWMPHorde.Networking
 
             // Advance scan window for next tick
             _scanStart = (_scanStart + Mathf.Max(1, maxEntities / 2)) % nAll;
+
+            // Ids not reached this tick (packet cap, out of range) keep their pending settle
+            // send while they are still live.
+            foreach (short pending in _settle)
+            {
+                Character pc = CharacterTracker.FindByStableId(pending);
+                if (pc == null || !PlayerPositionManager.IsAnyPlayerWithinSq(pc.transform.position, maxDistSq))
+                    continue;
+                bool sentNow = false;
+                for (int i = 0; i < count; i++)
+                {
+                    if (_buffer[i].Index == pending) { sentNow = true; break; }
+                }
+                if (!sentNow)
+                    _settleNext.Add(pending);
+            }
+            _settle.Clear();
+            foreach (short next in _settleNext)
+                _settle.Add(next);
 
             if (count == 0)
                 return;
@@ -234,7 +300,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static bool TryBuildSnapshot(Character c, Vector3 cPos, out EntitySnapshotNet snap)
+        private static bool TryBuildSnapshot(Character c, Vector3 cPos, bool force, out EntitySnapshotNet snap)
         {
             snap = default;
 
@@ -305,7 +371,7 @@ namespace DWMPHorde.Networking
             flags = (byte)((flags & 0x0F) | EntitySnapshotNet.PackBehaviour(c.behaviour));
 
             // Cheap dirty gate before Unity name / PrefabPathComponent work.
-            if (_lastSent.TryGetValue(id, out EntitySnapshotNet last)
+            if (!force && _lastSent.TryGetValue(id, out EntitySnapshotNet last)
                 && last.PosX == cPos.x && last.PosY == cPos.y && last.PosZ == cPos.z
                 && last.RotY == rot.y
                 && last.ClipFrame == clipFrame
@@ -317,22 +383,27 @@ namespace DWMPHorde.Networking
                 return false;
             }
 
-            if (!_cachedEntityNames.TryGetValue(id, out string entityName) || entityName == null)
+            if (!_descriptors.TryGetValue(id, out Descriptor desc) || desc.Owner != c)
             {
-                entityName = c.name ?? "";
+                string entityName = c.name ?? "";
                 if (entityName.EndsWith("(Clone)", StringComparison.Ordinal))
                     entityName = entityName.Substring(0, entityName.Length - 7);
-                _cachedEntityNames[id] = entityName;
-            }
-
-            if (!_cachedPrefabPaths.TryGetValue(id, out string prefabPath))
-            {
-                prefabPath = "";
+                string prefabPath = "";
                 var ppc = c.GetComponent<PrefabPathComponent>();
                 if (ppc != null && ppc.Path != null)
                     prefabPath = ppc.Path;
-                _cachedPrefabPaths[id] = prefabPath;
+                desc = new Descriptor
+                {
+                    Owner = c,
+                    Name = entityName,
+                    PrefabPath = prefabPath,
+                    SendsLeft = DescriptorSends
+                };
             }
+            bool withDescriptor = _fullResyncTick || desc.SendsLeft > 0;
+            if (withDescriptor && desc.SendsLeft > 0)
+                desc.SendsLeft--;
+            _descriptors[id] = desc;
 
             snap = new EntitySnapshotNet
             {
@@ -345,8 +416,9 @@ namespace DWMPHorde.Networking
                 ClipFrame = clipFrame,
                 Alive = alive,
                 HealthPct = healthPct,
-                EntityName = entityName,
-                PrefabPath = prefabPath,
+                HasDescriptor = withDescriptor,
+                EntityName = desc.Name,
+                PrefabPath = desc.PrefabPath,
                 Flags = flags
             };
             return true;
@@ -370,8 +442,12 @@ namespace DWMPHorde.Networking
             _sendTimer = 0f;
             _nextSnapshotSequence = 0;
             _lastSent.Clear();
-            _cachedEntityNames.Clear();
-            _cachedPrefabPaths.Clear();
+            _descriptors.Clear();
+            _settle.Clear();
+            _settleNext.Clear();
+            _fullResyncTick = false;
+            _tick = 0;
+            _batchHostTime = 0f;
             _prevClip.Clear();
             _prevAlive.Clear();
             _fullResyncCounter = 0;
@@ -387,6 +463,7 @@ namespace DWMPHorde.Networking
                 || last.Alive != current.Alive || last.HealthPct != current.HealthPct
                 || last.EntityName != current.EntityName || last.PrefabPath != current.PrefabPath
                 || last.Flags != current.Flags;
+            // HasDescriptor is transport only: a re-sent name is not a change.
         }
     }
 }

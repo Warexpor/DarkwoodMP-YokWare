@@ -301,6 +301,81 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void DamagePlayer_CarriesShadowHit()
+    {
+        var msg = new DamagePlayerMessage { Damage = 7, ShadowHit = true };
+        var back = DamagePlayerMessage.Deserialize(new NetReader(Bytes(msg.Serialize)));
+        Assert.True(back.ShadowHit);
+        Assert.Equal(7, back.Damage);
+    }
+
+    [Fact]
+    public void EnemyAttack_MeleeOmitsFlightFields_ThrownCarriesThem()
+    {
+        var melee = new EnemyAttackMessage
+        {
+            EntityId = 12, Kind = EnemyAttackMessage.KindMelee, Name = "MeleeSensor_dog", HostTime = 33.5f,
+            PosX = 1f, PosY = 2f, PosZ = 3f, RotY = 90f, Damage = 22.5f, Clip = "Attack1", ClipFrame = 4
+        };
+        byte[] meleeBytes = Bytes(melee.Serialize);
+        var r = new NetReader(meleeBytes);
+        var backMelee = EnemyAttackMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("MeleeSensor_dog", backMelee.Name);
+        Assert.Equal(22.5f, backMelee.Damage);
+        Assert.Equal((short)4, backMelee.ClipFrame);
+        Assert.False(backMelee.Thrown);
+
+        var thrown = melee;
+        thrown.Kind = EnemyAttackMessage.KindRangedSensor;
+        thrown.Thrown = true;
+        thrown.VelX = 5f; thrown.LandZ = 9f; thrown.FlyTime = 0.7f; thrown.Drag = 2f;
+        byte[] thrownBytes = Bytes(thrown.Serialize);
+        Assert.Equal(meleeBytes.Length + 8 * 4, thrownBytes.Length);
+        var backThrown = EnemyAttackMessage.Deserialize(new NetReader(thrownBytes));
+        Assert.True(backThrown.Thrown);
+        Assert.Equal(5f, backThrown.VelX);
+        Assert.Equal(9f, backThrown.LandZ);
+        Assert.Equal(0.7f, backThrown.FlyTime);
+        Assert.Equal(2f, backThrown.Drag);
+    }
+
+    [Fact]
+    public void EntitySnapshot_DescriptorTravelsOnlyWhenFlagged()
+    {
+        var bare = new EntitySnapshotNet { Index = 3, Clip = "Walk", EntityName = "dog_01", PrefabPath = "Characters/dog_01" };
+        var withDesc = bare;
+        withDesc.HasDescriptor = true;
+        byte[] a = Bytes(bare.Serialize);
+        byte[] b = Bytes(withDesc.Serialize);
+        Assert.True(b.Length > a.Length);
+        var backBare = EntitySnapshotNet.Deserialize(new NetReader(a));
+        Assert.Null(backBare.EntityName);
+        var backDesc = EntitySnapshotNet.Deserialize(new NetReader(b));
+        Assert.Equal("dog_01", backDesc.EntityName);
+        Assert.Equal("Characters/dog_01", backDesc.PrefabPath);
+
+        var batch = new EntityStateMessage { Sequence = 9, HostTime = 12.25f, Entities = new[] { withDesc, bare } };
+        var r = new NetReader(Bytes(batch.Serialize));
+        var backBatch = EntityStateMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal(12.25f, backBatch.HostTime);
+        Assert.Equal(2, backBatch.Entities.Length);
+    }
+
+    [Fact]
+    public void EnemyHitConfirm_RoundTrips()
+    {
+        var msg = new EnemyHitConfirmMessage { EntityId = 5, Kind = 2, Damage = 30, HitX = 1f, HitY = 2f, HitZ = 3f };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = EnemyHitConfirmMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal(30, back.Damage);
+        Assert.Equal((byte)2, back.Kind);
+        Assert.Equal(3f, back.HitZ);
+    }
+
+    [Fact]
     public void FriendlyFire_RoundTripsSensorEffects()
     {
         var msg = new FriendlyFireMessage

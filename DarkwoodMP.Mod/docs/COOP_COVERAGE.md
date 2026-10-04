@@ -44,7 +44,7 @@ state without changing existing players' state.
 | Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client) | Code covered; runtime pending |
 | Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths | Code covered; runtime pending |
-| Entity AI and snapshots | `EntityStateBroadcastService`, `ClientEntityInterpolationService`, `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
+| Entity AI and snapshots | `EntityStateBroadcastService` (20 Hz near remotes, host clock), `ClientEntityInterpolationService` (host-timeline interpolation), `DefenderAttackPatches` + `EnemyAttackNetHandlers` (enemy attacks judged by the defender), `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
 | Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134), ShadowArmor (`ShadowArmorState` 135), world Burn (`WorldBurnState` 137), Infection via `EntitySpawn` 86, RandomObject/Object/ObjectPool/SpawnPrefab/RandomSpawnArea/CharacterSpawnPoint host-auth, `GameEventsBulk` destroyOnFire latch, early-gen `WorldGenerator`/`WorldChunk`/`ObjectPoolSpawnerController` host-auth, EventTriggers sight `AnyInSight` | Code covered; runtime pending |
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
 | Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
@@ -82,6 +82,19 @@ anti-cheat.
 Runtime checks still needed: host attacks client, client attacks host, client A
 attacks client B, melee and projectile paths, friendly fire on and off, and
 dead or missing targets.
+
+### Enemy attacks ("defender decides")
+
+The host fans out every enemy attack frame near a remote player (`EnemyAttack` 147:
+melee sensor, ranged `SensorType`, activity projectile). Each client re-creates it on
+its own copy of the enemy; the copy can hit only that client's player. The host
+original hits the host player, enemies and the world, and skips remote stand-ins.
+Hits are reported back (`EnemyHitConfirm` 148) for blood and sound on the stand-in.
+Client copies of enemies never fire their own attack frame (event 997). Aura,
+flier dive, `Shooter`, explosions, shadows, traps and fire stay host-decided.
+
+Runtime checks still needed: client dodge vs hit, repeated swings, ranged and thrown
+enemies, 3 players next to one enemy, blood for a third player, late attack drop.
 
 ### Client AI suppression
 

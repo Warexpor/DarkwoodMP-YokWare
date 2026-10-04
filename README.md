@@ -4,8 +4,8 @@ Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.128** |
-| Wire | Horde protocol **28** |
+| Product | YokWare Branch **0.8.129** |
+| Wire | Horde protocol **29** |
 | Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
 | Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
 | License | GPLv3, see [LICENSE](LICENSE) |
@@ -32,7 +32,7 @@ All peers in a session must use the same mod version and protocol.
   only the host may send, and relays a client message to the other clients only
   after applying it.
 
-The highest assigned message ID is 146 (`SessionSettings`). Voice data uses message
+The highest assigned message ID is 148 (`EnemyHitConfirm`). Voice data uses message
 129 when Steam voice is enabled. How the code is organised, and the rules for
 adding messages, handlers, patches and session state, are in
 [DarkwoodMP.Mod/docs/ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md).
@@ -215,5 +215,5 @@ Warexpor and Yokyy co-author the YokWare Branch. See
 GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
 [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Current ship: **0.8.128**, protocol **28**. See
+Current ship: **0.8.129**, protocol **29**. See
 [CHANGELOG.md](CHANGELOG.md).

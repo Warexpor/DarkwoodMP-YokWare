@@ -423,6 +423,8 @@ namespace DWMPHorde.Networking
             _localHitEchoIgnoreUntil.Remove(entityId);
             _localDeathSoundPlayed.Remove(entityId);
             _recentlyDespawnedUntil[entityId] = Time.unscaledTime + DespawnSnapshotIgnoreSec;
+            // A recycled id is a different body; the host re-sends its descriptor.
+            _descriptors.Remove(entityId);
 
             // Drop pending match rows for this host id (would otherwise claim a twin).
             for (int i = _pendingMatches.Count - 1; i >= 0; i--)

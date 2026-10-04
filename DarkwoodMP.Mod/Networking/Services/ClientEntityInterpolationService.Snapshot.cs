@@ -31,6 +31,8 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            _hostClock.AddSample(msg.HostTime, Time.unscaledTime);
+
             bool wasFirst = !_receivedFirstSnapshot;
             _receivedFirstSnapshot = true;
             if (wasFirst)
@@ -54,6 +56,23 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < msg.Entities.Length; i++)
             {
                 EntitySnapshotNet e = msg.Entities[i];
+                if (e.HasDescriptor)
+                {
+                    _descriptors[e.Index] = new EntityDescriptor { Name = e.EntityName ?? "", PrefabPath = e.PrefabPath ?? "" };
+                }
+                else if (_descriptors.TryGetValue(e.Index, out EntityDescriptor known))
+                {
+                    e.EntityName = known.Name;
+                    e.PrefabPath = known.PrefabPath;
+                }
+                else
+                {
+                    // Joined mid-stream: the name arrives with the next resync (at most 1 s).
+                    EntitySyncLog.Interp("nodesc",
+                        "[ClientSnap] id=" + e.Index + " waiting for descriptor", 2f);
+                    skipped++;
+                    continue;
+                }
                 Vector3 targetPos = new Vector3(e.PosX, e.PosY, e.PosZ);
 
                 // Recently despawned: ignore late EntityState until grace ends (host holds
@@ -125,7 +144,7 @@ namespace DWMPHorde.Networking
                         }
                         _hostSyncedIds.Add(e.Index);
                         _everHostSyncedIds.Add(e.Index);
-                        UpdateInterpolation(c, e, targetPos, ref applied);
+                        UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
                         continue;
                     }
 
@@ -149,7 +168,7 @@ namespace DWMPHorde.Networking
                     EntitySyncLog.Event(() =>
                         "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
                         + ") at (" + targetPos.x.ToString("F0") + "," + targetPos.z.ToString("F0") + ")");
-                    UpdateInterpolation(c, e, targetPos, ref applied);
+                    UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
                     continue;
                 }
 
@@ -207,12 +226,19 @@ namespace DWMPHorde.Networking
         /// Forget the last accepted EntityState sequence. A new sender (host migration, soft
         /// reconnect) counts from 1 again; keeping the old host's high-water mark made survivors
         /// drop every snapshot from the promoted host until it overtook that number.
-        /// Entity maps stay intact — only the ordering gate resets.
+        /// Entity maps stay intact; the ordering gate, the host clock, the timelines and the
+        /// id descriptors (all per sender) reset.
         /// </summary>
         public static void ResetSnapshotSequence()
         {
             _lastSnapshotSequence = 0;
             _hasSnapshotSequence = false;
+            // The new sender has its own clock: old-host timestamps would reject every new sample.
+            _hostClock.Reset();
+            foreach (var kv in _states)
+                kv.Value.Timeline.Clear();
+            // Its ids name its own bodies; its first sends of each id carry the descriptor.
+            _descriptors.Clear();
         }
 
         private static bool _AcceptSnapshotSequence(uint sequence)
@@ -277,7 +303,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, ref int applied)
+        private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, float hostTime, ref int applied)
         {
             EnsureEntityAwake(c);
 
@@ -315,12 +341,39 @@ namespace DWMPHorde.Networking
                     || Mathf.Abs(fromPos.y - targetPos.y) > EntityHardSnapY;
             }
             if (snap)
+            {
                 HardSnapEntityDisplay(c, e.Index, state, targetPos, e.RotY);
+                state.Timeline.Clear();
+            }
             else if (!_displayPositions.ContainsKey(e.Index))
             {
                 _displayPositions[e.Index] = c.transform.position;
                 _displayRotations[e.Index] = c.transform.eulerAngles.y;
             }
+
+            // A sample far older than the newest is a different host clock (migration the
+            // sequence reset missed): start the timeline over instead of dropping every sample.
+            if (state.Timeline.Count > 0 && hostTime < state.Timeline.Newest.T - HostClockEstimator.ResyncThreshold)
+                state.Timeline.Clear();
+
+            if (state.Timeline.Count == 0 && !snap)
+            {
+                // First timed sample for a body already on screen (pending match, claim,
+                // resume after stale): blend from where it is shown now.
+                Vector3 shown = _displayPositions[e.Index];
+                state.Timeline.Add(new TimelineSample
+                {
+                    T = hostTime - TimelineGapInterval,
+                    X = shown.x, Y = shown.y, Z = shown.z,
+                    RotY = _displayRotations[e.Index]
+                }, 0f);
+            }
+            state.Timeline.Add(new TimelineSample
+            {
+                T = hostTime,
+                X = targetPos.x, Y = targetPos.y, Z = targetPos.z,
+                RotY = e.RotY
+            }, TimelineGapInterval);
 
             state.previousPosition = _displayPositions[e.Index];
             state.previousRotY = _displayRotations[e.Index];

@@ -3,14 +3,89 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.128**. The current Horde wire protocol is **28** (bumped in 0.8.128: saw
-delta requests, NPC dialogue lock world/renewal bits, melee flag on attacks,
-per-NPC reputation bulk layout, explicit presence flags on chain/burn state, and
-every message now reads exactly what it writes; 27 held for 0.8.127 only).
+**0.8.129**. The current Horde wire protocol is **29** (bumped in 0.8.129: enemy
+attack fan-out `EnemyAttack` 147 / `EnemyHitConfirm` 148, host clock on entity
+snapshots, entity name/prefab sent only on first sends and the 1 s resync, shadow
+flag on `DamagePlayer`; 28 held for 0.8.128 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.129 — Entity sync remaster: the player being hit decides the hit
+
+Branch `dev-entity-sync-remaster`. The host still runs every enemy. What changed is
+who judges an enemy's hit on a client, and how clients show host enemies.
+**Protocol 28 → 29.** Product **0.8.128 → 0.8.129**. Built and unit-tested;
+**runtime is not playtested** (first checks in `PLAYTEST.md` section 0).
+
+### Enemy hits on clients ("defender decides")
+
+- **Dodges that looked clean still hit.** The host judged an enemy swing against its
+  copy of the client, which trails the real client by about a round trip plus two
+  snapshot steps. Now the host sends each attack frame (`EnemyAttack` 147: enemy id,
+  sensor or projectile, final damage, host time, attack clip and frame). Each client
+  re-creates the attack on the enemy as it sees it, and only that client's own player
+  can be hit by the copy. The host original still hits the host player, other enemies,
+  barricades and doors, and skips remote stand-ins. Covers melee (`Character.melee`),
+  ranged `SensorType` shots (`rangedAttack`) and activity projectiles (`spawnProjectile`),
+  both bullets and thrown items. A strike older than 0.6 s on arrival is dropped, not
+  landed late.
+- **Client copies of enemies fired their own attacks.** A client playing a host attack
+  clip ran the clip's attack frame (event 997): a second, unsynced melee sensor that
+  could hit the client on top of the host's `DamagePlayer`, damage local doors and
+  enemies, and (banshee) spawn a scream that the client then fanned back to the host.
+  Clients now skip event 997 on host-driven enemies, and any enemy-type melee sensor
+  on a client that is not a re-created copy deals nothing.
+- **Repeated swings were invisible.** The snapshot stream only replays a clip when its
+  name changes, so a second `Attack1` right after the first never played on clients.
+  The attack frame now replays the clip at the host's frame.
+- **Enemy projectiles were not shown on clients at all.** They are now re-created as
+  above. A thrown copy only flies and judges a direct hit on the local player, then
+  goes away; the host original keeps the landed object, the blast and any spawn.
+- **Blood and sound for other players.** The hit client reports it (`EnemyHitConfirm`
+  148, damage already applied there); the host plays the hit sound and blood on that
+  player's stand-in and fans the blood to the other clients.
+- **Stays host-decided (not dodge-timed):** the `damagesAroundMe` aura, flier dive,
+  `Shooter` turrets, explosions (radius damage), night shadows, traps and fire.
+
+### Enemy presentation on clients
+
+- **Host clock on snapshots.** Every `EntityState` batch carries the host time. Clients
+  keep a short pose history per enemy and render it 75 ms (near) / 150 ms (far) behind
+  the estimated host clock: smooth motion at the host's real speed, a 50 ms coast
+  at most when a packet is late, then hold. Replaces "lerp 100 ms from arrival".
+- **20 Hz near players.** Enemies within 800 of a remote player are sent every 50 ms,
+  the rest at 10 Hz (was 10 Hz for all). A body that stops gets one more send so
+  clients pin the stop pose instead of coasting past it.
+- **Smaller snapshots.** Name and prefab path (most of each entry) travel only on an
+  id's first three sends and on the 1 s resync; clients cache them per id. A joiner
+  waits at most 1 s for an enemy's name.
+- **Recycled ids kept the old name on the host.** The name/prefab cache was keyed by id
+  only, so an id handed to a different body after a wrap sent the old body's name.
+  It is now tied to the body that owns the id.
+
+### Shadow sensor fixes (host-decided path)
+
+- **Shadow hits on clients took armor and interrupted.** Vanilla routes a shadow
+  sensor through `getHitByShadow` (flat, no armor, no interrupt); the host relay sent a
+  normal hit. `DamagePlayer` now carries `ShadowHit` and the client uses
+  `getHitByShadow`.
+- **An enemy sensor that hit a client could not reach the host player.** The host relay
+  consumed the sensor on a stand-in hit; vanilla does not consume an enemy sensor on a
+  player hit. Only player weapon sensors are consumed now.
+
+### Key files
+
+`Domains/Combat/Patches/DefenderAttackPatches.cs` (host send, capture, client 997
+skip, client sensor / bullet / throw filters), `Domains/Combat/EnemyAttackNetHandlers.cs`,
+`Core/EntityTimeline.cs` (host clock + pose history, unit-tested),
+`EntityStateBroadcastService`, `ClientEntityInterpolationService.{cs,Snapshot,Tick}`,
+`HostCombatPatches`, `ProxyDamagePatch`, `ExplosionFriendlyFirePatch` (blast depth),
+`BulletFXSyncPatch` (enemy impacts not forwarded), messages in `CombatMessages` /
+`WorldMessages` / `PlayerMessages`.
 
 ---
 

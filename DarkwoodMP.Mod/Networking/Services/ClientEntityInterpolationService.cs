@@ -24,7 +24,21 @@ namespace DWMPHorde.Networking
             public bool isFirst;
             public float staleSince;
             public Rigidbody CachedRb;
+            /// <summary>Host-time-stamped poses; rendered <see cref="delay"/> behind the host clock.</summary>
+            public readonly EntityTimeline Timeline = new EntityTimeline();
+            /// <summary>Current render delay (slews toward the near/far target).</summary>
+            public float delay;
         }
+
+        private struct EntityDescriptor
+        {
+            public string Name;
+            public string PrefabPath;
+        }
+
+        /// <summary>Name / prefab per host id; snapshots carry them only on first sends and the 1 s resync.</summary>
+        private static readonly Dictionary<short, EntityDescriptor> _descriptors = new Dictionary<short, EntityDescriptor>(64);
+        private static readonly HostClockEstimator _hostClock = new HostClockEstimator(); // reset-in: Reset
 
         private static readonly Dictionary<short, EntityInterpState> _states = new Dictionary<short, EntityInterpState>(64);
         private static readonly Dictionary<short, Vector3> _displayPositions = new Dictionary<short, Vector3>(64);
@@ -34,6 +48,21 @@ namespace DWMPHorde.Networking
 
         private const float SnapshotInterval = 0.1f;
         private const float MaxInterpDelay = 0.3f;
+        /// <summary>
+        /// Render delay behind the host clock. The host sends bodies near a remote player at
+        /// 20 Hz and the rest at 10 Hz; 1.5 send intervals rides out normal jitter without
+        /// coasting. Bodies near this player are always in the host's 20 Hz band.
+        /// </summary>
+        private const float NearInterpDelay = 0.075f;
+        private const float FarInterpDelay = 0.15f;
+        /// <summary>Inside this XZ radius of the local listener a body is in the host's 20 Hz band (host uses 800).</summary>
+        private const float NearBandDistance = 750f;
+        /// <summary>Delay change per second when a body crosses bands (playback runs at most 25% fast/slow).</summary>
+        private const float DelaySlewPerSec = 0.25f;
+        /// <summary>Coast past the newest sample only this long (a late packet), then hold.</summary>
+        private const float MaxExtrapolateSec = 0.05f;
+        /// <summary>Hold-gap threshold for a body the host skipped while it rested (far band interval).</summary>
+        private const float TimelineGapInterval = 0.1f;
         /// <summary>Allow save-point entities time to match before creating a phantom.</summary>
         private const float PendingMatchTimeout = 1.5f;
         private const float MatchRadius = 25f;
@@ -120,6 +149,44 @@ namespace DWMPHorde.Networking
         private static readonly HashSet<short> _phantomReplaceExclude = new HashSet<short>(); // process-scoped: scratch buffer, cleared before each use
 
         private static float _firstSnapshotTime;
+
+        /// <summary>
+        /// Seconds since <paramref name="hostTime"/> on the host clock estimate (about the
+        /// extra delay over the best-case latency). False before the first snapshot.
+        /// </summary>
+        public static bool TryGetHostAge(float hostTime, out float age)
+        {
+            age = 0f;
+            if (!_hostClock.HasEstimate)
+                return false;
+            age = _hostClock.ToHost(Time.unscaledTime) - hostTime;
+            return true;
+        }
+
+        /// <summary>
+        /// Show a host attack (EnemyAttack) on the local copy at the host's attack frame. The
+        /// snapshot stream only replays a clip when its name changes, so a repeated swing
+        /// (Attack1 after Attack1) needs this to be seen at all.
+        /// </summary>
+        public static void PresentAttackClip(Character c, short hostId, string clip, short clipFrame)
+        {
+            if (c == null || string.IsNullOrEmpty(clip) || !c.alive)
+                return;
+            tk2dSpriteAnimator body = ResolveBodyAnimator(c);
+            if (body == null || body.GetClipByName(clip) == null)
+                return;
+            if (!body.enabled)
+                body.enabled = true;
+            body.Play(clip);
+            if (clipFrame >= 0 && body.CurrentClip != null)
+            {
+                int maxFrame = body.CurrentClip.frames.Length - 1;
+                if (maxFrame >= 0)
+                    body.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
+            }
+            EntitySyncLog.Anim(hostId.ToString(),
+                "[ClientAnim] id=" + hostId + " attack " + clip + "@" + clipFrame, 0.25f);
+        }
 
         public static bool IsHostSynced(short id)
         {
@@ -274,6 +341,8 @@ namespace DWMPHorde.Networking
         public static void Reset()
         {
             _states.Clear();
+            _descriptors.Clear();
+            _hostClock.Reset();
             _displayPositions.Clear();
             _displayRotations.Clear();
             _hostSyncedIds.Clear();

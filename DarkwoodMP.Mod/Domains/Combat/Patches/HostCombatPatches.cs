@@ -16,9 +16,14 @@ namespace DWMPHorde.Patches
     /// client and drains host weapon durability. Skips vanilla hit logic
     /// since the proxy is not a real Player and would be ignored.
     ///
-    /// Critical: vanilla destroys the sensor after one hit. Without that,
-    /// multi-collider proxies + lingering sensors spam DamagePlayer every
-    /// FixedUpdate (massively overscaled AI/melee damage on clients).
+    /// Enemy Character swings that were fanned out (EnemyAttack) skip the proxy:
+    /// the victim's own client decides them. What remains here is player weapons
+    /// (friendly fire) and shadow sensors.
+    ///
+    /// The proxy has several colliders, each firing OnTriggerEnter: a per-player
+    /// debounce keeps one swing to one DamagePlayer. A player weapon sensor is
+    /// consumed by the hit (vanilla Character branch); an enemy sensor is not
+    /// (vanilla player branch), so it can still reach the host player.
     /// </summary>
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class HostMeleeSensorPatch
@@ -40,6 +45,16 @@ namespace DWMPHorde.Patches
             RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null)
                 return true;
+
+            // Defender original (EnemyAttack sent): that player's own client re-created this
+            // swing on its copy of the enemy and decides the hit there.
+            if (DefenderAttackMarker.TryGetActive(__instance, out DefenderAttackMarker defender)
+                && !defender.ClientCopy)
+            {
+                __instance.collidersToIgnore.Add(_collider);
+                __instance.gameObjectsToIgnore.Add(_collider.gameObject);
+                return false;
+            }
 
             // Vanilla early-outs (ignore lists, attacker's own colliders, line of sight): where
             // vanilla would drop the hit, let it run — it returns without effect on a proxy.
@@ -83,17 +98,18 @@ namespace DWMPHorde.Patches
 
             int pid = proxy.PlayerId;
             float now = Time.time;
+            bool isPlayer = __instance.type == MeleeSensor.MeleeSensorType.player;
             if (_lastProxyHitTime.TryGetValue(pid, out float lastHit)
                 && now - lastHit < ProxyHitDebounce)
             {
-                // Same swing / multi-collider — still consume the sensor so it
-                // cannot keep dealing damage on later FixedUpdates.
-                ConsumeSensor(__instance);
+                // Same swing / multi-collider. A player weapon sensor is consumed (vanilla
+                // consumes it on a Character hit); an enemy sensor lingers as in vanilla's
+                // player branch, its collider already on the ignore list.
+                if (isPlayer)
+                    ConsumeSensor(__instance);
                 return false;
             }
             _lastProxyHitTime[pid] = now;
-
-            bool isPlayer = __instance.type == MeleeSensor.MeleeSensorType.player;
 
             float strengthMod = 1f;
             if (__instance.attackerTransform != null)
@@ -160,6 +176,8 @@ namespace DWMPHorde.Patches
                 ShowRedScreen = true,
                 NormalHit = true,
                 CanInterrupt = true,
+                // Vanilla shadow sensors hit the player through getHitByShadow (flat, no armor).
+                ShadowHit = !isPlayer && __instance.shadowSensor,
                 // The victim's own client activates these (vanilla applies sensor effects after getHit).
                 Effects = SensorEffectCodec.ToWire(__instance.effects)
             };
@@ -169,10 +187,14 @@ namespace DWMPHorde.Patches
                 "[ProxyMelee] sensor hit p" + pid + " dmg=" + dmg
                 + " atk=" + (__instance.attackerTransform != null ? __instance.attackerTransform.name : "?"));
 
-            // Mirror vanilla MeleeSensor: one hit consumes the sensor.
-            ConsumeSensor(__instance);
-            if (isPlayer && hostPlayer != null && !InvItemClass.isNull(hostPlayer.currentItem))
-                hostPlayer.currentItem.refresh();
+            // Mirror vanilla MeleeSensor: a player weapon is consumed by its Character hit; an
+            // enemy sensor is not consumed by a player hit (it can still reach the host player).
+            if (isPlayer)
+            {
+                ConsumeSensor(__instance);
+                if (hostPlayer != null && !InvItemClass.isNull(hostPlayer.currentItem))
+                    hostPlayer.currentItem.refresh();
+            }
             return false;
         }
 

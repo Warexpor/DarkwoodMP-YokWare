@@ -335,6 +335,8 @@ namespace DWMPHorde.Networking
         public bool NormalHit;
         /// <summary>Vanilla <c>canInterrupt</c>. Optional wire trailer; default true.</summary>
         public bool CanInterrupt;
+        /// <summary>A shadow sensor (<c>MeleeSensor.shadowSensor</c>): the victim takes vanilla <c>getHitByShadow</c> (flat, no armor, no interrupt).</summary>
+        public bool ShadowHit;
         /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) the victim's own client applies. Trailing count + effects; null = none.</summary>
         public SensorEffectWire[] Effects;
 
@@ -346,6 +348,7 @@ namespace DWMPHorde.Networking
             w.Put(ShowRedScreen);
             w.Put(NormalHit);
             w.Put(CanInterrupt);
+            w.Put(ShadowHit);
             SensorEffectWire.WriteList(w, Effects);
         }
 
@@ -360,7 +363,8 @@ namespace DWMPHorde.Networking
                 CanCutInHalf = r.GetBool(),
                 ShowRedScreen = r.GetBool(),
                 NormalHit = r.GetBool(),
-                CanInterrupt = r.GetBool()
+                CanInterrupt = r.GetBool(),
+                ShadowHit = r.GetBool()
             };
             msg.Effects = SensorEffectWire.ReadList(r);
             return msg;
