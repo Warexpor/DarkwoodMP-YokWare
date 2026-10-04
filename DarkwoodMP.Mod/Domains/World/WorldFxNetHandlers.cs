@@ -248,94 +248,18 @@ namespace DWMPHorde.Networking
                 "[WorldPickup] deny for " + msg.ObjectName + " had no pending claim (already refunded)");
         }
 
-        /// <summary>A name match is only trusted this close to the position the sender reported.</summary>
-        private const float BodyPushNameMatchMaxDist = 8f;
-
-        /// <summary>
-        /// Body-push / scrape source: the same-named object nearest the reported position, on the
-        /// same side (dream pad vs overworld) as that position. Never a scene-wide name search:
-        /// <c>GameObject.Find(name)</c> returned the first same-named object anywhere, including
-        /// the overworld twin of a dream-pad object, so the wrong body got the scrape sound.
-        /// </summary>
-        private static GameObject ResolveBodyPushObject(string objectName, Vector3 bodyPos)
-        {
-            if (string.IsNullOrEmpty(objectName) || float.IsNaN(bodyPos.x))
-                return null;
-            Component hit = WorldQueryHelper.FindNearestByName<ItemSounds>(
-                bodyPos, objectName, BodyPushNameMatchMaxDist);
-            if (hit == null)
-                hit = WorldQueryHelper.FindNearestByName<Item>(
-                    bodyPos, objectName, BodyPushNameMatchMaxDist);
-            if (hit == null || !WorldPhysicsSyncService.IsOnSameWorldSide(bodyPos, hit.transform))
-                return null;
-            return hit.gameObject;
-        }
-
         internal void HandlePlayerAudio(PlayerAudioMessage msg)
         {
-            if (msg.IsStopSignal)
-            {
-                // Local pusher/dragger still owns native ItemSounds; host quiet or stop echo
-                // must not kill our scrape mid-push (same double-scrape family).
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
-                {
-                    DWMPHorde.Audio.MovingObjectSoundService.StopImmediate(msg.ObjectName);
-                    return;
-                }
-                // Remote quiet stop uses SoftStop without suppression so motion can re-arm instantly.
-                DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
-                Sync.WorldPhysicsSyncService.TryStopBodyPushSound(msg.ObjectName);
-                return;
-            }
-
             if (string.IsNullOrEmpty(msg.SoundId)) return;
 
-            if (!msg.StickToSender && msg.Volume <= 0.001f)
-            {
-                AudioController.Stop(msg.SoundId, 0.2f);
+            // A silent play is not a stop: stopping the id here killed every instance of that
+            // sound on this peer, including its own unrelated ones.
+            if (msg.Volume <= 0.001f)
                 return;
-            }
 
             // Defensive: never play world ambients that slipped past send-side filter.
             if (msg.StickToSender && LocalAudioService.IsWorldAmbientLocalOnly(msg.SoundId))
                 return;
-
-            // Body-push / scrape with ObjectName: single-owner path.
-            if (!string.IsNullOrEmpty(msg.ObjectName))
-            {
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
-                    return;
-                // Local free-body pusher hears native ItemSounds only; never arm MOS or PlayerAudio.
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentPushAuthority(msg.ObjectName))
-                    return;
-                // Already playing via PhysicsState→MOS: ignore redundant start (T2).
-                if (DWMPHorde.Audio.MovingObjectSoundService.IsPlaying(msg.ObjectName))
-                    return;
-
-                Vector3 bodyPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                if (!float.IsNaN(msg.PosX)
-                    && !LocalAudioService.IsNearListenerPeerBand(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
-                    return;
-
-                GameObject go = ResolveBodyPushObject(msg.ObjectName, bodyPos);
-                if (go != null)
-                {
-                    ItemSounds sounds = go.GetComponent<ItemSounds>();
-                    if (sounds != null)
-                    {
-                        DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(go, msg.ObjectName, sounds);
-                        return;
-                    }
-                    // Fallback when ItemSounds missing: MOS EnsurePlaying by SoundId.
-                    float vol = Mathf.Clamp01(msg.Volume);
-                    DWMPHorde.Audio.MovingObjectSoundService.EnsurePlaying(go, msg.ObjectName, msg.SoundId, vol);
-                    return;
-                }
-                // Object not found locally; fall through to a positional one-shot.
-            }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             bool hasPos = !float.IsNaN(msg.PosX);
@@ -343,10 +267,15 @@ namespace DWMPHorde.Networking
             int playerId = _net.CurrentReceivePlayerId;
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
 
-            bool isHitFeedback = LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
+            // Player-origin rules (sender's body, 2D equip, per-peer hear gate) apply only to the
+            // sender's own player sounds. A world/enemy sound the host forwards (StickToSender
+            // false) stays where it happened: a door's "door_hit_metal" or a lamp "activate" was
+            // being moved onto the host's body and an "_get"/"_hide" id played 2D.
+            bool fromPlayer = msg.StickToSender;
+            bool isHitFeedback = fromPlayer && LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
             // Equip get/hide stay 2D. Flashlight/torch: spatial at proxy + keep reverb.
-            bool prefer2d = LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
-            bool spatialTool = LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
+            bool prefer2d = fromPlayer && LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
+            bool spatialTool = fromPlayer && LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
 
             // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
             // Never call getHit, red-screen, or BloodOverlay here; this path is audio only.
@@ -361,7 +290,9 @@ namespace DWMPHorde.Networking
                     return;
             }
 
-            if (playerId > 0)
+            // The sticky per-peer gate tracks that peer's body; world sounds from the same sender
+            // are all over the map and would flip it, so they use the stateless band.
+            if (fromPlayer && playerId > 0)
             {
                 if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, LocalAudioService.DefaultMaxAudioDistance))
                     return;

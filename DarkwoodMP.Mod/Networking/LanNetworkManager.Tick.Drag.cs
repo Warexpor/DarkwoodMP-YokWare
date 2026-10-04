@@ -65,8 +65,8 @@ namespace DWMPHorde.Networking
                 // Release the host rigidbody hold after our own drag so peers
                 // can interact with it.
                 Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(endedName);
-                // Host: dual-path intentional stop (PlayerAudio IsStopSignal) so residual
-                // PhysicsState after claim release cannot keep scrape armed on peers.
+                // Host: clear this peer's push tracking too, so residual PhysicsState after the
+                // claim release cannot keep a scrape armed here (peers stop on DragSync STOP).
                 if (_role == NetworkRole.Host)
                     NotifyBodyPushStopped(endedName);
             }

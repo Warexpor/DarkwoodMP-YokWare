@@ -81,8 +81,10 @@ namespace DWMPHorde.Audio
                 return;
 
             float vol = ModConfig.VoiceVolume?.Value ?? 1f;
-            float rangeFull = ModConfig.VoiceRangeFull?.Value ?? 8f;
-            float rangeMax = ModConfig.VoiceRangeMax?.Value ?? 28f;
+            float rangeFull = ModConfig.VoiceFullVolumeDistance?.Value ?? 150f;
+            float rangeMax = ModConfig.VoiceMaxDistance?.Value ?? LocalAudioService.DefaultMaxAudioDistance;
+            // Heard from where this player listens (the followed player while spectating).
+            Vector3 listen = LocalAudioService.GetListenPosition();
 
             _reap.Clear();
             foreach (Speaker s in _speakers.Values)
@@ -106,7 +108,7 @@ namespace DWMPHorde.Audio
                     var proxy = ModRuntime.Network?.GetProxy(s.Id);
                     if (proxy != null && proxy.transform != null)
                     {
-                        Vector3 a = Player.Instance.transform.position;
+                        Vector3 a = listen;
                         Vector3 b = proxy.transform.position;
                         float dist = Vector3.Distance(a, b);
                         float t = Mathf.InverseLerp(rangeMax, rangeFull, dist);

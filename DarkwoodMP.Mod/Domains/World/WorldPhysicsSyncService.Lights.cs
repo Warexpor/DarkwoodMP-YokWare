@@ -258,8 +258,7 @@ namespace DWMPHorde.Sync
             return string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType);
         }
 
-        /// <summary>Called from HandlePlayerAudio's IsStopSignal handler when the
-        /// host broadcasts NotifyBodyPushStopped. Clears tracking tables; actual
+        /// <summary>Called by NotifyBodyPushStopped on this peer. Clears tracking tables; actual
         /// audio stop is handled by SoftStopNetwork / ForceStopByName.</summary>
         public static void TryStopBodyPushSound(string objectName)
         {

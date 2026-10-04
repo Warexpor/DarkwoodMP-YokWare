@@ -9,7 +9,7 @@ namespace DWMPHorde.Audio
     /// Shared multiplayer audio helpers: listen position, distance culling,
     /// clip resolution, and send-side rate limiting.
     /// </summary>
-    public static partial class LocalAudioService
+    public static class LocalAudioService
     {
         // Peer SFX cull + Unity spatial falloff (player footsteps/guns/equip, entity, MOS).
         // 500 was tight for hideout↔yard; +30% so peers stay audible a bit farther.
@@ -167,9 +167,6 @@ namespace DWMPHorde.Audio
         {
             _lastForwardTime.Clear();
         }
-
-        /// <summary>Drop resolved clip cache on session end (frees stale AudioClip refs).</summary>
-        public static void ResetClipCache() => ClearClipCache();
 
         /// <summary>
         /// Vanilla <c>Player.getHit</c> plays these parentless (2D SP feedback).
@@ -376,6 +373,22 @@ namespace DWMPHorde.Audio
             if (audioID.IndexOf("player_tired", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
             return false;
+        }
+
+        /// <summary>True when the AudioItem loops (anything but DoNotLoop).</summary>
+        public static bool IsLoopingItem(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            try
+            {
+                AudioItem item = AudioController.GetAudioItem(audioID);
+                return item != null && item.Loop != AudioItem.LoopMode.DoNotLoop;
+            }
+            catch
+            {
+                return false; // audio system not ready
+            }
         }
 
         /// <summary>

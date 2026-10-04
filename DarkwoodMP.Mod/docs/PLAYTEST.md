@@ -12,7 +12,25 @@ bug pack) on every box, same DLL everywhere.
 
 ## 0. First checks for the current release
 
-The latest `CHANGELOG.md` entry (entity sync remaster) moved enemy-hit judging to the player being hit and
+The latest `CHANGELOG.md` entry (sound pass) gives every world sound one owner. Listen
+on the peer that did NOT cause the sound:
+
+- [ ] Host opens and closes a wooden door near the client: one open and one close
+      sound on the client, not two. Same with the client opening, heard on the host.
+- [ ] Zombies hit a barricaded door at night: one wood hit per blow, one break sound
+      when it goes, no hit sound on top of the break. A metal door hit clangs.
+- [ ] Toggle a lamp / switch and start the generator: one click and one start sound;
+      after turning the generator off its hum stops on every peer.
+- [ ] Set something on fire, let it burn out: the fire loop stops on every peer.
+- [ ] Host drags a crate across grass, then floor, near the client: the client hears
+      the grass scrape then the floor scrape, and it stops with the crate. While that
+      runs, another crate dragged elsewhere keeps its own scrape when the first is let go.
+- [ ] The Sound volume slider at 0 on the client also silences peers' scrapes and
+      host dream sounds.
+- [ ] Voice (two Steam installs only): a teammate a room away is heard; fades out
+      around the same distance as their footsteps.
+
+The previous entry (entity sync remaster) moved enemy-hit judging to the player being hit and
 changed how clients interpolate enemies. Run these first. `LogPreset=Support` shows
 the `[EnemyAttack] local hit` / `confirmed hit` lines; `Trace` adds every attack sent
 and re-created.

@@ -60,8 +60,8 @@ Steam Voice needs a running, logged-on Steam client; transport is independent
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
 | `VoiceGain` | `1.4` | Gain applied after Steam `DecompressVoice`. |
-| `VoiceRangeFull` | `8` | Distance (m) at which proximity voice is at full volume. |
-| `VoiceRangeMax` | `28` | Distance (m) beyond which proximity voice is silent. |
+| `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which proximity voice is at full volume. |
+| `VoiceMaxDistance` | `650` | Distance (game units) beyond which proximity voice is silent, the same range as other sounds from peers. |
 | `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and press RMB to transmit (not while a menu, container, dialogue, map, journal or chat box is open); carrying one enables radio reception. |
 
 ## Logging

@@ -612,9 +612,7 @@ namespace DWMPHorde.Networking
         public string SoundId;
         public float Volume;
         public float PosX, PosY, PosZ;
-        public bool IsStopSignal;
-        public string ObjectName;
-        /// <summary>False for creature one-shots stamped with the host id. Missing on old packets means true.</summary>
+        /// <summary>True for the sender's own player sounds; false for world and creature sounds the sender forwards.</summary>
         public bool StickToSender;
 
         public void Serialize(NetWriter w)
@@ -622,8 +620,6 @@ namespace DWMPHorde.Networking
             w.Put(SoundId ?? "");
             w.Put(Volume);
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
-            w.Put(IsStopSignal);
-            w.Put(ObjectName ?? "");
             w.Put(StickToSender);
         }
 
@@ -636,8 +632,6 @@ namespace DWMPHorde.Networking
                 PosX = r.GetFloat(),
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
-                IsStopSignal = r.GetBool(),
-                ObjectName = r.GetString(),
                 StickToSender = r.GetBool()
             };
             return msg;

@@ -321,7 +321,6 @@ namespace DWMPHorde.Networking
             SaveHandlers = new SaveNetHandlers(this);
             BulkSyncHandlers = new BulkSyncNetHandlers(this);
             RegisterInboundHandlers();
-            Sync.DreamAudioPlayer.Initialize();
         }
     }
 }

@@ -6,9 +6,6 @@ namespace DWMPHorde
         /// <summary>Vanilla player hitscan Physics.Raycast layer mask.</summary>
         public const int HitscanLayerMask = 18909185;
 
-        /// <summary>Default occlusion mask for scrape / moving-object audio.</summary>
-        public const int DefaultOcclusionLayerMask = 32769;
-
         /// <summary>
         /// Host WorldGrid proxy bubble + entity broadcast near-band (world units).
         /// Was 3500 — dual bubble woke 200–340 ents past the 256 snapshot cap → client

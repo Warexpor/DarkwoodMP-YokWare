@@ -56,19 +56,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             // Remote-owned: ensure any already-armed native AO is killed once.
-            try
-            {
-                var ao = Traverse.Create(__instance).Field("movingSoundAO").GetValue<AudioObject>();
-                if (ao != null)
-                {
-                    ao.Stop(ItemMovingSoundHelper.IntentionalStopFade);
-                    Traverse.Create(__instance).Field("movingSoundAO").SetValue(null);
-                }
-            }
-            catch
-            {
-                // ignore traverse failure — MOS path still owns playback
-            }
+            ItemMovingSoundHelper.StopNativeMovingLoop(__instance, ItemMovingSoundHelper.IntentionalStopFade);
 
             // Host AI must hear client-owned scrape at vanilla cadence + ranges.
             if (net.Role == NetworkRole.Host)
