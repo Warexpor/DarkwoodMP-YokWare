@@ -422,4 +422,85 @@ namespace DWMPHorde.Patches
             }
         }
     }
+
+    /// <summary>
+    /// Dropping the cursor stack onto an occupied slot (vanilla
+    /// <c>InventoryController.stackOrSwampItems</c>): a same-type merge (whole or partial), a
+    /// durability merge, or a swap that puts the slot's item back where the cursor stack came
+    /// from (<c>InvSlot.swapItems</c>). None of that went to the host: a merge into a chest lost
+    /// the items, a swap copied them. Every container involved (the target and the cursor
+    /// stack's origin) is diffed before and after.
+    /// </summary>
+    [HarmonyPatch(typeof(InventoryController), "stackOrSwampItems")]
+    public static class ContainerStackOrSwapPatch
+    {
+        internal struct State
+        {
+            public Inventory DestInv;
+            public Dictionary<int, SlotSnapshot> Dest;
+            public Inventory SourceInv;
+            public Dictionary<int, SlotSnapshot> Source;
+        }
+
+        private static void Prefix(InvItemClass destItem, InvItemClass sourceItem, ref State __state)
+        {
+            __state = default;
+            if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected)
+                return;
+            Inventory dest = destItem?.slot?.inventory;
+            Inventory source = sourceItem?.slot?.inventory;
+            if (ContainerSyncHelpers.IsContainer(dest))
+            {
+                __state.DestInv = dest;
+                __state.Dest = ContainerSnapshotHelper.TakeSnapshot(dest);
+            }
+            if (source != dest && ContainerSyncHelpers.IsContainer(source))
+            {
+                __state.SourceInv = source;
+                __state.Source = ContainerSnapshotHelper.TakeSnapshot(source);
+            }
+        }
+
+        private static void Postfix(State __state)
+        {
+            if (__state.DestInv != null)
+                ContainerSnapshotHelper.SendFullDiff(__state.DestInv, __state.Dest);
+            if (__state.SourceInv != null)
+                ContainerSnapshotHelper.SendFullDiff(__state.SourceInv, __state.Source);
+        }
+    }
+
+    /// <summary>
+    /// Controller "drop" on a container slot (vanilla <c>InvSlot.dropItem</c>): the item lands on
+    /// the ground (synced as a dropped item) and leaves the container, which the host never
+    /// heard, so the chest kept it as well.
+    /// </summary>
+    [HarmonyPatch(typeof(InvSlot), nameof(InvSlot.dropItem))]
+    public static class ContainerDropItemPatch
+    {
+        private static void Prefix(InvSlot __instance, ref ContainerSlotActionState __state)
+        {
+            __state = default;
+            if (!ContainerSyncHelpers.IsContainer(__instance) || InvItemClass.isNull(__instance.invItem))
+                return;
+            __state.Active = true;
+            __state.IsRecipe = __instance.invItem.isRecipe;
+            __state.Type = __state.IsRecipe ? __instance.invItem.recipeFor : __instance.invItem.type;
+            __state.Amount = __instance.invItem.amount;
+            __state.Dur = __instance.invItem.durability;
+            __state.Ammo = __instance.invItem.ammo;
+            __state.Upgrades = Sync.InvItemUpgradeWire.CollectNames(__instance.invItem);
+            __state.ShouldBeActive = __instance.invItem.shouldBeActive;
+            __state.Pos = __instance.inventory.transform.position;
+            __state.Idx = __instance.inventory.slots.IndexOf(__instance);
+            __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItem(__state.Type, __state.IsRecipe);
+        }
+
+        private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
+        {
+            if (!__state.Active || !InvItemClass.isNull(__instance.invItem))
+                return;
+            ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
+        }
+    }
 }

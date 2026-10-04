@@ -8,8 +8,6 @@ namespace DWMPHorde.Patches
     internal static class ExplosionSpawnFlagTracker
     {
         public static bool IsInsideSpawnObjects; // process-scoped: call-scoped, unwound by its Finalizer/finally
-        /// <summary>True when spawnObjects() is running for a host-synced ThrownItem (duplicate of client throw).</summary>
-        public static bool IsHostSynced; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>The Explodes instance whose onActivate() is currently executing. Set in Prefix, used by AddPrefab Postfix to filter out explosionPrefab.</summary>
         public static Explodes CurrentExplodes; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>Re-entrancy counter: increments on Prefix, decrements on Postfix.
@@ -61,32 +59,8 @@ namespace DWMPHorde.Patches
 
             ExplosionSpawnFlagTracker.CurrentExplodes = __instance;
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
-            ExplosionSpawnFlagTracker.IsHostSynced = false;
 
             if (net == null || net.Role == NetworkRole.Offline) return;
-
-            if (net.Role == NetworkRole.Host)
-            {
-                ThrownItem ti = __instance.GetComponent<ThrownItem>();
-                if (ti != null && ti.objectThatSpawnedMe != null)
-                {
-                    bool isProxySpawned = false;
-                    foreach (var proxy in net.GetAllProxies())
-                    {
-                        if (proxy != null && ti.objectThatSpawnedMe == proxy.transform)
-                        {
-                            isProxySpawned = true;
-                            break;
-                        }
-                    }
-                    if (isProxySpawned)
-                    {
-                        ExplosionSpawnFlagTracker.IsHostSynced = true;
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo("[FX] IsHostSynced=true");
-                    }
-                }
-            }
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = true;
         }
@@ -104,39 +78,34 @@ namespace DWMPHorde.Patches
                 return; // Still inside a nested explosion — outer Finalizer will clear
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
-            ExplosionSpawnFlagTracker.IsHostSynced = false;
             ExplosionSpawnFlagTracker.CurrentExplodes = null;
         }
     }
 
+    /// <summary>
+    /// Client: a barrel, mushroom or bomb set off here (shot, ignited, stepped on) explodes for
+    /// real on the host, which <see cref="ExplosionTriggerPatch"/> asks for. Running vanilla's
+    /// blast here too hit every enemy twice (the client's hits went to the host as attacks on top
+    /// of the host's own blast) and the client's own player twice (locally and by the host's
+    /// DamagePlayer). The client keeps the look and sound only; the host deals the damage, the
+    /// effects and the world hits. Also for a blast replayed from the host (a story event):
+    /// the host's own blast already hit everyone, clients included (DamagePlayer).
+    /// </summary>
     [HarmonyPatch(typeof(Explodes), "explode")]
     public static class ExplosionDamageSkipPatch
     {
         [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix()
+        private static bool Prefix(Explodes __instance)
         {
             var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Client) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
-            if (Sync.WorldPhysicsSyncService._suppressBroadcast) return;
-            TraverseHack.IsInsideLocalExplosion = true;
-        }
-
-        [HarmonyPriority(Priority.Last)]
-        [HarmonyPostfix]
-        private static void Postfix()
-        {
-            // Always clear. Even if Prefix skipped, false is the safe idle state.
-            TraverseHack.IsInsideLocalExplosion = false;
-        }
-
-        // explode can throw; stuck true mis-routes client hitscan as explosion AOE forever.
-        [HarmonyPriority(Priority.Last)]
-        [HarmonyFinalizer]
-        private static void Finalizer()
-        {
-            TraverseHack.IsInsideLocalExplosion = false;
+            if (net == null || net.Role != NetworkRole.Client || !net.IsConnected) return true;
+            if (__instance == null || __instance.effect == null) return true; // vanilla: logs, returns
+            if (!string.IsNullOrEmpty(__instance.explodeSound))
+                AudioController.Play(__instance.explodeSound, __instance.transform.position);
+            if (__instance.destroyOnExplode)
+                __instance.gameObject.DestroyMe();
+            return false;
         }
     }
 
@@ -155,7 +124,9 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (__result == null || prefab == null) return;
 
-            if (ExplosionSpawnFlagTracker.IsHostSynced) return;
+            // A peer's throw included: every peer's copy of a throw is muted
+            // (MuteThrownCombat drops its secondaries), so only this send puts its fire and debris
+            // on the clients, the thrower too.
 
             if (ExplosionSpawnFlagTracker.CurrentExplodes != null)
             {

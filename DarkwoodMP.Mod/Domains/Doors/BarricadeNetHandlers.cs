@@ -28,6 +28,40 @@ namespace DWMPHorde.Networking
         internal const float ItemMatchRadius = 2f;
 
         private const float PendingFlushIntervalSec = 1f;
+
+        /// <summary>
+        /// Vanilla <c>Door/Window.setBarricadeState</c> reads the LOCAL player's build state: in
+        /// dismantle mode it refunds wood and nails to the local player and tears the board down
+        /// instead, and while the local player hammers it ends that player's build early. Another
+        /// player's barricade is applied with the local build state out of the way.
+        /// </summary>
+        private static void ApplyRemoteBarricade(Action apply)
+        {
+            ConstructionIcon icon = Singleton<ConstructionMenu>.Instance != null
+                ? Singleton<ConstructionMenu>.Instance.currentConstruction : null;
+            string savedType = icon != null ? icon.type : null;
+            Player p = Player.Instance;
+            bool savedHammering = p != null && p.hammering;
+            bool savedDone = p != null && p.doneBuilding;
+            try
+            {
+                if (icon != null && savedType == "dismantle")
+                    icon.type = "none";
+                if (p != null)
+                    p.hammering = false;
+                apply();
+            }
+            finally
+            {
+                if (icon != null && savedType == "dismantle")
+                    icon.type = savedType;
+                if (p != null)
+                {
+                    p.hammering = savedHammering;
+                    p.doneBuilding = savedDone;
+                }
+            }
+        }
         private const float PendingMaxAgeSec = 30f;
 
         private struct PendingBarricade
@@ -123,9 +157,18 @@ namespace DWMPHorde.Networking
                             // Normal barricade build. setToBarricaded -> setBarricadeState.
                             // If door was destroyed, first call only restores (unDestroy),
                             // second call applies the barricade.
-                            door.setToBarricaded();
-                            if (!door.barricaded)
+                            ApplyRemoteBarricade(() =>
+                            {
                                 door.setToBarricaded();
+                                if (!door.barricaded)
+                                    door.setToBarricaded();
+                            });
+                            // setToBarricaded fills the barricade; a join bulk or a re-sent build
+                            // carries its real health.
+                            if (door.barricaded && msg.Health > 0)
+                                door.barricadeHealth = msg.Health;
+                            if (msg.MainHealth > 0 && !door.destroyed)
+                                door.health = msg.MainHealth;
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door barricade applied (destroyed={door.destroyed} barricaded={door.barricaded})");
                         }
                         MaybeAlertHostRemoteHammer(msg, door.transform.position);
@@ -236,7 +279,7 @@ namespace DWMPHorde.Networking
                         // destHealth 0 => full max in vanilla; join bulk sends actual HP (>0 when boarded).
                         // byPlayer=false avoids gainSaturation / construction side effects on remote apply.
                         int destHp = msg.Health > 0 ? msg.Health : 0;
-                        window.setBarricadeState(destHp, byPlayer: false);
+                        ApplyRemoteBarricade(() => window.setBarricadeState(destHp, byPlayer: false));
                         window.playerBarricade = msg.PlayerBarricade;
                         if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] window barricade via setBarricadeState hp={destHp}");
                         MaybeAlertHostRemoteHammer(msg, window.transform.position);

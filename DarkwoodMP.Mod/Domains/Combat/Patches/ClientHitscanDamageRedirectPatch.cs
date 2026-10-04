@@ -31,19 +31,15 @@ namespace DWMPHorde.Patches
                     && __instance.gameObject == Player.Instance.gameObject)
                     return true;
 
-                // Outgoing attacks only: local player melee root, player bullets, local explosion AOE.
+                // Outgoing attacks only: local player melee root, player bullets. (Explosions
+                // are the host's: the client's blast is visual, ExplosionDamageSkipPatch.)
                 bool isPlayerDamage = attackerTransform != null && Player.Instance != null
                     && (attackerTransform == Player.Instance.transform
                         || attackerTransform.IsChildOf(Player.Instance.transform));
                 bool isProjectileDamage = attackerTransform == null && TraverseHack.IsInsidePlayerBulletCollision;
-                bool isExplosionAOE = TraverseHack.IsInsideLocalExplosion;
 
-                if (!isPlayerDamage && !isProjectileDamage && !isExplosionAOE)
+                if (!isPlayerDamage && !isProjectileDamage)
                     return true;
-
-                // Muted throwables (visualOnly / client own throw) zero Explodes.damage.
-                if (isExplosionAOE && Damage <= 0f)
-                    return false;
 
                 // Always send name + hit pos so host can resolve phantoms / unsynced ids.
                 // Prefer stable id when host-synced; 0 forces position+name match on host.

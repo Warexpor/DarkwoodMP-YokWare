@@ -214,9 +214,11 @@ namespace DWMPHorde.Networking
                 }
                 case WorldBurnStateMessage.TargetItem:
                 {
-                    Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
+                    // The sender sends the burning item's own position: match only that spot (a wide
+                    // radius set the nearest crate on fire instead of the item that burned).
+                    Item item = WorldQueryHelper.FindDestructibleItemXz(pos, BarricadeNetHandlers.ItemMatchRadius);
                     if (item == null)
-                        item = WorldQueryHelper.FindNearest<Item>(pos, 8f);
+                        item = WorldQueryHelper.FindNearest<Item>(pos, BarricadeNetHandlers.ItemMatchRadius);
                     return item != null ? item.gameObject : null;
                 }
                 default:
