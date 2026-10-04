@@ -65,6 +65,14 @@ namespace DWMPHorde.Sync
                     if (!_deadPlayerIds.Contains(proxy.PlayerId))
                         return false;
                 }
+                // Noted in the dream but not connected (yet): a survivor rejoining a promoted host.
+                foreach (int id in DreamSyncManager.RemoteDreamParticipantIds())
+                {
+                    if (id <= 0 || id == net.LocalPlayerId)
+                        continue;
+                    if (DreamSyncManager.IsRemoteInDream(id) && !_deadPlayerIds.Contains(id))
+                        return false;
+                }
                 return true;
             }
         }
@@ -214,6 +222,31 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("after local death");
+        }
+
+        /// <summary>
+        /// Promoted host, once the survivors had their chance to rejoin: an all-dead check that
+        /// could not run at promote (no peer was connected yet, so a dead local player alone
+        /// would have read as everyone dead).
+        /// </summary>
+        public static void CheckAllDeadAfterPromote()
+        {
+            if (!_isActive || _ending)
+                return;
+            RefreshConnectedPlayers();
+            if (AllDead)
+                TryHostEndAllDead("after host migration");
+        }
+
+        /// <summary>Client back on a (new) host while dead in the dream: tell it again.</summary>
+        public static void ResendLocalDeath()
+        {
+            var net = ModRuntime.Network;
+            if (!_localDeadInDream || net == null || !net.IsConnected)
+                return;
+            net.Broadcast(NetMessageType.FinalDreamsceneDeath,
+                w => new FinalDreamsceneDeathMessage { IsDead = true }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
         }
 
         public static void OnRemoteDeathInDream(int playerId)

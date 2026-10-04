@@ -141,24 +141,6 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-                // Refuse a mid-dream authority flip; tear down dream state, then disconnect.
-            if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
-            {
-                ModLog.Warn(LogCat.Network,
-                    "Host migration refused mid-dream (" + reason + ") — disconnect without GRANT");
-                try
-                {
-                    Sync.DreamSyncManager.ForceLocalDreamCleanup("hostLostMidDream");
-                }
-                catch (System.Exception ex)
-                {
-                    ModLog.Warn(LogCat.Network, "Mid-dream cleanup: " + ex.Message);
-                }
-                StopNetwork();
-                StatusText = "Host lost mid-dream — disconnected";
-                return;
-            }
-
             bool enabled = Config.ModConfig.HostMigrationEnabled == null
                 || Config.ModConfig.HostMigrationEnabled.Value;
             bool playable = false;
@@ -215,6 +197,16 @@ namespace DWMPHorde.Networking
                 + (IsSteamSession ? " steam" : " lan"));
 
             int keepId = _localPlayerId;
+            // A dream in progress carries over to the new host (each peer has its own pad).
+            try
+            {
+                Sync.DreamSyncManager.OnHostMigrating(deadHost, elect,
+                    HostMigrationPolicy.IsLocalElected(keepId, elect));
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Mid-dream migration: " + ex.Message);
+            }
             CleanupDeadHostLocal(deadHost);
 
             if (HostMigrationPolicy.IsLocalElected(keepId, elect))

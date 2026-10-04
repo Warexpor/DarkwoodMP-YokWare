@@ -90,6 +90,24 @@ namespace DWMPHorde.Networking
             return true;
         }
 
+        /// <summary>
+        /// A survivor of the last host migration is reconnecting from this address (its id is
+        /// still reserved). Such a peer was already in the session, also in a running dream.
+        /// </summary>
+        internal bool IsMigrationSurvivorAddress(string address)
+        {
+            if (string.IsNullOrEmpty(address) || _migrationReservedIds.Count == 0)
+                return false;
+            foreach (var kv in _migrationReservedIds)
+            {
+                string reserved = kv.Value;
+                if (string.Equals(reserved, address, System.StringComparison.OrdinalIgnoreCase)
+                    || (!IsSteamRosterAddress(reserved) && (IsLoopback(reserved) || IsLoopback(address))))
+                    return true;
+            }
+            return false;
+        }
+
         private static bool IsLoopback(string address)
         {
             return !string.IsNullOrEmpty(address)

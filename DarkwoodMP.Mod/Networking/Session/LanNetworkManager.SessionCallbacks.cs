@@ -39,7 +39,12 @@ namespace DWMPHorde.Networking
                 // Match Steam gate: IsDreamActive covers entry transition before DreamSession.Active.
                 bool allowDreamJoin = ModConfig.AllowJoinDuringDream != null
                     && ModConfig.AllowJoinDuringDream.Value;
-                if (!allowDreamJoin
+                // A migration survivor is not a new player: it is still on the dream pad.
+                System.Net.IPAddress reqIp = request.RemoteEndPoint != null ? request.RemoteEndPoint.Address : null;
+                if (reqIp != null && reqIp.IsIPv4MappedToIPv6)
+                    reqIp = reqIp.MapToIPv4();
+                bool survivor = reqIp != null && IsMigrationSurvivorAddress(reqIp.ToString());
+                if (!allowDreamJoin && !survivor
                     && (DreamSession.ShouldRejectNewConnections
                         || DreamSyncManager.IsDreamActive))
                 {

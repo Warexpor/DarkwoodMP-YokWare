@@ -48,6 +48,13 @@ namespace DWMPHorde.Networking
             // Reclaim sim: release client host-sync freeze so AI/entities run under us.
             ReclaimSimulationAuthorityAfterPromote();
 
+            // Mid-dream: the survivors stay in the dream and rejoin; the session is ours now.
+            try { Sync.DreamSyncManager.OnPromotedToHost(_migrationReservedIds.Keys); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Promote mid-dream: " + ex.Message);
+            }
+
             if (steam)
             {
                 PromoteLocalToSteamHost(keepId, reason);

@@ -14,6 +14,14 @@ namespace DWMPHorde.Networking
             if (player == null) return false;
             if (data == null) return false;
 
+            // On the dream pad the live inventory is the dream's (the overworld one waits in
+            // Dreams' copy for the exit): a reconnect mid-dream (host migration) keeps the body.
+            if (Dreams.Instance != null && Dreams.Instance.dreaming)
+            {
+                ModRuntime.LegacyInfo("[ClientBackup] in a dream — restore skipped, live state kept");
+                return false;
+            }
+
             if (!MatchesCurrentCampaign(data))
             {
                 ModRuntime.Log?.LogWarning(

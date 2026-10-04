@@ -128,7 +128,7 @@ namespace DWMPHorde.Patches
                 net?.Send(NetMessageType.DreamEnded,
                     w => DreamEndedMessage.Build(preset ?? "", outcome).Serialize(w),
                     DeliveryMethod.ReliableOrdered);
-                DreamSyncManager.BeginStoryEndDefer();
+                DreamSyncManager.BeginStoryEndDefer(preset ?? "", outcome);
                 return false;
             }
 
