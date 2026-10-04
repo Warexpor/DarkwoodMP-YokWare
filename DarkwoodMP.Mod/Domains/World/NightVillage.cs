@@ -26,7 +26,8 @@ namespace DWMPHorde.Sync
     internal static class NightVillage
     {
         internal const string VillageName = "outside_village_ch1_01";
-        private const float TickInterval = 0.5f;
+        // Sight is sampled often so a villager never goes in the gap between a look and its report.
+        private const float TickInterval = 0.1f;
         private const float CloseDistance = 1000f; // vanilla Character.inSightOrCloseToPlayer
 
         private static readonly HashSet<GameObject> Hidden = new HashSet<GameObject>();

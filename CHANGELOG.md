@@ -90,7 +90,8 @@ Vanilla never had night in the chapter-1 village while you were in it; now it do
   Musician and the crazy / infected villagers stay. Arriving near night finds them
   already gone. With players inside, they leave (and come back at dawn) all at once,
   and only while nobody sees any of them: each player reports it on `PlayerState`
-  (`SeesVillager`) with vanilla's own "in sight or within 1000" test, and someone
+  (`SeesVillager`, sampled 10 times a second) with vanilla's own "in sight or within
+  1000" test; with several players inside, all of them must have lost sight. Someone
   who has just walked in counts as seeing for 3 seconds. The host decides and sends
   it on `TimeSync` (`VillagersAway`), so everyone and late joiners get the same
   village. Only the GameObject is switched off: the villagers' saved state is not
