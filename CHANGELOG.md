@@ -13,7 +13,7 @@ tested in the game.
 
 ---
 
-## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies, players and lights
+## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies, players, lights, items and explosions
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
@@ -131,6 +131,46 @@ The mod's lantern copy follows that; these were the real faults around it.
   dark until the player toggled something. The last light state is now re-applied.
 - **A peer's torch light swung with the hand.** Vanilla keeps the torch light at the body
   centre and moves only the flame; peers now do the same.
+
+### Items and barricades
+
+- **Dropping a stack onto an occupied chest slot lost or copied items.** Vanilla merges a
+  same-type stack (whole or part), merges durability, or swaps, and a swap puts the
+  slot's item back where the cursor stack came from. None of it reached the host: a
+  merge into a chest vanished from the shared world, a swap duplicated. Every container
+  involved is now diffed before and after and the changes sent.
+  (`ContainerStackOrSwapPatch`.)
+- **Dropping an item from a chest with a controller copied it.** It landed on the ground
+  but the chest kept it for everyone else. The removal is now sent.
+- **Another player's barricade could hijack your own building.** Vanilla's barricade
+  code reads the local player's build menu: if you were in dismantle mode when a peer's
+  board went up, you got a free wood-and-nails refund and their board was torn down; if
+  you were hammering, your own build ended early and was lost. Remote boards are now
+  applied with your build state set aside.
+- **Joiners saw door barricades at full health.** The door's real barricade and door
+  health from the join snapshot are now kept.
+
+### Explosions and fire
+
+- **Explosions set off by a client hit everything twice.** The client ran the blast
+  itself (its hits on enemies went to the host as attacks) and the host ran it again on
+  request, so enemies took double damage and the client took its own damage twice. A
+  client's blast is now look and sound only; the host's blast deals damage, effects and
+  world hits for everyone.
+- **Explosion effects never reached other players.** A remote player caught in a blast
+  took its damage but not its effect (burning, stun). The effect now goes with the
+  damage, with vanilla's flat-distance falloff.
+- **Every extra pellet into a barrel replayed the boom.** Only a barrel's first
+  activation is now sent.
+- **Fire and debris from a client's molotov or bomb never showed on clients.** Every
+  copy of a throw is muted, and the host did not send the secondaries of a peer's throw.
+  It now does, and the thrower no longer filters them out.
+- **Burning doors, windows and crates burned up to N times faster.** Each peer ran the
+  fire damage tick and sent the result; now only the host ticks (your own burning player
+  still ticks on your machine).
+- **A burning or struck item could be mistaken for the nearest crate.** Fire and melee
+  hits on items matched anything destructible within 25 m; they now match the item's own
+  spot.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

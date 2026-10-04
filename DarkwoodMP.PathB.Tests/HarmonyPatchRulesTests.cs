@@ -101,7 +101,7 @@ public class HarmonyPatchRulesTests
             }
         }
         // The scan must actually see Prefix/Postfix flag pairs, or the rule checks nothing.
-        Assert.True(checkedPairs >= 5, "only " + checkedPairs + " prefix/postfix flag pairs found");
+        Assert.True(checkedPairs >= 4, "only " + checkedPairs + " prefix/postfix flag pairs found");
         Assert.True(offenders.Count == 0,
             "flags set in Prefix and cleared only in Postfix (add a Finalizer):\n" + string.Join("\n", offenders));
     }

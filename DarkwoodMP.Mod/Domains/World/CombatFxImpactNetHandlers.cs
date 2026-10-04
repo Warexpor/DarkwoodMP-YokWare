@@ -176,8 +176,8 @@ namespace DWMPHorde.Networking
             if (msg.TargetType == 2)
             {
                 // Client hit Y often differs from the host because of body-push or location layers;
-                // match on XZ with a wider radius before giving up.
-                if (TryHitDestructibleItemAt(pos, 25f, damage, attackerT))
+                // match on XZ only, at the item's own spot (25 m used to hit the nearest other crate).
+                if (TryHitDestructibleItemAt(pos, BarricadeNetHandlers.ItemMatchRadius, damage, attackerT))
                     return;
                 ModRuntime.LegacyInfo($"[MeleeWorldHit] destructible item not found at {pos}");
             }

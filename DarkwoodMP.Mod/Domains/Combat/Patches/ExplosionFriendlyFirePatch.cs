@@ -92,6 +92,9 @@ namespace DWMPHorde.Patches
             Vector3 blastPos = __instance.transform.position;
             float radius = __instance.radius;
             float baseDamage = __instance.damage;
+            SensorEffectWire[] blastEffects = __instance.hasEffect && __instance.effect != null
+                ? SensorEffectCodec.ToWire(new System.Collections.Generic.List<InvItemEffect> { __instance.effect })
+                : null;
 
             foreach (var proxy in net.GetAllProxies())
             {
@@ -109,7 +112,8 @@ namespace DWMPHorde.Patches
                     continue;
 
                 Transform proxyT = proxy.transform;
-                float dist = Vector3.Distance(blastPos, proxyT.position);
+                // Vanilla falloff is on the flat distance (Core.trueDistance), not 3D.
+                float dist = Core.trueDistance(blastPos, proxyT.position);
                 if (dist > radius) continue;
 
                 if (!Core.canSee(__instance.transform, proxyT)) continue;
@@ -132,7 +136,9 @@ namespace DWMPHorde.Patches
                     AttackerPosZ = pos.z,
                     ShowRedScreen = true,
                     NormalHit = true,
-                    CanInterrupt = true
+                    CanInterrupt = true,
+                    // Vanilla explode() also puts the blast's effect (burn, stun, ...) on the player.
+                    Effects = blastEffects
                 });
                 ModRuntime.LegacyInfo(
                     $"[ExplosionFF] blast at {blastPos} → player {proxy.PlayerId} dmg={damage} " +

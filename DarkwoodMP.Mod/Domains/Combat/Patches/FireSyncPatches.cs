@@ -54,6 +54,28 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Client: a burning door, window or destructible item takes its fire damage on the host
+    /// only. Vanilla <c>Burn.waitToGetHit</c> ticks on whichever peer has the Burn, and every
+    /// peer had it (WorldBurnState): each tick sent the object's health to the others, so with
+    /// N players it burned down up to N times as fast. The client's own burning player still
+    /// ticks here (its health is its own).
+    /// </summary>
+    [HarmonyPatch(typeof(Burn), nameof(Burn.waitToGetHit))]
+    public static class ClientWorldBurnTickSkipPatch
+    {
+        private static bool Prefix(Burn __instance, ref System.Collections.IEnumerator __result)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Client || !net.IsConnected)
+                return true;
+            if (__instance == null || __instance.GetComponent<Player>() != null)
+                return true;
+            __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
+            return false;
+        }
+    }
+
     /// <summary>Host→client sync of entity burn stop (Burn.stop).</summary>
     [HarmonyPatch(typeof(Burn), "stop")]
     public static class HostBurnStopSyncPatch

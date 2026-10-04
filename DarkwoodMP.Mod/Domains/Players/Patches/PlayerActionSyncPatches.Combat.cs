@@ -203,8 +203,19 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Explodes), "onActivate", new System.Type[0])]
     public static class ExplosionTriggerPatch
     {
-        private static void Postfix(Explodes __instance)
+        private static readonly AccessTools.FieldRef<Explodes, bool> Activated =
+            AccessTools.FieldRefAccess<Explodes, bool>("activated");
+
+        // Vanilla onActivate does nothing once activated (every extra pellet, a later ignite):
+        // only the real activation is sent, or each one replayed a boom on every peer.
+        private static void Prefix(Explodes __instance, out bool __state)
         {
+            __state = __instance != null && Activated(__instance);
+        }
+
+        private static void Postfix(Explodes __instance, bool __state)
+        {
+            if (__state || __instance == null || !Activated(__instance)) return;
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
@@ -259,7 +270,9 @@ namespace DWMPHorde.Patches
             Vector3 pos = __instance.transform.position;
             // Local activation already ran spawnObjects — debounce host ExplosionSpawnObject
             // so the stomper does not get a second set of secondary debris.
-            ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+            // (A muted throw copy spawned none: it must still get the host's.)
+            if (__instance.spawnObject != null && __instance.objectAmount > 0)
+                ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
 
             net.SendExplosionTrigger(new ExplosionTriggerMessage
             {
