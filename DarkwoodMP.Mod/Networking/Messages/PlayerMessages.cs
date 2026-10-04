@@ -130,6 +130,8 @@ namespace DWMPHorde.Networking
         /// outside location, not dreaming, not loading or in the opening movie. Trailer.
         /// </summary>
         public bool InOpenWorld;
+        /// <summary>Sender is in the village and sees a villager (or stands close to one). Trailer.</summary>
+        public bool SeesVillager;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -215,6 +217,7 @@ namespace DWMPHorde.Networking
             writer.Put(FlashAimY);
             writer.Put(HasNightShadows);
             writer.Put(InOpenWorld);
+            writer.Put(SeesVillager);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -282,6 +285,7 @@ namespace DWMPHorde.Networking
             msg.FlashAimY = reader.GetShort();
             msg.HasNightShadows = reader.GetBool();
             msg.InOpenWorld = reader.GetBool();
+            msg.SeesVillager = reader.GetBool();
             return msg;
         }
     }

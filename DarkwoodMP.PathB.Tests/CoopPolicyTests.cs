@@ -21,6 +21,15 @@ public class CoopPolicyTests
         Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: false, anyRemoteInOpenWorld: false));
         Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: true));
         Assert.False(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: false));
+        // Village at night: away from the night warning until morning; flips unseen only.
+        Assert.True(VillageNightPolicy.IsNearNight(970, 1100, 360));
+        Assert.True(VillageNightPolicy.IsNearNight(100, 1100, 360));
+        Assert.False(VillageNightPolicy.IsNearNight(969, 1100, 360));
+        Assert.False(VillageNightPolicy.IsNearNight(360, 1100, 360));
+        Assert.True(VillageNightPolicy.ShouldFlip(false, true, occupied: false, anyoneSees: true));
+        Assert.False(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: true));
+        Assert.True(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: false));
+        Assert.False(VillageNightPolicy.ShouldFlip(true, true, occupied: false, anyoneSees: false));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1068, 1071, 1070));
         Assert.False(CoopTimePolicy.LiveStepCrossedMinute(100, 500, 1070));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1438, 2, 0));

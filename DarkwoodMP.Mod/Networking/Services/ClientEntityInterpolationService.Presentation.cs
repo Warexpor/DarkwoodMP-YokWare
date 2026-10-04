@@ -444,7 +444,7 @@ namespace DWMPHorde.Networking
 
         private static void EnsureEntityAwake(Character c)
         {
-            if (c == null) return;
+            if (c == null || NightVillage.IsHidden(c.gameObject)) return;
 
             GameObject go = c.gameObject;
             bool isCorpse = !c.alive || c.GetComponent<Item>() != null;

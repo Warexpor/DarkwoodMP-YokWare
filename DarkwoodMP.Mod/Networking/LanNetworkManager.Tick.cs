@@ -224,6 +224,8 @@ namespace DWMPHorde.Networking
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
             // Include host effect flags so clients can present shadow and forest
             // spirit wards.
+            Sync.NightVillage.Tick(this);
+
             _effectSyncTimer += Time.deltaTime;
             if (_effectSyncTimer >= 2f)
             {
@@ -266,6 +268,7 @@ namespace DWMPHorde.Networking
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
                 InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
+                SeesVillager = Sync.NightVillage.LocalSeesVillager,
                 TrapNetId = local.inBearTrap
                     ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
                     : 0

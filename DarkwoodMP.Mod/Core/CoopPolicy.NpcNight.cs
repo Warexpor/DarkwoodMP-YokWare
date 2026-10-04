@@ -1,5 +1,20 @@
 namespace DWMPHorde
 {
+    /// <summary>
+    /// The village empties at night. Villagers are away from the "night is coming" warning
+    /// (two hours before night) until morning. The change happens at once while nobody is in
+    /// the village, and with players inside only while none of them sees a villager.
+    /// </summary>
+    public static class VillageNightPolicy
+    {
+        public const int NightComingLeadMinutes = 130;
+
+        public static bool IsNearNight(int time, int nightTime, int dayTime)
+            => time >= nightTime - NightComingLeadMinutes || time < dayTime;
+
+        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees)
+            => currentlyAway != wantAway && (!occupied || !anyoneSees);
+    }
 
     /// <summary>
     /// One active speaker per NPC slot. Different NPCs may be held in parallel

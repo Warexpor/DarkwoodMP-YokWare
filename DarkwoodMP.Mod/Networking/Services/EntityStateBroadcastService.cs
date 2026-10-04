@@ -307,6 +307,9 @@ namespace DWMPHorde.Networking
             short id = CharacterTracker.GetStableId(c);
             if (id == 0)
                 return false;
+            // A villager away for the night is off on every peer; never wake or stream it.
+            if (NightVillage.IsHidden(c.gameObject))
+                return false;
 
             // Near a remote: WorldGrid edge cases can leave isActive/animator off while the
             // GO is still tracked; otherwise the client gets empty clips and sliding sprites. Wake
