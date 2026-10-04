@@ -159,7 +159,8 @@ namespace DWMPHorde.Networking
             {
                 CurrentTime = ctrl != null ? ctrl.CurrentTime : 0,
                 Day = ctrl != null ? ctrl.day : 1,
-                IsAfterNight = ctrl != null && ctrl.isAfterNight
+                IsAfterNight = ctrl != null && ctrl.isAfterNight,
+                VillagersAway = Sync.NightVillage.Away
             };
             // Reliable: after-night transitions must not be dropped (client wrongly
             // reporting AfterNightActive=false can clear host morning freeze).
@@ -227,6 +228,7 @@ namespace DWMPHorde.Networking
 
             ctrl.CurrentTime = msg.CurrentTime;
             ctrl.day = msg.Day;
+            Sync.NightVillage.SetAway(msg.VillagersAway);
 
             // Host startDay full-heals + skill recharge is world-authority-side only.
             // Client must still get personal morning benefits when day rolls.

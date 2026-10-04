@@ -50,6 +50,7 @@ namespace DWMPHorde.Networking
                     hostSt.HasLightProtection = state.HasLightProtection;
                     hostSt.HasNightShadows = state.HasNightShadows;
                     hostSt.InOpenWorld = state.InOpenWorld;
+                    hostSt.SeesVillager = state.SeesVillager;
                     if (state.InBearTrap)
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
@@ -162,6 +163,7 @@ namespace DWMPHorde.Networking
                 cliSt.HasNightShadows = state.HasNightShadows;
                 // Kept on clients too: a promoted host runs the shared clock from it.
                 cliSt.InOpenWorld = state.InOpenWorld;
+                cliSt.SeesVillager = state.SeesVillager;
                 if (state.InBearTrap)
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");

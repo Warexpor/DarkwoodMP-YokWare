@@ -26,6 +26,9 @@ namespace DWMPHorde.Networking
         /// <summary>Peer is in the open world (PlayerState trailer): the shared clock runs for it.</summary>
         public bool InOpenWorld;
 
+        /// <summary>Peer sees a villager in the village (PlayerState trailer): villagers stay put.</summary>
+        public bool SeesVillager;
+
         // Dreams
         public bool IsDeadInDream;
 

@@ -4,7 +4,8 @@
 
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.132**. The current Horde wire protocol is **32** (bumped in 0.8.132:
-`PlayerState` gains the `InOpenWorld` trailer; 31 held for 0.8.131 only).
+`PlayerState` gains the `InOpenWorld` and `SeesVillager` trailers, `TimeSync`
+gains `VillagersAway`; 31 held for 0.8.131 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
@@ -76,8 +77,34 @@ come while the host is away from home. Several host-only paths broke there:
 
 A player inside a location at night gets what vanilla gives one who walks in at
 night: the location goes dark with the clock (underground ones stay black), the
-worm hunts them there, NPCs stay where they are (the game has no NPC day/night
-routines), and they miss the morning rewards if not home.
+worm hunts them there, and they miss the morning rewards if not home. The game
+has no NPC day/night routines; the village gets one (below).
+
+### The village at night (new, co-op only)
+
+Vanilla never had night in the chapter-1 village while you were in it; now it does.
+(`NightVillage`, `VillageNightPolicy`; village pad `outside_village_ch1_01`.)
+
+- **The villagers go home for the night.** The friendly villagers are away from the
+  "night is coming" warning (about two hours before night) until morning. The
+  Musician and the crazy / infected villagers stay. Arriving near night finds them
+  already gone. With players inside, they leave (and come back at dawn) all at once,
+  and only while nobody sees any of them: each player reports it on `PlayerState`
+  (`SeesVillager`) with vanilla's own "in sight or within 1000" test, and someone
+  who has just walked in counts as seeing for 3 seconds. The host decides and sends
+  it on `TimeSync` (`VillagersAway`), so everyone and late joiners get the same
+  village. Only the GameObject is switched off: the villagers' saved state is not
+  touched, so a save never loses one and a villager a story event removed stays
+  removed. Culling, location activation and the entity sync wake paths leave an away
+  villager off. Not saved: after a load the host settles it again by the same rule.
+- **Village houses shelter from the worm.** Standing indoors in the village (an
+  indoor floor under the player, vanilla's own test) gives the player vanilla's
+  shadow ward, the same effect a lit hideout gives: the worm and the immortal
+  shadows leave them alone. It goes when they step outside or leave the village.
+- **Playtest check:** the host log prints `[NightVillage] N friendly villagers in
+  'outside_village_ch1_01'` the first time the village is used. The villagers are
+  picked by their vanilla faction (`villagerNeutral`); if N is 0, or counts the
+  wrong people, the faction guess is wrong.
 
 ### Hunger
 

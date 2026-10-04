@@ -362,8 +362,10 @@ namespace DWMPHorde.Networking
     {
         public int CurrentTime, Day;
         public bool IsAfterNight;
-        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); }
-        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool() };
+        /// <summary>The village's friendly villagers are away for the night (NightVillage).</summary>
+        public bool VillagersAway;
+        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); }
+        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool() };
     }
 
     /// <summary>Client→host: post-sleep clock for host-authority forward adopt.</summary>
