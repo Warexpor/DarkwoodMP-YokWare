@@ -309,6 +309,9 @@ namespace DWMPHorde.Networking
         internal void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            // Reconnected (host migration, soft reconnect) while on the dream pad: confirm or leave.
+            if (DreamSyncManager.OnSessionBulkWhileInsideDream(msg, _net))
+                return;
             if (msg.SessionId != 0)
                 DreamSession.AdoptSessionId(msg.SessionId);
             if (!string.IsNullOrEmpty(msg.ActivePreset))

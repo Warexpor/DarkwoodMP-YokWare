@@ -18,6 +18,54 @@ namespace DWMPHorde.Sync
         /// dream on a client ran with the first one's music, health, items, time and outcomes,
         /// and its exit tore down the old pad's grid instead of the new one.
         /// </summary>
+        /// <summary>
+        /// Vanilla OutsideLocations.spawnLocation's A* graph for the pad (and its scan). The peer
+        /// load copied only the scene part: a client never needed paths (the host runs the AI),
+        /// but a client promoted to host mid-dream runs the pad's AI itself, and destroyDream on
+        /// exit expects the graph ("grid graph not found").
+        /// </summary>
+        private static void BuildDreamPadGraph(string locationName, LocationMarker marker)
+        {
+            try
+            {
+                if (AstarPath.active == null || AstarPath.active.astarData == null || marker == null)
+                    return;
+                if (AstarPath.active.astarData.GetGraph(locationName) != null)
+                    return;
+                LocationPreset preset = LocationPreset.getPreset(locationName);
+                if (preset != null && preset.noPathfinding)
+                    return;
+                var graph = (Pathfinding.GridGraph)AstarPath.active.astarData.CreateGraph(typeof(Pathfinding.GridGraph));
+                graph.name = locationName;
+                graph.center = marker.transform.position;
+                graph.neighbours = System.IntPtr.Size == 4 ? Pathfinding.NumNeighbours.Four : Pathfinding.NumNeighbours.Eight;
+                graph.nodeSize = 40f;
+                if (preset != null)
+                {
+                    preset.applyPathfinding(graph, (int)marker.thisLocation.transform.rotation.eulerAngles.y);
+                }
+                else
+                {
+                    graph.width = 200;
+                    graph.depth = 200;
+                    graph.UpdateSizeFromWidthDepth();
+                }
+                graph.cutCorners = false;
+                graph.collision.diameter = 1f;
+                graph.collision.mask = 25198592;
+                graph.collision.heightMask = graph.collision.mask;
+                graph.collision.unwalkableWhenNoGround = false;
+                AstarPath.active.astarData.AddGraph(graph);
+                int index = Array.IndexOf(AstarPath.active.graphs, graph);
+                if (index >= 0)
+                    AstarPath.active.ScanLoop(null, 1 << index);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] dream pad graph: " + ex.Message);
+            }
+        }
+
         private static void AssignDreamPreset(string presetName)
         {
             if (Dreams.Instance == null || string.IsNullOrEmpty(presetName))
@@ -462,6 +510,7 @@ namespace DWMPHorde.Sync
                 Singleton<OutsideLocations>.Instance.spawnedLocations[locationName] = component;
                 Dreams.Instance.dreamLocation = component;
                 RemapDreamUniqueObjects(component.transform);
+                BuildDreamPadGraph(locationName, marker);
 
                 // Activate all child objects; vanilla transportToLocation calls
                 // spawnedLocations[locationName].enter() which does activateChildren(true).

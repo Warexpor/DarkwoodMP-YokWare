@@ -13,8 +13,10 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
-        public static void BeginStoryEndDefer()
+        public static void BeginStoryEndDefer(string preset, string outcome)
         {
+            _storyEndDeferPreset = preset;
+            _storyEndDeferOutcome = outcome;
             _storyEndDeferPending = true;
             _storyEndDeferDeadline = Time.realtimeSinceStartup + StoryEndDeferTimeoutSec;
             var ctrl = Singleton<Controller>.Instance;
@@ -30,6 +32,8 @@ namespace DWMPHorde.Sync
         {
             _storyEndDeferPending = false;
             _storyEndDeferDeadline = 0f;
+            _storyEndDeferPreset = null;
+            _storyEndDeferOutcome = null;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl != null && _storyEndWatchdog != null)
             {

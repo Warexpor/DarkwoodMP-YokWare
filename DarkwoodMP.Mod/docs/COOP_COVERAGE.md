@@ -452,9 +452,10 @@ and join a different host; host migration followed by a reconnect.
   relayed when denied; `ContainerStateRequest`/`Sync` on open). Dual open only
   means dual UI; the host denies the losing take. Do not invent a container lock unless playtest shows a
   remaining race after host validation.
-- Host migration during an active dream: **parked.** `HostMigration` refuses
-  mid-dream authority flip and disconnects without GRANT (dream session is
-  not migratable). Dual-box mid-dream host-loss still soak-pending.
+- Host migration during an active dream: **done in code, not playtested.** The
+  dream carries over (`DreamSyncManager.Migration.cs`): the elected survivor owns
+  the session and runs the pad AI, the others rejoin while staying on their pad
+  and confirm with `DreamEntered`. A peer not yet inside the dream leaves it.
 - Exact proxy field-of-view parity for general EventTrigger sight checks:
   **done in code** — host `EventTriggers.isCurrentlyInSightOfPlayer` uses
   `HostPlayerIdentity.AnyInSight` (`Player.isInSight` + proxy `_transform`

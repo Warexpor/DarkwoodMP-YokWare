@@ -162,9 +162,33 @@ a code audit (creature sounds, location traversal, dreams), not by a report.
 - Apply flags across dreams, cutscenes, the prologue, locks, examine and chapter
   progression were set and then hard-cleared instead of restored (the same clobber
   fixed for sounds in 0.8.130); all restore now.
-- Not changed: a story end with an empty outcome name grants no default rewards on
-  clients. Failure paths (reject, disconnect) send an empty name too, and those must
-  not reward.
+
+### Host migration in a dream (was parked)
+
+- **Losing the host mid-dream now migrates instead of disconnecting everyone.** Every
+  peer has its own copy of the world and of the dream pad, so the dream carries over
+  (`Domains/Dream/DreamSyncManager.Migration.cs`):
+  - The elected survivor takes the session: it runs the pad's AI, owns the story end
+    and the all-dead end. Those wait up to 25 s for the other survivors to rejoin, so
+    they get the same end; a story end it had already asked the old host for runs then.
+  - The other survivors keep their dream bookkeeping (moved from the old host's id to
+    the new host's), reconnect while staying on their pad, and confirm with
+    `DreamEntered` (the new host freezes their stand-in until then). A death or a
+    deferred story end the old host never answered is sent again.
+  - The new host lets migration survivors through its mid-dream join refusal (LAN and
+    Steam); new players are still refused.
+  - A peer that was not inside the dream yet (entry video, pad loading) leaves it with
+    no reward, and the migration goes on. A rejoined survivor whose new host has no
+    such session leaves too.
+  - A dead local player no longer reads as "everyone dead" while the survivors are
+    still reconnecting.
+- **Peers now build the dream pad's navigation graph** as vanilla does: the peer load
+  copied only the scene, so a promoted host's dream enemies had no paths (and every
+  client's dream exit logged "grid graph not found").
+- **No character-backup restore while dreaming**: a reconnect mid-dream swapped the
+  dream inventory for the backup's.
+- Not changed: a dream left without being finished (reject, disconnect, host lost
+  before entry, story-end timeout) gives no reward, as before.
 
 ---
 

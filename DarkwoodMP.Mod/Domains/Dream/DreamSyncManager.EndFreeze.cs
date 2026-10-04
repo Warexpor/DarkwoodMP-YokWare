@@ -174,6 +174,10 @@ namespace DWMPHorde.Sync
             _entryTransitionSeen = false;
             _remoteEntryHasVideo = true;
             _chainPocketLoading = null;
+            _carriedOverHostLoss = false;
+            if (_promotedSettle != null && Singleton<Controller>.Instance != null)
+                Singleton<Controller>.Instance.StopCoroutine(_promotedSettle);
+            _promotedSettle = null;
             _dreamEndBroadcastSent = false;
             _hostOrderedDreamEnd = false;
             ClearRemoteDreamRoster();

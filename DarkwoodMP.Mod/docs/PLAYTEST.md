@@ -39,6 +39,7 @@ stops the location heartbeat from re-entering pads. Listen and watch on the clie
       forest keeps streaming around the host.
 - [ ] Client uses a location entrance with a cursor action (`*_enter*`): it is moved in
       with the black screen.
+- [ ] Host lost mid-dream (section 7): the dream continues under the new host.
 - [ ] Dreams, all on the client: a second dream in one run has its own music, items and
       outcome (not the first dream's); pad doors and the dialogue door work; die in a
       shared dream, the teammate finishes it: you wake up out of spectate with no story
@@ -183,7 +184,11 @@ Still open from the previous entry (host validation, relay and session reset):
 - [ ] Kill the host process mid-session: survivors elect the lowest player id, the
       new host's world carries on, clients reconnect (LAN and Steam).
 - [ ] Graceful DISCONNECT on the host hands off instead of dropping everyone.
-- [ ] Known gap: host migration during a dream is unsupported.
+- [ ] Kill the host mid-dream (3 players: two survivors): both stay in the dream; the
+      new host's dream enemies move and attack; the other survivor rejoins (log
+      `Still in dream session … after host migration`); finishing the dream ends it for
+      both with the reward. Kill it during the entry video instead: both are back in
+      their world, no reward, and migration still completes.
 
 ## 8. Dreams, including a chain
 
