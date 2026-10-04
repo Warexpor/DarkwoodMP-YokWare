@@ -64,15 +64,20 @@ come while the host is away from home. Several host-only paths broke there:
   inside a pad, rain now keeps its schedule and state but stays hidden, and shows on
   return. Lightning flashes are not shown inside a pad. (`PadWeather`,
   `RainHostInPadPatch`.)
-- **Night worms and redirected night spawns aimed at players inside locations.** They
-  spawned into empty space around a pad. They now pick only players in the open
-  world.
+- **Redirected night spawns aimed at players inside locations.** The host's night
+  event spawns (forest spirit, event creatures) were moved next to a far peer even
+  inside a location pad, where the events themselves no longer fire. They now pick
+  only players in the open world. The hard-night worm is different: vanilla sends it
+  after the player anywhere, inside a location too, so it still hunts players in
+  pads (a peer still loading is skipped).
 - **Clients never got the night warnings.** "Night is coming", "light the oven" and
   the end-of-night sound come from vanilla `refreshTime`, which never runs on a
   client. Clients now get them from the host's clock.
 
-A player inside a location at night is in the dark there, out of the worm's reach,
-and misses the morning rewards if not home.
+A player inside a location at night gets what vanilla gives one who walks in at
+night: the location goes dark with the clock (underground ones stay black), the
+worm hunts them there, NPCs stay where they are (the game has no NPC day/night
+routines), and they miss the morning rewards if not home.
 
 ### Hunger
 
