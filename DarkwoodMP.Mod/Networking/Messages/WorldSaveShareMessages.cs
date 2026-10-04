@@ -21,6 +21,8 @@ namespace DWMPHorde.Networking
         /// package the host has since re-sent (broadcast re-run) cannot vouch for the new files.
         /// </summary>
         public int SharePass;
+        /// <summary>Host profile difficulty (vanilla <c>GameProfile.Difficulty</c>: lives on hard, permadeath on nightmare).</summary>
+        public int Difficulty;
 
         public void Serialize(NetWriter w)
         {
@@ -37,6 +39,7 @@ namespace DWMPHorde.Networking
             }
             w.Put(CampaignId ?? "");
             w.Put(SharePass);
+            w.Put(Difficulty);
         }
 
         public static WorldSaveBeginMessage Deserialize(NetReader r)
@@ -64,6 +67,7 @@ namespace DWMPHorde.Networking
             }
             msg.CampaignId = r.GetString();
             msg.SharePass = r.GetInt();
+            msg.Difficulty = r.GetInt();
             return msg;
         }
     }

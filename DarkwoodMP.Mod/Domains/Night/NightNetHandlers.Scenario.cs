@@ -243,71 +243,16 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client slept: the host may adopt the post-sleep clock, then send
-        /// TimeSync to all peers. This does not run the full day chain.
+        /// A client woke up (vanilla <c>Player.onEndSleep</c>: lying down for a respawn, a dream, the
+        /// prologue). Waking never moves the clock in vanilla; the bed's time skip is run on the
+        /// host itself (cursor action). The host used to adopt the client's day and time here, so a
+        /// lagging or stale client clock could jump everyone forward past the day's events. It now
+        /// only re-sends its own clock so the waking client snaps to it.
         /// </summary>
         internal void HandleSleepEndRequest(SleepEndRequestMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-
-            Controller ctrl = Singleton<Controller>.Instance;
-            if (ctrl == null) return;
-
-            bool forward = msg.Day > ctrl.day
-                || (msg.Day == ctrl.day && msg.CurrentTime > ctrl.CurrentTime)
-                || (msg.Day == ctrl.day && msg.CurrentTime == ctrl.CurrentTime
-                    && msg.IsAfterNight != ctrl.isAfterNight);
-
-            if (!forward)
-            {
-                ModRuntime.LegacyInfo(
-                    $"[SleepSync] ignore non-forward sleep day={msg.Day} time={msg.CurrentTime} " +
-                    $"(host day={ctrl.day} time={ctrl.CurrentTime})");
-                // Still rebroadcast host clock so client snaps.
-                _net.SendTimeSyncTo(-1);
-                return;
-            }
-
-            ctrl.day = msg.Day;
-            ctrl.CurrentTime = msg.CurrentTime;
-
-            // Mirror the after-night flag only; do not run startAfterNight or
-            // endAfterNight world chains.
-            if (msg.IsAfterNight && !ctrl.isAfterNight)
-            {
-                ctrl.isAfterNight = true;
-                try
-                {
-                    if (Player.Instance != null && Player.Instance.effects != null)
-                        ctrl.addAfterNightEffect();
-                }
-                catch (System.Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[SleepSync] addAfterNightEffect: " + ex.Message);
-                }
-            }
-            else if (!msg.IsAfterNight && ctrl.isAfterNight)
-            {
-                ctrl.isAfterNight = false;
-                try { ctrl.removeAfterNightEffect(); }
-                catch (System.Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[SleepSync] removeAfterNightEffect: " + ex.Message);
-                }
-            }
-
-            try { ctrl.refreshTimeNoLogic(); }
-            catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[SleepSync] refreshTimeNoLogic: " + ex.Message);
-            }
-
-            ModRuntime.LegacyInfo(
-                $"[SleepSync] host adopted client sleep day={msg.Day} time={msg.CurrentTime} afterNight={msg.IsAfterNight}");
-            _net.SendTimeSyncTo(-1);
+            _net.SendTimeSyncTo(_net.CurrentReceivePlayerId > 0 ? _net.CurrentReceivePlayerId : -1);
         }
 
         /// <summary>

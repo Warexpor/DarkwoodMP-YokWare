@@ -138,7 +138,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Find or create the GameProfile with the receive slot id (does not touch disk yet).
         /// </summary>
-        private static GameProfile EnsureProfileSlot(int profileId, int day, int chapter)
+        private static GameProfile EnsureProfileSlot(int profileId, int day, int chapter, int difficulty)
         {
             if (Core.profiles != null)
             {
@@ -150,6 +150,9 @@ namespace DWMPHorde.Networking
                         p.Active = true;
                         p.day = day;
                         p.chapter = chapter;
+                        // The host's difficulty, not the slot's: hard lives and nightmare permadeath
+                        // are judged on each player's own machine.
+                        p.difficulty = (GameProfile.Difficulty)difficulty;
                         return p;
                     }
                 }
@@ -157,6 +160,7 @@ namespace DWMPHorde.Networking
 
             var created = new GameProfile(profileId, _Active: true, day);
             created.chapter = chapter;
+            created.difficulty = (GameProfile.Difficulty)difficulty;
             created.fullRelease = true;
             created.majorVersion = Core.majorVersion;
             created.minorVersion = Core.minorVersion;

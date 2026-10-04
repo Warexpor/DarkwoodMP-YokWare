@@ -39,6 +39,8 @@ namespace DWMPHorde.Patches
             public string NpcName;
             public string DialogueName;
             public int BoardIndex;
+            /// <summary>Host's own conversation: journal entries its outcomes remove go to the peers.</summary>
+            public bool HostJournalDiff;
         }
 
         private static bool InSession()
@@ -69,8 +71,26 @@ namespace DWMPHorde.Patches
                 return false;
 
             TryBeginClientDefer(__instance, ref __state);
+            TryBeginHostJournalDiff(ref __state);
             DialogOutcomeIndexPatch.ResetCounter();
             return true;
+        }
+
+        /// <summary>
+        /// Host talking to an NPC itself: a "removeItem" outcome can take a key, note or quest
+        /// item out of the shared journal (vanilla displayNextBoard removes it from the journal
+        /// dict). A peer's outcome replayed by the host is diffed by <see cref="HostApplyGuard"/>;
+        /// the host's own was not, so peers kept the item.
+        /// </summary>
+        private static void TryBeginHostJournalDiff(ref BoardState state)
+        {
+            if (LanNetworkManager.IsApplyingRemoteState || HostApplyGuard.Active || DialogHostApplyGuard.DialogueApplyActive)
+                return;
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return;
+            JournalSyncHelpers.BeginWorldApplyDiff();
+            state.HostJournalDiff = true;
         }
 
         private static void TryBeginClientDefer(DialogueWindow dw, ref BoardState state)
@@ -155,6 +175,12 @@ namespace DWMPHorde.Patches
 
             if (__state.Deferred)
                 DialogClientWorldDefer.End();
+
+            if (__state.HostJournalDiff)
+            {
+                try { JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
+                catch { /* journal UI may be missing */ }
+            }
         }
 
         private static void TrySendBoardCommit(BoardState state)

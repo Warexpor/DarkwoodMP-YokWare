@@ -91,7 +91,10 @@ namespace DWMPHorde.Networking
             DeathStateTracker.OnRemoteDayDeath(playerId);
 
             if (_net.Role == NetworkRole.Host)
+            {
+                DeathStateTracker.HostClearHomeForRespawn();
                 RequestRemoteDeathSave();
+            }
         }
 
         /// <summary>

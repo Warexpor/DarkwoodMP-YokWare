@@ -143,7 +143,7 @@ namespace DWMPHorde.Networking
                         "Permanent co-op copy: wrote " + f.Name + " → prof" + profileId
                         + " (" + f.Raw.Length + " bytes)");
 
-                GameProfile target = EnsureProfileSlot(profileId, _pendingBegin.DayIndex, _pendingBegin.ChapterId);
+                GameProfile target = EnsureProfileSlot(profileId, _pendingBegin.DayIndex, _pendingBegin.ChapterId, _pendingBegin.Difficulty);
                 Core.currentProfile = target;
                 target.day = _pendingBegin.DayIndex;
                 target.chapter = _pendingBegin.ChapterId;

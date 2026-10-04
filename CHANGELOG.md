@@ -4,7 +4,8 @@
 
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
-`ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`;
+`ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
+`WorldSaveBegin` gains `Difficulty`;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -13,7 +14,7 @@ tested in the game.
 
 ---
 
-## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies, players, lights, items and explosions
+## 0.8.133 — Decompile audit pass: traps, night, enemies, players, lights, items, explosions, quests and death
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
@@ -171,6 +172,45 @@ The mod's lantern copy follows that; these were the real faults around it.
 - **A burning or struck item could be mistaken for the nearest crate.** Fire and melee
   hits on items matched anything destructible within 25 m; they now match the item's own
   spot.
+
+### Quests, death, the clock and the hideout
+
+- **A client's quest step could be lost.** When a client finished a conversation while
+  the host's dialogue window was busy (the host trading, or talking to that same NPC),
+  the outcome (quest flags, story events, shared reputation) waited at most 15 s, then
+  was thrown away, after the client had already handed over the item. Outcomes now wait
+  in order until the window is free and are only cleared when the session ends.
+- **A key or quest item the host's dialogue took stayed with everyone else.** Vanilla
+  removes it from the journal; the host's own conversations never told the peers. They
+  now do, as a client's conversation replayed by the host already did.
+- **Dream keys, notes and quest items stayed after the dream on other players.**
+  Picked up by a peer during the shared dream, they were not marked as dream items, so
+  vanilla's end-of-dream cleanup missed them.
+- **Hard and Nightmare were Normal for clients.** A client's co-op save was created on
+  Normal, so its deaths never counted toward the permadeath party wipe and it had no
+  lives. The host's difficulty now travels with the world (`WorldSaveBegin.Difficulty`).
+- **The host's daytime death reset every enemy in the world for everyone.** Vanilla
+  respawns all enemies when the player dies; with others alive it wiped their fights and
+  chases. It now runs only when nobody is left alive.
+- **A client's daytime respawn changed only its own world.** Vanilla clears the home
+  area on respawn (enemies sent back, infection and armed traps near the bed removed);
+  on a client that split its world from the host's. The client now only teleports home
+  and the host clears the shared home area.
+- **A waking client could move everyone's clock.** The host adopted the client's day
+  and time whenever it woke up (respawn, dream, prologue). Vanilla waking never moves
+  the clock (the bed's skip already runs on the host), so the host now re-sends its own.
+- **One player could skip the day for everyone.** The bed's "wait until evening" now
+  needs every living player at the hideout; otherwise it is refused with a line for the
+  player at the bed.
+- **A joiner's world load could put out the party's lit oven.** Vanilla switches unlit
+  ovens off as the world loads, and the mod sent each of those as a player action, so the
+  lit hideout oven (and its shadow ward) could go dark for everyone. Only a real change
+  is now sent.
+- **A client's generator switch overwrote the host's fuel.** The host now keeps its own
+  fuel and takes only the switch; clients get the fuel level every unit instead of every
+  10, so pouring stops at a full tank.
+- **Two players upgrading the workbench at once lost a level.** Both paid; the host now
+  counts both.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
