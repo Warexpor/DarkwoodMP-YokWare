@@ -67,36 +67,37 @@ namespace DWMPHorde.Networking
             Location loc = ResolveOutsideLocation(ol, locName);
             if (loc != null)
             {
-                loc.enter(force: true);
+                // The host keeps every pad a player is in running. A client activates only its
+                // own pad: activating a pad another peer is in ran it here with nothing to
+                // ever leave it again.
+                if (_net.Role == NetworkRole.Host || IsLocalIn(ol, locName))
+                    EnsureEntered(loc);
 
-                // Place proxy: prefer last PlayerState (accurate), else playerSpawn on first enter.
-                // Dream: first enter only, not every periodic LocationEnter. Repeated snaps
-                // to playerSpawn Y and locking them under the pad). Non-dream: also re-place
-                // when local just settled in the same location (post-load resync).
-                string localCanon = Sync.DreamSyncManager.CanonicalDreamLocationName(
-                    ol.currentLocationName ?? "");
-                bool localSameLoc = ol.playerInOutsideLocation
-                    && CoopWorldPresencePolicy.LocationNamesMatch(localCanon, locName);
+                // Place the proxy on its first enter here (last PlayerState if it is in this pad,
+                // else the pad's playerSpawn), after a deferred resolve, or when it is missing
+                // (soft reconnect). Not on the ~1 Hz heartbeat: the place is a hard snap with
+                // an Idle pose, so a peer in the same pad hitched once a second.
+                // The local settle path re-places everyone after its own load.
                 bool dreamLoc = Sync.DreamSyncManager.IsDreamLocationName(locName)
                     || (Sync.DreamSyncManager.IsDreamActive
                         && locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase));
                 bool pendingPlace = _pendingPlaceOnLocationResolve.Remove(playerId);
-                // Soft-reconnect destroys proxies but used to keep RemoteOutsideLocation —
-                // firstEnterThisLoc stayed false and Place was skipped. Belt: missing proxy.
                 bool proxyMissing = !_net.RemoteProxies.TryGetValue(playerId, out var existingProxy)
                     || existingProxy == null;
-                bool shouldPlace = firstEnterThisLoc || pendingPlace || (localSameLoc && !dreamLoc)
-                    || proxyMissing;
+                bool shouldPlace = firstEnterThisLoc || pendingPlace || proxyMissing;
                 if (shouldPlace)
                     PlaceRemoteProxyInOutsideLocation(playerId, loc, preferLastKnown: true);
+
+                // Pad to pad (vanilla transportToLocation(fromWorld: false) sends no exit): the
+                // pad it came from may now be empty. After the place, so its proxy is off it.
+                if (_net.Role == NetworkRole.Host && !string.IsNullOrEmpty(prev)
+                    && !CoopWorldPresencePolicy.LocationNamesMatch(prev, locName))
+                    TryLeaveUnoccupiedOutsideLocation(prev);
 
                 // Host never setGrid for a remote-only pad; wake that location's
                 // WorldGrid nodes around remotes so bunker Cullables/AI run.
                 if (_net.Role == NetworkRole.Host)
                     TryEnterLocationGridNearRemotes(locName);
-
-                if (_net.Role == NetworkRole.Host && firstEnterThisLoc)
-                    TryFireRemoteLocationEnterEvents(ol, loc, locName, playerId);
 
                 // Peer just got location geometry; re-push sticky lamp/gen state that
                 // may have been applied (or dropped) while the grid was unloaded.
@@ -190,10 +191,34 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo($"[LocationSync] location not spawned, creating: {createName}");
                 if (localNeedsPad)
                     NoteRemoteLocationCreate(createName);
-                ol.createLocation(createName);
+                RemotePadSpawn.Spawn(ol, createName);
             }
         }
 
+
+        /// <summary>
+        /// Activate a pad a peer is in, once. Vanilla <c>Location.enter(force)</c> re-runs the
+        /// whole activation every call: every creature in it is sent back to its waypoint
+        /// (<c>returnToCurrentWaypoint</c>), its on-enter location events fire again and an
+        /// activation already in progress is cut off. The ~1 Hz LocationEnter heartbeat called it
+        /// every second, so on the host the AI around a client inside a bunker kept resetting.
+        /// </summary>
+        private static bool IsLocalIn(OutsideLocations ol, string locName)
+        {
+            if (ol == null || !ol.playerInOutsideLocation)
+                return false;
+            string local = Sync.DreamSyncManager.CanonicalDreamLocationName(ol.currentLocationName ?? "");
+            return CoopWorldPresencePolicy.LocationNamesMatch(local, locName);
+        }
+
+        internal static void EnsureEntered(Location loc)
+        {
+            if (loc == null)
+                return;
+            if (loc.entered && loc.gameObject.activeInHierarchy)
+                return;
+            loc.enter(force: true);
+        }
 
         private static bool TryBeginRemoteLocationCreate(string locName)
         {
@@ -277,7 +302,7 @@ namespace DWMPHorde.Networking
             // ContainsKey-only — dict may key under a twin name while peers send canonical.
             Location loc = ResolveOutsideLocation(ol, locationName);
             if (loc == null) return;
-            loc.enter(force: true);
+            EnsureEntered(loc);
 
             // Peers known to be in this location (name-match strips *_done)
             foreach (var kvp in new List<KeyValuePair<int, string>>(_net.RemoteOutsideLocation))

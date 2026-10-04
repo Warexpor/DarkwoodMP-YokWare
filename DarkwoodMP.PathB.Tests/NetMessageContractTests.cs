@@ -48,11 +48,14 @@ public class NetMessageContractTests
         Assert.Equal(145, (byte)NetMessageType.MorningReward);
         Assert.Equal(146, (byte)NetMessageType.SessionSettings);
         Assert.Equal(147, (byte)NetMessageType.EnemyAttack);
-        // 148 (EnemyHitConfirm) is the highest id; resolved by name so a rename fails with a clear message.
         Assert.True(Enum.TryParse("EnemyHitConfirm", out NetMessageType enemyHitConfirm),
             "NetMessageType.EnemyHitConfirm (148) is missing");
         Assert.Equal(148, (byte)enemyHitConfirm);
-        Assert.Equal(148, (byte)NetMessageType._Highest);
+        // 149 (BansheeAgitation) is the highest id; resolved by name so a rename fails with a clear message.
+        Assert.True(Enum.TryParse("BansheeAgitation", out NetMessageType bansheeAgitation),
+            "NetMessageType.BansheeAgitation (149) is missing");
+        Assert.Equal(149, (byte)bansheeAgitation);
+        Assert.Equal(149, (byte)NetMessageType._Highest);
     }
 
     [Fact]

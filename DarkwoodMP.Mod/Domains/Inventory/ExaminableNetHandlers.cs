@@ -58,6 +58,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
+                bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try
                 {
@@ -66,7 +67,7 @@ namespace DWMPHorde.Networking
                 }
                 finally
                 {
-                    LanNetworkManager.IsApplyingRemoteState = false;
+                    LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
                 }
                 ModRuntime.LegacyInfo(
                     $"[ExamineSync] client applied state {best.name} examined={msg.Examined}");

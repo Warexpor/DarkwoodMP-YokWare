@@ -16,6 +16,7 @@ namespace DWMPHorde.Sync
         public static void OnRemoteDreamEnded(int playerId, string outcomeName = "")
         {
             CancelPendingEntries();
+            _chainPocketLoading = null;
             if (!_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
             {
                 // Host-ordered story end may arrive while we only track via DreamSession /
@@ -53,6 +54,18 @@ namespace DWMPHorde.Sync
             }
             else
             {
+                // Ended before our pad loaded (still in the entry video): the cancelled entry
+                // coroutine leaves the overlay, EnteringDream and the black screen to us.
+                if (_earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying || Core.EnteringDream)
+                {
+                    FadeOutDreamTransition();
+                    _earlyEntryTransitionPlayed = false;
+                    _earlyEntryTransitionDoneAt = 0f;
+                    _remoteEntryTransitionPlaying = false;
+                    _remoteEntryAudioId = null;
+                    FadeInDreamBlackScreen();
+                    ReleaseDreamInputLocks();
+                }
                 if (presetName != null)
                 {
                     CleanupDreamScene(presetName);
@@ -158,6 +171,9 @@ namespace DWMPHorde.Sync
             _earlyEntryTransitionDoneAt = 0f;
             _remoteEntryTransitionPlaying = false;
             _remoteEntryAudioId = null;
+            _entryTransitionSeen = false;
+            _remoteEntryHasVideo = true;
+            _chainPocketLoading = null;
             _dreamEndBroadcastSent = false;
             _hostOrderedDreamEnd = false;
             ClearRemoteDreamRoster();

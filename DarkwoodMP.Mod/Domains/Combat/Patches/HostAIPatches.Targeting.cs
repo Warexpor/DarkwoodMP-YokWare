@@ -266,100 +266,163 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Banshee scream at a remote player. Vanilla bansheeAgitated / onBansheeSeePlayer give the
+    /// player it sees a personal scream loop on their own body, a camera shake and the banshee
+    /// overlay. When that player is a client the host must not get them (it was shaking and
+    /// screaming at the host for a banshee staring at someone else); the client gets them through
+    /// <see cref="BansheeAgitationMessage"/>, and the banshee's sight light goes to every peer.
+    /// </summary>
+    internal static class BansheeVictims
+    {
+        /// <summary>Banshee (instance id) → the remote player it is screaming at.</summary>
+        private static readonly Dictionary<int, int> _victimByBanshee = new Dictionary<int, int>();
+
+        /// <summary>Registered with NetworkResetRegistry.</summary>
+        public static void Reset() => _victimByBanshee.Clear();
+
+        /// <summary>The remote player nearest to the banshee, or -1 when that is the host (or nobody).</summary>
+        internal static int NearestRemoteVictim(Character banshee, out Transform victim)
+        {
+            victim = null;
+            if (!HostPlayerIdentity.HostWithRemotes() || banshee == null)
+                return -1;
+            Transform n = HostPlayerIdentity.NearestLiving(banshee.transform.position);
+            Player host = Player.Instance;
+            if (n == null || host == null || n == host.transform || n == host._transform)
+                return -1;
+            var net = ModRuntime.Network;
+            if (net == null)
+                return -1;
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy != null && proxy.transform == n && proxy.PlayerId > 0)
+                {
+                    victim = n;
+                    return proxy.PlayerId;
+                }
+            }
+            return -1;
+        }
+
+        internal static void SetSightLight(Character banshee, bool on)
+        {
+            Transform light = banshee != null ? banshee.transform.Find("SightLight") : null;
+            if (light != null)
+                light.gameObject.SetActive(on);
+        }
+
+        /// <summary>Host: the banshee screams at <paramref name="victimId"/>; a previous different victim is released.</summary>
+        internal static void Agitate(Character banshee, int victimId, bool overlay)
+        {
+            int key = banshee.GetInstanceID();
+            if (_victimByBanshee.TryGetValue(key, out int prev) && prev != victimId)
+                Send(banshee, prev, agitated: false, overlay: false);
+            _victimByBanshee[key] = victimId;
+            Send(banshee, victimId, agitated: true, overlay: overlay);
+        }
+
+        /// <summary>Host: the banshee lost sight (or turned to the host); release its remote victim.</summary>
+        internal static void Release(Character banshee)
+        {
+            if (banshee == null)
+                return;
+            int key = banshee.GetInstanceID();
+            if (!_victimByBanshee.TryGetValue(key, out int prev))
+                return;
+            _victimByBanshee.Remove(key);
+            Send(banshee, prev, agitated: false, overlay: false);
+        }
+
+        private static void Send(Character banshee, int victimId, bool agitated, bool overlay)
+        {
+            if (!NetGuard.ConnectedHost(out var net))
+                return;
+            if (!CharacterTracker.TryGetStableId(banshee, out short id) || id == 0)
+                return;
+            var msg = new BansheeAgitationMessage { HostId = id, VictimId = victimId, Agitated = agitated, Overlay = overlay };
+            net.Broadcast(NetMessageType.BansheeAgitation, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    /// <summary>
+    /// Host, banshee agitated at a remote player: the banshee's own part (sight light, far-sight
+    /// flag from the victim's distance) runs here; the victim's scream, shake and overlay go to them.
+    /// </summary>
     [HarmonyPatch(typeof(Character), "bansheeAgitated")]
     public static class HostBansheeAgitatedPatch
     {
-        private static AudioObject _victimScream;
-
-        /// <summary>Registered with NetworkResetRegistry so a recycled audio object is never kept across sessions.</summary>
-        public static void Reset()
-        {
-            _victimScream = null;
-        }
-
-        internal static void StopVictimScream()
-        {
-            // AudioObjects are pooled: once the scream finished the object is recycled for other
-            // sounds, so only stop it while it is still ours and still playing this clip.
-            if (_victimScream != null
-                && _victimScream.IsPlaying()
-                && _victimScream.audioID == "banshee_agitated_player")
-            {
-                _victimScream.Stop(0.2f);
-            }
-            _victimScream = null;
-            PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 0f, Vector3.zero);
-        }
-
-        internal static bool SuppressHostScreamForward; // process-scoped: call-scoped, unwound by its Finalizer/finally
-
         private static bool Prefix(Character __instance)
         {
-            SuppressHostScreamForward = false;
-            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
-                return true;
-            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
-            Player host = Player.Instance;
-            if (n == null || host == null)
-                return true;
-            if (n == host.transform || (host._transform != null && n == host._transform))
-                return true;
-            SuppressHostScreamForward = true;
-            return true;
-        }
-
-        private static void Postfix(Character __instance)
-        {
-            if (!SuppressHostScreamForward)
-                return;
-            SuppressHostScreamForward = false;
-            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
-            Player host = Player.Instance;
-            if (n == null || host == null)
-                return;
-            if (host.bansheeAgitatedSoundAO != null)
+            int victimId = BansheeVictims.NearestRemoteVictim(__instance, out Transform victim);
+            if (victimId < 0)
             {
-                host.bansheeAgitatedSoundAO.Stop(0.05f);
-                host.bansheeAgitatedSoundAO = null;
+                BansheeVictims.Release(__instance);
+                return true;
             }
-            _victimScream = AudioController.Play("banshee_agitated_player", n.position, null);
-            PlayerAudioHelper.ForwardWorldObjectSound("banshee_agitated_player", 1f, n.position);
-        }
-
-        // bansheeAgitated can throw after Prefix set Suppress; stuck true kills scream forward.
-        private static void Finalizer()
-        {
-            SuppressHostScreamForward = false;
+            if (!__instance.alive)
+                return false;
+            BansheeVictims.SetSightLight(__instance, true);
+            __instance.canSeeEnemyFar = Core.trueDistance(victim, __instance.transform) < __instance.farViewDistance;
+            BansheeVictims.Agitate(__instance, victimId, overlay: HostBansheeSeePlayerPatch.InsideSighting);
+            return false;
         }
     }
 
+    /// <summary>
+    /// Host, banshee sees a player: vanilla targets Player.Instance (the host) and fades the
+    /// host's overlay. For a remote victim it targets that player and the overlay goes to them
+    /// (through bansheeAgitated above).
+    /// </summary>
     [HarmonyPatch(typeof(Character), "onBansheeSeePlayer")]
     public static class HostBansheeSeePlayerPatch
     {
-        private static void Postfix(Character __instance)
+        /// <summary>True while a sighting runs, so the agitation carries the overlay fade.</summary>
+        internal static bool InsideSighting; // process-scoped: call-scoped, unwound by its Finalizer
+
+        private static System.Reflection.MethodInfo _checkSight; // process-scoped: reflection cache
+
+        private static bool Prefix(Character __instance)
         {
-            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null || !__instance.alive)
-                return;
-            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
-            if (n == null)
-                return;
-            __instance.target = n;
+            int victimId = BansheeVictims.NearestRemoteVictim(__instance, out Transform victim);
+            if (victimId < 0)
+                return true;
+            if (!__instance.alive)
+                return false;
+
+            // Vanilla onBansheeSeePlayer with the victim in place of Player.Instance.
+            __instance.target = victim;
+            // Routines match by method name; the delegate must be a plain bound one so its
+            // Method is the vanilla method (isRoutineActive / stopRoutine by name still work).
+            if (_checkSight == null) _checkSight = AccessTools.Method(typeof(Character), "checkIfInSightOfPlayer");
+            __instance.stopRoutine("lostEnemy", all: true);
+            __instance.stopRoutine("checkIfInSightOfPlayer", all: true);
+            __instance.startRoutine((System.Action)System.Delegate.CreateDelegate(typeof(System.Action), __instance, _checkSight), 0.5f);
+            InsideSighting = true;
+            try { Traverse.Create(__instance).Method("bansheeAgitated").GetValue(); }
+            finally { InsideSighting = false; }
             if (__instance.behaviour != Character.Behaviour.defensive)
-                __instance.goToPos(n);
+                __instance.goToPos(victim);
+            return false;
         }
+
+        private static void Finalizer() => InsideSighting = false;
     }
 
+    /// <summary>Host, banshee lost sight: chase the nearest player and release the remote victim.</summary>
     [HarmonyPatch(typeof(Character), "onBansheeOutOfSightOfPlayer")]
     public static class HostBansheeOutOfSightPatch
     {
         private static void Postfix(Character __instance)
         {
-            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
+            if (__instance == null)
+                return;
+            BansheeVictims.Release(__instance);
+            if (!HostPlayerIdentity.HostWithRemotes())
                 return;
             Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
             if (n != null)
                 __instance.goToPos(n);
-            HostBansheeAgitatedPatch.StopVictimScream();
         }
     }
 

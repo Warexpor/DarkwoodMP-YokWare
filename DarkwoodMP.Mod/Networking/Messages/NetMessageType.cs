@@ -46,9 +46,8 @@ namespace DWMPHorde.Networking
         SaveSync = 20,
         /// <summary>Host broadcasts current game time to the client.</summary>
         [HostOnly] TimeSync = 21,
-        /// <summary>Host broadcasts an entity sound event to the client.</summary>
-        /// <summary>Host→clients: AI CharacterSounds (growl/attack/death/idle). Broadcast from host.</summary>
-        [Forwardable] EntitySound = 22,
+        /// <summary>Host→clients: a creature one-shot (voice, hit, death, footstep). Loops ride the entity snapshot.</summary>
+        [HostOnly] EntitySound = 22,
         /// <summary>Client->Host: a world object was harvested/destroyed by clicking (e.g. mushroom).</summary>
         WorldObjectRemoved = 23,
         /// <summary>Either peer: player's active light (flashlight/torch/lantern) toggled.</summary>
@@ -390,7 +389,12 @@ namespace DWMPHorde.Networking
         /// applied there). Host shows the hit on the stand-in for the other peers. Protocol 29.
         /// </summary>
         EnemyHitConfirm = 148,
+        /// <summary>
+        /// Host→clients: a banshee screams at a player or stops. Sight light for everyone, the
+        /// scream, shake and overlay for the player it sees. Protocol 31.
+        /// </summary>
+        [HostOnly] BansheeAgitation = 149,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 148
+        _Highest = 149
     }
 }

@@ -129,6 +129,7 @@ namespace DWMPHorde.Networking
                     Core.coreStarted = false;
                     Core.loadingGame = false;
                     Core.loadedGame = false;
+                    bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                     LanNetworkManager.IsApplyingRemoteState = true;
                     try
                     {
@@ -136,7 +137,7 @@ namespace DWMPHorde.Networking
                     }
                     finally
                     {
-                        LanNetworkManager.IsApplyingRemoteState = false;
+                        LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
                     }
                 }
                 catch (System.Exception ex)

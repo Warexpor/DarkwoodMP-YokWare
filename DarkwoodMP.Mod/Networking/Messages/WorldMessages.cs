@@ -90,6 +90,12 @@ namespace DWMPHorde.Networking
         public string PrefabPath;
         /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
         public byte Flags;
+        /// <summary>
+        /// The creature's current CharacterSounds loop as a slot of its own loop fields
+        /// (0 = none); see <c>EntityLoopSync</c>. State, not an event: a late joiner or a client
+        /// walking up hears the loop the host is playing.
+        /// </summary>
+        public byte Loop;
 
         public const byte FlagSleeping = 1;
         public const byte FlagEating = 2;
@@ -142,6 +148,7 @@ namespace DWMPHorde.Networking
             w.Put(Alive);
             w.Put(HealthPct);
             w.Put(Flags);
+            w.Put(Loop);
             w.Put(HasDescriptor);
             if (HasDescriptor)
             {
@@ -164,6 +171,7 @@ namespace DWMPHorde.Networking
                 Alive = r.GetBool(),
                 HealthPct = r.GetByte(),
                 Flags = r.GetByte(),
+                Loop = r.GetByte(),
                 HasDescriptor = r.GetBool()
             };
             if (e.HasDescriptor)
@@ -1060,7 +1068,7 @@ namespace DWMPHorde.Networking
     }
 
     /// <summary>
-    /// Host→requesting client: run OutsideLocations.createLocation (spawn + transport).
+    /// Host→requesting client: run OutsideLocations.prepareLocation (spawn if needed + transport).
     /// </summary>
     public struct LocationTransportMessage
     {

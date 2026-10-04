@@ -241,24 +241,71 @@ namespace DWMPHorde.Networking
         public static RemotePlayerForwardMessage Deserialize(NetReader r) => new RemotePlayerForwardMessage { OriginalPlayerId = r.GetInt(), InnerType = r.GetByte(), InnerPayload = r.GetBytes() };
     }
 
-    public enum EntitySoundType : byte
+    /// <summary>How a creature one-shot is played, matching the vanilla call that played it on the host.</summary>
+    public enum EntitySoundKind : byte
     {
-        Growl = 0, Attack1 = 1, Attack2 = 2, Death = 3, Curious = 4,
-        Aggressive = 5, Defensive = 6, Escaping = 7, Idle = 8, GetHit = 9,
-        /// <summary>Vanilla runAway stinger (playSingleInstance).</summary>
-        EscapingStart = 10,
-        /// <summary>Vanilla runAway crow overlay (play).</summary>
-        EscapingStart2 = 11,
+        /// <summary><c>CharacterSounds.play</c>: overlaps the creature's other sounds.</summary>
+        Play = 0,
+        /// <summary><c>CharacterSounds.playSingleInstance</c> / <c>playGrowl</c>: cuts the creature's previous voice line.</summary>
+        Single = 1,
+        /// <summary><c>AudioController.Play</c> parented to the creature: footsteps, shots, sniffs, howls.</summary>
+        Attached = 2,
+        /// <summary><c>CharacterSounds.playGetHitByAxe1</c>.</summary>
+        GetHit = 3,
+        /// <summary>The creature's death line.</summary>
+        Death = 4,
     }
 
+    /// <summary>
+    /// Host→clients: a one-shot a host creature played. Loops are not sent here; the creature's
+    /// current loop travels in its <see cref="EntitySnapshotNet.Loop"/>.
+    /// </summary>
     public struct EntitySoundMessage
     {
         public short HostId;
-        public EntitySoundType SoundType;
-        public string LoopName;
+        public EntitySoundKind Kind;
+        public string SoundId;
+        public float Volume;
+        /// <summary>GetHit: the player whose attack the host was applying (-1: host or AI).</summary>
+        public int AttackerId;
 
-        public void Serialize(NetWriter w) { w.Put(HostId); w.Put((byte)SoundType); w.Put(LoopName ?? string.Empty); }
-        public static EntitySoundMessage Deserialize(NetReader r) => new EntitySoundMessage { HostId = r.GetShort(), SoundType = (EntitySoundType)r.GetByte(), LoopName = r.GetString() };
+        public void Serialize(NetWriter w)
+        {
+            w.Put(HostId); w.Put((byte)Kind); w.Put(SoundId ?? string.Empty); w.Put(Volume); w.Put(AttackerId);
+        }
+
+        public static EntitySoundMessage Deserialize(NetReader r) => new EntitySoundMessage
+        {
+            HostId = r.GetShort(),
+            Kind = (EntitySoundKind)r.GetByte(),
+            SoundId = r.GetString(),
+            Volume = r.GetFloat(),
+            AttackerId = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Host→clients: a banshee started or stopped screaming at a player. Every peer turns the
+    /// banshee's sight light on or off; only <see cref="VictimId"/> hears the scream, feels the
+    /// shake and sees the overlay (vanilla plays them for the one player it sees).
+    /// </summary>
+    public struct BansheeAgitationMessage
+    {
+        public short HostId;
+        public int VictimId;
+        public bool Agitated;
+        /// <summary>Agitated from a sighting (vanilla fades the banshee overlay in); false from a defensive start.</summary>
+        public bool Overlay;
+
+        public void Serialize(NetWriter w) { w.Put(HostId); w.Put(VictimId); w.Put(Agitated); w.Put(Overlay); }
+
+        public static BansheeAgitationMessage Deserialize(NetReader r) => new BansheeAgitationMessage
+        {
+            HostId = r.GetShort(),
+            VictimId = r.GetInt(),
+            Agitated = r.GetBool(),
+            Overlay = r.GetBool()
+        };
     }
 
     public struct EntityBurningMessage

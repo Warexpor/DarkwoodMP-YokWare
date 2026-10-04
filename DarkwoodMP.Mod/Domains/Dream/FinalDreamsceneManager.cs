@@ -20,8 +20,16 @@ namespace DWMPHorde.Sync
         private static readonly HashSet<int> _deadPlayerIds = new HashSet<int>();
         private static readonly HashSet<int> _connectedPlayerIds = new HashSet<int>();
 
+        /// <summary>
+        /// The local player died in this dream. Unlike <see cref="IsLocalDead"/> it survives the
+        /// DreamEnded receipt (which runs before the exit video and endDreaming), so the reward
+        /// downgrade and the spectate exit at wake-up still see it.
+        /// </summary>
+        private static bool _localDiedThisDream;
+
         public static bool IsActive => _isActive;
         public static bool IsLocalDead => _localDeadInDream;
+        public static bool WasLocalDeadThisDream => _localDiedThisDream || _localDeadInDream;
 
         /// <summary>
         /// One-shot: allow initiateEndDreaming(playerDeath) through the death Prefix
@@ -75,6 +83,7 @@ namespace DWMPHorde.Sync
         {
             _isActive = true;
             _localDeadInDream = false;
+            _localDiedThisDream = false;
             _ending = false;
             _deadPlayerIds.Clear();
             ClearPeerDeadInDreamFlags();
@@ -85,16 +94,17 @@ namespace DWMPHorde.Sync
 
         public static void OnDreamEnded()
         {
-            // Before the _isActive gate: an all-dead teardown already cleared _isActive.
+            // Before the _isActive gate: an all-dead teardown already cleared _isActive, and the
+            // dialogue door / spirit state of that dream must not carry into the next one.
             ClearPeerDeadInDreamFlags();
+            DWMPHorde.Patches.DialogueDoorAftermath.Reset();
+            DreamForestSpiritAggro.Reset();
             if (!_isActive) return;
             _isActive = false;
             _localDeadInDream = false;
             _ending = false;
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
-            DWMPHorde.Patches.DialogueDoorAftermath.Reset();
-            DreamForestSpiritAggro.Reset();
             ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
         }
 
@@ -188,6 +198,7 @@ namespace DWMPHorde.Sync
             }
 
             _localDeadInDream = true;
+            _localDiedThisDream = true;
 
             ModRuntime.LegacyInfo("[FinalDreamscene] Local player died in dream");
 
@@ -243,10 +254,30 @@ namespace DWMPHorde.Sync
             EndDreamForBoth();
         }
 
+        /// <summary>
+        /// The local player is back in the overworld (endDreaming ran, or a hard cleanup). A player
+        /// who died in the dream leaves spectate here, without the spectate position restore (that
+        /// pose is on the dream pad), and gets its body back.
+        /// </summary>
+        public static void OnLocalWokeUp()
+        {
+            bool died = _localDiedThisDream || _localDeadInDream;
+            _localDiedThisDream = false;
+            if (!died)
+                return;
+            var spec = SpectatorModeController.Instance;
+            if (spec != null && spec.IsSpectating)
+                spec.ExitWithoutPositionRestore();
+            if (Player.Instance != null)
+                Player.Instance.switchVisibilty(true);
+            ModRuntime.LegacyInfo("[FinalDreamscene] Woke up after dying in the dream — spectate left");
+        }
+
         public static void OnDisconnected()
         {
             _isActive = false;
             _localDeadInDream = false;
+            _localDiedThisDream = false;
             _ending = false;
             AllowDeathEndPass = false;
             _deadPlayerIds.Clear();

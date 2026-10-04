@@ -33,10 +33,17 @@ namespace DWMPHorde.Networking
                 if (ol != null)
                 {
                     var settled = ResolveOutsideLocation(ol, locationName);
-                    if (settled != null)
-                        settled.enter(force: true);
-                    else if (ol.spawnedLocations.ContainsKey(locationName))
-                        ol.spawnedLocations[locationName].enter(force: true);
+                    if (settled == null && ol.spawnedLocations.ContainsKey(locationName))
+                        settled = ol.spawnedLocations[locationName];
+                    if (settled == null)
+                    {
+                        // Vanilla transportToLocation did nothing (no such pad): the player is
+                        // not in one, so do not claim it and announce a pad nobody is on.
+                        ModRuntime.LegacyInfo(
+                            $"[LocationSync] settle '{locationName}' — no such pad, not announcing");
+                        return;
+                    }
+                    EnsureEntered(settled);
 
                     // Vanilla transportToLocation dreamPrepared branch never sets these
                     // (only the non-dream path does). Without them, the next PlayerState

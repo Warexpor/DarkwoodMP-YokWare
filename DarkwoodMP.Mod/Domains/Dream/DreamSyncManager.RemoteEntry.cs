@@ -13,9 +13,11 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
-        public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition)
+        public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition,
+            bool entryVideo = true)
         {
             if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
+            _remoteEntryHasVideo = entryVideo;
             // Host already refused completed presets in TryBegin / HandleDreamStarted.
             CloseOpenUiForDreamEntry();
             _remoteDreamActive[playerId] = true;
@@ -51,6 +53,7 @@ namespace DWMPHorde.Sync
             if (_remoteEntryTransitionPlaying) return;
 
             _earlyEntryTransitionPlayed = true;
+            NoteEntryTransitionStarted();
             CloseOpenUiForDreamEntry();
             FreezeWorld();
 
@@ -107,6 +110,9 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Skip / cancel early entry wait so DreamStarted load is not blocked.</summary>
+        /// <summary>The dream video on screen is a peer's entry replayed here, not a local vanilla transition.</summary>
+        internal static bool IsPeerEntryTransitionPlaying => _earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying;
+
         public static void OnEntryTransitionSkipped()
         {
             if (!_earlyEntryTransitionPlayed) return;
@@ -161,7 +167,15 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                float waitTime = StartRemoteDreamTransition();
+                // Same entry as the host: its video, or the black fade of a dialogue / event start.
+                float waitTime;
+                if (_remoteEntryHasVideo)
+                    waitTime = StartRemoteDreamTransition();
+                else
+                {
+                    ShowDreamTransitionFallback();
+                    waitTime = 0f;
+                }
                 if (waitTime > 0f)
                 {
                     ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
@@ -197,9 +211,17 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
+        /// <summary>Client: the pocket the host's DreamChainStart is loading (see ClientDreamSwitchPatch).</summary>
+        private static string _chainPocketLoading; // reset-in: OnDisconnectedCleanup
+
+        internal static string ChainPocketLoading => _chainPocketLoading;
+
+        internal static void ClearChainPocketLoading() => _chainPocketLoading = null;
+
         public static void OnDreamChain(string nextPreset)
         {
             if (string.IsNullOrEmpty(nextPreset)) return;
+            _chainPocketLoading = nextPreset;
             // Pocket 1's host-ordered exit is done; leaving the flag would let the initiateEndDreaming
             // authority patch end pocket 2 locally.
             _hostOrderedDreamEnd = false;
@@ -228,6 +250,7 @@ namespace DWMPHorde.Sync
             // Keep world frozen; tear previous dream location if still present.
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
             {
+                bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try
                 {
@@ -238,7 +261,7 @@ namespace DWMPHorde.Sync
                 {
                     ModRuntime.Log?.LogWarning("[DreamSync] chain destroy: " + ex.Message);
                 }
-                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+                finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1); }
             }
 
                 // Preserve inventory and time copies across a dream-chain pocket.

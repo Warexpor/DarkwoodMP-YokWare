@@ -12,7 +12,40 @@ bug pack) on every box, same DLL everywhere.
 
 ## 0. First checks for the current release
 
-The latest `CHANGELOG.md` entry (sound pass) gives every world sound one owner. Listen
+The latest `CHANGELOG.md` entry moves creature sounds to the host's actual calls and
+stops the location heartbeat from re-entering pads. Listen and watch on the client:
+
+- [ ] Client hits and kills a dog / villager with an axe: one hit sound per blow, the
+      pain sound and one death scream; a third player (or the host) hears them too.
+- [ ] Client shoots a creature: its hit sound plays on the client (no local prediction
+      for guns).
+- [ ] Creature idle sounds (barks, grunts) and their loops (breathing, buzzing, the
+      wolfman growl bed) are heard on the client near the creature, also after a late
+      join or walking up to one the host woke; the loop stops when it dies.
+- [ ] Enemy footsteps near the client move with the enemy and are muffled behind a
+      wall, as on the host.
+- [ ] Walking up to an old corpse: no death scream.
+- [ ] Banshee sees the client: the client hears the scream on itself, its camera shakes
+      and the red overlay fades in; the host gets none of it. It stops when the banshee
+      loses sight. The banshee's light shows on every peer.
+- [ ] Client inside a bunker / cellar with enemies, host outside: the enemies chase and
+      patrol normally (no reset to their route every second); the pad's enter events
+      (music stingers, scripted spawns) run once.
+- [ ] Host and client in the same pad: the other player's body moves smoothly (no
+      hitch to an idle pose once a second).
+- [ ] Client leaves a bunker the host is not in: host log has `last remote left` for it.
+- [ ] Client enters a cellar / bunker the host never visited: enemies inside walk and
+      chase (they have paths), the pad's doors and props are all there, and the host's
+      forest keeps streaming around the host.
+- [ ] Client uses a location entrance with a cursor action (`*_enter*`): it is moved in
+      with the black screen.
+- [ ] Dreams, all on the client: a second dream in one run has its own music, items and
+      outcome (not the first dream's); pad doors and the dialogue door work; die in a
+      shared dream, the teammate finishes it: you wake up out of spectate with no story
+      reward; all die: you wake up and can move; a dialogue-started dream shows a black
+      fade, not the skill video; a chained dream moves both players to the next pocket.
+
+The previous entry (sound pass) gives every world sound one owner. Listen
 on the peer that did NOT cause the sound:
 
 - [ ] Host opens and closes a wooden door near the client: one open and one close

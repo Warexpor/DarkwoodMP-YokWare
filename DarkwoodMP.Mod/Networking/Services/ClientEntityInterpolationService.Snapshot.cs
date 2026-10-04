@@ -292,6 +292,9 @@ namespace DWMPHorde.Networking
             }
             _displayPositions.Remove(hostId);
             _displayRotations.Remove(hostId);
+            // Undriven, the copy stands where it was last seen; its loop restarts when it is driven again.
+            if (driven != null)
+                Audio.EntityLoopSync.Stop(driven);
             // Keep _hostSyncedIds / ever so we don't thrash rematch when they re-enter range.
             // Flee/fly left interest: hide only if local GO is also outside interest (and alive).
             if (driven != null && driven.gameObject != null && driven.gameObject.activeSelf
@@ -307,19 +310,14 @@ namespace DWMPHorde.Networking
         {
             EnsureEntityAwake(c);
 
-            // Disable CharacterSounds on first snapshot. Client AI is frozen, so
-            // local loops would never stop. Host broadcasts AI SFX via EntitySound
-            // (growl/idle/attack/gethit/death) and enemy footsteps via PlayerAudio.
-            // HandleEntitySound still calls CharacterSounds methods directly while
-            // the component stays disabled (method calls do not require enabled).
+            // The host's AI owns this body's voice: its one-shots arrive as EntitySound, its loop
+            // with every snapshot (EntityLoopSync, below). The component's own OnEnable /
+            // OnDisable loop handling stays off.
             if (_audioStoppedIds.Add(e.Index))
             {
                 CharacterSounds cs = c.GetComponent<CharacterSounds>();
                 if (cs != null)
-                {
-                    cs.destroySounds();
                     cs.enabled = false;
-                }
             }
 
             if (!_states.TryGetValue(e.Index, out var state))
@@ -394,6 +392,7 @@ namespace DWMPHorde.Networking
             }
 
             ApplySleepEatFlags(c, e);
+            Audio.EntityLoopSync.Apply(c, e.Loop);
             applied++;
         }
 

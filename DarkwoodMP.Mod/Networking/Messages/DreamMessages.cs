@@ -27,6 +27,11 @@ namespace DWMPHorde.Networking
         public int SessionId;
         public byte LvlFlags;
         public string[] CompletedPresets;
+        /// <summary>
+        /// The entry played the startTransition video (skill / sleep dreams). A dialogue or
+        /// game-event start has only a black fade; peers then skip the video too.
+        /// </summary>
+        public bool EntryTransition;
 
         public void Serialize(NetWriter w)
         {
@@ -38,6 +43,7 @@ namespace DWMPHorde.Networking
             w.Put(done.Length);
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
+            w.Put(EntryTransition);
         }
 
         public static DreamStartedMessage Deserialize(NetReader r)
@@ -53,6 +59,7 @@ namespace DWMPHorde.Networking
             msg.SessionId = r.GetInt();
             msg.LvlFlags = r.GetByte();
             msg.CompletedPresets = DreamWire.ReadPresets(r);
+            msg.EntryTransition = r.GetBool();
             return msg;
         }
 

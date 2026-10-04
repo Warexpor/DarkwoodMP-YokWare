@@ -3,13 +3,168 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.130**. The current Horde wire protocol is **30** (bumped in 0.8.130:
-`PlayerAudio` drops its unused stop-signal and object-name fields, `LightState`
-gains `Switched`; 29 held for 0.8.129 only).
+**0.8.131**. The current Horde wire protocol is **31** (bumped in 0.8.131:
+`EntitySound` carries the audio id and play kind, entity snapshots carry the
+creature's loop, new `BansheeAgitation` = 149, `DreamStarted` gains
+`EntryTransition`; 30 held for 0.8.130 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.131 — Creature sounds, location traversal and dream pass
+
+Branch `dev-entity-sync-remaster`, on top of 0.8.130. **Protocol 30 → 31.** Product
+**0.8.130 → 0.8.131**. Built and unit-tested; **runtime is not playtested**. Found by
+a code audit (creature sounds, location traversal, dreams), not by a report.
+
+### Creature sounds
+
+- **A client's hits and kills were silent for everyone else.** Every inbound message
+  is applied inside the network apply guard, and the host's creature-sound sends
+  skipped anything played inside it. A creature hit or killed by a client (the hit
+  sound, its pain growl, its death scream) was never sent: other clients heard
+  nothing, and the attacker only heard its own predicted melee hit. Host creature
+  sounds are now sent whatever triggered them.
+- **Only 7 creature sounds were synced.** The host mapped growl, attack 1/2, death,
+  curious, aggressive, defensive and the flee stingers to an enum; every other
+  `CharacterSounds.play` / `playSingleInstance` (idle barks, animation-event sounds,
+  custom event sounds) was dropped on both ends. `EntitySound` now carries the audio
+  id and how it was played (`Play`, `Single`, `Attached`, `GetHit`, `Death`), and the
+  client plays it on its copy of the creature as vanilla's call would.
+- **Creature loops went silent or played forever.** Breathing, buzzing, growl beds
+  and sleeping loops were start/stop events: a client too far away when a creature
+  woke, a late joiner, or a body the client's WorldGrid toggled never heard the loop,
+  and a missed stop left it running on the corpse. The loop is now state: each entity
+  snapshot carries the host's current loop (a slot of the creature's own loop
+  fields), and the client keeps its copy's loop equal to it, with vanilla's fades
+  (`Audio/EntityLoopSync.cs`). The client's own `playIdleLoop` / `destroySounds` on a
+  synced copy are blocked (its frozen AI picked calm loops for chasing creatures).
+- **Enemy footsteps, shots and sniffs played flat.** They were forwarded as a fixed
+  point with forced 3D settings and an 80 ms limiter per sound id (three wolves on
+  grass dropped each other's steps). They now go attached to the creature, so they
+  move with it and get the game's indoor reverb and wall muffling; footsteps go
+  unreliable (a late step is worse than a lost one).
+- **Creature sounds on a client had no indoor reverb.** `CharBase.isInside` only
+  refreshes in `checkGround`, which the frozen copy never ran; the client now
+  refreshes it before playing.
+- **The hit echo was a 0.35 s timer.** A client's predicted melee hit muted the host's
+  hit sound for that creature for 0.35 s: another player's hit inside the window was
+  lost, and over 350 ms of latency the attacker heard it twice. The host now stamps
+  the attacker on `GetHit`; the attacker skips only the echo of a hit it showed.
+- **An old corpse screamed when it came into view.** The death line also played
+  from the snapshot's alive-to-dead change, so a client walking up to a body (or
+  joining late) heard it die. It now plays only from the host's death sound.
+- `EntitySound` is `[HostOnly]` (it was marked forwardable).
+
+### Banshee
+
+- **The scream never reached the client it was staring at.** Vanilla gives the
+  player a banshee sees a scream loop on their own body, a camera shake and the
+  red overlay. With a client as the target, the host shook and played the scream
+  for itself, and forwarded a loop that peers drop. New `BansheeAgitation` (149):
+  every peer turns the banshee's sight light on and off, the victim gets the scream,
+  shake and overlay, and loses them when the banshee loses sight
+  (`HostAIPatches.Targeting.cs`, `WorldFxNetHandlers.HandleBansheeAgitation`).
+
+### Location traversal
+
+- **AI in a bunker reset every second while a client was inside.** The ~1 Hz
+  `LocationEnter` heartbeat called `Location.enter(force: true)` on every receipt,
+  which re-runs the whole activation: every creature in the pad is sent back to
+  its waypoint and the pad's on-enter events fire again. A pad is now entered once
+  (`LocationEnterExitNetHandlers.EnsureEntered`).
+- **On-enter events fired twice on the host** for a client's first visit: the
+  activation fires them, and the host fired them again. The second call is gone.
+- **A peer in the same pad hitched once a second.** The heartbeat also re-placed the
+  remote player's stand-in, a hard snap to an idle pose. It is placed on its first
+  enter, a deferred resolve, or a missing proxy only.
+- **A bunker stayed loaded after the last client left it.** The host tried to leave
+  the pad before moving that client's stand-in off it, and the keep-pad-for-remote
+  patch saw the stand-in still inside. The stand-in moves first now.
+- **A pad the host spawned for a client was half-built.** When a client entered a
+  cellar / bunker / house the host had never visited, the host spawned it with
+  vanilla `createLocation`, a world-gen helper: its props and doors registered on the
+  World culling grid, `WorldGrid.currentGrid` was left on the pad (the host's own
+  forest stopped streaming and its next location trip saved a wrong return point),
+  the pad's navigation graph was never scanned (its AI had no paths), and its doors,
+  game events and characters skipped their init pass. It now spawns like vanilla
+  `prepareLocation` minus the host's own transport (`Domains/World/RemotePadSpawn.cs`).
+- **A client pressing a location entrance was never moved.** `LocationTransport` ran
+  `createLocation` on the client (spawn only, and a duplicate-key throw for a pad it
+  already had). It now runs `prepareLocation`: black screen, spawn if needed, transport.
+- **Pad to pad left the first pad running.** Going straight from one pad to another
+  sends no exit; the host now leaves the pad the player came from once it is empty.
+- **Clients activated pads they were not in** (every other player's pad, never left
+  again). A client now activates only its own pad; the host keeps every occupied one.
+- **A building the host walked out of with a client inside never got its exit
+  events.** The leave was skipped for the remote and never retried; the host now
+  leaves it once the last remote is out. The keep-for-remote check also looks at
+  membership first, so a remote whose state is briefly late keeps its pad.
+- **Forced grid refresh near remotes.** Every host grid refresh force-showed every
+  object in every node near a remote (`SetActive`, `enableComponents`); a plain enter
+  now shows only nodes a remote just reached.
+- A client quitting inside a pad backed up no position (every pad slot is past the
+  dream-pad bound); it now backs up the world point vanilla keeps for the return trip.
+- Session-scoped location heartbeat state is reset per session (a stale
+  `LocationExit` snapped a world-map player's stand-in after a chapter change), the
+  settle hook no longer claims a pad that does not exist, and an abandoned chapter
+  transition (back to the title) no longer auto-reconnects on a later chapter load.
+
+### Dreams
+
+- **Clients ran every dream after the first with the first dream's preset.** The
+  peer pad load set `Dreams.preset` only when it was null: music, health, starting
+  items, time and outcomes came from the first dream, and the exit tore down the old
+  pad's grid and nav graph (the new ones leaked, its camera effects stayed). The
+  preset is set for every dream now, from the same list vanilla uses.
+- **A client's dream pad never initialized its doors, game events and characters.**
+  The pad loads with `loading` set (so cullables register on the pad grid), which
+  queues those inits; vanilla runs the queue in `onSpawnedLocation`, which the peer
+  load never reached. The pass now runs after `startDreaming`. Likely behind much of
+  the broken-dream behaviour on clients.
+- **A player who died in the dream stayed spectating after a story end.** Death state
+  was cleared on `DreamEnded` receipt, before the exit video, so nothing left spectate
+  at wake-up; the body was then dragged onto a teammate and an F4 exit restored the
+  dream-pad position (stranded in the abyss). The same early clear gave dead players
+  the full story rewards. The death is now kept until wake-up, which leaves spectate
+  and restores the body.
+- **Clients stayed input-locked after an all-dead dream end** (and after a disconnect,
+  reject or host loss in a dream that pins inputs). The hard cleanup never cleared
+  what the exit transition clears; it now does.
+- **No wake-up animation on clients' hard cleanup**: it always passed `dontLieDown`;
+  it now uses the outcome's value as vanilla does.
+- **A client's random-dream request skipped the host's roll hooks** (pool refill,
+  session begin, early pick to clients): it ran inside the apply guard. The roll now
+  runs next frame. A named request for a preset the game does not have is rejected
+  before the session begins (it used to hold the session in Starting for 60 s).
+- **A client's story end reached the other players late.** The host's fan-out stood
+  down inside the apply guard, so peers waited for the host's whole exit. The host
+  now fans out when it accepts the request.
+- **Entry video on clients for dialogue / event dreams.** Those start with a black
+  fade only, but clients played the skill-dream video. `DreamStarted` now says
+  whether the entry had a video.
+- **Chained dreams on clients**: the client's own `wantToSwitchDream` destroyed the
+  current pocket and prepared the next one itself (second pad, local save, bogus
+  start request, or the host's freshly loaded pocket destroyed under the player). The
+  host's chain message owns the next pocket; the client keeps only the player reset.
+- **Skipping a dream video**: a peer's replayed entry video ran vanilla
+  `onFinishedVideo` on skip (a random untracked dream on the host, a bogus request on
+  a client), and a skipped exit video ran `endDreaming` inside the apply guard, which
+  left the dream flagged active. The replayed copy now just ends; a real transition is
+  skipped next frame.
+- A dream ending during a client's entry video left the overlay and black screen up;
+  an all-dead end left the dialogue-door and forest-spirit state for the next dream;
+  a client could spawn its own unsynced dream forest spirit; a client entering a dream
+  from a cellar left the cellar running. All fixed.
+- Apply flags across dreams, cutscenes, the prologue, locks, examine and chapter
+  progression were set and then hard-cleared instead of restored (the same clobber
+  fixed for sounds in 0.8.130); all restore now.
+- Not changed: a story end with an empty outcome name grants no default rewards on
+  clients. Failure paths (reject, disconnect) send an empty name too, and those must
+  not reward.
 
 ---
 

@@ -73,6 +73,11 @@ namespace DWMPHorde.Networking
         internal void ResetSessionNetworkState()
         {
             _session = new SessionState();
+            // Location heartbeat edge state is per session: kept, a world-map player's first tick
+            // after a chapter / session change sent a stale LocationExit that snapped its proxy.
+            _previousInOutsideLocation = false;
+            _previousLocationName = "";
+            _locationSyncCounter = 0;
             Shadows.Reset();
             NightHandlers?.ClearShadowLookups();
             ContainerPendingHandlers?.ClearPendingContainerState();

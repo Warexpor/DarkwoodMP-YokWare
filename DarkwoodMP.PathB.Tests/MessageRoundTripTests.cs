@@ -212,9 +212,12 @@ public class MessageRoundTripTests
         var msg = new DreamStartedMessage
         {
             PresetName = "dream_bunker", LocPosX = -75000f, LocPosY = 1f, LocPosZ = 20f,
-            SessionId = 5, LvlFlags = 3, CompletedPresets = new[] { "a", "b" }
+            SessionId = 5, LvlFlags = 3, CompletedPresets = new[] { "a", "b" }, EntryTransition = true
         };
-        var back = DreamStartedMessage.Deserialize(new NetReader(Bytes(msg.Serialize)));
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = DreamStartedMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.True(back.EntryTransition);
         Assert.Equal("dream_bunker", back.PresetName);
         Assert.Equal(-75000f, back.LocPosX);
         Assert.Equal(5, back.SessionId);
@@ -343,7 +346,7 @@ public class MessageRoundTripTests
     [Fact]
     public void EntitySnapshot_DescriptorTravelsOnlyWhenFlagged()
     {
-        var bare = new EntitySnapshotNet { Index = 3, Clip = "Walk", EntityName = "dog_01", PrefabPath = "Characters/dog_01" };
+        var bare = new EntitySnapshotNet { Index = 3, Clip = "Walk", Loop = 2, EntityName = "dog_01", PrefabPath = "Characters/dog_01" };
         var withDesc = bare;
         withDesc.HasDescriptor = true;
         byte[] a = Bytes(bare.Serialize);
@@ -351,6 +354,7 @@ public class MessageRoundTripTests
         Assert.True(b.Length > a.Length);
         var backBare = EntitySnapshotNet.Deserialize(new NetReader(a));
         Assert.Null(backBare.EntityName);
+        Assert.Equal(2, backBare.Loop);
         var backDesc = EntitySnapshotNet.Deserialize(new NetReader(b));
         Assert.Equal("dog_01", backDesc.EntityName);
         Assert.Equal("Characters/dog_01", backDesc.PrefabPath);
@@ -389,6 +393,36 @@ public class MessageRoundTripTests
         Assert.Equal(0.5f, back.Volume);
         Assert.Equal(3f, back.PosZ);
         Assert.False(back.StickToSender);
+    }
+
+    [Fact]
+    public void EntitySound_RoundTrips()
+    {
+        var msg = new EntitySoundMessage
+        {
+            HostId = 12, Kind = EntitySoundKind.GetHit, SoundId = "dog_getHit", Volume = 0.75f, AttackerId = 3
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = EntitySoundMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal((short)12, back.HostId);
+        Assert.Equal(EntitySoundKind.GetHit, back.Kind);
+        Assert.Equal("dog_getHit", back.SoundId);
+        Assert.Equal(0.75f, back.Volume);
+        Assert.Equal(3, back.AttackerId);
+    }
+
+    [Fact]
+    public void BansheeAgitation_RoundTrips()
+    {
+        var msg = new BansheeAgitationMessage { HostId = 7, VictimId = 2, Agitated = true, Overlay = true };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = BansheeAgitationMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal((short)7, back.HostId);
+        Assert.Equal(2, back.VictimId);
+        Assert.True(back.Agitated);
+        Assert.True(back.Overlay);
     }
 
     [Fact]

@@ -369,6 +369,7 @@ namespace DWMPHorde.Networking
                 || c.wantToDespawn)
                 flags |= EntitySnapshotNet.FlagFleeing;
             flags = (byte)((flags & 0x0F) | EntitySnapshotNet.PackBehaviour(c.behaviour));
+            byte loop = Audio.EntityLoopSync.HostSlot(c);
 
             // Cheap dirty gate before Unity name / PrefabPathComponent work.
             if (!force && _lastSent.TryGetValue(id, out EntitySnapshotNet last)
@@ -378,6 +379,7 @@ namespace DWMPHorde.Networking
                 && last.Alive == alive
                 && last.HealthPct == healthPct
                 && last.Flags == flags
+                && last.Loop == loop
                 && string.Equals(last.Clip, clip, StringComparison.Ordinal))
             {
                 return false;
@@ -419,7 +421,8 @@ namespace DWMPHorde.Networking
                 HasDescriptor = withDescriptor,
                 EntityName = desc.Name,
                 PrefabPath = desc.PrefabPath,
-                Flags = flags
+                Flags = flags,
+                Loop = loop
             };
             return true;
         }
@@ -462,7 +465,8 @@ namespace DWMPHorde.Networking
                 || last.Clip != current.Clip || last.ClipFrame != current.ClipFrame
                 || last.Alive != current.Alive || last.HealthPct != current.HealthPct
                 || last.EntityName != current.EntityName || last.PrefabPath != current.PrefabPath
-                || last.Flags != current.Flags;
+                || last.Flags != current.Flags
+                || last.Loop != current.Loop;
             // HasDescriptor is transport only: a re-sent name is not a change.
         }
     }

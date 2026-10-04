@@ -261,6 +261,7 @@ namespace DWMPHorde.Patches
 
                 try
                 {
+                    bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                     LanNetworkManager.IsApplyingRemoteState = true;
                     try
                     {
@@ -268,7 +269,7 @@ namespace DWMPHorde.Patches
                     }
                     finally
                     {
-                        LanNetworkManager.IsApplyingRemoteState = false;
+                        LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
                     }
                 }
                 catch (System.Exception ex)

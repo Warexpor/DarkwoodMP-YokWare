@@ -46,6 +46,22 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
+        /// Host: a play parented to a creature goes as an attached EntitySound, so the client plays
+        /// it on its copy (moving with it, with the game's reverb and wall occlusion). A creature
+        /// without a host id falls back to a positional forward.
+        /// </summary>
+        internal static void ForwardCreatureSound(Transform parentObj, string audioID, float volume)
+        {
+            if (string.IsNullOrEmpty(audioID) || volume <= 0.001f) return;
+            if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: false)) return;
+            if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
+            if (LocalAudioService.IsLoopingItem(audioID)) return;
+            if (EntitySoundSyncHelper.Send(parentObj.GetComponent<Character>(), EntitySoundKind.Attached, audioID, volume))
+                return;
+            ForwardSound(audioID, volume, parentObj.position, fromPlayer: false);
+        }
+
+        /// <summary>
         /// Door.Update owns start/stop of hinge scrape on every peer that has the
         /// door swinging. Networking those loops left an
         /// orphan AudioController loop on peers because Stop is never forwarded.
@@ -136,11 +152,6 @@ namespace DWMPHorde.Patches
             if (parentObj == null) return;
             // Single-player / replaying a peer: skip the per-play component lookups below.
             if (!PlayerAudioHelper.CanForward()) return;
-            if (HostBansheeAgitatedPatch.SuppressHostScreamForward
-                && audioID != null
-                && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return;
-
             if (PlayerAudioHelper.IsTrapOwnedActivateSound(parentObj, audioID))
                 return;
 
@@ -156,14 +167,13 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            // Enemy sounds: host-only AI; skip CharacterSounds path (EntitySound handles
-            // growl/idle/attack/etc.). Footsteps and other direct AudioController plays
-            // still need this forward (fromPlayer: false keeps enemy foot SFX).
+            // Creature sounds: CharacterSounds one-shots are sent by their own patches; a direct
+            // play on the creature (footsteps, shots, sniffs) goes attached to it.
             if (!TraverseHack.InsideCharacterSounds
                 && ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host
                 && PlayerAudioHelper.IsEnemyTransform(parentObj))
             {
-                PlayerAudioHelper.ForwardSound(audioID, 1f, parentObj.position, fromPlayer: false);
+                PlayerAudioHelper.ForwardCreatureSound(parentObj, audioID, 1f);
                 return;
             }
 
@@ -182,11 +192,6 @@ namespace DWMPHorde.Patches
             if (parentObj == null) return;
             // Single-player / replaying a peer: skip the per-play component lookups below.
             if (!PlayerAudioHelper.CanForward()) return;
-            if (HostBansheeAgitatedPatch.SuppressHostScreamForward
-                && audioID != null
-                && audioID.IndexOf("banshee", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return;
-
             if (PlayerAudioHelper.IsTrapOwnedActivateSound(parentObj, audioID))
                 return;
 
@@ -206,7 +211,7 @@ namespace DWMPHorde.Patches
                 && ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host
                 && PlayerAudioHelper.IsEnemyTransform(parentObj))
             {
-                PlayerAudioHelper.ForwardSound(audioID, volume, parentObj.position, fromPlayer: false);
+                PlayerAudioHelper.ForwardCreatureSound(parentObj, audioID, volume);
                 return;
             }
 
@@ -251,7 +256,7 @@ namespace DWMPHorde.Patches
                 && ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host
                 && enemy)
             {
-                PlayerAudioHelper.ForwardSound(audioID, 1f, parentObj.position, fromPlayer: false);
+                PlayerAudioHelper.ForwardCreatureSound(parentObj, audioID, 1f);
                 return;
             }
 

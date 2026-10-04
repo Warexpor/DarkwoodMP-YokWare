@@ -72,7 +72,7 @@ namespace DWMPHorde.Networking
                     DreamSession.AdoptSessionId(msg.SessionId);
             }
 
-            DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
+            DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos, msg.EntryTransition);
             DreamSession.MarkActive();
         }
 
@@ -134,6 +134,11 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo(
                     $"[DreamSession] Host applying client story end via initiateEndDreaming: {msg.OutcomeName}");
                 Dreams.Instance.outcome = msg.OutcomeName;
+                // The initiateEndDreaming authority patch fans DreamEnded out, but it stands down
+                // inside this handler's apply guard: peers (the requester too) waited for the
+                // host's whole exit and then played theirs alone. Fan out here.
+                DreamSyncManager.NotifyPeersStoryEndBeginning(
+                    DreamSession.PresetName ?? msg.PresetName, msg.OutcomeName);
                 // Vanilla: transition video/fade then endDreaming. Do not hard-cut.
                 Dreams.Instance.initiateEndDreaming();
                 return;
@@ -208,23 +213,43 @@ namespace DWMPHorde.Networking
                 }
 
                 ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
-                try
+                // Next frame, outside this handler's apply guard: the host's roll hooks
+                // (pool refill, TryBegin, early bulk to clients) stand down inside it, so the
+                // roll ran untracked and a depleted pool threw.
+                Singleton<Controller>.Instance.waitFramesAndRun(() =>
                 {
-                    Singleton<Controller>.Instance.StartCoroutine(
-                        Singleton<Dreams>.Instance.prepareDream(""));
-                }
-                catch (Exception ex)
-                {
-                    ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
                     try
                     {
-                        if (Singleton<Dreams>.Instance != null)
-                            Singleton<Dreams>.Instance.dreamPrepared = false;
+                        if (DreamSession.IsActive || Singleton<Dreams>.Instance == null
+                            || Singleton<Dreams>.Instance.dreamPrepared || Singleton<Dreams>.Instance.dreaming)
+                            return;
+                        Singleton<Controller>.Instance.StartCoroutine(
+                            Singleton<Dreams>.Instance.prepareDream(""));
                     }
-                    catch { /* ignore */ }
-                    DreamSession.AbortStarting(ex.Message);
-                    SendDreamEndedRejected(requesterId, "prepare_failed");
-                }
+                    catch (Exception ex)
+                    {
+                        ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
+                        try
+                        {
+                            if (Singleton<Dreams>.Instance != null)
+                                Singleton<Dreams>.Instance.dreamPrepared = false;
+                        }
+                        catch { /* ignore */ }
+                        DreamSession.AbortStarting(ex.Message);
+                        SendDreamEndedRejected(requesterId, "prepare_failed");
+                    }
+                }, 1);
+                return;
+            }
+
+            // A name the game has no preset for threw inside prepareDream after TryBegin, leaving
+            // the session Starting (joins refused, overworld deaths counted as dream deaths) until
+            // its 60 s timeout.
+            if (DreamSyncManager.FindDreamPreset(msg.PresetName) == null)
+            {
+                ModLog.Event(LogCat.Dream,
+                    "[DreamSync] reject start request — no such preset: " + msg.PresetName);
+                SendDreamEndedRejected(requesterId, "unknown_preset");
                 return;
             }
 

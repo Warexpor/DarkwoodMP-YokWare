@@ -30,6 +30,10 @@ namespace DWMPHorde.Sync
         private static float _earlyEntryTransitionDoneAt; // reset-in: OnDisconnectedCleanup
         /// <summary>True while StartRemoteDreamTransition audio/video is running (blocks double Play).</summary>
         private static bool _remoteEntryTransitionPlaying; // reset-in: OnDisconnectedCleanup
+        /// <summary>A dream entry video started here or on a peer since the last DreamStarted (host: goes on it).</summary>
+        private static bool _entryTransitionSeen; // reset-in: OnDisconnectedCleanup
+        /// <summary>Client: the DreamStarted being entered said the host's entry played the video.</summary>
+        private static bool _remoteEntryHasVideo = true; // reset-in: OnDisconnectedCleanup
         private static string _remoteEntryAudioId; // reset-in: OnDisconnectedCleanup
 
         /// <summary>Client story-end defer awaiting host acceptance or rejection.</summary>
@@ -54,6 +58,9 @@ namespace DWMPHorde.Sync
         private static int _entryGeneration; // process-scoped: monotonic; bumped on disconnect so stale entry coroutines bail
 
         private static void CancelPendingEntries() => _entryGeneration++;
+
+        /// <summary>The shared startTransition video began (locally or from a peer's CutsceneSync).</summary>
+        internal static void NoteEntryTransitionStarted() => _entryTransitionSeen = true;
 
         private static bool EntryStale(int generation, int sessionId)
         {

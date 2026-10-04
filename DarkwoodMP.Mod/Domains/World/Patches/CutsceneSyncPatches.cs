@@ -94,6 +94,7 @@ namespace DWMPHorde.Patches
                 return;
             }
 
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -115,7 +116,7 @@ namespace DWMPHorde.Patches
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
             }
 
             SetProxiesHidden(true);
@@ -124,6 +125,7 @@ namespace DWMPHorde.Patches
 
         internal static void ApplyEnd()
         {
+            bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -156,33 +158,52 @@ namespace DWMPHorde.Patches
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2);
             }
 
             SetProxiesHidden(false);
             ModRuntime.LegacyInfo("[CutsceneSync] applied end");
         }
 
+        /// <summary>True while a peer's skip is applied here: the skip patch must not send it back.</summary>
+        internal static bool ApplyingRemoteSkip; // process-scoped: call-scoped, unwound by its finally
+
+        /// <summary>
+        /// A peer skipped the dream video. The early entry copy (a peer's video replayed here) is
+        /// only a timer and an overlay: vanilla skip() on it ran onFinishedVideo, which prepares
+        /// dreamToTransitionTo ("": a random, untracked dream on the host, a bogus start request on
+        /// a client). A real local transition is skipped next frame, outside this handler's apply
+        /// guard, so the endDreaming it runs keeps its session bookkeeping (DreamEndPatch stands
+        /// down inside the guard, which left the dream flagged active after the exit).
+        /// </summary>
         internal static void ApplySkipTransition()
         {
-            LanNetworkManager.IsApplyingRemoteState = true;
-            try
-            {
-                var dreams = Singleton<Dreams>.Instance;
-                if (dreams == null) return;
-                // A start overlay, current cutscene, or outcome transition may be playing.
-                if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
-                    dreams.currentTransition.skip();
-                if (dreams.startTransition != null && dreams.startTransition.isPlaying
-                    && dreams.startTransition != dreams.currentTransition)
-                    dreams.startTransition.skip();
-            }
-            finally
-            {
-                LanNetworkManager.IsApplyingRemoteState = false;
-            }
-            // Early peer entry path uses a timer, not only vanilla isPlaying skip.
+            bool peerEntryCopy = DreamSyncManager.IsPeerEntryTransitionPlaying;
             DreamSyncManager.OnEntryTransitionSkipped();
+            if (peerEntryCopy)
+                return;
+            var controller = Singleton<Controller>.Instance;
+            if (controller == null)
+                return;
+            controller.waitFramesAndRun(() =>
+            {
+                ApplyingRemoteSkip = true;
+                try
+                {
+                    var dreams = Singleton<Dreams>.Instance;
+                    if (dreams == null) return;
+                    // A start overlay, current cutscene, or outcome transition may be playing.
+                    if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
+                        dreams.currentTransition.skip();
+                    if (dreams.startTransition != null && dreams.startTransition.isPlaying
+                        && dreams.startTransition != dreams.currentTransition)
+                        dreams.startTransition.skip();
+                }
+                finally
+                {
+                    ApplyingRemoteSkip = false;
+                }
+            }, 1);
         }
 
         internal static void SetProxiesHidden(bool hide)
@@ -323,6 +344,7 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null) return;
 
+            DWMPHorde.Sync.DreamSyncManager.NoteEntryTransitionStarted();
             Vector3 pos = __instance.transform.position;
             net.Broadcast(NetMessageType.CutsceneSync,
                 w => new CutsceneSyncMessage
@@ -350,7 +372,7 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null || !__instance.skippable) return;
             if (!CutsceneSyncHelpers.IsMultiplayerConnected()) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (LanNetworkManager.IsApplyingRemoteState || CutsceneSyncHelpers.ApplyingRemoteSkip) return;
 
             var net = ModRuntime.Network;
             if (net == null) return;
