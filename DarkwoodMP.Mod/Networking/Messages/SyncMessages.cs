@@ -771,8 +771,13 @@ namespace DWMPHorde.Networking
 
     public struct ShadowEventMessage
     {
-        public void Serialize(NetWriter w) { }
-        public static ShadowEventMessage Deserialize(NetReader r) => new ShadowEventMessage();
+        /// <summary>The wave ended on the host (vanilla Player.endShadows); else it started.</summary>
+        public bool End;
+        /// <summary>Whose curse the starting wave is (vanilla spawnedShadows blocks only that player's natural lights).</summary>
+        public short OwnerId;
+
+        public void Serialize(NetWriter w) { w.Put(End); w.Put(OwnerId); }
+        public static ShadowEventMessage Deserialize(NetReader r) => new ShadowEventMessage { End = r.GetBool(), OwnerId = r.GetShort() };
     }
 
     /// <summary>Client→host: request a NightShadows perk wave around the requester's proxy.</summary>

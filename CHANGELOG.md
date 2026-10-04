@@ -7,7 +7,7 @@ The current product line is `0.8.x`. The plugin and display version are
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
 `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
 `PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
-the location marker, `ThrowableSpawn` the recoverable weapon;
+the location marker, `ThrowableSpawn` the recoverable weapon, `ShadowEvent` its end and owner;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -260,6 +260,19 @@ The mod's lantern copy follows that; these were the real faults around it.
 - **A thrown axe or spear came back as a fresh one.** Vanilla puts the thrown weapon
   itself in the thrown object; other players' copies were new. They now carry its wear
   and upgrades.
+
+### Night events and shadows (checked against the wiki's night event list)
+
+- **A client's lantern could stay dead for the rest of the session after shadows.**
+  Vanilla keeps natural lights (torch, lantern) unlightable while a shadow wave runs and
+  clears that when its shadows are gone. The shadows die on the host, so clients never
+  cleared it: after any wave, theirs stayed blocked. The host now sends the wave's end.
+  A wave is also only that player's curse: other players' lights are no longer blocked
+  by it (`ShadowEvent` gains `End` and `OwnerId`).
+- **Night events picked their spot by the host's position.** Hideout events that land
+  "closest to the player" (where a glare forms, what a poltergeist pulls, which door)
+  used the host even when only a client was in that location. They now use the player
+  in that location.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

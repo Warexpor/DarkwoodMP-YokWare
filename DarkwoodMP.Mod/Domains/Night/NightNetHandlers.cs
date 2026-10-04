@@ -52,10 +52,25 @@ namespace DWMPHorde.Networking
             // Do not call Player.tryToSpawnShadow(); it spawns shadows at the wrong local
             // positions.  The host sends individual ShadowSpawnMessages with exact positions.
             var cs = Singleton<CharacterSpawner>.Instance;
-            if (cs != null)
+            if (cs == null)
+                return;
+            if (msg.End)
             {
-                cs.shadowsRemove = false;
+                // Vanilla Player.endShadows. The wave's shadows die on the host (their counter
+                // is the host's), so without this a client kept spawnedShadows set for the rest of
+                // the session, and with it a natural-light lantern that could never be lit again.
+                cs.shadowsRemove = true;
+                cs.spawnedShadows = false;
                 cs.shadowsPaused = false;
+                ModRuntime.LegacyInfo("[ShadowSync] client: shadow wave ended");
+                return;
+            }
+            cs.shadowsRemove = false;
+            cs.shadowsPaused = false;
+            // spawnedShadows is the cursed player's own state (vanilla: it keeps their natural
+            // lights off). Another player's wave only needs its shadows shown here.
+            if (msg.OwnerId == _net.LocalPlayerId)
+            {
                 cs.spawnedShadows = true;
                 cs.spawnedShadowsAmount = 8;
             }
@@ -132,7 +147,7 @@ namespace DWMPHorde.Networking
                 cs.spawnedShadowsAmount = 8;
             }
 
-            _net.SendShadowEvent(new ShadowEventMessage());
+            _net.SendShadowEvent(new ShadowEventMessage { OwnerId = (short)ownerPlayerId });
 
             int owner = ownerPlayerId;
             Vector3 center = origin;
