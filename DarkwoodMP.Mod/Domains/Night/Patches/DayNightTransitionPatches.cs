@@ -28,6 +28,9 @@ namespace DWMPHorde.Patches
             {
                 if (__instance != null && __instance.isAfterNight)
                 {
+                    // This player's morning is over (vanilla fades the end-of-night effect on
+                    // leaving); the shared one ends on the host when the hideout is empty.
+                    __instance.removeAfterNightEffect();
                     net.Send(NetMessageType.AfterNightEndRequest,
                         w => new AfterNightEndRequestMessage().Serialize(w),
                         DeliveryMethod.ReliableOrdered);
@@ -39,10 +42,12 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix(Controller __instance)
+        private static void Postfix(Controller __instance, bool byKillingTrader)
         {
             if (!NetGuard.ConnectedHost(out var net))
                 return;
+            // Also when a peer's leave request ended it (that runs under the apply guard).
+            HostAwayMorning.OnEnded(byKillingTrader);
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
 
@@ -235,7 +240,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        public static bool HostPositionInside()
+        public static bool LocalPositionInside()
         {
             Player host = Player.Instance;
             if (host == null)
@@ -291,7 +296,7 @@ namespace DWMPHorde.Patches
             if (!MorningHideoutHold.SomeoneStillInside())
                 return true;
 
-            if (!MorningHideoutHold.HostPositionInside())
+            if (!MorningHideoutHold.LocalPositionInside())
                 MorningHideoutHold.NoteLeft(net.LocalPlayerId, confirmedOutside: true);
             ModRuntime.LegacyInfo("[DayNight] hideout still occupied — morning stays");
             return false;

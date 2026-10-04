@@ -17,11 +17,13 @@ public class CoopPolicyTests
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: true, isClient: false));
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: false, isClient: true));
         Assert.True(CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync);
+        // Shared clock: stops only when the host and every peer are inside.
+        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: false, anyRemoteInOpenWorld: false));
+        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: true));
+        Assert.False(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: false));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1068, 1071, 1070));
         Assert.False(CoopTimePolicy.LiveStepCrossedMinute(100, 500, 1070));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1438, 2, 0));
-        Assert.True(CoopTimePolicy.ShouldClearFedToday(100, 102, 1, 2, 480));
-        Assert.False(CoopTimePolicy.ShouldClearFedToday(100, 102, 2, 2, 480));
         Assert.False(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: false));
         Assert.True(PartyRequirementPolicy.HaveItem(partyHas: false, activeModifier: false));
         Assert.True(PartyRequirementPolicy.HaveItem(partyHas: true, activeModifier: true));

@@ -19,6 +19,15 @@ namespace DWMPHorde
         /// </summary>
         public static bool ShouldUseRefreshTimeNoLogicOnClientSync => true;
 
+        /// <summary>
+        /// Vanilla stops the clock while the player is inside an outside location (village,
+        /// bunker, basement). The shared clock runs while anyone is in the open world and
+        /// stops only when nobody is. A peer counts only on its own report: one still loading
+        /// or in the opening movie does not run the clock.
+        /// </summary>
+        public static bool SharedClockRuns(bool hostInOutsideLocation, bool anyRemoteInOpenWorld)
+            => !hostInOutsideLocation || anyRemoteInOpenWorld;
+
         public const int MinutesPerDay = 1440;
 
         public static int WrapMinute(int time)
@@ -48,19 +57,6 @@ namespace DWMPHorde
             if (newTime > prevTime)
                 return targetMinute > prevTime && targetMinute <= newTime;
             return targetMinute > prevTime || targetMinute <= newTime;
-        }
-
-        /// <summary>
-        /// Vanilla clears fedToday at midnight wrap and at dayTime+1, and on a new day.
-        /// </summary>
-        public static bool ShouldClearFedToday(int prevTime, int newTime, int prevDay, int newDay, int dayTime)
-        {
-            if (newDay > prevDay) return true;
-            if (LiveStepCrossedMinute(prevTime, newTime, 0)) return true;
-            int morning = dayTime + 1;
-            if (morning >= MinutesPerDay) morning -= MinutesPerDay;
-            if (morning < 0) morning += MinutesPerDay;
-            return LiveStepCrossedMinute(prevTime, newTime, morning);
         }
     }
 

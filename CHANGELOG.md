@@ -3,14 +3,82 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.131**. The current Horde wire protocol is **31** (bumped in 0.8.131:
-`EntitySound` carries the audio id and play kind, entity snapshots carry the
-creature's loop, new `BansheeAgitation` = 149, `DreamStarted` gains
-`EntryTransition`; 30 held for 0.8.130 only).
+**0.8.132**. The current Horde wire protocol is **32** (bumped in 0.8.132:
+`PlayerState` gains the `InOpenWorld` trailer; 31 held for 0.8.131 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.132 — Shared clock: time stops only when everyone is inside
+
+Branch `dev-entity-sync-remaster`, on top of 0.8.131. **Protocol 31 → 32.** Product
+**0.8.131 → 0.8.132**. Built and unit-tested; **runtime is not playtested**. Found by
+a code audit, not by a report.
+
+### The clock
+
+- **Time froze for everyone whenever the host was inside a location.** Vanilla stops
+  the clock while the player is inside an outside location (village, bunker, basement).
+  The host is the only clock, so the host in the village gave the players out in the
+  forest endless day, and a client in the village watched time run whenever the host
+  was outside. The clock now runs while anyone is in the open world and stops only
+  when nobody is. Each player reports it on `PlayerState` (`InOpenWorld`: not inside
+  a location, not dreaming, not loading, past the opening movie), so a joiner still
+  loading or watching the prologue does not run it. A promoted host keeps the rule.
+  Vanilla's own freezes (morning, death, events) still stop it.
+  (`HostSharedClockPatch`, `CoopTimePolicy.SharedClockRuns`.)
+
+### Night and morning away from the host
+
+The clock now runs while the host is inside a location, so night and morning can
+come while the host is away from home. Several host-only paths broke there:
+
+- **No morning unless the host was home.** Vanilla `startAfterNight` runs on the
+  hideout the local player stands in and does nothing elsewhere. With the host out
+  at dawn, nobody got a morning: no trader, no freeze, no rewards, and the chapter-1
+  wolf visit (a story beat that never retries) was lost. The morning now runs on the
+  hideout a living peer stands in. The host gets no reward and no screen effect
+  (it was not home), the trader is despawned there when the morning ends, and the
+  freeze is the clock alone. (`HostAwayMorning`.)
+- **The end-of-night effect showed for clients who were not home.** Every client got
+  the morning screen effect and freeze, wherever it stood. Now only a client at home
+  at dawn gets it, and walking out of the hideout clears it for that player (the
+  shared morning still ends when the hideout is empty).
+- **The night type came from where the host stood at dusk.** Inside a location there
+  is no biome, so it fell back to the easiest night and sent that to everyone. With
+  the host not home, the night is now picked at a peer's hideout, or at a peer in the
+  open world when the host is inside a location. (`HostScenarioAnchorPatch`.)
+- **Night events fired into location pads.** The host's night events run in the
+  location the host stands in, and location events are parented under it: inside a
+  village, hideout-defence events landed in the village. With the host not in a world
+  location, they now go to the hideout a peer is in, and are dropped inside a pad
+  when nobody is home. Clients no longer replay a location event inside a pad
+  either. (`NightEventAnchorPatches.cs`.)
+- **Rain inside locations, and none outside while the host was in a bunker.** Rain
+  could start in full view inside a village. Inside an underground pad vanilla can
+  neither start nor stop rain, so the players outside got none while the host was in
+  a bunker (a client in a bunker never got the host's rain either). While a player is
+  inside a pad, rain now keeps its schedule and state but stays hidden, and shows on
+  return. Lightning flashes are not shown inside a pad. (`PadWeather`,
+  `RainHostInPadPatch`.)
+- **Night worms and redirected night spawns aimed at players inside locations.** They
+  spawned into empty space around a pad. They now pick only players in the open
+  world.
+- **Clients never got the night warnings.** "Night is coming", "light the oven" and
+  the end-of-night sound come from vanilla `refreshTime`, which never runs on a
+  client. Clients now get them from the host's clock.
+
+A player inside a location at night is in the dark there, out of the worm's reach,
+and misses the morning rewards if not home.
+
+### Hunger
+
+- **Clients got hungry every evening; the host never did.** The game has no hunger
+  mechanic: vanilla's hunger effect is never triggered. The mod triggered it on
+  clients at dusk. Removed, along with the client `fedToday` reset nothing reads.
 
 ---
 

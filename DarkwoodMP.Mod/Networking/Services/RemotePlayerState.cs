@@ -23,6 +23,9 @@ namespace DWMPHorde.Networking
         /// <summary>Peer took the nightShadows degrade perk (streamed on PlayerState trailer).</summary>
         public bool HasNightShadows;
 
+        /// <summary>Peer is in the open world (PlayerState trailer): the shared clock runs for it.</summary>
+        public bool InOpenWorld;
+
         // Dreams
         public bool IsDeadInDream;
 

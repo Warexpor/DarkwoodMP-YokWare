@@ -58,6 +58,80 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Host shared clock. Vanilla <c>FixedUpdate</c> skips <c>CurrentTime++ / refreshTime</c>
+    /// while the local player is inside an outside location, so the whole party's clock
+    /// stopped whenever the host was in the village, even with peers out in the forest.
+    /// When the host is inside but a ready peer reports the open world, run the same step
+    /// vanilla would have run (<see cref="CoopTimePolicy.SharedClockRuns"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), "FixedUpdate")]
+    public static class HostSharedClockPatch
+    {
+        private static readonly AccessTools.FieldRef<Controller, float> LastTimeUpdatedTime =
+            AccessTools.FieldRefAccess<Controller, float>("lastTimeUpdatedTime");
+
+        /// <summary>
+        /// Where vanilla would run this player's clock: in the world, not inside an outside
+        /// location, not dreaming, not loading and past the opening movie. Sent on PlayerState.
+        /// </summary>
+        internal static bool LocalInOpenWorld()
+        {
+            if (Player.Instance == null || Core.mainMenu || Core.loadingGame || Core.EnteringDream)
+                return false;
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol == null || ol.playerInOutsideLocation || ol.loading)
+                return false;
+            var dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && (dreams.dreaming || dreams.dreamPrepared))
+                return false;
+            var wg = Singleton<WorldGenerator>.Instance;
+            if (wg != null && wg.playingIntro)
+                return false;
+            return !PrologueSync.ClientDeferredFirstPlay;
+        }
+
+        private static void Prefix(Controller __instance, out bool __state)
+        {
+            __state = false;
+            if (__instance == null || !__instance.DoUpdateTime)
+                return;
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host)
+                return;
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol == null || !ol.playerInOutsideLocation)
+                return;
+            var dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && dreams.dreaming)
+                return;
+            // Same interval gate as vanilla; vanilla updates the stamp, the postfix only steps.
+            if (UnityEngine.Time.time - LastTimeUpdatedTime(__instance) < __instance.timeChangeInterval)
+                return;
+            __state = CoopTimePolicy.SharedClockRuns(true, AnyPeerInOpenWorld(net));
+        }
+
+        private static void Postfix(Controller __instance, bool __state)
+        {
+            if (!__state)
+                return;
+            __instance.CurrentTime++;
+            __instance.refreshTime();
+        }
+
+        private static bool AnyPeerInOpenWorld(LanNetworkManager net)
+        {
+            foreach (int id in net.EnumeratePeerIds())
+            {
+                if (id == net.LocalPlayerId || !net.IsPeerReadyForGameplay(id))
+                    continue;
+                if (net.RemotePlayers.TryGetValue(id, out RemotePlayerState st) && st.InOpenWorld)
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Belt-and-suspenders: if anything still calls refreshTime on a client
     /// (TimeSync used to; other systems might), strip day-chain edge handlers and only
     /// run ambient/clock UI. Host path unchanged.

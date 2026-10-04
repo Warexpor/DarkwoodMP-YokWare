@@ -4,6 +4,7 @@ using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
@@ -61,6 +62,7 @@ namespace DWMPHorde.Patches
 
             try
             {
+                HostAwayMorning.TryRun(net, __instance);
                 FanOut(net, __instance, day);
             }
             finally
@@ -71,12 +73,15 @@ namespace DWMPHorde.Patches
 
         private static void FanOut(LanNetworkManager net, Controller ctrl, int day)
         {
-            // startAfterNight only sets isAfterNight when the host stands in its hideout.
+            // Vanilla sets isAfterNight only when the host stands in its hideout; otherwise
+            // HostAwayMorning ran it on the hideout a peer is in.
             if (!ctrl.isAfterNight)
                 return;
             Player host = Player.Instance;
             Location loc = host != null && host.whereAmI != null ? host.whereAmI.bigLocation : null;
             if (loc == null || !loc.playerBase)
+                loc = HostAwayMorning.Hideout;
+            if (loc == null)
                 return;
 
             var flags = Singleton<Flags>.Instance;
@@ -114,6 +119,102 @@ namespace DWMPHorde.Patches
                     DeliveryMethod.ReliableOrdered);
                 ModRuntime.LegacyInfo($"[MorningRep] reward → p{id}: {traderName} +{repGain}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Vanilla <c>startAfterNight</c> runs the morning on the hideout the local player stands in
+    /// and does nothing anywhere else ("Location not found for morning event"). With the shared
+    /// clock the host can be out in the forest or inside a location at dawn while a peer is home:
+    /// nobody got a morning (no trader, no freeze, no chapter-1 wolf, no rewards). Run the world
+    /// half of vanilla's morning on the hideout a living peer stands in. The host is not home, so
+    /// it gets no reward and no end-of-night screen effect, and the freeze is the clock alone.
+    /// </summary>
+    internal static class HostAwayMorning
+    {
+        /// <summary>Hideout of a morning the host ran while away (null otherwise).</summary>
+        internal static Location Hideout { get; private set; }
+        private static Controller _frozeClock; // reset-in: ReleaseClock (called from Reset)
+
+        internal static void TryRun(LanNetworkManager net, Controller ctrl)
+        {
+            if (ctrl.isAfterNight)
+                return;
+            Location loc = FindPeerHideout(net);
+            if (loc == null)
+                return;
+
+            ctrl.isAfterNight = true;
+            Hideout = loc;
+            Core.AddPrefab("FX/efekt_konca_nocy", loc.transform.position, Quaternion.identity, null);
+            // Same wolf / trader choice as vanilla Controller.startAfterNight.
+            var flags = Singleton<Flags>.Instance;
+            var wg = Singleton<WorldGenerator>.Instance;
+            if (!flags.isFlagTrue("wolf_killed")
+                && (flags.isFlagTrue("wolf_inPlayerHideout")
+                    || (!flags.isFlagTrue("wolf_cameToPlayerHideout")
+                        && !flags.isFlagTrue("wolf_shownOpeningDialogue")
+                        && (wg == null || wg.chapterID <= 1))))
+            {
+                loc.spawnWolf();
+            }
+            else
+            {
+                loc.despawnWolf();
+                if (!flags.isFlagTrue("talkingTree_burnt"))
+                    loc.spawnTrader();
+            }
+            ctrl.gaveAfterNightRewards = true;
+            loc.enableAllLights();
+            loc.removeCharacters();
+            // Vanilla freezes through the timeFreeze effect on the player at home.
+            if (ctrl.DoUpdateTime)
+            {
+                ctrl.DoUpdateTime = false;
+                _frozeClock = ctrl;
+            }
+            ModRuntime.LegacyInfo($"[DayNight] host away at dawn — morning at peer hideout '{loc.name}'");
+        }
+
+        /// <summary>Host endAfterNight: vanilla despawns the trader where the host stands, not here.</summary>
+        internal static void OnEnded(bool byKillingTrader)
+        {
+            Location loc = Hideout;
+            Hideout = null;
+            if (loc != null && loc.trader != null && !byKillingTrader)
+                Object.Destroy(loc.trader);
+            ReleaseClock();
+        }
+
+        /// <summary>Session end: hand back a clock this morning stopped.</summary>
+        internal static void Reset()
+        {
+            Hideout = null;
+            ReleaseClock();
+        }
+
+        private static void ReleaseClock()
+        {
+            Controller ctrl = _frozeClock;
+            _frozeClock = null;
+            if (ctrl != null)
+                ctrl.DoUpdateTime = true;
+        }
+
+        private static Location FindPeerHideout(LanNetworkManager net)
+        {
+            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+            {
+                if (proxy == null)
+                    continue;
+                CharBase cb = proxy.CachedCharBase;
+                if (cb != null && !cb.alive)
+                    continue;
+                Location loc = Location.getAtPos(proxy.transform.position);
+                if (loc != null && loc.playerBase)
+                    return loc;
+            }
+            return null;
         }
     }
 
