@@ -192,14 +192,29 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // The host knows who sent it; a client's own claim is not trusted.
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+                msg.PlacerId = (short)_net.CurrentReceivePlayerId;
+
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
             GameObject go = Core.AddPrefab(itemDef.item, pos, rot, null);
             if (go != null)
             {
+                // Vanilla Player.progressBarCompleted placement, as on the placing peer.
                 Trigger trig = go.GetComponent<Trigger>();
                 if (trig != null)
+                {
                     trig.setByPlayer = true;
+                    if (!string.IsNullOrEmpty(trig.useSound))
+                        AudioController.Play(trig.useSound, go.transform);
+                    if (msg.PlacerId > 0)
+                        (go.GetComponent<TrapPlacer>() ?? go.AddComponent<TrapPlacer>()).PlayerId = msg.PlacerId;
+                }
+                Core.addToSaveable(go, isDynamic: true, assignID: true);
+                Singleton<WorldGrid>.Instance?.registerToNode(go);
+                if (_net.Role == NetworkRole.Host && TrapNetworkId.IsWorldTrap(go))
+                    TrapNetworkId.GetOrMintHost(go);
             }
             else
             {

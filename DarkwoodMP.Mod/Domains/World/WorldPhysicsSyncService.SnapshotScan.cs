@@ -137,9 +137,7 @@ namespace DWMPHorde.Sync
             Player local = Player.Instance;
             if (local != null && local.inBearTrap)
             {
-                int localTrap = TrapNetworkId.ResolveOccupyingTrapId(local.transform.position,
-                    hostMint: net.Role == NetworkRole.Host);
-                if (localTrap == trapNetId)
+                if (LocalBearTrap.CurrentId(hostMint: net.Role == NetworkRole.Host) == trapNetId)
                     return (short)net.LocalPlayerId;
             }
 

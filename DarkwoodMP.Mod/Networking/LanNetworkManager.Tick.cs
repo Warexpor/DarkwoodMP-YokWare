@@ -269,9 +269,7 @@ namespace DWMPHorde.Networking
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
                 InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
                 SeesVillager = Sync.NightVillage.LocalSeesVillager,
-                TrapNetId = local.inBearTrap
-                    ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
-                    : 0
+                TrapNetId = local.inBearTrap ? Sync.LocalBearTrap.CurrentId(hostMint: _role == NetworkRole.Host) : 0
             };
 
             PackContinuousLights(ref msg, local);

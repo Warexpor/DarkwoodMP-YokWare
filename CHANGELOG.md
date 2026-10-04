@@ -3,15 +3,50 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.132**. The current Horde wire protocol is **32** (bumped in 0.8.132:
-`PlayerState` gains the `InOpenWorld` and `SeesVillager` trailers, `TimeSync`
-gains `VillagersAway`; 31 held for 0.8.131 only).
+**0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
+`ItemSpawn` gains `PlacerId`; 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.133 — Decompile audit pass: traps
+
+Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
+**0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
+a report. Built and unit-tested; **runtime is not playtested**.
+
+### Bear traps and other traps
+
+- **A player freed from a bear trap by a teammate stayed frozen.** When a teammate
+  looted or removed the sprung trap holding you, the mod only cleared the "in bear
+  trap" flags. Vanilla's immobilise effect stayed on, so you could not move or act
+  until it timed out, mashing no longer shortened it, and your arms and held item
+  were not restored. Now the hold ends the vanilla way: the immobilise effect is
+  removed, which plays the step-out animation and gives everything back.
+- **Which trap holds a player was guessed by distance.** It is now recorded the moment
+  the trap catches you, so the rescue and the trapped-player id on `PlayerState` name
+  exactly that trap and never a neighbouring one. The unused occupancy helpers that
+  guessed by position are gone. (`LocalBearTrap`.)
+- **Clients sprang traps on their copies of enemies.** A client's copy of a host enemy
+  that walked over a trap fired it locally and told the host, which then spent its own
+  trap with nobody in it while the real enemy walked on. Clients now leave enemy
+  triggers to the host; the catch reaches them through trap and entity state.
+  (`TrapCollisionCoopPatch`.)
+- **Traps another player placed were not saved by the host.** Vanilla registers a placed
+  trap for saving and for the world grid; the copies made on the other peers skipped
+  that, so a client's trap vanished from the host's save and missed chunk handling.
+  Peers now register it as the placing peer does, and hear its placing sound.
+- **Traps that vanish when sprung were not synced.** A trap that does not stay after
+  firing is removed by vanilla without the sprite switch the mod listened to, so the
+  other players kept it armed. The host now sends those too, and peers play the spring
+  and remove their copy.
+- **Friendly fire now covers traps.** With friendly fire off, a trap placed by another
+  player no longer catches you; your own traps still do, as in vanilla. Enemies are
+  caught by everyone's traps. The placer travels on `ItemSpawn` (`PlacerId`, stamped by
+  the host). Traps loaded from a save have no placer and catch everyone, as vanilla.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

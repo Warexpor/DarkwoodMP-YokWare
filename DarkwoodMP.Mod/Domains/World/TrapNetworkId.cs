@@ -180,44 +180,6 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>
-        /// Resolve which trap a trapped player occupies: nearest Trigger with trap name near player.
-        /// Host stamps NetId when missing.
-        /// </summary>
-        public static int ResolveOccupyingTrapId(Vector3 playerPos, bool hostMint)
-        {
-            // Trap Y is often ~-10 while the player stands at ~16 — 3D OverlapSphere(2.5)
-            // never hits. Use a tall sphere then filter by XZ (same as ReleaseLocalBearTrapIfNear).
-            GameObject best = null;
-            float bestSq = 2.5f * 2.5f;
-            const float overlapR = 30f;
-            int hitN = Physics.OverlapSphereNonAlloc(playerPos, overlapR, WorldQueryHelper.SharedOverlapBuf);
-            for (int i = 0; i < hitN; i++)
-            {
-                if (WorldQueryHelper.SharedOverlapBuf[i] == null) continue;
-                GameObject root = WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody != null
-                    ? WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody.gameObject
-                    : WorldQueryHelper.SharedOverlapBuf[i].gameObject;
-                if (root == null) continue;
-                if (!TrapNetworkId.IsOccupancyTrap(root))
-                    continue;
-                Vector3 tp = root.transform.position;
-                float dx = tp.x - playerPos.x;
-                float dz = tp.z - playerPos.z;
-                float sq = dx * dx + dz * dz;
-                if (sq < bestSq)
-                {
-                    bestSq = sq;
-                    best = root;
-                }
-            }
-
-            if (best == null) return 0;
-            if (hostMint || GetId(best) > 0)
-                return hostMint ? GetOrMintHost(best) : GetId(best);
-            return GetId(best);
-        }
-
         public static void QueuePending(int netId, Vector3 pos, bool triggered, bool silentDisarm = false)
         {
             for (int i = 0; i < Pending.Count; i++)

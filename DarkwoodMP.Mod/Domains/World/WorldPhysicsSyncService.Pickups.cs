@@ -138,7 +138,7 @@ namespace DWMPHorde.Sync
             {
                 TraverseHack.SetExplicitFlag(true);
                 // Co-op rescue: free anyone still flagged inBearTrap near this destroy pose.
-                ReleaseLocalBearTrapIfNear(best.transform.position);
+                LocalBearTrap.ReleaseIfRemoved(best, best.transform.position);
 
                 UnityEngine.Object.DestroyImmediate(best);
             }

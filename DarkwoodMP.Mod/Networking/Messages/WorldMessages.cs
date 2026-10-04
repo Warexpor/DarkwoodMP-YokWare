@@ -38,12 +38,15 @@ namespace DWMPHorde.Networking
         public string ItemType;
         public float PosX, PosY, PosZ;
         public float RotX, RotY, RotZ;
+        /// <summary>Player who placed it (host stamps client sends); 0 = not a player placement.</summary>
+        public short PlacerId;
 
         public void Serialize(NetWriter writer)
         {
             writer.Put(ItemType ?? string.Empty);
             writer.Put(PosX); writer.Put(PosY); writer.Put(PosZ);
             writer.Put(RotX); writer.Put(RotY); writer.Put(RotZ);
+            writer.Put(PlacerId);
         }
 
         public static ItemSpawnMessage Deserialize(NetReader reader) => new ItemSpawnMessage
@@ -54,7 +57,8 @@ namespace DWMPHorde.Networking
             PosZ = reader.GetFloat(),
             RotX = reader.GetFloat(),
             RotY = reader.GetFloat(),
-            RotZ = reader.GetFloat()
+            RotZ = reader.GetFloat(),
+            PlacerId = reader.GetShort()
         };
     }
 
