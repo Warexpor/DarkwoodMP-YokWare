@@ -12,6 +12,7 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
+        private const float DoorThumpForce = 45000f; // vanilla Door.thumpForce (private): a run-kick
         public static void ApplySnapshot(PhysicsStateMessage state, string fromPeer = "host")
         {
             int objApplied = 0, objSkipped = 0, objFailed = 0;
@@ -385,6 +386,17 @@ namespace DWMPHorde.Sync
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo("[DoorApply] " + door.name + " " + (ds.Opened ? "OPEN" : "CLOSE") + " from " + fromPeer);
                         TraverseHack.SetDoorOpened(door, ds.Opened, new Vector3(ds.OpenerPosX, ds.OpenerPosY, ds.OpenerPosZ), ds.OpenForce, ds.BodyRotY, ds.AngVelX, ds.AngVelY, ds.AngVelZ);
+                        // Vanilla Door.open/close alert the area only when a Player swung it; the
+                        // apply passes no Player, so a client's door was silent to host AI. Only
+                        // players move doors on a client (its AI is off).
+                        if (fromPeer.Equals("client", StringComparison.OrdinalIgnoreCase))
+                        {
+                            float noise = !ds.Opened ? door.closeSoundDistance
+                                : ds.OpenForce >= DoorThumpForce ? door.openRunSoundDistance
+                                : door.openSoundDistance;
+                            if (noise > 0f)
+                                Character.alertInArea(door.transform.position, noise, dangerousSound: false, 1f);
+                        }
                         doorApplied++;
                     }
                 }

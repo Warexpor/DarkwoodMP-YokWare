@@ -145,6 +145,12 @@ namespace DWMPHorde.Patches
 
             if (Core.isInLight(_proxyT.position, mustBeWalkable: true))
                 return;
+            // Vanilla ShadowCreature also spares a player who is lit (Player.isInLight: a light
+            // area or a shadow-protecting item); the client reports it on PlayerState.
+            var lightOwner = _proxyT.GetComponent<RemotePlayerProxy>();
+            if (lightOwner != null && ModRuntime.Network != null
+                && ModRuntime.Network.IsRemotePlayerHasLightProtection(lightOwner.PlayerId))
+                return;
 
             if (!PoolManager.Pools.TryGetValue("Sensors", out var pool)) return;
             if (!pool.prefabs.TryGetValue("MeleeSensor_shadow", out var prefab)) return;

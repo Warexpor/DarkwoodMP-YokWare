@@ -40,6 +40,36 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Client scary-face skill: vanilla makes every non-NPC character within 500 run away from the
+    /// player, which on a client only touches its AI-less copies. The host runs it on the real ones.
+    /// </summary>
+    [HarmonyPatch(typeof(PlayerSkill), nameof(PlayerSkill.activate))]
+    public static class ClientScaryFacePatch
+    {
+        private static void Prefix(PlayerSkill __instance, out int __state)
+        {
+            __state = __instance != null ? __instance.timesUsed : 0;
+        }
+
+        private static void Postfix(PlayerSkill __instance, int __state)
+        {
+            if (__instance == null || __instance.timesUsed == __state || __instance.gameObject.name != "scaryFace")
+                return;
+            if (!NetGuard.Connected(out LanNetworkManager net))
+                return;
+            if (net.Role == NetworkRole.Host)
+            {
+                // Vanilla already scared the host's characters; peers see the effect.
+                var fx = new PlayerScareMessage { ScaryFace = true, CasterId = (short)net.LocalPlayerId };
+                net.SendToAll(NetMessageType.PlayerScare, w => fx.Serialize(w), DeliveryMethod.ReliableOrdered);
+                return;
+            }
+            var msg = new PlayerScareMessage { Range = 500f, ScaryFace = true };
+            net.Send(NetMessageType.PlayerScare, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+    }
+
     /// <summary>Client aim-scare → host AI scareInArea (not a sonic SFX forward).</summary>
     [HarmonyPatch(typeof(Player), "aimScare")]
     public static class ClientAimScarePatch

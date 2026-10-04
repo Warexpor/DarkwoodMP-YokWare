@@ -4,7 +4,8 @@
 
 The current product line is `0.8.x`. The plugin and display version are
 **0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
-`ItemSpawn` gains `PlacerId`; 32 held for 0.8.132 only).
+`ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`;
+32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
@@ -12,7 +13,7 @@ tested in the game.
 
 ---
 
-## 0.8.133 — Decompile audit pass: traps
+## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies and players
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
@@ -47,6 +48,63 @@ a report. Built and unit-tested; **runtime is not playtested**.
   player no longer catches you; your own traps still do, as in vanilla. Enemies are
   caught by everyone's traps. The placer travels on `ItemSpawn` (`PlacerId`, stamped by
   the host). Traps loaded from a save have no placer and catch everyone, as vanilla.
+
+### The hideout night
+
+- **Night monsters came only when the host was home.** Vanilla spawns the night's
+  monsters around the player and only while that player stands in the hideout. With
+  the host out, a client defending the hideout got no monsters at all (a free night),
+  and with the host home, half the spawns were sent to players out in the forest,
+  where vanilla never sends them. Now every living player at home counts: spawns
+  pick their spot around one of the players at home, and with only clients home the
+  same spawn step runs around a client there. Players out in the forest get the
+  worm, as in vanilla. Night monsters at the hideout keep the hideout's patrol
+  waypoints again. (`NightBaseBodies`, `NightSpawnFlagPatch`.)
+- **The host's lit hideout scared off monsters hunting other players.** Vanilla makes
+  every monster that fears the hideout run and despawn whenever the player carries the
+  hideout's ward. With the host home and a client in the forest, that freed the client
+  of everything chasing it. The ward now counts for the player the monster is after
+  (its target, else the nearest player). A monster set to always attack the player now
+  goes for the nearest player instead of the host. (`HostWardScopePatch`.)
+- **Night events went to the host's house rather than the hideout.** With the host
+  in some other world location (an abandoned house) and a client at home, the night's
+  hideout events fired around the host. They now go to the hideout a player is in.
+- **A client's light protection did not stop shadows.** Vanilla shadows never strike a
+  player standing in a light area or holding a shadow-protecting item. For clients only
+  the lit ground was checked; the client's own protection now counts too.
+- **Sheltering in a village house could leave the worm ward on forever.** If a session
+  backup was restored while sheltering, the ward came back without the mod knowing it
+  gave it. The village ward is now recognised by its own duration.
+
+### Enemies and other players
+
+- **Skills and wards reached the host up to 2 s late.** Ninja, wards and the forest
+  skills were sent every 2 s, so host monsters kept seeing a ninja client, or hunted a
+  warded one. They now go out the moment they change (keepalive every 2 s).
+- **Going invisible did not shake off attackers.** Vanilla makes everything attacking
+  the player stop when it turns invisible; for a client nothing stopped on the host.
+  Now it does, and other players see the ninja at 30% opacity as the caster does.
+- **A ninja client's footsteps still alerted enemies.** They no longer do (vanilla).
+- **The scary-face skill did nothing when a client used it.** It only touched the
+  client's copies of enemies. The host now makes every non-NPC character within 500
+  run from the client, and the other players see the effect. (`PlayerScare` gains the
+  skill flag and caster; protocol 33.)
+- **Enemies chasing a client counted as attacking the host.** The host heard combat
+  music for fights it was not in, and when the host died those enemies calmed down
+  and stopped chasing the client. Removed; vanilla only lists enemies after the player.
+- **Dead, invisible or ignored clients could still be smelled out.** Dogs and wolves
+  re-targeted a downed client by smell. They no longer sense one.
+- **Enemy moves aimed at the host.** The teleport-next-to-player animation landed
+  next to the host while hunting a client, a stalker fled from the host's position,
+  and a banshee counted as unseen when only a client was looking at it. All three now
+  use the player the enemy is after (or any player's sight, for the banshee).
+  (`HostBodyRedirectPatches.cs`.)
+- **Client gunshots were heard twice and woke culled enemies.** A fallback after the
+  vanilla area alert repeated the hearing and switched on characters the world had
+  culled. Removed; the vanilla alert alone runs, as for the host's shots.
+- **A client opening or kicking a door was silent to enemies.** Vanilla alerts the area
+  when a player swings a door; the applied copy had no player. The host now alerts at
+  the door's open, run-kick and close distances.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

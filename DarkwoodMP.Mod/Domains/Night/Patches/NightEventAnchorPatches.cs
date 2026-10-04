@@ -29,7 +29,13 @@ namespace DWMPHorde.Patches
             var ol = Singleton<OutsideLocations>.Instance;
             if (ol != null && ol.playerInOutsideLocation)
                 return false;
-            return host.whereAmI.location != null;
+            Location loc = host.whereAmI.location;
+            if (loc == null)
+                return false;
+            // In some other world location (an abandoned house): vanilla fires the night's events
+            // there, but a peer at home is where the hideout night belongs.
+            Location big = host.whereAmI.bigLocation;
+            return loc.playerBase || big != null && big.playerBase || PeerHideout() == null;
         }
 
         internal static bool HostInOutsideLocation()

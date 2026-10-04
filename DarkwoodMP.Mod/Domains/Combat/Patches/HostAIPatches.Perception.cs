@@ -285,43 +285,6 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// When an NPC starts chasing the remote proxy, registers it in the
-    /// host player's charactersAttackingMe list so the host's UI/audio
-    /// combat indicators trigger correctly.
-    /// </summary>
-    [HarmonyPatch(typeof(Character), "setBehaviour")]
-    public static class HostSetBehaviourPatch
-    {
-        private static void Postfix(Character __instance, Character.Behaviour targetBehaviour)
-        {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host) return;
-            if (!PlayerPositionManager.HasRemotePlayer) return;
-            if (targetBehaviour != Character.Behaviour.chasingTarget) return;
-            if (__instance.target == null) return;
-            if (__instance.target == Player.Instance?.transform) return;
-            if (__instance.target.GetComponent<RemotePlayerProxy>() == null) return;
-
-            Player player = Player.Instance;
-            if (player == null) return;
-
-            bool alreadyAdded = false;
-            for (int i = 0; i < player.charactersAttackingMe.Count; i++)
-            {
-                if (player.charactersAttackingMe[i] == __instance)
-                {
-                    alreadyAdded = true;
-                    break;
-                }
-            }
-            if (!alreadyAdded)
-            {
-                player.charactersAttackingMe.Add(__instance);
-                player.checkInCombatChars();
-            }
-        }
-    }
-
-    /// <summary>
     /// Prevents MeleeSensor from hitting the same CharBase twice within the sensor's
     /// lifetime. This fixes double-damage on the proxy (which has multiple child colliders
     /// from the player clone, each triggering OnTriggerEnter independently).
