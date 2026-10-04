@@ -13,7 +13,7 @@ tested in the game.
 
 ---
 
-## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies and players
+## 0.8.133 — Decompile audit pass: traps, the hideout night, enemies, players and lights
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
@@ -105,6 +105,32 @@ a report. Built and unit-tested; **runtime is not playtested**.
 - **A client opening or kicking a door was silent to enemies.** Vanilla alerts the area
   when a player swings a door; the applied copy had no player. The host now alerts at
   the door's open, run-kick and close distances.
+
+### Lights on other players
+
+Vanilla's lantern is no held object: on the hotbar it widens the player's own light dot.
+The mod's lantern copy follows that; these were the real faults around it.
+
+- **The lantern glow vanished while the player held a flashlight.** Both are on at once
+  in vanilla; the glow now stays.
+- **The lantern looked white and could turn near-black.** It was drawn with a fixed
+  white, and while a flashlight was held, with the flashlight's dark tint. It now copies
+  the colour, intensity and shadow layer of the light dot itself (every peer has it),
+  so it looks like the owner's.
+- **A flashlight cone briefly took the lantern's size.** With both on, the radius sent
+  was the lantern's; the cone now keeps its streamed size.
+- **A peer's flashlight lit the ground only inside the local player's beam.** Vanilla
+  lights path nodes for any light named "Flashlight" within the local player's beam box,
+  so shadows and shadow armour ignored a peer's beam (or all of it while the local
+  flashlight was off). Each peer's beam now lights its own area.
+  (`RemoteFlashlightNodesPatch`.)
+- **A torch stayed lit on a player who lay down, dove or played dead.** Vanilla drops the
+  flame there without an item switch, which the mod listened for; the change now goes out.
+- **Lights were lost on a rebuilt player body.** After a host change or a body rebuild,
+  the next identical light message was skipped as "already shown", leaving the new body
+  dark until the player toggled something. The last light state is now re-applied.
+- **A peer's torch light swung with the hand.** Vanilla keeps the torch light at the body
+  centre and moves only the flame; peers now do the same.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

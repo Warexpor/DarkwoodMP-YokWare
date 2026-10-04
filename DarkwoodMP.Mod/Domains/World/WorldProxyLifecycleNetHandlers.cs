@@ -66,7 +66,20 @@ namespace DWMPHorde.Networking
                 // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
 
-                if (_net.PlayerLightFxApplyHandlers.PendingPlayerLights.TryGetValue(playerId, out PlayerLightStateMessage pendingLight))
+                // A rebuilt proxy (fake-null replace, migration) keeps its RemotePlayerState: forget
+                // what the old body showed and show the last known light on the new one.
+                PlayerLightStateMessage pendingLight = default;
+                bool havePending = _net.PlayerLightFxApplyHandlers.PendingPlayerLights.TryGetValue(playerId, out pendingLight);
+                if (_net.RemotePlayers.TryGetValue(playerId, out RemotePlayerState lightState) && lightState != null)
+                {
+                    lightState.ForgetAppliedLight();
+                    if (!havePending && lightState.LastLight.HasValue)
+                    {
+                        pendingLight = lightState.LastLight.Value;
+                        havePending = true;
+                    }
+                }
+                if (havePending)
                 {
                     _net.PlayerLightFxApplyHandlers.PendingPlayerLights.Remove(playerId);
                     // Re-enter apply with a temporary receive id so GetProxy path works.

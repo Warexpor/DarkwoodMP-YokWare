@@ -45,9 +45,8 @@ namespace DWMPHorde.Players
         // Applied via animator.ClipFps so we never mutate shared library assets.
         private bool _legsDragFps;
 
-        // Emitter transforms for torch/lantern light & particle effects,
-        // positioned per frame using the item's emitterPositions data.
-        private Transform _lightEmitter;
+        // The torch flame particles follow the hand per frame (item emitterPositions); its light
+        // stays at the body centre, as vanilla Player does.
         private Transform _particleEmitter;
         private InvItem _emitterItem;
 
@@ -119,7 +118,6 @@ namespace DWMPHorde.Players
         public void SetEmittedItem(InvItem itemDef)
         {
             _emitterItem = itemDef;
-            _lightEmitter = transform.Find("ItemLightEmitter");
             _particleEmitter = transform.Find("ItemParticleEmitter");
             _lastEmitterClipMiss = null;
         }
@@ -161,8 +159,6 @@ namespace DWMPHorde.Players
 
         internal void UpdateEmitterPosition()
         {
-            if (_lightEmitter == null)
-                _lightEmitter = transform.Find("ItemLightEmitter");
             if (_particleEmitter == null)
                 _particleEmitter = transform.Find("ItemParticleEmitter");
 
@@ -182,8 +178,6 @@ namespace DWMPHorde.Players
                 if (idleEntry.positions == null || idleEntry.positions.Count <= f)
                     return;
                 Vector2 p = idleEntry.positions[f];
-                if (_lightEmitter != null)
-                    _lightEmitter.localPosition = new Vector3(p.x, p.y, _lightEmitter.localPosition.z);
                 if (_particleEmitter != null)
                     _particleEmitter.localPosition = new Vector3(p.x, p.y, _particleEmitter.localPosition.z);
                 return;
@@ -202,8 +196,6 @@ namespace DWMPHorde.Players
                     && idleFb.positions != null && idleFb.positions.Count > 0)
                 {
                     Vector2 p = idleFb.positions[0];
-                    if (_lightEmitter != null)
-                        _lightEmitter.localPosition = new Vector3(p.x, p.y, _lightEmitter.localPosition.z);
                     if (_particleEmitter != null)
                         _particleEmitter.localPosition = new Vector3(p.x, p.y, _particleEmitter.localPosition.z);
                 }
@@ -215,8 +207,6 @@ namespace DWMPHorde.Players
                 return;
 
             Vector2 pos = entry.positions[frame];
-            if (_lightEmitter != null)
-                _lightEmitter.localPosition = new Vector3(pos.x, pos.y, _lightEmitter.localPosition.z);
             if (_particleEmitter != null)
                 _particleEmitter.localPosition = new Vector3(pos.x, pos.y, _particleEmitter.localPosition.z);
         }
