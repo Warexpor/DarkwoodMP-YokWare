@@ -409,7 +409,18 @@ namespace DWMPHorde.Networking
         /// Replaces the client's whole-stock snapshot. Protocol 33.
         /// </summary>
         TradeCommit = 152,
+        /// <summary>
+        /// Host→one client: the host's fingerprint of the state that client should share (desync
+        /// check, <c>Diagnostics.DesyncCheck</c>). Protocol 33.
+        /// </summary>
+        [HostOnly] DesyncDigest = 153,
+        /// <summary>Client→host: entries wanted for the digest sections that differed. Protocol 33.</summary>
+        DesyncDetailRequest = 154,
+        /// <summary>Host→client: one section's entries for a detail request. Protocol 33.</summary>
+        [HostOnly] DesyncDetail = 155,
+        /// <summary>Client→host: what the client's check found, for the host log. Protocol 33.</summary>
+        DesyncReport = 156,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 152
+        _Highest = 156
     }
 }

@@ -16,6 +16,12 @@ namespace DWMPHorde.Networking
         {
             On(NetMessageType.Handshake, HandshakeMessage.Deserialize, m => HandleHandshake(m));
             On(NetMessageType.SessionSettings, SessionSettingsMessage.Deserialize, m => HandleSessionSettings(m));
+            On(NetMessageType.DesyncDigest, DesyncDigestMessage.Deserialize, m => Sync.DesyncCheck.ClientOnDigest(this, m));
+            On(NetMessageType.DesyncDetailRequest, DesyncDetailRequestMessage.Deserialize,
+                m => Sync.DesyncCheck.HostOnDetailRequest(this, _currentReceivePlayerId, m));
+            On(NetMessageType.DesyncDetail, DesyncDetailMessage.Deserialize, m => Sync.DesyncCheck.ClientOnDetail(this, m));
+            On(NetMessageType.DesyncReport, DesyncReportMessage.Deserialize,
+                m => Sync.DesyncCheck.HostOnReport(this, _currentReceivePlayerId, m));
             On(NetMessageType.WorldSession, WorldSessionMessage.Deserialize, m => HandleWorldSession(m));
             OnRaw(NetMessageType.SaveSync, _ => HandleSaveSync());
             On(NetMessageType.TimeSync, TimeSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleTimeSync(m));

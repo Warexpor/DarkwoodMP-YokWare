@@ -270,6 +270,7 @@ namespace DWMPHorde.Networking
             // Drop this container's settled take records only. Other containers' takes, and a
             // take here whose deny may still be in flight, keep theirs so the refund stays exact.
             PrunePendingTakes(containerKey + "_", Time.realtimeSinceStartup, PendingTakeInFlightSeconds);
+            Sync.DesyncCheck.NoteContainerSynced(inv);
 
             // Do not play open_drawer here. Local Item.openInventory already
             // played it, and state sync is silent.
