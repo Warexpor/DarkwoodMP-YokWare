@@ -94,6 +94,10 @@ namespace DWMPHorde.Sync
                     NPC n = npcs[i];
                     if (n == null || n.characterDialogue == null) continue;
                     if (n.characterDialogue.name != name) continue;
+                    // As vanilla NPC.init: an NPC that keeps its own portrait does not take the
+                    // dialogue's. Every oven shares oven_act1 and its portrait is that oven's
+                    // lit/unlit state; taking the dialogue's gave all ovens one state.
+                    if (n.dontGetPortraitTypeFromDialogue) continue;
                     n.portraitType = (CharacterDialogue.PortraitType)portrait;
                 }
 
