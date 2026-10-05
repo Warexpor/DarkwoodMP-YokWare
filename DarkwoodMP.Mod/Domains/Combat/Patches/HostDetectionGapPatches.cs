@@ -369,6 +369,21 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Shooter), "shoot")]
     public static class HostShooterShootPatch
     {
+        private static void HitIfSeen(Shooter shooter, Transform body)
+        {
+            CharBase cb = body != null ? body.GetComponent<CharBase>() : null;
+            if (cb == null || !cb.alive || !Core.canSee(shooter.transform, body))
+                return;
+            cb.getHit(
+                shooter.damage / Core.trueDistance(shooter.transform, body),
+                null,
+                CanCutInHalf: false,
+                byPlayer: false,
+                canInterrupt: false,
+                normalHit: false,
+                showRedScreen: true);
+        }
+
         private static bool Prefix(Shooter __instance)
         {
             var net = ModRuntime.Network;
@@ -397,17 +412,13 @@ namespace DWMPHorde.Patches
             float num2 = Core.trueDistance(vector, vector2)
                 + UnityEngine.Random.Range(0f - __instance.radius, __instance.radius);
 
-            CharBase cb = targetT.GetComponent<CharBase>();
-            if (cb != null && cb.alive && Core.canSee(__instance.transform, targetT))
+            // Vanilla hurts "the player" whenever the shooter can see them, whatever it aims at:
+            // every player it can see, as each would be alone.
+            HitIfSeen(__instance, Player.Instance != null ? Player.Instance.transform : null);
+            foreach (var proxy in net.GetAllProxies())
             {
-                cb.getHit(
-                    __instance.damage / Core.trueDistance(__instance.transform, targetT),
-                    null,
-                    CanCutInHalf: false,
-                    byPlayer: false,
-                    canInterrupt: false,
-                    normalHit: false,
-                    showRedScreen: true);
+                if (proxy != null && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    HitIfSeen(__instance, proxy.transform);
             }
 
             if (Physics.Raycast(vector, vector3, out var hitInfo, num2, 16809985))
