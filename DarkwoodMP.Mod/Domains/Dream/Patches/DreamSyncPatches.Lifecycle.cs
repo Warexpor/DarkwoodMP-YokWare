@@ -245,6 +245,22 @@ namespace DWMPHorde.Patches
                 }
             }
 
+            if (deathOc == null)
+            {
+                // A preset with no death outcome: vanilla endDreaming dereferences outcomePreset
+                // (dontLieDown) with no null check, and a null threw after the pad was gone,
+                // skipping the wake-up (no heal, inputs left locked). Wake like the party does,
+                // without its rewards.
+                var success = Traverse.Create(dreams).Field("outcomePreset").GetValue<DreamPreset.Outcome>();
+                deathOc = new DreamPreset.Outcome
+                {
+                    name = "playerDeath",
+                    transition = success?.transition,
+                    customEndTime = success != null && success.customEndTime,
+                    endTime = success != null ? success.endTime : 0,
+                    dontLieDown = success != null && success.dontLieDown
+                };
+            }
             dreams.outcome = "playerDeath";
             Traverse.Create(dreams).Field("outcomePreset").SetValue(deathOc);
             ModRuntime.LegacyInfo(

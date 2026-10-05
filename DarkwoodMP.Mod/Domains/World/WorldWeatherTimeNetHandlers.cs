@@ -162,6 +162,8 @@ namespace DWMPHorde.Networking
                 IsAfterNight = ctrl != null && ctrl.isAfterNight,
                 VillagersAway = Sync.NightVillage.Away
             };
+            Dreams dreams = Dreams.Instance;
+            msg.OverworldTime = dreams != null && dreams.dreaming ? (int)dreams.timeCopy : msg.CurrentTime;
             // Reliable: after-night transitions must not be dropped (client wrongly
             // reporting AfterNightActive=false can clear host morning freeze).
             if (targetPlayerId > 0)
@@ -226,21 +228,23 @@ namespace DWMPHorde.Networking
                     CleanupClientMorningTrader();
             }
 
-            ctrl.CurrentTime = msg.CurrentTime;
+            bool dreamClock = Core.EnteringDream
+                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
+                || Sync.DreamSyncManager.IsDreamActive;
+
+            int appliedTime = dreamClock ? msg.CurrentTime : msg.OverworldTime;
+            ctrl.CurrentTime = appliedTime;
             ctrl.day = msg.Day;
             Sync.NightVillage.SetAway(msg.VillagersAway);
 
             // Host startDay full-heals + skill recharge is world-authority-side only.
             // Client must still get personal morning benefits when day rolls.
-            bool dreamClock = Core.EnteringDream
-                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
-                || Sync.DreamSyncManager.IsDreamActive;
 
             if (msg.Day > prevDay)
                 ApplyClientPersonalNewDay(prevDay, msg.Day);
 
             if (!dreamClock)
-                PlayClientNightCues(ctrl, (int)prevTime, msg.CurrentTime);
+                PlayClientNightCues(ctrl, (int)prevTime, appliedTime);
 
 
             // Clear soft invuln from suppressed startBeforeDay if still set.
@@ -265,7 +269,7 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            float delta = msg.CurrentTime - prevTime;
+            float delta = appliedTime - prevTime;
             bool dayChange = msg.Day != prevDay;
             bool afterNightFlip = msg.IsAfterNight != wasAfterNight;
             // Dream start sets Controller.CurrentTime = preset.time (often +hundreds).
@@ -275,13 +279,13 @@ namespace DWMPHorde.Networking
                 string tag = dreamClock ? "[TimeSync/dream] " : "[TimeSync] ";
                 ModLog.Event(LogCat.Session,
                     tag + "client clock day " + prevDay + "->" + msg.Day
-                    + " time " + prevTime.ToString("F0") + "->" + msg.CurrentTime.ToString("F0")
+                    + " time " + prevTime.ToString("F0") + "->" + appliedTime.ToString("F0")
                     + " (d=" + delta.ToString("F1") + ")"
                     + " afterNight " + wasAfterNight + "->" + msg.IsAfterNight);
             }
             else if (ModRuntime.VerboseLogging)
             {
-                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
+                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={appliedTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
             }
 
             // TimeSync can stomp day-ambient after startDreaming set preset.ambientColor.

@@ -179,6 +179,31 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+
+            // Client loading a world saved mid-dream (vanilla forces a Save inside prepareDream
+            // with wantToDream set): vanilla resumes that dream at load and only its startDreaming
+            // lifts the loading screen. A client never runs a dream of its own (startDreaming is
+            // held for the host's DreamStarted), so the joiner sat on the loading screen. Drop the
+            // stale resume and lift the screen as a normal load does; a live party dream reaches
+            // it through the session bulk.
+            if (ModRuntime.Network.Role == NetworkRole.Client && __instance.loadingSaveGameInDream)
+            {
+                __instance.loadingSaveGameInDream = false;
+                __instance.wantToDream = false;
+                WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+                if (wg != null)
+                    Singleton<Controller>.Instance.Invoke(wg.tweenLoading, 2.1f, timeScaleDependent: false);
+                ModRuntime.LegacyInfo("[DreamSync] Client load: dropped saved mid-dream resume of " + presetName);
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
+            // A dialogue or event dream has no entry movie: stop the host world (and take the
+            // clock) as the movie path does, also when a peer's request started it. A chain switch
+            // is already inside the dream.
+            if (ModRuntime.Network.Role == NetworkRole.Host && !__instance.dreaming && !__instance.switchingDream)
+                DreamSyncManager.HostBeginDreamEntry();
+
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 

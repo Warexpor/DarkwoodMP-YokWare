@@ -75,7 +75,8 @@ namespace DWMPHorde.Patches
 
             // multipleFire ambient loops already run on clients (Prefix allows them).
             // Rebroadcasting each tick → FindNearest* on client + Dev log spam = periodic hitches.
-            if (__instance.multipleFire)
+            // A player's use or examine is the exception: clients never run those locally.
+            if (__instance.multipleFire && !PlayerUseScope.Active)
                 return;
 
             Vector3 p = __instance.transform.position;

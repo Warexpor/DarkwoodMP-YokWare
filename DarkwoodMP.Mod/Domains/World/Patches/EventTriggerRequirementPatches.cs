@@ -33,6 +33,10 @@ namespace DWMPHorde.Patches
             }
 
             if (__instance.type == EventTriggerRequirement.Type.playerState
+                && TryActorBodyState(__instance, ref __result))
+                return;
+
+            if (__instance.type == EventTriggerRequirement.Type.playerState
                 && __instance.playerState == Player.State.haveItem)
             {
                 // Vanilla: has ? activeModifier : !activeModifier.
@@ -44,6 +48,70 @@ namespace DWMPHorde.Patches
                 bool has = PeerItemPresence.AnyPeerHas(key, need) || JournalHas(key);
                 __result = PartyRequirementPolicy.HaveItem(has, __instance.activeModifier);
             }
+        }
+
+        /// <summary>
+        /// Vanilla reads health, darkness, attackers and skills off <c>Player.Instance</c>. On the
+        /// host that is the host's body even when a peer set the trigger off (its proxy walked in,
+        /// it used something): check the body of the player the action belongs to.
+        /// Attackers: the host's <c>charactersAttackingMe</c> holds everything attacking any
+        /// player, so count only the ones after that body.
+        /// </summary>
+        private static bool TryActorBodyState(EventTriggerRequirement req, ref bool result)
+        {
+            Player.State st = req.playerState;
+            if (st != Player.State.health && st != Player.State.darknessState
+                && st != Player.State.enemiesAttacking && st != Player.State.haveSkill)
+                return false;
+            if (!NetGuard.Host(out LanNetworkManager net))
+                return false;
+            Player host = Player.Instance;
+            if (host == null)
+                return false;
+            int actor = GeFireActorContext.PeekOr(0);
+            RemotePlayerProxy proxy = actor > 0 && actor != net.LocalPlayerId ? net.GetProxy(actor) : null;
+            if (proxy == null)
+            {
+                if (st != Player.State.enemiesAttacking || !HostPlayerIdentity.HostWithRemotes())
+                    return false;
+                result = PartyRequirementPolicy.Below(CountAttackersOf(host, null), req.amount, req.activeModifier);
+                return true;
+            }
+            switch (st)
+            {
+                case Player.State.health:
+                    result = PartyRequirementPolicy.AtLeast(proxy.RemoteHealthPct / 100f, req.area, req.activeModifier);
+                    return true;
+                case Player.State.darknessState:
+                    result = PartyRequirementPolicy.AtLeast(proxy.RemoteDarknessPct / 100f, req.area, req.activeModifier);
+                    return true;
+                case Player.State.enemiesAttacking:
+                    result = PartyRequirementPolicy.Below(CountAttackersOf(host, proxy.transform), req.amount, req.activeModifier);
+                    return true;
+                default:
+                    if (req.itemType == null)
+                    {
+                        result = false;
+                        return true;
+                    }
+                    result = proxy.RemoteSkills.Contains(req.itemType.name) ? req.activeModifier : !req.activeModifier;
+                    return true;
+            }
+        }
+
+        /// <summary>Attackers whose target is <paramref name="body"/> (null = the host's own).</summary>
+        private static int CountAttackersOf(Player host, Transform body)
+        {
+            if (host.charactersAttackingMe == null)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < host.charactersAttackingMe.Count; i++)
+            {
+                Character c = host.charactersAttackingMe[i];
+                if (c != null && HostBodySwap.PeerBodyOf(c, nearestWhenNoTarget: false) == body)
+                    n++;
+            }
+            return n;
         }
 
         private static string ItemTypeKey(EventTriggerRequirement req)

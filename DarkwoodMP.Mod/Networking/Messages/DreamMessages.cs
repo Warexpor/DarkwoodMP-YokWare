@@ -492,7 +492,8 @@ namespace DWMPHorde.Networking
 
     /// <summary>
     /// Host-authoritative cutscene control.
-    /// Action: 0 = begin, 1 = end, 2 = skip transition, 3 = dream entry video (pre-prepare).
+    /// Action: 0 = begin, 1 = end, 2 = skip transition, 3 = dream entry video (pre-prepare),
+    /// 4/5 = prologue start/end, 6 = dream entry cancelled (start request refused).
     /// </summary>
     public struct CutsceneSyncMessage
     {
@@ -504,6 +505,8 @@ namespace DWMPHorde.Networking
         /// <summary>New-game opening movie (WorldGenerator firstPlay), not a CutsceneManager.</summary>
         public const byte ActionPrologueStart = 4;
         public const byte ActionPrologueEnd = 5;
+        /// <summary>Host: the start request behind the last entry movie was refused; stop waiting for it.</summary>
+        public const byte ActionDreamEntryCancel = 6;
 
         public byte Action;
         public float PosX, PosY, PosZ;

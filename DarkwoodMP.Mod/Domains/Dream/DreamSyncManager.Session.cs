@@ -243,6 +243,27 @@ namespace DWMPHorde.Sync
                 _localDreamPreset = presetName;
         }
 
+        /// <summary>A peer that is dead in the overworld (night death or a pending day respawn).</summary>
+        internal static bool IsPeerDeadOutsideDream(LanNetworkManager net, int playerId)
+        {
+            if (playerId <= 0)
+                return false;
+            if (DeathStateTracker.IsRemoteNightDead(playerId))
+                return true;
+            var proxy = net.GetProxy(playerId);
+            CharBase cb = proxy != null ? proxy.CachedCharBase : null;
+            return cb != null && !cb.alive;
+        }
+
+        /// <summary>This player is dead in the overworld and sits a dream out.</summary>
+        internal static bool IsLocalDeadOutsideDream()
+        {
+            if (DeathStateTracker.LocalNightDeath)
+                return true;
+            Player p = Player.Instance;
+            return p != null && !p.alive && (Dreams.Instance == null || !Dreams.Instance.dreaming);
+        }
+
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
@@ -282,14 +303,18 @@ namespace DWMPHorde.Sync
                 // and confirm with DreamEntered after scene load.
                 if (net.Role == NetworkRole.Host)
                 {
+                    // A dead player (night death waiting for morning, or a day death before its
+                    // respawn) sits the dream out: it cannot act on the pad, never reports a dream
+                    // death (so "everyone is dead" never came), and vanilla endDreaming revives
+                    // whoever was in it. The peer itself refuses the entry too (OnRemoteDreamStarted).
                     foreach (int id in net.GetHandshakedPeerIds())
                     {
-                        if (id > 0 && id != net.LocalPlayerId)
+                        if (id > 0 && id != net.LocalPlayerId && !IsPeerDeadOutsideDream(net, id))
                             NoteRemoteInDream(id);
                     }
                     foreach (var dreamProxy in net.GetAllProxies())
                     {
-                        if (dreamProxy != null)
+                        if (dreamProxy != null && !IsPeerDeadOutsideDream(net, dreamProxy.PlayerId))
                             NoteRemoteInDream(dreamProxy.PlayerId);
                     }
                     var started = DreamStartedMessage.Build(

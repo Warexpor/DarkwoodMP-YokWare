@@ -43,6 +43,11 @@ namespace DWMPHorde.Patches
             // -- Client entry transition: intercept, send request to host --
 
             string dreamName = __instance.dreamToTransitionTo ?? "";
+            // Vanilla clears it once the dream is prepared. Left set, every later level-up dream
+            // (3, 5, 6, 7 roll at random) asked the host for the level-2 bunker dream again,
+            // which the party had finished: rejected, and that level's dream was gone.
+            __instance.dreamToTransitionTo = "";
+            DreamRetry.NoteRequest(dreamName);
 
             // Mark not playing so re-entry is blocked (vanilla would do this inside the method)
             __instance.isPlaying = false;

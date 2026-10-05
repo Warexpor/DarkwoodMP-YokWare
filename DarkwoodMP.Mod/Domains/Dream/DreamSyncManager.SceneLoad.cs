@@ -140,6 +140,8 @@ namespace DWMPHorde.Sync
             if (IsDreamCompleted(playerId, locationName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] Aborting remote dream entry — completed during load: {locationName}");
+                // The pad that just spawned stayed in the scene with nothing to remove it.
+                DiscardStaleDreamPad(component, locationName);
                 AbortFailedRemoteDreamLoad(playerId, "already_completed");
                 yield break;
             }

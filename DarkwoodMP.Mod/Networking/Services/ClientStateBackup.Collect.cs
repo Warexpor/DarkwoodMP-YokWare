@@ -37,7 +37,14 @@ namespace DWMPHorde.Networking
             Vector3 pos = ResolveOverworldBackupPosition(player);
             data.PosX = pos.x; data.PosY = pos.y; data.PosZ = pos.z;
 
-            data.Health = player.health;
+            // On the dream pad the live bag, health, effects and clock are the dream's. Vanilla
+            // keeps the real ones aside and puts them back at wake-up (Dreams.*Copy, then a full
+            // heal in Player.endDreaming): a quit or drop mid-dream saved the dream kit as the
+            // player's own, and the next join restored it.
+            Dreams dreams = Dreams.Instance;
+            bool inDream = dreams != null && dreams.dreaming && !player.firstPlay;
+
+            data.Health = inDream ? player.maxHealth : player.health;
             data.Stamina = player.stamina;
             data.Experience = player.experience;
             data.CurrentLevel = player.currentLevel;
@@ -95,38 +102,41 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (player.Inventory?.slots != null)
+            List<InvSlot> invSlots = inDream ? dreams.inventorySlotsCopy : player.Inventory?.slots;
+            if (invSlots != null)
             {
                 data.InventoryItems = new List<ItemEntry>();
-                for (int i = 0; i < player.Inventory.slots.Count; i++)
+                for (int i = 0; i < invSlots.Count; i++)
                 {
-                    var slot = player.Inventory.slots[i];
+                    var slot = invSlots[i];
                     if (slot != null && !InvItemClass.isNull(slot.invItem))
                         data.InventoryItems.Add(MakeItemEntry(slot.invItem, i));
                 }
             }
 
-            if (player.Hotbar?.slots != null)
+            List<InvSlot> hotSlots = inDream ? dreams.hotbarSlotsCopy : player.Hotbar?.slots;
+            if (hotSlots != null)
             {
                 data.HotbarItems = new List<ItemEntry>();
-                for (int i = 0; i < player.Hotbar.slots.Count; i++)
+                for (int i = 0; i < hotSlots.Count; i++)
                 {
-                    var slot = player.Hotbar.slots[i];
+                    var slot = hotSlots[i];
                     if (slot != null && !InvItemClass.isNull(slot.invItem))
                         data.HotbarItems.Add(MakeItemEntry(slot.invItem, i));
                 }
                 // Prefer live selected flag; getSelectedSlotId returns 0 when none.
-                data.HotbarSelectedSlot = player.Hotbar.getSelectedSlotId();
+                // Vanilla selects slot 0 at wake-up.
+                data.HotbarSelectedSlot = inDream ? 0 : player.Hotbar.getSelectedSlotId();
             }
 
-            data.ActiveEffects = CollectActiveEffects(player);
+            data.ActiveEffects = inDream ? CollectSavedEffects(dreams.effectsCopy) : CollectActiveEffects(player);
             data.LocalMapMarkers = CollectLocalMapMarkers();
 
             var controller = Singleton<Controller>.Instance;
             if (controller != null)
             {
                 data.Day = controller.day;
-                data.GameTimeMinutes = controller.CurrentTime;
+                data.GameTimeMinutes = inDream ? (int)dreams.timeCopy : controller.CurrentTime;
             }
 
             // Persist morning-trader reputation per player rather than in host-shared bulk.
@@ -147,6 +157,28 @@ namespace DWMPHorde.Networking
                 // Skip zero counts (getCraftedItem may insert zeros).
                 if (entry._int <= 0) continue;
                 list.Add(new CraftedEntry { Type = entry._string, Count = entry._int });
+            }
+            return list;
+        }
+
+        private static List<EffectEntry> CollectSavedEffects(CharacterEffects.SaveState saved)
+        {
+            var list = new List<EffectEntry>();
+            if (saved?.effects == null) return list;
+            for (int i = 0; i < saved.effects.Count; i++)
+            {
+                CharacterEffects.SaveState.SavedEffect fx = saved.effects[i];
+                if (fx == null) continue;
+                if (fx.type == CharacterEffectType.damage || fx.type == CharacterEffectType.timeFreeze)
+                    continue;
+                list.Add(new EffectEntry
+                {
+                    Type = (int)fx.type,
+                    Duration = fx.duration,
+                    Modifier = fx.modifier,
+                    Interval = fx.interval,
+                    TimeElapsed = fx.timeElapsed
+                });
             }
             return list;
         }

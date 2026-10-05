@@ -345,6 +345,7 @@ namespace DWMPHorde.Patches
             if (net == null) return;
 
             DWMPHorde.Sync.DreamSyncManager.NoteEntryTransitionStarted();
+            DWMPHorde.Sync.DreamSyncManager.HostBeginDreamEntry();
             Vector3 pos = __instance.transform.position;
             net.Broadcast(NetMessageType.CutsceneSync,
                 w => new CutsceneSyncMessage

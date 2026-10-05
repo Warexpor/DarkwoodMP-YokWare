@@ -521,14 +521,46 @@ namespace DWMPHorde.Networking
             set => Flags2 = (byte)((Flags2 & ~2) | (value ? 2 : 0));
         }
 
+        /// <summary><see cref="Skills"/> is carried (on a change and on the keepalive).</summary>
+        public bool HasSkills
+        {
+            get => (Flags2 & 4) != 0;
+            set => Flags2 = (byte)((Flags2 & ~4) | (value ? 4 : 0));
+        }
+
+        /// <summary>
+        /// The parts of the player that host event requirements read (vanilla
+        /// <c>EventTriggerRequirement</c> playerState health, darknessState, haveSkill): the host
+        /// checks a peer's trigger against that peer, not its own body.
+        /// </summary>
+        public byte HealthPct;
+        public byte DarknessPct;
+        /// <summary>Learned skill names, '|' separated; only when <see cref="HasSkills"/>.</summary>
+        public string Skills;
+
         public void Serialize(NetWriter w)
         {
             w.Put(Flags);
             w.Put(Flags2);
+            w.Put(HealthPct);
+            w.Put(DarknessPct);
+            if (HasSkills)
+                w.Put(Skills ?? "");
         }
 
         public static PlayerEffectSyncMessage Deserialize(NetReader r)
-            => new PlayerEffectSyncMessage { Flags = r.GetByte(), Flags2 = r.GetByte() };
+        {
+            var m = new PlayerEffectSyncMessage
+            {
+                Flags = r.GetByte(),
+                Flags2 = r.GetByte(),
+                HealthPct = r.GetByte(),
+                DarknessPct = r.GetByte()
+            };
+            if (m.HasSkills)
+                m.Skills = r.GetString();
+            return m;
+        }
     }
 
     public struct PlayerBurningMessage

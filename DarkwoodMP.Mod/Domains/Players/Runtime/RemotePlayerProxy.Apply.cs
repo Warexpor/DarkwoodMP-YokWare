@@ -106,6 +106,7 @@ namespace DWMPHorde.Players
 
         private void OnDestroy()
         {
+            DWMPHorde.Patches.EventTriggersProxyOccupancy.ForgetPlayer(PlayerId);
             foreach (tk2dSpriteAnimator anim in GetComponentsInChildren<tk2dSpriteAnimator>(true))
             {
                 if (anim.name.IndexOf("leg", StringComparison.OrdinalIgnoreCase) >= 0)

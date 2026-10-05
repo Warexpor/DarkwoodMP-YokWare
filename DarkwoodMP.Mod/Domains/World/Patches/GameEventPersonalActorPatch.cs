@@ -3,6 +3,7 @@ using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
@@ -18,7 +19,7 @@ namespace DWMPHorde.Patches
         /// <summary>Set while client ApplyGameEventsFired runs for a non-local actor.</summary>
         public static bool SuppressPersonalForLocalPlayer; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
-        private static bool Prefix(GameEvent __instance, ref IEnumerator __result)
+        private static bool Prefix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result)
         {
             if (__instance == null) return true;
 
@@ -35,10 +36,48 @@ namespace DWMPHorde.Patches
             }
 
             if (!ShouldSuppressPersonal()) return true;
-            if (!IsPersonalPlayerTargeted(__instance)) return true;
+            if (IsPersonalPlayerTargeted(__instance))
+            {
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+            // Screen and input steps of a scripted scene (black screen, camera pan, input lock,
+            // hidden HUD, perspective) belong to whoever is in that scene. A peer elsewhere in
+            // the world had its camera dragged off, its HUD hidden or its inputs locked.
+            if (IsScenePresentation(__instance) && !LocalPlayerInSameLocation(thisGO))
+            {
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+            return true;
+        }
 
-            __result = HarmonyCoroutineUtil.Empty();
-            return false;
+        internal static bool IsScenePresentation(GameEvent ge)
+        {
+            switch (ge.type)
+            {
+                case GameEvent.Type.cameraEffect:
+                case GameEvent.Type.forbidInputs:
+                case GameEvent.Type.switchCantChangeForbidInputs:
+                case GameEvent.Type.switchVisibleUI:
+                    return true;
+                case GameEvent.Type.modifyMainScript:
+                    return ge.mainScriptModify == GameEvent.MainScriptModify.switchPerspective
+                        || ge.mainScriptModify == GameEvent.MainScriptModify.tweenPerspectiveAlpha;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool LocalPlayerInSameLocation(GameObject geObject)
+        {
+            if (geObject == null)
+                return false;
+            Player p = Player.Instance;
+            if (p == null || p.whereAmI == null || p.whereAmI.bigLocation == null)
+                return false;
+            Location geLoc = geObject.GetComponentInParent<Location>(true);
+            return geLoc != null && geLoc.bigLocation == p.whereAmI.bigLocation;
         }
 
         /// <summary>
@@ -59,6 +98,15 @@ namespace DWMPHorde.Patches
         {
             if (DialogHostApplyGuard.SuppressPersonalRewards)
                 return true;
+            // Host running a peer's action (its trigger, cursor use, dialogue): the stamped
+            // actor's own client replays the personal part; the host body must not get it.
+            var net = ModRuntime.Network;
+            if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
+            {
+                int actor = GeFireActorContext.PeekOr(0);
+                if (actor > 0 && actor != net.LocalPlayerId)
+                    return true;
+            }
             return SuppressPersonalForLocalPlayer;
         }
 
@@ -80,17 +128,43 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.transportPlayerToObject:
                     // activeModifier = chapter jump (world event, see IsChapterJump).
                     return !ge.activeModifier;
+                case GameEvent.Type.openDialogue:
+                    // The scene opens the NPC's talk window for the player it is about.
+                    return true;
                 case GameEvent.Type.transportToOutsideLocation:
                 case GameEvent.Type.returnToWorld:
                     return true;
                 case GameEvent.Type.modifyCharacter:
                     return ge.characterModifyType
                         == GameEvent.CharacterModify.player_tweenShadow;
+                case GameEvent.Type.runFunction:
+                    // SendMessage to the Player: these specials move, animate, dress or
+                    // equip the body that triggered the scene (pet the dog, get out of bed,
+                    // coat on/off, the flamethrower hand-over and Maciek placed beside that
+                    // body, the table leg breaking). Run on any other body they hijacked it.
+                    return IsPersonalPlayerFunction(ge.Value);
                 case GameEvent.Type.modifyMainScript:
                     // setTimeFreeze + activeModifier2 → Player.Instance.effects;
                     // without activeModifier2 it toggles world DoUpdateTime — keep that.
                     return ge.mainScriptModify == GameEvent.MainScriptModify.setTimeFreeze
                         && ge.activeModifier2;
+                default:
+                    return false;
+            }
+        }
+
+        internal static bool IsPersonalPlayerFunction(string fn)
+        {
+            switch (fn)
+            {
+                case "special_petDog":
+                case "special_drainAllTableLegDurability":
+                case "special_getUpFromBed":
+                case "special_changeClothes":
+                case "special_removeClothes":
+                case "special_addFlamethrower":
+                case "special_teleportMaciek":
+                    return true;
                 default:
                     return false;
             }

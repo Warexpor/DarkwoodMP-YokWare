@@ -46,7 +46,8 @@ namespace DWMPHorde.Networking
                 bool survivor = reqIp != null && IsMigrationSurvivorAddress(reqIp.ToString());
                 if (!allowDreamJoin && !survivor
                     && (DreamSession.ShouldRejectNewConnections
-                        || DreamSyncManager.IsDreamActive))
+                        || DreamSyncManager.IsDreamActive
+                        || DreamSyncManager.IsHostDreamEntryPending))
                 {
                     ModLog.Event(LogCat.Network, "Rejecting connection — dream session active");
                     request.Reject();

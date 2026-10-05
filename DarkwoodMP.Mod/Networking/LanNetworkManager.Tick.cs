@@ -226,6 +226,7 @@ namespace DWMPHorde.Networking
             // spirit wards.
             Sync.NightVillage.Tick(this);
             Sync.PeerItemPresence.Tick(this);
+            Sync.DreamRetry.Tick(this);
 
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;
