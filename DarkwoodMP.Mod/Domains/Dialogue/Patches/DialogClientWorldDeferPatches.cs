@@ -11,22 +11,30 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Flags), "setFlag", typeof(string), typeof(bool))]
     public static class DialogDeferFlagBoolPatch
     {
-        private static bool Prefix()
-        {
-            if (!DialogClientWorldDefer.Active)
-                return true;
-            return false;
-        }
+        // Vanilla signature: setFlag(string flagName, bool activeModifier).
+        private static bool Prefix(string flagName) => PerPlayerFlagGate.ShouldWrite(flagName);
     }
 
     [HarmonyPatch(typeof(Flags), "setFlag", typeof(string), typeof(int))]
     public static class DialogDeferFlagIntPatch
     {
-        private static bool Prefix()
+        private static bool Prefix(string flagName) => PerPlayerFlagGate.ShouldWrite(flagName);
+    }
+
+    /// <summary>
+    /// Who writes a flag. A shared flag from a client's dialogue board waits for the host's replay
+    /// (<see cref="DialogClientWorldDefer"/>). A per-player flag (<see cref="PerPlayerFlagPolicy"/>,
+    /// e.g. the oven's <c>player_firstOvenInteraction</c> outcome) is the speaker's own: the
+    /// speaking client writes it, and the host running a peer's dialogue, trigger or event does
+    /// not take it into its own flags.
+    /// </summary>
+    internal static class PerPlayerFlagGate
+    {
+        internal static bool ShouldWrite(string flagName)
         {
-            if (!DialogClientWorldDefer.Active)
-                return true;
-            return false;
+            if (PerPlayerFlagPolicy.IsPerPlayer(flagName))
+                return !GameEventPersonalActorPatch.ShouldSuppressPersonal();
+            return !DialogClientWorldDefer.Active;
         }
     }
 

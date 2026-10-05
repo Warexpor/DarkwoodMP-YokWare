@@ -30,10 +30,10 @@ namespace DWMPHorde.Networking
             }
 
             // Client often exits while lookKeyhole drain is still running; replay close afterward.
-            if (!string.IsNullOrEmpty(_pendingCloseDialogueNpc))
+            if (_pendingCloseDialogueNpc.IsValid)
             {
-                string pending = _pendingCloseDialogueNpc;
-                _pendingCloseDialogueNpc = null;
+                NpcRef pending = _pendingCloseDialogueNpc;
+                _pendingCloseDialogueNpc = default;
                 _close.HostFireNpcCloseDialogue(pending);
             }
         }
@@ -121,7 +121,7 @@ namespace DWMPHorde.Networking
             {
                 _drainDoneGeneration = _drainGeneration;
                 _dialogWorldDrainCo = null;
-                _drainNpcName = null;
+                _drainNpc = null;
                 // The drain holds no guard scope across its waits (each advance / close
                 // re-entered and left it); an enclosing caller's scope is not ours to end.
                 DialogHostApplyGuard.EndDrain();
@@ -155,20 +155,20 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Abort lookKeyhole world-only drain on dialog Release so leave-door GE runs now.
-        /// Only the NPC and peer whose drain it is: another peer's Release (or the same NPC name in
-        /// the other world) must not cut a drain that is not theirs.
+        /// Only the NPC and peer whose drain it is: another peer's Release (or an NPC of the same
+        /// name elsewhere, or in the other world) must not cut a drain that is not theirs.
         /// </summary>
-        internal void AbortWorldOnlyDrainForRelease(string npcName, int ownerPlayerId)
+        internal void AbortWorldOnlyDrainForRelease(NpcRef npc, int ownerPlayerId)
         {
             if (_dialogWorldDrainCo == null) return;
-            if (!string.Equals(_drainNpcName, npcName, StringComparison.Ordinal))
+            if (_drainNpc == null || !npc.Matches(_drainNpc))
                 return;
             if (_drainOwnerId > 0 && ownerPlayerId > 0 && _drainOwnerId != ownerPlayerId)
                 return;
 
             try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
             _dialogWorldDrainCo = null;
-            _drainNpcName = null;
+            _drainNpc = null;
             // No guard scope to unwind: the drain never holds one across its waits, and the
             // caller (a Release handler) may be inside its own scope.
             DialogHostApplyGuard.EndDrain();
@@ -181,7 +181,7 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
             }
             catch { /* ignore */ }
-            _pendingCloseDialogueNpc = null;
+            _pendingCloseDialogueNpc = default;
             ModRuntime.LegacyInfo(
                 "[DialogOutcome] aborted world-only drain on dialog Release (open door now)");
         }

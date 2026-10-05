@@ -108,10 +108,14 @@ public class CoopPolicyTests
     [Fact]
     public void DialogPolicy_NightTraderReputation_IsPerPlayer()
     {
+        // NPC.name values from the vanilla data (every Character with isNightTrader: 1).
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("nightTrader"));
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("theThree"));
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier_underground"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader"));
-        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("TheThree"));
-        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader(Clone)"));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier"));
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName(null));
         Assert.True(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: false));
         Assert.False(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: true));
         Assert.True(DialogApplyPolicy.ShouldSuppressCookOnHostRemoteApply(true));
@@ -187,6 +191,74 @@ public class CoopPolicyTests
         Assert.True(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, expire, 1, now));
         Assert.False(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, expire, 2, now));
         Assert.False(NpcDialogueLockPolicy.IsNpcSlotHeldBy(1, now - 1f, 1, now)); // expired
+    }
+
+    [Fact]
+    public void NpcLock_SameName_DifferentPlaces_AreDifferentNpcs()
+    {
+        // Two hideouts' ovens (chapter 1 data: big_hideout_03 vs med_cottage_tree_01 placed apart).
+        Assert.False(NpcDialogueLockPolicy.IsSameNpc("oven", true, -208f, 176f, "oven", true, 2800f, -1500f));
+        // Same oven, two peers' views (sync jitter).
+        Assert.True(NpcDialogueLockPolicy.IsSameNpc("oven", true, -208f, 176f, "Oven", true, -205f, 180f));
+        // A walking wolfman, still the same one.
+        Assert.True(NpcDialogueLockPolicy.IsSameNpc("wolfman", true, 0f, 0f, "wolfman", true, 120f, 90f));
+        // The dream-pad twin sits ~70000 away from the overworld one.
+        Assert.False(NpcDialogueLockPolicy.IsSameNpc("door_underground", true, -75000f, 300f, "door_underground", true, -6342f, 300f));
+        // No spot (older peer): the name decides.
+        Assert.True(NpcDialogueLockPolicy.IsSameNpc("doctor", false, 0f, 0f, "doctor", true, 5000f, 5000f));
+        Assert.False(NpcDialogueLockPolicy.IsSameNpc("doctor", false, 0f, 0f, "musician", false, 0f, 0f));
+        Assert.False(NpcDialogueLockPolicy.IsSameNpc(null, true, 0f, 0f, "oven", true, 0f, 0f));
+    }
+
+    [Theory]
+    [InlineData("player_inFirstHideout", true)]
+    [InlineData("player_atDoctorHouse", true)]
+    [InlineData("player_enteringRoadToHomeFromRadioTower", true)]
+    [InlineData("player_shownMapPopup", true)]
+    [InlineData("player_shownActiveSkillPopup", true)]
+    [InlineData("player_firstActiveSkillObtained", true)]
+    [InlineData("player_shownSecondaryAttackPopup", true)]
+    [InlineData("player_firstDrainReloadableItem", true)]
+    [InlineData("player_firstOvenInteraction", true)]
+    [InlineData("player_survivedNight", true)]
+    [InlineData("player_diedDuringNight", true)]
+    [InlineData("player_diedAtLeastOneTime", true)]
+    [InlineData("player_transportingFromCh1", false)]
+    [InlineData("player_hadNightGift", false)]
+    [InlineData("player_hadRadioNight", false)]
+    [InlineData("player_hadVillageCellarDream", false)]
+    [InlineData("player_unlockedHideout_2", false)]
+    [InlineData("player_enoughWeirdEventsSeen", false)]
+    [InlineData("player_returnedToRoomFromCrater", false)]
+    [InlineData("doctor_killed", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void PerPlayerFlags_FromVanillaSettersAndReaders(string flag, bool perPlayer)
+    {
+        Assert.Equal(perPlayer, PerPlayerFlagPolicy.IsPerPlayer(flag));
+    }
+
+    [Fact]
+    public void PerPlayerFlags_PersistedAreNotSpatial_AndChapter2SetIsPersisted()
+    {
+        foreach (string f in PerPlayerFlagPolicy.PersistedFlags)
+        {
+            Assert.True(PerPlayerFlagPolicy.IsPerPlayer(f));
+            Assert.False(PerPlayerFlagPolicy.IsSpatial(f));
+        }
+        foreach (string f in PerPlayerFlagPolicy.Chapter2Flags)
+            Assert.Contains(f, PerPlayerFlagPolicy.PersistedFlags);
+        // Callers get copies; the policy lists cannot be edited from outside.
+        PerPlayerFlagPolicy.PersistedFlags[0] = "x";
+        Assert.NotEqual("x", PerPlayerFlagPolicy.PersistedFlags[0]);
+    }
+
+    [Fact]
+    public void SurvivedNight_OnlyWhenNotDownThatNight()
+    {
+        Assert.True(PerPlayerFlagPolicy.SurvivedNight(nightDay: 4, localNightDeathDay: -1));
+        Assert.True(PerPlayerFlagPolicy.SurvivedNight(nightDay: 4, localNightDeathDay: 3)); // an older night
+        Assert.False(PerPlayerFlagPolicy.SurvivedNight(nightDay: 4, localNightDeathDay: 4));
     }
 
     [Fact]

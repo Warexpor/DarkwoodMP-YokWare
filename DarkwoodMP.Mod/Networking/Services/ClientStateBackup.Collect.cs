@@ -151,6 +151,7 @@ namespace DWMPHorde.Networking
 
             // Persist morning-trader reputation per player rather than in host-shared bulk.
             data.NightTraderReputations = CollectNightTraderReputations();
+            data.PlayerFlags = CollectPlayerFlags();
             data.CraftedItems = CollectCraftedItems(player);
 
             return data;
@@ -249,6 +250,26 @@ namespace DWMPHorde.Networking
             return list;
         }
 
+
+        /// <summary>Every persisted per-player flag with its value (unset counts as false / 0).</summary>
+        private static List<FlagEntry> CollectPlayerFlags()
+        {
+            var flags = Singleton<Flags>.Instance;
+            if (flags?.flagsDict == null) return null;
+            string[] names = PerPlayerFlagPolicy.PersistedFlags;
+            var list = new List<FlagEntry>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+            {
+                flags.flagsDict.TryGetValue(names[i], out Flags.Flag f);
+                list.Add(new FlagEntry
+                {
+                    Name = names[i],
+                    IsTrue = f != null && f.isTrue,
+                    Amount = f != null ? f.amount : 0
+                });
+            }
+            return list;
+        }
 
         /// <summary>SteamID64 string for this box when Steamworks is ready; else null.</summary>
         internal static string TryResolveLocalSteamIdString()

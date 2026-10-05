@@ -120,6 +120,39 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// <c>player_survivedNight</c> is the host's own (the trader greets by it). Vanilla sets it in
+    /// <c>startBeforeDay</c>, which a player who died that night never reaches: its
+    /// <c>skipDay</c> jumps past the minute. The shared clock reaches it while the host is down
+    /// until morning, so a host that died keeps the flag as it was. Clients set their own at
+    /// their dawn (<c>WorldWeatherTimeNetHandlers</c>).
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), "startBeforeDay")]
+    public static class HostSurvivedNightPatch
+    {
+        private const string Flag = "player_survivedNight";
+
+        private static void Prefix(out bool __state)
+        {
+            Flags flags = Singleton<Flags>.Instance;
+            __state = flags != null && flags.isFlagTrue(Flag);
+        }
+
+        private static void Postfix(Controller __instance, bool __state)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host || __instance == null)
+                return;
+            if (PerPlayerFlagPolicy.SurvivedNight(__instance.day, DeathStateTracker.LocalNightDeathDay))
+                return;
+            Flags flags = Singleton<Flags>.Instance;
+            if (flags == null || flags.isFlagTrue(Flag) == __state)
+                return;
+            flags.setFlag(Flag, __state);
+            ModRuntime.LegacyInfo("[DayNight] host died this night — " + Flag + " left " + __state);
+        }
+    }
+
+    /// <summary>
     /// Morning trader stays until the hideout is empty. One person walking out
     /// must not despawn the trader for people still inside.
     /// </summary>

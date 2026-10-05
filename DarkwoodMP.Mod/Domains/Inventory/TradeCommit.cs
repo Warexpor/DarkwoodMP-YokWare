@@ -75,14 +75,22 @@ namespace DWMPHorde.Patches
             int sender = net.CurrentReceivePlayerId;
             if (sender <= 0 || string.IsNullOrEmpty(msg.NpcName))
                 return;
-            NpcDialogueLock.HostRenewLeaseForSender(msg.NpcName, sender);
+            // Each hideout's morning trader is "nightTrader": the one at the sender's spot.
+            var trader = new NpcRef
+            {
+                Name = msg.NpcName,
+                HasPos = true,
+                Pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ),
+                Dream = msg.InDream
+            };
+            NpcDialogueLock.HostRenewLeaseForSender(trader, sender);
             NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                msg.NpcName, msg.InDream, trader.Pos);
             Inventory stock = npc != null ? npc.inventory : null;
             string why = null;
             if (stock == null)
                 why = "trader not found";
-            else if (NpcDialogueLock.GetOwner(msg.NpcName) != sender)
+            else if (NpcDialogueLock.GetOwner(NpcRef.Of(npc)) != sender)
                 why = "not the one trading with it";
             else if (!StockHas(stock, msg.Bought))
                 why = "stock lacks the purchase";
