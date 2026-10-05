@@ -18,9 +18,11 @@ namespace DWMPHorde.Networking
         private DialogOutcomeCloseNetHandlers _close;
 
         private Coroutine _dialogWorldDrainCo;
-        private string _pendingCloseDialogueNpc;
-        // Whose drain is running, so another peer's Release / apply cannot abort it.
-        private string _drainNpcName;
+        // The close waiting for the drain / a queued outcome (Name null = none).
+        private NpcRef _pendingCloseDialogueNpc;
+        // Whose drain is running (the NPC body and the peer), so another peer's Release / apply,
+        // or a talk with another NPC of the same name, cannot abort it.
+        private NPC _drainNpc;
         private int _drainOwnerId;
 
         // Outcomes that arrived while the host's dialogue window was busy with another NPC.
@@ -32,10 +34,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>A queued outcome for this NPC is still waiting (its close must wait too).</summary>
-        internal bool HasDeferredApplyFor(string npcName)
+        internal bool HasDeferredApplyFor(NpcRef npc)
         {
             for (int i = 0; i < _deferredApplies.Count; i++)
-                if (string.Equals(_deferredApplies[i].Msg.NpcName, npcName, StringComparison.Ordinal))
+                if (NpcRef.From(_deferredApplies[i].Msg).Matches(npc))
                     return true;
             return false;
         }
@@ -59,24 +61,24 @@ namespace DWMPHorde.Networking
 
         internal bool IsWorldDrainActive => _dialogWorldDrainCo != null;
 
-        internal void DeferCloseUntilDrainDone(string npcName)
+        internal void DeferCloseUntilDrainDone(NpcRef npc)
         {
-            _pendingCloseDialogueNpc = npcName;
+            _pendingCloseDialogueNpc = npc;
         }
 
         /// <summary>
         /// The one shared DialogueWindow cannot replay a peer's node while the host is mid-talk
         /// with a different NPC (rebinding dw.npc / displayDialogue wiped the host's own window and
-        /// the silent close then swallowed its real close), nor preempt another peer's pending drain.
+        /// the silent close then swallowed its real close), nor preempt another peer's pending drain
+        /// (another NPC, including one that only shares the name).
         /// </summary>
-        private bool ApplyBusyFor(DialogueWindow dw, NPC npc, string npcName)
+        private bool ApplyBusyFor(DialogueWindow dw, NPC npc)
         {
             if (dw == null) return false;
             if (Player.Instance != null && Player.Instance.inDialogue && dw.opened
                 && dw.npc != null && (npc == null || dw.npc != npc))
                 return true;
-            if (_dialogWorldDrainCo != null && !string.IsNullOrEmpty(_drainNpcName)
-                && !string.Equals(_drainNpcName, npcName, StringComparison.Ordinal))
+            if (_dialogWorldDrainCo != null && _drainNpc != null && _drainNpc != npc)
                 return true;
             return false;
         }
@@ -98,20 +100,21 @@ namespace DWMPHorde.Networking
                 try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
                 _dialogWorldDrainCo = null;
             }
-            _drainNpcName = null;
+            _drainNpc = null;
             _drainOwnerId = 0;
-            _pendingCloseDialogueNpc = null;
+            _pendingCloseDialogueNpc = default;
         }
 
         /// <summary>A queued outcome may have been holding back that NPC's close: run it once none is left.</summary>
-        private void ReplayDeferredCloseIfIdle(string npcName)
+        private void ReplayDeferredCloseIfIdle(NpcRef npc)
         {
-            if (_dialogWorldDrainCo != null || HasDeferredApplyFor(npcName))
+            if (_dialogWorldDrainCo != null || HasDeferredApplyFor(npc))
                 return;
-            if (!string.Equals(_pendingCloseDialogueNpc, npcName, StringComparison.Ordinal))
+            if (!_pendingCloseDialogueNpc.IsValid || !_pendingCloseDialogueNpc.Matches(npc))
                 return;
-            _pendingCloseDialogueNpc = null;
-            _close.HostFireNpcCloseDialogue(npcName);
+            NpcRef pending = _pendingCloseDialogueNpc;
+            _pendingCloseDialogueNpc = default;
+            _close.HostFireNpcCloseDialogue(pending);
         }
 
         private void DeferApply(DialogOutcomeSyncMessage msg)
@@ -143,10 +146,10 @@ namespace DWMPHorde.Networking
                 {
                     DeferredApply next = _deferredApplies[0];
                     var dw = Singleton<UI>.Instance?.dialogueWindow;
-                    NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(next.Msg.NpcName);
+                    NPC npc = DialogOutcomeCloseNetHandlers.ResolveNpc(NpcRef.From(next.Msg));
                     bool hostTalkingToIt = dw != null && npc != null && Player.Instance != null
                         && Player.Instance.inDialogue && dw.opened && dw.npc == npc;
-                    if (hostTalkingToIt || dw != null && ApplyBusyFor(dw, npc, next.Msg.NpcName))
+                    if (hostTalkingToIt || dw != null && ApplyBusyFor(dw, npc))
                     {
                         yield return new WaitForSecondsRealtime(0.25f);
                         continue;
@@ -165,7 +168,7 @@ namespace DWMPHorde.Networking
                         ModRuntime.Log?.LogWarning("[DialogOutcome] deferred apply failed: " + ex.Message);
                     }
                     finally { if (pushed) GeFireActorContext.Pop(); }
-                    ReplayDeferredCloseIfIdle(next.Msg.NpcName);
+                    ReplayDeferredCloseIfIdle(NpcRef.From(next.Msg));
                     // One outcome per frame: an apply that queued itself again cannot spin.
                     yield return null;
                 }
@@ -193,15 +196,15 @@ namespace DWMPHorde.Networking
             // Path A: dest dialogue node (reliable for solo-client conversations).
             if (!string.IsNullOrEmpty(msg.TargetDialogueName))
             {
-                NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName);
+                NPC npc = DialogOutcomeCloseNetHandlers.ResolveNpc(NpcRef.From(msg));
                 if (npc == null)
                 {
                     ModLog.WarnRate(LogCat.World, "dlg-apply-npc-miss:" + msg.NpcName,
-                        $"[DialogOutcome] NPC '{msg.NpcName}' not found for target={msg.TargetDialogueName}");
+                        $"[DialogOutcome] NPC '{NpcRef.From(msg)}' not found for target={msg.TargetDialogueName}");
                     return;
                 }
 
-                if (ApplyBusyFor(dw, npc, msg.NpcName))
+                if (ApplyBusyFor(dw, npc))
                 {
                     DeferApply(msg);
                     return;
@@ -245,7 +248,7 @@ namespace DWMPHorde.Networking
                 {
                     try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
                     _dialogWorldDrainCo = null;
-                    _drainNpcName = null;
+                    _drainNpc = null;
                     // The stopped drain held no guard scope across its waits; nothing to unwind.
                     DialogHostApplyGuard.EndDrain();
                     // Scrub leftover oven/keyhole backdrop before the next world-only apply.
@@ -297,7 +300,7 @@ namespace DWMPHorde.Networking
                         // Multi-board / portrait chain: delayed boards finish over the next
                         // frames. The guard is not held across the wait; each board advance and
                         // the final close re-enter it for just their synchronous body.
-                        _drainNpcName = msg.NpcName;
+                        _drainNpc = npc;
                         _drainOwnerId = GeFireActorContext.PeekOr(_net.CurrentReceivePlayerId);
                         DialogHostApplyGuard.BeginDrain(_drainOwnerId);
                         // The drain can finish inside StartCoroutine (first slice exits the loop);
@@ -346,7 +349,7 @@ namespace DWMPHorde.Networking
             }
 
             // Path B: legacy index click when host UI matches exactly (also world-only).
-            if (dw.npc == null || dw.npc.name != msg.NpcName) return;
+            if (dw.npc == null || !NpcRef.From(msg).Matches(dw.npc)) return;
             if (dw.currentDialogue == null || dw.currentDialogue.fullName != msg.DialogueName) return;
 
             int currentBoard = Traverse.Create(dw).Field("currentBoard").GetValue<int>();
@@ -378,11 +381,11 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(msg.DialogueName) || msg.BoardIndex < 0)
                 return;
 
-            NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName);
+            NPC npc = DialogOutcomeCloseNetHandlers.ResolveNpc(NpcRef.From(msg));
             if (npc == null || npc.characterDialogue == null)
             {
                 ModLog.WarnRate(LogCat.World, "dlg-board-npc-miss:" + msg.NpcName,
-                    $"[DialogOutcome] NPC '{msg.NpcName}' not found for board apply");
+                    $"[DialogOutcome] NPC '{NpcRef.From(msg)}' not found for board apply");
                 return;
             }
 
@@ -399,7 +402,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (ApplyBusyFor(dw, npc, msg.NpcName))
+            if (ApplyBusyFor(dw, npc))
             {
                 DeferApply(msg);
                 return;

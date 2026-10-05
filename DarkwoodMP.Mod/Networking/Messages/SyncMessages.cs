@@ -130,6 +130,13 @@ namespace DWMPHorde.Networking
         public int BoardIndex;
         /// <summary>DialogueButton.destDialogueName. The host applies this node without matching UI.</summary>
         public string TargetDialogueName;
+        /// <summary>
+        /// Where the speaker's NPC stands and its world (dream-pad twin or overworld). NPC.name is
+        /// not unique (every hideout's oven is "oven"); the host binds the one at this spot.
+        /// </summary>
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
+        public bool Dream;
 
         public void Serialize(NetWriter w)
         {
@@ -138,6 +145,11 @@ namespace DWMPHorde.Networking
             w.Put(DialogueName ?? "");
             w.Put(BoardIndex);
             w.Put(TargetDialogueName ?? "");
+            w.Put(HasPos);
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
+            w.Put(Dream);
         }
         public static DialogOutcomeSyncMessage Deserialize(NetReader r) => new DialogOutcomeSyncMessage
         {
@@ -145,7 +157,12 @@ namespace DWMPHorde.Networking
             DecisionIndex = r.GetInt(),
             DialogueName = r.GetString(),
             BoardIndex = r.GetInt(),
-            TargetDialogueName = r.GetString()
+            TargetDialogueName = r.GetString(),
+            HasPos = r.GetBool(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Dream = r.GetBool()
         };
     }
 
@@ -189,6 +206,13 @@ namespace DWMPHorde.Networking
         public bool Dream;
         /// <summary>Client lease renewal of a talk already open: never a fresh grant on the host.</summary>
         public bool Renewal;
+        /// <summary>
+        /// Where the NPC stands. NPC.name is not unique (ovens, doctors, musicians): the lock is
+        /// on the NPC of that name at this spot, so two players at two hideouts' ovens do not
+        /// block each other.
+        /// </summary>
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -199,6 +223,10 @@ namespace DWMPHorde.Networking
             w.Put(IsRequest);
             w.Put(Dream);
             w.Put(Renewal);
+            w.Put(HasPos);
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
         }
 
         public static DialogNpcLockMessage Deserialize(NetReader r)
@@ -213,6 +241,10 @@ namespace DWMPHorde.Networking
             };
             msg.Dream = r.GetBool();
             msg.Renewal = r.GetBool();
+            msg.HasPos = r.GetBool();
+            msg.PosX = r.GetFloat();
+            msg.PosY = r.GetFloat();
+            msg.PosZ = r.GetFloat();
             return msg;
         }
     }

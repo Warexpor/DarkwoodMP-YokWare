@@ -81,6 +81,12 @@ namespace DWMPHorde.Networking
         /// </summary>
         public List<NpcRepEntry> NightTraderReputations;
         /// <summary>
+        /// This player's own world flags (<see cref="PerPlayerFlagPolicy.PersistedFlags"/>: help
+        /// popups shown, first oven talk, its night). The world the client loads carries the
+        /// host's. Null on older backups — restore leaves the loaded values.
+        /// </summary>
+        public List<FlagEntry> PlayerFlags;
+        /// <summary>
         /// Personal craft counts (vanilla Player.SaveState.craftedItems /
         /// timesCraftedLimit). WorldSaveShare loads the HOST list first.
         /// Null on older backups — restore skips.
@@ -122,6 +128,14 @@ namespace DWMPHorde.Networking
     {
         public string Name;
         public int Reputation;
+    }
+
+    [Serializable]
+    public class FlagEntry
+    {
+        public string Name;
+        public bool IsTrue;
+        public int Amount;
     }
 
     [Serializable]

@@ -508,7 +508,9 @@ and join a different host; host migration followed by a reconnect.
   alert stays on BarricadeEvent apply.
 - **`WhereAmI` `player_in*Hideout` flags — already local-only (code).** Decompile
   clears/sets `player_inFirstHideout` / Second / Third each 1.5s tick from local
-  `Player` position. `FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag` skips any
-  `player_in*` name (playtest thrash if synced). Story flags still FlagSync.
+  `Player` position. `PerPlayerFlagPolicy.IsPerPlayer` (FlagSync, join bulk, desync
+  check, host replay) skips any `player_in*` / `player_at*` / `player_entering*` name
+  (playtest thrash if synced) and the per-player experience flags (help popups, first
+  oven talk, the player's night). Story flags still FlagSync.
 
 Do not mark these items as runtime-verified from static or unit tests alone.

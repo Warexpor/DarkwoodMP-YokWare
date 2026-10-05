@@ -245,6 +245,9 @@ namespace DWMPHorde.Networking
 
             if (msg.Day > prevDay)
                 ApplyClientPersonalNewDay(prevDay, msg.Day);
+            // One night passed (not a join catching up several days).
+            if (msg.Day == prevDay + 1)
+                ApplyClientSurvivedNight(ctrl, prevDay);
 
             if (!dreamClock)
                 PlayClientNightCues(ctrl, (int)prevTime, appliedTime);
@@ -345,6 +348,24 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogWarning("[DayNight] client personal new day failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Vanilla <c>startBeforeDay</c> (suppressed on a client) sets <c>player_survivedNight</c> on a
+        /// hard night for the player who lived to dawn; one that died skipped past it. The flag is
+        /// this player's own (the trader greets by it), so the client sets it here for itself.
+        /// </summary>
+        internal static void ApplyClientSurvivedNight(Controller ctrl, int nightDay)
+        {
+            if (ctrl == null || !ctrl.isHardNight)
+                return;
+            if (!PerPlayerFlagPolicy.SurvivedNight(nightDay, DeathStateTracker.LocalNightDeathDay))
+                return;
+            Flags flags = Singleton<Flags>.Instance;
+            if (flags == null)
+                return;
+            flags.setFlag("player_survivedNight", activeModifier: true);
+            ModRuntime.LegacyInfo($"[DayNight] client survived night {nightDay} (player_survivedNight)");
         }
 
         /// <summary>

@@ -71,6 +71,12 @@ namespace DWMPHorde
         /// </summary>
         private static int _localNightDeathDay = -1;
 
+        /// <summary>
+        /// Controller.day of the night this peer last went down in; -1 when none (host: until
+        /// that morning's startAfterNight consumes it).
+        /// </summary>
+        public static int LocalNightDeathDay => _localNightDeathDay;
+
         private static bool _localPermadeathEligible;
         private static bool _localDeathEndsRunInVanilla;
         private static readonly HashSet<int> _remotePermadeathEligible = new HashSet<int>();
