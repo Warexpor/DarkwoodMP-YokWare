@@ -235,6 +235,99 @@ host's sends during its prologue ran alongside. Found and fixed:
   `WorldPhysicsSyncService.ObjectResolve.cs`, `GameEventAnimLibraryHostFanPatch.cs`,
   `ModRuntime.cs`.
 
+### Creature movement and animation on the client
+
+- **Walking, running and idling creatures froze on the client after one step cycle until their
+  clip changed.** Vanilla `processAnims` calls `Play` every frame, and tk2d restarts a finished
+  once clip on `Play`, so Walk / Run / Idle / DefensiveLoop (once clips) keep cycling on the
+  host. The client only replayed clips with a looping wrap mode. The host now sends whether its
+  animator keeps the clip going (new flag), and the client restarts a finished clip every frame
+  while the host does; a clip that ends and holds on the host (aim, a reaction, death) holds.
+- **Clip frame alignment did nothing.** `SetFrame(.., false)` after `Play` changes only the
+  sprite, not tk2d's clip time, so the next frame went back to frame 0. A new clip now starts
+  with `PlayFrom` at the host's frame plus the time since it was sampled (wrapped for a looping
+  or replayed clip, held on the last frame for a once clip); attacks from `EnemyAttack` too. The
+  host sends a frame only when the animator shows the clip it sends, and a finished once clip as
+  its last frame (it read one past the end).
+- **A creature first seen dead (joining late, walking back to it, an old corpse) played its
+  whole death again.** Only a body this client saw alive or down plays its death; any other
+  lies on the clip's last frame, the way vanilla `Character.init` puts a dead body down.
+- **A creature whose animation library a story event swapped kept its old frames**: clips are
+  compared by clip object, not name.
+- **Creature copies skipped all of `Character.Update`, its presentation too**: shadows stayed
+  where the creature was first seen, legs did not follow the body, a flying bird stayed small
+  and on the ground (its altitude only grows in `processAnims`). The client now runs that part
+  each frame after placing the body (shadow rotation and ground spot, legs, flier altitude,
+  scale, in-flight fade and sky shadow). Flight and diving travel as two flags and the altitude
+  follows vanilla's climb / dive rates, so a bird in flight also cannot be hit by the client's
+  melee, as on the host. A bird that vanishes in flight is no longer set visible again by every
+  snapshot.
+- **Animation frame events moved the client's copy**: Teleport, Move, Push, PushRelative, Stop,
+  SetMass, and the instant-turn and stop triggers jumped or shoved the body for a frame before
+  the host pose put it back. They are the host's now; sounds, particles and shadows stay.
+- **A clip finishing on a copy ran vanilla's AI reaction** (`OnAniFinish`): recover after an
+  attack, run from a target the copy does not have (an error), end a turn, pause on Aim, which
+  froze the creature on the client for good. The copy keeps only the presentation: the
+  defensive loop's speed and, when its death clip ends, the corpse (components dropped, lootable
+  body set up) without vanilla's NPC save, which asked the host for a save.
+- **Short clips were missed** (a turn showed start then end, never its loop): the host logs each
+  creature's clip starts (a hook on tk2d `Play`) and a snapshot carries the clip a creature
+  started and left since its last send, with its host time; the client shows it at that moment.
+- **Creatures popped and stalled while moving.** Five causes:
+  - The host sent every 53-67 ms instead of 50 (the timer restarted on the frame it fired), and
+    LiteNetLib held each burst up to 15 ms for its send thread. The remainder now carries over and
+    the burst is handed to the send thread at once (`TriggerUpdate`).
+  - The client drew 75 ms behind the host clock, often less than the gap to the next sample, so
+    it ran past the newest one and coasted or stopped. The delay is now each creature's measured
+    send interval plus the stream's measured lateness (separate bounds near / far), and the host
+    clock estimate is the best packet of the last 4 s, followed at 5% speed instead of jumping.
+  - A fast creature looked like a teleport: its new host pose was compared with the pose drawn
+    100 ms behind it, so it snapped and froze. Teleports are judged between host samples now
+    and drawn as a jump at their moment.
+  - Past the newest sample the body coasted at full speed, also out of a client-made hold, then
+    jumped back. The coast now slows to a stop within one send interval, never out of a hold or a
+    teleport, and new samples blend the difference out over 0.1 s. A body waits for its next
+    sample only after three missed intervals (it froze after one lost packet far away).
+  - A creature the host stopped sending (resting) was let go after 0.3 s, so the client player
+    could push it until the next resync snapped it back. It is held in place while it is driven.
+- **Creatures on the 1400 range edge flapped** (state wiped, snapped, sound loop restarted):
+  host send range and client interest now leave at 1500 and enter at 1400.
+- **Host-spawned creatures were invisible for 1.5 s**, and a save creature could get a phantom
+  beside its real body (playtest: a rabbit, 40 s). Save creatures (worldgen roamers, location
+  and story characters) have the same save id on every peer: the host now sends it, and the
+  client finds its own copy in vanilla's id dictionary, asleep on an inactive grid node too, and
+  wakes it at the host pose; a body bound earlier by position or a phantom gives way to it, and
+  the position match never takes another creature's save twin. Only a creature with no copy
+  gets a phantom, after 0.2 s, or once the client's world or location has loaded.
+- Host: the "far band" pass of the snapshot scan never sent anything (its band was the whole
+  range) but scanned every creature again; one pass now puts bodies near a player first.
+- Host time stamps are seconds since the host started broadcasting, not the process uptime as
+  a float (8 ms steps after 18 h); the client keeps its clock the same way.
+- Host cost: the player-animation hook looked up the player's legs on every creature's
+  every-frame `Play`; snapshot log strings were built with logging off; reaction / death clip
+  names were scanned per creature per snapshot; a creature whose only change was its clip frame
+  was sent again at full rate (the client plays the clip on by itself now).
+- **Wire format (protocol 33):** the entity snapshot gains a second flags byte (animating,
+  in flight, diving, pass-through clip follows), the optional pass-through clip and its age, and
+  the save id in the descriptor. Host and client must run the same build.
+- **New log lines:** client `[EntTimeline]` every 5 s with the perf probe or entity tracing on
+  (share of frames drawn between samples, coasting, holding; render delay; gap between a
+  creature's samples; batch lateness and jitter margin; clock offset; the creature that waited
+  most); host `[Perf]` gains `hostEntTick ms avg/max`; `[ClientMatch] by-save-id`,
+  `[ClientPending] save-id`.
+- Not changed, on purpose: the clip still travels as its name (an index into the creature's
+  animation library would map to a wrong clip whenever the two peers' libraries differ, and the
+  name costs a few bytes); the host still sends one batch to every peer (a per-peer set needs
+  per-peer change tracking; each client drops what is outside its own range).
+- `EntityTimeline.cs`, `WorldMessages.cs`, `EntityStateBroadcastService.cs`,
+  `HostEntityClipStartPatch.cs` (new), `PlayerAnimationTriggerPatch.cs`,
+  `ClientEntityInterpolationService.cs` / `.Snapshot.cs` / `.Tick.cs` / `.Presentation.cs` /
+  `.Pending.cs` / `.Spawn.cs`, `.SaveTwin.cs` and `.Stats.cs` (new), `ClientAIDisablePatches.cs`
+  (`ClientCopyAniFinishPatch`, more blocked frame triggers), `DefenderAttackPatches.cs`,
+  `EnemyAttackNetHandlers.cs`, `CharacterTracker.cs`, `PlayerPresenceNetHandlers.cs`,
+  `LanNetworkManager.Transport.cs`, `CoopPerfProbe.cs`, `GameplayConstants.cs`, `LOGGING.md`,
+  `PLAYTEST.md`.
+
 ### Creature sounds on the client
 
 - **A dog turned to the client and played its warning animation in silence, then attacked (the

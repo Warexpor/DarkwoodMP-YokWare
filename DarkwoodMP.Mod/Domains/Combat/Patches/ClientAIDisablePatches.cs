@@ -225,10 +225,11 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// A creature copy's animation frame triggers that act on the world: a world event, a
-    /// teleport next to "the player" (the local one, on a copy) and arbitrary functions sent to
-    /// the creature. The host's creature runs them and its results arrive; the copy keeps the
-    /// presentation triggers (sounds, particles, shadows, prefabs).
+    /// A creature copy's animation frame triggers that act on the world or move the body: a
+    /// world event, a teleport next to "the player" (the local one, on a copy), arbitrary
+    /// functions sent to the creature, an instant turn and a velocity stop. The host's creature
+    /// runs them and its results (pose, rotation) arrive; the copy keeps the presentation
+    /// triggers (sounds, particles, shadows, prefabs).
     /// </summary>
     [HarmonyPatch(typeof(AnimationTriggerListener), nameof(AnimationTriggerListener.checkFrameTrigger))]
     public static class ClientCopyFrameTriggerPatch
@@ -240,12 +241,35 @@ namespace DWMPHorde.Patches
         {
             if (type != tk2dSpriteAnimationFrame.Trigger.Type.fireWorldEvent
                 && type != tk2dSpriteAnimationFrame.Trigger.Type.teleportNearPlayer
-                && type != tk2dSpriteAnimationFrame.Trigger.Type.runFunction)
+                && type != tk2dSpriteAnimationFrame.Trigger.Type.runFunction
+                && type != tk2dSpriteAnimationFrame.Trigger.Type.rotateInstant
+                && type != tk2dSpriteAnimationFrame.Trigger.Type.stop)
                 return true;
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client || __instance == null)
                 return true;
             Character c = CharacterRef(__instance);
             return c == null || !ClientAIConditionalHelper.ShouldSkipAI(c);
+        }
+    }
+
+    /// <summary>
+    /// A creature copy's clip finished. Vanilla OnAniFinish is the AI's reaction to it (recover
+    /// after an attack and maybe run away from a target the copy does not have, end a turn,
+    /// summon, despawn on Hide, pause on Aim, which froze the copy for good): the host runs that
+    /// and sends the result. Only its presentation runs on the copy
+    /// (<see cref="ClientEntityInterpolationService.OnCopyClipFinished"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "OnAniFinish")]
+    public static class ClientCopyAniFinishPatch
+    {
+        private static bool Prefix(Character __instance)
+        {
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client || __instance == null)
+                return true;
+            if (!ClientAIConditionalHelper.ShouldSkipAI(__instance))
+                return true;
+            ClientEntityInterpolationService.OnCopyClipFinished(__instance);
+            return false;
         }
     }
 }

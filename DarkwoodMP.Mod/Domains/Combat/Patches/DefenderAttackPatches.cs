@@ -174,7 +174,7 @@ namespace DWMPHorde.Patches
                 EntityId = id,
                 Kind = kind,
                 Name = name,
-                HostTime = Time.unscaledTime,
+                HostTime = EntityStateBroadcastService.HostNow,
                 PosX = p.x, PosY = p.y, PosZ = p.z,
                 RotY = go.transform.eulerAngles.y,
                 Damage = bullet != null ? bullet.damage : thrown.damage,
@@ -235,7 +235,7 @@ namespace DWMPHorde.Patches
                 EntityId = id,
                 Kind = EnemyAttackMessage.KindMelee,
                 Name = __0.sensor.name,
-                HostTime = Time.unscaledTime,
+                HostTime = EntityStateBroadcastService.HostNow,
                 PosX = p.x, PosY = p.y, PosZ = p.z,
                 RotY = __instance.transform.eulerAngles.y,
                 // Vanilla MeleeSensor hits the player for damage * attacker strengthModifier.
@@ -357,19 +357,42 @@ namespace DWMPHorde.Patches
     /// Client: an enemy copy playing a host attack clip must not fire its own attack frame
     /// (event 997 → melee / ranged / banshee scream). The host's EnemyAttack re-creates the
     /// attack instead; the local frame used to add a second, unsynced hit (and a scream that
-    /// was then fanned back to the host).
+    /// was then fanned back to the host). Frame events that move or weigh the body (Teleport,
+    /// Move, Push, PushRelative, Stop, SetMass) are the host's too: its pose arrives in the
+    /// snapshots, and on the copy they jumped or shoved it for a frame before the shown pose put
+    /// it back (SetMass changed how hard the local player pushes it). Sounds, shadows and the
+    /// rotation flag stay.
     /// </summary>
     [HarmonyPatch(typeof(Character), "checkFrameTrigger")]
     public static class ClientEnemyAttackFramePatch
     {
-        private static bool Prefix(Character __instance, int eventInt)
+        private static bool Prefix(Character __instance, string eventInfo, int eventInt)
         {
-            if (eventInt != 997)
+            if (eventInt != 997 && !MovesBody(eventInt, eventInfo))
                 return true;
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client)
                 return true;
             return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
+        }
+
+        /// <summary>Vanilla's body-moving cases, reached only past the 997-999 sound / attack events.</summary>
+        private static bool MovesBody(int eventInt, string eventInfo)
+        {
+            if (eventInt >= 997 && eventInt <= 999)
+                return false;
+            switch (eventInfo)
+            {
+                case "Teleport":
+                case "Move":
+                case "Push":
+                case "PushRelative":
+                case "Stop":
+                case "SetMass":
+                    return true;
+                default:
+                    return false;
+            }
         }
     }
 

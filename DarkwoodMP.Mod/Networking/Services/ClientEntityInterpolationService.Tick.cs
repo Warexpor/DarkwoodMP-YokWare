@@ -14,6 +14,7 @@ namespace DWMPHorde.Networking
         public static void TickLateUpdate()
         {
             float now = Time.time;
+            float dt = Time.deltaTime;
 
             TickPendingMatches(now);
 
@@ -22,30 +23,31 @@ namespace DWMPHorde.Networking
             _stateKeys.Clear();
             _stateKeys.AddRange(_states.Keys);
 
+            bool haveClock = _hostClock.HasEstimate;
+            float hostNow = haveClock ? _hostClock.ToHost(LocalNow()) : 0f;
+            float margin = _jitter.Margin;
+            float blendKeep = dt > 0f ? Mathf.Exp(-dt / BlendTau) : 1f;
+
             for (int si = 0; si < _stateKeys.Count; si++)
             {
                 short id = _stateKeys[si];
                 EntityInterpState state = _states[id];
 
-                if (!state.hasTarget)
+                // No snapshot for a while: the host is not sending this body (out of its range,
+                // a dream, a pause). It keeps its last pose; the interp record goes after the hold.
+                if (!state.hasTarget && state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
                 {
-                    // Snapshots paused (walked away, dream, crowded packet). The body
-                    // stays. Only a host despawn removes it. Drop the interp record
-                    // after the hold so LateUpdate is not walking a frozen id.
-                    if (state.staleSince > 0f && now - state.staleSince > PhantomCleanupDelay)
+                    if (state.fleeing)
                     {
-                        if (state.fleeing)
-                        {
-                            Character gone = CharacterTracker.FindByStableId(id);
-                            if (gone != null && gone.alive && gone.gameObject != null
-                                && gone.gameObject.activeSelf
-                                && gone.GetComponent<Item>() == null)
-                                gone.gameObject.SetActive(false);
-                        }
-                        _staleKeys.Add(id);
-                        _displayPositions.Remove(id);
-                        _displayRotations.Remove(id);
+                        Character gone = CharacterTracker.FindByStableId(id);
+                        if (gone != null && gone.alive && gone.gameObject != null
+                            && gone.gameObject.activeSelf
+                            && gone.GetComponent<Item>() == null)
+                            gone.gameObject.SetActive(false);
                     }
+                    _staleKeys.Add(id);
+                    _displayPositions.Remove(id);
+                    _displayRotations.Remove(id);
                     continue;
                 }
 
@@ -61,43 +63,62 @@ namespace DWMPHorde.Networking
                 }
 
                 float elapsed = now - state.arrivalTime;
-
-                if (state.Timeline.Count > 0 && _hostClock.HasEstimate)
+                // The host skips a body that does not change: nothing new means resting.
+                if (state.hasTarget && elapsed > MaxInterpDelay)
                 {
-                    TimelineSample pose;
-                    if (elapsed > MaxInterpDelay)
+                    state.hasTarget = false;
+                    state.staleSince = now;
+                }
+
+                Vector3 shownPos;
+                float shownRot;
+                if (state.Timeline.Count > 0 && haveClock)
+                {
+                    bool near = IsNearBand(state.targetPosition);
+                    float want = TargetDelay(state, near, margin);
+                    float slew = (want > state.delay ? DelayGrowPerSec : DelayShrinkPerSec) * Time.unscaledDeltaTime;
+                    state.delay = state.delay <= 0f ? want : Mathf.MoveTowards(state.delay, want, slew);
+                    float renderTime = hostNow - state.delay;
+
+                    TimelinePoseKind kind = state.Timeline.Sample(renderTime, state.interval, out TimelineSample pose);
+                    Vector3 raw = new Vector3(pose.X, pose.Y, pose.Z);
+                    float newestT = state.Timeline.Newest.T;
+                    if (state.hasRendered)
                     {
-                        // Nothing new: the host skips a body that does not change. Sit on its
-                        // last host pose (and clip) until the next snapshot.
-                        pose = state.Timeline.Newest;
-                        state.hasTarget = false;
-                        state.staleSince = now;
-                        PresentTimelineClip(tracked, id, state, pose.T);
+                        if (state.Timeline.HasCutIn(state.lastRenderT, renderTime))
+                        {
+                            // A teleport: the jump is the host's, nothing to smooth.
+                            state.blendErr = Vector3.zero;
+                        }
+                        else if (newestT != state.lastNewestT
+                            && (state.lastKind == TimelinePoseKind.Coasting || state.lastKind == TimelinePoseKind.Holding))
+                        {
+                            // New data replaced a coast or hold: the difference to what the new
+                            // samples say for last frame fades out instead of jumping.
+                            state.Timeline.Sample(state.lastRenderT, state.interval, out TimelineSample redo);
+                            state.blendErr += state.lastRaw - new Vector3(redo.X, redo.Y, redo.Z);
+                        }
                     }
-                    else
-                    {
-                        Vector3 listen = LocalAudioService.GetListenPosition();
-                        Vector3 at = state.targetPosition;
-                        float dx = at.x - listen.x;
-                        float dz = at.z - listen.z;
-                        float want = dx * dx + dz * dz <= NearBandDistance * NearBandDistance
-                            ? NearInterpDelay : FarInterpDelay;
-                        state.delay = state.delay <= 0f
-                            ? want
-                            : Mathf.MoveTowards(state.delay, want, DelaySlewPerSec * Time.unscaledDeltaTime);
-                        float renderTime = _hostClock.ToHost(Time.unscaledTime) - state.delay;
-                        state.Timeline.Sample(renderTime, MaxExtrapolateSec, out pose);
-                        PresentTimelineClip(tracked, id, state, renderTime);
-                    }
-                    _displayPositions[id] = new Vector3(pose.X, pose.Y, pose.Z);
-                    _displayRotations[id] = pose.RotY;
+                    state.blendErr *= blendKeep;
+                    if (state.blendErr.sqrMagnitude < 0.0001f)
+                        state.blendErr = Vector3.zero;
+                    state.lastRaw = raw;
+                    state.lastRenderT = renderTime;
+                    state.lastKind = kind;
+                    state.lastNewestT = newestT;
+                    state.hasRendered = true;
+
+                    shownPos = raw + state.blendErr;
+                    shownRot = pose.RotY;
+                    PresentTimelineClip(tracked, id, state, renderTime);
+                    ReplayFinishedClip(tracked, state, renderTime);
+                    if (state.hasTarget)
+                        NoteFrameKind(state, kind);
                 }
                 else if (elapsed > MaxInterpDelay)
                 {
-                    _displayPositions[id] = state.targetPosition;
-                    _displayRotations[id] = state.targetRotY;
-                    state.hasTarget = false;
-                    state.staleSince = now;
+                    shownPos = state.targetPosition;
+                    shownRot = state.targetRotY;
                 }
                 else if (elapsed > SnapshotInterval)
                 {
@@ -109,24 +130,29 @@ namespace DWMPHorde.Networking
                     float cap = step.magnitude * 0.35f;
                     if (lead.sqrMagnitude > cap * cap && cap > 0.001f)
                         lead *= cap / lead.magnitude;
-                    _displayPositions[id] = state.targetPosition + lead;
-                    _displayRotations[id] = state.targetRotY;
+                    shownPos = state.targetPosition + lead;
+                    shownRot = state.targetRotY;
                 }
                 else
                 {
                     float t = elapsed / SnapshotInterval;
                     float smoothT = t * t * (3f - 2f * t);
-                    _displayPositions[id] = Vector3.Lerp(state.previousPosition, state.targetPosition, smoothT);
-                    _displayRotations[id] = Mathf.LerpAngle(state.previousRotY, state.targetRotY, smoothT);
+                    shownPos = Vector3.Lerp(state.previousPosition, state.targetPosition, smoothT);
+                    shownRot = Mathf.LerpAngle(state.previousRotY, state.targetRotY, smoothT);
                 }
+                _displayPositions[id] = shownPos;
+                _displayRotations[id] = shownRot;
 
+                // Written every frame while the body is driven, resting ones too: unpinned, the
+                // local player shoved a non-kinematic body that then snapped back at the resync.
                 Rigidbody rbPos = state.CachedRb;
                 if (rbPos == null || rbPos.gameObject != tracked.gameObject)
                 {
                     rbPos = tracked.GetComponent<Rigidbody>();
                     state.CachedRb = rbPos;
                 }
-                WriteShownPose(tracked, rbPos, _displayPositions[id], _displayRotations[id]);
+                WriteShownPose(tracked, rbPos, shownPos, shownRot);
+                PresentCharacterFrame(tracked, rbPos, dt);
             }
 
             for (int i = 0; i < _staleKeys.Count; i++)
@@ -135,6 +161,7 @@ namespace DWMPHorde.Networking
                     ReleaseDrivenBody(gone.CachedRb);
                 _states.Remove(_staleKeys[i]);
             }
+            MaybeReportTimelineStats(now);
 
             // 3. Clean up unmatched client-only entities (rate-limited).
             // Only cull inside client interest. Far save NPCs must stay so claim can
@@ -217,6 +244,18 @@ namespace DWMPHorde.Networking
         /// interpolation would overwrite the written transform with an older physics pose on the
         /// next frame, so it is off while the client drives the body.
         /// </summary>
+        /// <summary>
+        /// Render delay a body needs: its send interval (the wait for the next sample) plus the
+        /// stream's lateness margin, so the rendered moment stays behind the newest sample.
+        /// </summary>
+        private static float TargetDelay(EntityInterpState state, bool near, float margin)
+        {
+            float want = state.interval + margin + DelaySafety;
+            return near
+                ? Mathf.Clamp(want, NearDelayMin, NearDelayMax)
+                : Mathf.Clamp(want, FarDelayMin, FarDelayMax);
+        }
+
         private static void WriteShownPose(Character c, Rigidbody rb, Vector3 pos, float rotY)
         {
             Transform t = c.transform;

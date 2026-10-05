@@ -188,6 +188,14 @@ namespace DWMPHorde.Networking
             SendFramedToPeers(data, length, method, FanOutFilter.GameplayReady, 0);
         }
 
+        /// <summary>
+        /// LiteNetLib queues unreliable sends for its logic thread, which wakes every
+        /// <c>UpdateTime</c> (15 ms): a snapshot burst waited 0-15 ms on top of the network, a
+        /// jitter the client's render delay had to absorb. Wake the thread to send now. Steam SNS
+        /// unreliable sends already go out at once (NoNagle | NoDelay).
+        /// </summary>
+        public void FlushQueuedSends() => _net?.TriggerUpdate();
+
         /// <summary>Send a message to all connected peers.</summary>
         /// <param name="skipLoadingPeers">
         /// When true, skip peers in <see cref="_session.Link.LoadingWorld"/> (title join / LoadScene).

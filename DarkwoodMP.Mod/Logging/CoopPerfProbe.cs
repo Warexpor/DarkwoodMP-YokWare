@@ -52,6 +52,10 @@ namespace DWMPHorde.Logging
 
         private static int _hostEntSendSnaps;
         private static int _hostEntSendCount;
+        /// <summary>Host snapshot ticks this window and the real time between them (target 50 ms).</summary>
+        private static int _hostEntTicks;
+        private static float _hostEntIntervalSum;
+        private static float _hostEntIntervalMax;
 
         private static string _segName;
         private static string _lastSegName = "";
@@ -127,6 +131,8 @@ namespace DWMPHorde.Logging
             Array.Clear(_pktByType, 0, _pktByType.Length);
             _pendLure = _pendLock = _pendLight = _pendTrap = _pendFeeder = _pendSaw = _pendConstruct = 0;
             _hostEntSendSnaps = _hostEntSendCount = 0;
+            _hostEntTicks = 0;
+            _hostEntIntervalSum = _hostEntIntervalMax = 0f;
             _segName = null;
             _lastSegName = "";
             _segMaxMs = 0;
@@ -351,6 +357,16 @@ namespace DWMPHorde.Logging
             _hostEntSendCount += entityCount;
         }
 
+        /// <summary>Host: one snapshot tick ran, <paramref name="interval"/> seconds after the previous one.</summary>
+        public static void NoteEntityTick(float interval)
+        {
+            if (!_active || interval <= 0f) return;
+            _hostEntTicks++;
+            _hostEntIntervalSum += interval;
+            if (interval > _hostEntIntervalMax)
+                _hostEntIntervalMax = interval;
+        }
+
         private static void MaybeReport()
         {
             if (Time.unscaledTime < _reportAt) return;
@@ -409,6 +425,11 @@ namespace DWMPHorde.Logging
             {
                 sb.Append(" | hostEntSend snaps=").Append(_hostEntSendSnaps);
                 sb.Append(" ents=").Append(_hostEntSendCount);
+            }
+            if (_hostEntTicks > 0)
+            {
+                sb.Append(" | hostEntTick ms avg=").Append((_hostEntIntervalSum / _hostEntTicks * 1000f).ToString("F1"));
+                sb.Append(" max=").Append((_hostEntIntervalMax * 1000f).ToString("F1"));
             }
             if (_segMaxMs >= 1.0 && !string.IsNullOrEmpty(_segMaxName))
             {

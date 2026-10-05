@@ -240,6 +240,8 @@ Unattended dual-box runs on this machine, no hands needed. Back up both save tre
 - No `FATAL`, no unhandled exception stacks, no `Patch target missing`.
 - `[Perf]` lines on both roles (needs `PerfProbe = true` under Support); no
   `[PerfCliff]` (`scripts/check-dualbox-perf.sh`).
+- Client `[EntTimeline]` (same switch): `interp%` near 100 while creatures move, `coast%` /
+  `hold%` low; host `hostEntTick ms avg` near 50.
 - Host: no `Dropping <type> from pN (host-only type)` in a normal run (a client sent
   something only the host may send: bug). `(no handshake yet)` / `(refused peer)` are
   expected only around a join or a kick; attach the log if they show up mid-session.

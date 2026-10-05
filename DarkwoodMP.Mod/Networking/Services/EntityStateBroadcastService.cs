@@ -11,11 +11,30 @@ namespace DWMPHorde.Networking
     /// Periodically snapshots nearby entity positions and states, then broadcasts them
     /// to connected peers (LAN LiteNetLib or Steam P2P) on an unreliable channel.
     /// Bodies near a remote player go out at 20 Hz, the rest at 10 Hz; every batch carries
-    /// the host clock so clients interpolate on the host timeline.
+    /// the host session clock (<see cref="HostNow"/>) so clients interpolate on the host timeline.
     /// </summary>
     public static class EntityStateBroadcastService
     {
         private static float _sendTimer;
+        /// <summary>Real time of the session clock's zero (-1: not started).</summary>
+        private static double _epoch = -1;
+        private static float _lastTickAt = -1f;
+
+        /// <summary>
+        /// Host session clock: unscaled seconds since this host's broadcast started. Every host
+        /// time stamp clients compare (EntityState, EnemyAttack) uses it. A float of the process
+        /// uptime lost precision over a long run (8 ms steps after 18 h); this one starts at 0.
+        /// </summary>
+        public static float HostNow
+        {
+            get
+            {
+                double now = Time.unscaledTimeAsDouble;
+                if (_epoch < 0)
+                    _epoch = now;
+                return (float)(now - _epoch);
+            }
+        }
         private static uint _nextSnapshotSequence;
         private const float SendInterval = 0.05f;
         /// <summary>Bodies within this XZ radius of a remote player are sent every tick; the rest every other tick.</summary>
@@ -28,9 +47,11 @@ namespace DWMPHorde.Networking
 
         /// <summary>Per-tick entity cap (split across packets by <see cref="SendChunked"/>); keeps dense night scenes from starving later entities.</summary>
         private const int MaxEntitiesPerPacket = 256;
-        /// <summary>Near-player band filled first so far wildlife cannot starve combat NPCs.</summary>
-        private const float PriorityDistance = 1400f;
         private static EntitySnapshotNet[] _buffer = new EntitySnapshotNet[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
+        /// <summary>Bodies past <see cref="NearRemoteBand"/> of every player: packed after the near ones so far wildlife cannot starve combat NPCs of the per-tick cap.</summary>
+        private static EntitySnapshotNet[] _farBuffer = new EntitySnapshotNet[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
+        /// <summary>Ids streamed last tick: they leave at <see cref="GameplayConstants.EntityInterestLeaveRange"/>, others enter at the activation range.</summary>
+        private static readonly HashSet<short> _inRange = new HashSet<short>();
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
         /// <summary>
         /// Stable stripped name / prefab path per id, keyed to the body that owned the id when
@@ -42,6 +63,7 @@ namespace DWMPHorde.Networking
             public Character Owner;
             public string Name;
             public string PrefabPath;
+            public int SaveId;
             public int SendsLeft;
         }
         private static readonly Dictionary<short, Descriptor> _descriptors = new Dictionary<short, Descriptor>(128);
@@ -58,21 +80,30 @@ namespace DWMPHorde.Networking
         public static void Tick()
         {
             if (!NetGuard.ConnectedHost(out var net))
+            {
+                _clipTrackingOn = false;
                 return;
+            }
+            _clipTrackingOn = !_paused;
             if (_paused) return;
 
-            _sendTimer += Time.deltaTime;
+            _sendTimer += Time.unscaledDeltaTime;
             if (_sendTimer < SendInterval)
                 return;
 
-            _sendTimer = 0f;
+            // Keep 20 Hz on average: the remainder carries over (a send lands on the first frame
+            // past each 50 ms step instead of 50 ms after the last send, which ran 53-67 ms at
+            // 60 fps). After a hitch at most half a step carries, so a stall does not burst.
+            _sendTimer -= SendInterval;
+            if (_sendTimer > SendInterval * 0.5f)
+                _sendTimer = SendInterval * 0.5f;
+            float now = HostNow;
+            if (_lastTickAt >= 0f)
+                DWMPHorde.Logging.ClientPerfProbe.NoteEntityTick(now - _lastTickAt);
+            _lastTickAt = now;
             SendSnapshot(net);
         }
 
-        /// <summary>
-        /// Collects snapshots of entities within range of host or any remote player,
-        /// and sends to all connected peers (unreliable, ~10 Hz).
-        /// </summary>
         private static readonly NetWriter _snapWriter = new NetWriter();
         private static byte[] _snapSendBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
         private static readonly NetWriter _bodyWriter = new NetWriter();
@@ -124,6 +155,7 @@ namespace DWMPHorde.Networking
                 start = end;
                 startOff = endOff;
             }
+            net.FlushQueuedSends();
         }
 
         private static void SendSnapshot(LanNetworkManager net)
@@ -136,6 +168,8 @@ namespace DWMPHorde.Networking
             int maxEntities = Mathf.Min(nAll, MaxEntitiesPerPacket);
             if (_buffer.Length < maxEntities)
                 _buffer = new EntitySnapshotNet[maxEntities];
+            if (_farBuffer.Length < maxEntities)
+                _farBuffer = new EntitySnapshotNet[maxEntities];
 
             // Full resync every ~1s: every body in range is sent (lost packets, late joiners),
             // with its descriptor. Only real changes earn a settle send afterwards.
@@ -147,79 +181,107 @@ namespace DWMPHorde.Networking
             }
             // Far bodies (no remote within NearRemoteBand) only on even ticks: 10 Hz.
             bool farTick = (++_tick & 1) == 0 || _fullResyncTick;
-            _batchHostTime = Time.unscaledTime;
+            _batchHostTime = HostNow;
             _settleNext.Clear();
 
-            int count = 0;
+            int nearCount = 0;
+            int farCount = 0;
 
             Vector3 hostPos = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
-            // Matches WorldGrid proxy cull / client interest (XZ).
-            float maxDistSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
-            float priorityDistSq = PriorityDistance * PriorityDistance;
+            // Matches WorldGrid proxy cull / client interest (XZ), with the same leave margin.
+            float enterSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
+            float leaveSq = GameplayConstants.EntityInterestLeaveRange * GameplayConstants.EntityInterestLeaveRange;
             float nearBandSq = NearRemoteBand * NearRemoteBand;
 
             if (_scanStart < 0 || _scanStart >= nAll)
                 _scanStart = 0;
 
-            // Pass 0: near any player (combat / presentation critical).
-            // Pass 1: rest of host broadcast radius (fills remaining slots).
-            for (int pass = 0; pass < 2 && count < maxEntities; pass++)
+            // One pass: bodies near any player go first in the packet (combat / presentation
+            // critical), the rest of the send range after them.
+            for (int n = 0; n < nAll; n++)
             {
-                bool nearOnly = pass == 0;
-                for (int n = 0; n < nAll && count < maxEntities; n++)
+                int i = (_scanStart + n) % nAll;
+                Character c = all[i];
+                if (c == null) continue;
+                // The host's own prologue creatures live on its private pads (PersonalPrologue).
+                if (PersonalPrologue.IsOnProloguePad(c.transform))
+                    continue;
+
+                // During dreams, stream dream NPCs only; skip frozen overworld AI.
+                if (Sync.DreamSyncManager.IsDreamActive
+                    && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
+                    continue;
+
+                short sid = CharacterTracker.GetStableId(c);
+                if (sid == 0)
+                    continue;
+
+                Vector3 cPos = c.transform.position;
+                float dxh = cPos.x - hostPos.x;
+                float dzh = cPos.z - hostPos.z;
+                float dHost = dxh * dxh + dzh * dzh;
+                bool wasInRange = _inRange.Contains(sid);
+                float rangeSq = wasInRange ? leaveSq : enterSq;
+                if (dHost > rangeSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, rangeSq))
                 {
-                    int i = (_scanStart + n) % nAll;
-                    Character c = all[i];
-                    if (c == null) continue;
-                    // The host's own prologue creatures live on its private pads (PersonalPrologue).
-                    if (PersonalPrologue.IsOnProloguePad(c.transform))
-                        continue;
-
-                    // During dreams, stream dream NPCs only; skip frozen overworld AI.
-                    if (Sync.DreamSyncManager.IsDreamActive
-                        && Sync.DreamSyncManager.IsWorldFrozenForComponent(c))
-                        continue;
-
-                    Vector3 cPos = c.transform.position;
-                    float dxh = cPos.x - hostPos.x;
-                    float dzh = cPos.z - hostPos.z;
-                    float dHost = dxh * dxh + dzh * dzh;
-                    bool nearHost = dHost <= priorityDistSq;
-                    bool nearRemote = PlayerPositionManager.IsAnyRemoteWithinSq(cPos, priorityDistSq);
-                    bool inPriority = nearHost || nearRemote;
-                    if (nearOnly != inPriority)
-                        continue;
-
-                    // Skip entities too far from both the host and all remote players
-                    if (dHost > maxDistSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, maxDistSq))
-                        continue;
-
-                    if (!farTick && !(nearRemote && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, nearBandSq)))
-                    {
-                        // Not its tick: keep its settle send for the next one.
-                        short waitId = CharacterTracker.GetStableId(c);
-                        if (waitId != 0 && _settle.Contains(waitId))
-                            _settleNext.Add(waitId);
-                        continue;
-                    }
-
-                    short sid = CharacterTracker.GetStableId(c);
-                    bool settle = sid != 0 && _settle.Contains(sid);
-                    if (!TryBuildSnapshot(c, cPos, settle || _fullResyncTick, out EntitySnapshotNet snap))
-                        continue;
-
-                    // Dirty-check: skip if nothing changed since last send
-                    bool changed = !_lastSent.TryGetValue(snap.Index, out var last) || HasChanged(last, snap);
-                    if (!changed && !settle && !_fullResyncTick)
-                        continue;
-                    // Moved this send: one more send after it stops pins the final pose.
-                    if (changed)
-                        _settleNext.Add(snap.Index);
-
-                    _lastSent[snap.Index] = snap;
-                    _buffer[count] = snap;
-                    count++;
+                    if (wasInRange)
+                        _inRange.Remove(sid);
+                    continue;
                 }
+                if (!wasInRange)
+                    _inRange.Add(sid);
+
+                bool nearRemote = PlayerPositionManager.IsAnyRemoteWithinSq(cPos, nearBandSq);
+                if (!farTick && !nearRemote)
+                {
+                    // Not its tick: keep its settle send for the next one.
+                    if (_settle.Contains(sid))
+                        _settleNext.Add(sid);
+                    continue;
+                }
+
+                bool settle = _settle.Contains(sid);
+                if (!TryBuildSnapshot(c, sid, cPos, settle || _fullResyncTick, out EntitySnapshotNet snap))
+                    continue;
+
+                // Dirty-check: skip if nothing changed since last send
+                bool changed = !_lastSent.TryGetValue(snap.Index, out var last) || HasChanged(last, snap);
+                if (!changed && !settle && !_fullResyncTick)
+                    continue;
+
+                bool nearAny = nearRemote || dHost <= nearBandSq;
+                if (nearAny ? nearCount >= maxEntities : farCount >= maxEntities)
+                {
+                    // Over the cap this tick: it counts as unsent, so it goes next tick.
+                    _settleNext.Add(snap.Index);
+                    continue;
+                }
+                // Moved this send: one more send after it stops pins the final pose.
+                if (changed)
+                    _settleNext.Add(snap.Index);
+
+                if (nearAny)
+                    _buffer[nearCount++] = snap;
+                else
+                    _farBuffer[farCount++] = snap;
+            }
+
+            int count = nearCount;
+            for (int f = 0; f < farCount; f++)
+            {
+                if (count < maxEntities)
+                {
+                    _buffer[count++] = _farBuffer[f];
+                    continue;
+                }
+                // Did not fit behind the near bodies: not sent, so not the last sent either.
+                _settleNext.Add(_farBuffer[f].Index);
+            }
+            for (int k = 0; k < count; k++)
+            {
+                EntitySnapshotNet sent = _buffer[k];
+                _lastSent[sent.Index] = sent;
+                MarkClipSent(sent.Index, sent.Clip);
             }
 
             // Advance scan window for next tick
@@ -229,8 +291,7 @@ namespace DWMPHorde.Networking
             // send while they are still live.
             foreach (short pending in _settle)
             {
-                Character pc = CharacterTracker.FindByStableId(pending);
-                if (pc == null || !PlayerPositionManager.IsAnyPlayerWithinSq(pc.transform.position, maxDistSq))
+                if (!_inRange.Contains(pending) || CharacterTracker.FindByStableId(pending) == null)
                     continue;
                 bool sentNow = false;
                 for (int i = 0; i < count; i++)
@@ -252,6 +313,8 @@ namespace DWMPHorde.Networking
             DWMPHorde.Logging.ClientPerfProbe.NoteEntityBroadcast(entityCount);
 
             _sendCount++;
+            if (!EntitySyncLog.On)
+                return;
             // Rate-limited deep dump (not every 10 ticks StringBuilder under VerboseLogging).
             EntitySyncLog.Trace("ent:send", () =>
             {
@@ -276,40 +339,35 @@ namespace DWMPHorde.Networking
             }, 1.5f);
 
             // Clip / alive transitions get per-id Trace (no per-frame spam).
-            if (EntitySyncLog.On)
+            for (int i = 0; i < entityCount; i++)
             {
-                for (int i = 0; i < entityCount; i++)
+                EntitySnapshotNet snap = _buffer[i];
+                if (_prevClip.TryGetValue(snap.Index, out string prevClip)
+                    && !string.Equals(prevClip, snap.Clip, StringComparison.Ordinal))
                 {
-                    EntitySnapshotNet snap = _buffer[i];
-                    if (_prevClip.TryGetValue(snap.Index, out string prevClip)
-                        && !string.Equals(prevClip, snap.Clip, StringComparison.Ordinal))
-                    {
-                        EntitySyncLog.Anim(snap.Index.ToString(),
-                            "[HostAnim] id=" + snap.Index + " " + snap.EntityName
-                            + " clip " + (prevClip ?? "") + " → " + (snap.Clip ?? "")
-                            + " frame=" + snap.ClipFrame, 0.4f);
-                    }
-                    _prevClip[snap.Index] = snap.Clip ?? "";
-
-                    if (_prevAlive.TryGetValue(snap.Index, out bool prevAlive) && prevAlive != snap.Alive)
-                    {
-                        EntitySyncLog.Event(() =>
-                            "[HostAlive] id=" + snap.Index + " " + snap.EntityName
-                            + " alive " + prevAlive + " → " + snap.Alive
-                            + " hp=" + snap.HealthPct);
-                    }
-                    _prevAlive[snap.Index] = snap.Alive;
+                    EntitySyncLog.Anim(snap.Index.ToString(),
+                        "[HostAnim] id=" + snap.Index + " " + snap.EntityName
+                        + " clip " + (prevClip ?? "") + " → " + (snap.Clip ?? "")
+                        + (snap.PrevClip != null ? " via " + snap.PrevClip : "")
+                        + " frame=" + snap.ClipFrame + " anim=" + (snap.Animating ? 1 : 0), 0.4f);
                 }
+                _prevClip[snap.Index] = snap.Clip ?? "";
+
+                if (_prevAlive.TryGetValue(snap.Index, out bool prevAlive) && prevAlive != snap.Alive)
+                {
+                    EntitySyncLog.Event(() =>
+                        "[HostAlive] id=" + snap.Index + " " + snap.EntityName
+                        + " alive " + prevAlive + " → " + snap.Alive
+                        + " hp=" + snap.HealthPct);
+                }
+                _prevAlive[snap.Index] = snap.Alive;
             }
         }
 
-        private static bool TryBuildSnapshot(Character c, Vector3 cPos, bool force, out EntitySnapshotNet snap)
+        private static bool TryBuildSnapshot(Character c, short id, Vector3 cPos, bool force, out EntitySnapshotNet snap)
         {
             snap = default;
 
-            short id = CharacterTracker.GetStableId(c);
-            if (id == 0)
-                return false;
             // A villager away for the night is off on every peer; never wake or stream it.
             if (NightVillage.IsHidden(c.gameObject))
                 return false;
@@ -317,8 +375,9 @@ namespace DWMPHorde.Networking
             // Near a remote: WorldGrid edge cases can leave isActive/animator off while the
             // GO is still tracked; otherwise the client gets empty clips and sliding sprites. Wake
             // presentation components so processAnims can own Walk/Idle again.
+            float wakeSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
             if (c.alive
-                && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, PriorityDistance * PriorityDistance)
+                && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, wakeSq)
                 && (!c.isActive || (c.animator != null && !c.animator.enabled)))
             {
                 try
@@ -349,10 +408,30 @@ namespace DWMPHorde.Networking
                     clip = c.clipToPlay;
             }
             catch { /* odd prefab */ }
-            if (string.IsNullOrEmpty(clip) && anim != null && anim.CurrentClip != null)
-                clip = anim.CurrentClip.name;
+            tk2dSpriteAnimationClip current = anim != null ? anim.CurrentClip : null;
+            if (string.IsNullOrEmpty(clip) && current != null)
+                clip = current.name;
 
-            short clipFrame = anim != null && anim.CurrentClip != null ? (short)anim.CurrentFrame : (short)-1;
+            // The frame belongs to the clip sent only when the animator is showing it (clipToPlay
+            // can be ahead of Play for a frame), as EnemyAttackSender.ReadClip does. A finished
+            // once clip reports frames.Length: its last frame is what is on screen.
+            short clipFrame = -1;
+            bool animating = false;
+            if (current != null && current.frames != null && current.frames.Length > 0
+                && string.Equals(current.name, clip, StringComparison.Ordinal))
+            {
+                clipFrame = (short)Mathf.Clamp(anim.CurrentFrame, 0, current.frames.Length - 1);
+                // Vanilla processAnims calls Play(clipToPlay) every frame while Character.Update
+                // runs, and tk2d restarts a finished once clip on Play: Walk / Run / Idle keep
+                // cycling though their wrap mode is Once. A clip that finishes and holds (aim
+                // pause, death, a body that stopped updating) is not animating.
+                if (anim.enabled && !anim.Paused)
+                {
+                    animating = anim.Playing
+                        || (c.isActive && c.enabled && !c.dummy && c.gameObject.activeInHierarchy);
+                }
+            }
+
             Vector3 rot = c.transform.eulerAngles;
             byte healthPct = (byte)Mathf.Clamp((c.Health / Mathf.Max(c.maxHealth, 1f)) * 100f, 0, 100);
             // A still-positive pre-death pool can round to 0%. Keep 1% so the
@@ -375,16 +454,32 @@ namespace DWMPHorde.Networking
                 || c.wantToDespawn)
                 flags |= EntitySnapshotNet.FlagFleeing;
             flags = (byte)((flags & 0x0F) | EntitySnapshotNet.PackBehaviour(c.behaviour));
+
+            byte flags2 = 0;
+            if (animating) flags2 |= EntitySnapshotNet.Flag2Animating;
+            Flier flier = c.flier;
+            if (flier != null)
+            {
+                // Altitude follows from these on the client (vanilla processAnims constants).
+                if (flier.inFlight) flags2 |= EntitySnapshotNet.Flag2InFlight;
+                if (flier.diving) flags2 |= EntitySnapshotNet.Flag2Diving;
+            }
             byte loop = Audio.EntityLoopSync.HostSlot(c);
 
-            // Cheap dirty gate before Unity name / PrefabPathComponent work.
-            if (!force && _lastSent.TryGetValue(id, out EntitySnapshotNet last)
+            string prevClip = null;
+            float prevClipT = 0f;
+            if (_clipLogs.TryGetValue(id, out ClipStartLog log))
+                log.TryIntermediate(c.GetInstanceID(), clip, out prevClip, out prevClipT);
+
+            // Cheap dirty gate before Unity name / PrefabPathComponent work. The frame alone is
+            // no change: the client runs the clip itself once it has it.
+            if (!force && prevClip == null && _lastSent.TryGetValue(id, out EntitySnapshotNet last)
                 && last.PosX == cPos.x && last.PosY == cPos.y && last.PosZ == cPos.z
                 && last.RotY == rot.y
-                && last.ClipFrame == clipFrame
                 && last.Alive == alive
                 && last.HealthPct == healthPct
                 && last.Flags == flags
+                && (last.Flags2 & ~EntitySnapshotNet.Flag2PrevClip) == flags2
                 && last.Loop == loop
                 && string.Equals(last.Clip, clip, StringComparison.Ordinal))
             {
@@ -400,11 +495,19 @@ namespace DWMPHorde.Networking
                 var ppc = c.GetComponent<PrefabPathComponent>();
                 if (ppc != null && ppc.Path != null)
                     prefabPath = ppc.Path;
+                // The vanilla save id (Core.addToSaveable / a save load): the same on every peer
+                // for a creature of the shared save. A dream copy is not saved (dontSave) and
+                // carries its original's id, so it sends none.
+                int saveId = 0;
+                SaveableObject so = c.saveableObject;
+                if (so != null && so.assigned && !so.dontSave && so.uniqueId > 0)
+                    saveId = so.uniqueId;
                 desc = new Descriptor
                 {
                     Owner = c,
                     Name = entityName,
                     PrefabPath = prefabPath,
+                    SaveId = saveId,
                     SendsLeft = DescriptorSends
                 };
             }
@@ -413,6 +516,8 @@ namespace DWMPHorde.Networking
                 desc.SendsLeft--;
             _descriptors[id] = desc;
 
+            if (prevClip != null)
+                flags2 |= EntitySnapshotNet.Flag2PrevClip;
             snap = new EntitySnapshotNet
             {
                 Index = id,
@@ -427,10 +532,57 @@ namespace DWMPHorde.Networking
                 HasDescriptor = withDescriptor,
                 EntityName = desc.Name,
                 PrefabPath = desc.PrefabPath,
+                SaveId = desc.SaveId,
                 Flags = flags,
-                Loop = loop
+                Flags2 = flags2,
+                Loop = loop,
+                PrevClip = prevClip,
+                PrevClipAgeMs = prevClip != null
+                    ? (ushort)Mathf.Clamp((_batchHostTime - prevClipT) * 1000f, 0f, ushort.MaxValue)
+                    : (ushort)0
             };
             return true;
+        }
+
+        /// <summary>Host with peers: body clip starts are logged (<see cref="NoteClipStart"/>).</summary>
+        private static bool _clipTrackingOn;
+        internal static bool ClipTrackingOn => _clipTrackingOn;
+        /// <summary>Animator → the Character it is the body of (null: not a body animator).</summary>
+        private static readonly Dictionary<tk2dSpriteAnimator, Character> _clipOwners = new Dictionary<tk2dSpriteAnimator, Character>(128);
+        private static readonly Dictionary<short, ClipStartLog> _clipLogs = new Dictionary<short, ClipStartLog>(128);
+
+        /// <summary>
+        /// A body animator started a clip other than the one it showed (from the tk2d Play
+        /// hook). The snapshot carries the one a client would miss between two sends.
+        /// </summary>
+        internal static void NoteClipStart(tk2dSpriteAnimator anim, string clipName)
+        {
+            if (!_clipOwners.TryGetValue(anim, out Character c))
+            {
+                c = anim.GetComponent<Character>();
+                if (c != null && !ReferenceEquals(c.animator, anim))
+                    c = null;
+                if (_clipOwners.Count >= 4096)
+                    _clipOwners.Clear();
+                _clipOwners[anim] = c;
+            }
+            if (c == null)
+                return;
+            if (!CharacterTracker.TryGetStableId(c, out short id) || id == 0)
+                return;
+            _clipLogs.TryGetValue(id, out ClipStartLog log);
+            log.Note(c.GetInstanceID(), clipName, HostNow);
+            _clipLogs[id] = log;
+        }
+
+        private static void MarkClipSent(short id, string clip)
+        {
+            Character c = CharacterTracker.FindByStableId(id);
+            if (c == null)
+                return;
+            _clipLogs.TryGetValue(id, out ClipStartLog log);
+            log.MarkSent(c.GetInstanceID(), clip, _batchHostTime);
+            _clipLogs[id] = log;
         }
 
         private static int _sendCount; // process-scoped: monotonic send counter
@@ -449,6 +601,12 @@ namespace DWMPHorde.Networking
         public static void Stop()
         {
             _sendTimer = 0f;
+            _epoch = -1;
+            _lastTickAt = -1f;
+            _inRange.Clear();
+            _clipTrackingOn = false;
+            _clipOwners.Clear();
+            _clipLogs.Clear();
             _nextSnapshotSequence = 0;
             _lastSent.Clear();
             _descriptors.Clear();
@@ -468,12 +626,15 @@ namespace DWMPHorde.Networking
         {
             return last.PosX != current.PosX || last.PosY != current.PosY || last.PosZ != current.PosZ
                 || last.RotY != current.RotY
-                || last.Clip != current.Clip || last.ClipFrame != current.ClipFrame
+                || last.Clip != current.Clip
                 || last.Alive != current.Alive || last.HealthPct != current.HealthPct
                 || last.EntityName != current.EntityName || last.PrefabPath != current.PrefabPath
                 || last.Flags != current.Flags
+                || ((last.Flags2 ^ current.Flags2) & ~EntitySnapshotNet.Flag2PrevClip) != 0
+                || current.PrevClip != null
                 || last.Loop != current.Loop;
-            // HasDescriptor is transport only: a re-sent name is not a change.
+            // HasDescriptor is transport only: a re-sent name is not a change. The clip frame
+            // is not one either (the client plays the clip on); a pass-through clip is.
         }
     }
 }
