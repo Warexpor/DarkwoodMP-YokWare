@@ -138,26 +138,44 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Dreams), "endDreaming")]
     public static class DreamEndPatch
     {
-        private static void Prefix(Dreams __instance, ref bool __state)
+        internal sealed class EndState
         {
-            // true = this call ran the local end path; Postfix drops the pre-dream pose.
-            __state = false;
+            /// <summary>This call ran the local end path; Postfix drops the pre-dream pose.</summary>
+            public bool RanLocalEnd;
+            /// <summary>Client: the outcome loop's world events replay the host's (Finalizer ends it).</summary>
+            public bool ReplayWorld;
+        }
+
+        private static void Prefix(Dreams __instance, ref EndState __state)
+        {
+            __state = new EndState();
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
-
+            // Vanilla returns at once when not dreaming.
             if (!__instance.dreaming)
                 return;
 
             if (__instance.preset != null && PersonalPrologue.IsPrologueDream(__instance.preset.name))
                 return;
 
+            // The party's outcome, before a dead peer's rewards are downgraded below.
+            string partyOutcome = __instance.outcome ?? "";
+
+            if (ModRuntime.Network.Role == NetworkRole.Client)
+            {
+                // The outcome's world events (vanilla fireWorldEvent in this body) replay the host's.
+                __state.ReplayWorld = true;
+                DreamSyncManager.BeginOutcomeWorldReplay();
+            }
+
+            if (LanNetworkManager.IsApplyingRemoteState)
+                return;
+
             // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
-            DowngradeSuccessRewardsIfDeadInDream(__instance);
+            DowngradeSuccessRewardsIfDeadInDream(__instance, partyOutcome);
 
             // DreamPrepareChainPatch owns chain broadcasts. Both
             // transferToDream and wantToSwitchDream reach prepareDream.
@@ -178,7 +196,7 @@ namespace DWMPHorde.Patches
             if (DreamSession.IsActive)
                 DreamSession.End(outcome);
             DreamSyncManager.OnLocalDreamEnded();
-            __state = true;
+            __state.RanLocalEnd = true;
         }
 
         /// <summary>
@@ -187,7 +205,7 @@ namespace DWMPHorde.Patches
         /// The pre-dream pose is dropped afterwards: left behind it teleported the client to the
         /// last dream start on any later disconnect and fed ClientStateBackup.
         /// </summary>
-        private static void Postfix(Dreams __instance, bool __state)
+        private static void Postfix(Dreams __instance, EndState __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
@@ -208,10 +226,16 @@ namespace DWMPHorde.Patches
             finally
             {
                 // Chain keeps the pose for the final exit (switchingDream / session still live).
-                if (__state && (__instance == null || !__instance.switchingDream)
+                if (__state != null && __state.RanLocalEnd && (__instance == null || !__instance.switchingDream)
                     && !DreamSession.IsActive)
                     DreamSyncManager.ClearPreDreamState();
             }
+        }
+
+        private static void Finalizer(EndState __state)
+        {
+            if (__state != null && __state.ReplayWorld)
+                DreamSyncManager.ClearOutcomeWorldReplay();
         }
 
         private static void SnapOffPadIfStranded(Dreams __instance)
@@ -249,7 +273,7 @@ namespace DWMPHorde.Patches
         /// Dead spectating peer still sees the shared exit video, but must not receive
         /// success createInvItem / journal grants. Swap to playerDeath effects (or none).
         /// </summary>
-        private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams)
+        private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams, string partyOutcome)
         {
             if (!FinalDreamsceneManager.WasLocalDeadThisDream) return;
             string outcome = dreams.outcome ?? "";
@@ -287,7 +311,10 @@ namespace DWMPHorde.Patches
                 };
             }
             dreams.outcome = "playerDeath";
-            Traverse.Create(dreams).Field("outcomePreset").SetValue(deathOc);
+            // Its rewards are the death outcome's, the world's events the party's: a dead host fired
+            // onEndDream_fail_oneChance while the party (and every client) had won.
+            Traverse.Create(dreams).Field("outcomePreset").SetValue(
+                DreamSyncManager.WithPartyWorldEvents(deathOc, dreams, partyOutcome));
             ModRuntime.LegacyInfo(
                 "[DreamDeath] Local dead at story end — inventory restore only (no success rewards)");
         }
@@ -335,6 +362,25 @@ namespace DWMPHorde.Patches
                     return go.name;
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Client, inside its own <c>Dreams.endDreaming</c>: the outcome's fireWorldEvent effects replay
+    /// the host's outcome (DreamSyncManager.ReplayOutcomeWorldEvent). Unpatched, a client one-shot
+    /// was blocked (the sluice door of oneChance never opened here) and a repeatable one ran as the
+    /// client's own (a second, local-only Wolfman after the church ruins dream).
+    /// </summary>
+    [HarmonyPatch(typeof(Events), nameof(Events.fireWorldEvent))]
+    public static class DreamOutcomeWorldEventPatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix(string type)
+        {
+            if (!DreamSyncManager.OutcomeWorldReplayActive)
+                return true;
+            DreamSyncManager.ReplayOutcomeWorldEvent(type);
+            return false;
         }
     }
 
