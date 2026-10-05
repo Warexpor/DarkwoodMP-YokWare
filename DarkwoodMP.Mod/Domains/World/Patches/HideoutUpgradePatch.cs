@@ -120,16 +120,9 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
+            // A peer's lit oven hums here too, as a lit oven does in vanilla.
             if (LanNetworkManager.IsApplyingRemoteState)
-            {
-                // Client side: enable() just ran and called sound.SetActive(true),
-                // starting the oven's ambient hum.  Suppress it — closing the
-                // cooking menu doesn't call disable(), so the sound would persist
-                // on the client forever.
-                if (__instance.sound != null)
-                    __instance.sound.SetActive(false);
                 return;
-            }
 
             if (HideoutOvenSync.ShouldSend(__state, __instance))
                 HideoutOvenSync.Send(__instance);

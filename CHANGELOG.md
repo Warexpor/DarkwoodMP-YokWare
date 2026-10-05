@@ -623,6 +623,39 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   black screen and the input lock (or the cutscene's freeze) are now released when
   the host is gone.
 
+### Locations and hideout defenses
+
+- **Walking out of a location never told the others.** The "left the location" check
+  read flags that the return to the map had already reset, so only deaths announced
+  an exit. The host kept the leaver inside, so the location never shut down (its
+  creatures kept running), its exit events never fired, and a return wasn't a fresh
+  enter. Leaving now announces the exit.
+- **A location's entry events still credited the host.** The location wakes over a
+  few frames before its entry events fire, and the "who entered" scope was gone by
+  then. It now rides along.
+- **Going straight from one location to another could leave the first one running.**
+  When the second location wasn't made yet, the first was never checked for
+  emptiness. It now is, once the player is placed in the second.
+- **Later visitors missed a location's entry events.** The host walking into a
+  location a client had opened got none of its unfired entry one-shots. Entry moves
+  and hints now also reach each player once, as elsewhere.
+- **The forest behind a client stayed awake while the host was in a location.**
+  Ground woken around a client never went back to sleep, so creatures kept running
+  and chasing from far behind. It now sleeps once no player is near.
+- **A bad location name from a peer was spawned anyway.** It left an empty marker and
+  used up a location slot, again at every heartbeat. Names without a location scene
+  are now refused.
+- **The join's oven snapshot replayed every frame while any oven was missing.** It
+  undid ovens changed since, and broadcast that. Only the ovens not found yet now
+  stay pending, applied as the host's state, at most once a second.
+- **Lit ovens of other players were silent.** Their hum is back.
+- **A teammate's drag could move your own same-named furniture.** A drag update now
+  only matches your dragged object if it is at the reported spot.
+- **Identical furniture standing close together could swap.** The object lookup
+  now takes the nearest object of that name, not the last one it used.
+- **The Electrician skill only worked for the host.** Generators burn fuel on the
+  host. They now run at the best rate any player's skill gives.
+
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.131. **Protocol 31 → 32.** Product

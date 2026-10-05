@@ -24,10 +24,45 @@ namespace DWMPHorde.Patches
             if (__instance.grids != null)
             {
                 for (int g = 0; g < __instance.grids.Count; g++)
-                    EnterNodesNearRemotes(__instance.grids[g], activationRange);
+                {
+                    WorldGrid.Grid grid = __instance.grids[g];
+                    EnterNodesNearRemotes(grid, activationRange);
+                    if (grid != __instance.currentGrid)
+                        LeaveNodesNobodyIsNear(grid, activationRange);
+                }
             }
             else
                 EnterNodesNearRemotes(__instance.currentGrid, activationRange);
+        }
+
+        /// <summary>
+        /// A grid the host is not on (the World while it is in a location, or another location):
+        /// vanilla only ever refreshes the host's own grid, so nodes woken around a client stayed
+        /// awake after it moved on, and creatures behind it kept running and chasing from afar.
+        /// Nodes no remote is near any more go to sleep.
+        /// </summary>
+        private static void LeaveNodesNobodyIsNear(WorldGrid.Grid grid, float activationRange)
+        {
+            if (grid == null || grid.nodes == null)
+                return;
+            var nodes = grid.nodes;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (!nodes[i].entered)
+                    continue;
+                Vector2 np = nodes[i].position;
+                bool near = false;
+                foreach (Vector3 proxyPos in PlayerPositionManager.GetAllRemotePositions())
+                {
+                    if (Mathf.Abs(proxyPos.x - np.x) <= activationRange && Mathf.Abs(proxyPos.z - np.y) <= activationRange)
+                    {
+                        near = true;
+                        break;
+                    }
+                }
+                if (!near)
+                    nodes[i].leave(false);
+            }
         }
 
         internal static void EnterNodesNearRemotes(WorldGrid.Grid grid, float activationRange)

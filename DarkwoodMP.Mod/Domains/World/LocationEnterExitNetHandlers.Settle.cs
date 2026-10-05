@@ -43,7 +43,12 @@ namespace DWMPHorde.Networking
                             $"[LocationSync] settle '{locationName}' — no such pad, not announcing");
                         return;
                     }
+                    bool alreadyRunning = settled.entered && settled.gameObject.activeInHierarchy;
                     EnsureEntered(settled);
+                    // The host walking into a pad a peer already opened: vanilla's enter() does
+                    // nothing for an entered pad, so the entry's unfired one-shots never got it.
+                    if (alreadyRunning && _net.Role == NetworkRole.Host)
+                        FirePendingEnterOneShots(settled, _net.LocalPlayerId);
 
                     // Vanilla transportToLocation dreamPrepared branch never sets these
                     // (only the non-dream path does). Without them, the next PlayerState
@@ -90,9 +95,18 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Local returned to the world map after an outside location.</summary>
-        public void OnLocalReturnedToWorld()
+        public void OnLocalReturnedToWorld() => OnLocalReturnedToWorld(forceExit: false);
+
+        /// <summary>
+        /// Back on the world map. Peers are told (LocationExit): the tick's "left the location"
+        /// check compares against the flags this resets in the same call, so a plain walk out of
+        /// a pad never announced it. The host kept the leaver in the pad: the pad never left (its
+        /// AI kept running), its exit events never fired, and a re-entry was not a fresh enter.
+        /// </summary>
+        public void OnLocalReturnedToWorld(bool forceExit)
         {
             if (!_net.IsConnected) return;
+            bool wasIn = _net.PreviousInOutsideLocation || !string.IsNullOrEmpty(_net.PreviousLocationName);
             try
             {
                 ClearPendingForceAnnounce("returned to world");
@@ -111,6 +125,21 @@ namespace DWMPHorde.Networking
                         _net.TeleportRemoteProxyTo(pos, rotY, kvp.Key);
                 }
                 ModRuntime.LegacyInfo("[LocationSync] local returned to world — proxy snap from last known");
+
+                Vector3 here = Player.Instance != null ? Player.Instance.transform.position : Vector3.zero;
+                if (wasIn || (forceExit && here != Vector3.zero))
+                {
+                    _net.Broadcast(NetMessageType.LocationExit,
+                        w => new LocationExitMessage
+                        {
+                            PosX = here.x,
+                            PosY = here.y,
+                            PosZ = here.z,
+                            PlayerId = _net.LocalPlayerId
+                        }.Serialize(w),
+                        DeliveryMethod.ReliableOrdered);
+                    ModRuntime.LegacyInfo($"[LocationSync] LocationExit pid={_net.LocalPlayerId} at {here}");
+                }
             }
             catch (System.Exception ex)
             {
@@ -127,27 +156,7 @@ namespace DWMPHorde.Networking
             if (!_net.IsConnected) return;
             try
             {
-                bool wasIn = _net.PreviousInOutsideLocation
-                    || !string.IsNullOrEmpty(_net.PreviousLocationName);
-                OnLocalReturnedToWorld();
-
-                Vector3 pos = Player.Instance != null
-                    ? Player.Instance.transform.position
-                    : Vector3.zero;
-                if (wasIn || pos != Vector3.zero)
-                {
-                    _net.Broadcast(NetMessageType.LocationExit,
-                        w => new LocationExitMessage
-                        {
-                            PosX = pos.x,
-                            PosY = pos.y,
-                            PosZ = pos.z,
-                            PlayerId = _net.LocalPlayerId
-                        }.Serialize(w),
-                        DeliveryMethod.ReliableOrdered);
-                    ModRuntime.LegacyInfo(
-                        $"[LocationSync] death LocationExit pid={_net.LocalPlayerId} at {pos}");
-                }
+                OnLocalReturnedToWorld(forceExit: true);
             }
             catch (System.Exception ex)
             {

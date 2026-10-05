@@ -23,6 +23,11 @@ namespace DWMPHorde.Networking
         /// <summary>Peers whose pad was missing; place proxy once ResolveOutsideLocation succeeds.</summary>
         private readonly HashSet<int> _pendingPlaceOnLocationResolve = new HashSet<int>();
         /// <summary>
+        /// Host: a peer went pad to pad into a pad not made yet; the pad it left is checked for
+        /// emptiness once it is placed in the new one (the heartbeat after that no longer knows it).
+        /// </summary>
+        private readonly Dictionary<int, string> _pendingLeave = new Dictionary<int, string>();
+        /// <summary>
         /// Soft-reconnect ForceAnnounce while mid ol.loading / loadingGame (playerInOutsideLocation
         /// still false). Retry on settle / Tick flush — do not invent a pad name on the world map.
         /// </summary>
@@ -82,7 +87,7 @@ namespace DWMPHorde.Networking
                         // Already running for someone else: the entry's one-shots that never
                         // latched (the first visitor failed a requirement) still get this visitor.
                         if (wasEntered && firstEnterThisLoc)
-                            FirePendingEnterOneShots(loc);
+                            FirePendingEnterOneShots(loc, playerId);
                     }
                     finally
                     {
@@ -114,6 +119,12 @@ namespace DWMPHorde.Networking
                 if (_net.Role == NetworkRole.Host && !string.IsNullOrEmpty(prev)
                     && !CoopWorldPresencePolicy.LocationNamesMatch(prev, locName))
                     TryLeaveUnoccupiedOutsideLocation(prev);
+                if (_net.Role == NetworkRole.Host && _pendingLeave.TryGetValue(playerId, out string left))
+                {
+                    _pendingLeave.Remove(playerId);
+                    if (!CoopWorldPresencePolicy.LocationNamesMatch(left, locName))
+                        TryLeaveUnoccupiedOutsideLocation(left);
+                }
 
                 // Host never setGrid for a remote-only pad; wake that location's
                 // WorldGrid nodes around remotes so bunker Cullables/AI run.
@@ -138,6 +149,9 @@ namespace DWMPHorde.Networking
             }
             else
             {
+                if (_net.Role == NetworkRole.Host && !string.IsNullOrEmpty(prev)
+                    && !CoopWorldPresencePolicy.LocationNamesMatch(prev, locName))
+                    _pendingLeave[playerId] = prev;
                 // Dreams: LoadDreamSceneCoroutine owns the pad. createLocation here races
                 // a second bunker (duplicated ambience and lights, wrong slot Y); only wait.
                 bool dreamName = locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
@@ -232,7 +246,7 @@ namespace DWMPHorde.Networking
             return CoopWorldPresencePolicy.LocationNamesMatch(local, locName);
         }
 
-        private static void FirePendingEnterOneShots(Location loc)
+        internal static void FirePendingEnterOneShots(Location loc, int playerId)
         {
             if (Core.loadingGame || loc.events == null)
                 return;
@@ -245,8 +259,12 @@ namespace DWMPHorde.Networking
                 for (int j = 0; j < et.eventTriggers.Count && !pending; j++)
                 {
                     EventTrigger t = et.eventTriggers[j];
-                    pending = t != null && !t.disabled && !t.multipleFire && !t.fired
-                        && t.type == EventTrigger.Type.onEnterLocation;
+                    pending = t != null && !t.disabled && !t.multipleFire
+                        && t.type == EventTrigger.Type.onEnterLocation
+                        && (!t.fired
+                            // A move or a hint that has not carried / shown to this player yet.
+                            || (PerPlayerTransportOneShots.Qualifies(t.gameEvents)
+                                && !PerPlayerTransportOneShots.Served(t.gameEvents.GetInstanceID(), playerId)));
                 }
                 if (pending)
                     Core.sendTriggerInfo(et.gameObject, EventTrigger.Type.onEnterLocation);
@@ -381,6 +399,7 @@ namespace DWMPHorde.Networking
             int n = _net.RemoteOutsideLocation.Count;
             _net.RemoteOutsideLocation.Clear();
             _pendingPlaceOnLocationResolve.Clear();
+            _pendingLeave.Clear();
             // Drop stale sticky from prior session; Handshake OK ForceAnnounce re-queues if needed.
             _pendingForceAnnounceReason = null;
             _deferredCreateWhileLocalLoading.Clear();
@@ -406,6 +425,7 @@ namespace DWMPHorde.Networking
         internal void ResetForNetworkStop()
         {
             _pendingPlaceOnLocationResolve.Clear();
+            _pendingLeave.Clear();
             _pendingForceAnnounceReason = null;
             _deferredCreateWhileLocalLoading.Clear();
         }
