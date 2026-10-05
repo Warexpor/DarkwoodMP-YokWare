@@ -249,27 +249,38 @@ namespace DWMPHorde.Networking
         /// </summary>
         private int SendOpenedDoorStatesNearLocationTo(int targetPlayerId, Location loc)
         {
-            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+            if (loc == null)
+                return 0;
+            return SendDoorStatesTo(targetPlayerId, loc, 128);
+        }
+
+        /// <summary>
+        /// Host: every door's open or closed state (around <paramref name="loc"/>, or the whole world
+        /// when null). Closed ones too: a peer coming back with its own copy of the world kept doors
+        /// open that others had closed meanwhile (the live scan only reports changes).
+        /// </summary>
+        internal int SendDoorStatesTo(int targetPlayerId, Location loc, int maxSend)
+        {
+            if (_net.Role != NetworkRole.Host || targetPlayerId <= 0)
                 return 0;
 
-            Transform root = loc.transform;
-            Vector3 anchor = loc.playerSpawn != null
-                ? loc.playerSpawn.transform.position
-                : (root != null ? root.position : Vector3.zero);
+            Transform root = loc != null ? loc.transform : null;
+            Vector3 anchor = loc == null ? Vector3.zero
+                : loc.playerSpawn != null
+                    ? loc.playerSpawn.transform.position
+                    : (root != null ? root.position : Vector3.zero);
             const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
 
             Door[] doors = WorldQueryHelper.GetCachedSceneComponents<Door>();
             int sent = 0;
-            const int maxSend = 128;
             var batch = new List<DoorState>(PadDoorBatch);
             for (int i = 0; i < doors.Length && sent < maxSend; i++)
             {
                 Door door = doors[i];
                 if (door == null || door.transform == null) continue;
-                if (!IsUnderOrNearLocation(door.transform, root, anchor, maxDistSqr))
+                if (loc != null && !IsUnderOrNearLocation(door.transform, root, anchor, maxDistSqr))
                     continue;
-                if (!TraverseHack.ReadDoorOpened(door))
-                    continue;
+                bool opened = TraverseHack.ReadDoorOpened(door);
 
                 Vector3 p = door.transform.position;
                 Vector3 key = new Vector3(
@@ -289,7 +300,7 @@ namespace DWMPHorde.Networking
                     PosX = key.x,
                     PosY = key.y,
                     PosZ = key.z,
-                    Opened = true,
+                    Opened = opened,
                     BodyRotY = bodyRotY,
                     AngVelX = angVel.x,
                     AngVelY = angVel.y,

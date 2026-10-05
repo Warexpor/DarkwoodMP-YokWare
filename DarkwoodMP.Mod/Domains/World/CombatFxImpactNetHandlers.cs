@@ -148,7 +148,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo($"[MeleeWorldHit] door not found at {pos}");
                     return;
                 }
-                DialogHostApplyGuard.RunHostWorldFanout(() =>
+                PlayerWorldHitScope.Run(playerId, () =>
                     door.getHit(damage, attackerT, !suppressed, false));
                 return;
             }
@@ -163,7 +163,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo($"[MeleeWorldHit] window not found at {pos}");
                     return;
                 }
-                DialogHostApplyGuard.RunHostWorldFanout(() =>
+                PlayerWorldHitScope.Run(playerId, () =>
                     window.getHit(damage, attackerT, !suppressed));
                 return;
             }
@@ -172,7 +172,10 @@ namespace DWMPHorde.Networking
             {
                 // Client hit Y often differs from the host because of body-push or location layers;
                 // match on XZ only, at the item's own spot (25 m used to hit the nearest other crate).
-                if (TryHitDestructibleItemAt(pos, BarricadeNetHandlers.ItemMatchRadius, damage, attackerT))
+                bool hit = false;
+                PlayerWorldHitScope.Run(playerId, () =>
+                    hit = TryHitDestructibleItemAt(pos, BarricadeNetHandlers.ItemMatchRadius, damage, attackerT));
+                if (hit)
                     return;
                 ModRuntime.LegacyInfo($"[MeleeWorldHit] destructible item not found at {pos}");
             }

@@ -164,13 +164,20 @@ namespace DWMPHorde.Patches
                 return true;
 
             ClientWorldMeleeRedirectHelper.SendHit(0, __instance.transform.position, damage);
-            // Play local hit effects since getHit will be skipped
-            AudioController.Play("woodenObject_hit", __instance.transform);
-            Core.AddPrefab("particles/door_hit_melee", __instance.transform.position, __instance.transform.rotation, null);
+            // Play local hit effects since getHit will be skipped. A metal door only clangs
+            // (vanilla: door_hit_metal, no damage, no splinters).
+            bool canDamageMetal = __args.Length > 3 && (bool)__args[3];
+            if (__instance.type == Door.Type.metal && !canDamageMetal)
+                AudioController.Play("door_hit_metal", __instance.transform);
+            else
+            {
+                AudioController.Play("woodenObject_hit", __instance.transform);
+                Core.AddPrefab("particles/door_hit_melee", __instance.transform.position, __instance.transform.rotation, null);
+            }
             if (Core.trueDistance(__instance.transform.position, Player.Instance._transform.position) < 250f)
                 Singleton<CamMain>.Instance.shake(0.3f, 5f);
-            if (__instance.barricaded)
-                Singleton<UI>.Instance.enemyHealthBar.show(__instance.gameObject);
+            // Vanilla shows the bar for any player hit; the host's state refreshes it.
+            Singleton<UI>.Instance.enemyHealthBar.show(__instance.gameObject);
             // Open door swing: host still owns HP; client needs local force or the door never moves.
             ClientWorldMeleeRedirectHelper.ApplyOpenDoorSwingPredictive(__instance, attacker);
             return false;

@@ -572,6 +572,32 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   the shake and the noise vanilla gives the player in range.
 - **A shooter hurt only the player nearest to it.** Vanilla hurts "the player"
   whenever the shooter can see them. It now hurts every player it can see.
+- **A client's flamethrower was harmless.** Its flames' hits were muted on the
+  client, because flames copied from the host's fire bombs are. A player's own
+  flamethrower fire now counts as their attack, like a gun. Creature hits go to the
+  host with the flame's burn, and door and crate hits are reported.
+
+### Doors
+
+- **A client opening or kicking a door was silent to creatures.** Vanilla alerts
+  creatures only when the opener is a player, and the host opened it with no opener.
+  The host now raises the same alert (a kick carries further).
+- **A story event forcing a locked door open unlocked it on clients only.** The open
+  message also cleared the door's locks and its "blocked" state everywhere but on the
+  host. Locks travel on their own messages, so a plain open now leaves them alone.
+- **A door could end up barricaded and open.** An open that crossed a teammate's
+  finished barricade was applied anyway. A barricaded or broken door is no longer
+  opened.
+- **Client hits on doors and windows looked and counted wrong.** The host fired the
+  generic "attacked" trigger instead of "attacked by the player", so scene triggers
+  waiting for the player to hit the object never fired for clients. A metal door
+  sounded like wood on the client. Both now match vanilla. The client also sees the
+  door's health bar on any hit.
+- **Client fire overwrote door, window and crate health.** A client's copy of a
+  fire bomb's flames also hit them and sent its own health value, which replaced
+  the host's. The copy now only sets them alight; the damage is the host's.
+- **A peer coming back kept doors open that others had closed.** Joins now carry
+  every door's state, closed ones included.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

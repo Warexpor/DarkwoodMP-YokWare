@@ -181,6 +181,21 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Flame), "onCollideWith")]
     public static class ClientFlameCharDamageMutePatch
     {
+        /// <summary>The object vanilla Flame would burn and hit (destructible item, door, window), or null.</summary>
+        private static GameObject FlameWorldTarget(Transform t, Collider c)
+        {
+            Item item = c != null ? c.transform.GetComponent<Item>() : null;
+            if (item == null && t != null)
+                item = t.GetComponent<Item>();
+            if (item != null && item.destructible)
+                return item.gameObject;
+            Door door = c != null ? Door.getDoorScript(c.transform) : null;
+            if (door != null)
+                return door.gameObject;
+            Window window = c != null ? c.GetComponent<Window>() : null;
+            return window != null ? window.gameObject : null;
+        }
+
         private static bool Prefix(Flame __instance, Transform _transform, Collider _collider, bool destroyMeAfterCollision)
         {
             var net = ModRuntime.Network;
@@ -188,18 +203,40 @@ namespace DWMPHorde.Patches
                 return true;
             if (__instance == null || __instance.gameObject == null || !__instance.isActive)
                 return true;
+            // This player's own flamethrower: its hits are this player's attacks, as with a gun
+            // (creature hits go to the host as attacks; door and crate hits are reported).
+            // Muting them left a client's flamethrower harmless.
+            FlameOrigin origin = __instance.GetComponent<FlameOrigin>();
+            if (origin != null && origin.LocalShot)
+                return true;
 
             CharBase body = null;
             if (_collider != null)
                 body = _collider.transform.GetComponent<CharBase>();
             if (body == null && _transform != null)
                 body = _transform.GetComponent<CharBase>();
-            if (body == null)
-                return true;
 
             var hitList = Traverse.Create(__instance)
                 .Field("transformsAlreadyCollidedWith")
                 .GetValue<System.Collections.Generic.List<Transform>>();
+
+            if (body == null)
+            {
+                // A burnable crate, door or window: it catches fire here as in vanilla, but its
+                // damage is the host's. This copy's hit sent its own absolute health up and
+                // overwrote the host's (healing the door or breaking it early).
+                GameObject burnable = FlameWorldTarget(_transform, _collider);
+                if (burnable == null)
+                    return true;
+                if (hitList != null && _transform != null)
+                    hitList.Add(_transform);
+                if (burnable.GetComponent<Burn>() == null)
+                    burnable.AddComponent<Burn>().burnTime = 20f;
+                if (destroyMeAfterCollision)
+                    __instance.stopEmission();
+                return false;
+            }
+
             if (hitList != null && _transform != null)
                 hitList.Add(_transform);
 
