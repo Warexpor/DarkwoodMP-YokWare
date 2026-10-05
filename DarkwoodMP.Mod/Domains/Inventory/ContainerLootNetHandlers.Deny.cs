@@ -121,6 +121,13 @@ namespace DWMPHorde.Networking
             Vector3 containerPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             _pending.ClearPendingContainerRemove(containerPos, msg.SlotIndex);
 
+            // A controller drop out of the chest: the item went to the ground, not the bag. Refused,
+            // that ground copy had no source; refunding from the bag found nothing and it stayed
+            // twice (chest and ground).
+            if (Patches.ContainerDropItemPatch.TryRetractDrop(
+                    Patches.ContainerDropItemPatch.SlotKey(containerPos, msg.SlotIndex)))
+                return;
+
             // Not a take: a craft, repair or upgrade drew on pile materials that were already gone.
             // Undo that action; taking the ingredient back from the bag left a crafter without
             // it holding the product for free.

@@ -296,6 +296,8 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(WorkbenchUndo.Reset);
             NetworkResetRegistry.Register(TraderRestockDefer.Reset);
             NetworkResetRegistry.Register(CombatMusicSync.Reset);
+            NetworkResetRegistry.Register(TrapLedger.Reset);
+            NetworkResetRegistry.Register(ContainerDropItemPatch.Reset);
             NetworkResetRegistry.Register(EpilogueNetHandlers.EpilogueCredits.Reset);
             // A host lost mid-share must not leave the client black and locked.
             NetworkResetRegistry.Register(ChapterWaitScreen.Release);

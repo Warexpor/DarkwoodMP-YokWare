@@ -106,6 +106,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "worldLights", () => WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId));
             LateJoinStep(playerId, "generators", () => WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId));
             LateJoinStep(playerId, "traps", () => SendTrapBulkTo(playerId));
+            LateJoinStep(playerId, "trapLedger", () => Sync.TrapLedger.SendTo(this, playerId));
             LateJoinStep(playerId, "thrownLights", () => Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId));
             // Registry-cheap (no FindObjectsOfType scene thrash).
             LateJoinStep(playerId, "locations", () => LocationEnterExitHandlers.SyncExistingLocationsTo(playerId));

@@ -10,6 +10,31 @@ namespace DWMPHorde.Patches
 {
     internal static class DroppedItemSyncHelpers
     {
+        /// <summary>The last drop this machine announced, and a running count (to tell a drop happened).</summary>
+        internal static string LastSentDropGuid; // process-scoped: last value only, read right after a drop
+        internal static int SentDrops; // process-scoped: monotonic counter
+
+        /// <summary>
+        /// Take back one of this machine's own drops that should not exist (its source was refused):
+        /// gone here and, through the pickup claim, for everyone; nothing reaches the bag.
+        /// </summary>
+        internal static void RetractOwnDrop(string guid)
+        {
+            DroppedItemIdentifier ident = DroppedItemIdentifier.FindById(guid);
+            if (ident == null)
+                return;
+            Inventory bag = ident.GetComponent<Inventory>();
+            InvItemClass it = bag != null && bag.slots != null && bag.slots.Count > 0
+                ? bag.slots[0].invItem
+                : null;
+            string type = !InvItemClass.isNull(it) ? (it.isRecipe ? it.recipeFor : it.type) : "";
+            int amount = !InvItemClass.isNull(it) ? it.amount : 0;
+            int pre = string.IsNullOrEmpty(type) ? -1 : ContainerSyncHelpers.CountPlayerItem(type, !InvItemClass.isNull(it) && it.isRecipe);
+            Object.Destroy(ident.gameObject);
+            FinishGuidPickupClaim(guid, type, amount, !InvItemClass.isNull(it) ? it.durability : -1f,
+                !InvItemClass.isNull(it) ? it.ammo : 0, pre, !InvItemClass.isNull(it) && it.isRecipe ? it.recipeFor : null);
+        }
+
         internal static void SendDrop(Transform spawned, InvItemClass item, string prefabPath)
         {
             if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
@@ -22,6 +47,8 @@ namespace DWMPHorde.Patches
             var ident = spawned.gameObject.AddComponent<DroppedItemIdentifier>();
             ident.Id = guid;
             DroppedItemIdentifier.Register(ident);
+            LastSentDropGuid = guid;
+            SentDrops++;
 
             Vector3 pos = spawned.position;
             Vector3 euler = spawned.eulerAngles;

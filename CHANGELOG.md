@@ -656,6 +656,25 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
 - **The Electrician skill only worked for the host.** Generators burn fuel on the
   host. They now run at the best rate any player's skill gives.
 
+### Items and traps for late joiners
+
+- **A client picking up a ground item lost it for everyone.** The pickup sent both
+  the claim and a container removal. The removal made the host destroy its copy
+  first, so the claim found nothing and was refused, and the client gave the item
+  back. A whole pickup now goes by its claim alone.
+- **A generator update could create a stray second generator.** A client using a
+  generator in a house the host hadn't loaded made the host spawn a new, unsaved
+  one there. The real generator later stood on top of it, and the stray took its
+  updates. The update now waits for the real generator. The generator lookup also
+  stopped checking after 32 generators.
+- **A controller drop out of a chest could duplicate the item.** When the host
+  refused the take (a teammate got it first), the item was both on the ground and
+  in the chest. The drop is now taken back.
+- **Traps placed or removed since the last save were wrong for anyone joining
+  later.** A joiner loads the last save, so a newer trap didn't exist for them, and
+  one disarmed or picked up since came back armed and could be taken again. The host
+  now keeps both lists until the next save and sends them to joiners.
+
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
 Branch `dev-entity-sync-remaster`, on top of 0.8.131. **Protocol 31 → 32.** Product

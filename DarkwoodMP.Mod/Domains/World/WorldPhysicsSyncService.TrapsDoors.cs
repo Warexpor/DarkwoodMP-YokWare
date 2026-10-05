@@ -288,44 +288,66 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>
-        /// Spawns a generator on-demand from <see cref="GeneratorState.ItemType"/>
-        /// when it doesn't exist locally (e.g. remote player turned on a generator
-        /// in an unloaded world chunk).
-        /// </summary>
-        private static Generator SpawnGenerator(GeneratorState gs)
+        private static void QueuePendingGenerator(GeneratorState gs)
         {
-            if (string.IsNullOrEmpty(gs.ItemType))
-                return null;
-
-            if (Singleton<ItemsDatabase>.Instance == null || !Singleton<ItemsDatabase>.Instance.hasItem(gs.ItemType))
-                return null;
-
-            InvItem itemDef = Singleton<ItemsDatabase>.Instance.getItem(gs.ItemType, instantiate: false);
-            if (itemDef == null || itemDef.item == null)
-                return null;
-
-            GameObject prefab = itemDef.item as GameObject;
-            if (prefab == null)
-                return null;
-
-            Vector3 pos = new Vector3(gs.PosX, gs.PosY, gs.PosZ);
-            Quaternion rot = Quaternion.identity;
-            GameObject go = Core.AddPrefab(prefab, pos, rot, null);
-            if (go == null)
-                go = UnityEngine.Object.Instantiate(prefab, pos, rot);
-
-            if (go == null) return null;
-
-            Generator gen = go.GetComponent<Generator>();
-            if (gen != null)
-                ListTracker<Generator>.Add(gen);
-
-            ModRuntime.LegacyInfo($"[GeneratorSync] spawned type={gs.ItemType} at {pos}");
-            return gen;
+            Vector3 p = new Vector3(gs.PosX, gs.PosY, gs.PosZ);
+            for (int i = 0; i < _s.PendingGenerators.Count; i++)
+            {
+                GeneratorState q = _s.PendingGenerators[i];
+                if ((new Vector3(q.PosX, q.PosY, q.PosZ) - p).sqrMagnitude < 4f)
+                {
+                    gs.FuelDelta += q.FuelDelta; // a client's pours add up
+                    _s.PendingGenerators[i] = gs;
+                    return;
+                }
+            }
+            if (_s.PendingGenerators.Count >= 32)
+            {
+                _s.PendingGenerators.RemoveAt(0);
+                _s.PendingGeneratorAt.RemoveAt(0);
+            }
+            _s.PendingGenerators.Add(gs);
+            _s.PendingGeneratorAt.Add(Time.unscaledTime);
         }
 
-        /// <summary>Finds a Generator by position via the tracker.</summary>
+        /// <summary>Apply generator states whose generator has appeared (its location spawned).</summary>
+        internal static void TryFlushPendingGenerators()
+        {
+            if (_s.PendingGenerators.Count == 0 || Player.Instance == null || Core.loadingGame)
+                return;
+            if (Time.unscaledTime < _s.NextPendingGeneratorFlush)
+                return;
+            _s.NextPendingGeneratorFlush = Time.unscaledTime + 1f;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                for (int i = _s.PendingGenerators.Count - 1; i >= 0; i--)
+                {
+                    GeneratorState gs = _s.PendingGenerators[i];
+                    Generator gen = FindGeneratorByPos(new Vector3(gs.PosX, gs.PosY, gs.PosZ));
+                    if (gen == null)
+                    {
+                        if (Time.unscaledTime - _s.PendingGeneratorAt[i] > 300f)
+                        {
+                            _s.PendingGenerators.RemoveAt(i);
+                            _s.PendingGeneratorAt.RemoveAt(i);
+                        }
+                        continue;
+                    }
+                    if (gs.FuelDelta > 0.01f)
+                        gen.addFuel(gs.FuelDelta);
+                    ApplyGeneratorState(gen, gs.IsOn, gs.FuelDelta > 0.01f ? gen.fuel : gs.Fuel, gs.LowPower);
+                    _s.PendingGenerators.RemoveAt(i);
+                    _s.PendingGeneratorAt.RemoveAt(i);
+                }
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prevNet);
+            }
+        }
+
         private static Generator FindGeneratorByPos(Vector3 pos)
         {
             Generator gen = ListTracker<Generator>.FindByPosition(pos);
@@ -335,7 +357,7 @@ namespace DWMPHorde.Sync
             // Fallback: search all loaded Generator instances to catch generators
             // that were spawned dynamically after the tracker's Start patch ran.
             Generator[] all = WorldQueryHelper.GetCachedSceneComponents<Generator>();
-            for (int i = 0; i < all.Length && i < 32; i++)
+            for (int i = 0; i < all.Length; i++)
             {
                 Generator g = all[i];
                 if (g == null) continue;
