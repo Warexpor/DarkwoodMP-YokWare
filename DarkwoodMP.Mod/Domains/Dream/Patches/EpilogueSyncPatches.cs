@@ -51,14 +51,23 @@ namespace DWMPHorde.Patches
                 ModRuntime.Log?.LogWarning("[Epilogue] goToCredits pre-fade: " + ex.Message);
             }
 
-            net.Broadcast(NetMessageType.SceneLoad,
-                w => new SceneLoadMessage { SceneName = EpilogueNetHandlers.CreditsSceneName }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
-
-            // Host applies immediately (broadcast already out). Client applies after host
-            // rebroadcasts via Forwardable, but also apply locally so the originator is not stuck
-            // if host is slow. ApplySceneLoad is idempotent via _sceneLoadPending.
-            EpilogueNetHandlers.ApplySceneLoad(EpilogueNetHandlers.CreditsSceneName, delaySeconds: 8f);
+            // Done with the ending pages: wait (faded out) until everyone in the ending is; the host
+            // starts the credits for all (EpilogueCredits). Before, the fastest reader pulled the
+            // others into the credits mid-page.
+            if (net.Role == NetworkRole.Host)
+                EpilogueNetHandlers.EpilogueCredits.MarkReady(net.LocalPlayerId);
+            else
+            {
+                net.Send(NetMessageType.SceneLoad,
+                    w => new SceneLoadMessage { SceneName = EpilogueNetHandlers.CreditsSceneName }.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                // A host that never answers (gone) must not leave this player in the dark.
+                Singleton<Controller>.Instance?.Invoke(delegate
+                {
+                    if (SceneManager.GetActiveScene().name != EpilogueNetHandlers.CreditsSceneName)
+                        EpilogueNetHandlers.ApplySceneLoad(EpilogueNetHandlers.CreditsSceneName, delaySeconds: 0.5f);
+                }, 150f, timeScaleDependent: false);
+            }
 
             // Credits ends co-op permanently under ChapterSessionPolicy; do not CaptureForResume.
             // Documented residual: post-credits is single-player epilogue, not a co-op chapter.

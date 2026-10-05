@@ -363,6 +363,7 @@ namespace DWMPHorde.Patches
         private static void ClientLeaveSessionNow(string message)
         {
             ModLog.Error(LogCat.Session, "[Chapter] Leaving session: " + message);
+            ChapterWaitScreen.Release();
             ChapterSessionResume.Reset();
             var net = ModRuntime.Network;
             // Abort / timeout / refusal: the buffered package is dropped and the save slot stays as it was.

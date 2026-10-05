@@ -21,8 +21,19 @@ namespace DWMPHorde.Patches
 
         private static VideoPlayer _prepared;
 
+        /// <summary>This peer is playing the host's opening (not its own): the host owns its end.</summary>
+        private static bool _playingHostIntro; // reset-in: Reset
+
         internal static void Reset()
         {
+            // The host left mid-movie: nobody will send the end. Hand the player back instead of
+            // leaving the movie, the black screen and the input lock up.
+            if (_playingHostIntro)
+            {
+                _playingHostIntro = false;
+                try { ApplyEnd(); }
+                catch (System.Exception ex) { ModRuntime.Log?.LogWarning("[Prologue] release on disconnect: " + ex.Message); }
+            }
             ClientDeferredFirstPlay = false;
             _hostEndingIntro = false;
             _sessionHadPrologue = false;
@@ -157,6 +168,7 @@ namespace DWMPHorde.Patches
                 return;
 
             wg.playingIntro = true;
+            _playingHostIntro = true;
             Core.forbidInputs = true;
             CutsceneSyncHelpers.SetProxiesHidden(true);
 
@@ -165,12 +177,23 @@ namespace DWMPHorde.Patches
             try { ui.showPrologueText(); }
             finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1); }
 
+            // The movie starts 7 s in; an End arriving before that (the host skipped, or a joiner
+            // caught the last seconds) must cancel it, or it played over the live world.
+            int gen = ++_introGen;
             ctrl.Invoke(delegate
             {
+                if (gen != _introGen || !wg.playingIntro)
+                    return;
                 AudioController.Play("DW4_1");
-                ctrl.Invoke(delegate { StartVideo(); }, 3f, timeScaleDependent: false);
+                ctrl.Invoke(delegate
+                {
+                    if (gen == _introGen && wg.playingIntro)
+                        StartVideo();
+                }, 3f, timeScaleDependent: false);
             }, 4f, timeScaleDependent: false);
         }
+
+        private static int _introGen; // process-scoped: monotonic; bumped by every End so a pending start bails
 
         internal static void ApplyEnd()
         {
@@ -185,6 +208,8 @@ namespace DWMPHorde.Patches
             // blackScreen / tutorial pad (ApplyEnd used to run on every End catch-up).
             if (!wg.playingIntro && !ClientDeferredFirstPlay && !Core.forbidInputs)
                 return;
+            _introGen++;
+            _playingHostIntro = false;
             wg.playingIntro = false;
             Core.forbidInputs = false;
             Time.timeScale = 1f;
@@ -225,6 +250,11 @@ namespace DWMPHorde.Patches
             if (player != null)
             {
                 ClientDeferredFirstPlay = false;
+                // Vanilla activatePlayer after the movie: the player wakes up (the Sleep clip ending
+                // in onEndSleep) instead of standing there.
+                try { ui?.refreshLives(); } catch { /* UI not ready */ }
+                player.performingAction = true;
+                player.endingSleep = true;
                 player.modifyFOVDot(200f);
                 player._transform.rotation = Quaternion.Euler(90f, 180f, 0f);
                 Controller ctrl = Singleton<Controller>.Instance;

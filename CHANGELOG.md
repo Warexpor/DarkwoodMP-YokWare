@@ -10,7 +10,7 @@ The current product line is `0.8.x`. The plugin and display version are
 the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
-`PlayerEffectSync` the home oven, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
+`PlayerEffectSync` the home oven and the in-ending flag, `ChapterTransition` the start-over flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
 (150), `PlayerSpecial` (151) and `TradeCommit` (152),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
@@ -598,6 +598,30 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   the host's. The copy now only sets them alight; the damage is the host's.
 - **A peer coming back kept doors open that others had closed.** Joins now carry
   every door's state, closed ones included.
+
+### New game, chapter change and the ending
+
+- **A party wipe's "start over" deleted the other players' worlds.** The wipe marks
+  every player's profile dead, and only the player who pressed "start over" got it
+  cleared. The profile menu deletes a dead profile's world on its next visit. The
+  start-over now clears the mark on every machine.
+- **Friends were locked out of the new game's opening.** The tutorial dream starts
+  while the world is being made. Joins are refused during a dream, so a friend who
+  waited at the title screen couldn't reconnect after loading the shared world.
+  Joins are now let into the tutorial dream and pulled into it.
+- **The opening movie could play over the live world on a client.** A client
+  catching the opening schedules the movie 7 seconds in. An "intro over" arriving
+  first (the host skipped) didn't cancel it. It now does. After the movie, clients
+  also wake up from sleep as vanilla does.
+- **Clients played on through the chapter change.** Vanilla blacks out and locks the
+  player while the next chapter is made, but on a client that step is the host's.
+  Clients now go black, locked and unhurt until the new chapter loads, and are handed
+  back if the change fails.
+- **The fastest reader ended the epilogue for everyone.** Credits now start when
+  every player in the ending has finished its pages, or after two minutes.
+- **A host leaving mid-movie or mid-cutscene left clients locked.** The movie, the
+  black screen and the input lock (or the cutscene's freeze) are now released when
+  the host is gone.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

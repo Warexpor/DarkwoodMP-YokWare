@@ -41,6 +41,52 @@ namespace DWMPHorde.Networking
             return false;
         }
 
+        /// <summary>Host: who in the ending has reached the credits.</summary>
+        internal static class EpilogueCredits
+        {
+            /// <summary>An idle reader does not hold the rest of the party forever.</summary>
+            private const float MaxWaitSec = 120f;
+
+            private static readonly System.Collections.Generic.HashSet<int> _ready = new System.Collections.Generic.HashSet<int>(); // reset-in: Reset
+            private static float _firstReadyAt = -1f; // reset-in: Reset
+
+            internal static void Reset()
+            {
+                _ready.Clear();
+                _firstReadyAt = -1f;
+            }
+
+            internal static void MarkReady(int playerId)
+            {
+                if (playerId <= 0 || !_ready.Add(playerId))
+                    return;
+                if (_firstReadyAt < 0f)
+                    _firstReadyAt = UnityEngine.Time.unscaledTime;
+                ModRuntime.LegacyInfo($"[Epilogue] p{playerId} reached the credits ({_ready.Count} ready)");
+            }
+
+            internal static void Tick(LanNetworkManager net)
+            {
+                if (_firstReadyAt < 0f || _sceneLoadPending || net == null || net.Role != NetworkRole.Host)
+                    return;
+                bool all = !IsLocalInEpilogue() || _ready.Contains(net.LocalPlayerId);
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy != null && proxy.PlayerId > 0 && proxy.RemoteInEpilogue && !_ready.Contains(proxy.PlayerId))
+                        all = false;
+                }
+                bool timedOut = UnityEngine.Time.unscaledTime - _firstReadyAt > MaxWaitSec;
+                if (!all && !timedOut)
+                    return;
+                ModRuntime.LegacyInfo("[Epilogue] everyone in the ending is done" + (all ? "" : " (waited too long)") + " — credits");
+                net.Broadcast(NetMessageType.SceneLoad,
+                    w => new SceneLoadMessage { SceneName = CreditsSceneName }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                ApplySceneLoad(CreditsSceneName, delaySeconds: 8f);
+                Reset();
+            }
+        }
+
         internal void HandleSceneLoad(SceneLoadMessage msg)
         {
             if (string.IsNullOrEmpty(msg.SceneName)) return;
@@ -56,16 +102,10 @@ namespace DWMPHorde.Networking
                     // Apply on the host and let [Forwardable] reach the other peers.
                     if (string.Equals(msg.SceneName, CreditsSceneName, System.StringComparison.Ordinal))
                     {
-                        if (!IsLocalInEpilogue())
-                        {
-                            ModRuntime.LegacyInfo(
-                                $"[Epilogue] Host ignored credits SceneLoad — not in epilogue (living peer must not be dragged by a remote ending)");
-                            _net.SuppressRelay();
-                            return;
-                        }
-                        ModRuntime.LegacyInfo(
-                            $"[Epilogue] Client p{_net.CurrentReceivePlayerId} reached credits — pulling the party");
-                        ApplySceneLoad(msg.SceneName, delaySeconds: 8f);
+                        // A client finished its ending pages. Credits start when everyone in the
+                        // ending has (EpilogueCredits), not on the fastest reader.
+                        _net.SuppressRelay();
+                        EpilogueCredits.MarkReady(_net.CurrentReceivePlayerId);
                         return;
                     }
 

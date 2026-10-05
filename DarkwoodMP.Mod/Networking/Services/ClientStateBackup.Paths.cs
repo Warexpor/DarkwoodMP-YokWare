@@ -103,6 +103,22 @@ namespace DWMPHorde.Networking
         public static void DiscardAllForChapterReload()
         {
             ChapterReloadWipePending = true;
+            // The party wipe marked every peer's profile dead (vanilla PreparePermadeathVideo); only
+            // the player who pressed "start over" had it cleared by vanilla. The profile menu deletes
+            // a dead profile's slot on its next visit.
+            try
+            {
+                if (Core.currentProfile != null && Core.currentProfile.dead)
+                {
+                    Core.currentProfile.dead = false;
+                    Singleton<SaveManager>.Instance?.saveGameProfiles();
+                    ModRuntime.LegacyInfo("[ClientBackup] chapter start-over — profile no longer marked dead");
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] clearing the dead mark failed: " + ex.Message);
+            }
             try
             {
                 string dir = GetProfileBackupDirectory();

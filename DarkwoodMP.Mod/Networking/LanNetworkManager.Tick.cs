@@ -231,6 +231,7 @@ namespace DWMPHorde.Networking
             {
                 Patches.TraderRestockDefer.Tick();
                 Patches.CombatMusicSync.Tick(this);
+                EpilogueNetHandlers.EpilogueCredits.Tick(this);
             }
 
             _effectSyncTimer += Time.deltaTime;

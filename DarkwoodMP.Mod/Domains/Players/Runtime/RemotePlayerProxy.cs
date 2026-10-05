@@ -57,6 +57,8 @@ namespace DWMPHorde.Players
         public byte RemoteHealthPct { get; set; } = 100;
         /// <summary>The peer's <c>darknessCounter</c> in 1% steps (host requirement <c>darknessState</c>).</summary>
         public byte RemoteDarknessPct { get; set; }
+        /// <summary>The peer is in the ending (epilogue crawl or outcome pages).</summary>
+        public bool RemoteInEpilogue { get; set; }
         /// <summary>Where the peer's home oven stands (vanilla Player.experienceMachine), if it has one.</summary>
         public Vector3? RemoteHomeOven { get; set; }
         /// <summary>The peer's learned skills by name (host requirement <c>haveSkill</c>).</summary>

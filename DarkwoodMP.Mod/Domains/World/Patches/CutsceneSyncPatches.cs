@@ -136,11 +136,13 @@ namespace DWMPHorde.Patches
             }
 
             SetProxiesHidden(true);
+            _playingHostCutscene = true;
             ModRuntime.LegacyInfo($"[CutsceneSync] applied begin mgr={mgr.name}");
         }
 
         internal static void ApplyEnd()
         {
+            _playingHostCutscene = false;
             bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
@@ -257,8 +259,19 @@ namespace DWMPHorde.Patches
             }
         }
 
+        /// <summary>A host cutscene is playing here; the host owns its end.</summary>
+        private static bool _playingHostCutscene; // reset-in: Reset
+
         internal static void Reset()
         {
+            // The host left mid-cutscene: nobody will send the end, so end it here (vanilla
+            // prologue_endCutscene: inputs, player visibility, cursor).
+            if (_playingHostCutscene)
+            {
+                _playingHostCutscene = false;
+                try { ApplyEnd(); }
+                catch (System.Exception ex) { ModRuntime.Log?.LogWarning("[CutsceneSync] release on disconnect: " + ex.Message); }
+            }
             SetProxiesHidden(false);
             _hiddenProxyIds.Clear();
         }

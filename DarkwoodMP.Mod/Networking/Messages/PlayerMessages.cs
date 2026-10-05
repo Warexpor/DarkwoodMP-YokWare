@@ -528,6 +528,13 @@ namespace DWMPHorde.Networking
             set => Flags2 = (byte)((Flags2 & ~4) | (value ? 4 : 0));
         }
 
+        /// <summary>The player is in the ending (epilogue crawl or outcome pages).</summary>
+        public bool InEpilogue
+        {
+            get => (Flags2 & 16) != 0;
+            set => Flags2 = (byte)((Flags2 & ~16) | (value ? 16 : 0));
+        }
+
         /// <summary><see cref="HomeX"/>.. carry this player's home oven (vanilla Player.experienceMachine).</summary>
         public bool HasHome
         {
