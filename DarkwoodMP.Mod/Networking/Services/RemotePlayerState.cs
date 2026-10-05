@@ -29,6 +29,9 @@ namespace DWMPHorde.Networking
         /// <summary>Peer sees a villager in the village (PlayerState trailer): villagers stay put.</summary>
         public bool SeesVillager;
 
+        /// <summary>Peer is aiming (PlayerState trailer): its walking steps are quiet and alert nobody.</summary>
+        public bool Aiming;
+
         // Dreams
         public bool IsDeadInDream;
 

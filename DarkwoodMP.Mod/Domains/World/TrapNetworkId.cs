@@ -87,19 +87,30 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// True for a trap the other player should see spring, break, or disappear.
-        /// Name lists miss prefabs that only set <see cref="Trigger.isBearTrap"/> or chain/mutated flags.
+        /// True for a trap the other player should see spring, break, or disappear: a one-shot
+        /// <see cref="Trigger"/> that hurts whoever sets it off. Read from the authored setup only
+        /// (fields vanilla never changes at runtime), so a sprung trap still counts.
+        /// From the vanilla data: bear/chain/mutated traps carry their flag; broken glass,
+        /// the bio1 splat mushrooms and the mimic corpses (sprung by trying to open them,
+        /// <c>triggerOnDisarmAttempt</c>) carry none. Left out: repeating hazards
+        /// (<c>multipleTrigger</c>: fart pillow, fire, gasoline, worms, infection splats; nothing
+        /// one-shot to sync, their sound plays per step), triggers that affect nobody (fish,
+        /// curtains, epilogue floor sensors), scripted triggers that fire GameEvents, dormant
+        /// triggers on explosives (barrels, gas bottles) and self-expiring spawns (night worm,
+        /// centipede worms).
         /// </summary>
         public static bool IsWorldTrap(GameObject go)
         {
             if (go == null) return false;
             Trigger trig = go.GetComponent<Trigger>();
-            if (trig != null && (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap))
+            if (trig == null) return false;
+            if (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap)
                 return true;
-            string name = go.name != null ? go.name.ToLowerInvariant() : "";
-            if (name.Contains("trap") || name.Contains("snap") || name.Contains("mushroom"))
-                return true;
-            return name.Contains("brokenglass") || name.Contains("broken_glass");
+            if (trig.multipleTrigger || (!trig.affectsPlayer && !trig.affectsCharacters))
+                return false;
+            return go.GetComponent<EventTriggers>() == null && go.GetComponent<GameEvents>() == null
+                && go.GetComponent<Explodes>() == null
+                && go.GetComponent<WaitAndDie>() == null && go.GetComponent<PlayAndDie>() == null;
         }
 
         /// <summary>Vanilla only sets inBearTrap on isBearTrap. Name fragments were grabbing the wrong prop.</summary>

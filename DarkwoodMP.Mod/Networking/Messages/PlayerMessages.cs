@@ -132,6 +132,11 @@ namespace DWMPHorde.Networking
         public bool InOpenWorld;
         /// <summary>Sender is in the village and sees a villager (or stands close to one). Trailer.</summary>
         public bool SeesVillager;
+        /// <summary>
+        /// Sender is aiming (vanilla <c>Player.aiming</c>): its walking steps alert nobody and play
+        /// at half volume. Trailer.
+        /// </summary>
+        public bool Aiming;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -218,6 +223,7 @@ namespace DWMPHorde.Networking
             writer.Put(HasNightShadows);
             writer.Put(InOpenWorld);
             writer.Put(SeesVillager);
+            writer.Put(Aiming);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -286,6 +292,7 @@ namespace DWMPHorde.Networking
             msg.HasNightShadows = reader.GetBool();
             msg.InOpenWorld = reader.GetBool();
             msg.SeesVillager = reader.GetBool();
+            msg.Aiming = reader.GetBool();
             return msg;
         }
     }

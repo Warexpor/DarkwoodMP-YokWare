@@ -221,12 +221,31 @@ namespace DWMPHorde.Sync
                     }
                 }
 
+                // Vanilla OnAfterTrigger: drop the local player's selection of it, and the
+                // custom cursor action (a sprung mimic no longer offers "Open").
+                Player localSel = Player.Instance;
+                if (localSel != null && localSel.selectedObject != null && localSel.selectedObject == go.transform)
+                    localSel.deselectObject(force: true);
+                if (trig != null && trig.removeCustomCursorActionAfterTrigger)
+                    UnityEngine.Object.Destroy(go.GetComponent<CustomCursorAction>());
+                if (trig != null && !trig.multipleTrigger)
+                {
+                    if (trig.removeSelectableAfterTrigger)
+                        UnityEngine.Object.Destroy(go.GetComponent<Selectable>());
+                    ObjectStages stages = go.GetComponent<ObjectStages>();
+                    if (stages != null)
+                        UnityEngine.Object.Destroy(stages);
+                }
+
                 // Destroy Item only if the prefab is configured to remove it
-                // (if dontDestroyItemAfterTriggering is true, Item stays for hover/name display)
+                // (if dontDestroyItemAfterTriggering is true, Item stays for hover/name display);
+                // vanilla takes its BoxCollider with it.
                 if (trig == null || !trig.dontDestroyItemAfterTriggering)
                 {
                     if (item != null)
                         UnityEngine.Object.Destroy(item);
+                    if (trig != null && !trig.multipleTrigger)
+                        UnityEngine.Object.Destroy(go.GetComponent<BoxCollider>());
                 }
 
                 // Destroy Inventory only if configured to remove it
@@ -268,24 +287,37 @@ namespace DWMPHorde.Sync
         private static Door FindDoorByPos(Vector3 pos)
         {
             Door door = ListTracker<Door>.FindByPosition(pos);
-            if (door != null)
+            if (door != null && door.gameObject.activeInHierarchy)
                 return door;
 
             // Fallback: search all Door instances to catch doors that were
             // spawned dynamically after the tracker's Awake patch ran, or
-            // doors from world-grid chunks the host has loaded.
+            // doors from world-grid chunks the host has loaded. Active before
+            // inactive (vanilla keeps inactive twins at a live door's spot), then nearest.
             Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();
+            Door best = null;
+            bool bestActive = false;
+            float bestD = 2f;
             for (int i = 0; i < all.Length && i < 128; i++)
             {
                 Door d = all[i];
                 if (d == null) continue;
-                if (Vector3.Distance(d.transform.position, pos) < 2f)
+                float dist = Vector3.Distance(d.transform.position, pos);
+                if (dist >= 2f) continue;
+                bool active = d.gameObject.activeInHierarchy;
+                if (best == null || (active && !bestActive) || (active == bestActive && dist < bestD))
                 {
-                    ListTracker<Door>.Add(d);
-                    return d;
+                    best = d;
+                    bestActive = active;
+                    bestD = dist;
                 }
             }
-            return null;
+            if (best != null && (bestActive || door == null))
+            {
+                ListTracker<Door>.Add(best);
+                return best;
+            }
+            return door;
         }
 
         private static void QueuePendingGenerator(GeneratorState gs)

@@ -32,19 +32,28 @@ namespace DWMPHorde.Sync
             _items.Remove(item);
         }
 
-        /// <summary>Finds a tracked instance within <paramref name="maxDist"/> of the given position.</summary>
+        /// <summary>
+        /// Finds a tracked instance within <paramref name="maxDist"/> of the given position.
+        /// An active one wins over an inactive one, then the nearest: vanilla scenes keep inactive
+        /// twins at the same spot (border_main_cottageTrailer_01 has two DoorSmall1 at one position,
+        /// one of them inactive), and the tracker also lists inactive instances.
+        /// </summary>
         public static T FindByPosition(Vector3 pos, float maxDist = 0.5f)
         {
             T best = null;
+            bool bestActive = false;
             float bestD = maxDist;
             for (int i = 0; i < _items.Count; i++)
             {
                 T item = _items[i];
                 if (item == null) continue;
                 float d = Vector3.Distance(item.transform.position, pos);
-                if (d < bestD)
+                if (d >= maxDist) continue;
+                bool active = item.gameObject.activeInHierarchy;
+                if (best == null || (active && !bestActive) || (active == bestActive && d < bestD))
                 {
                     bestD = d;
+                    bestActive = active;
                     best = item;
                 }
             }
