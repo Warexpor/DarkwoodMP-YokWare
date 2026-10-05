@@ -36,7 +36,7 @@ namespace DWMPHorde.Patches
             public byte DrainScope;
             public bool Deferred;
             public bool HaveBoard;
-            public string NpcName;
+            public NpcRef Npc;
             public string DialogueName;
             public int BoardIndex;
             /// <summary>Host's own conversation: journal entries its outcomes remove go to the peers.</summary>
@@ -106,7 +106,7 @@ namespace DWMPHorde.Patches
             {
                 if (dw.npc != null && dw.currentDialogue != null)
                 {
-                    state.NpcName = dw.npc.name;
+                    state.Npc = NpcRef.Of(dw.npc);
                     state.DialogueName = dw.currentDialogue.fullName ?? "";
                     // The board vanilla is about to display: currentBoard is incremented first.
                     state.BoardIndex = Traverse.Create(dw).Field("currentBoard").GetValue<int>() + 1;
@@ -199,22 +199,20 @@ namespace DWMPHorde.Patches
             if (DialogBoardCommit.IsRecentDest(name))
                 return;
 
-            string npcName = state.NpcName;
             int boardIdx = state.BoardIndex;
-            net.Send(NetMessageType.DialogOutcomeSync,
-                w => new DialogOutcomeSyncMessage
-                {
-                    NpcName = npcName,
-                    DecisionIndex = -1,
-                    DialogueName = name,
-                    BoardIndex = boardIdx,
-                    TargetDialogueName = ""
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
+            var msg = new DialogOutcomeSyncMessage
+            {
+                DecisionIndex = -1,
+                DialogueName = name,
+                BoardIndex = boardIdx,
+                TargetDialogueName = ""
+            };
+            DialogOutcomeNpc.Stamp(ref msg, state.Npc);
+            net.Send(NetMessageType.DialogOutcomeSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo(
-                    $"[DialogOutcome] board commit NPC={npcName} dialogue={name} board={boardIdx}");
+                    $"[DialogOutcome] board commit NPC={state.Npc} dialogue={name} board={boardIdx}");
         }
 
         private static void TrySuppressHostCook(DialogueWindow dw)

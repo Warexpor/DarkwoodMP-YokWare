@@ -212,7 +212,9 @@ namespace DWMPHorde.Sync
                 if (state != null)
                 {
                     wants = state.wantsToTalk ? '1' : '0';
-                    rep = state.reputation.ToString();
+                    // A night trader's standing is the sender's own, never handed to a peer.
+                    if (!Patches.ReputationSyncUtil.IsPerPlayerReputationNpc(npc))
+                        rep = state.reputation.ToString();
                 }
             }
 
@@ -301,7 +303,9 @@ namespace DWMPHorde.Sync
             if (wants == '1') state.wantsToTalk = true;
             else if (wants == '0') state.wantsToTalk = false;
 
-            if (rep != "-" && int.TryParse(rep, out int repValue))
+            // Night-trader standing stays this player's own (an older peer still sends it).
+            if (rep != "-" && !Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(npcName)
+                && int.TryParse(rep, out int repValue))
                 state.reputation = repValue;
         }
 

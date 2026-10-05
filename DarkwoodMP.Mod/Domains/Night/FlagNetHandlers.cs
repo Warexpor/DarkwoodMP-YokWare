@@ -43,8 +43,8 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(msg.Name))
                 return;
 
-            // Drop spatial/location flags if an older peer still sends them (local-only now).
-            if (FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag(msg.Name))
+            // Per-player flags never travel; drop one an older peer still sends.
+            if (FlagSyncBoolPatch.IsLocalOnlyFlag(msg.Name))
                 return;
 
             // The host applies client story-flag deltas and rebroadcasts them.
@@ -128,8 +128,17 @@ namespace DWMPHorde.Networking
             var flags = Singleton<Flags>.Instance;
             if (flags == null) return;
 
-            var dict = flags.flagsDict;
-            int count = Mathf.Min(dict.Count, 4096);
+            // Per-player flags are the host's own (where it stands, its popups, its night): never
+            // handed to a joiner, which keeps its own.
+            var shared = new List<KeyValuePair<string, Flags.Flag>>(flags.flagsDict.Count);
+            foreach (var kvp in flags.flagsDict)
+            {
+                if (kvp.Value == null || FlagSyncBoolPatch.IsLocalOnlyFlag(kvp.Key))
+                    continue;
+                shared.Add(kvp);
+                if (shared.Count >= 4096) break;
+            }
+            int count = shared.Count;
             var msg = new FlagBulkSyncMessage
             {
                 FlagCount = count,
@@ -137,14 +146,11 @@ namespace DWMPHorde.Networking
                 FlagIsTrue = new bool[count],
                 FlagAmounts = new int[count]
             };
-            int i = 0;
-            foreach (var kvp in dict)
+            for (int i = 0; i < count; i++)
             {
-                if (i >= count) break;
-                msg.FlagNames[i] = kvp.Key;
-                msg.FlagIsTrue[i] = kvp.Value.isTrue;
-                msg.FlagAmounts[i] = kvp.Value.amount;
-                i++;
+                msg.FlagNames[i] = shared[i].Key;
+                msg.FlagIsTrue[i] = shared[i].Value.isTrue;
+                msg.FlagAmounts[i] = shared[i].Value.amount;
             }
             _net.SendBulkOrAll(NetMessageType.FlagBulkSync, w => msg.Serialize(w), targetPlayerId);
             ModRuntime.LegacyInfo(targetPlayerId > 0
@@ -184,10 +190,17 @@ namespace DWMPHorde.Networking
             var flags = Singleton<Flags>.Instance;
             if (flags == null) return;
 
+            int skipped = 0;
             for (int i = 0; i < msg.FlagCount; i++)
             {
                 string name = msg.FlagNames[i];
                 if (string.IsNullOrEmpty(name)) continue;
+                // This player's own flags stay as they are (an older host still sends them).
+                if (FlagSyncBoolPatch.IsLocalOnlyFlag(name))
+                {
+                    skipped++;
+                    continue;
+                }
                 if (flags.flagsDict.TryGetValue(name, out var flag))
                 {
                     flag.isTrue = msg.FlagIsTrue[i];
@@ -199,7 +212,8 @@ namespace DWMPHorde.Networking
                     flags.setFlag(name, msg.FlagAmounts[i]);
                 }
             }
-            ModLog.Event(LogCat.Session, $"[BulkSync] Applied {msg.FlagCount} flags");
+            ModLog.Event(LogCat.Session,
+                $"[BulkSync] Applied {msg.FlagCount - skipped} flags ({skipped} per-player kept local)");
         }
 
         /// <summary>

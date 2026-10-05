@@ -22,15 +22,14 @@ namespace DWMPHorde.Patches
                 return true;
 
             int localId = net.LocalPlayerId;
-            string npcName = _npc.name;
-            // This peer's view of the NPC's world; the host decides under it.
-            bool dream = NpcDialogueLock.IsDreamWorldNpc(_npc);
+            // This peer's view of the NPC (name, spot, world); the host decides under it.
+            NpcRef npcRef = NpcRef.Of(_npc);
 
             if (net.Role == NetworkRole.Host)
             {
-                if (!NpcDialogueLock.HostTryGrant(net, npcName, localId, dream))
+                if (!NpcDialogueLock.HostTryGrant(net, npcRef, localId))
                 {
-                    ModRuntime.LegacyInfo($"[DialogLock] host blocked talk with {npcName}");
+                    ModRuntime.LegacyInfo($"[DialogLock] host blocked talk with {npcRef}");
                     try
                     {
                         if (Player.Instance != null)
@@ -51,7 +50,7 @@ namespace DWMPHorde.Patches
             }
 
             // Client: optimistic local check + request host grant.
-            if (NpcDialogueLock.IsLockedByOther(npcName, localId, dream))
+            if (NpcDialogueLock.IsLockedByOther(npcRef, localId))
             {
                 try
                 {
@@ -67,19 +66,12 @@ namespace DWMPHorde.Patches
             }
 
             net.Send(NetMessageType.DialogNpcLock,
-                w => new DialogNpcLockMessage
-                {
-                    NpcName = npcName,
-                    OwnerPlayerId = localId,
-                    Granted = false,
-                    Release = false,
-                    IsRequest = true,
-                    Dream = dream
-                }.Serialize(w),
+                w => NpcDialogueLock.BuildMessage(npcRef, localId, granted: false, release: false,
+                    isRequest: true).Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
             // Local optimistic acquire so UI opens; host deny will close if racing.
-            NpcDialogueLock.TryAcquire(npcName, localId, dream);
+            NpcDialogueLock.TryAcquire(npcRef, localId);
             try { PeerItemPresence.SendFullLocalInventory(); }
             catch { /* ignore */ }
             NpcDialogueLock.BeginLeaseRenewal(_npc);
@@ -117,28 +109,21 @@ namespace DWMPHorde.Patches
             if (DialogHostApplyGuard.DialogueApplyActive)
                 return;
 
-            string npcName = __state.name;
             int localId = net.LocalPlayerId;
-            bool preferDream = NpcDialogueLock.IsDreamWorldNpc(__state);
+            NpcRef npcRef = NpcRef.Of(__state);
 
             if (net.Role == NetworkRole.Host)
             {
-                NpcDialogueLock.HostRelease(net, npcName, localId, preferDream);
+                NpcDialogueLock.HostRelease(net, npcRef, localId);
             }
             else
             {
-                // The world of the hold actually released (it may predate a dream start / end).
-                bool dream = NpcDialogueLock.Release(npcName, localId, preferDream);
+                // The spot and world of the hold actually released (it may predate a dream
+                // start / end); the host replays onCloseDialogue on the NPC there.
+                NpcRef released = NpcDialogueLock.Release(npcRef, localId);
                 net.Send(NetMessageType.DialogNpcLock,
-                    w => new DialogNpcLockMessage
-                    {
-                        NpcName = npcName,
-                        OwnerPlayerId = localId,
-                        Granted = true,
-                        Release = true,
-                        IsRequest = false,
-                        Dream = dream
-                    }.Serialize(w),
+                    w => NpcDialogueLock.BuildMessage(released, localId, granted: true, release: true)
+                        .Serialize(w),
                     DeliveryMethod.ReliableOrdered);
             }
         }

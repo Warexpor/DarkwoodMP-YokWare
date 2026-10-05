@@ -139,10 +139,11 @@ namespace DWMPHorde.Patches
                     // activeModifier = chapter jump (world event, see IsChapterJump).
                     return !ge.activeModifier;
                 case GameEvent.Type.worldFlag:
-                    // A flag about where this one player is (player_at*, player_entering*, player_in*):
-                    // replayed on everyone it put every peer "at the doctor's house" or "entering
-                    // the road", wherever they stood.
-                    return FlagSyncBoolPatch.IsPerPlayerSpatialFlag(ge.Value);
+                    // A flag about this one player (where it is: player_at*, player_entering*,
+                    // player_in*; its night: player_survivedNight / player_diedDuringNight, which
+                    // the trader clears on close): replayed on everyone it put every peer "at the
+                    // doctor's house" or cleared every peer's night when one closed the trader.
+                    return PerPlayerFlagPolicy.IsPerPlayer(ge.Value);
                 case GameEvent.Type.openDialogue:
                     // The scene opens the NPC's talk window for the player it is about.
                     return true;

@@ -142,6 +142,55 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void DialogNpcLock_RoundTrips_WithSpot()
+    {
+        var msg = new DialogNpcLockMessage
+        {
+            NpcName = "oven", OwnerPlayerId = 3, Granted = true, Release = false, IsRequest = true,
+            Dream = true, Renewal = true, HasPos = true, PosX = -208f, PosY = 1f, PosZ = 176f
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = DialogNpcLockMessage.Deserialize(r);
+
+        Assert.Equal("oven", back.NpcName);
+        Assert.Equal(3, back.OwnerPlayerId);
+        Assert.True(back.Granted);
+        Assert.False(back.Release);
+        Assert.True(back.IsRequest);
+        Assert.True(back.Dream);
+        Assert.True(back.Renewal);
+        Assert.True(back.HasPos);
+        Assert.Equal(-208f, back.PosX);
+        Assert.Equal(1f, back.PosY);
+        Assert.Equal(176f, back.PosZ);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void DialogOutcomeSync_RoundTrips_WithSpot()
+    {
+        var msg = new DialogOutcomeSyncMessage
+        {
+            NpcName = "doctor", DecisionIndex = 2, DialogueName = "welcome_opening", BoardIndex = 1,
+            TargetDialogueName = "lookAtOven", HasPos = true, PosX = 350f, PosY = 0f, PosZ = -1809f,
+            Dream = false
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = DialogOutcomeSyncMessage.Deserialize(r);
+
+        Assert.Equal("doctor", back.NpcName);
+        Assert.Equal(2, back.DecisionIndex);
+        Assert.Equal("welcome_opening", back.DialogueName);
+        Assert.Equal(1, back.BoardIndex);
+        Assert.Equal("lookAtOven", back.TargetDialogueName);
+        Assert.True(back.HasPos);
+        Assert.Equal(350f, back.PosX);
+        Assert.Equal(-1809f, back.PosZ);
+        Assert.False(back.Dream);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
     public void MorningReward_RoundTrips()
     {
         var msg = new MorningRewardMessage

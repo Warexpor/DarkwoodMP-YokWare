@@ -7,17 +7,70 @@ using UnityEngine;
 namespace DWMPHorde.Sync
 {
     /// <summary>
+    /// An NPC as a peer names it on the wire. NPC.name is not unique (every hideout's oven is
+    /// "oven", every location's doctor "doctor"), so it travels with where the NPC stands and its
+    /// world (dream-pad twin or overworld). No position: an older peer; the name alone decides.
+    /// </summary>
+    internal struct NpcRef
+    {
+        public string Name;
+        public bool HasPos;
+        public Vector3 Pos;
+        public bool Dream;
+
+        public static NpcRef Of(NPC npc)
+        {
+            if (npc == null) return default;
+            return new NpcRef
+            {
+                Name = npc.name,
+                HasPos = true,
+                Pos = npc.transform.position,
+                Dream = NpcDialogueLock.IsDreamWorldNpc(npc)
+            };
+        }
+
+        public static NpcRef From(DialogNpcLockMessage m) => new NpcRef
+        {
+            Name = m.NpcName,
+            HasPos = m.HasPos,
+            Pos = new Vector3(m.PosX, m.PosY, m.PosZ),
+            Dream = m.Dream
+        };
+
+        public static NpcRef From(DialogOutcomeSyncMessage m) => new NpcRef
+        {
+            Name = m.NpcName,
+            HasPos = m.HasPos,
+            Pos = new Vector3(m.PosX, m.PosY, m.PosZ),
+            Dream = m.Dream
+        };
+
+        public bool IsValid => !string.IsNullOrEmpty(Name);
+
+        /// <summary>Same talker (name, and spot when both are known).</summary>
+        public bool Matches(NpcRef other)
+            => NpcDialogueLockPolicy.IsSameNpc(Name, HasPos, Pos.x, Pos.z,
+                other.Name, other.HasPos, other.Pos.x, other.Pos.z);
+
+        public bool Matches(NPC npc) => npc != null && Matches(Of(npc));
+
+        public override string ToString()
+            => HasPos ? Name + "@(" + Pos.x.ToString("F0") + "," + Pos.z.ToString("F0") + ")" : (Name ?? "");
+    }
+
+    /// <summary>
     /// Host-authoritative one-speaker-per-NPC lock.
-    /// Multiple NPCs may be spoken to in parallel (Dictionary); same NPC is serialized.
+    /// Multiple NPCs may be spoken to in parallel; the same NPC is serialized. "Same NPC" is name,
+    /// world and spot (<see cref="NpcRef"/>): two players at two hideouts' ovens talk at once.
     /// </summary>
     public static class NpcDialogueLock
     {
         private struct Hold
         {
-            public string NpcName;
+            public NpcRef Npc;
             public int OwnerId;
             public float ExpireAt;
-            public bool Dream;
         }
 
         /// <summary>Seconds between lease renewals while a dialogue window stays open.</summary>
@@ -26,17 +79,45 @@ namespace DWMPHorde.Sync
         /// <summary>An NPC this close to the dream pad (or under it) is the pad twin.</summary>
         private const float DreamPadRadius = 250f;
 
-        // Keyed by (name, world). The bunker's door_underground (and every other dream NPC)
-        // exists on the dream pad and in the overworld; one peer talking to the pad twin must not
-        // lock the overworld one, and release must find the lock it took. The world travels on
-        // the wire (DialogNpcLockMessage.Dream): each peer's own dream flags disagree while only
-        // some peers are dreaming.
-        private static readonly Dictionary<string, Hold> _locks = new Dictionary<string, Hold>();
-        private static readonly HashSet<string> _renewing = new HashSet<string>();
+        // One entry per held NPC. The bunker's door_underground (and every other dream NPC) exists
+        // on the dream pad and in the overworld; one peer talking to the pad twin must not lock the
+        // overworld one, and release must find the lock it took. The world travels on the wire
+        // (DialogNpcLockMessage.Dream): each peer's own dream flags disagree while only some peers
+        // are dreaming.
+        private static readonly List<Hold> _locks = new List<Hold>();
+        private static readonly HashSet<NPC> _renewing = new HashSet<NPC>();
 
-        private static string KeyFor(string npcName, bool dream)
+        /// <summary>The hold on this NPC in its world (expired or not); -1 when none.</summary>
+        private static int IndexOf(NpcRef npc)
         {
-            return dream ? npcName + "@dream" : npcName;
+            for (int i = 0; i < _locks.Count; i++)
+            {
+                Hold h = _locks[i];
+                if (h.Npc.Dream == npc.Dream && h.Npc.Matches(npc))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// The hold <paramref name="ownerId"/> took on an NPC of this name, in either world and at
+        /// any spot (expired or not). A peer talks to one NPC at a time, so the name finds it even
+        /// when a dream started or ended mid-talk or the NPC walked.
+        /// </summary>
+        private static int IndexOfOwned(string npcName, int ownerId, bool preferDream)
+        {
+            int other = -1;
+            for (int i = 0; i < _locks.Count; i++)
+            {
+                Hold h = _locks[i];
+                if (h.OwnerId != ownerId
+                    || !string.Equals(h.Npc.Name, npcName, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (h.Npc.Dream == preferDream)
+                    return i;
+                other = i;
+            }
+            return other;
         }
 
         /// <summary>
@@ -52,32 +133,6 @@ namespace DWMPHorde.Sync
             return t.IsChildOf(pad) || Vector3.Distance(t.position, pad.position) <= DreamPadRadius;
         }
 
-        /// <summary>Hold under <paramref name="preferDream"/>'s key first, then the other world's.</summary>
-        private static bool TryFindHold(string npcName, bool preferDream, out string key, out Hold hold)
-        {
-            key = KeyFor(npcName, preferDream);
-            if (_locks.TryGetValue(key, out hold))
-                return true;
-            key = KeyFor(npcName, !preferDream);
-            return _locks.TryGetValue(key, out hold);
-        }
-
-        /// <summary>
-        /// The hold <paramref name="ownerId"/> took on this NPC in either world (expired or not).
-        /// A dream starting or ending mid-talk must not turn a renewal into a fresh grant.
-        /// </summary>
-        private static bool TryFindOwnedHold(string npcName, int ownerId, out string key, out Hold hold)
-        {
-            key = KeyFor(npcName, false);
-            if (_locks.TryGetValue(key, out hold) && hold.OwnerId == ownerId)
-                return true;
-            key = KeyFor(npcName, true);
-            if (_locks.TryGetValue(key, out hold) && hold.OwnerId == ownerId)
-                return true;
-            hold = default;
-            return false;
-        }
-
         /// <summary>Count of active (non-expired) locks for tests and diagnostics.</summary>
         public static int ActiveCount
         {
@@ -85,9 +140,9 @@ namespace DWMPHorde.Sync
             {
                 float now = Time.unscaledTime;
                 int n = 0;
-                foreach (var kvp in _locks)
+                for (int i = 0; i < _locks.Count; i++)
                 {
-                    if (now < kvp.Value.ExpireAt)
+                    if (now < _locks[i].ExpireAt)
                         n++;
                 }
                 return n;
@@ -100,115 +155,96 @@ namespace DWMPHorde.Sync
             _renewing.Clear();
         }
 
-        public static bool TryAcquire(string npcName, int ownerPlayerId, bool dream, float leaseSeconds = -1f)
+        internal static bool TryAcquire(NpcRef npc, int ownerPlayerId, float leaseSeconds = -1f)
         {
-            if (string.IsNullOrEmpty(npcName) || ownerPlayerId < 0)
+            if (!npc.IsValid || ownerPlayerId < 0)
                 return false;
 
             float now = Time.unscaledTime;
             float lease = leaseSeconds > 0f ? leaseSeconds : NpcDialogueLockPolicy.DefaultLeaseSeconds;
-            string key = KeyFor(npcName, dream);
+            int idx = IndexOf(npc);
 
             int heldOwner = -1;
             float heldExpire = 0f;
-            if (_locks.TryGetValue(key, out Hold existing))
+            if (idx >= 0)
             {
-                heldOwner = existing.OwnerId;
-                heldExpire = existing.ExpireAt;
+                heldOwner = _locks[idx].OwnerId;
+                heldExpire = _locks[idx].ExpireAt;
             }
 
             if (!NpcDialogueLockPolicy.CanAcquireNpcSlot(heldOwner, heldExpire, ownerPlayerId, now))
                 return false;
 
-            _locks[key] = new Hold
-            {
-                NpcName = npcName,
-                OwnerId = ownerPlayerId,
-                ExpireAt = now + lease,
-                Dream = dream
-            };
+            var hold = new Hold { Npc = npc, OwnerId = ownerPlayerId, ExpireAt = now + lease };
+            if (idx >= 0)
+                _locks[idx] = hold;
+            else
+                _locks.Add(hold);
             return true;
         }
 
-        /// <summary>Drop <paramref name="ownerPlayerId"/>'s hold (prefer the given world's key).</summary>
-        /// <returns>The world of the hold that was released, or <paramref name="preferDream"/>.</returns>
-        public static bool Release(string npcName, int ownerPlayerId, bool preferDream)
+        /// <summary>Drop <paramref name="ownerPlayerId"/>'s live hold on an NPC of this name (prefer the given world).</summary>
+        /// <returns>The released hold's NPC (spot and world); <paramref name="npc"/> when none was held.</returns>
+        internal static NpcRef Release(NpcRef npc, int ownerPlayerId)
         {
-            if (string.IsNullOrEmpty(npcName)) return preferDream;
-            float now = Time.unscaledTime;
-            string key = KeyFor(npcName, preferDream);
-            if (!(_locks.TryGetValue(key, out Hold hold)
-                  && NpcDialogueLockPolicy.IsNpcSlotHeldBy(hold.OwnerId, hold.ExpireAt, ownerPlayerId, now)))
-            {
-                key = KeyFor(npcName, !preferDream);
-                if (!(_locks.TryGetValue(key, out hold)
-                      && NpcDialogueLockPolicy.IsNpcSlotHeldBy(hold.OwnerId, hold.ExpireAt, ownerPlayerId, now)))
-                    return preferDream;
-            }
-
-            _locks.Remove(key);
-            return hold.Dream;
+            if (!npc.IsValid) return npc;
+            int idx = IndexOfOwned(npc.Name, ownerPlayerId, npc.Dream);
+            if (idx < 0)
+                return npc;
+            Hold hold = _locks[idx];
+            if (!NpcDialogueLockPolicy.IsNpcSlotHeldBy(hold.OwnerId, hold.ExpireAt, ownerPlayerId, Time.unscaledTime))
+                return npc;
+            _locks.RemoveAt(idx);
+            return hold.Npc;
         }
 
-        public static bool IsLockedByOther(string npcName, int localPlayerId, bool dream)
+        internal static bool IsLockedByOther(NpcRef npc, int localPlayerId)
         {
-            if (string.IsNullOrEmpty(npcName)) return false;
-            if (!_locks.TryGetValue(KeyFor(npcName, dream), out Hold hold))
-                return false;
-            float now = Time.unscaledTime;
-            if (now >= hold.ExpireAt) return false;
-            return hold.OwnerId != localPlayerId;
+            int owner = GetOwner(npc);
+            return owner >= 0 && owner != localPlayerId;
         }
 
-        /// <summary>Holder of this NPC in <paramref name="dream"/>'s world; -1 when free / expired.</summary>
-        public static int GetOwner(string npcName, bool dream)
+        /// <summary>Holder of this NPC (its spot, in its world); -1 when free / expired.</summary>
+        internal static int GetOwner(NpcRef npc)
         {
-            if (string.IsNullOrEmpty(npcName)) return -1;
-            if (!_locks.TryGetValue(KeyFor(npcName, dream), out Hold hold)) return -1;
+            if (!npc.IsValid) return -1;
+            int idx = IndexOf(npc);
+            if (idx < 0) return -1;
+            Hold hold = _locks[idx];
             if (Time.unscaledTime >= hold.ExpireAt) return -1;
             return hold.OwnerId;
         }
 
-        /// <summary>Holder of this NPC in either world (this peer's own world first); -1 when none.</summary>
-        public static int GetOwner(string npcName)
+        /// <summary>Extend this owner's own hold (either world), or take this NPC's slot.</summary>
+        internal static bool RenewLease(NPC npc, int ownerPlayerId)
         {
-            if (string.IsNullOrEmpty(npcName)) return -1;
-            if (!TryFindHold(npcName, DreamSyncManager.IsLocalDreamActive, out _, out Hold hold)) return -1;
-            if (Time.unscaledTime >= hold.ExpireAt) return -1;
-            return hold.OwnerId;
-        }
-
-        /// <summary>Extend this owner's own hold (either world), or take this peer's world slot.</summary>
-        public static bool RenewLease(string npcName, int ownerPlayerId)
-        {
-            if (string.IsNullOrEmpty(npcName) || ownerPlayerId < 0) return false;
-            if (TryFindOwnedHold(npcName, ownerPlayerId, out string key, out Hold hold))
-            {
-                hold.ExpireAt = Time.unscaledTime + NpcDialogueLockPolicy.DefaultLeaseSeconds;
-                _locks[key] = hold;
+            if (npc == null || ownerPlayerId < 0) return false;
+            NpcRef r = NpcRef.Of(npc);
+            if (TryExtendOwned(r, ownerPlayerId, out _))
                 return true;
-            }
-            return TryAcquire(npcName, ownerPlayerId, DreamSyncManager.IsLocalDreamActive);
+            return TryAcquire(r, ownerPlayerId);
         }
 
         /// <summary>
         /// Host: extend lease when sender was the recorded holder (either world, including
         /// expired). Does not grant a new holder. Used at trade accept so long sessions stay valid.
         /// </summary>
-        public static void HostRenewLeaseForSender(string npcName, int ownerPlayerId)
+        internal static void HostRenewLeaseForSender(NpcRef npc, int ownerPlayerId)
         {
-            TryExtendOwned(npcName, ownerPlayerId, out _);
+            TryExtendOwned(npc, ownerPlayerId, out _);
         }
 
-        private static bool TryExtendOwned(string npcName, int ownerPlayerId, out bool dream)
+        private static bool TryExtendOwned(NpcRef npc, int ownerPlayerId, out NpcRef held)
         {
-            dream = false;
-            if (string.IsNullOrEmpty(npcName) || ownerPlayerId < 0) return false;
-            if (!TryFindOwnedHold(npcName, ownerPlayerId, out string key, out Hold hold))
+            held = npc;
+            if (!npc.IsValid || ownerPlayerId < 0) return false;
+            int idx = IndexOfOwned(npc.Name, ownerPlayerId, npc.Dream);
+            if (idx < 0)
                 return false;
+            Hold hold = _locks[idx];
             hold.ExpireAt = Time.unscaledTime + NpcDialogueLockPolicy.DefaultLeaseSeconds;
-            _locks[key] = hold;
-            dream = hold.Dream;
+            _locks[idx] = hold;
+            held = hold.Npc;
             return true;
         }
 
@@ -217,12 +253,12 @@ namespace DWMPHorde.Sync
         /// (their copy expires on the same 90s clock). No onEnterDialogue replay.
         /// </summary>
         /// <returns>False when this owner holds no lock on the NPC (nothing renewed).</returns>
-        public static bool HostRenewHeld(LanNetworkManager net, string npcName, int ownerPlayerId)
+        internal static bool HostRenewHeld(LanNetworkManager net, NpcRef npc, int ownerPlayerId)
         {
             if (net == null || net.Role != NetworkRole.Host) return false;
-            if (!TryExtendOwned(npcName, ownerPlayerId, out bool dream))
+            if (!TryExtendOwned(npc, ownerPlayerId, out NpcRef held))
                 return false;
-            BroadcastState(net, npcName, ownerPlayerId, granted: true, release: false, dream);
+            BroadcastState(net, held, ownerPlayerId, granted: true, release: false);
             return true;
         }
 
@@ -237,12 +273,11 @@ namespace DWMPHorde.Sync
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
-            string npcName = npc.name;
-            if (!_renewing.Add(npcName)) return;
-            ctrl.StartCoroutine(RenewWhileOpen(npcName, IsDreamWorldNpc(npc)));
+            if (!_renewing.Add(npc)) return;
+            ctrl.StartCoroutine(RenewWhileOpen(npc, NpcRef.Of(npc)));
         }
 
-        private static System.Collections.IEnumerator RenewWhileOpen(string npcName, bool dream)
+        private static System.Collections.IEnumerator RenewWhileOpen(NPC npc, NpcRef opened)
         {
             try
             {
@@ -256,66 +291,57 @@ namespace DWMPHorde.Sync
                     if (net == null || net.Role == NetworkRole.Offline)
                         yield break;
                     var dw = Singleton<UI>.Instance?.dialogueWindow;
-                    if (dw == null || dw.npc == null || !dw.opened
-                        || !string.Equals(dw.npc.name, npcName, System.StringComparison.Ordinal))
+                    if (dw == null || npc == null || dw.npc != npc || !dw.opened)
                         yield break;
 
                     int localId = net.LocalPlayerId;
                     if (net.Role == NetworkRole.Host)
                     {
-                        if (!HostRenewHeld(net, npcName, localId))
-                            HostTryGrant(net, npcName, localId, dream, fireEnterDialogue: false);
+                        if (!HostRenewHeld(net, opened, localId))
+                            HostTryGrant(net, opened, localId, fireEnterDialogue: false);
                     }
                     else
                     {
-                        // The world the talk was opened in, not whatever this peer sees now.
-                        if (TryExtendOwned(npcName, localId, out bool heldDream))
-                            dream = heldDream;
+                        // The world and spot the talk was opened at, not whatever this peer sees now.
+                        if (TryExtendOwned(opened, localId, out NpcRef held))
+                            opened = held;
                         else
-                            TryAcquire(npcName, localId, dream);
-                        bool sendDream = dream;
+                            TryAcquire(opened, localId);
+                        NpcRef send = opened;
                         net.Send(NetMessageType.DialogNpcLock,
-                            w => new DialogNpcLockMessage
-                            {
-                                NpcName = npcName,
-                                OwnerPlayerId = localId,
-                                Granted = false,
-                                Release = false,
-                                IsRequest = true,
-                                Dream = sendDream,
-                                Renewal = true
-                            }.Serialize(w),
+                            w => BuildMessage(send, localId, granted: false, release: false,
+                                isRequest: true, renewal: true).Serialize(w),
                             DeliveryMethod.ReliableOrdered);
                     }
                 }
             }
             finally
             {
-                _renewing.Remove(npcName);
+                _renewing.Remove(npc);
             }
         }
 
-        /// <summary>Host: attempt lock in <paramref name="dream"/>'s world and notify requestor (and peers).</summary>
+        /// <summary>Host: attempt the lock on this NPC (its spot and world) and notify requestor (and peers).</summary>
         /// <param name="fireEnterDialogue">False for a renewal that lost its hold: re-take the slot
         /// without replaying the client's onEnterDialogue triggers.</param>
-        public static bool HostTryGrant(LanNetworkManager net, string npcName, int ownerPlayerId, bool dream,
+        internal static bool HostTryGrant(LanNetworkManager net, NpcRef npc, int ownerPlayerId,
             bool fireEnterDialogue = true)
         {
             if (net == null || net.Role != NetworkRole.Host) return false;
-            bool ok = TryAcquire(npcName, ownerPlayerId, dream);
-            BroadcastState(net, npcName, ownerPlayerId, granted: ok, release: false, dream);
+            bool ok = TryAcquire(npc, ownerPlayerId);
+            BroadcastState(net, npc, ownerPlayerId, granted: ok, release: false);
             if (ok)
             {
                 ModLog.Event(LogCat.Session,
-                    $"[DialogLock] granted NPC={npcName} owner={ownerPlayerId} dream={dream}");
+                    $"[DialogLock] granted NPC={npc} owner={ownerPlayerId} dream={npc.Dream}");
                 // Host talkTo already fired onEnterDialogue. A client talk only runs it
                 // locally, and client one-shot GameEvents are blocked.
                 if (fireEnterDialogue && ownerPlayerId != net.LocalPlayerId)
-                    FireRemoteEnterDialogue(npcName, ownerPlayerId, dream);
+                    FireRemoteEnterDialogue(npc, ownerPlayerId);
             }
             else
                 ModLog.Event(LogCat.Session,
-                    $"[DialogLock] denied NPC={npcName} owner={ownerPlayerId} dream={dream} heldBy={GetOwner(npcName, dream)}");
+                    $"[DialogLock] denied NPC={npc} owner={ownerPlayerId} dream={npc.Dream} heldBy={GetOwner(npc)}");
             return ok;
         }
 
@@ -324,19 +350,19 @@ namespace DWMPHorde.Sync
         /// so one-shot GameEvents fan out. Wrapped in the host apply guard so the
         /// inbound lock packet does not swallow the broadcast.
         /// </summary>
-        private static void FireRemoteEnterDialogue(string npcName, int ownerPlayerId, bool dream)
+        private static void FireRemoteEnterDialogue(NpcRef npcRef, int ownerPlayerId)
         {
             // Strict: for a dream talk only the pad twin qualifies. The overworld twin shares
             // the name, and this method SetActive(true)s and fires triggers on whatever it gets.
-            NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName, dream, strictPad: true);
+            NPC npc = DialogOutcomeCloseNetHandlers.ResolveNpc(npcRef, strictPad: true);
             if (npc == null || npc.gameObject == null)
             {
-                ModLog.WarnRate(LogCat.Session, "dlg-enter-npc-miss:" + npcName,
-                    "[DialogLock] onEnterDialogue skip — NPC '" + npcName + "' not found"
-                    + (dream ? " on the dream pad" : ""));
+                ModLog.WarnRate(LogCat.Session, "dlg-enter-npc-miss:" + npcRef.Name,
+                    "[DialogLock] onEnterDialogue skip — NPC '" + npcRef + "' not found"
+                    + (npcRef.Dream ? " on the dream pad" : ""));
                 return;
             }
-            if (dream)
+            if (npcRef.Dream)
             {
                 Transform pad = DreamSyncManager.GetDreamLocationTransform();
                 if (pad == null
@@ -344,12 +370,12 @@ namespace DWMPHorde.Sync
                         && Vector3.Distance(npc.transform.position, pad.position) > DreamPadRadius))
                 {
                     ModRuntime.LegacyInfo(
-                        $"[DialogLock] skip onEnterDialogue — NPC '{npcName}' not on the dream pad");
+                        $"[DialogLock] skip onEnterDialogue — NPC '{npcRef}' not on the dream pad");
                     return;
                 }
             }
 
-            ModRuntime.LegacyInfo($"[DialogLock] host onEnterDialogue for {npcName}");
+            ModRuntime.LegacyInfo($"[DialogLock] host onEnterDialogue for {npcRef}");
             // Stamp dialogue owner before BeginWorldOnly so GameEventsFired carries the speaker.
             bool pushed = ownerPlayerId > 0;
             if (pushed) GeFireActorContext.Push(ownerPlayerId);
@@ -383,11 +409,13 @@ namespace DWMPHorde.Sync
             }
         }
 
-        public static void HostRelease(LanNetworkManager net, string npcName, int ownerPlayerId, bool preferDream)
+        /// <returns>The released hold's NPC (its spot and world).</returns>
+        internal static NpcRef HostRelease(LanNetworkManager net, NpcRef npc, int ownerPlayerId)
         {
-            if (net == null || net.Role != NetworkRole.Host) return;
-            bool dream = Release(npcName, ownerPlayerId, preferDream);
-            BroadcastState(net, npcName, ownerPlayerId, granted: true, release: true, dream);
+            if (net == null || net.Role != NetworkRole.Host) return npc;
+            NpcRef released = Release(npc, ownerPlayerId);
+            BroadcastState(net, released, ownerPlayerId, granted: true, release: true);
+            return released;
         }
 
         /// <summary>
@@ -397,58 +425,59 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void HostReleaseAllForPlayer(LanNetworkManager net, int playerId)
         {
-            if (playerId < 0) return;
-            if (_locks.Count == 0) return;
+            if (playerId < 0 || _locks.Count == 0) return;
 
-            var toRelease = new List<string>();
-            foreach (var kvp in _locks)
+            int released = 0;
+            for (int i = _locks.Count - 1; i >= 0; i--)
             {
-                if (kvp.Value.OwnerId == playerId)
-                    toRelease.Add(kvp.Key);
-            }
-            if (toRelease.Count == 0) return;
-
-            for (int i = 0; i < toRelease.Count; i++)
-            {
-                string key = toRelease[i];
-                Hold hold = _locks[key];
-                // Drop by key: the holder may have taken it in the other world.
-                _locks.Remove(key);
+                Hold hold = _locks[i];
+                if (hold.OwnerId != playerId) continue;
+                _locks.RemoveAt(i);
+                released++;
                 if (net != null && net.Role == NetworkRole.Host && net.IsConnected)
-                    BroadcastState(net, hold.NpcName, playerId, granted: true, release: true, hold.Dream);
+                    BroadcastState(net, hold.Npc, playerId, granted: true, release: true);
             }
+            if (released == 0) return;
             ModLog.Event(LogCat.Session,
-                "[DialogLock] released " + toRelease.Count + " NPC lock(s) for disconnect p" + playerId);
+                "[DialogLock] released " + released + " NPC lock(s) for disconnect p" + playerId);
         }
 
         /// <summary>Local clear of locks owned by a pruned roster peer (clients).</summary>
         public static void ReleaseAllForPlayer(int playerId)
         {
-            if (playerId < 0 || _locks.Count == 0) return;
-            var toRelease = new List<string>();
-            foreach (var kvp in _locks)
+            if (playerId < 0) return;
+            for (int i = _locks.Count - 1; i >= 0; i--)
             {
-                if (kvp.Value.OwnerId == playerId)
-                    toRelease.Add(kvp.Key);
+                if (_locks[i].OwnerId == playerId)
+                    _locks.RemoveAt(i);
             }
-            for (int i = 0; i < toRelease.Count; i++)
-                _locks.Remove(toRelease[i]);
         }
 
-        private static void BroadcastState(LanNetworkManager net, string npcName, int ownerPlayerId,
-            bool granted, bool release, bool dream)
+        internal static DialogNpcLockMessage BuildMessage(NpcRef npc, int ownerPlayerId, bool granted,
+            bool release, bool isRequest = false, bool renewal = false)
+        {
+            return new DialogNpcLockMessage
+            {
+                NpcName = npc.Name ?? "",
+                OwnerPlayerId = ownerPlayerId,
+                Granted = granted,
+                Release = release,
+                IsRequest = isRequest,
+                Dream = npc.Dream,
+                Renewal = renewal,
+                HasPos = npc.HasPos,
+                PosX = npc.Pos.x,
+                PosY = npc.Pos.y,
+                PosZ = npc.Pos.z
+            };
+        }
+
+        private static void BroadcastState(LanNetworkManager net, NpcRef npc, int ownerPlayerId,
+            bool granted, bool release)
         {
             if (net == null || !net.IsConnected) return;
-            net.Broadcast(NetMessageType.DialogNpcLock,
-                w => new DialogNpcLockMessage
-                {
-                    NpcName = npcName ?? "",
-                    OwnerPlayerId = ownerPlayerId,
-                    Granted = granted,
-                    Release = release,
-                    Dream = dream
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
+            var msg = BuildMessage(npc, ownerPlayerId, granted, release);
+            net.Broadcast(NetMessageType.DialogNpcLock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }
