@@ -183,6 +183,10 @@ namespace DWMPHorde.Patches
             if (ProxyDistanceHelper.ProxyIsFar(__instance))
                 return true;
 
+            // Vanilla: a creature that summons after escaping never re-checks the chase.
+            if (__instance.summonsAfterEscaping)
+                return false;
+
             if (__instance.wantToDespawn)
             {
                 Vector3 nearest = PlayerPositionManager.GetNearestPlayerPosition(__instance.transform.position);
@@ -219,39 +223,22 @@ namespace DWMPHorde.Patches
                 return;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return;
-            if (__instance.dummy || !__instance.alive)
+            if (__instance.dummy || !__instance.alive || !__instance.isActive)
                 return;
 
             RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null)
                 return;
 
-            // Replicate vanilla Player collision behavior from Character.onCollideWith,
-            // adapted for the proxy (which has CharBase but no Player component).
-            // Vanilla flow:
-            //   1. Sleeping → wakeup + return (don't react)
-            //   2. Banshee  → initiateBansheeAttack + return
-            //   3. Invisible/ignoreMe → skip
-            //   4. Aggressiveness.neutral/follower → ignore
-            //   5. Aggressiveness.flee/fleeAndDespawn → runAway
-            //   6. attackOnSight/defensive/stalker → chase
-
-            // Track contact like a Player collision
+            // Vanilla Character.onCollideWith's Player branch, in its order, for the proxy
+            // (CharBase, no Player component): track the contact; a banshee attacks; a sleeper
+            // that wakes on its own wakes and does nothing else; otherwise, unless the player is
+            // invisible or the creature dies on contact, reactToCharacter(null, player, false).
+            // reactToCharacter owns every aggressiveness: neutral/follower/NPC ignore the bump, a
+            // fleeing creature tryToRunAway()s (from its target, or straight back with none; no
+            // despawn), the rest turn on that player (HostRetaliateOnAttackerPatch).
             if (!__instance.touchingColliders.Contains(_collider))
                 __instance.touchingColliders.Add(_collider);
-
-            if (__instance.sleeping)
-            {
-                if (!__instance.wakeUpOnlyManually)
-                {
-                    __instance.wakeup();
-                }
-                return; // Sleeping entities wake up but don't react further
-            }
-
-            CharBase proxyCB = proxy.CachedCharBase;
-            if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
-                return;
 
             if (__instance.banshee)
             {
@@ -259,31 +246,18 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            switch (__instance.aggressiveness)
+            if (__instance.sleeping && !__instance.wakeUpOnlyManually)
             {
-                case Aggressiveness.neutral:
-                case Aggressiveness.follower:
-                    return;
-
-                case Aggressiveness.flee:
-                case Aggressiveness.fleeAndDespawn:
-                    // Vanilla onCollideWith(Player) calls runAway. Proxy has no Player,
-                    // restore flee-on-bump so client can scare rabbits/crows.
-                    __instance.runAway(proxy.transform.position);
-                    if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                        __instance.wantToDespawn = true;
-                    return;
-
-                default:
-                    // Vanilla: bumping into the player is reactToCharacter(null, player, false) unless
-                    // the creature dies on contact; for a player body that turns it on that player
-                    // (HostRetaliateOnAttackerPatch). It used to skip creatures not hostile to
-                    // players, which vanilla turns on the host all the same.
-                    if (__instance.dieOnContactWithTarget)
-                        return;
-                    ReactToCharacter(__instance, null, proxy.transform, false);
-                    break;
+                __instance.wakeup();
+                return;
             }
+
+            CharBase proxyCB = proxy.CachedCharBase;
+            if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
+                return;
+            if (__instance.dieOnContactWithTarget)
+                return;
+            ReactToCharacter(__instance, null, proxy.transform, false);
         }
 
         private static readonly System.Action<Character, Character, Transform, bool> ReactToCharacter =

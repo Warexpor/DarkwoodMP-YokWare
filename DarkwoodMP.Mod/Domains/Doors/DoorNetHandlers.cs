@@ -36,9 +36,8 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            Door door = Sync.ListTracker<Door>.FindByPosition(pos);
-            if (door == null)
-                door = WorldQueryHelper.FindDoorByPosLoose(pos, 4f);
+            // Tracker (tight first) then overlap; an active door wins over an inactive twin.
+            Door door = WorldQueryHelper.FindDoorByPosLoose(pos, 4f);
             if (door == null)
             {
                 Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();

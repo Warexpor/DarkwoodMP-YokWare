@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -165,35 +166,109 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Applies EnemyOfTheForest / FriendOfTheForest effects when a
-    /// remote proxy is seen near an animalAggressive entity, overriding
-    /// its default behaviour.
+    /// Friend / Enemy of the Forest for every player body. Vanilla checks
+    /// <c>target == Player.Instance._transform &amp;&amp; faction == animalAggressive &amp;&amp;
+    /// Player.Instance.skills.FriendOfTheForest</c> (or EnemyOfTheForest) in two places: the far
+    /// sighting in processAnims (a defensive animal turns defensive at a slower count for a Friend,
+    /// chases an Enemy) and onSeeEnemyNear (a Friend is chased even when the path cannot search).
+    /// A client's stand-in failed the identity test, so its skills never counted. Both
+    /// conditions read "the target is a player" and "that player's skill" instead; the rest of
+    /// vanilla's logic is untouched.
     /// </summary>
-    [HarmonyPatch(typeof(Character), "onSeeEnemyNear")]
-    public static class HostOnSeeEnemyNearPatch
+    [HarmonyPatch]
+    public static class HostForestSkillTargetPatch
     {
-        private static void Postfix(Character __instance)
+        private static IEnumerable<MethodBase> TargetMethods()
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!PlayerPositionManager.HasRemotePlayer)
-                return;
-            if (__instance.target == null)
-                return;
-            if (__instance.faction != Faction.animalAggressive)
-                return;
+            yield return AccessTools.Method(typeof(Character), "processAnims");
+            yield return AccessTools.Method(typeof(Character), "onSeeEnemyNear");
+        }
 
-            RemotePlayerProxy proxy = __instance.target.GetComponent<RemotePlayerProxy>();
-            if (proxy == null)
-                return;
+        /// <summary>Vanilla's <c>target == Player.Instance._transform</c>, for any player body.</summary>
+        public static bool TargetIsPlayer(Transform target)
+        {
+            Player host = Player.Instance;
+            if (host != null && target == host.transform)
+                return true;
+            return target != null && target.GetComponent<RemotePlayerProxy>() != null;
+        }
 
-            // Up close vanilla chases a Friend of the Forest too (onSeeEnemyNear); only the far
-            // sighting turns defensive. Forcing defensive here spared clients and not the host.
-            if (proxy.RemoteHasEnemyOfTheForest || proxy.RemoteHasFriendOfTheForest)
+        /// <summary>The Friend of the Forest skill of the player <paramref name="c"/> targets.</summary>
+        public static bool TargetFriendOfTheForest(Character c) => TargetSkill(c, friend: true);
+
+        /// <summary>The Enemy of the Forest skill of the player <paramref name="c"/> targets.</summary>
+        public static bool TargetEnemyOfTheForest(Character c) => TargetSkill(c, friend: false);
+
+        private static bool TargetSkill(Character c, bool friend)
+        {
+            Transform t = c != null ? c.target : null;
+            Player host = Player.Instance;
+            if (t == null || host != null && t == host.transform)
+                return host != null && host.skills != null
+                    && (friend ? host.skills.FriendOfTheForest : host.skills.EnemyOfTheForest);
+            RemotePlayerProxy proxy = t.GetComponent<RemotePlayerProxy>();
+            return proxy != null && (friend ? proxy.RemoteHasFriendOfTheForest : proxy.RemoteHasEnemyOfTheForest);
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            MethodInfo getInstance = AccessTools.PropertyGetter(typeof(Player), nameof(Player.Instance));
+            FieldInfo transformField = AccessTools.Field(typeof(Player), "_transform");
+            FieldInfo targetField = AccessTools.Field(typeof(Character), nameof(Character.target));
+            FieldInfo skillsField = AccessTools.Field(typeof(Player), nameof(Player.skills));
+            FieldInfo friendField = AccessTools.Field(typeof(PlayerSkills), nameof(PlayerSkills.FriendOfTheForest));
+            FieldInfo enemyField = AccessTools.Field(typeof(PlayerSkills), nameof(PlayerSkills.EnemyOfTheForest));
+            MethodInfo opEquality = AccessTools.Method(typeof(UnityEngine.Object), "op_Equality");
+            MethodInfo isPlayer = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetIsPlayer));
+            MethodInfo friendOf = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetFriendOfTheForest));
+            MethodInfo enemyOf = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetEnemyOfTheForest));
+
+            var list = new List<CodeInstruction>(instructions);
+            if (getInstance == null || transformField == null || targetField == null || skillsField == null
+                || friendField == null || enemyField == null || opEquality == null)
             {
-                if (__instance.behaviour != Character.Behaviour.chasingTarget)
-                    __instance.setBehaviour(Character.Behaviour.chasingTarget);
+                Logging.ModLog.Error(Logging.LogCat.AI, "[ForestSkill] " + original.Name + " hook not applied (missing member)");
+                return list;
             }
+
+            int patched = 0;
+            for (int i = 2; i < list.Count; i++)
+            {
+                bool friend = list[i].LoadsField(friendField);
+                if (!friend && !list[i].LoadsField(enemyField))
+                    continue;
+                if (!list[i - 1].LoadsField(skillsField) || !list[i - 2].Calls(getInstance))
+                    continue;
+                // Player.Instance.skills.X → this.target's player's X (stack: one bool either way).
+                // Rewritten in place so branch labels on these instructions stay put.
+                list[i - 2].opcode = OpCodes.Ldarg_0;
+                list[i - 2].operand = null;
+                list[i - 1].opcode = OpCodes.Call;
+                list[i - 1].operand = friend ? friendOf : enemyOf;
+                list[i].opcode = OpCodes.Nop;
+                list[i].operand = null;
+
+                // The same condition's earlier `target == Player.Instance._transform`.
+                for (int k = i - 3; k >= 3 && k > i - 24; k--)
+                {
+                    if (!list[k].Calls(opEquality) || !list[k - 1].LoadsField(transformField)
+                        || !list[k - 2].Calls(getInstance) || !list[k - 3].LoadsField(targetField))
+                        continue;
+                    list[k - 2].opcode = OpCodes.Nop;
+                    list[k - 2].operand = null;
+                    list[k - 1].opcode = OpCodes.Nop;
+                    list[k - 1].operand = null;
+                    list[k].operand = isPlayer;
+                    patched++;
+                    break;
+                }
+            }
+
+            int expected = original.Name == "processAnims" ? 2 : 1;
+            if (patched != expected)
+                Logging.ModLog.Error(Logging.LogCat.AI,
+                    "[ForestSkill] " + original.Name + " expected " + expected + " forest checks, patched " + patched);
+            return list;
         }
     }
 

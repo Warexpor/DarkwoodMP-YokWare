@@ -23,6 +23,8 @@ namespace DWMPHorde.Networking
                 if (door == null) continue;
                 // The host's own prologue pads are not the world.
                 if (PersonalPrologue.IsOnProloguePad(door.transform)) continue;
+                // The live twin at this position owns the state.
+                if (WorldQueryHelper.IsInactiveTwin(door, doors)) continue;
 
                 Vector3 p = door.transform.position;
                 Vector3 key = new Vector3(
@@ -95,6 +97,9 @@ namespace DWMPHorde.Networking
                 Window window = windows[i];
                 if (window == null || !window.barricaded) continue;
                 if (PersonalPrologue.IsOnProloguePad(window.transform)) continue;
+                // The live twin at this position owns the state (an inactive twin keeps its
+                // authored boards and would re-board a window torn open on the host).
+                if (WorldQueryHelper.IsInactiveTwin(window, windows)) continue;
 
                 Vector3 p = window.transform.position;
                 Vector3 key = new Vector3(
