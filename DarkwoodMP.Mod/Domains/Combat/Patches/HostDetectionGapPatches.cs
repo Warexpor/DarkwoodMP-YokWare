@@ -11,7 +11,8 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Replaces Sniffer.Update entirely on the host.
     /// Checks BOTH the host player (Player.Instance) and ALL proxies for smell range,
-    /// and sniffs the closest one. When the sniff completes, attacks whichever player
+    /// and sniffs the one <see cref="PlayerTargetArbiter.PickSmelled"/> picks (the player it is
+    /// already after, else the nearest). When the sniff completes, attacks whichever player
     /// triggered the sniff.
     /// </summary>
     [HarmonyPatch(typeof(Sniffer), "Update")]
@@ -88,35 +89,12 @@ namespace DWMPHorde.Patches
                     || charComponent.behaviour == Character.Behaviour.escaping)
                     return false;
 
-                // Check BOTH host and all proxies for proximity
-                bool hostInRange = Player.Instance != null &&
-                    Core.trueDistance(__instance.transform.position, Player.Instance._transform.position) < __instance.radius;
+                // Every player body inside the smell radius counts alike: the one the creature is
+                // already after, else the nearest (PlayerTargetArbiter).
+                if (!PlayerTargetArbiter.PickSmelled(charComponent, __instance.radius, out int sniffedId))
+                    return false;
 
-                // Find the closest in-range proxy
-                int closestProxyId = -1;
-                float closestProxyDist = float.MaxValue;
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy == null) continue;
-                    float d = Core.trueDistance(__instance.transform.position, proxy.transform.position);
-                    if (d < __instance.radius && d < closestProxyDist)
-                    {
-                        closestProxyDist = d;
-                        closestProxyId = proxy.PlayerId;
-                    }
-                }
-
-                if (!hostInRange && closestProxyId < 0)
-                    return false; // neither host nor any proxy in range
-
-                float distToHost = hostInRange
-                    ? Core.trueDistance(__instance.transform.position, Player.Instance._transform.position)
-                    : float.MaxValue;
-
-                // Sniff the closer player (or host if equal)
-                bool sniffProxy = closestProxyId >= 0 && (!hostInRange || closestProxyDist < distToHost);
-
-                _sniffTargetPlayerId[__instance] = sniffProxy ? closestProxyId : -1; // -1 = host
+                _sniffTargetPlayerId[__instance] = sniffedId; // -1 = host
 
                 __instance.sniffing = true;
                 TimeStartedSniffing(__instance) = Time.time;
@@ -166,7 +144,7 @@ namespace DWMPHorde.Patches
                 if (Core.trueDistance(__instance.transform.position, proxy.transform.position) >= __instance.radius)
                     return;
 
-                charComponent.attackCharacter(proxy.transform);
+                PlayerTargetArbiter.Commit(charComponent, proxy.transform, "sniff");
             }
             else
             {
@@ -181,7 +159,7 @@ namespace DWMPHorde.Patches
 
                 // Attack the sniffed body. attackPlayer() retargets to the nearest
                 // peer and would drop the host the sniffer just finished on.
-                charComponent.attackCharacter(host._transform != null ? host._transform : host.transform);
+                PlayerTargetArbiter.Commit(charComponent, host.transform, "sniff");
             }
         }
     }
@@ -257,62 +235,47 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// The original checkForNewEnemyCloserThanTarget just picks the first valid
-    /// entry in charactersInSight regardless of distance. This Prefix replaces
-    /// it with a version that actually finds the CLOSEST enemy, so entities
-    /// switch between host and proxy based on proximity. From one player body to
-    /// another only when the other is clearly nearer (<see cref="PlayerChaseTarget"/>),
-    /// the same rule the sight check keeps.
+    /// Vanilla's closer-enemy check (every 2.5-3.5 s while chasing) attacks the first character in
+    /// its sight list that it is hostile to. With several player bodies that first entry is just
+    /// whichever the physics overlap listed first. The player bodies count as one entry here:
+    /// when vanilla's pick is a player, <see cref="PlayerTargetArbiter"/> says which one (the held
+    /// one, or one clearly nearer: this check is the only switch window). Non-player picks stay
+    /// vanilla's (it was changed to "the closest of everything" before, also for non-players).
     /// </summary>
     [HarmonyPatch(typeof(Character), "checkForNewEnemyCloserThanTarget")]
     public static class HostCheckForCloserEnemyPatch
     {
         private static bool Prefix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return true;
-            if (!PlayerPositionManager.HasRemotePlayer)
+            if (__instance == null || !HostPlayerIdentity.HostWithRemotes())
                 return true;
 
-            if (ProxyDistanceHelper.ProxyIsFar(__instance))
-                return true;
-
-            if (__instance.charactersInSight.Count == 0)
-                return false;
-
-            Transform currentTarget = __instance.target;
-            float currentDist = currentTarget != null
-                ? Core.trueDistance(__instance.transform.position, currentTarget.position)
-                : float.MaxValue;
-            // A player body still alive and sensed is held until another is clearly nearer; one
-            // this creature lost gives way to whoever it does see.
-            bool targetIsPlayer = PlayerChaseTarget.IsPlayerBody(currentTarget);
-            bool targetHeld = targetIsPlayer && PlayerChaseTarget.StillHeld(__instance, currentTarget);
-            float closestDist = targetIsPlayer && !targetHeld ? float.MaxValue : currentDist;
-            Transform closestTransform = null;
-            float playerSwitchDist = targetHeld
-                ? currentDist * PlayerChaseTarget.SwitchDistanceRatio
-                : float.MaxValue;
-
-            for (int i = 0; i < __instance.charactersInSight.Count; i++)
+            List<CharBase> list = __instance.charactersInSight;
+            for (int i = 0; i < list.Count; i++)
             {
-                CharBase cb = __instance.charactersInSight[i];
-                if (cb == null || !cb.alive || cb.ignoreMe || cb.invisible) continue;
-                if (!__instance.attacksFaction(cb.faction)) continue;
-                if (cb.transform == currentTarget) continue;
-
-                float d = Core.trueDistance(__instance.transform.position, cb.transform.position);
-                if (d >= playerSwitchDist && PlayerChaseTarget.IsPlayerBody(cb.transform)) continue;
-                if (d < closestDist)
+                CharBase cb = list[i];
+                if (cb == null || !__instance.attacksFaction(cb.faction))
+                    continue;
+                Transform pick = cb.transform;
+                PlayerTargetReason reason = PlayerTargetReason.None;
+                if (PlayerTargetArbiter.IsPlayerBody(pick))
                 {
-                    closestDist = d;
-                    closestTransform = cb.transform;
+                    Transform chosen = PlayerTargetArbiter.Choose(__instance, __instance.target,
+                        switchWindow: true, out reason, out bool chosenSensed);
+                    if (chosen != null)
+                    {
+                        if (chosen != pick)
+                            PlayerTargetArbiter.TraceHold(__instance, chosen, pick, "checkForNewEnemyCloserThanTarget", reason);
+                        // A held target out of sight for a moment is not re-committed (that would
+                        // hand the creature its real position); vanilla only attacks what it sees.
+                        if (!chosenSensed && chosen == __instance.target)
+                            return false;
+                        pick = chosen;
+                    }
                 }
+                PlayerTargetArbiter.Commit(__instance, pick, "checkForNewEnemyCloserThanTarget", reason);
+                return false;
             }
-
-            if (closestTransform != null)
-                __instance.attackCharacter(closestTransform);
-
             return false;
         }
     }

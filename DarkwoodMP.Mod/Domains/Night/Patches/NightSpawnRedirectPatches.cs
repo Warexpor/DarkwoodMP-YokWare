@@ -202,7 +202,7 @@ namespace DWMPHorde.Patches
                 if (go == null) continue;
                 Character component = go.GetComponent<Character>();
                 if (component != null && body.Attack != null)
-                    component.attackCharacter(body.Attack);
+                    PlayerTargetArbiter.Commit(component, body.Attack, "nightWorms");
                 if (spawner.nocturnalCharacters != null)
                     spawner.nocturnalCharacters.Add(go);
             }

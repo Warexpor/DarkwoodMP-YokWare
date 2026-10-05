@@ -16,7 +16,7 @@ namespace DWMPHorde.Patches
             if (net == null || !PlayerPositionManager.HasRemotePlayer)
                 return true;
             float range = (float)c.farViewDistance * c.aniSightRangeModifier;
-            Sniffer sniffer = c.GetComponent<Sniffer>();
+            CanSeeComponentCache.Get(c, out Sniffer sniffer, out Collider _);
             if (sniffer != null && sniffer.radius > range)
                 range = sniffer.radius;
             float threshold = range + 50f;
@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
 
         internal static Transform NearestLiving(Vector3 from)
         {
-            return HostAttackPlayerNearestPatch.FindNearestPlayerTransform(from);
+            return PlayerTargetArbiter.NearestValid(from);
         }
 
         internal static GameObject NearestLivingGo(Vector3 from)
@@ -129,6 +129,29 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
+        /// Vanilla <c>Player.isInSight</c> from one body's pose: the host's own, or a stand-in's by
+        /// pointing the host's <c>_transform</c> at it for the call (as <see cref="NearestViewer"/>).
+        /// </summary>
+        internal static bool BodySees(Transform body, bool isHost, Transform dest, bool canBeFarAway, int radius = 0)
+        {
+            Player player = Player.Instance;
+            if (player == null || body == null || dest == null)
+                return false;
+            if (isHost)
+                return player.isInSight(dest, canBeFarAway, radius);
+            Transform saved = player._transform;
+            try
+            {
+                player._transform = body;
+                return player.isInSight(dest, canBeFarAway, radius);
+            }
+            finally
+            {
+                player._transform = saved;
+            }
+        }
+
+        /// <summary>
         /// Forest-spirit indoor cull: despawn only when every living player is inside.
         /// Proxy CharBase.isInside is refreshed via checkGround (proxy has no CharacterSounds tick).
         /// </summary>
@@ -155,10 +178,4 @@ namespace DWMPHorde.Patches
             return true;
         }
     }
-
-    /// <summary>
-    /// Augments Character.canSeeEnemy on the host so NPCs react to both
-    /// the host player and the remote proxy for detection, targeting,
-    /// and fear/ward effects.
-    /// </summary>
 }

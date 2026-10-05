@@ -19,7 +19,34 @@ namespace DWMPHorde.Patches
             // joiner's own prologue sets it (a new-game Player has it on, and the load would take
             // the new-game branch with no prologue pad).
             Player.Instance.firstPlay = false;
+            InitNewGameSkills(Player.Instance.skills);
             return false;
+        }
+
+        /// <summary>
+        /// Vanilla's new-game skill setup (<c>PlayerSkills.Start</c> outside a load): every skill
+        /// prefab unchosen, then <c>initialize</c>. A load leaves it to the save's
+        /// <c>PlayerSkills.SaveState.loadValues</c>, which this skip does not run, so the fresh
+        /// character's skills were never initialized. That also never ran <c>setfarsight</c>, which
+        /// sets the camera's look distance (<c>CamMain.seeDistance</c> 5.2, Farsight 3.4): the
+        /// field kept its default of 1.5 and the client's camera looked about three and a half
+        /// times as far toward the cursor as the host's.
+        /// </summary>
+        private static void InitNewGameSkills(PlayerSkills skills)
+        {
+            if (skills == null)
+                return;
+            UnityEngine.Object[] prefabs = UnityEngine.Resources.LoadAll("Skills", typeof(UnityEngine.GameObject));
+            for (int i = 0; i < prefabs.Length; i++)
+            {
+                PlayerSkill skill = (prefabs[i] as UnityEngine.GameObject)?.GetComponent<PlayerSkill>();
+                if (skill == null)
+                    continue;
+                skill.chosen = false;
+                skill.initialized = false;
+            }
+            skills.initialized = false;
+            skills.initialize();
         }
     }
 

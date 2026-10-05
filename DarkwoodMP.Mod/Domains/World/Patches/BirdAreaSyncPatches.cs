@@ -230,14 +230,17 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Vanilla sendBirdToAttackPlayer always attackPlayer() → Player.Instance.
-    /// When the enterer was a remote proxy, dive at that proxy's CharBase instead.
+    /// With remote players the bird dives at the body that walked in (host or stand-in), the way
+    /// vanilla attackPlayer does it (attack-on-sight unless defensive, then attackCharacter). The
+    /// host's own entry used to go through attackPlayer's "player" pick instead, which could send
+    /// the bird at a client standing outside the area.
     /// </summary>
     [HarmonyPatch(typeof(BirdArea), "sendBirdToAttackPlayer")]
     public static class BirdAreaSendBirdAttackPatch
     {
         private static bool Prefix(BirdArea __instance)
         {
-            if (!BirdAreaPresence.IsHostConnected())
+            if (!BirdAreaPresence.IsHostConnected() || !HostPlayerIdentity.HostWithRemotes())
                 return true;
             if (__instance == null || !__instance.playerIsInside || __instance.birds == null
                 || __instance.birds.Count == 0)
@@ -246,14 +249,17 @@ namespace DWMPHorde.Patches
             Transform target = BirdAreaPresence.GetAttackTarget(__instance);
             if (target == null)
                 return true;
-            if (target.GetComponentInParent<RemotePlayerProxy>() == null)
-                return true;
 
             Character bird = __instance.birds[Random.Range(0, __instance.birds.Count)];
             if (bird == null)
                 return false;
 
-            bird.attackCharacter(target);
+            if (!bird.dummy)
+            {
+                if (bird.aggressiveness != Aggressiveness.defensive)
+                    bird.aggressiveness = Aggressiveness.attackOnSight;
+                PlayerTargetArbiter.Commit(bird, target, "birdArea");
+            }
             if (bird.flier != null)
                 bird.flier.diving = true;
             __instance.startRoutine(__instance.sendBirdToAttackPlayer, 4f, 7f);

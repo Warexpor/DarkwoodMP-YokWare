@@ -8,72 +8,12 @@ using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    [HarmonyPatch(typeof(Character), "forceAttackClosestCharacter")]
-    public static class HostForceAttackClosestCharacterPatch
-    {
-        private static void Postfix(Character __instance)
-        {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!PlayerPositionManager.HasRemotePlayer)
-                return;
-
-            Player hostPlayer = Player.Instance;
-            if (hostPlayer == null) return;
-
-            // Only redirect if entity fell through to attackPlayer()
-            if (__instance.target != hostPlayer.transform
-                && __instance.target != hostPlayer._transform)
-                return;
-
-            // Dream bunker spirit stays on its sticky owner; do not steal it to a nearer proxy.
-            if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
-            {
-                Transform sticky = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
-                if (sticky != null)
-                {
-                    __instance.attackCharacter(sticky);
-                    return;
-                }
-            }
-
-            var net = ModRuntime.Network;
-            if (net == null) return;
-
-            float range = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-            Sniffer sniffer = __instance.GetComponent<Sniffer>();
-            if (sniffer != null && sniffer.radius > range)
-                range = sniffer.radius;
-
-            float hostDist = Core.trueDistance(
-                __instance.transform.position, hostPlayer._transform.position);
-
-            // Find the closest detectable proxy that is nearer than the host.
-            Transform closestProxy = null;
-            float closestDist = hostDist;
-            foreach (var proxy in net.GetAllProxies())
-            {
-                if (proxy == null) continue;
-                Transform pt = proxy.transform;
-                float distToProxy = Core.trueDistance(__instance.transform.position, pt.position);
-                if (distToProxy > range || distToProxy >= closestDist)
-                    continue;
-                CharBase proxyCB = proxy.CachedCharBase;
-                if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
-                    continue;
-                closestDist = distToProxy;
-                closestProxy = pt;
-            }
-
-            if (closestProxy != null)
-                __instance.attackCharacter(closestProxy);
-        }
-    }
-
     /// <summary>
-    /// Vanilla <c>attackPlayer</c> always targets <see cref="Player.Instance"/> (host).
-    /// Redirect to the nearest living player body (host or remote proxy) so
-    /// story spawns (dream forest spirit, etc.) chase whoever is actually there.
+    /// Vanilla <c>attackPlayer</c> always targets <see cref="Player.Instance"/> (the host). With
+    /// remote players "the player" is <see cref="PlayerTargetArbiter.ScriptedPick"/>: the bunker
+    /// dream spirit's owner, else the player the creature is already after, else the nearest living
+    /// one, so story spawns chase whoever is there and a creature already on a player stays on it
+    /// (vanilla <c>forceAttackClosestCharacter</c> falls back to this too).
     /// </summary>
     [HarmonyPatch(typeof(Character), "attackPlayer")]
     public static class HostAttackPlayerNearestPatch
@@ -82,24 +22,16 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null || __instance.dummy)
                 return true;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return true;
-            if (!PlayerPositionManager.HasRemotePlayer)
+            if (!HostPlayerIdentity.HostWithRemotes())
                 return true;
 
-            // Dream bunker spirit: never retarget off the spawn owner (ThreatTrigger
-            // "recent proxy" steal was hitting far clients still on the dream path).
-            Transform prefer = null;
-            if (DWMPHorde.Sync.DreamForestSpiritAggro.IsBunkerDreamSpirit(__instance))
-                prefer = DWMPHorde.Sync.DreamForestSpiritAggro.TryGetStickyTarget();
-            if (prefer == null)
-                prefer = FindNearestPlayerTransform(__instance.transform.position);
+            Transform prefer = PlayerTargetArbiter.ScriptedPick(__instance);
             if (prefer == null)
                 return true;
 
             if (__instance.aggressiveness != Aggressiveness.defensive)
                 __instance.aggressiveness = Aggressiveness.attackOnSight;
-            __instance.attackCharacter(prefer);
+            PlayerTargetArbiter.Commit(__instance, prefer, "attackPlayer");
 
             // Event / temp spawns: do not inherit host bigLocation waypoints (dog walks
             // to host macro map). Clear patrol; chase stays on the triggering player.
@@ -107,41 +39,6 @@ namespace DWMPHorde.Patches
                 __instance.waypoints.Clear();
 
             return false;
-        }
-
-        internal static Transform FindNearestPlayerTransform(Vector3 from)
-        {
-            Transform best = null;
-            float bestD = float.MaxValue;
-
-            Player host = Player.Instance;
-            if (host != null)
-            {
-                CharBase hcb = host.GetComponent<CharBase>();
-                if (hcb != null && hcb.alive && !hcb.invisible && !hcb.ignoreMe)
-                {
-                    best = host._transform != null ? host._transform : host.transform;
-                    bestD = Core.trueDistance(from, best.position);
-                }
-            }
-
-            var net = ModRuntime.Network;
-            if (net == null) return best;
-
-            foreach (var proxy in net.GetAllProxies())
-            {
-                if (proxy == null) continue;
-                CharBase pcb = proxy.CachedCharBase;
-                if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
-                    continue;
-                float d = Core.trueDistance(from, proxy.transform.position);
-                if (d < bestD)
-                {
-                    bestD = d;
-                    best = proxy.transform;
-                }
-            }
-            return best;
         }
     }
 
@@ -238,10 +135,14 @@ namespace DWMPHorde.Patches
                 return;
             if (!HostPlayerIdentity.HostWithRemotes())
                 return;
-            Vector3 from = __instance.thisCharacter != null
-                ? __instance.thisCharacter.transform.position
-                : Vector3.zero;
-            GameObject go = HostPlayerIdentity.NearestLivingGo(from);
+            GameObject go = null;
+            if (__instance.thisCharacter != null)
+            {
+                Transform body = PlayerTargetArbiter.ScriptedPick(__instance.thisCharacter);
+                go = body != null ? body.gameObject : null;
+            }
+            if (go == null)
+                go = HostPlayerIdentity.NearestLivingGo(Vector3.zero);
             if (go != null)
                 __instance.target = go;
         }
@@ -283,19 +184,18 @@ namespace DWMPHorde.Patches
 
         /// <summary>
         /// The remote player the banshee screams at, or -1 when that is the host (or nobody): vanilla
-        /// screams at the player who sees it, so the nearest body that has it in sight; the nearest
-        /// living body only when nobody does. The nearest alone gave a host facing away the scream
-        /// meant for a client staring at it.
+        /// screams at the player who sees it. <see cref="PlayerTargetArbiter.PickViewer"/>: the one
+        /// it is on while they still see it, else the nearest one who sees it (the nearest alone
+        /// gave a host facing away the scream meant for a client staring at it, and two players
+        /// both looking swapped it at every check).
         /// </summary>
         internal static int NearestRemoteVictim(Character banshee, out Transform victim)
         {
             victim = null;
             if (!HostPlayerIdentity.HostWithRemotes() || banshee == null)
                 return -1;
-            Transform n = HostPlayerIdentity.NearestViewer(banshee.transform, canBeFarAway: true)
-                ?? HostPlayerIdentity.NearestLiving(banshee.transform.position);
-            Player host = Player.Instance;
-            if (n == null || host == null || n == host.transform || n == host._transform)
+            Transform n = PlayerTargetArbiter.PickViewer(banshee);
+            if (n == null || PlayerTargetArbiter.IsHostBody(n))
                 return -1;
             var net = ModRuntime.Network;
             if (net == null)
@@ -397,7 +297,7 @@ namespace DWMPHorde.Patches
                 return false;
 
             // Vanilla onBansheeSeePlayer with the victim in place of Player.Instance.
-            __instance.target = victim;
+            PlayerTargetArbiter.SetTarget(__instance, victim, "onBansheeSeePlayer");
             // Routines match by method name; the delegate must be a plain bound one so its
             // Method is the vanilla method (isRoutineActive / stopRoutine by name still work).
             if (_checkSight == null) _checkSight = AccessTools.Method(typeof(Character), "checkIfInSightOfPlayer");
@@ -415,7 +315,7 @@ namespace DWMPHorde.Patches
         private static void Finalizer() => InsideSighting = false;
     }
 
-    /// <summary>Host, banshee lost sight: chase the nearest player and release the remote victim.</summary>
+    /// <summary>Host, banshee lost sight: go to the player it was after (else the nearest) and release the remote victim.</summary>
     [HarmonyPatch(typeof(Character), "onBansheeOutOfSightOfPlayer")]
     public static class HostBansheeOutOfSightPatch
     {
@@ -426,7 +326,7 @@ namespace DWMPHorde.Patches
             BansheeVictims.Release(__instance);
             if (!HostPlayerIdentity.HostWithRemotes())
                 return;
-            Transform n = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            Transform n = PlayerTargetArbiter.ScriptedPick(__instance);
             if (n != null)
                 __instance.goToPos(n);
         }

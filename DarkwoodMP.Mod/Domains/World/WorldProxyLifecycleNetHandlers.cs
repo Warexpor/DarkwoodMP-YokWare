@@ -249,163 +249,21 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static int _aggroLogCounter; // process-scoped: log throttle
-        private static float _lastAggroLogTime; // process-scoped: log throttle
+        private static int _maintenanceTicks; // process-scoped: cleanup cadence counter
 
         /// <summary>
-        /// Host tick: make hostile Characters notice remote proxies (FOV/smell/nearView).
+        /// Host tick (every 0.5 s): periodic cleanup of the melee-hit dedup table. This used to also
+        /// "aggro" every hostile creature that could see a stand-in up close onto that stand-in,
+        /// whatever it was already chasing (a dog after the host was pulled onto a client within
+        /// its near view every half second). Creatures now notice stand-ins in their own sight check
+        /// and pick between players through <see cref="PlayerTargetArbiter"/>.
         /// </summary>
-        internal void ProxyAggroCheck()
+        internal void ProxyMaintenanceTick()
         {
             if (_net.RemoteProxies.Count == 0)
                 return;
-
-            Character[] all;
-            int nAll = CharacterTracker.CopyAll(out all);
-            if (nAll == 0)
-                return;
-
-            foreach (var kvp in _net.RemoteProxies)
-            {
-                RemotePlayerProxy proxy = kvp.Value;
-                if (proxy == null) continue;
-                Transform proxyT = proxy.transform;
-
-                // Night-dead peer: not a combat target — skip whole proxy (not per-character).
-                CharBase proxyCb = proxy.CachedCharBase;
-                if (proxyCb != null && !proxyCb.alive)
-                    continue;
-                if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
-                    continue;
-
-                int aggroed = 0;
-                int skippedFar = 0;
-                int skippedAlreadyTargeting = 0;
-                int skippedFleeFauna = 0;
-                bool proxyHasEotF = proxy.RemoteHasEnemyOfTheForest;
-                Vector3 proxyPos = proxyT.position;
-
-                for (int ci = 0; ci < nAll; ci++)
-                {
-                    Character c = all[ci];
-                    if (c == null || !c.alive || c.dummy)
-                        continue;
-
-                    if (c.target == proxyT)
-                    {
-                        skippedAlreadyTargeting++;
-                        continue;
-                    }
-
-                    // Flee-only fauna (rabbits, ravens, etc.): never ProxyAggro.
-                    // Forcing runAway(proxy) every 0.5s made them ping-pong / "chase" both players.
-                    // Vanilla AI already reacts to the local Player body.
-                    if (c.aggressiveness == Aggressiveness.flee
-                        || c.aggressiveness == Aggressiveness.fleeAndDespawn)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    bool attacksPlayer = c.attacksFaction(Faction.player);
-
-                    // Neutral wildlife: only EotF + animalAggressive combat edge (must also attack).
-                    if (c.aggressiveness == Aggressiveness.neutral)
-                    {
-                        if (!proxyHasEotF || c.faction != Faction.animalAggressive || !attacksPlayer)
-                        {
-                            skippedFar++;
-                            continue;
-                        }
-                    }
-
-                    // Strict: only true predators get attackCharacter(proxy).
-                    // runsAwayFromFaction-only animals used to fall through → runAway(proxy) chase feel.
-                    if (!attacksPlayer)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    Vector3 cPos = c.transform.position;
-                    float dx = cPos.x - proxyPos.x;
-                    float dz = cPos.z - proxyPos.z;
-                    float distSq = dx * dx + dz * dz;
-
-                    // Sniffer: within smell radius → aggro (was inverted: skipped when close).
-                    Sniffer entitySniffer = c.GetComponent<Sniffer>();
-                    float sniffRadius = entitySniffer != null ? entitySniffer.radius : 0f;
-                    bool inSniff = entitySniffer != null && distSq < sniffRadius * sniffRadius;
-
-                    float nearRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
-                    // Commit only at nearView (vanilla). Smell alone must not instant-attack from afar.
-                    if (nearRange <= 0f || distSq > nearRange * nearRange)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    // Match HostCanSeeEnemyPatch: FOV + raycast (or smell without LOS at near).
-                    Vector3 toProxy = proxyPos - cPos;
-                    bool inFOV = Vector3.Angle(toProxy, c.transform.up) <= (float)c.fieldOfViewRange;
-                    if (!inFOV && !inSniff)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    bool detected = false;
-                    if (inSniff && !inFOV)
-                    {
-                        detected = true;
-                    }
-                    else
-                    {
-                        float distToProxy = Mathf.Sqrt(distSq);
-                        Collider myCollider = c.GetComponent<Collider>();
-                        if (Physics.Raycast(cPos, toProxy, out var hit, distToProxy,
-                                GameplayConstants.HitscanLayerMask))
-                        {
-                            if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
-                            {
-                                RemotePlayerProxy hitProxy = hit.collider.GetComponentInParent<RemotePlayerProxy>();
-                                if (hitProxy != null && hitProxy == proxy)
-                                    detected = true;
-                            }
-                        }
-                    }
-
-                    if (!detected)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    if (c.sleeping)
-                        c.wakeup();
-
-                    c.attackCharacter(proxyT);
-                    aggroed++;
-                }
-
-                if ((aggroed > 0 || skippedFleeFauna > 0 || ++_aggroLogCounter % 10 == 0)
-                    && ModRuntime.VerboseLogging)
-                {
-                    float now = Time.time;
-                    if (now - _lastAggroLogTime >= 5f)
-                    {
-                        _lastAggroLogTime = now;
-                        ModRuntime.LegacyInfo(
-                            $"[Proxy] player {kvp.Key}: checked {nAll} chars, aggroed={aggroed}, "
-                            + $"far={skippedFar}, alreadyTargeting={skippedAlreadyTargeting}, "
-                            + $"fleeSkip={skippedFleeFauna}");
-                    }
-                }
-
-                // Periodic cleanup of melee-hit dedup dictionary to prevent unbounded growth
-                if (++_aggroLogCounter % 5 == 0)
-                    MeleeSensorDeduplicatePatch.CleanupStaleEntries();
-            }
+            if (++_maintenanceTicks % 5 == 0)
+                MeleeSensorDeduplicatePatch.CleanupStaleEntries();
         }
     }
 }

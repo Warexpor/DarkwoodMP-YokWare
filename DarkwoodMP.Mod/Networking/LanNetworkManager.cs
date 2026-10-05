@@ -44,7 +44,7 @@ namespace DWMPHorde.Networking
         private uint _nextPlayerStateSequence;
         internal Dictionary<int, uint> LastPhysicsStateSequence => _session.Link.LastPhysicsStateSequence;
         internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _session.Link.LastReliablePhysicsStateSequence;
-        private float _proxyAggroTimer;
+        private float _proxyMaintenanceTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
         private bool _wasDragging;

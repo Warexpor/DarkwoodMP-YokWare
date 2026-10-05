@@ -69,7 +69,7 @@ namespace DWMPHorde.Patches
             component.isActive = true;
             Transform sticky = DreamForestSpiritAggro.TryGetStickyTarget() ?? prefer;
             if (sticky != null)
-                component.attackCharacter(sticky);
+                PlayerTargetArbiter.Commit(component, sticky, "dreamSpiritSpawn");
             else
                 component.attackPlayer();
             ModRuntime.LegacyInfo(

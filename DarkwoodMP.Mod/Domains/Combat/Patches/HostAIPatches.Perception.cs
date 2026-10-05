@@ -9,36 +9,35 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Ensures sleeping entities wake up when the remote proxy triggers
-    /// attackCharacter, since the proxy is not a real Player and vanilla
-    /// attackCharacter skips wake-up for non-Player targets.
+    /// Every <c>attackCharacter</c> on the host with remote players is recorded by
+    /// <see cref="PlayerTargetArbiter"/> (switch timing and the <c>[TargetSwitch]</c> trace, tagged
+    /// with the mod path that ran it, or "attackCharacter" for vanilla's own callers). Vanilla's
+    /// body runs unchanged for a stand-in as for the host: it used to refuse a stand-in to any
+    /// creature not hostile to players (a deer hit by a client never turned on him, by the host it
+    /// did) and woke a sleeping creature and chased the stand-in at once where vanilla only wakes it.
     /// </summary>
     [HarmonyPatch(typeof(Character), "attackCharacter", new[] { typeof(Transform) })]
     public static class HostAttackCharacterPatch
     {
-        private static bool Prefix(Character __instance, object[] __args)
+        internal struct State
         {
-            Transform destTransform = (Transform)__args[0];
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return true;
-            if (destTransform == null)
-                return false;
-            if (destTransform.GetComponent<RemotePlayerProxy>() == null)
-                return true;
+            public bool On;
+            public Transform Before;
+        }
 
-            // Rabbits/ravens/non-predators must never chase a remote proxy.
-            if (__instance.aggressiveness == Aggressiveness.flee
-                || __instance.aggressiveness == Aggressiveness.fleeAndDespawn
-                || !__instance.attacksFaction(Faction.player))
-                return false;
+        private static void Prefix(Character __instance, ref State __state)
+        {
+            __state = default;
+            if (__instance == null || !HostPlayerIdentity.HostWithRemotes())
+                return;
+            __state.On = true;
+            __state.Before = __instance.target;
+        }
 
-            if (__instance.sleeping && !__instance.wakeUpOnlyManually)
-            {
-                __instance.wakeup();
-                __instance.sleeping = false;
-            }
-
-            return true;
+        private static void Postfix(Character __instance, State __state)
+        {
+            if (__state.On && __instance != null)
+                PlayerTargetArbiter.ObserveAttack(__instance, __state.Before);
         }
     }
 
@@ -276,12 +275,20 @@ namespace DWMPHorde.Patches
                     return;
 
                 default:
-                    if (!__instance.attacksFaction(Faction.player))
+                    // Vanilla: bumping into the player is reactToCharacter(null, player, false) unless
+                    // the creature dies on contact; for a player body that turns it on that player
+                    // (HostRetaliateOnAttackerPatch). It used to skip creatures not hostile to
+                    // players, which vanilla turns on the host all the same.
+                    if (__instance.dieOnContactWithTarget)
                         return;
-                    __instance.attackCharacter(proxy.transform);
+                    ReactToCharacter(__instance, null, proxy.transform, false);
                     break;
             }
         }
+
+        private static readonly System.Action<Character, Character, Transform, bool> ReactToCharacter =
+            AccessTools.MethodDelegate<System.Action<Character, Character, Transform, bool>>(
+                AccessTools.Method(typeof(Character), "reactToCharacter"));
     }
 
     /// <summary>

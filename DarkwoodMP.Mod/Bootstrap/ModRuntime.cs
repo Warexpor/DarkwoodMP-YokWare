@@ -238,6 +238,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(Audio.VoiceChatService.Reset);
             NetworkResetRegistry.Register(Patches.DialogueDoorAftermath.Reset);
             NetworkResetRegistry.Register(HostSnifferUpdatePatch.Reset);
+            NetworkResetRegistry.Register(PlayerTargetArbiter.Reset);
             NetworkResetRegistry.Register(BarricadeSyncHelpers.Reset);
             // Clear session maps so they cannot leak across reconnects.
             NetworkResetRegistry.Register(ListTracker<Door>.Clear);
