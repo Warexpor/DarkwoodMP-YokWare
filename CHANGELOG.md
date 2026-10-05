@@ -268,8 +268,18 @@ host's sends during its prologue ran alongside. Found and fixed:
 
 - **A dog chasing the client stutter-chased him: it ran a little, turned on the spot, ran again
   toward where he had been, and was easy to dodge; on the client its movement also looked
-  stuttery.** Four causes:
-  - **The host's dog kept switching between the two players.** Vanilla's sight check sets the
+  stuttery.** Five causes:
+  - **The host's dog never counted the client as seen (the playtest: only the client near the
+    dog).** Vanilla's ray often misses the client's stand-in, so the mod senses it itself (sight
+    ray to the stand-in, or smell) and adds it to the dog's sight list, but vanilla gives every
+    seen character more than a list entry: `canSeeEnemyFar` (and `canSeeEnemyNear` up close), and
+    the `lostEnemy` countdown stopped. Without them, a chase refreshes its chase point
+    (`lastKnownTargetPosition`) every frame only while `canSeeEnemyFar` is set; otherwise only in
+    vanilla's one-second relentless bursts after losing sight. So the dog ran to where the client
+    had been, again and again. A sensed stand-in now gets the same consequences a seen player does
+    (`HostCanSeeEnemyPatch.ApplySeenStandIns`), and a trace line (`[AIChase]`, once a second per
+    creature chasing a stand-in) logs how far its chase point lags behind the client.
+  - **With both players in view, the host's dog kept switching between them.** Vanilla's sight check sets the
     chase target to every character it sees in turn, so the last one in its sight list wins every
     0.5-1 s, and that list follows the physics overlap order, not distance. The mod's "closer
     enemy" check (every 2.5-3.5 s) then picked the nearest. With one player both agree; with the

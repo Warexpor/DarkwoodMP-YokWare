@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -190,7 +191,56 @@ namespace DWMPHorde.Patches
             PlayerChaseTarget.KeepCommitted(__instance, __state);
             if (__instance.dummy || __instance.blind || !__instance.alive)
                 return;
+            Sense(__instance);
+            ApplySeenStandIns(__instance);
+        }
 
+        /// <summary>
+        /// Vanilla's sight loop, for each character it put in <c>charactersInSight</c>, also sets
+        /// <c>canSeeEnemyFar</c> (and <c>canSeeEnemyNear</c> in near range) and stops the
+        /// <c>lostEnemy</c> countdown. The stand-ins this patch senses itself (vanilla's ray often
+        /// misses them) were only added to the list. While chasing one, the creature then never
+        /// counted it as seen: its chase point (<c>lastKnownTargetPosition</c>, refreshed every
+        /// frame only while <c>canSeeEnemyFar</c>) was updated only in vanilla's one-second
+        /// relentless bursts, and it ran at where the client had been, again and again (easy to
+        /// walk around). Give a sensed stand-in the same consequences a seen player gets.
+        /// </summary>
+        private static void ApplySeenStandIns(Character c)
+        {
+            TraceProxyChase(c);
+            if (c.canSeeEnemyFar && c.canSeeEnemyNear)
+                return;
+            float nearR = (float)c.nearViewDistance * c.aniSightRangeModifier;
+            Vector3 from = c.transform.position;
+            for (int i = 0; i < c.charactersInSight.Count; i++)
+            {
+                CharBase cb = c.charactersInSight[i];
+                if (cb == null || cb.invisible || !cb.alive || !CanSeeComponentCache.IsProxy(cb.transform))
+                    continue;
+                if (!c.canSeeEnemyFar)
+                {
+                    c.canSeeEnemyFar = true;
+                    c.stopRoutine("lostEnemy", true);
+                }
+                if (Core.trueDistance(cb.transform.position, from) < nearR)
+                    c.canSeeEnemyNear = true;
+            }
+        }
+
+        /// <summary>How far behind the stand-in a chasing creature's chase point is, once a second.</summary>
+        private static void TraceProxyChase(Character c)
+        {
+            Transform t = c.target;
+            if (t == null || c.behaviour != Character.Behaviour.chasingTarget || !CanSeeComponentCache.IsProxy(t))
+                return;
+            ModLog.TraceRate(LogCat.AI, "aichase:" + c.GetInstanceID(), () =>
+                $"[AIChase] {c.name} → stand-in seenFar={c.canSeeEnemyFar} near={c.canSeeEnemyNear} "
+                + $"inSight={c.enemyInSight} lag={Core.trueDistance(c.lastKnownTargetPosition, t.position):F0} "
+                + $"dist={Core.trueDistance(c.transform.position, t.position):F0}", 1f);
+        }
+
+        private static void Sense(Character __instance)
+        {
             var net = ModRuntime.Network;
             if (net == null) return;
             CanSeeComponentCache.Get(__instance, out Sniffer entitySniffer, out Collider myCollider);
