@@ -25,6 +25,21 @@ namespace DWMPHorde.Patches
         /// <summary>True while host <see cref="CharacterSounds.playFootHitGround"/> runs: its plays go unreliable.</summary>
         internal static bool InsideFootstep; // process-scoped: call-scoped, unwound by its Finalizer
 
+        /// <summary>
+        /// The creature whose host <c>Character.die2</c> is running: only its <c>play(death)</c>
+        /// there is the death line. The same clip also plays outside it (redneck_kuba_01_damage is
+        /// Redneck's death and its Hit1/Hit2 pain grunt; banshee_attack_03 is both attack1 and death).
+        /// </summary>
+        internal static Character Die2Of; // process-scoped: call-scoped, unwound by its Finalizer
+
+        /// <summary>Death only for the dying creature's death clip inside its die2.</summary>
+        internal static EntitySoundKind KindFor(CharacterSounds s, string sound, EntitySoundKind otherwise)
+        {
+            return s != null && Die2Of != null && s.character == Die2Of && sound == s.death
+                ? EntitySoundKind.Death
+                : otherwise;
+        }
+
         /// <summary>Vanilla CharacterSounds guards (underwaterCanPlay, isUnderground) for a one-shot.</summary>
         internal static bool VanillaWouldPlay(CharacterSounds s, bool canPlayWhenUnderground = false)
         {
@@ -167,8 +182,7 @@ namespace DWMPHorde.Patches
                 return;
             if (!EntitySoundSyncHelper.VanillaWouldPlay(__instance, canPlayWhenUnderground))
                 return;
-            EntitySoundKind kind = sound == __instance.death ? EntitySoundKind.Death : EntitySoundKind.Play;
-            EntitySoundSyncHelper.Send(__instance, kind, sound);
+            EntitySoundSyncHelper.Send(__instance, EntitySoundSyncHelper.KindFor(__instance, sound, EntitySoundKind.Play), sound);
         }
 
         private static void Finalizer(bool __state)
@@ -196,8 +210,7 @@ namespace DWMPHorde.Patches
                 return;
             if (!EntitySoundSyncHelper.VanillaWouldPlay(__instance))
                 return;
-            EntitySoundKind kind = sound == __instance.death ? EntitySoundKind.Death : EntitySoundKind.Single;
-            EntitySoundSyncHelper.Send(__instance, kind, sound);
+            EntitySoundSyncHelper.Send(__instance, EntitySoundSyncHelper.KindFor(__instance, sound, EntitySoundKind.Single), sound);
         }
 
         private static void Finalizer(bool __state)
@@ -281,6 +294,24 @@ namespace DWMPHorde.Patches
         private static void Finalizer(bool __state)
         {
             EntitySoundSyncHelper.InsideFootstep = __state;
+        }
+    }
+
+    /// <summary>Host: marks the creature whose die2 runs, so its death line goes out as Death.</summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(Character), "die2")]
+    public static class HostDie2DeathLineScopePatch
+    {
+        private static void Prefix(Character __instance, out Character __state)
+        {
+            __state = EntitySoundSyncHelper.Die2Of;
+            if (EntitySoundSyncHelper.IsHost)
+                EntitySoundSyncHelper.Die2Of = __instance;
+        }
+
+        private static void Finalizer(Character __state)
+        {
+            EntitySoundSyncHelper.Die2Of = __state;
         }
     }
 

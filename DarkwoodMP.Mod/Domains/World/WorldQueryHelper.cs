@@ -262,18 +262,52 @@ namespace DWMPHorde.Sync
             return null;
         }
 
+        /// <summary>
+        /// An inactive door / window with an active one of the same type at its spot. Vanilla
+        /// scenes keep such twins (border_main_cottageTrailer_01: two DoorSmall1 and two Window_2x1
+        /// at one position, one inactive); peers key state by position, so a twin's stale state
+        /// would land on the live one. Senders skip it. A lone inactive one (its location switched
+        /// off) is not a twin and still counts.
+        /// </summary>
+        public static bool IsInactiveTwin<T>(T c) where T : Component
+            => c != null && !c.gameObject.activeInHierarchy && IsInactiveTwin(c, GetCachedSceneComponents<T>());
+
+        /// <summary><see cref="IsInactiveTwin{T}(T)"/> against a list already in hand (no scene scan).</summary>
+        public static bool IsInactiveTwin<T>(T c, IList<T> all) where T : Component
+        {
+            if (c == null || all == null || c.gameObject.activeInHierarchy)
+                return false;
+            Vector3 p = c.transform.position;
+            for (int i = 0; i < all.Count; i++)
+            {
+                T o = all[i];
+                if (o == null || o == c || !o.gameObject.activeInHierarchy)
+                    continue;
+                if ((o.transform.position - p).sqrMagnitude < 0.25f)
+                    return true;
+            }
+            return false;
+        }
+
         public static Door FindDoorByPos(Vector3 pos) => FindDoorByPosLoose(pos, 2f);
 
         public static Door FindDoorByPosLoose(Vector3 pos, float radius)
         {
-            // Tracker first (tight), then looser match, then physics overlap.
+            // Tracker first (tight), then looser match, then physics overlap. The tracker also
+            // lists inactive doors (vanilla keeps inactive twins at a live door's spot): an
+            // inactive hit is only the answer when no tier finds an active door.
+            Door inactiveHit = null;
             Door d = ListTracker<Door>.FindByPosition(pos, 0.5f);
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = d;
             d = ListTracker<Door>.FindByPosition(pos, Mathf.Min(1.5f, radius));
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = inactiveHit ?? d;
             d = ListTracker<Door>.FindByPosition(pos, radius);
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = inactiveHit ?? d;
 
+            // Physics only reports colliders of active objects.
             int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
             Door best = null;
             float bestD = float.MaxValue;
@@ -291,7 +325,7 @@ namespace DWMPHorde.Sync
                     best = door;
                 }
             }
-            return best;
+            return best ?? inactiveHit;
         }
 
         public static Window FindWindowByPos(Vector3 pos) => FindWindowByPosLoose(pos, 2f);

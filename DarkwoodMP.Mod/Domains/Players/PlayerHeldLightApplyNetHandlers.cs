@@ -371,34 +371,23 @@ namespace DWMPHorde.Networking
                 light = root.GetComponentInChildren<Light2D>(true);
             if (light == null) return;
 
-            // Match packets always carry defaults on TX; apply even without FlareHasParams
-            // so a late peer (params bit only on dirty ticks) still gets a visible radius.
-            float radius = state.FlareHasParams && state.FlareRadius > 0f
-                ? state.FlareRadius
-                : (state.MatchActive ? (state.FlareRadius > 0f ? state.FlareRadius : 180f) : 0f);
-            if (radius > 0f)
-                light.LightRadius = radius;
+            // The owner streams its live held light (zero = unknown); unknown fields keep the
+            // item prefab's authored Light2D this copy was made from.
+            if (state.FlareRadius > 0f && (state.FlareHasParams || state.MatchActive))
+                light.LightRadius = state.FlareRadius;
 
             if (state.FlareHasParams || state.MatchActive)
             {
-                float baseI = state.FlareIntensity > 0f ? state.FlareIntensity : (state.MatchActive ? 0.85f : 1f);
-                if (fl == null)
-                    light.LightIntensity = baseI * remainScale;
-                else if (remainScale < 1f)
-                    light.LightIntensity = Mathf.Min(light.LightIntensity, baseI) * remainScale;
+                if (state.FlareIntensity > 0f)
+                {
+                    if (fl == null)
+                        light.LightIntensity = state.FlareIntensity * remainScale;
+                    else if (remainScale < 1f)
+                        light.LightIntensity = Mathf.Min(light.LightIntensity, state.FlareIntensity) * remainScale;
+                }
 
-                if (state.FlareHasParams
-                    || state.FlareColorR + state.FlareColorG + state.FlareColorB > 0.01f)
-                {
-                    light.LightColor = new Color(
-                        state.FlareColorR > 0f || state.FlareHasParams ? state.FlareColorR : 1f,
-                        state.FlareColorG > 0f || state.FlareHasParams ? state.FlareColorG : 0.65f,
-                        state.FlareColorB > 0f || state.FlareHasParams ? state.FlareColorB : 0.2f);
-                }
-                else if (state.MatchActive)
-                {
-                    light.LightColor = new Color(1f, 0.65f, 0.2f);
-                }
+                if (state.FlareColorR + state.FlareColorG + state.FlareColorB > 0.001f)
+                    light.LightColor = new Color(state.FlareColorR, state.FlareColorG, state.FlareColorB, light.LightColor.a);
             }
             else if (remainScale < 1f && fl == null)
             {

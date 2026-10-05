@@ -35,6 +35,15 @@ namespace DWMPHorde.Sync
             return c != null ? c.Age : -1f;
         }
 
+        /// <summary>Unscaled time <see cref="MakeCopy"/> ran (-1 none): the copy's WaitAndDie.Start follows shortly.</summary>
+        public float CopyMadeAt = -1f;
+
+        /// <summary>A WaitAndDie (re)start this long after the copy was made belongs to a later reuse.</summary>
+        public const float CopyStartWindowSec = 1f;
+
+        private static readonly AccessTools.FieldRef<WaitAndDie, float> WaitAndDieStarted =
+            AccessTools.FieldRefAccess<WaitAndDie, float>("timeStarted");
+
         /// <summary>Make <paramref name="go"/> a copy of a flare lit <paramref name="age"/> seconds ago (call before its Start).</summary>
         public static void MakeCopy(GameObject go, float age)
         {
@@ -46,6 +55,26 @@ namespace DWMPHorde.Sync
                 c.LitAt = Time.time - age;
                 c.Preset = true;
             }
+            // Flare.prefab's root also carries WaitAndDie (longevity 80, fade 2) that removes the
+            // flare body. On the owner it started when the flare was lit, so the copy's starts that
+            // far in too, or the copy's stick outlives the owner's by the age.
+            foreach (WaitAndDie wd in go.GetComponentsInChildren<WaitAndDie>(true))
+            {
+                FlareClock c = wd.GetComponent<FlareClock>() ?? wd.gameObject.AddComponent<FlareClock>();
+                c.LitAt = Time.time - age;
+                c.Preset = true;
+                c.CopyMadeAt = Time.unscaledTime;
+                // A pooled spawn already ran OnSpawned → waitForDeath inside AddPrefab.
+                if (wd.waitingForDeath)
+                    AgeWaitAndDie(wd, c);
+            }
+        }
+
+        /// <summary>Start <paramref name="wd"/>'s death clock at the copy's lit time.</summary>
+        internal static void AgeWaitAndDie(WaitAndDie wd, FlareClock c)
+        {
+            float age = Mathf.Max(0f, c.Age);
+            WaitAndDieStarted(wd) = (wd.timeScaleIndependent ? Time.unscaledTime : Time.time) - age;
         }
 
         /// <summary>Fully dark: past longevity and the fade.</summary>
@@ -54,6 +83,25 @@ namespace DWMPHorde.Sync
             Flare fl = go != null ? go.GetComponentInChildren<Flare>(true) : null;
             float age = AgeOf(go);
             return fl == null || age >= 0f && age >= fl.longevity + FadeSec;
+        }
+    }
+
+    /// <summary>
+    /// <c>WaitAndDie.waitForDeath</c> (its Start) on a flare copy just made: start the death clock
+    /// at the owner's lit time (<see cref="FlareClock.MakeCopy"/>). Once, and only right after the
+    /// copy is made, so a pooled body reused later starts fresh.
+    /// </summary>
+    [HarmonyPatch(typeof(WaitAndDie), nameof(WaitAndDie.waitForDeath))]
+    public static class FlareClockWaitAndDiePatch
+    {
+        private static void Postfix(WaitAndDie __instance)
+        {
+            FlareClock c = __instance != null ? __instance.GetComponent<FlareClock>() : null;
+            if (c == null || c.CopyMadeAt < 0f)
+                return;
+            if (Time.unscaledTime - c.CopyMadeAt <= FlareClock.CopyStartWindowSec)
+                FlareClock.AgeWaitAndDie(__instance, c);
+            c.CopyMadeAt = -1f;
         }
     }
 

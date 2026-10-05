@@ -310,7 +310,7 @@ namespace DWMPHorde.Sync
             for (int i = 0; i < doors.Count; i++)
             {
                 Door d = doors[i];
-                if (d == null)
+                if (d == null || WorldQueryHelper.IsInactiveTwin(d, doors))
                     continue;
                 Vector3 p = d.transform.position;
                 int dist = NearDist(ctx, p, NearRadius);

@@ -321,6 +321,8 @@ namespace DWMPHorde.Networking
                     continue;
                 if (PersonalPrologue.IsOnProloguePad(door.transform))
                     continue;
+                if (WorldQueryHelper.IsInactiveTwin(door, doors))
+                    continue;
                 bool opened = TraverseHack.ReadDoorOpened(door);
 
                 Vector3 p = door.transform.position;
