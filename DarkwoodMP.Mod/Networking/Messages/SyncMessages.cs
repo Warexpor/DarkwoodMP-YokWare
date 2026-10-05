@@ -845,8 +845,31 @@ namespace DWMPHorde.Networking
     public struct MapElementDiscoveredMessage
     {
         public string ElementName;
-        public void Serialize(NetWriter w) => w.Put(ElementName ?? "");
-        public static MapElementDiscoveredMessage Deserialize(NetReader r) => new MapElementDiscoveredMessage { ElementName = r.GetString() };
+        /// <summary>Where the element stands: names repeat across the map, the first match by name was not always it.</summary>
+        public bool HasPos;
+        public float PosX, PosZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ElementName ?? "");
+            w.Put(HasPos);
+            if (HasPos)
+            {
+                w.Put(PosX);
+                w.Put(PosZ);
+            }
+        }
+
+        public static MapElementDiscoveredMessage Deserialize(NetReader r)
+        {
+            var m = new MapElementDiscoveredMessage { ElementName = r.GetString(), HasPos = r.GetBool() };
+            if (m.HasPos)
+            {
+                m.PosX = r.GetFloat();
+                m.PosZ = r.GetFloat();
+            }
+            return m;
+        }
     }
 
     public struct OxygenTankStashMessage

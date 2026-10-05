@@ -209,14 +209,12 @@ namespace DWMPHorde.Patches
             if (proxy == null)
                 return;
 
-            if (proxy.RemoteHasEnemyOfTheForest)
+            // Up close vanilla chases a Friend of the Forest too (onSeeEnemyNear); only the far
+            // sighting turns defensive. Forcing defensive here spared clients and not the host.
+            if (proxy.RemoteHasEnemyOfTheForest || proxy.RemoteHasFriendOfTheForest)
             {
                 if (__instance.behaviour != Character.Behaviour.chasingTarget)
                     __instance.setBehaviour(Character.Behaviour.chasingTarget);
-            }
-            else if (proxy.RemoteHasFriendOfTheForest)
-            {
-                __instance.setBehaviour(Character.Behaviour.defensive);
             }
         }
     }
@@ -239,16 +237,23 @@ namespace DWMPHorde.Patches
             if (__instance.target.GetComponent<RemotePlayerProxy>() == null)
                 return true;
 
-            // Proxy target; skip vanilla growl, which only works for Player.Instance.
-            // and play the growl + area-alert ourselves to avoid double-fire.
+            // Proxy target; vanilla growl only accepts a Player or Character target. Same body for
+            // the stand-in, including vanilla's throttle and its repeat while the chase lasts
+            // (dropped before: no re-growl, and every re-acquire growled and alerted at once).
+            if (__instance.isRoutineActive("waitToGrowl"))
+                return false;
             if (__instance.sounds != null && !__instance.sleeping)
                 __instance.sounds.playGrowl();
 
-            var alertMethod = AccessTools.Method(typeof(Character), "alertCharactersInArea", new[] { typeof(float), typeof(bool) });
-            alertMethod?.Invoke(__instance, new object[] { 500f, false });
-
+            AlertInArea?.Invoke(__instance, new object[] { 500f, false });
+            __instance.startRoutine(AccessTools.MethodDelegate<System.Action>(WaitToGrowl, __instance), 6f, 30f);
             return false;
         }
+
+        private static readonly System.Reflection.MethodInfo AlertInArea =
+            AccessTools.Method(typeof(Character), "alertCharactersInArea", new[] { typeof(float), typeof(bool) });
+        private static readonly System.Reflection.MethodInfo WaitToGrowl =
+            AccessTools.Method(typeof(Character), "waitToGrowl");
     }
 
     /// <summary>

@@ -392,22 +392,27 @@ namespace DWMPHorde.Sync
                 return;
             if (element.isWorldChunk || element.isDeathDrop)
                 return;
+            // A pin on an item (the Navigator skill's meat marker) is that player's own and does
+            // not exist on other machines; broadcasting it left each peer rescanning for 5 minutes.
+            if (element.GetComponent<Item>() != null)
+                return;
             // Applying a remote discovery must not re-broadcast (loop).
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
 
             if (!NetGuard.Connected(out var net)) return;
 
-            var msg = new MapElementDiscoveredMessage { ElementName = element.elementName };
+            Vector3 at = element.transform.position;
+            var msg = new MapElementDiscoveredMessage { ElementName = element.elementName, HasPos = true, PosX = at.x, PosZ = at.z };
             net.Broadcast(NetMessageType.MapElementDiscovered, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[MapDiscovery] discovered '{element.elementName}' — broadcast to remote");
         }
 
-        public static void OnRemoteElementDiscovered(string elementName)
+        public static void OnRemoteElementDiscovered(string elementName, Vector3? at = null)
         {
             if (string.IsNullOrEmpty(elementName)) return;
-            if (!TryApplyRemoteDiscovery(elementName))
-                QueuePendingDiscovery(elementName);
+            if (!TryApplyRemoteDiscovery(elementName, at))
+                QueuePendingDiscovery(elementName, at);
         }
 
         private static void SendMarkerMessage(Vector3 worldPos)

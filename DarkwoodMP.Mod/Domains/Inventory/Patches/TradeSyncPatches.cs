@@ -135,6 +135,13 @@ namespace DWMPHorde.Patches
             if (net.Role == NetworkRole.Client)
                 return false;
 
+            // A new day while someone trades with it: vanilla clears the stock under the open buy
+            // tray, and closing the trade put the tray back into the new stock. Restock after.
+            if (TraderRestockDefer.InTrade(__instance))
+            {
+                TraderRestockDefer.Add(__instance);
+                return false;
+            }
             return true;
         }
 
@@ -151,6 +158,58 @@ namespace DWMPHorde.Patches
                 return;
 
             TradeInventorySync.BroadcastNpcInventory(__instance);
+        }
+    }
+
+    /// <summary>Host: trader restocks held while a player is talking or trading with that trader.</summary>
+    internal static class TraderRestockDefer
+    {
+        private static readonly List<NPC> _waiting = new List<NPC>(4); // reset-in: Reset
+        private static float _next; // reset-in: Reset
+
+        internal static void Reset()
+        {
+            _waiting.Clear();
+            _next = 0f;
+        }
+
+        internal static bool InTrade(NPC npc)
+        {
+            if (npc == null)
+                return false;
+            var dw = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
+            if (dw != null && dw.opened && dw.npc == npc)
+                return true;
+            var net = ModRuntime.Network;
+            int owner = NpcDialogueLock.GetOwner(npc.name);
+            return owner > 0 && net != null && owner != net.LocalPlayerId;
+        }
+
+        internal static void Add(NPC npc)
+        {
+            if (!_waiting.Contains(npc))
+                _waiting.Add(npc);
+            ModRuntime.LegacyInfo($"[TradeSync] restock of '{npc.name}' waits for the trade to end");
+        }
+
+        internal static void Tick()
+        {
+            if (_waiting.Count == 0 || Time.unscaledTime < _next)
+                return;
+            _next = Time.unscaledTime + 1f;
+            for (int i = _waiting.Count - 1; i >= 0; i--)
+            {
+                NPC npc = _waiting[i];
+                if (npc == null)
+                {
+                    _waiting.RemoveAt(i);
+                    continue;
+                }
+                if (InTrade(npc))
+                    continue;
+                _waiting.RemoveAt(i);
+                Traverse.Create(npc).Method("randomizeTraderInv").GetValue();
+            }
         }
     }
 

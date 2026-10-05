@@ -24,12 +24,13 @@ namespace DWMPHorde.Sync
         private struct PendingDiscovery
         {
             public string Name;
+            public Vector3? At;
             public float QueuedAt;
         }
 
         private static readonly List<PendingDiscovery> _pendingDiscoveries = new List<PendingDiscovery>(64);
-        private static readonly Dictionary<string, MapElement> _discoveryLookup =
-            new Dictionary<string, MapElement>(256);
+        private static readonly Dictionary<string, List<MapElement>> _discoveryLookup =
+            new Dictionary<string, List<MapElement>>(256);
         private static MapElement[] _discoveryLookupSource;
         private static float _nextDiscoveryFlushAt;
         private static float _lastDiscoveryRescanAt = -999f;
@@ -43,17 +44,19 @@ namespace DWMPHorde.Sync
             _lastDiscoveryRescanAt = -999f;
         }
 
-        internal static void QueuePendingDiscovery(string elementName)
+        internal static void QueuePendingDiscovery(string elementName, Vector3? at = null)
         {
             if (string.IsNullOrEmpty(elementName)) return;
             for (int i = 0; i < _pendingDiscoveries.Count; i++)
             {
-                if (_pendingDiscoveries[i].Name == elementName)
+                PendingDiscovery q = _pendingDiscoveries[i];
+                if (q.Name == elementName && q.At.HasValue == at.HasValue
+                    && (!at.HasValue || (q.At.Value - at.Value).sqrMagnitude < 1f))
                     return;
             }
             if (_pendingDiscoveries.Count >= MaxPendingDiscoveries)
                 _pendingDiscoveries.RemoveAt(0);
-            _pendingDiscoveries.Add(new PendingDiscovery { Name = elementName, QueuedAt = Time.unscaledTime });
+            _pendingDiscoveries.Add(new PendingDiscovery { Name = elementName, At = at, QueuedAt = Time.unscaledTime });
             ModRuntime.LegacyInfo($"[MapDiscovery] queued '{elementName}' until MapElement ready");
         }
 
@@ -78,7 +81,7 @@ namespace DWMPHorde.Sync
             for (int i = _pendingDiscoveries.Count - 1; i >= 0; i--)
             {
                 PendingDiscovery p = _pendingDiscoveries[i];
-                if (TryApplyRemoteDiscovery(p.Name, allowRescan: false))
+                if (TryApplyRemoteDiscovery(p.Name, p.At, allowRescan: false))
                 {
                     _pendingDiscoveries.RemoveAt(i);
                     continue;
@@ -95,23 +98,23 @@ namespace DWMPHorde.Sync
         /// Resolve by scene MapElement name (all map types), then showElement(MapElement).
         /// Returns false when the element is not in the scene yet (caller should queue).
         /// </summary>
-        internal static bool TryApplyRemoteDiscovery(string elementName)
+        internal static bool TryApplyRemoteDiscovery(string elementName, Vector3? at = null)
         {
-            return TryApplyRemoteDiscovery(elementName, allowRescan: true);
+            return TryApplyRemoteDiscovery(elementName, at, allowRescan: true);
         }
 
-        private static bool TryApplyRemoteDiscovery(string elementName, bool allowRescan)
+        private static bool TryApplyRemoteDiscovery(string elementName, Vector3? at, bool allowRescan)
         {
             if (string.IsNullOrEmpty(elementName)) return true;
 
-            MapElement el = FindMapElementByName(elementName);
+            MapElement el = FindMapElementByName(elementName, at);
             if (el == null)
             {
                 // Stale empty SceneScanCache (TTL 3s) while MapElements still spawning; a bulk
                 // of misses shares one rescan instead of one FindObjectsOfType each.
                 if (!allowRescan || !TryRescanMapElements(Time.unscaledTime))
                     return false;
-                el = FindMapElementByName(elementName);
+                el = FindMapElementByName(elementName, at);
                 if (el == null)
                     return false;
             }
@@ -144,12 +147,12 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        private static MapElement FindMapElementByName(string elementName)
+        private static MapElement FindMapElementByName(string elementName, Vector3? at)
         {
             MapElement[] all = WorldQueryHelper.GetCachedSceneComponents<MapElement>();
             if (all == null || all.Length == 0) return null;
 
-            // Name index rebuilt only when the cached scan array changes.
+            // Name index rebuilt only when the cached scan array changes. A name can repeat.
             if (!ReferenceEquals(all, _discoveryLookupSource))
             {
                 _discoveryLookup.Clear();
@@ -157,17 +160,47 @@ namespace DWMPHorde.Sync
                 {
                     MapElement e = all[i];
                     if (e == null || string.IsNullOrEmpty(e.elementName)) continue;
-                    if (!_discoveryLookup.ContainsKey(e.elementName))
-                        _discoveryLookup[e.elementName] = e;
+                    if (!_discoveryLookup.TryGetValue(e.elementName, out List<MapElement> list))
+                    {
+                        list = new List<MapElement>(1);
+                        _discoveryLookup[e.elementName] = list;
+                    }
+                    list.Add(e);
                 }
                 _discoveryLookupSource = all;
             }
 
-            if (_discoveryLookup.TryGetValue(elementName, out MapElement el) && el != null)
-                return el;
-            if (_discoveryLookup.TryGetValue(elementName + "_done", out MapElement done) && done != null)
-                return done;
-            return null;
+            MapElement el = Pick(elementName, at);
+            return el != null ? el : Pick(elementName + "_done", at);
+        }
+
+        /// <summary>The one at <paramref name="at"/> when known; else one not yet on the map; else any.</summary>
+        private static MapElement Pick(string name, Vector3? at)
+        {
+            if (!_discoveryLookup.TryGetValue(name, out List<MapElement> list) || list.Count == 0)
+                return null;
+            MapElement best = null;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < list.Count; i++)
+            {
+                MapElement e = list[i];
+                if (e == null) continue;
+                float d;
+                if (at.HasValue)
+                {
+                    Vector3 p = e.transform.position;
+                    float dx = p.x - at.Value.x, dz = p.z - at.Value.z;
+                    d = dx * dx + dz * dz;
+                }
+                else
+                    d = e.isOnMap ? 1f : 0f;
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = e;
+                }
+            }
+            return best;
         }
     }
 }

@@ -10,7 +10,7 @@ The current product line is `0.8.x`. The plugin and display version are
 the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
-`PlayerEffectSync` the home oven, `ChapterTransition` `StartOver`, new `PorterTransport`
+`PlayerEffectSync` the home oven, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
 (150), `PlayerSpecial` (151) and `TradeCommit` (152),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
@@ -526,6 +526,48 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   Both moved the client's respawn point. The character snapshot now keeps each
   player's home oven, the join list no longer changes it, and a home that the world
   load put out is lit again.
+- **Only one hideout got a morning.** The morning (end-of-night effect, lights,
+  trader, the night's creatures cleared, the trader's reputation) ran for the host's
+  hideout, or for one peer's when the host was away. Every hideout a living player
+  greets the morning in now gets it, and each player is rewarded by the trader there.
+  The Wolfman, being one man, visits one hideout.
+- **A new day could restock a trader under an open trade window.** The restock now
+  waits until nobody is talking or trading with that trader.
+- **Map pins were matched by name only.** A discovery now carries the pin's position,
+  so the right one of two same-named pins is revealed (`MapElementDiscovered` gains
+  it). The Navigator skill's meat marker belongs to its player and is no longer
+  broadcast; peers kept rescanning for it for five minutes.
+
+### Creatures and combat
+
+- **Creature copies on clients made their own decisions.** A dog's howl ending made
+  each client's copy summon two local dogs. Waking up, a cut or the banshee's brood
+  did the same kind of thing. Copies also ran their own teleport, despawn and
+  "stuck" timers, world events, and functions from animation frames. The host's
+  creature makes these decisions and sends the results; copies now only present
+  them.
+- **A creature hit by a client rolled to flee; hit by the host, it went for whoever
+  was nearest.** Vanilla chases the player who hit it. A client's hit came from a
+  stand-in, which vanilla doesn't recognise as a player. The host's hit was redirected
+  to the nearest body. The player who hit it is now chased.
+- **Creatures chasing a client never re-growled, and growled on every re-acquire.**
+  The proxy growl skipped vanilla's throttle and repeat. Both are back.
+- **The banshee screamed at the nearest player, not the one looking at it.** It now
+  picks the nearest player who has it in sight. A dead player's body no longer
+  "sees" anything. On clients, the banshee copy's own sight reactions no longer cut
+  the scream and overlay the host sent.
+- **A Friend of the Forest client was never chased up close.** The host was, as in
+  vanilla. Both are now chased.
+- **A human-spider spawning by a client settled into the host's location.** It now
+  settles into the location of the nearest player.
+- **Clients never got combat music.** The host now tells each client when creatures
+  start and stop chasing them.
+- **Fire never hurt another player's body with friendly fire off.** Vanilla counts
+  every flame as a player's hit, so a burning barrel's flames and your own fire bomb
+  spared clients. Fires now remember who started them. Friendly fire off spares you
+  only from someone else's fire.
+- **A client saw no enemy health bar for its own hits.** It now does, and the bar
+  follows the host's health numbers.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

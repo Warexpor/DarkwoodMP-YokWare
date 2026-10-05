@@ -107,7 +107,26 @@ namespace DWMPHorde.Patches
                 PatchTargets.Find(t, "heardSound", new[] { typeof(Vector3), typeof(float), typeof(bool), typeof(float), typeof(bool) }),
                 PatchTargets.Find(t, "alertCharactersInArea", new[] { typeof(float), typeof(bool) }),
                 PatchTargets.Find(t, "beAlerted", new[] { typeof(Transform), typeof(bool) }),
-                PatchTargets.Find(t, "runAway", new[] { typeof(Vector3) }));
+                PatchTargets.Find(t, "runAway", new[] { typeof(Vector3) }),
+                // Decisions a creature's copy reached from the host's animation finishing (a howl
+                // ending summons two dogs, waking up or a cut picks a fight, the banshee's brood)
+                // or from its own timers (teleport, despawn, stuck checks). The host made each of
+                // them and sends the result; on a copy they made local ghosts beside it.
+                PatchTargets.Find(t, "summon", Type.EmptyTypes),
+                PatchTargets.Find(t, "bansheeSpawnBabies", Type.EmptyTypes),
+                PatchTargets.Find(t, "attackPlayer", Type.EmptyTypes),
+                PatchTargets.Find(t, "forceAttackClosestCharacter", Type.EmptyTypes),
+                PatchTargets.Find(t, "waitToTeleport", Type.EmptyTypes),
+                PatchTargets.Find(t, "waitToWantToDespawn", Type.EmptyTypes),
+                PatchTargets.Find(t, "checkIfStuck", Type.EmptyTypes),
+                PatchTargets.Find(t, "imStuck", Type.EmptyTypes),
+                PatchTargets.Find(t, "onSpiderSpawn", Type.EmptyTypes),
+                // A banshee copy's own sight reactions: ending its defensive pose ran vanilla's
+                // "lost sight of the player" here and cut the scream and overlay the host had just
+                // sent (BansheeAgitation is this player's banshee state).
+                PatchTargets.Find(t, "onBansheeSeePlayer", Type.EmptyTypes),
+                PatchTargets.Find(t, "onBansheeOutOfSightOfPlayer", Type.EmptyTypes),
+                PatchTargets.Find(t, "bansheeAgitated", Type.EmptyTypes));
         }
 
         private static bool Prefix(Character __instance)
@@ -202,6 +221,31 @@ namespace DWMPHorde.Patches
         private static bool Prefix(AIPath __instance)
         {
             return !ClientAIConditionalHelper.ShouldSkipAI(__instance);
+        }
+    }
+
+    /// <summary>
+    /// A creature copy's animation frame triggers that act on the world: a world event, a
+    /// teleport next to "the player" (the local one, on a copy) and arbitrary functions sent to
+    /// the creature. The host's creature runs them and its results arrive; the copy keeps the
+    /// presentation triggers (sounds, particles, shadows, prefabs).
+    /// </summary>
+    [HarmonyPatch(typeof(AnimationTriggerListener), nameof(AnimationTriggerListener.checkFrameTrigger))]
+    public static class ClientCopyFrameTriggerPatch
+    {
+        private static readonly AccessTools.FieldRef<AnimationTriggerListener, Character> CharacterRef =
+            AccessTools.FieldRefAccess<AnimationTriggerListener, Character>("character");
+
+        private static bool Prefix(AnimationTriggerListener __instance, tk2dSpriteAnimationFrame.Trigger.Type type)
+        {
+            if (type != tk2dSpriteAnimationFrame.Trigger.Type.fireWorldEvent
+                && type != tk2dSpriteAnimationFrame.Trigger.Type.teleportNearPlayer
+                && type != tk2dSpriteAnimationFrame.Trigger.Type.runFunction)
+                return true;
+            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Client || __instance == null)
+                return true;
+            Character c = CharacterRef(__instance);
+            return c == null || !ClientAIConditionalHelper.ShouldSkipAI(c);
         }
     }
 }

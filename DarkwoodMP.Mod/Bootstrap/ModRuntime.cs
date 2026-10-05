@@ -294,6 +294,8 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);
             NetworkResetRegistry.Register(WorkbenchUndo.Reset);
+            NetworkResetRegistry.Register(TraderRestockDefer.Reset);
+            NetworkResetRegistry.Register(CombatMusicSync.Reset);
             NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);
