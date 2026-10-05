@@ -728,8 +728,8 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// The prologue is this player's own: every world flag it changed goes back to the host's
-        /// world's value (one it added, to unset). Where this player stands (player_in* and the
-        /// like, never synced) stays as it woke.
+        /// world's value (one it added, to unset). This player's own flags (where it stands, its
+        /// help popups and the like: <c>PerPlayerFlagPolicy</c>, never synced) stay as it woke.
         /// </summary>
         private static void RestoreWorldFlags()
         {
@@ -743,7 +743,7 @@ namespace DWMPHorde.Sync
                 foreach (KeyValuePair<string, Flags.Flag> kv in flags.flagsDict)
                 {
                     Flags.Flag f = kv.Value;
-                    if (f == null || FlagSyncBoolPatch.IsPerPlayerSpatialFlag(kv.Key))
+                    if (f == null || PerPlayerFlagPolicy.IsPerPlayer(kv.Key))
                         continue;
                     KeyValuePair<bool, int> before;
                     if (!_flagsBefore.TryGetValue(kv.Key, out before))

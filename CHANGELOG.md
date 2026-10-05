@@ -734,6 +734,111 @@ host's sends during its prologue ran alongside. Found and fixed:
   portrait onto every NPC using it. It now skips NPCs that keep their own portrait, as vanilla
   `NPC.init` does (`DialogTreeSync.ApplyPayload`).
 
+### Found with the vanilla scene data (YAML export audit)
+
+The vanilla scenes and prefabs are now exported with every editor-set field
+(`scripts/unity-yaml.py`). An audit checked the mod's assumptions about that data; everything below
+was proven against it and the decompile.
+
+**Story events and entrances**
+- **A client was moved when another player walked through a gate.** Repeatable area triggers (the
+  border gates into the village and the doctor's house, returnToWorld exits, transport volumes; 51 in
+  the data) run on each client for the other player's stand-in, and that copy ran the transport on
+  the client's own body. The client copy now runs as the walker's event with personal steps left to
+  the walker, as the host's copy already did; the walker's thought text no longer shows on others
+  either (`EventTriggersProxyPatches`).
+- **Scripted steps aimed at the player body happened to every player.** Diving in and out of water,
+  fake death, lying down and paused animation (doctor's failed trap, wagon trap), the hatted man's
+  scare and being eaten (getHit/moveTo/rotate), the crater ending's fade and rotation. Only six named
+  functions counted as personal; now any step targeting the player is the scene owner's, except a
+  decompile-checked list of world functions (shadow event, world-event refresh, the story placements)
+  (`GameEventPersonalActorPatch`, `CoopStoryPolicy`). The scene owner's client now also takes a
+  scripted hit on its own body (skipped on every replay before, `EventCoroutineScope`), and the
+  Wolfman's first visit spawns him in the scene owner's hideout, not the host's location
+  (`SpawnWolfInCurrentHideoutPatch`).
+- **Overworld events with "dream" in their name were dropped.** The church underground entrance
+  opening and the priest after the church dream, the doctor-dream aftermath in hideout 5, the
+  oneChance dream-end outcomes and the cellar's dream start never reached peers: dream events were
+  picked out by a "dream_" substring. They are now picked out by the dream pad itself (the host by
+  the event sitting on the loaded pad, clients by its position in the pad's slot), on send, apply,
+  the pending queue and late-join bulks (`GameEventsFiredPatch`, `GameEventNetHandlers*`,
+  `DreamSyncManager.Session`).
+- **Clients could not use chapter-1 entrances** (bunker entrance, village well, church underground,
+  tree-village cellar, radio-tower underground). The host only read transport-to-object steps; these
+  use transport-to-outside-location with the location name, so the request ended in "could not
+  resolve dest". Both are read now, the trigger is picked by vanilla's requirement check (the church
+  hatch's two entries hang on the church-dream flags), and an "_enter" action that moves nobody (the
+  closed hatch, the dream-home hole) is activated normally for the requester so its message and
+  effects show (`CustomCursorActionSyncPatches`, `CursorActionNetHandlers`).
+
+**Flags, trader standing, dialogue**
+- **A joiner's standing with the night trader was replaced by the host's on every join**, and talking
+  to a trader pushed that player's standing to everyone. The fallback check used `NightTrader` /
+  `TheThree`; the game's names are `nightTrader`, `theThree` and `soldier_underground` (also a
+  night trader). Names fixed, case-insensitive; dialogue-tree sync no longer carries trader standing
+  (`CoopPolicy`, `DialogTreeSync`).
+- **Help popups and night outcome were shared world flags.** The map, active-skill,
+  secondary-attack and drained-reloadable popups, the first oven talk, and survived / died during the
+  night: a client never got its own popups and the trader greeted everyone by the host's night. These
+  flags (`PerPlayerFlagPolicy`) now stay local in live sync, join bulk, desync check and the host's
+  replay of a peer's dialogue or event; they are kept in the client's character backup and start off
+  for a fresh character. Clients set `player_survivedNight` at their own dawn unless they died, and
+  only the player who closed the trader has its night flags cleared.
+- **Joining overwrote the joiner's own location flags** (`player_atDoctorHouse` hides talk options,
+  `player_enteringRoadToHomeFromRadioTower` picks the entry spawn). The join flag bulk now skips
+  per-player flags on both ends (`FlagNetHandlers`).
+- **Two players could not talk to two ovens or traders at once.** The dialogue lock and the host's
+  replay were keyed on the NPC's name, which is not unique (10 ovens, 24 doctors, 8 musicians, every
+  hideout's morning trader): players at different hideouts blocked each other and the host could
+  replay a client's choices on the wrong NPC. The lock and dialogue-outcome messages now carry the
+  NPC's position and world (wire change to `DialogNpcLock` and `DialogOutcomeSync`) (`NpcDialogueLock`,
+  `DialogOutcome*NetHandlers`, `TradeCommit`).
+
+**World objects and creatures**
+- **Mimic corpses (24 in chapter 1) sprang only for the player who opened them**; others still saw
+  an armed corpse and could be poisoned again. The world-trap test knew bear, chain and mutated traps
+  plus name fragments; it now reads the trap's own setup, so mimics count and repeating hazards and
+  scripted triggers don't. A sprung trap applied on a peer also loses its "Open" action and selection
+  as in vanilla (`TrapNetworkId`, `WorldPhysicsSyncService.TrapsDoors`).
+- **Another player's lit match looked about four times too bright and too orange.** The light sent
+  made-up constants over the Matchstick prefab's light; it now sends the live light
+  (`PlayerHeldLightPack/ApplyNetHandlers`).
+- **A flare's stick stayed on peers after it vanished for the owner.** The copy aged the glow but
+  not the 80-second removal timer (`WaitAndDie`), which now starts at the owner's lit time
+  (`FlareClock`).
+- **In the trailer cottages door and window events could land on an invisible twin** (each scene
+  has an inactive duplicate at the same spot), whose stale state was also sent (re-boarding opened
+  windows on join, doors flapping). Lookups prefer the active object and inactive twins send no state
+  (`EntityTrackers`, `WorldQueryHelper`, door/barricade bulks).
+- **Clients stopped hearing a redneck's pain grunts after the first hit, and its real death yell.**
+  The grunt is the same clip as its death line, and any play of that clip was sent as the once-only
+  death sound. Only the play made by the creature's death (`die2`) is now (`EntitySoundSyncPatches`).
+- **A fleeing dog that summons help kept re-picking its escape route while a client was near.** The
+  mod's chase check dropped vanilla's `summonsAfterEscaping` early return (`HostAIPatches.Perception`).
+- **Friend / Enemy of the Forest did nothing for a client spotted from afar** (vanilla checks only
+  the local player); both checks now use whichever player is the target (`HostDetectionGapPatches`).
+- **Bumping into a fleeing animal as a client made it despawn**; bumps now run vanilla's reaction.
+- **A client walking while aiming still alerted creatures** and stepped at the wrong volume. Player
+  state now carries the aiming flag (new trailer field, both DLLs must match) and steps follow
+  vanilla's volumes (`WorldProxyEffectNetHandlers`, `PlayerMessages`).
+
+**Dreams and the prologue**
+- **After the church ruins dream a client could get its own extra Wolfman; after the oneChance dream
+  the sluice door, rubble and levers stayed shut for clients; a host who died in a won dream fired
+  the "failed" event.** Clients ran the outcome's world events as their own, the host never sent the
+  repeating ones, and the death downgrade swapped the world events with the rewards. Clients now
+  replay the host's outcome on every exit path (the Wolfman spawn stays host-only), and a peer that
+  died keeps the party's world events (`DreamSyncManager.OutcomeWorld`, `DreamSyncPatches.Lifecycle`).
+- **The dream bunker door's backup force-open never ran**: it looked for `door_underground` in
+  GameObject names, but that is the NPC's name field (the object is
+  `Door_talkable_outside_bunker_underground_02`) (`DreamDoorSyncPatches.Aftermath`).
+- **Creatures in the epilogue dream's sublocations stayed frozen** after the host's entry video; the
+  check read only the nearest Location's name and now checks every enclosing one (`EndFreeze`).
+- **A returning prologue player with no saved character came back without the prologue's 2
+  mushrooms**; it now gets `dream_tutorial_01`'s default reward. A joiner's own prologue could leave
+  `doctor_dogKilled` set in its copy of the world; the prologue's world flags now go back to the
+  host's values when it wakes (nothing ever reached the host) (`PersonalPrologue`).
+
 ### Another player's legs frozen mid-step
 
 - **After the host was freed from a bear trap, the client saw the host standing with one leg
