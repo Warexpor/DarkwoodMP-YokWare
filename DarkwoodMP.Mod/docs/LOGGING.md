@@ -55,6 +55,7 @@ for maximum dual-box capture.
 | `[Perf]` | Healthy 2s report |
 | `[PerfCliff]` | Window fps~ &lt;15 **or** maxMs / single-frame ≥100ms |
 | `[PerfSeg]` | Named Update segment spike (≥25ms) |
+| `[EntTimeline]` | Client, every 5s with the probe or entity tracing on: creature motion health (below) |
 
 | Field | Meaning |
 |-------|---------|
@@ -66,9 +67,21 @@ for maximum dual-box capture.
 | `footN` / `footMs` / `footType` | FindObjectsOfType cost |
 | `pend lure=… lock=…` | Pending apply queues |
 | `hostEntSend` | Host only: entity broadcast volume |
+| `hostEntTick ms avg/max` | Host only: real time between entity snapshot ticks (target 50) |
 | `segMax` | Hottest Update segment in the window |
 
 **Host clean / client hitch:** compare `role=Host` vs `role=Client` Perf lines.
+
+`[EntTimeline]` fields (frames of creatures whose samples are arriving; a resting body is not counted):
+
+| Field | Meaning |
+|-------|---------|
+| `interp%` / `coast%` / `hold%` / `before%` | Drawn between two host samples (want ~100) / coasting past the newest / holding for the next / before the oldest |
+| `delayMs avg` | Render delay behind the host clock |
+| `gapMs n/avg/max` | Host time between one body's samples (50 near a remote, 100 far) |
+| `lateMs n/avg/max`, `jitter mean/dev/margin` | Batch lateness against the best case, and the margin the delay adds for it |
+| `clock off/target` | Host clock offset in use and the windowed best case it slews to |
+| `worst id=… coast+hold%` | The body that waited most, with its interval and delay |
 
 Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 

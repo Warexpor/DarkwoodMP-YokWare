@@ -346,7 +346,10 @@ public class MessageRoundTripTests
     [Fact]
     public void EntitySnapshot_DescriptorTravelsOnlyWhenFlagged()
     {
-        var bare = new EntitySnapshotNet { Index = 3, Clip = "Walk", Loop = 2, EntityName = "dog_01", PrefabPath = "Characters/dog_01" };
+        var bare = new EntitySnapshotNet
+        {
+            Index = 3, Clip = "Walk", Loop = 2, EntityName = "dog_01", PrefabPath = "Characters/dog_01", SaveId = 4711
+        };
         var withDesc = bare;
         withDesc.HasDescriptor = true;
         byte[] a = Bytes(bare.Serialize);
@@ -354,10 +357,12 @@ public class MessageRoundTripTests
         Assert.True(b.Length > a.Length);
         var backBare = EntitySnapshotNet.Deserialize(new NetReader(a));
         Assert.Null(backBare.EntityName);
+        Assert.Equal(0, backBare.SaveId);
         Assert.Equal(2, backBare.Loop);
         var backDesc = EntitySnapshotNet.Deserialize(new NetReader(b));
         Assert.Equal("dog_01", backDesc.EntityName);
         Assert.Equal("Characters/dog_01", backDesc.PrefabPath);
+        Assert.Equal(4711, backDesc.SaveId);
 
         var batch = new EntityStateMessage { Sequence = 9, HostTime = 12.25f, Entities = new[] { withDesc, bare } };
         var r = new NetReader(Bytes(batch.Serialize));
@@ -365,6 +370,36 @@ public class MessageRoundTripTests
         Assert.Equal(0, r.AvailableBytes);
         Assert.Equal(12.25f, backBatch.HostTime);
         Assert.Equal(2, backBatch.Entities.Length);
+    }
+
+    [Fact]
+    public void EntitySnapshot_AnimationAndFlightFlags_AndPassThroughClip_RoundTrip()
+    {
+        var snap = new EntitySnapshotNet
+        {
+            Index = 12, Clip = "RotateLeft_End", ClipFrame = 3, Alive = true, HealthPct = 80,
+            Flags2 = EntitySnapshotNet.Flag2Animating | EntitySnapshotNet.Flag2InFlight
+                | EntitySnapshotNet.Flag2Diving | EntitySnapshotNet.Flag2PrevClip,
+            PrevClip = "RotateLeft_Loop", PrevClipAgeMs = 40000
+        };
+        var r = new NetReader(Bytes(snap.Serialize));
+        var back = EntitySnapshotNet.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.True(back.Animating);
+        Assert.True(back.InFlight);
+        Assert.True(back.Diving);
+        Assert.True(back.HasPrevClip);
+        Assert.Equal("RotateLeft_Loop", back.PrevClip);
+        Assert.Equal((ushort)40000, back.PrevClipAgeMs);
+        Assert.Equal((short)3, back.ClipFrame);
+
+        // Without the pass-through bit nothing of it travels.
+        snap.Flags2 = EntitySnapshotNet.Flag2Animating;
+        var r2 = new NetReader(Bytes(snap.Serialize));
+        var plain = EntitySnapshotNet.Deserialize(r2);
+        Assert.Equal(0, r2.AvailableBytes);
+        Assert.False(plain.HasPrevClip);
+        Assert.Null(plain.PrevClip);
     }
 
     [Fact]

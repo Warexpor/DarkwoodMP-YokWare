@@ -28,6 +28,7 @@ namespace DWMPHorde.Logging
             CoopPerfProbe.SetPendingCounts(lure, locks, light, trap, feeder, saw, construct);
         public static void NoteEntityBroadcast(int entityCount) =>
             CoopPerfProbe.NoteEntityBroadcast(entityCount);
+        public static void NoteEntityTick(float interval) => CoopPerfProbe.NoteEntityTick(interval);
         public static void BeginUpdateSegment(string name) => CoopPerfProbe.BeginUpdateSegment(name);
         public static void EndUpdateSegment() => CoopPerfProbe.EndUpdateSegment();
     }

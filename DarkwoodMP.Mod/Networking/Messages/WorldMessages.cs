@@ -81,35 +81,66 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public float RotY;
         public string Clip;
+        /// <summary>
+        /// Frame of <see cref="Clip"/> at the batch time (-1: the clip is chosen but not started
+        /// yet). The client only uses it when it starts the clip; a frame change alone is not a
+        /// reason to send the body.
+        /// </summary>
         public short ClipFrame;
         public bool Alive;
         public byte HealthPct;
         /// <summary>
-        /// Name and prefab path never change for one host id, so they travel only when
+        /// Name, prefab path and save id never change for one host id, so they travel only when
         /// <see cref="HasDescriptor"/> is set (first sends of an id and the 1 s full resync).
         /// The client caches them per id.
         /// </summary>
         public bool HasDescriptor;
         public string EntityName;
         public string PrefabPath;
+        /// <summary>
+        /// The body's SaveableObject.uniqueId (0: none). A creature from the shared save has the
+        /// same id on every peer, so the client finds its own copy by it, even asleep on an
+        /// inactive grid node.
+        /// </summary>
+        public int SaveId;
         /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
         public byte Flags;
+        /// <summary>
+        /// bit0=animating (the host keeps the clip moving), bit1=flier in flight, bit2=flier
+        /// diving, bit3=<see cref="PrevClip"/> follows.
+        /// </summary>
+        public byte Flags2;
         /// <summary>
         /// The creature's current CharacterSounds loop as a slot of its own loop fields
         /// (0 = none); see <c>EntityLoopSync</c>. State, not an event: a late joiner or a client
         /// walking up hears the loop the host is playing.
         /// </summary>
         public byte Loop;
+        /// <summary>
+        /// A clip the host started and left again since this id's last send (a turn's loop
+        /// between its start and end), with how long before the batch time it started.
+        /// </summary>
+        public string PrevClip;
+        public ushort PrevClipAgeMs;
 
         public const byte FlagSleeping = 1;
         public const byte FlagEating = 2;
         public const byte FlagDowned = 4;
         public const byte FlagFleeing = 8;
 
+        public const byte Flag2Animating = 1;
+        public const byte Flag2InFlight = 2;
+        public const byte Flag2Diving = 4;
+        public const byte Flag2PrevClip = 8;
+
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
         public bool Downed => (Flags & FlagDowned) != 0;
         public bool Fleeing => (Flags & FlagFleeing) != 0;
+        public bool Animating => (Flags2 & Flag2Animating) != 0;
+        public bool InFlight => (Flags2 & Flag2InFlight) != 0;
+        public bool Diving => (Flags2 & Flag2Diving) != 0;
+        public bool HasPrevClip => (Flags2 & Flag2PrevClip) != 0;
 
         public Character.Behaviour PackedBehaviour
         {
@@ -152,12 +183,19 @@ namespace DWMPHorde.Networking
             w.Put(Alive);
             w.Put(HealthPct);
             w.Put(Flags);
+            w.Put(Flags2);
             w.Put(Loop);
+            if (HasPrevClip)
+            {
+                w.Put(PrevClip ?? "");
+                w.Put((short)PrevClipAgeMs);
+            }
             w.Put(HasDescriptor);
             if (HasDescriptor)
             {
                 w.Put(EntityName ?? "");
                 w.Put(PrefabPath ?? "");
+                w.Put(SaveId);
             }
         }
 
@@ -175,13 +213,20 @@ namespace DWMPHorde.Networking
                 Alive = r.GetBool(),
                 HealthPct = r.GetByte(),
                 Flags = r.GetByte(),
-                Loop = r.GetByte(),
-                HasDescriptor = r.GetBool()
+                Flags2 = r.GetByte(),
+                Loop = r.GetByte()
             };
+            if (e.HasPrevClip)
+            {
+                e.PrevClip = r.GetString();
+                e.PrevClipAgeMs = (ushort)r.GetShort();
+            }
+            e.HasDescriptor = r.GetBool();
             if (e.HasDescriptor)
             {
                 e.EntityName = r.GetString();
                 e.PrefabPath = r.GetString();
+                e.SaveId = r.GetInt();
             }
             return e;
         }
@@ -191,7 +236,10 @@ namespace DWMPHorde.Networking
     {
         /// <summary>Monotonic per-sender sequence for the unreliable batch.</summary>
         public uint Sequence;
-        /// <summary>Host clock (unscaled seconds since start) when the batch was sampled. Clients interpolate on this timeline.</summary>
+        /// <summary>
+        /// Host session clock (unscaled seconds since the host's broadcast started) when the batch
+        /// was sampled. Clients interpolate on this timeline.
+        /// </summary>
         public float HostTime;
         public EntitySnapshotNet[] Entities;
 

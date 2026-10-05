@@ -113,9 +113,10 @@ namespace DWMPHorde.Sync
         /// Excludes characters already in the <paramref name="excludeIds"/> set.
         /// Returns null if no match is found.
         /// </summary>
-        public static Character FindByPositionAndName(Vector3 pos, string name, float radius, HashSet<short> excludeIds = null)
+        public static Character FindByPositionAndName(Vector3 pos, string name, float radius, HashSet<short> excludeIds = null,
+            Predicate<Character> reject = null)
         {
-            return FindNearestNamed(_characters, _characters.Count, pos, name, radius * radius, excludeIds);
+            return FindNearestNamed(_characters, _characters.Count, pos, name, radius * radius, excludeIds, reject);
         }
 
         /// <summary>
@@ -123,10 +124,11 @@ namespace DWMPHorde.Sync
         /// CEI LateUpdate matches many pendings against one <see cref="CopyAll"/>.
         /// </summary>
         public static Character FindByPositionAndNameIn(
-            Character[] chars, int count, Vector3 pos, string name, float radius, HashSet<short> excludeIds = null)
+            Character[] chars, int count, Vector3 pos, string name, float radius, HashSet<short> excludeIds = null,
+            Predicate<Character> reject = null)
         {
             if (chars == null) return null;
-            return FindNearestNamed(chars, Math.Min(count, chars.Length), pos, name, radius * radius, excludeIds);
+            return FindNearestNamed(chars, Math.Min(count, chars.Length), pos, name, radius * radius, excludeIds, reject);
         }
 
         /// <summary>
@@ -135,13 +137,16 @@ namespace DWMPHorde.Sync
         /// Excludes characters already in the <paramref name="excludeIds"/> set.
         /// Intended as a fallback when AI divergence makes radius-based search unreliable.
         /// </summary>
-        public static Character FindClosestByName(string name, Vector3 pos, HashSet<short> excludeIds = null)
+        public static Character FindClosestByName(string name, Vector3 pos, HashSet<short> excludeIds = null,
+            Predicate<Character> reject = null)
         {
-            return FindNearestNamed(_characters, _characters.Count, pos, name, float.MaxValue, excludeIds);
+            return FindNearestNamed(_characters, _characters.Count, pos, name, float.MaxValue, excludeIds, reject);
         }
 
+        /// <param name="reject">Optional: a name match it returns true for is not a candidate (another body's save twin).</param>
         private static Character FindNearestNamed(
-            IList<Character> chars, int count, Vector3 pos, string name, float maxDistSq, HashSet<short> excludeIds)
+            IList<Character> chars, int count, Vector3 pos, string name, float maxDistSq, HashSet<short> excludeIds,
+            Predicate<Character> reject = null)
         {
             if (count <= 0 || string.IsNullOrEmpty(name)) return null;
             Character best = null;
@@ -162,7 +167,7 @@ namespace DWMPHorde.Sync
                 float dx = cp.x - pos.x;
                 float dz = cp.z - pos.z;
                 float dSq = dx * dx + dz * dz;
-                if (dSq < maxDistSq && dSq < bestDistSq)
+                if (dSq < maxDistSq && dSq < bestDistSq && (reject == null || !reject(c)))
                 {
                     bestDistSq = dSq;
                     best = c;

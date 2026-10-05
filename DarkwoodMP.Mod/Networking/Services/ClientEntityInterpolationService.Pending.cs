@@ -22,249 +22,199 @@ namespace DWMPHorde.Networking
                 }
                 pendingCount = _pendingMatches.Count;
             }
+            if (pendingCount == 0)
+                return;
 
-            if (pendingCount > 0)
+            // The local world or a location is still loading: the copy may not exist yet. Wait,
+            // and give it the full retry once loading is over.
+            bool loading = IsLocalWorldLoading();
+
+            int nPendingChars = CharacterTracker.CopyAll(out Character[] pendingChars);
+            int tightDone = 0;
+            int timeoutDone = 0;
+            int scanned = 0;
+            int i0 = _pendingScanCursor;
+            if (i0 < 0 || i0 >= pendingCount)
+                i0 = 0;
+            int idx = i0;
+            int initial = pendingCount;
+
+            while (scanned < initial && _pendingMatches.Count > 0)
             {
-                int nPendingChars = CharacterTracker.CopyAll(out Character[] pendingChars);
-                int tightDone = 0;
-                int timeoutDone = 0;
-                int scanned = 0;
-                int i = _pendingScanCursor;
-                if (i < 0 || i >= pendingCount)
-                    i = 0;
-                int initial = pendingCount;
+                if (idx >= _pendingMatches.Count)
+                    idx = 0;
+                PendingEntry p = _pendingMatches[idx];
+                scanned++;
 
-                while (scanned < initial && _pendingMatches.Count > 0)
+                if (_hostSyncedIds.Contains(p.HostId))
                 {
-                    if (i >= _pendingMatches.Count)
-                        i = 0;
-                    PendingEntry p = _pendingMatches[i];
-                    scanned++;
+                    EntitySyncLog.Trace("pend:drop",
+                        "[ClientPending] drop already-synced " + p.EntityName
+                        + "(id=" + p.HostId + ")", 2f);
+                    _pendingMatches.RemoveAt(idx);
+                    continue;
+                }
 
-                    bool timedOut = now - p.TimeAdded > PendingMatchTimeout;
-                    if (timedOut)
+                if (loading)
+                {
+                    p.TimeAdded = now;
+                    _pendingMatches[idx] = p;
+                }
+
+                bool timedOut = !loading && now - p.TimeAdded > PendingMatchTimeout;
+                if (timedOut)
+                {
+                    if (timeoutDone >= PendingTimeoutResolvesPerFrame)
                     {
-                        if (timeoutDone >= PendingTimeoutResolvesPerFrame)
-                        {
-                            i++;
-                            if (tightDone >= PendingTightRetriesPerFrame)
-                                break;
-                            continue;
-                        }
-                        timeoutDone++;
-
-                        if (_hostSyncedIds.Contains(p.HostId))
-                        {
-                            EntitySyncLog.Trace("pend:drop",
-                                "[ClientPending] drop already-synced " + p.EntityName
-                                + "(id=" + p.HostId + ")", 2f);
-                            _pendingMatches.RemoveAt(i);
-                            continue;
-                        }
-
-                        Character inactive = FindInactiveCharacter(p.EntityName, p.Position, MatchRadius * 2f);
-                        if (inactive != null)
-                        {
-                            CharacterTracker.Add(inactive);
-                            CharacterTracker.AssignId(inactive, p.HostId);
-                            _hostSyncedIds.Add(p.HostId);
-                            _everHostSyncedIds.Add(p.HostId);
-                            EnsureEntityAwake(inactive);
-                            EntitySyncLog.Event(() =>
-                                "[ClientPending] activated " + p.EntityName + "(id=" + p.HostId + ")");
-
-                            if (!_states.TryGetValue(p.HostId, out var state))
-                            {
-                                state = new EntityInterpState { isFirst = true };
-                                _states[p.HostId] = state;
-                            }
-                            state.staleSince = 0f;
-
-                            _displayPositions[p.HostId] = inactive.transform.position;
-                            _displayRotations[p.HostId] = inactive.transform.eulerAngles.y;
-                            state.isFirst = false;
-
-                            state.previousPosition = inactive.transform.position;
-                            state.previousRotY = inactive.transform.eulerAngles.y;
-                            state.targetPosition = p.Position;
-                            state.targetRotY = p.RotY;
-                            state.arrivalTime = now;
-                            state.hasTarget = true;
-                            state.alive = p.Alive;
-
-                            ApplyAuthoritativeBody(inactive, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
-
-                            _pendingMatches.RemoveAt(i);
-                            continue;
-                        }
-
-                        Character closest = CharacterTracker.FindClosestByName(
-                            p.EntityName, p.Position, _hostSyncedIds);
-                        if (closest != null)
-                        {
-                            float claimDx = closest.transform.position.x - p.Position.x;
-                            float claimDz = closest.transform.position.z - p.Position.z;
-                            float claimDist = Mathf.Sqrt(claimDx * claimDx + claimDz * claimDz);
-                            if (claimDist <= MatchRadius)
-                            {
-                                CharacterTracker.AssignId(closest, p.HostId);
-                                _hostSyncedIds.Add(p.HostId);
-                                _everHostSyncedIds.Add(p.HostId);
-                                EnsureEntityAwake(closest);
-                                EntitySyncLog.Event(() =>
-                                    "[ClientPending] claimed " + p.EntityName + "(id=" + p.HostId
-                                    + ") d=" + claimDist.ToString("F0"));
-
-                                if (!_states.TryGetValue(p.HostId, out var claimState))
-                                {
-                                    claimState = new EntityInterpState { isFirst = true };
-                                    _states[p.HostId] = claimState;
-                                }
-                                claimState.staleSince = 0f;
-                                Vector3 localPos = closest.transform.position;
-                                _displayPositions[p.HostId] = localPos;
-                                _displayRotations[p.HostId] = closest.transform.eulerAngles.y;
-                                claimState.isFirst = false;
-                                claimState.previousPosition = localPos;
-                                claimState.previousRotY = closest.transform.eulerAngles.y;
-                                claimState.targetPosition = p.Position;
-                                claimState.targetRotY = p.RotY;
-                                claimState.arrivalTime = now;
-                                claimState.hasTarget = true;
-                                claimState.alive = p.Alive;
-                                ApplyAuthoritativeBody(closest, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, claimState);
-                                _pendingMatches.RemoveAt(i);
-                                continue;
-                            }
-                        }
-
-                        Character sole = FindSoleUnmapped(pendingChars, nPendingChars, p.EntityName);
-                        if (sole != null && SamePresentationWorld(sole.transform.position, p.Position))
-                        {
-                            CharacterTracker.AssignId(sole, p.HostId);
-                            _hostSyncedIds.Add(p.HostId);
-                            _everHostSyncedIds.Add(p.HostId);
-                            sole.transform.position = p.Position;
-                            Vector3 euler = sole.transform.eulerAngles;
-                            euler.y = p.RotY;
-                            sole.transform.eulerAngles = euler;
-                            EnsureEntityAwake(sole);
-                            EntitySyncLog.Event(() =>
-                                "[ClientPending] adopted sole " + p.EntityName + "(id=" + p.HostId + ")");
-
-                            if (!_states.TryGetValue(p.HostId, out var soleState))
-                            {
-                                soleState = new EntityInterpState { isFirst = true };
-                                _states[p.HostId] = soleState;
-                            }
-                            soleState.staleSince = 0f;
-                            _displayPositions[p.HostId] = p.Position;
-                            _displayRotations[p.HostId] = p.RotY;
-                            soleState.isFirst = false;
-                            soleState.previousPosition = p.Position;
-                            soleState.previousRotY = p.RotY;
-                            soleState.targetPosition = p.Position;
-                            soleState.targetRotY = p.RotY;
-                            soleState.arrivalTime = now;
-                            soleState.hasTarget = true;
-                            soleState.alive = p.Alive;
-                            ApplyAuthoritativeBody(sole, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, soleState);
-                            _pendingMatches.RemoveAt(i);
-                            continue;
-                        }
-
-                        Character spawned = SpawnEntityLocally(p.EntityName, p.PrefabPath, p.Position, p.RotY);
-                        if (spawned != null)
-                        {
-                            CharacterTracker.AssignId(spawned, p.HostId);
-                            _hostSyncedIds.Add(p.HostId);
-                            _everHostSyncedIds.Add(p.HostId);
-                            _spawnedPhantomIds.Add(p.HostId);
-                            EnsureEntityAwake(spawned);
-                            EntitySyncLog.Event(() =>
-                                "[ClientPending] phantom spawn " + p.EntityName + "(id=" + p.HostId
-                                + ") clip=" + (p.Clip ?? ""));
-
-                            if (!_states.TryGetValue(p.HostId, out var state))
-                            {
-                                state = new EntityInterpState { isFirst = true };
-                                _states[p.HostId] = state;
-                            }
-                            state.staleSince = 0f;
-
-                            _displayPositions[p.HostId] = p.Position;
-                            _displayRotations[p.HostId] = p.RotY;
-                            spawned.transform.position = p.Position;
-                            state.isFirst = false;
-
-                            state.previousPosition = p.Position;
-                            state.previousRotY = p.RotY;
-                            state.targetPosition = p.Position;
-                            state.targetRotY = p.RotY;
-                            state.arrivalTime = now;
-                            state.hasTarget = true;
-                            state.alive = p.Alive;
-
-                            ApplyAuthoritativeBody(spawned, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
-                        }
-
-                        _pendingMatches.RemoveAt(i);
-                        continue;
-                    }
-
-                    // Pre-timeout tight match
-                    if (tightDone >= PendingTightRetriesPerFrame)
-                    {
-                        i++;
-                        if (timeoutDone >= PendingTimeoutResolvesPerFrame)
+                        idx++;
+                        if (tightDone >= PendingTightRetriesPerFrame)
                             break;
                         continue;
                     }
-                    tightDone++;
-
-                    Character c = CharacterTracker.FindByPositionAndNameIn(
-                        pendingChars, nPendingChars, p.Position, p.EntityName, MatchRadius, _hostSyncedIds);
-                    if (c != null)
-                    {
-                        CharacterTracker.AssignId(c, p.HostId);
-                        _hostSyncedIds.Add(p.HostId);
-                        _everHostSyncedIds.Add(p.HostId);
-                        EnsureEntityAwake(c);
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo($"[Entity] pending matched (tight): {p.EntityName}(id={p.HostId})");
-
-                        if (!_states.TryGetValue(p.HostId, out var state))
-                        {
-                            state = new EntityInterpState { isFirst = true };
-                            _states[p.HostId] = state;
-                        }
-                        state.staleSince = 0f;
-
-                        _displayPositions[p.HostId] = c.transform.position;
-                        _displayRotations[p.HostId] = c.transform.eulerAngles.y;
-                        state.isFirst = false;
-
-                        state.previousPosition = c.transform.position;
-                        state.previousRotY = c.transform.eulerAngles.y;
-                        state.targetPosition = p.Position;
-                        state.targetRotY = p.RotY;
-                        state.arrivalTime = now;
-                        state.hasTarget = true;
-                        state.alive = p.Alive;
-
-                        ApplyAuthoritativeBody(c, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state);
-
-                        _pendingMatches.RemoveAt(i);
-                        continue;
-                    }
-
-                    i++;
+                    timeoutDone++;
+                    ResolvePendingTimeout(p, pendingChars, nPendingChars, now);
+                    _pendingMatches.RemoveAt(idx);
+                    continue;
                 }
 
-                _pendingScanCursor = _pendingMatches.Count == 0
-                    ? 0
-                    : (i % _pendingMatches.Count);
+                // Pre-timeout match: the save twin (it may have just loaded), else a body at the
+                // host position that is not another body's save twin.
+                if (tightDone >= PendingTightRetriesPerFrame)
+                {
+                    idx++;
+                    if (timeoutDone >= PendingTimeoutResolvesPerFrame)
+                        break;
+                    continue;
+                }
+                tightDone++;
+
+                Character c = FindSaveTwin(p.HostId, p.SaveId, p.EntityName, p.Position);
+                string how = "save-id";
+                if (c == null)
+                {
+                    _matchHostId = p.HostId;
+                    c = CharacterTracker.FindByPositionAndNameIn(
+                        pendingChars, nPendingChars, p.Position, p.EntityName, MatchRadius, _hostSyncedIds,
+                        RejectOtherSaveTwin);
+                    how = "tight";
+                }
+                if (c != null)
+                {
+                    AdoptPending(c, p, now, snapToHost: how == "save-id", how);
+                    _pendingMatches.RemoveAt(idx);
+                    continue;
+                }
+
+                idx++;
             }
+
+            _pendingScanCursor = _pendingMatches.Count == 0
+                ? 0
+                : (idx % _pendingMatches.Count);
+        }
+
+        /// <summary>
+        /// The pending wait is over: the save twin, then the old by-name fallbacks (a save body
+        /// asleep near the host position, the closest of that name, the one story character of
+        /// that name), each skipping other bodies' save twins; else a phantom.
+        /// </summary>
+        private static void ResolvePendingTimeout(PendingEntry p, Character[] chars, int nChars, float now)
+        {
+            Character twin = FindSaveTwin(p.HostId, p.SaveId, p.EntityName, p.Position);
+            if (twin != null)
+            {
+                AdoptPending(twin, p, now, snapToHost: true, "save-id");
+                return;
+            }
+
+            _matchHostId = p.HostId;
+            Character inactive = FindInactiveCharacter(p.EntityName, p.Position, MatchRadius * 2f);
+            if (inactive != null)
+            {
+                AdoptPending(inactive, p, now, snapToHost: false, "activated");
+                return;
+            }
+
+            _matchHostId = p.HostId;
+            Character closest = CharacterTracker.FindClosestByName(
+                p.EntityName, p.Position, _hostSyncedIds, RejectOtherSaveTwin);
+            if (closest != null)
+            {
+                float claimDx = closest.transform.position.x - p.Position.x;
+                float claimDz = closest.transform.position.z - p.Position.z;
+                if (claimDx * claimDx + claimDz * claimDz <= MatchRadius * MatchRadius)
+                {
+                    AdoptPending(closest, p, now, snapToHost: false, "claimed");
+                    return;
+                }
+            }
+
+            Character sole = FindSoleUnmapped(chars, nChars, p.EntityName);
+            if (sole != null && SamePresentationWorld(sole.transform.position, p.Position))
+            {
+                AdoptPending(sole, p, now, snapToHost: true, "adopted sole");
+                return;
+            }
+
+            Character spawned = SpawnEntityLocally(p.EntityName, p.PrefabPath, p.Position, p.RotY);
+            if (spawned == null)
+                return;
+            CharacterTracker.AssignId(spawned, p.HostId);
+            _hostSyncedIds.Add(p.HostId);
+            _everHostSyncedIds.Add(p.HostId);
+            _spawnedPhantomIds.Add(p.HostId);
+            EnsureEntityAwake(spawned);
+            spawned.transform.position = p.Position;
+            EntitySyncLog.Event(() =>
+                "[ClientPending] phantom spawn " + p.EntityName + "(id=" + p.HostId
+                + ") save=" + p.SaveId + " clip=" + (p.Clip ?? ""));
+            StartDrivingPending(spawned, p, now, p.Position, p.RotY);
+        }
+
+        /// <summary>
+        /// A local body is the copy of a pending host id. <paramref name="snapToHost"/>: put it at
+        /// the host pose now (a save twin can be anywhere its save left it); otherwise it blends
+        /// from where it stands.
+        /// </summary>
+        private static void AdoptPending(Character c, PendingEntry p, float now, bool snapToHost, string how)
+        {
+            BindHostId(c, p.HostId);
+            EntitySyncLog.Event(() =>
+                "[ClientPending] " + how + " " + p.EntityName + "(id=" + p.HostId + " save=" + p.SaveId + ")");
+            if (snapToHost)
+            {
+                c.transform.position = p.Position;
+                Vector3 euler = c.transform.eulerAngles;
+                euler.y = p.RotY;
+                c.transform.eulerAngles = euler;
+                StartDrivingPending(c, p, now, p.Position, p.RotY);
+            }
+            else
+            {
+                StartDrivingPending(c, p, now, c.transform.position, c.transform.eulerAngles.y);
+            }
+        }
+
+        private static void StartDrivingPending(Character c, PendingEntry p, float now, Vector3 shownPos, float shownRotY)
+        {
+            if (!_states.TryGetValue(p.HostId, out var state))
+            {
+                state = new EntityInterpState { isFirst = true };
+                _states[p.HostId] = state;
+            }
+            state.staleSince = 0f;
+            _displayPositions[p.HostId] = shownPos;
+            _displayRotations[p.HostId] = shownRotY;
+            state.isFirst = false;
+            state.previousPosition = shownPos;
+            state.previousRotY = shownRotY;
+            state.targetPosition = p.Position;
+            state.targetRotY = p.RotY;
+            state.arrivalTime = now;
+            state.hasTarget = true;
+            state.alive = p.Alive;
+            ApplyAuthoritativeBody(c, p.HostId, p.Alive, p.Downed, p.HealthPct, p.Clip, p.ClipFrame, state,
+                p.HostTime, p.Animating);
         }
 
         /// <summary>
@@ -289,6 +239,8 @@ namespace DWMPHorde.Networking
                     continue;
                 if (CharacterTracker.TryGetStableId(c, out short sid)
                     && (_hostSyncedIds.Contains(sid) || sid != 0))
+                    continue;
+                if (RejectOtherSaveTwin(c))
                     continue;
 
                 string cname = c.name;

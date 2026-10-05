@@ -201,7 +201,7 @@ namespace DWMPHorde.Networking
         public short EntityId;
         public byte Kind;
         public string Name;
-        /// <summary>Host clock when the attack fired (same clock as <see cref="EntityStateMessage.HostTime"/>).</summary>
+        /// <summary>Host session clock when the attack fired (same clock as <see cref="EntityStateMessage.HostTime"/>).</summary>
         public float HostTime;
         /// <summary>Host position of the attacker (melee) or of the projectile spawn (ranged).</summary>
         public float PosX, PosY, PosZ;

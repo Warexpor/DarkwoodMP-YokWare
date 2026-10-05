@@ -1,3 +1,4 @@
+using DWMPHorde.Audio;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using System.Collections.Generic;
@@ -16,9 +17,10 @@ namespace DWMPHorde.Networking
             if (msg.Sequence == 0
                 || !_AcceptSnapshotSequence(msg.Sequence))
             {
-                EntitySyncLog.Interp("stale",
-                    "[ClientSnap] rejected seq=" + msg.Sequence
-                    + " last=" + _lastSnapshotSequence, 2f);
+                if (EntitySyncLog.On)
+                    EntitySyncLog.Interp("stale",
+                        "[ClientSnap] rejected seq=" + msg.Sequence
+                        + " last=" + _lastSnapshotSequence, 2f);
                 return;
             }
 
@@ -31,7 +33,14 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _hostClock.AddSample(msg.HostTime, Time.unscaledTime);
+            float localNow = LocalNow();
+            bool hadClock = _hostClock.HasEstimate;
+            _hostClock.AddSample(msg.HostTime, localNow);
+            // How late this batch is against the best case: the render delay rides it out.
+            float lateness = _hostClock.ToHost(localNow) - msg.HostTime;
+            if (hadClock)
+                _jitter.Add(lateness);
+            NoteBatchLateness(lateness);
 
             bool wasFirst = !_receivedFirstSnapshot;
             _receivedFirstSnapshot = true;
@@ -56,20 +65,27 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < msg.Entities.Length; i++)
             {
                 EntitySnapshotNet e = msg.Entities[i];
+                float batchHostTime = msg.HostTime;
                 if (e.HasDescriptor)
                 {
-                    _descriptors[e.Index] = new EntityDescriptor { Name = e.EntityName ?? "", PrefabPath = e.PrefabPath ?? "" };
+                    _descriptors[e.Index] = new EntityDescriptor
+                    {
+                        Name = e.EntityName ?? "", PrefabPath = e.PrefabPath ?? "", SaveId = e.SaveId
+                    };
+                    NoteSaveIdOwner(e.SaveId, e.Index);
                 }
                 else if (_descriptors.TryGetValue(e.Index, out EntityDescriptor known))
                 {
                     e.EntityName = known.Name;
                     e.PrefabPath = known.PrefabPath;
+                    e.SaveId = known.SaveId;
                 }
                 else
                 {
                     // Joined mid-stream: the name arrives with the next resync (at most 1 s).
-                    EntitySyncLog.Interp("nodesc",
-                        "[ClientSnap] id=" + e.Index + " waiting for descriptor", 2f);
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Interp("nodesc",
+                            "[ClientSnap] id=" + e.Index + " waiting for descriptor", 2f);
                     skipped++;
                     continue;
                 }
@@ -87,8 +103,9 @@ namespace DWMPHorde.Networking
                     _recentlyDespawnedUntil.Remove(e.Index);
                 }
 
-                // Far host-range snaps: do not EnsureEntityAwake / spawn phantoms map-wide.
-                if (!IsInClientInterest(targetPos))
+                // Far host-range snaps: do not EnsureEntityAwake / spawn phantoms map-wide. A body
+                // already driven keeps being driven out to the leave range.
+                if (!IsInClientInterest(targetPos, _states.ContainsKey(e.Index)))
                 {
                     StopDriving(e.Index);
                     // Hide only when the local object is also outside interest.
@@ -112,10 +129,22 @@ namespace DWMPHorde.Networking
 
                     if (nameMatches)
                     {
+                        // A creature of the shared save is its own save twin. A body bound to this id
+                        // by position (or a phantom) gives way to the twin once it can be found.
+                        bool rebound = false;
+                        if (e.SaveId > 0 && SaveIdOf(c) != e.SaveId)
+                        {
+                            Character twin = FindSaveTwin(e.Index, e.SaveId, e.EntityName, targetPos);
+                            if (twin != null)
+                            {
+                                c = RebindToSaveTwin(c, twin, e.Index, e.EntityName);
+                                rebound = true;
+                            }
+                        }
                         // If the matched entity is a phantom, check if a real local entity
                         // now exists nearby (e.g. world chunk just loaded). If so, replace
                         // the phantom with the real entity to avoid duplicates.
-                        if (phantomRematch && _spawnedPhantomIds.Contains(e.Index))
+                        if (!rebound && phantomRematch && _spawnedPhantomIds.Contains(e.Index))
                         {
                             if (!phantomExcludeBuilt)
                             {
@@ -126,20 +155,13 @@ namespace DWMPHorde.Networking
                                     _phantomReplaceExclude.Add(sid);
                                 phantomExcludeBuilt = true;
                             }
+                            _matchHostId = e.Index;
                             Character real = CharacterTracker.FindByPositionAndName(
-                                targetPos, e.EntityName, MatchRadius, _phantomReplaceExclude);
+                                targetPos, e.EntityName, MatchRadius, _phantomReplaceExclude, RejectOtherSaveTwin);
                             if (real != null)
                             {
-                                CharacterTracker.AssignId(real, e.Index);
                                 _phantomReplaceExclude.Add(e.Index);
-                                _hostSyncedIds.Add(e.Index);
-                                _everHostSyncedIds.Add(e.Index);
-                                _spawnedPhantomIds.Remove(e.Index);
-                                Object.Destroy(c.gameObject);
-                                c = real;
-                                EntitySyncLog.Event(() =>
-                                    "[ClientMatch] replaced phantom → real " + e.EntityName
-                                    + "(id=" + e.Index + ")");
+                                c = RebindToSaveTwin(c, real, e.Index, e.EntityName);
                             }
                         }
                         _hostSyncedIds.Add(e.Index);
@@ -149,31 +171,47 @@ namespace DWMPHorde.Networking
                     }
 
                     // The stable ID matched a different local entity.
-                    EntitySyncLog.Event(() =>
-                        "[ClientMatch] ID COLLISION id=" + e.Index + " found=" + c.name
-                        + " expected=" + e.EntityName);
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Event(() =>
+                            "[ClientMatch] ID COLLISION id=" + e.Index + " found=" + c.name
+                            + " expected=" + e.EntityName);
                     CharacterTracker.ClearId(c);
                 }
 
-                // If the ID did not match, try position and name.
-                c = CharacterTracker.FindByPositionAndName(targetPos, e.EntityName, MatchRadius, _hostSyncedIds);
+                // The body's own copy from the shared save, by its save id: exact, and found
+                // asleep on an inactive grid node too.
+                c = FindSaveTwin(e.Index, e.SaveId, e.EntityName, targetPos);
                 if (c != null)
                 {
-                    CharacterTracker.AssignId(c, e.Index);
-                    _hostSyncedIds.Add(e.Index);
-                    _everHostSyncedIds.Add(e.Index);
+                    BindHostId(c, e.Index);
                     if (phantomExcludeBuilt)
                         _phantomReplaceExclude.Add(e.Index);
-                    EnsureEntityAwake(c);
-                    EntitySyncLog.Event(() =>
-                        "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
-                        + ") at (" + targetPos.x.ToString("F0") + "," + targetPos.z.ToString("F0") + ")");
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Event(() =>
+                            "[ClientMatch] by-save-id " + e.EntityName + "(id=" + e.Index + " save=" + e.SaveId + ")");
+                    UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
+                    continue;
+                }
+
+                // No save twin: a body at the host position, never another body's save twin.
+                _matchHostId = e.Index;
+                c = CharacterTracker.FindByPositionAndName(targetPos, e.EntityName, MatchRadius, _hostSyncedIds,
+                    RejectOtherSaveTwin);
+                if (c != null)
+                {
+                    BindHostId(c, e.Index);
+                    if (phantomExcludeBuilt)
+                        _phantomReplaceExclude.Add(e.Index);
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Event(() =>
+                            "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
+                            + ") at (" + targetPos.x.ToString("F0") + "," + targetPos.z.ToString("F0") + ")");
                     UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
                     continue;
                 }
 
                 // Keep one pending entry per host ID until the local object exists.
-                if (!TryUpdatePending(e, targetPos))
+                if (!TryUpdatePending(e, targetPos, batchHostTime))
                 {
                     while (_pendingMatches.Count >= MaxPendingMatches)
                         _pendingMatches.RemoveAt(0);
@@ -186,9 +224,12 @@ namespace DWMPHorde.Networking
                         RotY = e.RotY,
                         Clip = e.Clip,
                         ClipFrame = e.ClipFrame,
+                        Animating = e.Animating,
                         Alive = e.Alive,
                         Downed = e.Downed,
                         HealthPct = e.HealthPct,
+                        SaveId = e.SaveId,
+                        HostTime = msg.HostTime,
                         TimeAdded = Time.time
                     });
                     WarmPhantomPrefab(e.PrefabPath);
@@ -236,10 +277,17 @@ namespace DWMPHorde.Networking
             _hasSnapshotSequence = false;
             // The new sender has its own clock: old-host timestamps would reject every new sample.
             _hostClock.Reset();
+            _jitter.Reset();
+            _localEpoch = -1;
             foreach (var kv in _states)
+            {
                 kv.Value.Timeline.Clear();
+                kv.Value.hasRendered = false;
+                kv.Value.blendErr = Vector3.zero;
+            }
             // Its ids name its own bodies; its first sends of each id carry the descriptor.
             _descriptors.Clear();
+            _saveIdOwners.Clear();
         }
 
         private static bool _AcceptSnapshotSequence(uint sequence)
@@ -252,7 +300,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Update existing pending row for host id; false if not yet pending.</summary>
-        private static bool TryUpdatePending(EntitySnapshotNet e, Vector3 targetPos)
+        private static bool TryUpdatePending(EntitySnapshotNet e, Vector3 targetPos, float hostTime)
         {
             for (int i = 0; i < _pendingMatches.Count; i++)
             {
@@ -263,6 +311,9 @@ namespace DWMPHorde.Networking
                 p.RotY = e.RotY;
                 p.Clip = e.Clip;
                 p.ClipFrame = e.ClipFrame;
+                p.Animating = e.Animating;
+                p.SaveId = e.SaveId;
+                p.HostTime = hostTime;
                 p.Alive = e.Alive;
                 p.Downed = e.Downed;
                 p.HealthPct = e.HealthPct;
@@ -328,12 +379,34 @@ namespace DWMPHorde.Networking
                 _states[e.Index] = state;
             }
             state.staleSince = 0f;
+            if (state.interval <= 0f)
+                state.interval = IsNearBand(targetPos) ? NearSendInterval : FarSendInterval;
 
-            // Hard-snap on first drive or large teleports (unload/reload, claim from a
-            // distant twin, knockback). Pure lerp left NPCs sliding map-wide for seconds —
-            // same thresholds as RemotePlayerProxy.ApplyNetworkState.
+            // A sample far older than the newest is a different host clock (migration the
+            // sequence reset missed): start the timeline over instead of dropping every sample.
+            if (state.Timeline.Count > 0 && hostTime < state.Timeline.Newest.T - HostClockEstimator.ResyncThreshold)
+                state.Timeline.Clear();
+
+            // Teleport (unload/reload, bunker pad, knockback): judged host sample to host sample.
+            // Against the shown pose, which trails the host by the render delay, a fast creature
+            // looked like one, snapped and froze for a delay. The timeline jumps at its moment.
+            bool cut = false;
+            bool prevIsHost = state.Timeline.Count > 0 && !state.Timeline.Newest.Synthetic;
+            float gap = 0f;
+            if (state.Timeline.Count > 0)
+            {
+                TimelineSample last = state.Timeline.Newest;
+                gap = hostTime - last.T;
+                float dx = last.X - targetPos.x;
+                float dz = last.Z - targetPos.z;
+                cut = dx * dx + dz * dz > EntityHardSnapXz * EntityHardSnapXz
+                    || Mathf.Abs(last.Y - targetPos.y) > EntityHardSnapY;
+            }
+
+            // Hard-snap on first drive, or a body with no timeline yet shown far from the host
+            // pose (claim from a distant twin): same thresholds as RemotePlayerProxy.
             bool snap = state.isFirst;
-            if (!snap && _displayPositions.TryGetValue(e.Index, out Vector3 fromPos))
+            if (!snap && state.Timeline.Count == 0 && _displayPositions.TryGetValue(e.Index, out Vector3 fromPos))
             {
                 Vector3 flat = fromPos - targetPos;
                 flat.y = 0f;
@@ -344,17 +417,15 @@ namespace DWMPHorde.Networking
             {
                 HardSnapEntityDisplay(c, e.Index, state, targetPos, e.RotY);
                 state.Timeline.Clear();
+                state.hasRendered = false;
+                state.blendErr = Vector3.zero;
+                cut = false;
             }
             else if (!_displayPositions.ContainsKey(e.Index))
             {
                 _displayPositions[e.Index] = c.transform.position;
                 _displayRotations[e.Index] = c.transform.eulerAngles.y;
             }
-
-            // A sample far older than the newest is a different host clock (migration the
-            // sequence reset missed): start the timeline over instead of dropping every sample.
-            if (state.Timeline.Count > 0 && hostTime < state.Timeline.Newest.T - HostClockEstimator.ResyncThreshold)
-                state.Timeline.Clear();
 
             if (state.Timeline.Count == 0 && !snap)
             {
@@ -363,23 +434,38 @@ namespace DWMPHorde.Networking
                 Vector3 shown = _displayPositions[e.Index];
                 state.Timeline.Add(new TimelineSample
                 {
-                    T = hostTime - TimelineGapInterval,
+                    T = hostTime - state.interval,
                     X = shown.x, Y = shown.y, Z = shown.z,
-                    RotY = _displayRotations[e.Index]
+                    RotY = _displayRotations[e.Index],
+                    Synthetic = true
                 }, 0f);
+                prevIsHost = false;
             }
-            state.Timeline.Add(new TimelineSample
+            bool added = state.Timeline.Add(new TimelineSample
             {
                 T = hostTime,
                 X = targetPos.x, Y = targetPos.y, Z = targetPos.z,
                 RotY = e.RotY,
                 HasClip = true,
                 Clip = e.Clip,
-                ClipFrame = e.ClipFrame
-            }, TimelineGapInterval);
+                ClipFrame = e.ClipFrame,
+                Animating = e.Animating,
+                Cut = cut,
+                PrevClip = e.HasPrevClip ? e.PrevClip : null,
+                PrevClipT = e.HasPrevClip ? hostTime - e.PrevClipAgeMs * 0.001f : 0f
+            }, state.interval);
+
+            // The body's send interval (20 / 10 Hz as the host ticks it): a gap of a resting
+            // body the host skipped is not one.
+            if (added && prevIsHost && gap > 0f)
+            {
+                NoteSampleGap(gap);
+                if (gap < state.interval * EntityTimeline.HoldGapIntervals)
+                    state.interval += (gap - state.interval) * IntervalGain;
+            }
 
             // The body's own clip (run, turn, idle, defensive) is shown when its pose is: the
-            // timeline renders the pose 75-150 ms behind the host, and a clip played on arrival
+            // timeline renders the pose a delay behind the host, and a clip played on arrival
             // turned or stopped the dog before its body did (sliding, stutter). Events stay on
             // arrival, where the damage, hit sounds and death they belong to land: a reaction
             // clip (attack, hit), going down, dying, getting back up, and the first sight or a
@@ -394,13 +480,21 @@ namespace DWMPHorde.Networking
             state.hasTarget = true;
             state.fleeing = e.Fleeing;
             c.behaviour = e.PackedBehaviour;
+            // Flight state: Character.setBehaviour / BirdArea set these on the host; the copy's
+            // altitude, scale, shadow and hittability (MeleeSensor) follow from them.
+            Flier flier = c.flier;
+            if (flier != null)
+            {
+                flier.inFlight = e.InFlight;
+                flier.diving = e.Diving;
+            }
 
             bool wasAlive = state.alive;
             ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state,
-                presentAliveClip: !clipOnTimeline);
+                hostTime, e.Animating, presentAliveClip: !clipOnTimeline);
             if (!clipOnTimeline)
                 state.Timeline.HoldClipsThrough(hostTime);
-            if (e.Alive && wasAlive && e.HealthPct > 0)
+            if (EntitySyncLog.On && e.Alive && wasAlive && e.HealthPct > 0)
             {
                 EntitySyncLog.Interp("hp:" + e.Index,
                     () => "[ClientHP] id=" + e.Index + " " + c.name
@@ -412,6 +506,14 @@ namespace DWMPHorde.Networking
             applied++;
         }
 
+        /// <summary>Inside the host's 20 Hz band as seen from this listener.</summary>
+        private static bool IsNearBand(Vector3 pos)
+        {
+            Vector3 listen = LocalAudioService.GetListenPosition();
+            float dx = pos.x - listen.x;
+            float dz = pos.z - listen.z;
+            return dx * dx + dz * dz <= NearBandDistance * NearBandDistance;
+        }
 
         /// <summary>
         /// Snap display + rigidbody to host pose and clear first-frame so the next
@@ -455,13 +557,16 @@ namespace DWMPHorde.Networking
         /// Copy host life onto the local body. Death is presentation only:
         /// vanilla <c>die()</c> stays on the host. <paramref name="presentAliveClip"/> false: a
         /// living body's clip comes from its timeline (<see cref="PresentTimelineClip"/>).
+        /// <paramref name="hostTime"/> stamps <paramref name="clip"/>: shown now, it has run since.
         /// </summary>
         private static void ApplyAuthoritativeBody(
             Character c, short id, bool alive, bool downed, byte healthPct,
-            string clip, short clipFrame, EntityInterpState state, bool presentAliveClip = true)
+            string clip, short clipFrame, EntityInterpState state, float hostTime, bool animating,
+            bool presentAliveClip = true)
         {
             if (c == null) return;
             ApplyHealth(c, healthPct, alive, downed);
+            float elapsed = ArrivalElapsed(hostTime);
 
             if (downed)
             {
@@ -471,12 +576,15 @@ namespace DWMPHorde.Networking
                     state.downed = true;
                     state.alive = false;
                 }
-                ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+                ApplyEntityPresentation(c, id, clip, clipFrame, elapsed, animating);
                 return;
             }
 
             if (!alive)
             {
+                // Seen alive (or down) here before: its death plays. A body first seen dead
+                // (late join, coming back into view, an old corpse) lies on its last frame.
+                bool watched = state != null && (state.alive || state.downed);
                 bool wasDowned = state != null && state.downed;
                 if (state != null)
                 {
@@ -484,9 +592,9 @@ namespace DWMPHorde.Networking
                     state.alive = false;
                 }
                 if (c.alive || wasDowned)
-                    PresentHostDeath(c, id, clip, clipFrame);
+                    PresentHostDeath(c, id, clip, clipFrame, watched, elapsed);
                 else
-                    ApplyEntityPresentation(c, id, clip, clipFrame, alive: false);
+                    EnsureDeathAnimation(c, id, clip, clipFrame, watched, elapsed);
                 return;
             }
 
@@ -498,12 +606,14 @@ namespace DWMPHorde.Networking
                 state.downed = false;
             }
             if (presentAliveClip)
-                ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+                ApplyEntityPresentation(c, id, clip, clipFrame, elapsed, animating);
         }
 
         /// <summary>
-        /// Show the host clip the rendered pose has reached (from <see cref="TickLateUpdate"/>).
-        /// A body that went down or died since is shown by its death path, not by older clips.
+        /// Show the host clip the rendered pose has reached (from <see cref="TickLateUpdate"/>),
+        /// on the frame the host had moved it to by then. A body that went down or died since is
+        /// shown by its death path, not by older clips; an attack, hit or death the host passed
+        /// through between samples was shown on arrival by its own message.
         /// </summary>
         private static void PresentTimelineClip(Character c, short id, EntityInterpState state, float hostTime)
         {
@@ -511,7 +621,9 @@ namespace DWMPHorde.Networking
                 return;
             if (!state.alive || state.downed || !c.alive)
                 return;
-            ApplyEntityPresentation(c, id, s.Clip, s.ClipFrame, alive: true);
+            if (IsReactionClipName(s.Clip) || IsDeathClipName(s.Clip))
+                return;
+            ApplyEntityPresentation(c, id, s.Clip, s.ClipFrame, hostTime - s.T, s.Animating);
         }
 
         /// <summary>
@@ -531,7 +643,7 @@ namespace DWMPHorde.Networking
         internal static void HoldTimelineClipsNow(short id)
         {
             if (id != 0 && _hostClock.HasEstimate)
-                HoldTimelineClips(id, _hostClock.ToHost(Time.unscaledTime));
+                HoldTimelineClips(id, HostNowEstimate());
         }
 
         private static void ApplyHealth(Character c, byte healthPct, bool alive, bool downed)

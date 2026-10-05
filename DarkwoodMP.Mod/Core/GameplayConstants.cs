@@ -15,6 +15,13 @@ namespace DWMPHorde
         public const float EntityActivationRange = 1400f;
 
         /// <summary>
+        /// A body already streamed / driven stays so until it is this far (XZ) from every player:
+        /// host send range and client interest leave here and enter at
+        /// <see cref="EntityActivationRange"/>, so a creature on the edge does not flap.
+        /// </summary>
+        public const float EntityInterestLeaveRange = 1500f;
+
+        /// <summary>
         /// Max attacker→target distance for client PlayerAttack on host.
         /// Matches entity broadcast range so long guns / open-map fights are not dropped
         /// by the old 350u clamp (felt like "bullets do nothing" far from host).

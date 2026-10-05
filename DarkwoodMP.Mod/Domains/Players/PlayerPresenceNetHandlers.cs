@@ -81,17 +81,7 @@ namespace DWMPHorde.Networking
                 if (!ClientEntityInterpolationService.ShouldFinalizeClientCorpse(c))
                     continue;
 
-                Item item = c.gameObject.AddComponent<Item>();
-                item.name = c.name.ToLower() + "_corpse";
-                if (c.searched)
-                    item.searched = true;
-
-                if (c.inventory != null)
-                    c.inventory.invType = Inventory.InvType.deathDrop;
-
-                ClientEntityInterpolationService.ApplyDeathPose(c);
-                c.isActive = false;
-                ClientEntityInterpolationService.ClearPendingCorpse(c);
+                ClientEntityInterpolationService.FinalizeClientCorpse(c);
 
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[Death] Set up corpse for '{c.name}' at {c.transform.position}");

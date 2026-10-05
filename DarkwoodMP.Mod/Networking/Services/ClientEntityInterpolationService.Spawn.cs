@@ -54,6 +54,9 @@ namespace DWMPHorde.Networking
 
                 if (!CharacterTracker.BaseNameEquals(c.name, entityName))
                     continue;
+                // Another host body's save twin (its own pending row finds it by id).
+                if (RejectOtherSaveTwin(c))
+                    continue;
 
                 float dx = c.transform.position.x - position.x;
                 float dz = c.transform.position.z - position.z;

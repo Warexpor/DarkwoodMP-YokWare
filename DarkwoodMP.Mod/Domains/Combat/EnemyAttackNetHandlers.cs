@@ -52,7 +52,7 @@ namespace DWMPHorde.Networking
             if (c != null)
             {
                 // Shown now, with the strike; older snapshot clips do not replace it when their pose plays.
-                ClientEntityInterpolationService.PresentAttackClip(c, m.EntityId, m.Clip, m.ClipFrame);
+                ClientEntityInterpolationService.PresentAttackClip(c, m.EntityId, m.Clip, m.ClipFrame, m.HostTime);
                 ClientEntityInterpolationService.HoldTimelineClips(m.EntityId, m.HostTime);
             }
 
