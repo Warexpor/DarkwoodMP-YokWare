@@ -267,10 +267,7 @@ namespace DWMPHorde.Networking
         /// Host→all: graceful leave; the elected player becomes host.
         /// </summary>
         [HostOnly] HostHandoff = 124,
-        /// <summary>
-        /// Host→all: thrown projectile or light expired.
-        /// </summary>
-        [Forwardable] ThrowableDespawn = 125,
+        // 125 retired (ThrowableDespawn): flares burn out on each peer's own vanilla clock (FlareClock).
         /// <summary>
         /// Host→peer: trap table bulk for late join.
         /// </summary>

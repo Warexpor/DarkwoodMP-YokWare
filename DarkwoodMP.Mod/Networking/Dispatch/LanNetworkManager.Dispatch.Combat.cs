@@ -39,7 +39,6 @@ namespace DWMPHorde.Networking
             On(NetMessageType.MeleeWorldHit, MeleeWorldHitMessage.Deserialize, m => CombatFxImpactHandlers.HandleMeleeWorldHit(m));
             On(NetMessageType.ShadowArmorState, ShadowArmorStateMessage.Deserialize, m => ShadowArmorHandlers.HandleShadowArmorState(m));
             On(NetMessageType.ShadowStateUpdate, ShadowStateUpdateMessage.Deserialize, m => NightHandlers.HandleShadowStateUpdate(m));
-            On(NetMessageType.ThrowableDespawn, ThrowableDespawnMessage.Deserialize, m => WorldObjectSendHandlers.HandleThrowableDespawn(m));
         }
     }
 }

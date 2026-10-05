@@ -474,27 +474,6 @@ namespace DWMPHorde.Networking
         }
     }
 
-    /// <summary>Host→all: thrown light/projectile expired (flare burnout).</summary>
-    public struct ThrowableDespawnMessage
-    {
-        public int ThrowId;
-        public float PosX, PosY, PosZ;
-
-        public void Serialize(NetWriter w)
-        {
-            w.Put(ThrowId);
-            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
-        }
-
-        public static ThrowableDespawnMessage Deserialize(NetReader r) => new ThrowableDespawnMessage
-        {
-            ThrowId = r.GetInt(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat()
-        };
-    }
-
     /// <summary>Host→peer late-join: full trap table (id + pos + triggered + occupant).</summary>
     public struct TrapBulkMessage
     {

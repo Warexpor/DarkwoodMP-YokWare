@@ -133,7 +133,6 @@ namespace DWMPHorde.Networking
         internal Dictionary<int, PlayerLightStateMessage> PendingPlayerLights =>
             PlayerLightFxApplyHandlers.PendingPlayerLights;
 
-        private int _nextThrowId = 1;
 
 
         private const int HeavyLateJoinPhaseCount = 12; // weather through fired GameEvents bulk

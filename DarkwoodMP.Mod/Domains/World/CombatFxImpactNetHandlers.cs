@@ -52,21 +52,16 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
             Transform sourceT = proxy != null ? proxy.transform : null;
             bool visualOnly = (_net.Role == NetworkRole.Client);
-            // Host mints throw id if peer omitted it (older path).
-            if (_net.Role == NetworkRole.Host && msg.ThrowId <= 0)
-                msg.ThrowId = _net.MintThrowId();
-            if (_net.Role == NetworkRole.Host && msg.LongevitySec <= 0f
-                && !string.IsNullOrEmpty(msg.ItemType)
-                && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                msg.LongevitySec = 5f; // Flare.longevity(~3) + fade
 
-            // V1: kill held continuous light/FX before projectile spawns (no double glow).
+            // The held flare became this projectile: drop the held copy (no double glow), and
+            // ignore the held-flare flag on PlayerState packets sent before the throw that arrive
+            // after it (unreliable stream vs this reliable event).
             bool isFlare = !string.IsNullOrEmpty(msg.ItemType)
                 && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (isFlare && playerId > 0)
+            if (isFlare && playerId > 0 && _net.RemotePlayers.TryGetValue(playerId, out var rs))
             {
-                if (_net.RemotePlayers.TryGetValue(playerId, out var rs)
-                    && (rs.FlareLight != null || rs.FlareFx != null))
+                rs.HeldFlareThrownAt = Time.unscaledTime;
+                if (rs.FlareLight != null || rs.FlareFx != null)
                 {
                     ModLog.Event(LogCat.World, $"[LightSync] throw mutex cleared held p{playerId}");
                     _net.DestroyRemoteFlareLight(playerId);

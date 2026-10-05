@@ -7,7 +7,8 @@ The current product line is `0.8.x`. The plugin and display version are
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
 `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
 `PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
-the location marker, `ThrowableSpawn` the recoverable weapon, `ShadowEvent` its end and owner;
+the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
+removed), `ShadowEvent` its end and owner, `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -257,6 +258,41 @@ The mod's lantern copy follows that; these were the real faults around it.
 - **A thrown axe or spear came back as a fresh one.** Vanilla puts the thrown weapon
   itself in the thrown object; other players' copies were new. They now carry its wear
   and upgrades.
+
+### Flares, redesigned on vanilla's own clock
+
+Vanilla's flare is a fixed clock from the moment it is lit in the hand: the glow rises
+for 2 s and settles over 6 s, it flickers, and after its burn time it fades out over 2 s.
+The mod used to own each flare's death over the network instead (the host timed every
+flare and broadcast a despawn by throw id; peers faded on command), which caused most of
+the faults below. Now every copy of a flare (a peer's held flare, a thrown flare, a
+joiner's view of one on the ground) runs vanilla's flare itself, started at the flare's
+age, so all machines see the same glow and the same burn-out with nothing to send
+(`FlareClock`). The despawn message, throw ids and the host's flare expiry are gone.
+
+- **Every other player's held flare threw an error every frame.** Its copy lost its
+  physics body, which vanilla's flare reads unguarded; it now keeps a kinematic one (the
+  error also left the flare's glare sprite turning with the body).
+- **Two players' flares could put each other out.** Throw ids were counted on each
+  machine and collided; the first burn-out then killed the other player's flare early,
+  and the second could burn forever on a peer.
+- **A burn-out could switch off the wrong light.** With no id match, the despawn grabbed
+  any object with a light within 3 units, the thrower's own lantern and flashlight
+  included.
+- **Flares never went out on clients when a despawn was missed.** Clients had no clock of
+  their own for them.
+- **A flare that burned out in the hand lit up again when thrown.** Others saw a fresh
+  flare; now they see the spent one.
+- **Burn-out looked different on every machine.** The fade fought the flare's own
+  flicker, a peer's held flare dimmed on a guessed threshold and then popped out, and
+  every peer copy started with a fresh ignition pulse. All of that is vanilla's own fade
+  and phase now.
+- **A held flare looked wrong on other players.** It used a different rotation from
+  vanilla's held throwable and showed the stick sprite vanilla hides while aiming.
+- **A just-thrown flare could flash back into the hand.** A movement packet sent before
+  the throw but arriving after it re-lit the held copy; such packets are now ignored.
+- **Flare lights were listed twice for path-node lighting.** The light registers itself;
+  the mod added it a second time.
 
 ### Night events and shadows (checked against the wiki's night event list)
 

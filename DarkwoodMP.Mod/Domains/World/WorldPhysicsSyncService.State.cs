@@ -17,10 +17,8 @@ namespace DWMPHorde.Sync
         /// <summary>Thrown flares/molotovs in flight or burning; survives a host promotion.</summary>
         private sealed class ThrownLightState
         {
-            public readonly List<ThrownLightTrack> ThrownLights = new List<ThrownLightTrack>(16);
-            public readonly Dictionary<int, ThrownLightTrack> ThrownById = new Dictionary<int, ThrownLightTrack>(16);
-            /// <summary>GO instanceId → burn clock from Flare.Start (aim time).</summary>
-            public readonly Dictionary<int, FlareBurnStart> FlareBurnStarts = new Dictionary<int, FlareBurnStart>(8);
+            /// <summary>Thrown flares burning in this world (each on its own FlareClock); for joiners.</summary>
+            public readonly List<GameObject> ThrownFlares = new List<GameObject>(16);
             public readonly List<ThrownLightFade> ThrownLightFades = new List<ThrownLightFade>(8);
         }
 

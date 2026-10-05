@@ -57,12 +57,6 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Session, "[BulkSync] Trap bulk applied=" + applied + " pending=" + pending);
         }
 
-        internal void SendThrowableDespawn(ThrowableDespawnMessage msg)
-        {
-            if (!_net.IsConnected) return;
-            _net.Broadcast(NetMessageType.ThrowableDespawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-        }
-
         internal void SendEntityDespawn(short entityId)
         {
             if (_net.Role != NetworkRole.Host || !_net.IsConnected || entityId == 0) return;
@@ -75,11 +69,6 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Client) return;
             ClientEntityInterpolationService.ApplyHostDespawn(msg.EntityId);
-        }
-
-        internal void HandleThrowableDespawn(ThrowableDespawnMessage msg)
-        {
-            WorldPhysicsSyncService.ApplyThrownDespawn(msg);
         }
 
         internal void SendItemSpawn(ItemSpawnMessage msg)

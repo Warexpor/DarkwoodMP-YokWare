@@ -239,37 +239,17 @@ namespace DWMPHorde.Sync
             // Thrown flare: ensure ground light is visible on peers (prefab may arrive disabled).
             EnsureThrownFlareLight(go, msg.ItemType);
 
-            // Lifetime parity: track expire for flare lights (host despawns for all).
-            // LongevitySec = remaining burn including fade, from thrower's aim-start clock.
-            // Keep Flare for flicker/rotation; ClaimFlareLifetime skips waitToDie (V3/V4).
+            // The flare runs vanilla's own clock here, started at the thrower's age: same glow,
+            // same burn-out moment on every machine (FlareClock); nothing to despawn later.
             if (isFlareItem)
             {
-                ClaimFlareLifetime(go);
-                // Peer spawn runs Flare.Start → tweenIntensity 1→4 (ignite pulse). Mid-life
-                // throws looked over-glared vs host stick already at cruise intensity (~2).
-                foreach (var fl in go.GetComponentsInChildren<Flare>(true))
-                {
-                    if (fl != null)
-                        fl.tweenIntensity = 2f;
-                }
-                // LongevitySec = remaining until fully dark; expire clock starts the 2s fade.
-                float untilDark = msg.LongevitySec > 0.05f ? msg.LongevitySec : (3f + FlareBurnoutFadeSec);
-                int throwId = msg.ThrowId;
-                var track = new ThrownLightTrack
-                {
-                    ThrowId = throwId,
-                    Go = go,
-                    ExpireAt = Time.time + UntilFadeStart(untilDark),
-                    ItemType = msg.ItemType
-                };
-                _s.Thrown.ThrownLights.Add(track);
-                if (throwId > 0)
-                    _s.Thrown.ThrownById[throwId] = track;
+                FlareClock.MakeCopy(go, msg.FlareAge >= 0f ? msg.FlareAge : 0f);
+                NoteThrownFlare(go);
             }
 
             if (!visualOnly)
                 Core.addToSaveable(go, isDynamic: true);
-            ModRuntime.LegacyInfo($"[ThrowableSpawn] spawned {msg.ItemType} throwId={msg.ThrowId} life={msg.LongevitySec} at {spawnPos} aimY={msg.AimY} dist={distance} vel={vel.magnitude.ToString("F1")} land={landTarget} grounded={grounded} visualOnly={visualOnly}");
+            ModRuntime.LegacyInfo($"[ThrowableSpawn] spawned {msg.ItemType} flareAge={msg.FlareAge:F1} at {spawnPos} aimY={msg.AimY} dist={distance} vel={vel.magnitude.ToString("F1")} land={landTarget} grounded={grounded} visualOnly={visualOnly}");
         }
 
         /// <summary>

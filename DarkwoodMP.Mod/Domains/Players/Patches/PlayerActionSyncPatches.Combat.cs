@@ -117,26 +117,11 @@ namespace DWMPHorde.Patches
                 Vector3 rebuilt = initV > 0f ? dir * initV : dir * distance * 2.5f;
                 vx = rebuilt.x; vy = rebuilt.y; vz = rebuilt.z;
             }
-            int throwId = 0;
-            float longevity = 0f;
             bool isFlare = !string.IsNullOrEmpty(capture.ItemType)
                 && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (ModRuntime.Network is LanNetworkManager lan)
-                throwId = lan.MintThrowId();
-            if (isFlare)
-            {
-                // Remaining until fully dark from aim-start clock, not a fresh longevity+2.
-                float lonFallback = 3f;
-                if (capture.HeldItem != null)
-                {
-                    Flare fl = capture.HeldItem.GetComponent<Flare>()
-                        ?? capture.HeldItem.GetComponentInChildren<Flare>(true);
-                    if (fl != null && fl.longevity > 0.05f)
-                        lonFallback = fl.longevity;
-                }
-                longevity = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
-                    capture.HeldItem, lonFallback);
-            }
+            // A flare burns from when it was lit in the hand (vanilla Flare.Start on aim): peers
+            // start their copy that far into vanilla's clock.
+            float flareAge = isFlare ? Sync.FlareClock.AgeOf(capture.HeldItem) : -1f;
             // Vanilla throwItem put the thrown weapon itself (wear, upgrades) in the thrown object's
             // slot when it can be picked back up; peers' copies carry the same weapon.
             bool recoverable = false;
@@ -165,28 +150,17 @@ namespace DWMPHorde.Patches
                 VelX = vx,
                 VelY = vy,
                 VelZ = vz,
-                ThrowId = throwId,
-                LongevitySec = longevity,
+                FlareAge = flareAge,
                 LandX = landX,
                 LandY = landY,
                 LandZ = landZ,
                 HasLandTarget = hasLand
             });
 
-            // Host must track own throw — never receives own ThrowableSpawn.
-            // ClaimFlareLifetime so vanilla waitToDie yields to host expire track (V4).
-            if (isFlare && throwId > 0 && capture.HeldItem != null
-                && ModRuntime.Network.Role == NetworkRole.Host)
-            {
-                Sync.WorldPhysicsSyncService.RegisterLocalThrownLight(
-                    throwId, capture.HeldItem, longevity, capture.ItemType);
-            }
-            else if (isFlare && capture.HeldItem != null
-                     && ModRuntime.Network.Role == NetworkRole.Client)
-            {
-                // Client thrower: keep aim-start waitToDie (correct clock). Host owns combat copy.
-                // Do not Claim here — local vanilla die matches aim burn.
-            }
+            // The thrower's own flare keeps vanilla's clock from the aim. Listed for joiners (and for
+            // this peer if it is promoted to host); peers list the copies they spawn.
+            if (isFlare && capture.HeldItem != null)
+                Sync.WorldPhysicsSyncService.NoteThrownFlare(capture.HeldItem);
 
             // Client thrower: local projectile is FX-only. Host spawns the combat copy
             // via ThrowableSpawn so damage is not applied twice (local explode + host sim).
@@ -199,8 +173,7 @@ namespace DWMPHorde.Patches
 
             // Always log throws (esp. flares) — playtests had silent host TX.
             ModLog.Event(LogCat.World, "[ThrowableSync] sent " + capture.ItemType
-                + " throwId=" + throwId
-                + " life=" + longevity.ToString("F2")
+                + " flareAge=" + flareAge.ToString("F1")
                 + " dist=" + distance.ToString("F0")
                 + " vel=" + Mathf.Sqrt(vx * vx + vy * vy + vz * vz).ToString("F0")
                 + " land=" + (hasLand ? "y" : "n")
@@ -303,38 +276,6 @@ namespace DWMPHorde.Patches
             });
 
             ModRuntime.LegacyInfo($"[ExplosionSync] sent explosion at {pos} name={__instance.name} sound={soundId} prefab={prefabName} flaming={flaming}");
-        }
-    }
-
-    /// <summary>
-    /// Flare.Start runs at aim (heldItem spawn). Record burn clock so throw packets carry
-    /// remaining life, not a fresh longevity+2 (vanilla waitToDie from Start).
-    /// Continuous held light is streamed via PlayerState only when heldItem is live.
-    /// </summary>
-    [HarmonyPatch(typeof(Flare), "Start")]
-    public static class FlareStartPatch
-    {
-        private static void Postfix(Flare __instance)
-        {
-            if (__instance == null) return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
-
-            Player p = Player.Instance;
-            if (p == null || p.heldItem == null) return;
-            // Only local player's aimed/held flare — not remote SpawnThrownItem prefabs.
-            bool isHeld = __instance.gameObject == p.heldItem
-                || __instance.transform.IsChildOf(p.heldItem.transform);
-            if (!isHeld) return;
-
-            float lon = __instance.longevity > 0.05f ? __instance.longevity : 3f;
-            Sync.WorldPhysicsSyncService.NoteFlareBurnStart(__instance.gameObject, lon);
-            // Also key the root held GO so GetFlareRemainingUntilDark(heldItem) works.
-            if (__instance.gameObject != p.heldItem)
-                Sync.WorldPhysicsSyncService.NoteFlareBurnStart(p.heldItem, lon);
-
-            ModLog.Event(LogCat.World, "[LightSync] Flare.Start burn clock longevity=" + lon.ToString("F2")
-                + " go=" + __instance.gameObject.name);
         }
     }
 

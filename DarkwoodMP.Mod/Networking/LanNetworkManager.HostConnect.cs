@@ -198,14 +198,6 @@ namespace DWMPHorde.Networking
             StatusText = "Offline";
         }
 
-        /// <summary>Mint a stable throw id (host and thrower both may call; host authoritative expire).</summary>
-        public int MintThrowId()
-        {
-            int id = _nextThrowId++;
-            if (_nextThrowId <= 0) _nextThrowId = 1;
-            return id;
-        }
-
         private NetPeer _currentReceivePeer;
         private int _currentReceivePlayerId = -1;
 
