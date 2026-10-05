@@ -39,7 +39,11 @@ namespace DWMPHorde.Networking
             int requesterId = _net.CurrentReceivePlayerId;
 
             // Location enter is per-player transport — never activate() on host (TPs host).
-            if (DWMPHorde.Patches.CustomCursorActionSync.IsLocationEnterAction(actionName))
+            // Only when the action's live triggers do move its user: a locked entrance's
+            // "can't open" was dropped here with "could not resolve dest".
+            if (DWMPHorde.Patches.CustomCursorActionSync.IsLocationEnterAction(actionName)
+                && DWMPHorde.Patches.CustomCursorActionSync.TryResolveLocationEnter(
+                    best, requesterId, out string locName, out _))
             {
                 string debounceKey = actionName + "@" + requesterId;
                 float now = Time.time;
@@ -57,14 +61,6 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.WarnRate(LogCat.World, "cursor-loc-no-requester:" + actionName,
                         $"[CursorActionSync] location enter {actionName} but no requester id");
-                    return;
-                }
-
-                if (!DWMPHorde.Patches.CustomCursorActionSync.TryResolveLocationEnterName(best, out string locName)
-                    || string.IsNullOrEmpty(locName))
-                {
-                    ModLog.WarnRate(LogCat.World, "cursor-loc-no-dest:" + actionName,
-                        $"[CursorActionSync] location enter {actionName}: could not resolve dest");
                     return;
                 }
 
@@ -168,7 +164,23 @@ namespace DWMPHorde.Networking
             // Vanilla prepareLocation: black screen, spawn the pad if needed, then transport.
             // (createLocation only spawns: the client was never moved, and an already spawned pad
             // threw on the duplicate spawnedLocations key.)
-            ol.prepareLocation(msg.LocationName);
+            ol.prepareLocation(msg.LocationName, RequestedTransportSource(msg.LocationName));
+        }
+
+        /// <summary>
+        /// The entrance object vanilla passes to prepareLocation (the step's sourceTransform; where
+        /// a death inside leaves its map marker): the same step on this player's own request.
+        /// </summary>
+        private Transform RequestedTransportSource(string locationName)
+        {
+            GameObject req = DWMPHorde.Patches.CustomCursorActionSync.LastRequested;
+            CustomCursorAction action = req != null ? req.GetComponent<CustomCursorAction>() : null;
+            if (action == null)
+                return null;
+            if (!DWMPHorde.Patches.CustomCursorActionSync.TryResolveLocationEnter(
+                    action, _net.LocalPlayerId, out string name, out Transform source))
+                return null;
+            return string.Equals(name, locationName, System.StringComparison.Ordinal) ? source : null;
         }
 
         private static CustomCursorAction FindCustomCursorAction(Vector3 pos, string name)

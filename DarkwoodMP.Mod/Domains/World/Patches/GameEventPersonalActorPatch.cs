@@ -150,14 +150,31 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.returnToWorld:
                     return true;
                 case GameEvent.Type.modifyCharacter:
-                    return ge.characterModifyType
-                        == GameEvent.CharacterModify.player_tweenShadow;
+                    return ge.characterModifyType == GameEvent.CharacterModify.player_tweenShadow
+                        || TargetsPlayerBody(ge);
                 case GameEvent.Type.runFunction:
-                    // SendMessage to the Player: these specials move, animate, dress or
-                    // equip the body that triggered the scene (pet the dog, get out of bed,
-                    // coat on/off, the flamethrower hand-over and Maciek placed beside that
-                    // body, the table leg breaking). Run on any other body they hijacked it.
-                    return IsPersonalPlayerFunction(ge.Value);
+                    // SendMessage to the Player: a step aimed at the player body moves, animates,
+                    // dresses or equips the body that set the scene off (dive into the water, fake
+                    // death, lie down, pet the dog, get out of bed, coat on/off, the flamethrower,
+                    // the table leg breaking). Run on any other body it hijacked that one. A few
+                    // Player functions only use the player as a handle on the world.
+                    return TargetsPlayerBody(ge) && !CoopStoryPolicy.IsWorldPlayerFunction(ge.Value);
+                case GameEvent.Type.modifyComponent:
+                    // A field set on the Player (fakingDeathAni, clipToPlay, currentDestFOV in the
+                    // wagon trap and the doctor's failed-trap scene).
+                    return TargetsPlayerBody(ge);
+                case GameEvent.Type.gameObject:
+                    // getHit / moveTo / rotate / setActive on the player body (the hatted man's
+                    // scare, being eaten, the crater ending). A spawn only uses the player as
+                    // where to put a world object: that one is not the body's.
+                    return ge.gameObjectModifyType != GameEvent.GameObjectModify.spawn
+                        && TargetsPlayerBody(ge);
+                case GameEvent.Type.tweenColor:
+                case GameEvent.Type.playAnim:
+                case GameEvent.Type.setSprite:
+                case GameEvent.Type.removeComponent:
+                    // Fading, animating or re-skinning the player body (the crater death fade).
+                    return TargetsPlayerBody(ge);
                 case GameEvent.Type.modifyMainScript:
                     // setTimeFreeze + activeModifier2 → Player.Instance.effects;
                     // without activeModifier2 it toggles world DoUpdateTime — keep that.
@@ -168,20 +185,23 @@ namespace DWMPHorde.Patches
             }
         }
 
-        internal static bool IsPersonalPlayerFunction(string fn)
+        /// <summary>
+        /// The step's targets include the player body (vanilla UniqueObjects key "player", the
+        /// UniqueObject on _Core/Player). Resolved per machine, so on every peer it is that
+        /// peer's own body, whoever the scene belongs to.
+        /// </summary>
+        internal static bool TargetsPlayerBody(GameEvent ge)
         {
-            switch (fn)
+            var keys = ge.targetUniqueObjects;
+            if (keys == null) return false;
+            for (int i = 0; i < keys.Count; i++)
             {
-                case "special_petDog":
-                case "special_drainAllTableLegDurability":
-                case "special_getUpFromBed":
-                case "special_changeClothes":
-                case "special_removeClothes":
-                case "special_addFlamethrower":
+                if (string.Equals(keys[i], PlayerUniqueKey, System.StringComparison.Ordinal))
                     return true;
-                default:
-                    return false;
             }
+            return false;
         }
+
+        private const string PlayerUniqueKey = "player";
     }
 }

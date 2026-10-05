@@ -25,6 +25,8 @@ namespace DWMPHorde.Networking
         private readonly List<GameEventsFiredMessage> _pendingGameEvents = new List<GameEventsFiredMessage>();
         private readonly List<GameEventsFiredMessage> _destroyedFiredGameEvents =
             new List<GameEventsFiredMessage>(64);
+        /// <summary>Parallel to <see cref="_destroyedFiredGameEvents"/>: the shell sat on the dream pad.</summary>
+        private readonly List<bool> _destroyedOnDreamPad = new List<bool>(64);
 
         internal GameEventNetHandlers(LanNetworkManager net)
         {
@@ -36,6 +38,7 @@ namespace DWMPHorde.Networking
             _pendingGameEvents.Clear();
             _pendingGameEventQueuedAt.Clear();
             _destroyedFiredGameEvents.Clear();
+            _destroyedOnDreamPad.Clear();
             _geSoftIndexSource = null;
             _geSoftByNormName.Clear();
         }
@@ -46,7 +49,7 @@ namespace DWMPHorde.Networking
         /// events they apply: only the host used to keep this list, so a promoted host (migration)
         /// had none and late joiners saw those shells as never fired.
         /// </summary>
-        internal void RecordDestroyedOnFireGameEvent(GameEventsFiredMessage msg)
+        internal void RecordDestroyedOnFireGameEvent(GameEventsFiredMessage msg, bool onDreamPad)
         {
             if (_net.Role != NetworkRole.Host && _net.Role != NetworkRole.Client)
                 return;
@@ -60,8 +63,23 @@ namespace DWMPHorde.Networking
                     return;
             }
             if (_destroyedFiredGameEvents.Count >= MaxDestroyedFiredGameEvents)
+            {
                 _destroyedFiredGameEvents.RemoveAt(0);
+                _destroyedOnDreamPad.RemoveAt(0);
+            }
             _destroyedFiredGameEvents.Add(msg);
+            _destroyedOnDreamPad.Add(onDreamPad);
+        }
+
+        /// <summary>The dream ended: its pad is gone, and so are the shells recorded on it.</summary>
+        private void DropDreamPadDestroyedRecords()
+        {
+            for (int i = _destroyedFiredGameEvents.Count - 1; i >= 0; i--)
+            {
+                if (!_destroyedOnDreamPad[i]) continue;
+                _destroyedFiredGameEvents.RemoveAt(i);
+                _destroyedOnDreamPad.RemoveAt(i);
+            }
         }
 
         internal void HandleGameEventsFired(GameEventsFiredMessage msg)
@@ -104,7 +122,7 @@ namespace DWMPHorde.Networking
         /// Host late-join: scan components that already have <c>fired &amp;&amp; !multipleFire</c>
         /// (vanilla one-shot latch), then merge host-recorded <c>destroyOnFire</c> identities
         /// whose shells are gone from the scan. Skips ephemeral FX, saved-delayed shells,
-        /// and dream-named GEs when no dream is active — avoids pad/overworld mis-resolve
+        /// and the dream pad's GEs when no dream is active — avoids pad/overworld mis-resolve
         /// and night-scenario replay (scenario bulk stays deferred separately).
         /// </summary>
         internal void SendGameEventsBulkTo(int targetPlayerId)
@@ -150,8 +168,8 @@ namespace DWMPHorde.Networking
                     string eventName = ge.name ?? "";
                     if (IsEphemeralDreamFxEvent(eventName))
                         continue;
-                    if (!dreamActive
-                        && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    // The dream pad's own events (still standing in the 4 s after a dream).
+                    if (!dreamActive && DreamSyncManager.IsOnDreamPad(ge.transform))
                         continue;
 
                     Vector3 p = ge.transform.position;
@@ -173,8 +191,7 @@ namespace DWMPHorde.Networking
                 string eventName = destroyed.EventName ?? "";
                 if (IsEphemeralDreamFxEvent(eventName))
                     continue;
-                if (!dreamActive
-                    && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                if (!dreamActive && _destroyedOnDreamPad[i])
                     continue;
                 if (BulkListContains(list, destroyed))
                     continue;
@@ -225,7 +242,7 @@ namespace DWMPHorde.Networking
         /// Host: first-enter pad resync — fired one-shot GEs under/near <paramref name="loc"/>
         /// only (not a second full join). Client pending from late-join ages out at 60s and
         /// misses virgin-prefab setActive/remove. ActorPlayerId stays 0 (world geometry;
-        /// no personal bag/teleport re-grant). Skips <c>multipleFire</c>. Dream-named GEs
+        /// no personal bag/teleport re-grant). Skips <c>multipleFire</c>. Dream pad GEs
         /// omitted unless a dream is active; dream pads use dream-root SoftMatch on apply.
         /// </summary>
         /// <returns>Number of events packed into the bulk (0 = nothing sent).</returns>
@@ -289,8 +306,8 @@ namespace DWMPHorde.Networking
                     string eventName = ge.name ?? "";
                     if (IsEphemeralDreamFxEvent(eventName))
                         continue;
-                    if (!dreamActive
-                        && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    // The dream pad's own events (still standing in the 4 s after a dream).
+                    if (!dreamActive && DreamSyncManager.IsOnDreamPad(ge.transform))
                         continue;
 
                     Vector3 p = ge.transform.position;
@@ -314,8 +331,7 @@ namespace DWMPHorde.Networking
                 string eventName = destroyed.EventName ?? "";
                 if (IsEphemeralDreamFxEvent(eventName))
                     continue;
-                if (!dreamActive
-                    && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                if (!dreamActive && _destroyedOnDreamPad[i])
                     continue;
                 Vector3 dPos = new Vector3(destroyed.PosX, destroyed.PosY, destroyed.PosZ);
                 if (!IsNearLocationAnchor(dPos, root, anchor, maxDistSqr))

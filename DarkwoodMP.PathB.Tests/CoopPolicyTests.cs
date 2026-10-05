@@ -128,6 +128,38 @@ public class CoopPolicyTests
         Assert.Equal(run, GameEventPersonalPolicy.ShouldRunPersonalEffectsOnApply(actorId, localId));
     }
 
+    // Every Player function vanilla scenes call with targetUniqueObjects "player" (AssetRipper
+    // export scan): world ones run on every peer, the rest only on the scene's own player.
+    [Theory]
+    [InlineData("tryToSpawnShadow", true)]
+    [InlineData("pauseShadows", true)]
+    [InlineData("unpauseShadows", true)]
+    [InlineData("removeShadows", true)]
+    [InlineData("shadowLightsTurnOff", true)]
+    [InlineData("special_refreshWorldEvents", true)]
+    [InlineData("special_hideDoctorsAct2", true)]
+    [InlineData("special_teleportMaciek", true)]
+    [InlineData("special_spawnDreamForestSpirit", true)]
+    [InlineData("wolf_stealSister", true)]
+    [InlineData("spawnWolfInCurrentHideout", true)]
+    [InlineData("diveIn", false)]
+    [InlineData("diveOut", false)]
+    [InlineData("fakeDeathAni", false)]
+    [InlineData("lieDown", false)]
+    [InlineData("pauseAnimation", false)]
+    [InlineData("resumeAnimation", false)]
+    [InlineData("special_petDog", false)]
+    [InlineData("special_drainAllTableLegDurability", false)]
+    [InlineData("special_getUpFromBed", false)]
+    [InlineData("special_changeClothes", false)]
+    [InlineData("special_removeClothes", false)]
+    [InlineData("special_addFlamethrower", false)]
+    [InlineData(null, false)]
+    public void StoryPolicy_WorldPlayerFunctions(string fn, bool world)
+    {
+        Assert.Equal(world, CoopStoryPolicy.IsWorldPlayerFunction(fn));
+    }
+
     [Fact]
     public void LootPolicy_DisarmDouble_IsTypeScoped()
     {
