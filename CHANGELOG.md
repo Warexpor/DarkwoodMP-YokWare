@@ -192,6 +192,18 @@ host's sends during its prologue ran alongside. Found and fixed:
   stand-in and to a remote match light copied from a live one). Checked in a pilot run: 9
   light meshes, none shared, no errors.
 
+### Map would not open (both players, after the hideout lesson)
+
+- **Opening the map threw an error in `UI.hidePlayerUI` on host and client, and the map never
+  showed.** A hideout lesson message meant for the other player is hidden on this machine
+  (`PersonalFlavorHud.HideCharacterMessage`), and the hide destroyed the message object. Vanilla
+  had already put it on the player's `attachedGameObjects`, which the map, menus and UI walk
+  and switch off, so the dead entry broke every map open from then on (and left a destroyed
+  object in the UI pool). The message is now switched off at once and retired the next frame
+  through vanilla `WaitAndDie.onDeath`, which takes it off that list and returns it to the pool.
+- Host log wording: a peer leaving logged "disconnected mid-night" at any time of day; it now
+  reads "disconnected — night deaths (...)".
+
 ### Log file losing its last lines on quit
 
 - **The console showed lines that never reached `LogOutput.log`, always at the end.** BepInEx's

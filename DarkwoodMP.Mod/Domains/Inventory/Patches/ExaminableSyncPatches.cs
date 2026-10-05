@@ -93,6 +93,10 @@ namespace DWMPHorde.Patches
         /// Must be used from Postfix (never Prefix-null): vanilla
         /// <c>GameEvent.fire</c> MoveNext does <c>displayMessage(...).texts = ...</c> with no
         /// null check — same class as HelpMessage / Hideout1_tutorial_02.
+        /// Hidden at once, then retired next frame through vanilla <c>WaitAndDie.onDeath</c>,
+        /// which takes it off its owner's <c>attachedGameObjects</c> and returns it to the
+        /// pool. Destroying it instead left a dead entry in the player's list (every map open
+        /// threw in <c>UI.hidePlayerUI</c> and the map never showed) and a dead pooled object.
         /// </summary>
         internal static void HideCharacterMessage(CharacterMessage msg)
         {
@@ -100,22 +104,26 @@ namespace DWMPHorde.Patches
                 return;
             try
             {
-                if (msg.textMesh != null)
-                    msg.textMesh.color = new UnityEngine.Color(
-                        msg.textMesh.color.r, msg.textMesh.color.g, msg.textMesh.color.b, 0f);
-                msg.longevity = 0.01f;
                 msg.writing = false;
-                msg.isWritingText = false;
-                if (msg.waitAndDie != null)
-                    msg.waitAndDie.longevity = 0.01f;
-                // Destroy shortly — caller may still assign .texts / AssignDeathObjects
-                // on this non-null ref in the same MoveNext step.
-                UnityEngine.Object.Destroy(msg.gameObject, 0.05f);
+                msg.gameObject.SetActive(false);
+                Singleton<Controller>.Instance.StartCoroutine(RetireNextFrame(msg));
             }
             catch (System.Exception)
             {
                 // Unity teardown — GameEvent still holds a non-null ref.
             }
+        }
+
+        // Next frame: the caller may still assign .texts / AssignDeathObjects in the same step.
+        private static System.Collections.IEnumerator RetireNextFrame(CharacterMessage msg)
+        {
+            yield return null;
+            if (msg == null || msg.waitAndDie == null)
+                yield break;
+            msg.texts?.Clear();
+            msg.waitAndDie.fadeTime = 0f;
+            msg.waitAndDie.pauseBeforeDying = 0f;
+            msg.waitAndDie.onDeath();
         }
 
         internal static void Reset()
