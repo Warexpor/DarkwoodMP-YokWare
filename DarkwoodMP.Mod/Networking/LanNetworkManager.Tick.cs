@@ -34,6 +34,7 @@ namespace DWMPHorde.Networking
                         "LiteNetLib PollEvents threw" + NetLogThrottle.SuppressedSuffix(dropped), ex);
             }
             PollSteamBackend();
+            Sync.TestPilot.Tick(this);
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
 

@@ -34,6 +34,9 @@ namespace DWMPHorde.Sync
         private static readonly DesyncLedger _ledger = new DesyncLedger(); // process-scoped: cleared in Reset
         private static int _clientChecks;        // reset-in: Reset
         private static float _clientOkLogAt;     // reset-in: Reset
+        /// <summary>Slowest check on this machine since the last summary (ms).</summary>
+        private static float _worstMs;           // reset-in: Reset
+        private const float SlowCheckMs = 25f;
 
         internal static void Reset()
         {
@@ -43,6 +46,7 @@ namespace DWMPHorde.Sync
             _ledger.Clear();
             _clientChecks = 0;
             _clientOkLogAt = 0f;
+            _worstMs = 0f;
             _syncedContainers.Clear();
         }
 
@@ -72,6 +76,9 @@ namespace DWMPHorde.Sync
         }
 
         // ---------------------------------------------------------------- host
+
+        /// <summary>Host: run the next check on the next tick (test pilot).</summary>
+        internal static void RunSoon() => _nextAt = 0f;
 
         internal static void Tick(LanNetworkManager net)
         {
@@ -109,6 +116,7 @@ namespace DWMPHorde.Sync
                 return;
 
             _seq++;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             // World sections once; the ones around a player per target.
             var global = new Dictionary<byte, string>();
             foreach (Section s in Sections)
@@ -141,6 +149,18 @@ namespace DWMPHorde.Sync
                 }
                 net.SendDesyncDigest(id, msg);
             }
+            NoteCost("host digest seq " + _seq + " for " + targets.Count + " peer(s)", watch);
+        }
+
+        /// <summary>A check is a frame's work: log one that costs a visible hitch.</summary>
+        private static void NoteCost(string what, System.Diagnostics.Stopwatch watch)
+        {
+            float ms = (float)watch.Elapsed.TotalMilliseconds;
+            if (ms > _worstMs)
+                _worstMs = ms;
+            if (ms > SlowCheckMs)
+                ModLog.WarnRate(LogCat.Session, "desync-slow", "[Desync] slow check: " + what + " took "
+                    + ms.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms", 60f);
         }
 
         internal static void HostOnDetailRequest(LanNetworkManager net, int playerId, DesyncDetailRequestMessage msg)
@@ -207,6 +227,7 @@ namespace DWMPHorde.Sync
             if (!net.DesyncLinkQuiet || !LocalWorldSettled())
                 return;
             _clientChecks++;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             var lines = new List<string>();
 
             var clock = new List<DesyncEntries.Diff>(2);
@@ -250,6 +271,7 @@ namespace DWMPHorde.Sync
                     SectionIds = request.ToArray()
                 });
             }
+            NoteCost("client compare seq " + msg.Seq, watch);
             Emit(net, msg.Seq, lines);
 
             float now = Time.unscaledTime;
@@ -258,7 +280,9 @@ namespace DWMPHorde.Sync
                 _clientOkLogAt = now + OkLogEverySec;
                 ModLog.Event(LogCat.Session, "[Desync] check #" + _clientChecks + " seq " + msg.Seq
                     + ": " + _ledger.ReportedCount + " open desync(s)"
-                    + (request.Count > 0 ? ", " + request.Count + " section(s) being compared" : ""));
+                    + (request.Count > 0 ? ", " + request.Count + " section(s) being compared" : "")
+                    + ", slowest check " + _worstMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                _worstMs = 0f;
             }
         }
 
@@ -271,9 +295,11 @@ namespace DWMPHorde.Sync
             Section s = Find(msg.SectionId);
             if (s == null)
                 return;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             string mine = Build(s, ClientCtx(net));
             List<string> lines = _ledger.Evaluate(s.Id, s.Name, DesyncEntries.Compare(
                 DesyncEntries.Parse(msg.Entries), DesyncEntries.Parse(mine), s.Same, msg.Truncated));
+            NoteCost("client detail " + s.Name, watch);
             Emit(net, msg.Seq, lines);
         }
 

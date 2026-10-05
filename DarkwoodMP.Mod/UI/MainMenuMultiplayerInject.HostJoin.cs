@@ -76,6 +76,13 @@ namespace DWMPHorde
                 _menu.displayProfilesMenu();
         }
 
+        /// <summary>Test pilot: one press of JOIN LAN (connect, request, enter world as it progresses).</summary>
+        internal static void PilotJoinLan()
+        {
+            _joinViaSteam = false;
+            BeginOrContinueJoin(steam: false);
+        }
+
         private static void OnJoinLanClicked()
         {
             _joinViaSteam = false;
