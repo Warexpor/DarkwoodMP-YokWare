@@ -8,8 +8,9 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Host combat ThrownItem that leaves the world (stick-into-char, water, destroyOnLand)
-    /// must clear peer FX copies. Those copies are MuteThrownCombat visualOnly / client-own
+    /// Host combat ThrownItem that leaves the world (stick-into-char, water) must clear peer FX
+    /// copies (an item that destroys itself on landing does that on every copy by itself).
+    /// Those copies are MuteThrownCombat visualOnly / client-own
     /// throws — still pickable via getDroppedItem — and DestroyObjectByPos cannot find the
     /// host knife once it is already inside a Character inventory (dual grant).
     /// </summary>
@@ -26,6 +27,7 @@ namespace DWMPHorde.Patches
             public int Amount;
             public float Durability;
             public int Ammo;
+            public bool SelfDestroying;
         }
 
         [HarmonyPrefix]
@@ -46,6 +48,13 @@ namespace DWMPHorde.Patches
 
             __state.Track = true;
             __state.InstanceId = __instance.gameObject.GetInstanceID();
+            // Destroyed by its own landing (molotov / gas bomb blast, destroyOnLand): every peer's
+            // copy runs that same landing and removes itself. The removal sent from here reached
+            // a peer's copy that had not landed yet (the host's copy can land first) and deleted it, so
+            // the thrower saw no blast and heard nothing, only the host's fire appearing.
+            Explodes expl = __instance.GetComponent<Explodes>();
+            __state.SelfDestroying = __instance.destroyOnLand
+                || (expl != null && expl.destroyOnExplode && __instance.GetComponent<ProxyItem>() == null);
             Tracked.Add(__state.InstanceId);
             __state.Pos = __instance.transform.position;
             DroppedItemSyncHelpers.CaptureWorldPickupItemMeta(
@@ -90,7 +99,7 @@ namespace DWMPHorde.Patches
             bool destroyQueued = DestroyQueued.Remove(id);
             // No destroy request = still in the world (ground / wall stick): peer FX claim +
             // DestroyObjectByPos handle it, nothing to announce.
-            if (__exception != null || !destroyQueued)
+            if (__exception != null || !destroyQueued || __state.SelfDestroying)
                 return;
 
             if (!NetGuard.ConnectedHost(out var net))

@@ -108,6 +108,10 @@ namespace DWMPHorde.Sync
                     ti.onGround = true;
                     ti.landTarget = spawnPos;
                     ti.objectThatSpawnedMe = proxyT;
+                    // Already landed elsewhere, like an item loaded from a save: vanilla init still
+                    // runs onCollide for an onGround item, and only loadedFromSave keeps that from
+                    // replaying the landing (collide sound, AI alert, lighting the gasoline under it).
+                    ThrownLoadedFromSave(ti) = true;
                 }
             }
             else
@@ -245,6 +249,8 @@ namespace DWMPHorde.Sync
             {
                 FlareClock.MakeCopy(go, msg.FlareAge >= 0f ? msg.FlareAge : 0f);
                 NoteThrownFlare(go);
+                if (msg.FlareAge >= 0f)
+                    AlignThrownBurnClock(ti, msg.FlareAge, grounded);
             }
 
             if (!visualOnly)
@@ -252,9 +258,32 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo($"[ThrowableSpawn] spawned {msg.ItemType} flareAge={msg.FlareAge:F1} at {spawnPos} aimY={msg.AimY} dist={distance} vel={vel.magnitude.ToString("F1")} land={landTarget} grounded={grounded} visualOnly={visualOnly}");
         }
 
+        private static readonly AccessTools.FieldRef<ThrownItem, bool> ThrownLoadedFromSave =
+            AccessTools.FieldRefAccess<ThrownItem, bool>("loadedFromSave");
+
+        private static readonly System.Reflection.MethodInfo ThrownWaitToStopBurning =
+            AccessTools.Method(typeof(ThrownItem), "waitToStopBurning");
+
         /// <summary>
-        /// Host: when remaining life elapses, broadcast despawn and start 2s fade (vanilla waitToDie).
-        /// All roles: advance active fades.
+        /// A burning throwable (a flare) has a second vanilla clock besides <see cref="Flare"/>:
+        /// <c>ThrownItem.init → waitToStopBurning</c>, which after <c>burnTime</c> removes its
+        /// lights and the flare itself (<c>destroyOnBurnOut</c>) or swaps its sprite. On the
+        /// thrower it runs from when the flare was lit in the hand; a copy started it at its own
+        /// spawn, <paramref name="age"/> seconds late, so the flare vanished on the thrower while
+        /// the copies still showed its body through the fade and after. Starts the copy's clock
+        /// that far in. A flying copy's init (next frame) reads the shortened burnTime; a grounded
+        /// copy's init lands it instead and never starts the clock, so it is started here.
         /// </summary>
+        private static void AlignThrownBurnClock(ThrownItem ti, float age, bool grounded)
+        {
+            if (ti == null || !ti.flaming || ti.burnTime <= 0f)
+                return;
+            // Kept above zero: init only starts the clock while burnTime > 0.
+            ti.burnTime = Mathf.Max(0.01f, ti.burnTime - age);
+            if (!grounded || ThrownWaitToStopBurning == null)
+                return;
+            if (ThrownWaitToStopBurning.Invoke(ti, null) is System.Collections.IEnumerator routine)
+                ti.StartCoroutine(routine);
+        }
     }
 }

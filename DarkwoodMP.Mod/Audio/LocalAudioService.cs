@@ -234,18 +234,15 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// Player bag / drawer open-close — must stay spatial at the remote proxy with
-        /// indoor reverb (same path as local <c>Play(id, playerTransform)</c>).
+        /// A player's step: the ground footstep, its wood / branch add-on and the clothes rustle
+        /// (vanilla <c>CharacterSounds.playFootHitGround</c>).
         /// </summary>
-        public static bool IsRemotePlayerPresenceSound(string audioID)
+        public static bool IsPlayerStepSound(string audioID)
         {
             if (string.IsNullOrEmpty(audioID))
                 return false;
-            if (string.Equals(audioID, "open_drawer", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (string.Equals(audioID, "close_drawer", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return false;
+            return audioID.IndexOf("foot", StringComparison.OrdinalIgnoreCase) >= 0
+                || audioID.IndexOf("walk_clothes", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>
@@ -277,15 +274,16 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// True for SFX that should stay non-spatial on the remote peer (UI / equip get-hide).
-        /// Flashlight/torch/lighter stay spatial via <see cref="IsRemotePlayerSpatialToolSound"/>.
+        /// Equip pull-out / put-away and bag get / hide one-shots (<c>get_item_01_player</c>, an
+        /// item's getSound / hideSound). A peer hears them on the player's stand-in like any other
+        /// player sound; this only tells the dream forward that PlayerAudio already carries them.
         /// </summary>
-        public static bool IsPrefer2dNetworkOneShot(string audioID)
+        public static bool IsEquipGetHideSound(string audioID)
         {
             if (string.IsNullOrEmpty(audioID))
                 return false;
             if (IsPlayerHitFeedbackSound(audioID))
-                return false; // hits stay spatial on the victim proxy
+                return false;
 
             // Equip put-away / pull-out one-shots (parentless in vanilla).
             if (audioID.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
@@ -296,7 +294,7 @@ namespace DWMPHorde.Audio
                 || audioID.IndexOf("_hide", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Live item fields: equip get/hide only as 2D.
+            // Live item fields: the held item's get / hide.
             if (IsCurrentItemActionSound(audioID))
             {
                 Player p = Player.Instance;

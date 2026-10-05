@@ -84,9 +84,12 @@ namespace DWMPHorde.Patches
             return attacker == Player.Instance.transform;
         }
 
-        internal static void SendHit(byte targetType, Vector3 pos, int damage)
+        /// <param name="playedLocalFx">False when the striker played no hit FX (a predicted
+        /// break: vanilla plays only the break FX, which arrive with the host's result).</param>
+        internal static void SendHit(byte targetType, Vector3 pos, int damage, bool playedLocalFx = true)
         {
-            RegisterLocalFx(targetType, pos);
+            if (playedLocalFx)
+                RegisterLocalFx(targetType, pos);
             Vector3 atkPos = Player.Instance.transform.position;
             var net = ModRuntime.Network;
             net?.SendMeleeWorldHit(new MeleeWorldHitMessage
@@ -163,13 +166,21 @@ namespace DWMPHorde.Patches
             if (!ClientWorldMeleeRedirectHelper.ShouldRedirect(attacker))
                 return true;
 
-            ClientWorldMeleeRedirectHelper.SendHit(0, __instance.transform.position, damage);
             // Play local hit effects since getHit will be skipped. A metal door only clangs
-            // (vanilla: door_hit_metal, no damage, no splinters).
+            // (vanilla: door_hit_metal, no damage, no splinters). A hit that breaks the board or
+            // the door plays no hit FX in vanilla, only the break FX — those come with the host's
+            // BarricadeEvent, so a predicted break plays nothing here and leaves the apply unmuted.
             bool canDamageMetal = __args.Length > 3 && (bool)__args[3];
-            if (__instance.type == Door.Type.metal && !canDamageMetal)
+            bool metalUnhurt = __instance.type == Door.Type.metal && !canDamageMetal;
+            bool predictedBreak = !metalUnhurt
+                && (__instance.barricadeHealth > 0
+                    ? __instance.barricadeHealth - damage <= 0
+                    : __instance.health - damage <= 0);
+            ClientWorldMeleeRedirectHelper.SendHit(0, __instance.transform.position, damage,
+                playedLocalFx: !predictedBreak);
+            if (metalUnhurt)
                 AudioController.Play("door_hit_metal", __instance.transform);
-            else
+            else if (!predictedBreak)
             {
                 AudioController.Play("woodenObject_hit", __instance.transform);
                 Core.AddPrefab("particles/door_hit_melee", __instance.transform.position, __instance.transform.rotation, null);

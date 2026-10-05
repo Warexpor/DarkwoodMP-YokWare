@@ -377,6 +377,7 @@ namespace DWMPHorde.Networking
             if (local.dragging && local.itemBeingDragged != null)
             {
                 Item dragged = local.itemBeingDragged;
+                _lastDraggedItem = dragged;
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
                 PlayerInteractHandlers.DragClaims[_lastDraggedItemName] = _localPlayerId;
@@ -406,19 +407,27 @@ namespace DWMPHorde.Networking
                         _dragScrapeActive = false;
                 }
 
+                // The pose observers play back (RemoteDragTimeline), stamped with the moment
+                // it shows. The rotation goes as Euler angles of the one quaternion; receivers
+                // rebuild that quaternion and slerp it, never the angles.
+                Transform dragT = dragged.transform;
+                Vector3 dragPos = dragT.position;
+                Vector3 dragEuler = dragT.rotation.eulerAngles;
                 var dragMsg = new DragSyncMessage
                 {
-                    PosX = dragged.transform.position.x,
-                    PosY = dragged.transform.position.y,
-                    PosZ = dragged.transform.position.z,
-                    RotX = dragged.transform.eulerAngles.x,
-                    RotY = dragged.transform.eulerAngles.y,
-                    RotZ = dragged.transform.eulerAngles.z,
+                    PosX = dragPos.x,
+                    PosY = dragPos.y,
+                    PosZ = dragPos.z,
+                    RotX = dragEuler.x,
+                    RotY = dragEuler.y,
+                    RotZ = dragEuler.z,
                     IsDragging = true,
                     ObjectName = _lastDraggedItemName,
                     ItemType = dragged.invItem != null ? dragged.invItem.type : "",
                     ClaimedByPlayerId = _localPlayerId,
-                    ScrapeActive = _dragScrapeActive
+                    ScrapeActive = _dragScrapeActive,
+                    SendTime = RemoteDragTimeline.StampFor(dragged.GetComponent<Rigidbody>()),
+                    HasPose = true
                 };
                 // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
                 // observers kept the last NoteMoving loop until full release.

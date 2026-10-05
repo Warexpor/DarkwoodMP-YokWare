@@ -338,10 +338,10 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendPlayerAudio(PlayerAudioMessage msg)
+        internal void SendPlayerAudio(PlayerAudioMessage msg, bool ownOutcome = false)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (!ownOutcome && LanNetworkManager.IsApplyingRemoteState) return;
             // One-shots and stop signals must not drop under lossy LAN.
             _net.Broadcast(NetMessageType.PlayerAudio, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

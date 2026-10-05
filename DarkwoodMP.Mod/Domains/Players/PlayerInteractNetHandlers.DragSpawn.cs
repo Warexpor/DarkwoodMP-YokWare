@@ -174,6 +174,7 @@ namespace DWMPHorde.Networking
                 DragEndedAt[key] = Time.unscaledTime;
                 // The dragger never sends its STOP: free the proxy copy spawned for its drag.
                 CleanupSpawnedDragProxy(key);
+                RemoteDragTimeline.DropByName(key);
                 ReleaseRemoteDragKinematic(key);
                 RemoveRemoteDragIds(key);
                 DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
@@ -226,10 +227,11 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Release isKinematic on items matching the given name.
-        /// Called when a remote drag ends so local physics can affect them again.</summary>
+        /// Called when a remote drag ends so local physics can affect them again. Every observer
+        /// holds a remotely dragged copy kinematic (<see cref="RemoteDragTimeline"/>), the host too.</summary>
         internal void ReleaseRemoteDragKinematic(string objectName)
         {
-            if (string.IsNullOrEmpty(objectName) || ModRuntime.Network == null || ModRuntime.Network.Role == NetworkRole.Host)
+            if (string.IsNullOrEmpty(objectName) || ModRuntime.Network == null)
                 return;
             foreach (Item candidate in WorldQueryHelper.GetCachedSceneComponents<Item>())
             {

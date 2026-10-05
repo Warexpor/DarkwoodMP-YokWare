@@ -281,6 +281,16 @@ namespace DWMPHorde.Networking
         /// position delta on an unreliable packet.
         /// </summary>
         public bool ScrapeActive;
+        /// <summary>
+        /// The dragger's clock at the moment of this pose (seconds, its own epoch). Observers
+        /// play the drag back on a timeline a short delay behind it, like creatures.
+        /// </summary>
+        public float SendTime;
+        /// <summary>
+        /// The pose fields hold the body's pose. Always set on a grab sample; a STOP carries the
+        /// pose the drag ended on (absent when the host releases a disconnected dragger's claim).
+        /// </summary>
+        public bool HasPose;
 
         public void Serialize(NetWriter w)
         {
@@ -291,6 +301,8 @@ namespace DWMPHorde.Networking
             w.Put(ItemType ?? "");
             w.Put(ClaimedByPlayerId);
             w.Put(ScrapeActive);
+            w.Put(SendTime);
+            w.Put(HasPose);
         }
 
         public static DragSyncMessage Deserialize(NetReader r) => new DragSyncMessage
@@ -305,7 +317,9 @@ namespace DWMPHorde.Networking
             ObjectName = r.GetString(),
             ItemType = r.GetString(),
             ClaimedByPlayerId = r.GetInt(),
-            ScrapeActive = r.GetBool()
+            ScrapeActive = r.GetBool(),
+            SendTime = r.GetFloat(),
+            HasPose = r.GetBool()
         };
     }
 

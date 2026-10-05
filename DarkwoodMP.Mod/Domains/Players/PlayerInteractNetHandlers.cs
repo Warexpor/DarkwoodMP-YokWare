@@ -49,6 +49,8 @@ namespace DWMPHorde.Networking
 
         internal void ClearDragSessionState()
         {
+            // Release played-back copies while their remote-drag ids are still recorded.
+            RemoteDragTimeline.Reset();
             DragClaims.Clear();
             LastDragSyncPos.Clear();
             DragEndedAt.Clear();
@@ -151,9 +153,16 @@ namespace DWMPHorde.Networking
 
                 _net.PlayerInteractHandlers.LastDragSyncPos.Remove(msg.ObjectName);
                 CleanupSpawnedDragProxy(msg.ObjectName);
-                // Release while the instance ids are still recorded, then drop them.
-                ReleaseRemoteDragKinematic(msg.ObjectName);
-                RemoveRemoteDragIds(msg.ObjectName);
+                // The copy played back from this dragger runs on to the pose the drag ended on
+                // (the STOP carries it) and turns physical when its timeline gets there; it keeps
+                // its remote-drag id until then so PhysicsState does not move it meanwhile.
+                // Without a pose or a playing copy: release now, while the instance ids are
+                // still recorded, then drop them.
+                if (!RemoteDragTimeline.End(msg))
+                {
+                    ReleaseRemoteDragKinematic(msg.ObjectName);
+                    RemoveRemoteDragIds(msg.ObjectName);
+                }
                 // Host free-body hold from client PhysicsState must also drop on drag end
                 // or the object stays kinematic / untouchable for the host.
                 if (!string.IsNullOrEmpty(msg.ObjectName))
@@ -167,7 +176,8 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            Item item = FindDraggedItemLocally(msg.ObjectName, targetPos);
+            Item item = RemoteDragTimeline.TrackedItem(msg.ObjectName, msg.ClaimedByPlayerId)
+                ?? FindDraggedItemLocally(msg.ObjectName, targetPos);
             if (item == null)
             {
                 // Item does not exist on this side. Spawn it on demand so we
@@ -185,6 +195,7 @@ namespace DWMPHorde.Networking
             {
                 // Skip remote drag-updates for an object the local player is also
                 // dragging. This prevents tug-of-war jitter between both sides.
+                RemoteDragTimeline.Drop(item);
                 Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
                 // Release kinematic so local HingeJoint can drive position.
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
@@ -210,18 +221,15 @@ namespace DWMPHorde.Networking
             _net.PlayerInteractHandlers.RemoteDragItemIds.Add(item.GetInstanceID());
             _net.PlayerInteractHandlers.RemoteDragItemNames.Add(item.gameObject.name);
 
+            // The dragger's machine owns the body while it drags: every observer (host too)
+            // holds its copy kinematic and plays the dragger's poses back on a timeline
+            // (RemoteDragTimeline, posed each LateUpdate) — not a teleport per packet, and no
+            // local collision turning or shoving it between packets.
+            RemoteDragTimeline.AddSample(item, msg);
+
             Rigidbody targetRb = item.GetComponent<Rigidbody>();
             if (targetRb != null)
             {
-                targetRb.position = targetPos;
-                targetRb.rotation = Quaternion.Euler(targetRot);
-                targetRb.velocity = Vector3.zero;
-                targetRb.angularVelocity = Vector3.zero;
-                // Lock to host position between DragSync frames. This prevents proxy
-                // collisions on the client from pushing the item away.
-                if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
-                    targetRb.isKinematic = true;
-
                 // Scrape: sender sets ScrapeActive from *player walk intent* (body-push style).
                 // When false (reliable), stop fade now. Do not wait for posDelta quiet or
                 // Unreliable packet loss. First grab packet may still have ScrapeActive false.
@@ -251,16 +259,9 @@ namespace DWMPHorde.Networking
                 }
                 _net.PlayerInteractHandlers.LastDragSyncPos[msg.ObjectName] = targetPos;
             }
-            else
-            {
-                // Fallback: no Rigidbody; set the transform directly.
-                item.transform.position = targetPos;
-                item.transform.rotation = Quaternion.Euler(targetRot);
-                ModRuntime.Log?.LogWarning("[DragSync] " + msg.ObjectName + " has no Rigidbody — used transform fallback");
-            }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos}");
+                ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos} yaw={targetRot.y:F1} t={msg.SendTime:F3}");
         }
     }
 }

@@ -9,6 +9,13 @@ namespace DWMPHorde.Networking
 
     public struct BarricadeEventMessage
     {
+        /// <summary>
+        /// MainHealth value for events that carry no door health (board-only removals, windows,
+        /// items). A door's real health goes negative when it breaks (vanilla subtracts the full
+        /// hit), so -1 cannot mean "unknown".
+        /// </summary>
+        public const int NoMainHealth = int.MinValue;
+
         public float PosX, PosY, PosZ;
         public byte IsWindow;
         public BarricadeAction Action;

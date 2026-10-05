@@ -359,28 +359,25 @@ namespace DWMPHorde.Networking
             int playerId = _net.CurrentReceivePlayerId;
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
 
-            // Player-origin rules (sender's body, 2D equip, per-peer hear gate) apply only to the
-            // sender's own player sounds. A world/enemy sound the host forwards (StickToSender
-            // false) stays where it happened: a door's "door_hit_metal" or a lamp "activate" was
-            // being moved onto the host's body and an "_get"/"_hide" id played 2D.
+            // Player-origin rules (sender's body, per-peer hear gate) apply only to the sender's
+            // own player sounds. A world/enemy sound the host forwards (StickToSender false)
+            // stays where it happened: a door's "door_hit_metal" or a lamp "activate" was being
+            // moved onto the host's body.
             bool fromPlayer = msg.StickToSender;
-            bool isHitFeedback = fromPlayer && LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
-            // Equip get/hide stay 2D. Flashlight/torch: spatial at proxy + keep reverb.
-            bool prefer2d = fromPlayer && LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
             bool spatialTool = fromPlayer && LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
+            bool step = fromPlayer && LocalAudioService.IsPlayerStepSound(msg.SoundId);
 
-            // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
-            // Never call getHit, red-screen, or BloodOverlay here; this path is audio only.
-            if (isHitFeedback && proxy != null)
-                pos = proxy.transform.position;
-            else if (!hasPos || spatialTool)
-            {
-                // Flashlight: always use proxy position even if packet has local coords.
-                if (proxy != null)
-                    pos = proxy.transform.position;
-                else if (!hasPos)
-                    return;
-            }
+            // Every sound of the sender's own goes on the sender's stand-in, as the game plays a
+            // sound on a body: parented to it, so AudioController gives it the indoor reverb
+            // (CharBase.isInside) and the wall muffle toward this listener. Vanilla plays many of
+            // them for their owner only (parentless 2D: equip get / hide, hits; or on the owner's
+            // own body, where 2D and 3D sound the same); played 2D here, the bag's
+            // get_item_01_player sounded like this listener's own bag, dry.
+            Transform standIn = fromPlayer && proxy != null ? proxy.transform : null;
+            if (standIn != null)
+                pos = standIn.position;
+            else if (!hasPos)
+                return;
 
             // The sticky per-peer gate tracks that peer's body; world sounds from the same sender
             // are all over the map and would flip it, so they use the stateless band.
@@ -398,98 +395,38 @@ namespace DWMPHorde.Networking
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                Transform parent = null;
-                // Inventory open/close and other stick-to-sender presence SFX must parent to
-                // the proxy so AudioController can read CharBase.isInside for reverb.
-                bool presenceSpatial = LocalAudioService.IsRemotePlayerPresenceSound(msg.SoundId);
-                if ((!prefer2d || presenceSpatial) && proxy != null && (msg.StickToSender || presenceSpatial))
-                {
-                    parent = proxy.transform;
-                    // Proxy has no CharacterSounds tick — refresh indoor ground before Play
-                    // or open_drawer arrives with isInside=false and skips AudioReverbFilter.
-                    CharBase pcb = proxy.CachedCharBase;
-                    if (pcb != null)
-                    {
-                        try { pcb.checkGround(); }
-                        catch { /* ignore */ }
-                    }
-                    prefer2d = false;
-                }
-                else if (!prefer2d && proxy != null && msg.StickToSender)
-                {
-                    parent = proxy.transform;
-                    CharBase pcb = proxy.CachedCharBase;
-                    if (pcb != null)
-                    {
-                        try { pcb.checkGround(); }
-                        catch { /* ignore */ }
-                    }
-                }
+                // The stand-in has no CharacterSounds tick: refresh its indoor ground before Play,
+                // or the sound arrives with isInside=false and skips the AudioReverbFilter.
+                if (standIn != null)
+                    WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
+                AudioObject audioObj = AudioController.Play(msg.SoundId, pos, standIn, Mathf.Clamp01(msg.Volume));
 
-                AudioObject audioObj;
-                if (prefer2d)
+                if (audioObj != null && audioObj.primaryAudioSource != null)
                 {
-                    audioObj = AudioController.Play(msg.SoundId);
-                    if (audioObj != null && audioObj.primaryAudioSource != null
-                        && msg.Volume > 0f && msg.Volume < 0.999f)
-                        audioObj.volume = Mathf.Clamp01(msg.Volume);
-                }
-                else
-                {
-                    // Parent to proxy so vanilla indoor reverb (isInside) applies in bunker.
-                    audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
-                }
-
-                if (audioObj != null)
-                {
-                    if (prefer2d)
+                    // 3D at the stand-in; the reverb / lowpass AudioController added stay.
+                    if (step)
                     {
-                        // UI/equip: strip world filters; fully 2D.
-                        var reverb = audioObj.GetComponent<AudioReverbFilter>();
-                        if (reverb != null) UnityEngine.Object.Destroy(reverb);
-                        var lowPass = audioObj.GetComponent<AudioLowPassFilter>();
-                        if (lowPass != null) UnityEngine.Object.Destroy(lowPass);
-                        if (audioObj.primaryAudioSource != null)
-                        {
-                            audioObj.primaryAudioSource.spatialBlend = 0f;
-                            audioObj.primaryAudioSource.reverbZoneMix = 0f;
-                        }
+                        // A torso-clip step (window-jump landing, dodge): the same falloff as
+                        // the stand-in's own leg steps.
+                        WorldProxyEffectNetHandlers.ForceSpatialProxyOneShot(audioObj, msg.SoundId);
                     }
-                    else if (audioObj.primaryAudioSource != null)
+                    else if (spatialTool)
                     {
-                        // Spatial remote SFX (flashlight, hits, etc.): 3D at proxy.
-                        // Keep reverb/lowpass from AudioController (bunker wetness).
+                        // Flashlight/torch: Log + full peer range. Tiny minDistance buried
+                        // the soft click tail under attenuation while the attack still
+                        // read; keep near-field at DefaultMinSpatialDistance.
                         audioObj.primaryAudioSource.spatialBlend = 1f;
-
-                        if (isHitFeedback)
-                        {
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                            audioObj.primaryAudioSource.minDistance = 8f;
-                            audioObj.primaryAudioSource.maxDistance = 80f;
-                        }
-                        else if (spatialTool)
-                        {
-                            // Flashlight/torch: Log + full peer range. Tiny minDistance buried
-                            // the soft click tail under attenuation while the attack still
-                            // read; keep near-field at DefaultMinSpatialDistance.
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
-                            audioObj.primaryAudioSource.minDistance =
-                                LocalAudioService.DefaultMinSpatialDistance;
-                            audioObj.primaryAudioSource.maxDistance =
-                                LocalAudioService.DefaultMaxSpatialDistance;
-                        }
-                        else
-                        {
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                            AudioItem item = AudioController.GetAudioItem(msg.SoundId);
-                            float itemMin = (item != null && item.overrideAudioSourceSettings)
-                                ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
-                            // The range the game gives this id (its prefab's when not overridden),
-                            // the same range the hear gate above used.
-                            float itemMax = LocalAudioService.SpatialMaxDistance(msg.SoundId);
-                            audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
-                            audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
-                        }
+                        audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
+                        audioObj.primaryAudioSource.minDistance =
+                            LocalAudioService.DefaultMinSpatialDistance;
+                        audioObj.primaryAudioSource.maxDistance =
+                            LocalAudioService.DefaultMaxSpatialDistance;
+                    }
+                    else
+                    {
+                        // Hits, equip, bag, vault and the rest: the game's own range for the id,
+                        // the same range the hear gate above used.
+                        WorldProxyEffectNetHandlers.ApplyStandInRolloff(audioObj, msg.SoundId);
                     }
                 }
             }

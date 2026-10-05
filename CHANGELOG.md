@@ -13,6 +13,7 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 `PlayerEffectSync` the home oven and the in-ending flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
 (150), `PlayerSpecial` (151), `TradeCommit` (152) and the desync check's `DesyncDigest`,
 `DesyncDetailRequest`, `DesyncDetail` and `DesyncReport` (153-156),
+`DragSync` its sample time and end pose,
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
@@ -235,6 +236,241 @@ host's sends during its prologue ran alongside. Found and fixed:
   `WorldPhysicsSyncService.ObjectResolve.cs`, `GameEventAnimLibraryHostFanPatch.cs`,
   `ModRuntime.cs`.
 
+### Lantern light and client view distance
+
+- **Other players never saw a player's lantern.** In vanilla the lantern does not need to be
+  held. While it sits anywhere on the hotbar it widens the player's own light dot
+  (`InvItemClass.checkForActiveSwitches` calls `Player.modifyLightDot(lightRadius)`). Taking it
+  off the hotbar, or a shadow wave, puts the dot back to its normal 120. The dot has no
+  flicker of its own. The sender already follows every `modifyLightDot` call and also checks
+  the dot's radius, so the lantern going on or off (hotbar, shadows, a burn-out drain) reaches
+  the stand-in. The owner did send this: in the playtest log, the client sent
+  `lantern r=450` when the lantern went on the hotbar, and the host built the stand-in's
+  lantern light (`remote lantern ON`). That light was made in code
+  (`Light2D.Create`), so it was on the Default layer. The light camera draws only the "Light"
+  layer (`CamMain.setPlayColors`: `LightCam.cullingMask = 256`), so the light was never
+  drawn, for any player. The stand-in's lantern now uses the local player's light dot layer,
+  sorting, position and look. The radius, on/off and late join already followed the owner.
+  The other lights made in code on a stand-in had the same fault and are fixed too: a held
+  item light, the fallback flashlight cone, and the fallback match light. Turning the lantern
+  off now removes every logic-light entry for it, because vanilla `Light2D.Start` lists it a
+  second time. The `remote lantern ON` line now logs the layer.
+  (`PlayerLightFxAmbientNetHandlers.cs`, `PlayerLightFxApplyNetHandlers.cs`,
+  `PlayerHeldLightApplyNetHandlers.cs`, `PlayerHeldLightApplyNetHandlers.Flashlight.cs`.)
+- **The client could look much farther than the host.** Vanilla moves the camera toward the
+  cursor (`CamMain.FixedUpdate`) and allows a cursor position from `-Screen.width` to
+  `Screen.width`. Vanilla confines the pointer to the window, so the camera reaches at most a
+  third of a screen ahead. The dual-box option `FreeCursorForDualBox` (on in both installs'
+  cfg) frees the pointer. The Wine/Proton client most likely keeps reading the pointer while
+  it is over the other game window. That gives a position below zero, so the camera can run
+  up to a full screen width ahead to the left and down, three times the vanilla distance. The
+  native host stops getting pointer motion at its window edge. Neither log records the mouse
+  position, so this cause is inferred; the new log line below confirms it in the next run.
+  This was not a resolution difference:
+  both installs are 1280x720 windowed with camera zoom on (`MULTIPLAYER button @ 1280x720` in
+  both logs, same Unity prefs), so `Controller.refreshZoom` gives both the same view. With the
+  pointer free, the game's cursor (`Core.MouseKeyboardCursorPos` / `ControllerCursorPos`, used
+  for camera look, aim and throws) now stays inside the window, as the vanilla confine would
+  keep it. A new `[Cursor] pointer outside the window` line shows when this happens. With the
+  option off nothing changes. (`CursorConfineFocusGuard.cs`.)
+
+### Doors broken by a client, dragged objects
+
+- **A door the client broke stayed whole for the client (only the host saw it broken).** The
+  client's hits went to the host, the host broke the door and sent the result back, and the
+  client found the door, but it never broke it. Vanilla `Door.getHit` takes the whole hit off
+  the door's health, so a broken door sits below zero (the playtest door went 4, then -4, -12,
+  -20). The apply used `MainHealth >= 0` to mean "this event carries door health" (-1 was the
+  "no health" value), so every break, with its negative health, was skipped. The client
+  logged `[Barr] door destroyed` (the board branch, nothing to do on an unbarricaded door)
+  and kept a whole door that it then tried to open, which the host refused (`not opening
+  barricaded/destroyed 'Doorway'`). The desync check had flagged the same fault on another
+  door (`Doorway` on the host, `Wooden door hp=4` on the client). It happened the same way
+  when the host broke a door (the client kept it whole) and on any other client. "No health"
+  is now its own value (`BarricadeEventMessage.NoMainHealth`). The door's real health always
+  travels, so health at or below zero breaks the door on every peer, and the peer keeps the
+  host's health value. A late joiner's snapshot sends a broken door's real health too, never
+  above zero. Board-only removals carry no health.
+- The client that broke the door also heard and saw it break. Its own hit muted the whole
+  apply, break effects included, though the client had only played the hit effects. Only the
+  hit effects it already played are muted now. A swing the client's synced health says will
+  break the board or the door plays no hit effects, as in vanilla; the break effects come with
+  the host's result.
+- (`BarricadeNetHandlers.cs`, `BarricadeNetHandlers.Bulk.cs`, `BarricadeSyncPatches.cs`,
+  `BarricadeMessages.cs`, `ClientWorldMeleePatches.cs`.)
+- **Another player's dragged object moved in steps and turned on its own.** An observer
+  teleported its copy to each `DragSync` sample when the packet arrived (about 30 Hz, so it
+  stepped and stuttered with network jitter). The host's copy also stayed dynamic, so between
+  packets collisions with the dragger's stand-in or the host player turned and pushed it, and
+  the next packet snapped it back (the playtest stool was found up to 1.8 units off each
+  packet). The dragger's machine now owns the body while it drags, as vanilla hinges it to
+  that player. Every observer, the host included, holds its copy kinematic and plays the
+  dragger's poses back on a timeline a short delay behind the dragger's clock, like the
+  creature timeline: a per-sender clock estimate, a delay of the measured send interval plus
+  the arrival jitter, position interpolated between samples, rotation slerped from the
+  quaternion (no Euler interpolation, so no wrap or gimbal flips at the lying x=90 pose). The
+  copy is posed every frame through its transform and its shadow is moved with it (vanilla
+  places the shadow earlier in the frame). Before, it was posed through `Rigidbody.position`,
+  which shows only at the next physics step. The sender stamps each sample with the moment the
+  pose shows (its last physics step for a non-interpolated body). The release now sends the
+  pose the drag ended on, so observers play their copy out to where it really stopped, then
+  make it physical again. Until then PhysicsState leaves it alone. Out-of-order samples (a late
+  unreliable one after a reliable quiet tick) are dropped by their time. The dragger's own
+  body is still never moved by echoes: its own DragSync is ignored, and PhysicsState skips
+  claimed bodies. If the dragger goes silent for 2 s, or the host releases a disconnected
+  dragger's claim, the copy is released at once. New `[DragTimeline]` start, stats (every 2 s:
+  interval, delay, jitter margin, yaw) and end log lines; `[DragSync] … ->` now logs yaw and
+  the sample time.
+- Wire (protocol 33): `DragSync` gains `SendTime` and `HasPose`.
+- (`RemoteDragTimeline.cs` (new), `PlayerInteractNetHandlers.cs`,
+  `PlayerInteractNetHandlers.DragSpawn.cs`, `LanNetworkManager.Tick.cs`,
+  `LanNetworkManager.Tick.Drag.cs`, `DragClaimPatch.cs`, `WorldMessages.cs`.)
+
+### Other players' and creatures' sounds
+
+- **When another player jumped through a window, others heard the vault but not the landing.**
+  The `JumpWindow` torso clip plays `player_jump` (a frame sound, sent like any player sound)
+  and then two `FootHitGroundRun` steps, which vanilla plays through `Player.checkFrameTrigger`
+  → `playFootHitGround`. Player steps are never sent, because a stand-in plays its legs' steps
+  itself. Through a jump (and a dodge, whose clip has a step too) the stand-in's legs are hidden
+  and stopped, so those torso steps were lost both ways. Steps from the owner's torso clip now
+  go out as PlayerAudio with the owner's own ground sound and volume, and play on the stand-in
+  with the same falloff as its leg steps. Leg steps stay local as before. The host relays them
+  to other clients. A client's torso step now also alerts the host's creatures (150, or 350 for
+  a running step, as vanilla) through `PlayerSound`, as its leg steps already did.
+- **When the host opened his inventory, the client heard it as if he had opened his own, dry,
+  with no muffle or echo.** The bag sound is `get_item_01_player`, a frame sound of the
+  `InventoryGet` clip played on the player's body. A peer played every `get_` / `hide_` id
+  (and the held item's get / hide sounds) 2D at the listener, and stripped the reverb and
+  low-pass filters. Now every sound of a player plays on that player's stand-in, 3D, parented
+  to it, so the game adds its indoor reverb (the stand-in's ground is refreshed first) and the
+  wall muffle toward the listener. UI sounds (`UI_*`: slot grab / place / select, menus) stay
+  local as before. The mod also played an extra `open_drawer` on the player's own body when
+  he opened his personal bag in a live session. Vanilla plays none, so it is gone.
+- **With 3+ players, a client being hit was not heard by the other clients, and some hits were
+  heard twice.** Vanilla `getHit` decides the hit sound: `player_melee_hit`, `door_hit_metal`
+  when the hit is blocked, or `shadow_hit` from `getHitByShadow`. The victim's machine sends it
+  as PlayerAudio, and the host relays it to the other clients. A hit dealt by the host or by a
+  friendly-fire attacker reaches the victim as `DamagePlayer`, and its `getHit` runs inside the
+  network apply scope, which blocks all sends. So that hit was never sent. Instead the host
+  played a guessed `player_melee_hit` on the stand-in that only the host heard, always the
+  unblocked one. The attacking client played its own guess for friendly fire. And for a
+  creature hit the client had already sent, the host played the sound a second time on
+  `EnemyHitConfirm`. Now the local player's own `getHit` / `getHitByShadow`
+  (`LocalPlayerHitScope`) always sends its hit sound, even inside the apply scope. The three
+  guesses are gone. Every hit is heard once by every other peer, the attacker included, on
+  the victim's stand-in, and blocked hits sound blocked. The victim still hears its own hit
+  locally as in vanilla. Checked for each case: a creature hitting the host, a creature
+  hitting a client (its re-created attack), host melee or gun friendly fire on a client,
+  client friendly fire on the host or on another client, and the host's shadow sensors on a
+  client. Peers play hit sounds sent over PlayerAudio with the game's own range for the id
+  instead of an 80-unit cap. Another player's gunshot, already on the stand-in, now refreshes
+  the stand-in's ground first, so it gets the indoor reverb.
+- **A dog that chased the client and walked away kept barking for the client.** The logs show
+  the barks were the dog's vanilla daytime idle call: `CharacterSounds.idle` is `dog_bark`,
+  played every 15-30 s whatever the dog is doing (`Character.waitToPlayIdleSound`). The loud
+  NPC prefab carries it 1500 units. The client heard it at 880-980 units while the dog walked
+  off. The host, about 2000 units away, heard none (its `[AudioCull] dog_bark d≈2000` lines
+  repeat every 15-30 s to the end of the session). The loop path was checked against the
+  decompile. Only `CharacterSounds` touches the loop object, and every vanilla path that
+  starts, swaps or ends it goes through `playIdleLoop` or `destroySounds`, so the intent the
+  host sends follows them: chasing → `dog_defensive`, defensive → `dog_aggressive_loop`, idle
+  or walking (end of defensive, back to the waypoint, re-enable) → the dog's empty idle loop,
+  which stops it, plus death / removal and underwater. On the client, slot 0 stops the live
+  loop with vanilla's fade at the next snapshot. The client used to log only loop starts. It
+  now also logs stops (`[EntityLoop] Dog → none (stopped dog_aggressive_loop)`), and the host
+  logs each intent change with the creature's behaviour (`[EntityLoop] host Dog intent
+  dog_aggressive_loop → none behaviour=walking`). The next playtest shows whether any loop
+  outlives its creature's AI.
+- The dream forward's equip filter is renamed `IsEquipGetHideSound`. It is no longer used for
+  playback.
+- (`PlayerSoundSyncPatches.cs` (`PlayerTorsoFrameTriggerScope` and `LocalPlayerHitScope` new,
+  `PlayerOpenInventorySoundPatch` removed), `ClientSoundPropagationPatches.cs`
+  (`ClientTorsoStepAlertPatch` new), `WorldFxNetHandlers.cs`, `WorldProxyEffectNetHandlers.cs`,
+  `WorldSendNetHandlers.cs` and `LanNetworkManager.PublicApi.cs` (`SendPlayerAudio` `ownOutcome`),
+  `LocalAudioService.cs`, `EntityLoopSync.cs`, `PlayerFXNetHandlers.cs`, `HostCombatPatches.cs`,
+  `ClientCombatPatches.cs`, `EnemyAttackNetHandlers.cs`, `DreamAudioPatches.cs`.)
+
+### Molotovs, gas bombs and flares
+
+- **A client's molotov mostly had no blast for the client: no explosion, no boom, only fire
+  slowly appearing.** Every peer flies its own copy of a throw. When the host's copy blew up,
+  the host sent a remove for it ("left the world"), meant for knives stuck in a creature. That
+  remove reached the client's copy while it was still unexploded at the landing spot and
+  deleted it (`[ObjectDestroy] destroyed "Molotov" … d=1.0`), so it never exploded. The host
+  did not send its own blast for a client's throw, because it expected the thrower's copy to
+  send one. When the client's copy did land first, it sent its blast. The host then set off its
+  own copy mid-air at that spot inside a network apply, so the molotov's six gasoline puddles
+  were never sent and the client got only the spread ignites (as new pour trails). An item that
+  destroys itself on landing (molotov, gas bomb, `destroyOnLand`) now sends no remove: each copy
+  removes itself as it lands. A player's throw now sends no blast at all. Each copy blows up
+  where it lands, with vanilla's look and sound. The host's copy alone deals damage and lays the
+  puddles (sent as before). Knives stuck in a creature and items lost in water still send the
+  remove. (`ThrownItemCombatDespawnSyncPatch.cs`, `PlayerActionSyncPatches.Combat.cs`,
+  `WorldPhysicsSyncService.Thrown.cs`.)
+- **Molotov sound doubled (for any thrower).** A peer's copy blew up with its sound and
+  explosion prefab. Then the thrower's blast message arrived, found no copy (it was already
+  gone) and played the sound and a second `explosion_molotov` again
+  (`[ExplosionVisual] no local Explodes … fallback prefab`). On the host a client's blast also
+  replayed the boom after the host's copy had exploded. Fixed by the item above: now a peer gets
+  no blast message for a player's throw.
+- **Fire on a lit pour trail or gas-bomb trail had no flames on clients, with a
+  `NullReferenceException` in `Liquid.<startBurning>b__11_0`.** The mod stops a client from
+  spawning gasoline trails on its own, and it matched trails by "GasolineTrail" anywhere in
+  the name. That also matched the trail's fire, `fire_flames_GasolineTrail` (its
+  `Liquid.burnPrefab`). Vanilla spawns that fire up to 0.2 s after lighting, outside the
+  network apply, so on a client it was refused: no flames, and vanilla read `.transform` off
+  the null. On the host every trail fire was sent out as one more trail
+  (`[GasTrailSync] host flushed 1 trails` after each lit trail). Only the trail prefab itself is
+  matched now. (`GasolineSyncPatches.cs`.)
+- **Fire dying early, or fire the host never had.** Several causes:
+  - The mod looked for puddles with a 3D sphere at the reported spot. A puddle is spawned at
+    blast height and then drops about 36 units to ground-item height on its own
+    (`GasolineTrail.init` and the item's height snap). A lookup at the spawn height missed it.
+    The host, adopting a client's ignite at a puddle it had, then laid a new trail there and lit
+    that (`[GasIgnite] spawned+ignited trail` followed by `host adopted client ignite`). Lookups
+    now search a vertical column, like vanilla's own liquid raycast, and match on the ground plane.
+  - The host never invents a puddle for a client's ignite now; it only lights one it has.
+  - Clients ran parts of the fire spread themselves and sent the results to the host. These were
+    a new puddle catching from a lit neighbour (`Liquid.checkIfWantToBurnMe`) and a muted throw
+    copy lighting the gasoline it landed in. The host's own puddles and copy do both and send
+    every ignite. A client does neither now. A client still sends its own torch, melee or pour.
+  - A client's puddle sent its own `LiquidStopBurning` when vanilla's 20 s timer ran out. Its
+    copy could have been lit before the host's, so this put the host's fire, and everyone
+    else's, out early. Only the host sends that now; a client's is not applied or relayed.
+  - A stop put out the first puddle in a 1.5 sphere, lit or not. Vanilla `stopBurning` also
+    deletes the puddle, so a neighbour still burning on the host went out, or an unlit one
+    vanished. It now takes the nearest lit puddle.
+  - (`WorldPhysicsSyncService.CombatFX.cs`, `CombatFxGasBurnNetHandlers.cs`,
+    `GasolineSyncPatches.cs`, `FireSyncPatches.cs`.)
+- **A late joiner saw a molotov's puddles as pour trails.** The joiner's gas state sent every
+  puddle as `GasTrailSpawn`. A molotov's `Gasoline` puddles now go as themselves
+  (`ExplosionSpawnObject`, as they did live), then their ignites. A puddle of the same prefab
+  already lying on the spot (a world-placed one) is not spawned twice.
+  (`CombatFxGasBurnNetHandlers.cs`, `CombatFxImpactNetHandlers.cs`.)
+- **A thrown flare vanished for its thrower when it burned out, while the host still showed
+  its body fading.** A flare has two vanilla clocks. One is `Flare` (glow and fade), which
+  copies already start at the thrower's age (`FlareClock`). The other is
+  `ThrownItem.init → waitToStopBurning`, which after `burnTime` removes the flare's lights and
+  the flare (or swaps its sprite). On the thrower that clock starts when the flare is lit in the
+  hand; on a copy it started at the copy's spawn, the hand time later (3.2 s in the playtest).
+  So the copy showed the flare through the fade and after it. A copy now starts that clock the
+  same age in. A late joiner's flare already on the ground never started that clock (vanilla
+  `init` lands an on-ground item instead), so it would have stayed forever; it now starts it.
+  It also no longer replays the landing (collide sound, AI alert, lighting the gasoline under
+  it): it is marked like an item loaded from a save. (`WorldPhysicsSyncService.ThrownSpawn.cs`.)
+- **The fallback light the mod adds to a thrown flare with no `Light2D` was never drawn.** It
+  was made in code on the Default layer, and the light camera draws only the "Light" layer.
+  It now goes on the light layer, as with the stand-in lights in "Lantern light and client view
+  distance". No other light in this area is made in code: blasts and fires use the game's
+  prefabs. (`WorldPhysicsSyncService.Thrown.cs`.)
+- **The bottle's flight sound missing for the client: not found.** The molotov and flare
+  prefabs' sound fields are not in the decompile, and the logs do not show which sound this is.
+  On a client's own throw, the remove that deleted its unexploded copy (first item) also cut any
+  sound attached to it. A new `[ThrowableFacts]` line, logged once per thrown item type,
+  records the prefab's flight loop, start sound, landing sound, blast sound and burn-out
+  fields, so the next playtest shows which sound it is.
+
 ### Creature movement and animation on the client
 
 - **Walking, running and idling creatures froze on the client after one step cycle until their
@@ -437,6 +673,18 @@ host's sends during its prologue ran alongside. Found and fixed:
   and switch off, so the dead entry broke every map open from then on (and left a destroyed
   object in the UI pool). The message is now switched off at once and retired the next frame
   through vanilla `WaitAndDie.onDeath`, which takes it off that list and returns it to the pool.
+- **The next playtest: the host still could not open the map; the hideout oven was left unlit
+  and lost its first talk.** Two faults in that retire step. It called `WaitAndDie.onDeath`
+  directly, but onDeath takes the message off its owner's list only through the
+  `CharacterMessage` that vanilla's `tryToDie` looks up first, so the entry stayed and a message
+  that is not pooled was destroyed under it: the same dead entry, the same broken map. And it
+  emptied the message's line list, which is the GameEvent's own list (vanilla hands it over:
+  `displayMessage(...).texts = texts`), so the event's next fire (the other player's turn of the
+  hideout lesson, `Hideout1_tutorial_01`) threw on `texts[0]` (host log) and skipped every step
+  after it. The unlit oven most likely comes from those skipped steps (not confirmed: the
+  event's steps live in scene data); the next playtest shows it. The step now lets go of the list (a new
+  empty one) and ends the message through `tryToDie`, vanilla's own end. A one-time report names
+  what `UI.hidePlayerUI` trips on if it ever throws again (`HidePlayerUiDiagnosticPatch`).
 - Host log wording: a peer leaving logged "disconnected mid-night" at any time of day; it now
   reads "disconnected — night deaths (...)".
 

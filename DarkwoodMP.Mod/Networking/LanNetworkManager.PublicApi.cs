@@ -174,8 +174,10 @@ namespace DWMPHorde.Networking
         public void SendExplosionTrigger(ExplosionTriggerMessage msg) =>
             WorldSendHandlers.SendExplosionTrigger(msg);
 
-        public void SendPlayerAudio(PlayerAudioMessage msg) =>
-            WorldSendHandlers.SendPlayerAudio(msg);
+        /// <param name="ownOutcome">The local player's own outcome of a peer's message (its hit
+        /// sound while DamagePlayer applies): sent even inside the apply scope.</param>
+        public void SendPlayerAudio(PlayerAudioMessage msg, bool ownOutcome = false) =>
+            WorldSendHandlers.SendPlayerAudio(msg, ownOutcome);
 
         public void SendGasTrailSpawn(GasTrailSpawnMessage msg) =>
             WorldSendHandlers.SendGasTrailSpawn(msg);

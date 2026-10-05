@@ -136,9 +136,8 @@ namespace DWMPHorde.Patches
                 ? __instance.attackerTransform.position
                 : proxy.transform.position;
 
-            // Play hit sound at proxy position
-            Vector3 proxyPos = proxy.transform.position;
-            AudioController.Play("player_melee_hit", proxyPos);
+            // No hit sound here: the victim's own getHit plays it (hit, blocked or dodged) and
+            // sends it, so the host and every other peer hear it once on the stand-in.
 
             // Find hit point on proxy
             Vector3 hitPoint = _collider.ClosestPoint(atkPos);

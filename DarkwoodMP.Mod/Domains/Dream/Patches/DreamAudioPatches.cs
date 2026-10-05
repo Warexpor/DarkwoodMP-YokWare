@@ -54,7 +54,7 @@ namespace DWMPHorde.Patches
                 return false;
             // Equip get/hide (Get_01 etc.) — PlayerAudio owns these; DreamAudio cannot resolve
             // many clip names and only produces "Could not resolve clip" noise.
-            if (LocalAudioService.IsPrefer2dNetworkOneShot(audioID))
+            if (LocalAudioService.IsEquipGetHideSound(audioID))
                 return false;
             if (audioID.IndexOf("aimReturn", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return false;

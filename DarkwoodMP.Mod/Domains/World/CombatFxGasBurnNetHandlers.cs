@@ -91,7 +91,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos);
+                Sync.WorldPhysicsSyncService.IgniteGasAtPos(pos, spawnIfMissing: false);
                 ModRuntime.LegacyInfo(
                     $"[GasIgnite] host adopted client ignite from p{playerId} at {pos}");
                 return;
@@ -186,8 +186,28 @@ namespace DWMPHorde.Networking
                 // Cap bulk so join flood stays reasonable (trails are dense when pouring).
                 if (trails >= 256) break;
 
-                var trailMsg = new GasTrailSpawnMessage { PosX = p.x, PosY = p.y, PosZ = p.z };
-                _net.SendBulkOrAll(NetMessageType.GasTrailSpawn, w => trailMsg.Serialize(w), targetPlayerId);
+                // A molotov's puddles ("Gasoline", its Explodes secondaries) go as themselves, the
+                // way they reached peers live (ExplosionSpawnObject): sent as GasTrailSpawn the
+                // joiner laid a pour trail there instead, another look and another fire.
+                string prefabName = DialogOutcomeCloseNetHandlers.StripCloneSuffix(liquid.gameObject.name);
+                if (!string.Equals(prefabName, "GasolineTrail", System.StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(prefabName)
+                    && Resources.Load("Prefabs/Items/" + prefabName) != null)
+                {
+                    Vector3 e = liquid.transform.eulerAngles;
+                    var objMsg = new ExplosionSpawnObjectMessage
+                    {
+                        PrefabName = prefabName,
+                        PosX = p.x, PosY = p.y, PosZ = p.z,
+                        RotX = e.x, RotY = e.y, RotZ = e.z
+                    };
+                    _net.SendBulkOrAll(NetMessageType.ExplosionSpawnObject, w => objMsg.Serialize(w), targetPlayerId);
+                }
+                else
+                {
+                    var trailMsg = new GasTrailSpawnMessage { PosX = p.x, PosY = p.y, PosZ = p.z };
+                    _net.SendBulkOrAll(NetMessageType.GasTrailSpawn, w => trailMsg.Serialize(w), targetPlayerId);
+                }
                 trails++;
 
                 if (liquid.burning)
@@ -205,23 +225,16 @@ namespace DWMPHorde.Networking
 
         internal void HandleLiquidStopBurning(LiquidStopBurningMessage msg)
         {
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            int hitN = Physics.OverlapSphereNonAlloc(pos, 1.5f, WorldQueryHelper.SharedOverlapBuf);
-            for (int i = 0; i < hitN; i++)
+            // The host's puddles burn on the host's clock and it alone sends their end
+            // (LiquidStopBurningSyncPatch); a stop from a client is neither applied nor relayed.
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
             {
-                var liq = WorldQueryHelper.SharedOverlapBuf[i].GetComponent<Liquid>();
-                if (liq != null)
-                {
-                    bool prevNet = TraverseHack.GetExplicitFlag();
-                    TraverseHack.SetExplicitFlag(true);
-                    try
-                    {
-                        Traverse.Create(liq).Method("stopBurning").GetValue();
-                    }
-                    finally { TraverseHack.SetExplicitFlag(prevNet); }
-                    break;
-                }
+                _net.SuppressRelay();
+                return;
             }
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            if (!Sync.WorldPhysicsSyncService.StopLiquidBurningAt(pos) && ModRuntime.VerboseLogging)
+                ModRuntime.LegacyInfo($"[LiquidStop] no lit puddle at {pos}");
         }
 
     }
