@@ -94,7 +94,7 @@ namespace DWMPHorde.Patches
                     Action = BarricadeAction.Destroyed,
                     Health = 0,
                     PlayerBarricade = false,
-                    MainHealth = -1,
+                    MainHealth = BarricadeEventMessage.NoMainHealth,
                     DamageAmount = -1
                 };
                 net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
@@ -122,7 +122,17 @@ namespace DWMPHorde.Patches
 
         internal static bool IsInsideGetHit(int instanceId) => _getHitDepth.ContainsKey(instanceId);
 
-        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = -1, int damageAmount = -1, Vector3? attackerPos = null)
+        /// <summary>
+        /// Door health as sent in a BarricadeEvent: a destroyed door is never above zero on the
+        /// wire (a scripted break can leave health positive), an intact one carries its health.
+        /// </summary>
+        internal static int DoorMainHealthForWire(Door door)
+        {
+            if (door == null) return BarricadeEventMessage.NoMainHealth;
+            return door.destroyed ? Mathf.Min(door.health, 0) : door.health;
+        }
+
+        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = BarricadeEventMessage.NoMainHealth, int damageAmount = -1, Vector3? attackerPos = null)
         {
             if (LanNetworkManager.ProcessingBarricadeEvent) { if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] suppressed (processing)"); return; }
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
@@ -307,6 +317,9 @@ namespace DWMPHorde.Patches
             if (__args.Length > 1 && __args[1] is Transform at && at != null)
                 attackerPos = at.position;
 
+            // Real door health, always carried: vanilla subtracts the whole hit, so a broken door
+            // sits at or below zero (e.g. -4) and the receiver breaks it on MainHealth <= 0.
+            int mainHealth = BarricadeSyncHelpers.DoorMainHealthForWire(__instance);
             if (wasBarricaded)
             {
                 // If health dropped to 0 (now not barricaded), it was destroyed
@@ -315,15 +328,14 @@ namespace DWMPHorde.Patches
                     __instance.transform.position, 0,
                     wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
                     __instance.barricadeHealth, playerBarricadeBefore,
-                    __instance.destroyed ? -1 : __instance.health,
-                    damage, attackerPos);
+                    mainHealth, damage, attackerPos);
             }
             else
             {
                 BarricadeSyncHelpers.SendBarricadeEvent(
                     __instance.transform.position, 0,
                     __instance.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                    0, false, __instance.health, damage, attackerPos);
+                    0, false, mainHealth, damage, attackerPos);
             }
         }
 

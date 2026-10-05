@@ -175,9 +175,13 @@ namespace DWMPHorde.Networking
                     }
                     else
                     {
-                        // Bulk/state snapshots use DamageAmount < 0 (no combat hit FX).
-                        // Client redirect registers a short suppress so striker does not double FX.
-                        bool playCombatFx = msg.DamageAmount >= 0
+                        // Bulk/state snapshots use DamageAmount < 0 (no combat FX at all).
+                        bool combatHit = msg.DamageAmount >= 0;
+                        // A striking client already played the hit FX of its own swing (melee
+                        // redirect) — only that hit FX is muted. The break FX (destroyBarricade /
+                        // destroyDoor) are never predicted, so the striker hears and sees its door
+                        // break like everyone else.
+                        bool playHitFx = combatHit
                             && !DWMPHorde.Patches.ClientWorldMeleeRedirectHelper.ShouldSuppressApplyFx(0, pos);
 
                         // Same sounds as vanilla Door.getHit on the sender: one destroy sound when
@@ -190,7 +194,7 @@ namespace DWMPHorde.Networking
                         {
                             if (door.barricaded)
                             {
-                                door.destroyBarricade(silent: !playCombatFx);
+                                door.destroyBarricade(silent: !combatHit);
                                 broke = true;
                             }
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door destroyed");
@@ -203,26 +207,35 @@ namespace DWMPHorde.Networking
                                 door.barricadeHealth = msg.Health;
                                 if (door.barricadeHealth <= 0)
                                 {
-                                    door.destroyBarricade(silent: !playCombatFx);
+                                    door.destroyBarricade(silent: !combatHit);
                                     broke = true;
                                 }
                             }
                             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door damaged hp={msg.Health}");
                         }
 
-                        // Apply main health changes + optional FX
-                        if (msg.MainHealth >= 0)
+                        // Main door health. A broken door's health is at or below zero (vanilla
+                        // subtracts the whole hit: 4 - 8 = -4), so "carried" is NoMainHealth, not
+                        // ">= 0" — the old gate dropped every break and the door stayed whole on
+                        // every peer but the host.
+                        if (msg.MainHealth != BarricadeEventMessage.NoMainHealth)
                         {
-                            if (msg.MainHealth <= 0 && !door.destroyed)
+                            if (msg.MainHealth <= 0)
                             {
-                                door.destroyDoor(silently: !playCombatFx);
-                                if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door main destroyed");
+                                // Vanilla Door.getHit calls destroyDoor on every hit that leaves
+                                // health <= 0, also on an already broken doorway; a snapshot only
+                                // breaks a door that is still whole here.
+                                bool wasDestroyed = door.destroyed;
+                                if (!wasDestroyed || combatHit)
+                                    door.destroyDoor(silently: !combatHit || broke);
+                                door.health = msg.MainHealth;
+                                if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] door main destroyed hp={msg.MainHealth} wasDestroyed={wasDestroyed}");
                             }
                             else
                             {
                                 int healthBefore = door.health;
                                 door.health = msg.MainHealth;
-                                if (playCombatFx && !broke && !door.destroyed && door.body != null)
+                                if (playHitFx && !broke && !door.destroyed && door.body != null)
                                 {
                                     bool undamaged = healthBefore == msg.MainHealth && barricadeBefore == door.barricadeHealth;
                                     if (door.type == Door.Type.metal && undamaged)

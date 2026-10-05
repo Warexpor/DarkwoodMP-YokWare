@@ -150,6 +150,7 @@ namespace DWMPHorde.Networking
                 PlayerFXHandlers?.ClearAllPendingAnimLibraries();
             _wasDragging = false;
             _lastDraggedItemName = null;
+            _lastDraggedItem = null;
             _dragScrapeActive = false;
             _dragScrapeQuietSince = -1f;
             PlayerInteractHandlers?.ClearDragSessionState();

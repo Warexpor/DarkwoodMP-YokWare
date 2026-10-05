@@ -318,6 +318,9 @@ namespace DWMPHorde.Networking
                     TraverseHack.SetExplicitFlag(true);
                     try
                     {
+                        // Parented to the stand-in for its indoor reverb and the wall muffle;
+                        // isInside is current only after checkGround.
+                        WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
                         var audioObj = AudioController.Play(itemDef.attackSound, shotPos, proxyT, 1f);
                         if (audioObj != null && audioObj.primaryAudioSource != null)
                         {

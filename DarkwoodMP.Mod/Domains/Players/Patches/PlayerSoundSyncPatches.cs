@@ -20,7 +20,11 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (!net.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
-            if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: fromPlayer)) return;
+            // A step from the player's torso clip (window-jump landing, dodge) goes out: the
+            // stand-in replays only its legs' steps, and its legs are hidden through those clips.
+            bool torsoStep = fromPlayer && PlayerTorsoFrameTriggerScope.Active
+                && LocalAudioService.IsPlayerStepSound(audioID);
+            if (!torsoStep && LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: fromPlayer)) return;
             // Never network menu / BGM tracks (5.3).
             if (!allowObjectLoop && AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!allowObjectLoop && LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
@@ -31,7 +35,9 @@ namespace DWMPHorde.Patches
             if (!allowObjectLoop && Dreams.Instance != null && Dreams.Instance.dreaming && !fromPlayer)
                 return;
 
-            if (requireRateLimit && !LocalAudioService.TryAllowForward(audioID))
+            // Torso steps come only from clip frames, a few per jump or dodge; the per-id limit
+            // would drop a jump's second landing step.
+            if (requireRateLimit && !torsoStep && !LocalAudioService.TryAllowForward(audioID))
                 return;
 
             net.SendPlayerAudio(new PlayerAudioMessage
@@ -267,25 +273,29 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Personal bag open SFX only. World containers already play open_drawer in
-    /// Item.openInventory. Playing here too doubled loot sound on the client.
-    /// (initiateOpenCloseInventory → Player.openInventory → this patch + Item.Play).
+    /// True while a frame event of the local player's torso clip runs. Vanilla routes the torso
+    /// and the legs animator through <see cref="AnimationTriggerListener"/> into
+    /// <c>Player.checkFrameTrigger</c>, and both play steps (FootHitGround / FootHitGroundRun).
+    /// A stand-in replays its legs' steps itself (RemotePlayerProxy.OnLegAnimationEvent), so leg
+    /// steps stay local; a torso step (the JumpWindow landing, Dodge, a stumble) has no legs to
+    /// come from on the stand-in, whose legs are hidden and stopped through those clips.
     /// </summary>
     [OptionalPatch]
-    [HarmonyPatch(typeof(Player), "openInventory")]
-    public static class PlayerOpenInventorySoundPatch
+    [HarmonyPatch(typeof(AnimationTriggerListener), nameof(AnimationTriggerListener.animationTriggerListener))]
+    public static class PlayerTorsoFrameTriggerScope
     {
-        [HarmonyPostfix]
-        private static void Postfix(Player __instance)
+        internal static bool Active; // process-scoped: call-scoped, unwound by the Finalizer
+
+        private static void Prefix(tk2dSpriteAnimator animator, out bool __state)
         {
-            // Vanilla plays nothing for the personal bag; the mod adds it only in a live session.
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
-            if (__instance == null) return;
-            // Container / corpse open sets openedItemInventory before openInventory().
-            if (__instance.openedItemInventory != null)
-                return;
-            AudioController.Play("open_drawer", __instance._transform);
+            __state = Active;
+            Player p = Player.Instance;
+            Active = p != null && animator != null && animator == p.torsoAnimator;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            Active = __state;
         }
     }
 
@@ -300,15 +310,23 @@ namespace DWMPHorde.Patches
         [HarmonyPrefix]
         private static void Prefix(string audioID)
         {
-            if (!PlayerAudioHelper.CanForward()) return;
+            // The local player's own hit sound goes out even while a peer's message is being
+            // applied: a hit the host or a friendly-fire attacker dealt arrives as DamagePlayer,
+            // and only the victim's getHit knows whether it landed, was blocked or dodged.
+            bool ownHit = LocalPlayerHitScope.Active && LocalAudioService.IsPlayerHitFeedbackSound(audioID);
             var net = ModRuntime.Network;
+            if (ownHit)
+            {
+                if (net == null || !net.IsConnected) return;
+            }
+            else if (!PlayerAudioHelper.CanForward()) return;
             if (LocalAudioService.IsPersonalOrUiSound(audioID)) return;
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!LocalAudioService.IsAllowlistedNoParentSound(audioID)) return;
             if (!LocalAudioService.TryAllowForward(audioID)) return;
 
-            // Always stamp player pos for distance cull on RX. Prefer2d one-shots still
-            // play 2D (no proxy parent / reverb); hits spatialize on the victim proxy.
+            // Always stamp player pos for the hear gate on RX; peers play it on this player's
+            // stand-in (3D, with its reverb and wall muffle).
             float px = float.NaN, py = float.NaN, pz = float.NaN;
             if (Player.Instance != null)
             {
@@ -328,7 +346,46 @@ namespace DWMPHorde.Patches
                 PosY = py,
                 PosZ = pz,
                 StickToSender = true
+            }, ownOutcome: ownHit);
+        }
+    }
+
+    /// <summary>
+    /// True while the local player's own <c>getHit</c> / <c>getHitByShadow</c> runs. The hit
+    /// sound it plays (<c>player_melee_hit</c>, <c>door_hit_metal</c> when blocked,
+    /// <c>shadow_hit</c>) is the one every peer hears on this player's stand-in, wherever the
+    /// hit came from: a creature on this machine, the host's DamagePlayer, a friendly-fire
+    /// attacker. A player is only ever hit on its own machine, so no peer plays it twice.
+    /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch]
+    public static class LocalPlayerHitScope
+    {
+        private static int _depth; // process-scoped: call-scoped, unwound by the Finalizer
+
+        internal static bool Active => _depth > 0;
+
+        private static System.Collections.Generic.IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(Player), "getHit", new[]
+            {
+                typeof(float), typeof(Transform), typeof(bool), typeof(bool), typeof(bool),
+                typeof(bool), typeof(bool), typeof(bool), typeof(bool)
             });
+            yield return AccessTools.Method(typeof(Player), "getHitByShadow", new[] { typeof(float) });
+        }
+
+        private static void Prefix(Player __instance, out bool __state)
+        {
+            __state = __instance != null && __instance == Player.Instance;
+            if (__state)
+                _depth++;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state && _depth > 0)
+                _depth--;
         }
     }
 }

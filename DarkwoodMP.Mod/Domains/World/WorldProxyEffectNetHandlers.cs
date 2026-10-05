@@ -247,6 +247,36 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// The stand-in has no CharacterSounds tick: refresh its ground before a play parented to
+        /// it, so AudioController reads the current CharBase.isInside (indoor reverb).
+        /// </summary>
+        internal static void RefreshStandInGround(RemotePlayerProxy proxy)
+        {
+            CharBase cb = proxy != null ? proxy.CachedCharBase : null;
+            if (cb == null) return;
+            try { cb.checkGround(); }
+            catch { /* stand-in torn down mid-frame */ }
+        }
+
+        /// <summary>
+        /// A peer's sound on its stand-in: fully 3D, linear out to the range the game gives this
+        /// id (its prefab's when not overridden; the peer range for a 2D-authored id), the same
+        /// range the PlayerAudio hear gate uses.
+        /// </summary>
+        internal static void ApplyStandInRolloff(AudioObject audioObj, string soundId)
+        {
+            if (audioObj == null || audioObj.primaryAudioSource == null) return;
+            AudioSource src = audioObj.primaryAudioSource;
+            src.spatialBlend = 1f;
+            src.rolloffMode = AudioRolloffMode.Linear;
+            AudioItem item = !string.IsNullOrEmpty(soundId) ? AudioController.GetAudioItem(soundId) : null;
+            float itemMin = (item != null && item.overrideAudioSourceSettings)
+                ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
+            src.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
+            src.maxDistance = Mathf.Max(LocalAudioService.SpatialMaxDistance(soundId), 100f);
+        }
+
         /// <summary>Force 3D rolloff on player-authored (often 2D) clips played at a proxy.</summary>
         internal static void ForceSpatialProxyOneShot(AudioObject audioObj, string soundId)
         {

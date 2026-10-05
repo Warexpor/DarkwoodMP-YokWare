@@ -75,7 +75,7 @@ namespace DWMPHorde.Patches
         /// Must be used from Postfix (never Prefix-null): vanilla
         /// <c>GameEvent.fire</c> MoveNext does <c>displayMessage(...).texts = ...</c> with no
         /// null check — same class as HelpMessage / Hideout1_tutorial_02.
-        /// Hidden at once, then retired next frame through vanilla <c>WaitAndDie.onDeath</c>,
+        /// Hidden at once, then retired next frame through vanilla <c>WaitAndDie.tryToDie</c>,
         /// which takes it off its owner's <c>attachedGameObjects</c> and returns it to the
         /// pool. Destroying it instead left a dead entry in the player's list (every map open
         /// threw in <c>UI.hidePlayerUI</c> and the map never showed) and a dead pooled object.
@@ -102,10 +102,20 @@ namespace DWMPHorde.Patches
             yield return null;
             if (msg == null || msg.waitAndDie == null)
                 yield break;
-            msg.texts?.Clear();
+            // The caller handed over its own list (GameEvent: displayMessage(...).texts = texts):
+            // let go of it, never empty it. Clearing it emptied the event's lines, so its next
+            // fire (the other player's turn of a hideout lesson) threw on texts[0] and skipped
+            // the rest of its steps.
+            msg.texts = new System.Collections.Generic.List<string>();
             msg.waitAndDie.fadeTime = 0f;
             msg.waitAndDie.pauseBeforeDying = 0f;
-            msg.waitAndDie.onDeath();
+            // Vanilla's own end: tryToDie (lines used up) → onDeath. onDeath takes the message off
+            // its owner's attachedGameObjects only through the CharacterMessage that tryToDie looks
+            // up; called directly it left the entry there, and a message that is not pooled is
+            // destroyed, so the player's list kept a dead entry and the map (UI.hidePlayerUI)
+            // threw on every open (the host, in the next playtest).
+            msg.waitAndDie.waitingForDeath = true;
+            msg.waitAndDie.tryToDie();
         }
 
         internal static void Reset()

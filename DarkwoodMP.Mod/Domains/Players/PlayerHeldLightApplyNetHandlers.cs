@@ -326,6 +326,7 @@ namespace DWMPHorde.Networking
                 var created = flareLight.AddComponent<Light2D>();
                 if (created.LightMaterial == null)
                     created.LightMaterial = Resources.Load("RadialLight") as Material;
+                PlayerLightFxAmbientNetHandlers.PutOnLightLayer(flareLight);
             }
 
             flareLight.transform.SetParent(proxy.transform, false);

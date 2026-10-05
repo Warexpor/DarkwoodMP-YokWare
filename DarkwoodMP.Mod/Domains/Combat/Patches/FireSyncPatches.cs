@@ -138,7 +138,12 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Host→client sync of liquid/gasoline stopBurning (gas puddle fire extinguishing).</summary>
+    /// <summary>
+    /// Host→client sync of liquid/gasoline stopBurning (gas puddle fire extinguishing). Host only:
+    /// a client's puddle also runs vanilla's 20 s timer from when it was lit here, and a client
+    /// whose copy was lit before the host's sent its own stop up, which put the host's fire (and
+    /// every peer's) out early.
+    /// </summary>
     [HarmonyPatch(typeof(Liquid), "stopBurning")]
     public static class LiquidStopBurningSyncPatch
     {
@@ -153,7 +158,7 @@ namespace DWMPHorde.Patches
         {
             if (!__state) return;
             var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role == NetworkRole.Offline) return;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
             if (__instance == null || __instance.transform == null) return;
 

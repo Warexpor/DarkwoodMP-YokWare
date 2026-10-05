@@ -239,8 +239,8 @@ namespace DWMPHorde.Networking
             if ((hit - proxyPos).sqrMagnitude > 150f * 150f)
                 hit = proxyPos;
 
-            if (m.Kind == EnemyAttackMessage.KindMelee)
-                AudioController.Play("player_melee_hit", proxyPos);
+            // The hit sound is the victim's own getHit one, sent as PlayerAudio and relayed to the
+            // other clients; playing it here too doubled it on the host.
 
             CharBase cb = proxy.CachedCharBase;
             bool inWater = cb != null && cb.inWater;

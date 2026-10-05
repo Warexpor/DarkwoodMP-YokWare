@@ -84,7 +84,7 @@ namespace DWMPHorde.Patches
                 && Core.trueDistance(peerDragPos, __instance.transform.position) <= 60f)
                 return;
 
-            net.NotifyLocalDragEnded(objName);
+            net.NotifyLocalDragEnded(objName, __instance);
         }
     }
 }

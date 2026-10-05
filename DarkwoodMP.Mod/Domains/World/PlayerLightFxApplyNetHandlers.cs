@@ -141,6 +141,7 @@ namespace DWMPHorde.Networking
                         var lt = itemLight.AddComponent<Light2D>();
                         if (lt.LightMaterial == null)
                             lt.LightMaterial = Resources.Load("RadialLight") as Material;
+                        PlayerLightFxAmbientNetHandlers.PutOnLightLayer(itemLight);
                         lt.lightsPlayer = true;
                         lt.updateGraph = true;
                         itemLightState.ItemLight = itemLight;

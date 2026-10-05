@@ -284,8 +284,11 @@ namespace DWMPHorde.Sync
         /// <summary>
         /// Finds a Liquid component (gasoline puddle) near the given position and ignites it.
         /// Used when the remote peer reports a gasoline ignition event.
+        /// <paramref name="spawnIfMissing"/>: a client applying the host's ignite lays the trail
+        /// first when packet order hid it. The host adopting a client's ignite never does: the
+        /// host's world has every real puddle, so a miss there is not a puddle to invent.
         /// </summary>
-        public static void IgniteGasAtPos(Vector3 pos)
+        public static void IgniteGasAtPos(Vector3 pos, bool spawnIfMissing = true)
         {
             bool prev = TraverseHack.GetExplicitFlag();
             TraverseHack.SetExplicitFlag(true);
@@ -299,6 +302,11 @@ namespace DWMPHorde.Sync
                         liquid.startBurning();
                         ModRuntime.LegacyInfo($"[GasIgnite] ignited {liquid.name} at {pos}");
                     }
+                    return;
+                }
+                if (!spawnIfMissing)
+                {
+                    ModRuntime.LegacyInfo($"[GasIgnite] no flammable Liquid at {pos}, nothing lit");
                     return;
                 }
 
@@ -316,25 +324,76 @@ namespace DWMPHorde.Sync
             finally { TraverseHack.SetExplicitFlag(prev); }
         }
 
-        private static Liquid FindFlammableLiquidNear(Vector3 pos, float radius)
+        /// <summary>
+        /// Nearest flammable Liquid within <paramref name="radius"/> on the ground plane (XZ).
+        /// A puddle is spawned at the blast height and then drops to the ground-item height on
+        /// its own (GasolineTrail.init / the item's Y snap, ~36 units lower), so a 3D sphere at a
+        /// reported spawn/ignite position missed it: the host then laid a new trail there and lit
+        /// that. Searched along a vertical column like vanilla ThrownItem.onCollide's raycast.
+        /// <paramref name="burning"/>: null any, true only lit puddles, false only unlit ones.
+        /// <paramref name="name"/>: only puddles of that prefab (<see cref="NormalizeObjectName"/> form).
+        /// </summary>
+        private static Liquid FindFlammableLiquidNear(Vector3 pos, float radius, bool? burning = null, string name = null)
         {
-            int nearbyN = OverlapNear(pos, radius);
+            int nearbyN = Physics.OverlapCapsuleNonAlloc(
+                new Vector3(pos.x, LiquidColumnBottomY, pos.z),
+                new Vector3(pos.x, LiquidColumnTopY, pos.z),
+                radius, _overlap3D);
             Liquid best = null;
-            float bestD = radius + 1f;
+            float bestSq = radius * radius;
             for (int i = 0; i < nearbyN; i++)
             {
                 if (_overlap3D[i] == null) continue;
                 Liquid liquid = _overlap3D[i].GetComponent<Liquid>();
                 if (liquid == null) liquid = _overlap3D[i].GetComponentInParent<Liquid>();
                 if (liquid == null || !liquid.flammable) continue;
-                float d = Vector3.Distance(liquid.transform.position, pos);
-                if (d < bestD)
+                if (burning.HasValue && liquid.burning != burning.Value) continue;
+                if (name != null && NormalizeObjectName(liquid.gameObject.name) != name)
+                    continue;
+                float dSq = XzDistSq(liquid.transform.position, pos);
+                if (dSq <= bestSq)
                 {
-                    bestD = d;
+                    bestSq = dSq;
                     best = liquid;
                 }
             }
             return best;
         }
+
+        /// <summary>Vanilla ThrownItem.onCollide liquid raycast: from y=600 down 1000.</summary>
+        private const float LiquidColumnTopY = 600f;
+        private const float LiquidColumnBottomY = -400f;
+
+        /// <summary>Late join: a puddle of this prefab already lies here (world-placed or sent twice).</summary>
+        internal static bool HasFlammableLiquidAt(Vector3 pos, string prefabName, float radius)
+        {
+            return FindFlammableLiquidNear(pos, radius, null, NormalizeObjectName(prefabName)) != null;
+        }
+
+        /// <summary>
+        /// Host's puddle went out: put out this peer's copy, the nearest lit flammable puddle on the
+        /// ground plane. The first Liquid in a 1.5 sphere used to be taken, lit or not, so a dense
+        /// spill put out (or deleted, vanilla stopBurning destroys it) a neighbour that was still
+        /// burning on the host, and the fire died early here.
+        /// </summary>
+        internal static bool StopLiquidBurningAt(Vector3 pos)
+        {
+            Liquid liq = FindFlammableLiquidNear(pos, LiquidStopMatchRadius, burning: true);
+            if (liq == null)
+                return false;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                LiquidStopBurningMethod?.Invoke(liq, null);
+            }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
+            return true;
+        }
+
+        private const float LiquidStopMatchRadius = 1.5f;
+
+        private static readonly System.Reflection.MethodInfo LiquidStopBurningMethod =
+            AccessTools.Method(typeof(Liquid), "stopBurning");
     }
 }

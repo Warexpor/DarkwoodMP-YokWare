@@ -85,7 +85,19 @@ namespace DWMPHorde.Audio
 
         private static void SetIntent(CharacterSounds s, string loop)
         {
-            _intent.GetOrCreateValue(s).Loop = loop;
+            LoopIntent intent = _intent.GetOrCreateValue(s);
+            if (string.Equals(intent.Loop, loop, System.StringComparison.Ordinal))
+                return;
+            string was = intent.Loop;
+            intent.Loop = loop;
+            // Host side of the playtest trace: what the creature's AI asked for, and when.
+            if (Patches.EntitySoundSyncHelper.IsHost)
+            {
+                Character ch = s.character as Character;
+                Logging.ModLog.TraceRate(Logging.LogCat.Audio, "loopIntent:" + s.GetInstanceID(),
+                    () => "[EntityLoop] host " + s.name + " intent " + (was ?? "none") + " → " + (loop ?? "none")
+                        + (ch != null ? " behaviour=" + ch.behaviour : ""), 1f);
+            }
         }
 
         /// <summary>
@@ -151,13 +163,19 @@ namespace DWMPHorde.Audio
             TraverseHack.InsideCharacterSounds = true;
             try
             {
+                string stopped = live ? cur.audioID : null;
                 if (live)
                     cur.Stop(LoopFade);
                 else
                     Release(s, cur);
                 s.idleAudioObject = null;
                 if (want == null)
+                {
+                    // Own key: a stop right after a start must not fold into the start's line.
+                    Logging.ModLog.TraceRate(Logging.LogCat.Audio, "loopStop:" + c.GetInstanceID(),
+                        () => "[EntityLoop] " + c.name + " → none (stopped " + (stopped ?? "-") + ")", 1f);
                     return;
+                }
 
                 // Reverb on the start comes from CharBase.isInside, which only checkGround refreshes.
                 c.checkGround();

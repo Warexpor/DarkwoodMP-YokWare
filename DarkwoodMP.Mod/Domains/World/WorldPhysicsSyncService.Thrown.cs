@@ -20,6 +20,54 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// A player's throw (this player's own, or a peer's copy spawned at that peer's stand-in).
+        /// Every peer flies its own copy of it and vanilla <c>onCollide</c> lands it there: the
+        /// blast look and sound, the collide sound and the self-destroy happen on each copy.
+        /// Only the host's copy deals damage and lays the fire (its secondaries are sent).
+        /// </summary>
+        internal static bool IsPlayerThrowCopy(ThrownItem ti)
+        {
+            if (ti == null || ti.objectThatSpawnedMe == null)
+                return false;
+            Transform by = ti.objectThatSpawnedMe;
+            Player local = Player.Instance;
+            if (local != null && (by == local.transform || by == local._transform))
+                return true;
+            return by.GetComponentInParent<RemotePlayerProxy>() != null;
+        }
+
+        private static readonly HashSet<string> _throwableFactsLogged = new HashSet<string>(StringComparer.Ordinal); // process-scoped: log-once set
+
+        /// <summary>
+        /// Once per item type: the prefab's own sound and burn fields (flight loop,
+        /// landing sound, blast sound, burn-out clock), read off a live throw. The prefabs are not
+        /// in the decompile; this is what each throw's copies have to reproduce.
+        /// </summary>
+        internal static void LogThrowableFactsOnce(GameObject go, string itemType)
+        {
+            if (go == null || string.IsNullOrEmpty(itemType) || !_throwableFactsLogged.Add(itemType))
+                return;
+            ThrownItem ti = go.GetComponent<ThrownItem>();
+            ItemSounds snd = go.GetComponent<ItemSounds>();
+            Explodes ex = go.GetComponent<Explodes>();
+            ModLog.Event(LogCat.World, "[ThrowableFacts] " + itemType
+                + (ti != null
+                    ? " flaming=" + ti.flaming + " burnTime=" + ti.burnTime.ToString("F1")
+                      + " destroyOnBurnOut=" + ti.destroyOnBurnOut + " burntSprite=" + ti.switchSpriteOnBurnOut
+                      + " destroyOnLand=" + ti.destroyOnLand + " collideSound=" + ti.collideSound
+                    : " noThrownItem")
+                + (snd != null
+                    ? " movingSound=" + snd.movingSound + " loopSound=" + snd.loopSound
+                      + " startSound=" + snd.startSound + " playOnSpawn=" + snd.playOnSpawn
+                    : " noItemSounds")
+                + (ex != null
+                    ? " explodeSound=" + ex.explodeSound + " spawnObject=" + (ex.spawnObject != null ? ex.spawnObject.name : "-")
+                      + " destroyOnExplode=" + ex.destroyOnExplode
+                    : "")
+                + " audioChildren=" + go.GetComponentsInChildren<AudioObject>(true).Length);
+        }
+
+        /// <summary>
         /// Marks a thrown GO as FX-only (client own throw + peer visualOnly copies).
         /// Host combat copy from <see cref="SpawnThrownItem"/> is never muted.
         /// </summary>
@@ -119,6 +167,8 @@ namespace DWMPHorde.Sync
                 lightGo.transform.SetParent(go.transform, false);
                 lightGo.transform.localPosition = Vector3.zero;
                 primary = lightGo.AddComponent<Light2D>();
+                // A code-made light sits on Default, which the light camera never draws.
+                PlayerLightFxAmbientNetHandlers.PutOnLightLayer(lightGo);
                 if (primary.LightMaterial == null)
                     primary.LightMaterial = Resources.Load("RadialLight") as Material;
                 primary.LightRadius = 650f;

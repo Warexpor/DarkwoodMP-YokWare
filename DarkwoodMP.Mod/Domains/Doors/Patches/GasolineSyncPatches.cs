@@ -13,20 +13,30 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class GasSyncPolicy
     {
+        /// <summary>
+        /// The pour puddle prefab itself ("Items/GasolineTrail"), by exact name. A substring match
+        /// also took its fire, "Particles/fire_flames_GasolineTrail" (the trail's Liquid.burnPrefab):
+        /// on a client that fire was refused, Liquid.startBurning's delayed spawn read
+        /// <c>.transform</c> off null (NullReferenceException in Liquid.&lt;startBurning&gt;b__11_0)
+        /// and every lit trail burned with no flames; the host sent each fire as a new trail.
+        /// Do NOT treat Gas_flamable (Explodes secondary) as a trail either: that one still uses
+        /// ExplosionSpawnObject so the correct prefab lands on clients.
+        /// </summary>
         internal static bool IsGasolineTrailPrefab(Object prefab)
         {
-            if (prefab == null) return false;
-            string n = prefab.name ?? "";
-            // Pour puddles only. Do NOT treat Gas_flamable (Explodes secondary) as a trail —
-            // that still uses ExplosionSpawnObject so the correct prefab lands on clients.
-            return n.IndexOf("GasolineTrail", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("gasolineTrail", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            return prefab != null && IsTrailName(prefab.name);
         }
 
         internal static bool IsGasolineTrailPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return false;
-            return path.IndexOf("GasolineTrail", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            int slash = path.LastIndexOf('/');
+            return IsTrailName(slash >= 0 ? path.Substring(slash + 1) : path);
+        }
+
+        private static bool IsTrailName(string n)
+        {
+            return string.Equals(n, "GasolineTrail", System.StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Client must not invent trails/fire — only apply host network events.</summary>
@@ -218,6 +228,10 @@ namespace DWMPHorde.Patches
                 return true;
             if (__instance == null || __instance.burning)
                 return false;
+            // A muted throw copy landing in gasoline (vanilla onCollide's flaming raycast): the
+            // host's copy lands in the same puddle and lights it; its GasIgnite lights it here.
+            if (MutedThrowLandingScope.Active)
+                return false;
 
             Vector3 pos = __instance.transform.position;
             var net = ModRuntime.Network;
@@ -266,6 +280,50 @@ namespace DWMPHorde.Patches
             });
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[GasIgniteSync] host sent ignite at {pos}");
+        }
+    }
+
+    /// <summary>
+    /// Scope of a muted throw copy's landing (<see cref="ThrownItem.onCollide"/> on a copy marked by
+    /// <see cref="Sync.WorldPhysicsSyncService.MuteThrownCombat"/>). Its flaming raycast would
+    /// light the puddle under it here and ask the host to light it too, ahead of the host's own
+    /// copy: the host's landing owns that fire (<see cref="GasIgnitePatch"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(ThrownItem), "onCollide", typeof(Collider), typeof(Vector3))]
+    public static class MutedThrowLandingScope
+    {
+        private static int _depth; // process-scoped: call-scoped, unwound by its Finalizer
+
+        internal static bool Active => _depth > 0;
+
+        private static void Prefix(ThrownItem __instance, out bool __state)
+        {
+            __state = __instance != null && Sync.WorldPhysicsSyncService.IsMutedThrownFx(__instance.gameObject);
+            if (__state)
+                _depth++;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state && _depth > 0)
+                _depth--;
+        }
+    }
+
+    /// <summary>
+    /// Client: a puddle catching from a burning neighbour as it appears (vanilla
+    /// <c>Liquid.Start → checkIfWantToBurnMe</c>) is the host's fire spread. The host's puddle
+    /// does the same and sends that ignite; this copy running it too sent a second GasIgnite to
+    /// the host, ahead of the host's own, for a puddle the host then could not find, so it laid
+    /// a new trail there and lit that (fire the host's world never had).
+    /// </summary>
+    [HarmonyPatch(typeof(Liquid), "checkIfWantToBurnMe")]
+    public static class ClientLiquidCatchFromNeighbourSkipPatch
+    {
+        private static bool Prefix()
+        {
+            var net = ModRuntime.Network;
+            return net == null || !net.IsConnected || net.Role != NetworkRole.Client;
         }
     }
 }

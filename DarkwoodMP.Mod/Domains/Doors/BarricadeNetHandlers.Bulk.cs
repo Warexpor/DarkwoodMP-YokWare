@@ -39,7 +39,8 @@ namespace DWMPHorde.Networking
                         Action = BarricadeAction.Destroyed,
                         Health = 0,
                         PlayerBarricade = false,
-                        MainHealth = 0,
+                        // Real health (<= 0): the joiner's door matches the host's, digest included.
+                        MainHealth = BarricadeSyncHelpers.DoorMainHealthForWire(door),
                         DamageAmount = -1
                     };
                     _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
@@ -108,7 +109,7 @@ namespace DWMPHorde.Networking
                     Action = BarricadeAction.Built,
                     Health = window.barricadeHealth,
                     PlayerBarricade = window.playerBarricade,
-                    MainHealth = -1,
+                    MainHealth = BarricadeEventMessage.NoMainHealth,
                     DamageAmount = -1
                 };
                 _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
@@ -156,7 +157,7 @@ namespace DWMPHorde.Networking
                     Action = item.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
                     Health = item.destroyed ? 0 : item.health,
                     PlayerBarricade = false,
-                    MainHealth = -1,
+                    MainHealth = BarricadeEventMessage.NoMainHealth,
                     DamageAmount = -1
                 };
                 _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);

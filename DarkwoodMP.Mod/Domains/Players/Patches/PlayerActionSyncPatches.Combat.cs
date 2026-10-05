@@ -163,6 +163,9 @@ namespace DWMPHorde.Patches
             if (isFlare && capture.HeldItem != null && !Sync.PersonalPrologue.LocalInPrologue)
                 Sync.WorldPhysicsSyncService.NoteThrownFlare(capture.HeldItem);
 
+            // Before the mute below strips the copy's secondaries.
+            Sync.WorldPhysicsSyncService.LogThrowableFactsOnce(capture.HeldItem, capture.ItemType);
+
             // Client thrower: local projectile is FX-only. Host spawns the combat copy
             // via ThrowableSpawn so damage is not applied twice (local explode + host sim).
             if (ModRuntime.Network.Role == NetworkRole.Client && capture.HeldItem != null)
@@ -212,29 +215,18 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (Sync.WorldPhysicsSyncService._suppressBroadcast) return;
 
-            // Suppress explosion trigger for host-synced ThrownItems (SpawnThrownItem).
-            // The host's spawned ThrownItem explosion is a local side-effect; the
-            // authoritative explosion comes from the client's own ThrownItem via its
-            // ExplosionTriggerMessage. Without this suppression, the host's spawned
-            // ThrownItem sends a duplicate explosion trigger to the client, causing
-            // confusing double-FX at potentially different positions.
+            // A player's molotov / gas bomb: every peer flies its own copy and that copy blows up
+            // where it lands (look and sound there, like vanilla). The host's copy alone deals the
+            // damage and lays the fire, and its secondaries go out on their own. Sending this
+            // blast too played it twice on every peer (the copy's boom, then the message's boom
+            // and a second explosion prefab), and a thrower's copy that landed before the host's
+            // set the host's copy off mid-air, where its puddles were never sent.
             ThrownItem ti = __instance.GetComponent<ThrownItem>();
-            if (ti != null && ti.objectThatSpawnedMe != null)
+            if (Sync.WorldPhysicsSyncService.IsPlayerThrowCopy(ti))
             {
-                bool isProxySpawned = false;
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy != null && ti.objectThatSpawnedMe == proxy.transform)
-                    {
-                        isProxySpawned = true;
-                        break;
-                    }
-                }
-                if (isProxySpawned)
-                {
-                    ModRuntime.LegacyInfo($"[ExplosionSync] skip host-synced ThrownItem explosion at {__instance.transform.position}");
-                    return;
-                }
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo($"[ExplosionSync] player throw lands on every peer's copy, not sent: {__instance.name} at {__instance.transform.position}");
+                return;
             }
 
             bool flaming = false;

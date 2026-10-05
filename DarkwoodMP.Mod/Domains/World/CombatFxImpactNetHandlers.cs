@@ -190,6 +190,9 @@ namespace DWMPHorde.Networking
             return true;
         }
 
+        /// <summary>XZ distance under which an incoming puddle is one already lying here.</summary>
+        private const float SameLiquidRadius = 0.5f;
+
         internal void HandleExplosionSpawnObject(ExplosionSpawnObjectMessage msg)
         {
             if (string.IsNullOrEmpty(msg.PrefabName)) return;
@@ -235,6 +238,15 @@ namespace DWMPHorde.Networking
                         ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] found prefab at {path}");
                         break;
                     }
+                }
+                // A puddle already lying on this spot (a joiner's world-placed one, or one sent
+                // with the join's gas state twice): the same puddle, not a second one.
+                GameObject prefabGo = prefab as GameObject;
+                if (prefabGo != null && prefabGo.GetComponent<Liquid>() != null
+                    && Sync.WorldPhysicsSyncService.HasFlammableLiquidAt(pos, msg.PrefabName, SameLiquidRadius))
+                {
+                    ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip {msg.PrefabName} at {pos}: same puddle already here");
+                    return;
                 }
                 if (prefab != null)
                 {

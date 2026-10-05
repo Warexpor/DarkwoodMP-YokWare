@@ -1,3 +1,4 @@
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using HarmonyLib;
 using LiteNetLib;
@@ -37,6 +38,44 @@ namespace DWMPHorde.Patches
                 Gunshot = true
             };
             ModRuntime.Network?.Send(NetMessageType.PlayerSound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    /// <summary>
+    /// Client torso-clip step (window-jump landing, dodge): vanilla checkFrameTrigger alerts
+    /// creatures within 150 (350 running) of the player, as for any step. The host raises the
+    /// client's leg steps itself off the stand-in's legs (HandleProxyFootstep); a torso step has
+    /// no legs there to come from, so the client sends it like its gunshots.
+    /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(Player), nameof(Player.checkFrameTrigger))]
+    public static class ClientTorsoStepAlertPatch
+    {
+        private static void Postfix(Player __instance, string eventInfo)
+        {
+            if (!PlayerTorsoFrameTriggerScope.Active)
+                return;
+            bool run = eventInfo == "FootHitGroundRun";
+            if (!run && eventInfo != "FootHitGround")
+                return;
+            if (!NetGuard.Connected(out LanNetworkManager net) || net.Role != NetworkRole.Client)
+                return;
+            if (LanNetworkManager.IsApplyingRemoteState)
+                return;
+            // Vanilla: no alert while invisible, nor for a walking step while aiming.
+            if (__instance == null || __instance != Player.Instance || __instance.invisible)
+                return;
+            if (!run && __instance.aiming)
+                return;
+
+            var msg = new PlayerSoundMessage
+            {
+                Range = run ? 350f : 150f,
+                DangerousSound = false,
+                Volume = 1f,
+                Gunshot = false
+            };
+            net.Send(NetMessageType.PlayerSound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 

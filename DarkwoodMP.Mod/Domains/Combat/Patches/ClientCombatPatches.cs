@@ -33,8 +33,8 @@ namespace DWMPHorde.Patches
             if (!SessionSettings.FriendlyFireEnabled)
                 return true;
 
-            Vector3 proxyPos = proxy.transform.position;
-            AudioController.Play("player_melee_hit", proxyPos);
+            // No hit sound here: the victim's getHit sends its own (LocalPlayerHitScope), which
+            // reaches this attacker through the host. Playing a guess too doubled it here.
 
             Player local = Player.Instance;
             if (local != null && local.currentItem != null)
