@@ -18,11 +18,39 @@ namespace DWMPHorde.Patches
         internal static bool Connected()
             => ModRuntime.Network != null && ModRuntime.Network.IsConnected;
 
+        private const string AuraShakePrefix = "AuraShake:";
+
+        /// <summary>Host: a creature's damaging aura shakes and darkens this player's screen (vanilla damagesAroundMe).</summary>
+        internal static void SendAuraShake(LanNetworkManager net, int playerId, float magnitude, float noise)
+        {
+            var msg = new PlayerSpecialMessage
+            {
+                Method = AuraShakePrefix
+                    + magnitude.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + ":"
+                    + noise.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+            };
+            net.SendToPlayer(playerId, NetMessageType.PlayerSpecial, w => msg.Serialize(w), DeliveryMethod.Unreliable);
+        }
+
         /// <summary>Client: the host saw a story function happen to this player.</summary>
         internal static void ApplyPlayerSpecial(LanNetworkManager net, PlayerSpecialMessage msg)
         {
             if (net.Role == NetworkRole.Host || Player.Instance == null)
                 return;
+            if (msg.Method != null && msg.Method.StartsWith(AuraShakePrefix, System.StringComparison.Ordinal))
+            {
+                string[] parts = msg.Method.Substring(AuraShakePrefix.Length).Split(':');
+                if (parts.Length == 2
+                    && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float mag)
+                    && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float noise))
+                {
+                    if (Singleton<CamMain>.Instance != null)
+                        Singleton<CamMain>.Instance.shake(0.3f, mag);
+                    if (Singleton<UI>.Instance != null)
+                        Singleton<UI>.Instance.tweenNoise(noise);
+                }
+                return;
+            }
             switch (msg.Method)
             {
                 case CombatMusicSync.On:

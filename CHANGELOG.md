@@ -568,6 +568,8 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   only from someone else's fire.
 - **A client saw no enemy health bar for its own hits.** It now does, and the bar
   follows the host's health numbers.
+- **A creature's damaging aura didn't shake a client's screen.** The host now sends
+  the shake and the noise vanilla gives the player in range.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
