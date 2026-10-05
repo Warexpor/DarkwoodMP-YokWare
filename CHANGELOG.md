@@ -570,6 +570,8 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   follows the host's health numbers.
 - **A creature's damaging aura didn't shake a client's screen.** The host now sends
   the shake and the noise vanilla gives the player in range.
+- **A shooter hurt only the player nearest to it.** Vanilla hurts "the player"
+  whenever the shooter can see them. It now hurts every player it can see.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
