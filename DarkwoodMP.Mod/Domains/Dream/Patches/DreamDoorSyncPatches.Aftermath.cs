@@ -223,6 +223,9 @@ namespace DWMPHorde.Patches
             TryForceOpenDialogueDoor(anchor, broadcast: true);
         }
 
+        /// <summary>The bunker door's talk target (vanilla <c>NPC.name</c>).</summary>
+        private const string DialogueDoorNpcName = "door_underground";
+
         private static void TryForceOpenDialogueDoor(Vector3 eventPos, bool broadcast)
         {
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
@@ -237,8 +240,10 @@ namespace DWMPHorde.Patches
             {
                 Character c = chars[i];
                 if (c == null) continue;
-                string n = c.name ?? "";
-                if (n.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) < 0)
+                // door_underground is the NPC's own name field; the GameObject is
+                // Door_talkable_outside_bunker_underground_02.
+                NPC npc = c.GetComponent<NPC>();
+                if (npc == null || npc.name != DialogueDoorNpcName)
                     continue;
                 if (dreamRoot != null
                     && !c.transform.IsChildOf(dreamRoot)

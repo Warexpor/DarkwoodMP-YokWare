@@ -11,9 +11,15 @@ namespace DWMPHorde.Sync
     /// Every player plays the prologue on their own, as in single player.
     ///
     /// Vanilla runs it as two dreams (<c>dream_tutorial_00</c>, then <c>dream_tutorial_01</c>) on
-    /// pads of their own; the second one's end puts the player in the hideout at 05:00 with an
-    /// empty pack. It touches no world flag (checked against the pads' data), so it can run on one
-    /// machine without the others:
+    /// pads of their own; the second one's end puts the player in the hideout at 05:00 with the
+    /// chapter's starting pack, plus two exp_mushroom unless the chomper got them (outcomes default
+    /// and hit; chomper_attack and playerDeath give nothing). Two world flags are set on the pads:
+    /// dream_tutorial_01_noises (the second pad's own) and doctor_dogKilled (killing Dog_doctor on
+    /// the first pad; chapter 1's outside_doctor_house_01 reads it). A host's prologue is its own
+    /// world's, as in single player. A joiner's runs offline, so FlagSync sends nothing, and its
+    /// flags go back to the host's world's when it wakes (<see cref="RestoreWorldFlags"/>): its
+    /// own tutorial dog does not change the doctor's house for anyone, itself included. So it runs
+    /// on one machine without the others:
     /// <list type="bullet">
     /// <item>A joiner new to the world (chapter 1, the host did not skip the prologue, no character
     /// of this player on this machine for the campaign) loads the world with a new-game character
@@ -410,13 +416,17 @@ namespace DWMPHorde.Sync
         internal static bool PlaysPrologue => _freshCharacter && _offered && !_prologueDone;
 
         /// <summary>
-        /// A fresh character with no prologue (the host skipped it, or a later chapter): where the
-        /// vanilla prologue would leave it — in the hideout, empty-handed.
+        /// A fresh character that does not play the prologue now: in the hideout with the chapter's
+        /// starting pack, as vanilla world generation leaves a new character that skipped it (the
+        /// host skipped it, or a later chapter). A player who played it here before (its marker, no
+        /// character saved since) also gets the prologue's reward; which way that prologue ended was
+        /// never saved, so it is the outcome vanilla falls back to (<see cref="GrantPrologueReward"/>).
         /// </summary>
         internal static void ArriveFresh()
         {
             Player p = Player.Instance;
             WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            bool playedBefore = _offered && _prologueDone;
             _joinerStage = JoinerStage.Arrived;
             _freshCharacter = false;
             MarkKnown();
@@ -429,9 +439,14 @@ namespace DWMPHorde.Sync
                 if (home == null || home.playerSpawn == null)
                 {
                     ModLog.Warn(LogCat.Session, "[Prologue] no hideout spawn — fresh character stays where the save put it");
+                    if (playedBefore)
+                        GrantPrologueReward(p);
                     return;
                 }
                 p.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+                // After the move home, as vanilla endDreaming: what does not fit drops at the bed.
+                if (playedBefore)
+                    GrantPrologueReward(p);
                 OutsideLocations outs = Singleton<OutsideLocations>.Instance;
                 if (outs != null && outs.playerInOutsideLocation)
                     outs.returningOnTeleportedPlayer();
@@ -460,6 +475,48 @@ namespace DWMPHorde.Sync
             cp.initInventory();
             if (cp.playerLevel > 0 && p.levelRequirements != null && cp.playerLevel - 1 < p.levelRequirements.Count)
                 p.experience = p.levelRequirements[cp.playerLevel - 1];
+        }
+
+        /// <summary>The prologue dream whose end gives its reward.</summary>
+        private const string ProloguePresetWithReward = "dream_tutorial_01";
+
+        /// <summary>
+        /// Vanilla endDreaming of dream_tutorial_01 for its "default" outcome: that outcome's bag
+        /// items. "default" is what vanilla getOutcome falls back to, and it gives the same as "hit",
+        /// the prologue's story ending (outcome_hit_dream_tutorial_01).
+        /// </summary>
+        private static void GrantPrologueReward(Player p)
+        {
+            Dreams d = Dreams.Instance;
+            DreamPreset preset = null;
+            try { preset = d != null ? d.getPreset(ProloguePresetWithReward) : null; }
+            catch (KeyNotFoundException) { }
+            DreamPreset.Outcome outcome = null;
+            if (preset != null && preset.outcomes != null)
+            {
+                for (int i = 0; i < preset.outcomes.Count && outcome == null; i++)
+                    if (preset.outcomes[i] != null && preset.outcomes[i].name == "default")
+                        outcome = preset.outcomes[i];
+            }
+            if (outcome == null || outcome.effects == null)
+            {
+                ModLog.Warn(LogCat.Session, "[Prologue] no prologue outcome to reward the returning player from");
+                return;
+            }
+            int given = 0;
+            for (int i = 0; i < outcome.effects.Count; i++)
+            {
+                DreamPreset.Outcome.Effect e = outcome.effects[i];
+                if (e == null || e.type != DreamPreset.Outcome.Effect.Type.createInvItem)
+                    continue;
+                GameObject go = e.invItem as GameObject;
+                InvItem item = go != null ? go.GetComponent<InvItem>() : null;
+                if (item == null)
+                    continue;
+                p.Inventory.addItemTypeToPlayer(item.type, e.amount, dropIfNoRoom: true);
+                given += e.amount;
+            }
+            ModLog.Event(LogCat.Session, "[Prologue] played the prologue before — its reward given (" + given + " item(s))");
         }
 
         private static float _readySince = -1f; // process-scoped: joiner load settle clock, cleared in ClearJoiner
@@ -505,6 +562,7 @@ namespace DWMPHorde.Sync
             // pad. Clear them so the prologue spawns its own, as in a new game.
             ForgetProloguePads();
             SnapshotJournal();
+            SnapshotWorldFlags();
             // The prologue keeps the pack it began with (vanilla copies it at the dream's start and
             // gives it back at its end): a new character's, not the host's from the save.
             ApplyChapterStart(p, Singleton<WorldGenerator>.Instance);
@@ -614,6 +672,7 @@ namespace DWMPHorde.Sync
                     _joinerStage = JoinerStage.Arrived;
                     _freshCharacter = false;
                     MarkKnown();
+                    RestoreWorldFlags();
                     _journalToShare.Clear();
                     _journalToShare.AddRange(JournalGainedSinceSnapshot());
                     ModLog.Event(LogCat.Session, "[Prologue] prologue done — joining the session"
@@ -639,8 +698,66 @@ namespace DWMPHorde.Sync
             UI ui = Singleton<UI>.Instance;
             if (ui != null && ui.blackScreen != null)
                 ui.blackScreen.SetActive(false);
+            RestoreWorldFlags();
             // Where the prologue would have left it.
             ArriveFresh();
+        }
+
+        // ---------------------------------------------------- world flags after the prologue
+
+        /// <summary>
+        /// The joiner's world flags before its prologue: the host's world, from its save. Offline,
+        /// FlagSync sends nothing the prologue sets, and the reconnect's flag bulk only overwrites
+        /// flags the host's world has an entry for, so doctor_dogKilled from this player's own
+        /// tutorial dog stayed true here while the host's world never had it.
+        /// </summary>
+        private static readonly Dictionary<string, KeyValuePair<bool, int>> _flagsBefore = new Dictionary<string, KeyValuePair<bool, int>>(); // process-scoped: one prologue, filled in BeginJoiner
+        private static bool _flagsSnapshot; // process-scoped: one prologue, cleared in ClearJoiner
+
+        private static void SnapshotWorldFlags()
+        {
+            _flagsBefore.Clear();
+            Flags flags = Singleton<Flags>.Instance;
+            _flagsSnapshot = flags != null && flags.flagsDict != null;
+            if (!_flagsSnapshot)
+                return;
+            foreach (KeyValuePair<string, Flags.Flag> kv in flags.flagsDict)
+                if (kv.Value != null)
+                    _flagsBefore[kv.Key] = new KeyValuePair<bool, int>(kv.Value.isTrue, kv.Value.amount);
+        }
+
+        /// <summary>
+        /// The prologue is this player's own: every world flag it changed goes back to the host's
+        /// world's value (one it added, to unset). Where this player stands (player_in* and the
+        /// like, never synced) stays as it woke.
+        /// </summary>
+        private static void RestoreWorldFlags()
+        {
+            if (!_flagsSnapshot)
+                return;
+            _flagsSnapshot = false;
+            Flags flags = Singleton<Flags>.Instance;
+            int restored = 0;
+            if (flags != null && flags.flagsDict != null)
+            {
+                foreach (KeyValuePair<string, Flags.Flag> kv in flags.flagsDict)
+                {
+                    Flags.Flag f = kv.Value;
+                    if (f == null || FlagSyncBoolPatch.IsPerPlayerSpatialFlag(kv.Key))
+                        continue;
+                    KeyValuePair<bool, int> before;
+                    if (!_flagsBefore.TryGetValue(kv.Key, out before))
+                        before = new KeyValuePair<bool, int>(false, 0);
+                    if (f.isTrue == before.Key && f.amount == before.Value)
+                        continue;
+                    f.isTrue = before.Key;
+                    f.amount = before.Value;
+                    restored++;
+                }
+            }
+            _flagsBefore.Clear();
+            if (restored > 0)
+                ModLog.Event(LogCat.Session, "[Prologue] " + restored + " world flag(s) the prologue set put back to the host's world's");
         }
 
         // ---------------------------------------------------- journal after the prologue
@@ -708,6 +825,8 @@ namespace DWMPHorde.Sync
             // A join that never got back to its session: its pages are not another host's.
             _journalToShare.Clear();
             _journalBefore.Clear();
+            _flagsBefore.Clear();
+            _flagsSnapshot = false;
         }
     }
 }

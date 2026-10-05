@@ -17,6 +17,10 @@ namespace DWMPHorde.Sync
         {
             CancelPendingEntries();
             _chainPocketLoading = null;
+            // Before the host's wake-up can reach this peer (its GameEventsFired comes after this).
+            NoteOutcomeWorldEventLatches(
+                _currentDreamPreset.TryGetValue(playerId, out var notePreset) ? notePreset
+                    : Dreams.Instance != null && Dreams.Instance.preset != null ? Dreams.Instance.preset.name : null);
             if (!_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
             {
                 // Host-ordered story end may arrive while we only track via DreamSession /
@@ -24,6 +28,7 @@ namespace DWMPHorde.Sync
                 if (Dreams.Instance != null && Dreams.Instance.dreaming
                     && TryBeginHostOrderedStoryEnd(outcomeName))
                     return;
+                ClearOutcomeWorldReplay();
                 return;
             }
 
@@ -76,6 +81,7 @@ namespace DWMPHorde.Sync
                 var net = ModRuntime.Network;
                 if (net != null && net.IsConnected && Player.Instance != null)
                     net.TeleportRemoteProxyTo(Player.Instance._transform.position, 0f);
+                ReplayOutcomeWorldOnly(presetName, outcomeName);
             }
 
             FinalDreamsceneManager.OnDreamEnded();
@@ -112,6 +118,7 @@ namespace DWMPHorde.Sync
                 _savedGameTime = 0;
                 _frozenWorldCharacters.Clear();
                 _frozenByComponent.Clear();
+                ClearOutcomeWorldReplay();
                 // The story-end watchdog only stops via ForceLocalDreamCleanup, which runs above
                 // only while a dream is still flagged; a stale defer would gate the next session.
                 ClearStoryEndDefer();
@@ -297,14 +304,27 @@ namespace DWMPHorde.Sync
                 return;
             if (Player.Instance != null && c.gameObject == Player.Instance.gameObject)
                 return;
-            Location loc = c.GetComponentInParent<Location>();
-            string locName = loc != null ? loc.name : "";
-            if (locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
-                || locName.StartsWith("epilog", StringComparison.OrdinalIgnoreCase)
-                || IsDreamLocationName(locName))
-                return;
+            // The nearest Location can be a sublocation of the pad (epilog_part1a_dream keeps
+            // creatures under sub_epilog_blok_parter_01), so every enclosing one is checked.
+            Location loc = c.GetComponentInParent<Location>(true);
+            while (loc != null)
+            {
+                if (IsDreamPadLocation(loc.name))
+                    return;
+                Transform up = loc.transform.parent;
+                loc = up != null ? up.GetComponentInParent<Location>(true) : null;
+            }
             if (_frozenWorldCharacters.Add(c))
                 _frozenByComponent.Clear();
+        }
+
+        private static bool IsDreamPadLocation(string locName)
+        {
+            if (string.IsNullOrEmpty(locName))
+                return false;
+            return locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
+                || locName.StartsWith("epilog", StringComparison.OrdinalIgnoreCase)
+                || IsDreamLocationName(locName);
         }
 
         public static void FreezeWorld()
