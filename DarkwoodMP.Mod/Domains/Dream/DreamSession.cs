@@ -10,7 +10,15 @@ namespace DWMPHorde.Sync
     /// Shared dream session model (night parity):
     /// all connected players enter the initiated dream; death → spectate until session ends.
     /// Host alone decides when the session ends (story outcome or all dead).
-    /// Sole authority for completed-preset set + level dream flags snapshot on the wire.
+    /// Sole authority for the party's completed-preset set (persisted with the world, see
+    /// <see cref="EnsureSeeded"/>) and the level slot(s) the running dream is for.
+    ///
+    /// Level dreams are per player, as in vanilla: <c>Dreams.hadDreamAtLvl2/3/5/6/7</c> are each
+    /// player's own. The first player to reach a level brings that level's dream to everyone who
+    /// is there, and every player who was in it has that level's slot marked. Someone who was in
+    /// it does not get it again on their own level-up; someone who was not (a late joiner, a
+    /// player sitting it out dead) still gets a dream for that level, one the party has not
+    /// played (a played dream is never repeated; the bunker's slot rolls a random one instead).
     /// </summary>
     internal static class DreamSession
     {
@@ -43,14 +51,24 @@ namespace DWMPHorde.Sync
         public const byte LvlFlag6 = 1 << 3;
         public const byte LvlFlag7 = 1 << 4;
 
-        /// <summary>
-        /// Party-once union of hadDreamAtLvl* across DreamStarted/Ended/Bulk snapshots.
-        /// Survives Dreams.Instance churn so SkillsMenu.confirmSkills can reassert gates
-        /// for bunker and random lvl 3/5/6/7 (second peer must not re-fire).
-        /// </summary>
-        private static byte _unionLvlFlags;
-        /// <summary>Level-dream flags the host has confirmed (its snapshots), not this peer's own level-ups.</summary>
-        internal static byte HostLvlFlags { get; private set; } // reset-in: ResetIncludingCompletions
+        /// <summary>Level slot(s) the running dream is for (0 = not a level dream). On the wire.</summary>
+        internal static byte LevelBits { get; private set; } // reset-in: Reset
+        /// <summary>Host: level slot(s) the next dream to begin is for (its own level-up, or the request it takes).</summary>
+        internal static byte NextLevelBits; // reset-in: Reset
+        /// <summary>Client: level slot(s) its own confirmed level-up wants a dream for (sent with the request).</summary>
+        internal static byte PendingRequestBits; // reset-in: Reset
+
+        internal static byte TakePendingRequestBits()
+        {
+            byte b = PendingRequestBits;
+            PendingRequestBits = 0;
+            return b;
+        }
+
+        /// <summary>Profile the completed set was seeded from (-1 = not seeded).</summary>
+        private static int _seededProfile = -1; // reset-in: ResetIncludingCompletions
+
+        internal const string BunkerPreset = "dream_bunker_underground_01";
 
         /// <summary>How long a session may sit in Starting before the watchdog cleans it up.</summary>
         private const float StartingTimeoutSec = 60f;
@@ -114,11 +132,47 @@ namespace DWMPHorde.Sync
 
         public static bool IsPresetCompleted(string preset)
         {
+            EnsureSeeded();
             return !string.IsNullOrEmpty(preset) && _completedPresets.Contains(preset);
+        }
+
+        /// <summary>
+        /// The party's played dreams used to live only in memory: after the host restarted, a
+        /// played story dream (the bunker) could be offered again. The host's world keeps them
+        /// in its co-op sidecar (<see cref="CoopWorldCopyMeta.CompletedDreams"/>), read back once
+        /// per loaded profile. Worlds from before that: a host that had its level-2 dream counts
+        /// the bunker as played (its level-2 dream was the bunker, or the bunker was done).
+        /// </summary>
+        internal static void EnsureSeeded()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host)
+                return;
+            if (Core.currentProfile == null || Core.mainMenu)
+                return;
+            int pid = Core.currentProfile.id;
+            if (_seededProfile == pid)
+                return;
+            if (_seededProfile != -1)
+                _completedPresets.Clear(); // another world
+            _seededProfile = pid;
+            var meta = CoopWorldCopyMeta.TryLoad(pid);
+            if (meta?.CompletedDreams != null)
+            {
+                foreach (string n in meta.CompletedDreams)
+                {
+                    if (!string.IsNullOrEmpty(n))
+                        _completedPresets.Add(n);
+                }
+            }
+            if (Dreams.Instance != null && Dreams.Instance.hadDreamAtLvl2)
+                _completedPresets.Add(BunkerPreset);
+            ModLog.Event(LogCat.Dream, "Seeded played dreams from the world: " + _completedPresets.Count);
         }
 
         public static string[] GetCompletedPresets()
         {
+            EnsureSeeded();
             if (_completedPresets.Count == 0)
                 return Array.Empty<string>();
             var arr = new string[_completedPresets.Count];
@@ -163,6 +217,8 @@ namespace DWMPHorde.Sync
             SessionId = _nextSessionId++;
             PresetName = presetName;
             Current = State.Starting;
+            LevelBits = NextLevelBits;
+            NextLevelBits = 0;
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
@@ -350,14 +406,13 @@ namespace DWMPHorde.Sync
             // Reject / disconnect / prepare fail must not party-lock the preset.
             if (DreamOutcomePolicy.ShouldMarkCompletedOnEnd(outcomeName))
                 MarkCompleted(PresetName);
-            // Capture host/peer hadDreamAtLvl* set at confirmSkills before pad teardown.
-            NoteLocalLvlFlags();
             ModLog.Event(LogCat.Dream,
                 $"Ending session {SessionId} preset={PresetName} outcome={outcomeName}");
             FinalDreamsceneManager.OnDreamEnded();
             Current = State.Idle;
             PresetName = null;
             _pendingHostPreset = null;
+            LevelBits = 0;
         }
 
         /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
@@ -369,6 +424,7 @@ namespace DWMPHorde.Sync
             Current = State.Idle;
             PresetName = null;
             _pendingHostPreset = null;
+            LevelBits = 0;
         }
 
         public static void Reset()
@@ -377,14 +433,16 @@ namespace DWMPHorde.Sync
             PresetName = null;
             SessionId = 0;
             _pendingHostPreset = null;
+            LevelBits = 0;
+            NextLevelBits = 0;
+            PendingRequestBits = 0;
         }
 
         public static void ResetIncludingCompletions()
         {
             Reset();
             _completedPresets.Clear();
-            _unionLvlFlags = 0;
-            HostLvlFlags = 0;
+            _seededProfile = -1;
         }
 
         public static bool ShouldRejectNewConnections => IsActive && !IsFirstPlayTutorial;
@@ -410,16 +468,13 @@ namespace DWMPHorde.Sync
             if (d.hadDreamAtLvl5) b |= LvlFlag5;
             if (d.hadDreamAtLvl6) b |= LvlFlag6;
             if (d.hadDreamAtLvl7) b |= LvlFlag7;
-            // Outbound DreamStarted/Ended/Bulk paths fold live flags into the party union.
-            if (b != 0)
-                _unionLvlFlags |= b;
             return b;
         }
 
+        /// <summary>This player was in a dream for these level slots: mark them as had.</summary>
         public static void ApplyLvlFlags(byte flags)
         {
             if (flags == 0) return;
-            _unionLvlFlags |= flags;
             var d = Dreams.Instance;
             if (d == null) return;
             if ((flags & LvlFlag2) != 0) d.hadDreamAtLvl2 = true;
@@ -427,39 +482,35 @@ namespace DWMPHorde.Sync
             if ((flags & LvlFlag5) != 0) d.hadDreamAtLvl5 = true;
             if ((flags & LvlFlag6) != 0) d.hadDreamAtLvl6 = true;
             if ((flags & LvlFlag7) != 0) d.hadDreamAtLvl7 = true;
+            ModLog.Event(LogCat.Dream, "Level dream slots marked: " + flags);
         }
 
-        /// <summary>
-        /// Fold live Dreams.hadDreamAtLvl* into the party-once union (host confirm / End).
-        /// </summary>
-        public static void NoteLocalLvlFlags()
+        /// <summary>Exactly this player's own slots (rejoin restore over the host's world).</summary>
+        public static void SetLocalLvlFlags(byte flags)
         {
-            // ReadLocalLvlFlags already ORs into _unionLvlFlags.
-            ReadLocalLvlFlags();
+            var d = Dreams.Instance;
+            if (d == null) return;
+            d.hadDreamAtLvl2 = (flags & LvlFlag2) != 0;
+            d.hadDreamAtLvl3 = (flags & LvlFlag3) != 0;
+            d.hadDreamAtLvl5 = (flags & LvlFlag5) != 0;
+            d.hadDreamAtLvl6 = (flags & LvlFlag6) != 0;
+            d.hadDreamAtLvl7 = (flags & LvlFlag7) != 0;
         }
 
-        /// <summary>Party-once union including live Dreams flags (for wire snapshots).</summary>
-        public static byte ReadUnionLvlFlags()
+        /// <summary>Older backups without slots: every dream level already passed counts as had.</summary>
+        public static byte LvlFlagsPassedAt(int level)
         {
-            NoteLocalLvlFlags();
-            return _unionLvlFlags;
+            byte b = 0;
+            if (level >= 2) b |= LvlFlag2;
+            if (level >= 3) b |= LvlFlag3;
+            if (level >= 5) b |= LvlFlag5;
+            if (level >= 6) b |= LvlFlag6;
+            if (level >= 7) b |= LvlFlag7;
+            return b;
         }
 
-        /// <summary>
-        /// Re-apply party-once skill gates onto Dreams.Instance before confirmSkills.
-        /// Covers bunker completion lag and random lvl 3/5/6/7 after DreamSessionBulk.
-        /// </summary>
-        public static void ReassertLocalLvlFlags()
-        {
-            NoteLocalLvlFlags();
-            if (_unionLvlFlags != 0)
-                ApplyLvlFlags(_unionLvlFlags);
-            if (IsPresetCompleted("dream_bunker_underground_01") && Dreams.Instance != null)
-                Dreams.Instance.hadDreamAtLvl2 = true;
-        }
-
-        /// <summary>Merge host snapshot into local completed set + lvl flags (union, never clear remote-unknown).</summary>
-        public static void ApplySnapshot(string[] completed, byte lvlFlags)
+        /// <summary>Merge the host's played-dream set (union, never clear remote-unknown).</summary>
+        public static void ApplySnapshot(string[] completed)
         {
             if (completed != null)
             {
@@ -470,14 +521,8 @@ namespace DWMPHorde.Sync
                     MirrorPoolRemove(completed[i]);
                 }
             }
-            ApplyLvlFlags(lvlFlags);
-            HostLvlFlags |= lvlFlags;
-            // Party-once skill gate: bunker completion counts as hadDreamAtLvl2 even if flag lagged.
-            if (IsPresetCompleted("dream_bunker_underground_01") && Dreams.Instance != null)
-                Dreams.Instance.hadDreamAtLvl2 = true;
             ModLog.Event(LogCat.Dream,
-                "Applied session snapshot completed=" + _completedPresets.Count
-                + " lvlFlags=" + lvlFlags);
+                "Applied session snapshot completed=" + _completedPresets.Count);
         }
     }
 }

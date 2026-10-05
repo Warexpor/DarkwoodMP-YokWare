@@ -518,16 +518,24 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   prefab, and the outcome items (shovel edge, mutated cockroach, mushrooms, shiny rock,
   the flashlight) are ordinary rewards each dreamer gets, as in vanilla.
 
-- **Level-up dreams, checked end to end: one dream per level slot for the party.**
-  The first player to reach level 2, 3, 5, 6 or 7 brings that level's dream to
-  everyone. Later players reaching the same level just level up. A level the party has
-  not dreamed yet still brings its dream, and a finished dream is never rolled again.
-  One leak is fixed: vanilla marks a level as dreamed as soon as the skills are
-  confirmed, so a client whose dream was refused (another dream running) carried that
-  mark while it waited. Its dream-end snapshot handed the mark to the host, the party
-  counted the level as done, and the owed dream was dropped for good. The host now
-  takes a level only from the dream request it actually starts. A client that becomes
-  the host while owed a dream now starts it as the host.
+- **Level-up dreams are per player, and a played dream is never repeated.** Vanilla
+  gives each player one dream at levels 2, 3, 5, 6 and 7. The first player to reach one
+  of those levels now brings its dream to everyone who is there, and every player who
+  was in it has that level's dream counted as had (`hadDreamAtLvl*` are each player's
+  own). A player who was in it just levels up when they reach that level. A player who
+  was not (a late joiner, or someone sitting it out dead) still gets a dream for that
+  level, one the party has not played yet; none left means just the level-up. The
+  bunker (level 2) is played once per world: a player who missed it gets a random
+  dream for that slot instead. Before, the party shared one set of level slots, so a
+  late joiner skipped every level the party had dreamed. A client whose dream was
+  refused while another dream ran also leaked its slot to the host, and its owed dream
+  was dropped for good; a peer that becomes the host now still starts its owed dream.
+  The dream messages now carry the level slot(s) the dream is for (`LvlFlags`), not a
+  party union. Each player's slots are saved in their character backup
+  (`DreamLvlFlags`; older backups count every dream level already passed as had). The
+  played dreams are saved in the world's co-op sidecar (`CompletedDreams`), so a host
+  restart no longer forgets them (an older world counts the bunker as played when the
+  host had its level-2 dream).
 
 ### Story and unique content (chapter 1 and 2 NPCs and places)
 

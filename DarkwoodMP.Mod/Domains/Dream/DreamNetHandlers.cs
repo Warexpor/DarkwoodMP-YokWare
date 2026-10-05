@@ -17,15 +17,6 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
-        /// <summary>
-        /// Level-dream flags a message brings in. The host owns the party's set: it marks a level
-        /// when it takes that level's dream request. A client's own flags include levels whose
-        /// dream it is still owed (refused, waiting in DreamRetry, since vanilla marks the level
-        /// when the skills are confirmed); taking them from its dream-end snapshot told the party
-        /// it had that level's dream, and the owed dream was dropped for good.
-        /// </summary>
-        private byte PeerLvlFlags(byte flags) => _net.Role == NetworkRole.Host ? (byte)0 : flags;
-
         internal void HandleDreamStarted(DreamStartedMessage msg)
         {
             Vector3 locPos = new Vector3(msg.LocPosX, msg.LocPosY, msg.LocPosZ);
@@ -42,7 +33,7 @@ namespace DWMPHorde.Networking
             }
 
             // Merge host completed + lvl flags before entry.
-            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
             DreamRetry.HostDreamRunning = true;
 
             // Dead in the overworld: sit it out (the host leaves dead peers off the roster).
@@ -65,6 +56,13 @@ namespace DWMPHorde.Networking
             {
                 DreamSession.SetPendingHostPreset(msg.PresetName);
                 DreamSession.MirrorPoolRemove(msg.PresetName);
+            }
+
+            // This player is in the dream: the level slot(s) it is for are had (per player).
+            if (_net.Role == NetworkRole.Client && msg.LvlFlags != 0)
+            {
+                DreamSession.ApplyLvlFlags(msg.LvlFlags);
+                DreamRetry.OnJoinedLevelDream(msg.LvlFlags);
             }
 
             if (!DreamSession.IsActive)
@@ -145,7 +143,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
+                DreamSession.ApplySnapshot(msg.CompletedPresets);
 
                 if (peerState != null)
                     peerState.IsDeadInDream = false;
@@ -175,7 +173,7 @@ namespace DWMPHorde.Networking
             }
 
             DreamSyncManager.ClearStoryEndDefer();
-            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
             if (!DreamSyncManager.OutcomeChainsToNextDream(Dreams.Instance, msg.OutcomeName))
                 DreamRetry.HostDreamRunning = false;
 
@@ -253,10 +251,9 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                // Client may have leveled (hadDreamAtLvl*): union once the request is taken. A
-                // rejected request used to burn that level's dream for the whole party.
-                if (msg.LvlFlags != 0)
-                    DreamSession.ApplyLvlFlags(msg.LvlFlags);
+                // The level slot(s) the requester's level-up wants: the dream begun for it carries
+                // them, and everyone in it gets them marked.
+                DreamSession.NextLevelBits |= msg.LvlFlags;
                 ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
                 // Next frame, outside this handler's apply guard: the host's roll hooks
                 // (pool refill, TryBegin, early bulk to clients) stand down inside it, so the
@@ -281,6 +278,7 @@ namespace DWMPHorde.Networking
                         }
                         catch { /* ignore */ }
                         DreamSession.AbortStarting(ex.Message);
+                        DreamSession.NextLevelBits = 0;
                         RejectStartRequest(requesterId, "prepare_failed");
                     }
                 }, 1);
@@ -324,8 +322,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            DreamSession.NextLevelBits |= msg.LvlFlags;
             if (!DreamSession.TryBegin(msg.PresetName))
             {
+                DreamSession.NextLevelBits = 0;
                 ModRuntime.LegacyInfo($"[DreamSync] TryBegin failed for request: {msg.PresetName}");
                 RejectStartRequest(requesterId,
                     DreamSession.IsPresetCompleted(msg.PresetName)
@@ -333,9 +333,6 @@ namespace DWMPHorde.Networking
                         : "try_begin_failed");
                 return;
             }
-
-            if (msg.LvlFlags != 0)
-                DreamSession.ApplyLvlFlags(msg.LvlFlags);
 
             // Named prepare on host does not hit the random pool; mirror the client's roll consume.
             DreamSession.MirrorPoolRemove(msg.PresetName);
@@ -356,7 +353,7 @@ namespace DWMPHorde.Networking
 
         internal void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
-            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
             if (_net.Role == NetworkRole.Client)
                 DreamRetry.HostDreamRunning = msg.SessionActive;
             // Reconnected (host migration, soft reconnect) while on the dream pad: confirm or leave.

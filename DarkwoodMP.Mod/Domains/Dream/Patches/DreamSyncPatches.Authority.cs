@@ -144,22 +144,54 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Party-once skill dreams: before vanilla checks hadDreamAtLvl*, force local flags from
-    /// the shared session so the second peer confirming skills does not re-fire bunker/random.
+    /// Level-up dreams per player (see <see cref="DreamSession"/>). Vanilla marks the new
+    /// level's slot (<c>hadDreamAtLvl*</c>) and wants a dream when this player has not had that
+    /// level's dream; the slot is this player's own, marked also when it was in another player's
+    /// dream for that level. Here:
+    /// - The bunker (level 2) is a story dream played once per world. When the party has played
+    ///   it, a player who was not in it gets a random dream for the slot instead, if one is left.
+    /// - The slot this confirm marked travels with the dream request (client) or the dream the
+    ///   host begins (host), so everyone in that dream gets it marked.
     /// </summary>
     [HarmonyPatch(typeof(SkillsMenu), "confirmSkills")]
-    public static class SkillsMenuDreamPartyOncePatch
+    public static class SkillsMenuLevelDreamPatch
     {
-        private static void Prefix()
+        private static void Prefix(out byte __state)
         {
+            __state = DreamSession.ReadLocalLvlFlags();
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            if (Dreams.Instance == null) return;
+            Dreams dreams = Dreams.Instance;
+            Player p = Player.Instance;
+            if (dreams == null || p == null || dreams.disabled)
+                return;
+            if (p.currentLevel == 2 && !dreams.hadDreamAtLvl2
+                && DreamSession.IsPresetCompleted(DreamSession.BunkerPreset))
+            {
+                // Vanilla's level-2 step is skipped (slot already marked); the random check
+                // after it decides whether a dream is left for this player.
+                dreams.hadDreamAtLvl2 = true;
+                dreams.wantToDream = true;
+                if (dreams.startTransition != null)
+                    dreams.startTransition.dreamToTransitionTo = "";
+                ModRuntime.LegacyInfo("[DreamSync] Level 2: the party played the bunker — a random dream instead");
+            }
+        }
 
-            // Union from DreamStarted/Ended/Bulk + bunker completion → all hadDreamAtLvl*.
-            // Prior build only forced bunker→lvl2; random lvl 3/5/6/7 could re-fire when
-            // Dreams.Instance flags lagged the session snapshot.
-            DreamSession.ReassertLocalLvlFlags();
+        private static void Postfix(byte __state)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected)
+                return;
+            Dreams dreams = Dreams.Instance;
+            byte marked = (byte)(DreamSession.ReadLocalLvlFlags() & ~__state);
+            if (dreams == null || !dreams.wantToDream || marked == 0)
+                return;
+            if (net.Role == NetworkRole.Host)
+                DreamSession.NextLevelBits |= marked;
+            else
+                DreamSession.PendingRequestBits = marked;
+            ModRuntime.LegacyInfo($"[DreamSync] Level-up wants a dream for slot(s) {marked}");
         }
     }
 }
