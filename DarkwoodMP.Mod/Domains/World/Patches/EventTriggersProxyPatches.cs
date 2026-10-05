@@ -75,6 +75,28 @@ namespace DWMPHorde.Patches
             }
             return false;
         }
+
+        /// <summary>
+        /// Client running its own copy of an area trigger for another player's stand-in. The
+        /// event is that player's: its personal steps (a transport, a teleport, a dive) stay off
+        /// this machine's body, as the host's copy does under RunHostWorldFanoutForPlayer. The
+        /// event coroutine carries both into its delayed steps (EventCoroutineScope).
+        /// </summary>
+        internal static void RunClientCopyForPeer(int playerId, System.Action body)
+        {
+            bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
+            GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            GeFireActorContext.Push(playerId);
+            try
+            {
+                body();
+            }
+            finally
+            {
+                GeFireActorContext.Pop();
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
+            }
+        }
     }
 
     /// <summary>
@@ -253,7 +275,8 @@ namespace DWMPHorde.Patches
                 || PerPlayerTransportOneShots.HasReopenable(__instance, proxy.PlayerId))
             {
                 // Host: stamp proxy as GE actor and suppress host Player.Instance
-                // personal grants/teleports. Client: still fire multipleFire locally;
+                // personal grants/teleports. Client: still fire multipleFire locally, as that
+                // player's event (a repeatable border transport moved this client's own body);
                 // one-shots are blocked by GameEventsFiredPatch until host apply.
                 if (EventTriggersAuth.IsHost())
                 {
@@ -262,7 +285,8 @@ namespace DWMPHorde.Patches
                 }
                 else
                 {
-                    __instance.fireEventTrigger(EventTrigger.Type.area);
+                    EventTriggersAuth.RunClientCopyForPeer(proxy.PlayerId, () =>
+                        __instance.fireEventTrigger(EventTrigger.Type.area));
                 }
                 ModRuntime.LegacyInfo(
                     $"[EventTriggers] proxy enter area p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}"
@@ -329,7 +353,8 @@ namespace DWMPHorde.Patches
                 }
                 else
                 {
-                    et.fireEventTriggerExit(EventTrigger.Type.area);
+                    EventTriggersAuth.RunClientCopyForPeer(playerId, () =>
+                        et.fireEventTriggerExit(EventTrigger.Type.area));
                 }
                 ModRuntime.LegacyInfo(
                     $"[EventTriggers] proxy exit area p{playerId} on {et.name} exited={et.exited}");

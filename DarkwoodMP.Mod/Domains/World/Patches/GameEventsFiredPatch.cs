@@ -96,9 +96,12 @@ namespace DWMPHorde.Patches
             if (IsHostOnlyFx(eventName))
                 return;
 
-            // Dream scene can keep ticking one frame after session End — don't fan out.
-            if (!string.IsNullOrEmpty(eventName)
-                && eventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+            // Dream scene can keep ticking one frame after session End — don't fan out. Its
+            // events are the ones on the dream pad: a name with "dream_" in it is not one (the
+            // church entrance and priest after the church dream, the hideout and oneChance
+            // aftermaths, the cellar's dream start were all dropped for every peer).
+            bool onDreamPad = DWMPHorde.Sync.DreamSyncManager.IsOnDreamPad(__instance.transform);
+            if (onDreamPad
                 && !DWMPHorde.Sync.DreamSyncManager.IsDreamActive
                 && (Dreams.Instance == null || !Dreams.Instance.dreaming))
                 return;
@@ -115,7 +118,7 @@ namespace DWMPHorde.Patches
             // destroyOnFire schedules Destroy(gameObject) after event delays — gone
             // from late-join FindObjectsOfType scan; keep identity for GameEventsBulk.
             if (__instance.destroyOnFire && net.GameEventHandlers != null)
-                net.GameEventHandlers.RecordDestroyedOnFireGameEvent(firedMsg);
+                net.GameEventHandlers.RecordDestroyedOnFireGameEvent(firedMsg, onDreamPad);
             ModRuntime.LegacyInfo("[GameEventsSync] fired at " + key + " name=" + eventName
                 + (__instance.destroyOnFire ? " (destroyOnFire)" : ""));
 

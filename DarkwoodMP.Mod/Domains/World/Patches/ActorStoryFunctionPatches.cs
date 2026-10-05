@@ -153,6 +153,26 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// The Wolfman comes to the hideout the scene plays in (its first-enter and after-church-dream
+    /// events): vanilla spawns him in the location the local player stands in, so a peer's scene
+    /// put him in the host's (or a replaying client's) location instead.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.spawnWolfInCurrentHideout))]
+    public static class SpawnWolfInCurrentHideoutPatch
+    {
+        private static bool Prefix()
+        {
+            if (!ActorStoryFunctions.Connected())
+                return true;
+            Location loc = GeFireActorContext.ActorBigLocation();
+            if (loc == null)
+                return true;
+            loc.spawnWolf();
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Killing the night trader (vanilla Character death → Player.special_onKillNightTrader: a
     /// blackout transition, then lying down). The trader dies on the host, so the host's player
     /// blacked out whoever swung, and the player who killed it saw nothing. The killer gets it.
