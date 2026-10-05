@@ -19,6 +19,12 @@ namespace DWMPHorde.Patches
         internal static bool IsDeathEvent(string type)
             => type == DieFighting || type == DieDefeated;
 
+        /// <summary>
+        /// Where the local player died, taken when the death starts: vanilla fires the arena reset
+        /// a second later, after it has already carried the body home.
+        /// </summary>
+        internal static bool DeathInArena; // process-scoped: set at each local death, consumed by the reset event
+
         internal static bool LocalInArena()
         {
             Player p = Player.Instance;
@@ -124,7 +130,9 @@ namespace DWMPHorde.Patches
                 return true;
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
-            if (!WolfArena.LocalInArena())
+            bool inArena = WolfArena.DeathInArena;
+            WolfArena.DeathInArena = false;
+            if (!inArena)
                 return false;
             if (net.Role == NetworkRole.Host)
                 return true;
@@ -133,6 +141,13 @@ namespace DWMPHorde.Patches
             ModRuntime.LegacyInfo($"[WolfArena] died in the arena — asking the host to fire {type}");
             return false;
         }
+    }
+
+    [HarmonyPatch(typeof(Player), "onDeath")]
+    public static class WolfArenaDeathPlacePatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix() => WolfArena.DeathInArena = WolfArena.LocalInArena();
     }
 
     /// <summary>

@@ -126,7 +126,8 @@ namespace DWMPHorde.Networking
                 return;
             _lastEffectFlags = flags;
             _lastSkills = skills;
-            msg.HasSkills = true;
+            // The skill list rides only on a change and the keepalive, not on every health tick.
+            msg.HasSkills = skillsChanged || keepalive;
             msg.Skills = skills;
             _net.Broadcast(NetMessageType.PlayerEffectSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

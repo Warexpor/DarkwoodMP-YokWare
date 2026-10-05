@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
                 // The host keeps every pad a player is in running. A client activates only its
                 // own pad: activating a pad another peer is in ran it here with nothing to
                 // ever leave it again.
-                if (_net.Role == NetworkRole.Host)
+                if (_net.Role == NetworkRole.Host && playerId > 0)
                 {
                     // The pad's on-enter events are this peer's arrival: credit them to it, so a
                     // personal step (items, recipes, a teleport) lands on it and not the host.
@@ -89,7 +89,7 @@ namespace DWMPHorde.Networking
                         GeFireActorContext.Pop();
                     }
                 }
-                else if (IsLocalIn(ol, locName))
+                else if (_net.Role == NetworkRole.Host || IsLocalIn(ol, locName))
                 {
                     EnsureEntered(loc);
                 }
