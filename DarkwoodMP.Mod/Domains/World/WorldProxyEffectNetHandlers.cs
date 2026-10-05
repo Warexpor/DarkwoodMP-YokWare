@@ -25,11 +25,13 @@ namespace DWMPHorde.Networking
             if (!_net.RemoteProxies.TryGetValue(playerId, out var proxy)) return;
             Transform proxyT = proxy.transform;
             float range = running ? 350f : 150f;
-            // Vanilla Player footsteps alert nobody while invisible (chameleon / ninja).
+            // Vanilla Player footsteps alert nobody while invisible (chameleon / ninja), and a
+            // walking step alerts nobody while aiming (Player FootHitGround: !aiming && !invisible).
+            bool aiming = _net.RemotePlayers.TryGetValue(playerId, out RemotePlayerState st) && st.Aiming;
             CharBase cb = proxy.CachedCharBase;
-            if (cb == null || !cb.invisible)
+            if ((cb == null || !cb.invisible) && (running || !aiming))
                 Character.alertInArea(proxyT.position, range, false, 1f);
-            PlayProxyFootstepSound(proxy, running);
+            PlayProxyFootstepSound(proxy, running, aiming);
         }
 
         /// <summary>
@@ -186,7 +188,7 @@ namespace DWMPHorde.Networking
         /// for distant footsteps.
         /// Gate matches maxDistance / AudioSuppression (DefaultMaxSpatialDistance).
         /// </summary>
-        internal static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running)
+        internal static void PlayProxyFootstepSound(RemotePlayerProxy proxy, bool running, bool aiming)
         {
             Transform proxyT = proxy.transform;
             if (proxyT == null) return;
@@ -218,7 +220,8 @@ namespace DWMPHorde.Networking
                 default: soundID = cs.footstepGrass; break;
             }
 
-            float volumeModifier = running ? 1.3f : 0.7f;
+            // Vanilla Player: playFootHitGround(1.5) running, (0.5) aiming, () walking.
+            float volumeModifier = running ? 1.5f : (aiming ? 0.5f : 1f);
             float vol = cs.footstepVolume * volumeModifier;
 
             // Local playback of a remote peer's steps must not re-enter AudioController
@@ -238,7 +241,7 @@ namespace DWMPHorde.Networking
                 if (UnityEngine.Random.Range(0f, 1f) > 1f - cs.footHitGroundSoundChance)
                 {
                     string addSound = gt == GroundType.wood ? "footsteps_wood_add" : "footstep_branches_add";
-                    ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, 1f), addSound);
+                    ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, volumeModifier), addSound);
                 }
             }
             finally

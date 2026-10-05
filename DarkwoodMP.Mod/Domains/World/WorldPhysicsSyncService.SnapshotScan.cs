@@ -32,6 +32,8 @@ namespace DWMPHorde.Sync
             {
                 Door door = allDoors[i];
                 if (door == null) continue;
+                // Its live twin at the same key owns the state (flapping open/closed otherwise).
+                if (WorldQueryHelper.IsInactiveTwin(door, allDoors)) continue;
 
                 float distToHost = Vector3.Distance(door.transform.position, center);
                 bool nearAnyProxy = false;
