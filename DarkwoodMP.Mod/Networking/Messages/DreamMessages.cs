@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
             LocPosY = y,
             LocPosZ = z,
             SessionId = DreamSession.SessionId,
-            LvlFlags = DreamSession.ReadUnionLvlFlags(),
+            LvlFlags = DreamSession.LevelBits,
             CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
@@ -114,7 +114,7 @@ namespace DWMPHorde.Networking
             PresetName = preset ?? "",
             OutcomeName = outcome ?? "",
             SessionId = DreamSession.SessionId,
-            LvlFlags = DreamSession.ReadUnionLvlFlags(),
+            LvlFlags = DreamSession.LevelBits,
             CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
@@ -196,7 +196,7 @@ namespace DWMPHorde.Networking
         {
             var msg = new DreamSessionBulkMessage
             {
-                LvlFlags = DreamSession.ReadUnionLvlFlags(),
+                LvlFlags = DreamSession.LevelBits,
                 SessionActive = DreamSession.IsActive,
                 ActivePreset = DreamSession.PresetName ?? "",
                 CompletedPresets = DreamSession.GetCompletedPresets(),

@@ -40,6 +40,12 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public float Health, Stamina;
         public int Experience, CurrentLevel;
+        /// <summary>
+        /// This player's own level-dream slots (Dreams.hadDreamAtLvl2/3/5/6/7 as bits, see
+        /// DreamSession.LvlFlag*). The world the client loads carries the host's slots.
+        /// -1 = older backup: every dream level already passed counts as had.
+        /// </summary>
+        public int DreamLvlFlags = -1;
         public int HealthUpgrades, StaminaUpgrades, HotbarUpgrades, InventoryUpgrades;
         public int Lives;
         public float Saturation;

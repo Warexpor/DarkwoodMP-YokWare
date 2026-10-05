@@ -42,6 +42,12 @@ namespace DWMPHorde.Networking
         public string CampaignId;
         public long SavBytes;
         public long SavsBytes;
+        /// <summary>
+        /// Dreams the party has played in this world (party-once). Vanilla keeps only each
+        /// player's own level slots and the random pool; a played story dream (the bunker) had
+        /// no record that outlived the session. Merged on every save, read back by the host.
+        /// </summary>
+        public System.Collections.Generic.List<string> CompletedDreams;
 
         /// <summary>
         /// A world received from a host (join pipeline). Older builds also stamped IsCoopCopy on the
@@ -327,6 +333,20 @@ namespace DWMPHorde.Networking
                 string dir = ProfileDir(pid);
                 string sav = Path.Combine(dir, "sav.dat");
                 string savs = Path.Combine(dir, "savs.dat");
+
+                // Played dreams only grow (union): a client copy keeps the host's set too, so a
+                // copy promoted to host by migration still knows them.
+                string[] played = Sync.DreamSession.GetCompletedPresets();
+                if (played.Length > 0)
+                {
+                    if (meta.CompletedDreams == null)
+                        meta.CompletedDreams = new System.Collections.Generic.List<string>();
+                    foreach (string n in played)
+                    {
+                        if (!string.IsNullOrEmpty(n) && !meta.CompletedDreams.Contains(n))
+                            meta.CompletedDreams.Add(n);
+                    }
+                }
 
                 meta.LastRefreshedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 meta.Day = Core.currentProfile.day;

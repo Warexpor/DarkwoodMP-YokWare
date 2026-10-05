@@ -29,7 +29,7 @@ namespace DWMPHorde.Sync
         public static bool IsActive;
         public static string PresetName;
         public static int SessionId;
-        public static byte ReadUnionLvlFlags() => 0;
+        public static byte LevelBits => 0;
         public static string[] GetCompletedPresets() => System.Array.Empty<string>();
     }
 }

@@ -57,6 +57,7 @@ namespace DWMPHorde.Networking
             data.Stamina = player.stamina;
             data.Experience = player.experience;
             data.CurrentLevel = player.currentLevel;
+            data.DreamLvlFlags = Sync.DreamSession.ReadLocalLvlFlags();
             data.HealthUpgrades = player.healthUpgrades;
             data.StaminaUpgrades = player.staminaUpgrades;
             data.HotbarUpgrades = player.hotbarUpgrades;

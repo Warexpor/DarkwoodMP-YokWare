@@ -52,6 +52,10 @@ namespace DWMPHorde.Networking
 
             player.experience = data.Experience;
             player.currentLevel = data.CurrentLevel;
+            // Level-dream slots are this player's own, not the host's from the loaded world.
+            Sync.DreamSession.SetLocalLvlFlags(data.DreamLvlFlags >= 0
+                ? (byte)data.DreamLvlFlags
+                : Sync.DreamSession.LvlFlagsPassedAt(data.CurrentLevel));
             // Permanent pools: vanilla SaveState.loadValues loops upgradeHealth/Stamina
             // (maxHealth/maxStamina += 25 each). Offline WorldSaveShare loads the HOST
             // character first — assigning upgrade counts alone left the host max pool.

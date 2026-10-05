@@ -47,7 +47,8 @@ namespace DWMPHorde.Patches
             // (3, 5, 6, 7 roll at random) asked the host for the level-2 bunker dream again,
             // which the party had finished: rejected, and that level's dream was gone.
             __instance.dreamToTransitionTo = "";
-            DreamRetry.NoteRequest(dreamName);
+            byte levelBits = DreamSession.TakePendingRequestBits();
+            DreamRetry.NoteRequest(dreamName, levelBits);
 
             // Mark not playing so re-entry is blocked (vanilla would do this inside the method)
             __instance.isPlaying = false;
@@ -61,7 +62,8 @@ namespace DWMPHorde.Patches
             {
                 PresetName = dreamName,
                 RequestId = (int)(Time.realtimeSinceStartup * 1000f),
-                LvlFlags = DreamSession.ReadLocalLvlFlags()
+                // The level slot(s) this player's own level-up wants a dream for.
+                LvlFlags = levelBits
             };
             net.Send(NetMessageType.DreamStartRequest,
                 w => msg.Serialize(w),

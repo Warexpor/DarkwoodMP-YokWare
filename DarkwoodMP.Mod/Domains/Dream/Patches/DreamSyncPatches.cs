@@ -128,6 +128,7 @@ namespace DWMPHorde.Patches
                             // Party-once / session race; do not continue into a completed roll.
                             ModRuntime.LegacyInfo(
                                 $"[DreamSync] Host random roll rejected TryBegin: {resolved}");
+                            DreamSession.NextLevelBits = 0;
                             try
                             {
                                 if (__instance != null)

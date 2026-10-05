@@ -19,7 +19,7 @@ namespace DWMPHorde.Sync
         private static string _requested;   // reset-in: Reset (NetworkResetRegistry)
         private static string _waiting;     // reset-in: Reset (NetworkResetRegistry)
         private static float _notBefore;    // reset-in: Reset (NetworkResetRegistry)
-        /// <summary>Level-dream flags this request was for (this peer's level-up, not yet the party's).</summary>
+        /// <summary>Level slot(s) this request was for (this peer's own level-up).</summary>
         private static byte _levelBits;     // reset-in: Reset (NetworkResetRegistry)
         /// <summary>A dream is running on the host (this peer sits it out, or its pad failed to load).</summary>
         internal static bool HostDreamRunning; // reset-in: Reset (NetworkResetRegistry)
@@ -119,11 +119,28 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>The entry transition sent a start request for <paramref name="dreamName"/> ("" = random roll).</summary>
-        internal static void NoteRequest(string dreamName)
+        internal static void NoteRequest(string dreamName, byte levelBits)
         {
             _requested = dreamName ?? "";
             _waiting = null;
-            _levelBits = (byte)(DreamSession.ReadLocalLvlFlags() & ~DreamSession.HostLvlFlags);
+            _levelBits = levelBits;
+        }
+
+        /// <summary>
+        /// This peer was in a dream for these level slots: a waiting level-up dream for the
+        /// same slot is had (it was in that level's dream), so it is not owed any more.
+        /// </summary>
+        internal static void OnJoinedLevelDream(byte bits)
+        {
+            if (_levelBits == 0 || (bits & _levelBits) == 0)
+                return;
+            _levelBits = (byte)(_levelBits & ~bits);
+            if (_levelBits != 0)
+                return;
+            if (_waiting != null || _requested != null)
+                ModRuntime.LegacyInfo("[DreamRetry] was in a dream for this level — owed dream dropped");
+            _waiting = null;
+            _requested = null;
         }
 
         internal static void Clear()
@@ -180,13 +197,6 @@ namespace DWMPHorde.Sync
                 return;
             if (DreamSession.IsActive || HostDreamRunning || dreams.dreaming || dreams.dreamPrepared || dreams.startTransition.isPlaying)
                 return;
-            // Another player's dream for the same level came first: the party has had it.
-            if (_levelBits != 0 && (_levelBits & DreamSession.HostLvlFlags) == _levelBits)
-            {
-                ModRuntime.LegacyInfo("[DreamRetry] the party already had this level's dream — dropped");
-                _waiting = null;
-                return;
-            }
             if (DreamSyncManager.IsLocalDeadOutsideDream() || DreamSyncManager.IsLocalDreamActive
                 || DreamSyncManager.HasPendingEntryTransition)
                 return;
@@ -209,6 +219,7 @@ namespace DWMPHorde.Sync
             // As SkillsMenu does on a level-up dream.
             dreams.wantToDream = true;
             dreams.startTransition.dreamToTransitionTo = name;
+            DreamSession.PendingRequestBits = _levelBits;
             Core.forbidInputs = true;
             dreams.startTransition.transition();
         }
