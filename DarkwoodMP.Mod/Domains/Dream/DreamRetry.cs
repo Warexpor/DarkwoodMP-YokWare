@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using UnityEngine;
 
 namespace DWMPHorde.Sync
@@ -13,6 +14,7 @@ namespace DWMPHorde.Sync
     internal static class DreamRetry
     {
         internal const string HostDeadReason = "host_dead";
+        internal const string HostPrologueReason = "host_prologue";
 
         private const float RetryDelaySec = 3f;
 
@@ -89,7 +91,7 @@ namespace DWMPHorde.Sync
             if (Core.loadingGame || Core.mainMenu || !Core.worldGenFinished())
                 return false;
             return !DreamSession.IsActive && !DreamSyncManager.IsHostDreamEntryPending
-                && !DreamSyncManager.IsLocalDeadOutsideDream();
+                && !DreamSyncManager.IsLocalDeadOutsideDream() && !PersonalPrologue.LocalInPrologue;
         }
 
         private static void HostStart(string preset)
@@ -157,6 +159,7 @@ namespace DWMPHorde.Sync
                 ? outcome.Substring("rejected:".Length)
                 : "";
             bool retry = reason == HostDeadReason
+                || reason == HostPrologueReason
                 || reason == "session_active"
                 || reason == "already_prepared"
                 || reason == "try_begin_failed";
@@ -201,6 +204,10 @@ namespace DWMPHorde.Sync
                 || DreamSyncManager.HasPendingEntryTransition)
                 return;
             if (net.HostPlayerId > 0 && DreamSyncManager.IsPeerDeadOutsideDream(net, net.HostPlayerId))
+                return;
+            // The host is in its own prologue: party dreams wait for it.
+            RemotePlayerProxy host = net.HostPlayerId > 0 ? net.GetProxy(net.HostPlayerId) : null;
+            if (host != null && host.RemoteInPrologue)
                 return;
             // Not mid-action: talking, a menu, a scripted input lock.
             if (Core.forbidInputs || (Singleton<UI>.Instance != null && Singleton<UI>.Instance.dialogueWindow != null

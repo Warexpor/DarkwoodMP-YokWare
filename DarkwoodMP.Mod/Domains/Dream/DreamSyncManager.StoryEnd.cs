@@ -67,25 +67,8 @@ namespace DWMPHorde.Sync
         /// Host story exit: notify peers at initiateEndDreaming so they play the same
         /// outcome video in parallel (DreamEnded used to arrive only after the video).
         /// </summary>
-        /// <summary>
-        /// The tutorial dream (dream_tutorial_01) ends on "playerDeath": vanilla's scripted exit is
-        /// the creature's hit of more than 15 (Player.getHit), not a death. It is that dream's
-        /// story ending, for the whole party, not a death to spectate out.
-        /// </summary>
-        internal static bool IsScriptedDeathEnd(string outcomeName)
-        {
-            if (outcomeName != "playerDeath")
-                return false;
-            Dreams d = Dreams.Instance;
-            string pad = d != null && d.dreamLocation != null ? Core.getTrueLocationName(d.dreamLocation.name) : null;
-            if (string.IsNullOrEmpty(pad))
-                pad = DreamSession.PresetName;
-            return string.Equals(pad, "dream_tutorial_01", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static bool IsStoryOutcome(string outcomeName)
-            => !string.IsNullOrEmpty(outcomeName)
-               && (outcomeName != "playerDeath" || IsScriptedDeathEnd(outcomeName));
+            => !string.IsNullOrEmpty(outcomeName) && outcomeName != "playerDeath";
 
         public static void NotifyPeersStoryEndBeginning(string presetName, string outcomeName)
         {

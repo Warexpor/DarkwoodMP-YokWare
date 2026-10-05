@@ -23,6 +23,11 @@ namespace DWMPHorde.Networking
         public int SharePass;
         /// <summary>Host profile difficulty (vanilla <c>GameProfile.Difficulty</c>: lives on hard, permadeath on nightmare).</summary>
         public int Difficulty;
+        /// <summary>
+        /// Chapter 1 of a game that did not skip the prologue: a player new to this world plays its
+        /// own prologue before joining (<c>PersonalPrologue</c>). Protocol 33.
+        /// </summary>
+        public bool PrologueOffered;
 
         public void Serialize(NetWriter w)
         {
@@ -40,6 +45,7 @@ namespace DWMPHorde.Networking
             w.Put(CampaignId ?? "");
             w.Put(SharePass);
             w.Put(Difficulty);
+            w.Put(PrologueOffered);
         }
 
         public static WorldSaveBeginMessage Deserialize(NetReader r)
@@ -68,6 +74,7 @@ namespace DWMPHorde.Networking
             msg.CampaignId = r.GetString();
             msg.SharePass = r.GetInt();
             msg.Difficulty = r.GetInt();
+            msg.PrologueOffered = r.GetBool();
             return msg;
         }
     }

@@ -24,6 +24,13 @@ namespace DWMPHorde.Patches
 
             string preset = __instance.preset.name;
 
+            // The prologue's dreams are this player's own (PersonalPrologue): no party session.
+            if (PersonalPrologue.IsPrologueDream(preset))
+            {
+                __state = true;
+                return true;
+            }
+
             if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
             {
                 // Party-once: host must not start a preset the session already finished.
@@ -145,6 +152,9 @@ namespace DWMPHorde.Patches
             if (!__instance.dreaming)
                 return;
 
+            if (__instance.preset != null && PersonalPrologue.IsPrologueDream(__instance.preset.name))
+                return;
+
             // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
             DowngradeSuccessRewardsIfDeadInDream(__instance);
@@ -181,6 +191,8 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
+            if (__instance != null && __instance.preset != null && PersonalPrologue.IsPrologueDream(__instance.preset.name))
+                return; // the player's own prologue, vanilla throughout
             if (__instance != null && __instance.dreaming)
                 return; // chained transfer still dreaming
             // Back in the overworld whichever path ran endDreaming.

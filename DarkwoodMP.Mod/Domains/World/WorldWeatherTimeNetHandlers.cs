@@ -164,6 +164,7 @@ namespace DWMPHorde.Networking
             };
             Dreams dreams = Dreams.Instance;
             msg.OverworldTime = dreams != null && dreams.dreaming ? (int)dreams.timeCopy : msg.CurrentTime;
+            msg.PrologueHold = (byte)Mathf.Clamp(Sync.PersonalPrologue.HoldCount, 0, 255);
             // Reliable: after-night transitions must not be dropped (client wrongly
             // reporting AfterNightActive=false can clear host morning freeze).
             if (targetPlayerId > 0)
@@ -185,6 +186,7 @@ namespace DWMPHorde.Networking
 
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
+            Sync.PersonalPrologue.ClientNoteHold(msg.PrologueHold);
 
             int prevDay = ctrl.day;
             float prevTime = ctrl.CurrentTime;

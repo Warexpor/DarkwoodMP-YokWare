@@ -63,19 +63,6 @@ namespace DWMPHorde.Sync
                     dreams.dreaming = false;
                     RestoreStashedOverworldUniqueObjects();
 
-                    string trueName = Core.getTrueLocationName(dreams.preset.name);
-                    if (trueName == "dream_tutorial_01")
-                    {
-                        var wg = Singleton<WorldGenerator>.Instance;
-                        if (wg?.playerBase != null)
-                        {
-                            var loc = wg.playerBase.GetComponent<Location>();
-                            if (loc?.playerSpawn != null)
-                                restorePos = loc.playerSpawn.transform.position;
-                        }
-                        player.firstPlay = false;
-                        dreams.timeCopy = 5f;
-                    }
                     if (!string.IsNullOrEmpty(dreams.preset.uniqueObjectToTransportToAfterDreamEnd)
                         && Singleton<UniqueObjects>.Instance != null)
                     {
@@ -120,10 +107,7 @@ namespace DWMPHorde.Sync
                     ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
                 // Prefer freeze snapshot over timeCopy when remote startDreaming overwrote it.
-                // The tutorial wakes at its fixed hour (vanilla timeCopy = 5), not at the snapshot.
-                bool tutorialWake = dreams.preset != null
-                    && Core.getTrueLocationName(dreams.preset.name) == "dream_tutorial_01";
-                int restoreTime = !tutorialWake && _worldFrozen && _savedGameTime > 0
+                int restoreTime = _worldFrozen && _savedGameTime > 0
                     ? _savedGameTime
                     : (int)dreams.timeCopy;
                 // Vanilla sets the outcome's own wake time (customEndTime) after the restore; the

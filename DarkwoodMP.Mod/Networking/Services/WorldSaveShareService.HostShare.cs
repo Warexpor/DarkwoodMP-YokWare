@@ -334,6 +334,7 @@ namespace DWMPHorde.Networking
                 ChunkCounts = new int[files.Count],
                 CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId),
                 Difficulty = Core.currentProfile != null ? (int)Core.currentProfile.difficulty : 0,
+                PrologueOffered = Sync.PersonalPrologue.HostOffersPrologue(),
                 // A broadcast opens a new pass; a per-peer re-send belongs to the running one, so the
                 // other peers' acks for the broadcast stay valid.
                 SharePass = _shareTargetPlayerId > 0
@@ -358,6 +359,14 @@ namespace DWMPHorde.Networking
             if (target <= 0)
                 _broadcastRecipients = new HashSet<int>(_net.EnumeratePeerIds());
             SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
+            if (begin.PrologueOffered)
+            {
+                // A recipient new to the world plays the prologue offline before it comes back.
+                IEnumerable<int> recipients = target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients;
+                foreach (int id in recipients)
+                    if (_net.TryGetStableClientKeyForPlayer(id, out string key))
+                        Sync.PersonalPrologue.HostNoteShared(key);
+            }
 
             int sent = 0;
             int frameBudget = 0;

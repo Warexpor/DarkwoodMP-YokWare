@@ -106,7 +106,8 @@ namespace DWMPHorde.Networking
                 Bleeding = localCb != null && localCb.bleeding,
                 Burning = local.GetComponent<Burn>() != null,
                 BurnSpecial = local.effects != null && local.effects.hasEffectType(CharacterEffectType.burnSpecial),
-                InEpilogue = EpilogueNetHandlers.IsLocalInEpilogue()
+                InEpilogue = EpilogueNetHandlers.IsLocalInEpilogue(),
+                InPrologue = Sync.PersonalPrologue.LocalInPrologue
             };
             float maxHp = local.maxHealth > 0f ? local.maxHealth : 1f;
             msg.HealthPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
@@ -147,6 +148,7 @@ namespace DWMPHorde.Networking
             proxy.RemoteBleeding = msg.Bleeding;
             proxy.RemoteHomeOven = msg.HasHome ? new Vector3(msg.HomeX, msg.HomeY, msg.HomeZ) : (Vector3?)null;
             proxy.RemoteInEpilogue = msg.InEpilogue;
+            proxy.RemoteInPrologue = msg.InPrologue;
             proxy.RemoteHealthPct = msg.HealthPct;
             proxy.RemoteDarknessPct = msg.DarknessPct;
             if (msg.HasSkills)

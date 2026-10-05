@@ -74,11 +74,8 @@ namespace DWMPHorde.Networking
                 "Sending late-join bulk → player " + playerId
                 + " (light now; heavy sticky world staggered)");
 
-            // Prologue catch-up (mid/post intro). Soft-reconnect also calls this at
-            // handshake; ApplyEnd no-ops when the peer is already past intro.
             // Each step is isolated: one failing sender used to abort every step after it (and the
             // heavy phases below were never queued), leaving the joiner with half a world.
-            LateJoinStep(playerId, "prologue", () => PrologueSync.SendCatchUpTo(playerId));
             LateJoinStep(playerId, "nightDeathSnapshot",
                 () => DeathStateTracker.HostSendNightDeathSnapshotTo(this, playerId));
 

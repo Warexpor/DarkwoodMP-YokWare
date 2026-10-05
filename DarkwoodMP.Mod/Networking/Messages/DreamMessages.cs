@@ -509,9 +509,7 @@ namespace DWMPHorde.Networking
         public const byte ActionSkipTransition = 2;
         /// <summary>Peer started Dreams.startTransition (video before prepareDream).</summary>
         public const byte ActionDreamEntryTransition = 3;
-        /// <summary>New-game opening movie (WorldGenerator firstPlay), not a CutsceneManager.</summary>
-        public const byte ActionPrologueStart = 4;
-        public const byte ActionPrologueEnd = 5;
+        // 4 and 5 (shared opening movie start / end) retired: each player plays its own prologue.
         /// <summary>Host: the start request behind the last entry movie was refused; stop waiting for it.</summary>
         public const byte ActionDreamEntryCancel = 6;
 

@@ -535,6 +535,13 @@ namespace DWMPHorde.Networking
             set => Flags2 = (byte)((Flags2 & ~16) | (value ? 16 : 0));
         }
 
+        /// <summary>The player is in its own prologue (PersonalPrologue). Protocol 33.</summary>
+        public bool InPrologue
+        {
+            get => (Flags2 & 32) != 0;
+            set => Flags2 = (byte)((Flags2 & ~32) | (value ? 32 : 0));
+        }
+
         /// <summary><see cref="HomeX"/>.. carry this player's home oven (vanilla Player.experienceMachine).</summary>
         public bool HasHome
         {
