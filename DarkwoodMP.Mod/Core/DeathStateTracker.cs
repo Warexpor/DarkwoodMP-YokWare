@@ -315,7 +315,7 @@ namespace DWMPHorde
             bool leaverWasNightDead = OnRemotePeerGone(playerId);
 
             ModLog.Event(LogCat.Death,
-                $"Remote player {playerId} disconnected mid-night " +
+                $"Remote player {playerId} disconnected — night deaths " +
                 $"(wasDead={leaverWasNightDead}, dead={RemoteNightDeathCount}/{TotalRemoteCount})");
 
             return NightDeathPolicy.ShouldResolveMorningOnDisconnect(
