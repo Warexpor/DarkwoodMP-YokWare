@@ -80,10 +80,14 @@ namespace DWMPHorde.Patches
             if (geObject == null)
                 return false;
             Player p = Player.Instance;
-            if (p == null || p.whereAmI == null || p.whereAmI.bigLocation == null)
+            if (p == null || p.whereAmI == null)
                 return false;
             Location geLoc = geObject.GetComponentInParent<Location>(true);
-            return geLoc != null && geLoc.bigLocation == p.whereAmI.bigLocation;
+            // An open-world scene (no location around it) is everyone's, like an open-world cutscene.
+            if (geLoc == null)
+                return true;
+            Location geBig = geLoc.bigLocation != null ? geLoc.bigLocation : geLoc;
+            return geBig == p.whereAmI.bigLocation;
         }
 
         /// <summary>

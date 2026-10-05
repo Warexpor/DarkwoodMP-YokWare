@@ -345,7 +345,8 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
 - **Scripted camera and input steps hit players elsewhere in the world.** Black
   screens, camera pans, shakes, input locks, a hidden HUD and perspective switches
   dragged a peer's camera across the map or locked its inputs. These steps now run for
-  the player the scene belongs to and for peers in the same location.
+  the player the scene belongs to and for peers in the same location (a scene out in
+  the open world still plays for everyone).
 - **Repeatable events set off by a use or an examine reached nobody.** Repeatable
   event sets are not broadcast, because each peer runs its own ambient and area copies.
   A client's use and examine are sent to the host and never run locally, so their
