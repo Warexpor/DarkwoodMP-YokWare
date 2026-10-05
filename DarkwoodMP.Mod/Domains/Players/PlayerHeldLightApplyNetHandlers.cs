@@ -316,6 +316,7 @@ namespace DWMPHorde.Networking
             if (template != null)
             {
                 flareLight = UnityEngine.Object.Instantiate(template.gameObject);
+                Players.Light2DUnshare.Apply(flareLight);
                 flareLight.name = $"RemoteMatchLight_P{playerId}";
                 StripRemoteHeldFlareComponents(flareLight, destroyFlare: true);
             }

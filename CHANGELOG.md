@@ -28,6 +28,35 @@ Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Pr
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
 a report. Built and unit-tested; **runtime is not playtested**.
 
+### Remote players' lights (found by the test pilot)
+
+- **The host logged "Mesh.colors is out of bounds" every frame once a client joined** (about
+  100 errors a second, each a slow Unity error write). Vanilla `Light2D` keeps its mesh in a
+  public, serialized field (`_mesh`), so `Instantiate` of a live object copies the reference:
+  the remote player stand-in is a copy of the local player, and its copied lights drew into
+  the local player's light meshes. Each light rebuilt its own vertex list and then wrote
+  colors sized to it, so one of them always wrote colors that did not fit the vertices the
+  other had just set, and both lights could take the other's shape. Worse, a copied light
+  that wakes with the shared mesh destroys it (`CreateMeshObject`). The copies now drop the
+  reference before they wake and build their own mesh (`Light2DUnshare`, applied to the
+  stand-in and to a remote match light copied from a live one). Checked in a pilot run: 9
+  light meshes, none shared, no errors.
+
+### Test pilot (unattended dual-box runs)
+
+- Debug-only driver for automated runs, off unless the game is started with the environment
+  variable `DWMP_PILOT` (`host:N` hosts LAN and loads profile N; `join` joins 127.0.0.1, puts
+  the world copy in profile `DWMP_PILOT_SLOT` and enters). In the world it runs commands
+  appended to `pilot/cmd.txt` beside the game's data folder and writes results to
+  `pilot/out.txt` and the log (`[Pilot]`): status, tp, tpp, god, hurt, die, time, endnight,
+  doors/door, chars, kill, flag, find/goto, lightshare, desync, shot, wait, say, quit. It
+  also records each distinct Unity error with its stack. `Domains/Diagnostics/TestPilot.cs`.
+- Desync check: logs a check that takes over 25 ms, and the five-minute summary gives the
+  slowest; near radii rescaled to world units (doors, traps and items 400, creatures 600,
+  containers 200; the first numbers were a hundred times too small). First pilot runs: 41
+  checks idle, doors opened from either side, night set by the host: no desync, about
+  2.5 ms per check.
+
 ### Desync checker (new diagnostic)
 
 - **Playtests now find drift on their own.** Every 15 s (`Debug.DesyncCheckIntervalSec`) the

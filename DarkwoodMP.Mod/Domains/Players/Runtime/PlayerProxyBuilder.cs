@@ -94,6 +94,9 @@ namespace DWMPHorde.Players
                 return null;
             }
 
+            // Own light meshes before any copied Light2D draws into the source player's.
+            Light2DUnshare.Apply(clone);
+
             // Strip ragdoll component before anything awakens
             // (PlayerRagdoll.Awake calls EnforceFullRagdoll which doesn't exist in this build)
             Component ragdoll = clone.GetComponent("PlayerRagdoll");

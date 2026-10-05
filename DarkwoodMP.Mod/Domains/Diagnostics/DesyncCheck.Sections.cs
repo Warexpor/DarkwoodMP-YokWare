@@ -76,15 +76,18 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>Around-the-player sections: state streams to a client only near players.</summary>
-        private const float NearRadius = 24f;
-        private const float CreatureRadius = 30f;
-        private const float ContainerRadius = 12f;
+        /// <summary>
+        /// Around-the-player sections, in world units (a hideout room is a few hundred across;
+        /// the screen shows about 1000): state streams to a client only near players.
+        /// </summary>
+        private const float NearRadius = 400f;
+        private const float CreatureRadius = 600f;
+        private const float ContainerRadius = 200f;
         /// <summary>
         /// Entries are collected this much past the radius and carry their distance, so an object
         /// right at the edge (the host measures from a stand-in a packet behind) is not a difference.
         /// </summary>
-        private const float EdgeMargin = 6f;
+        private const float EdgeMargin = 60f;
 
         private static readonly Section[] Sections = // process-scoped: immutable table
         {
@@ -381,7 +384,8 @@ namespace DWMPHorde.Sync
                 return true;
             if (!Near(a, b, "hp", 15))
                 return false;
-            return Near(a, b, "x", 4) && Near(a, b, "z", 4);
+            // About a tenth of a second of a running creature: the stream's interpolation delay.
+            return Near(a, b, "x", 60) && Near(a, b, "z", 60);
         }
 
         /// <summary>World traps near the player: sprung or set.</summary>
