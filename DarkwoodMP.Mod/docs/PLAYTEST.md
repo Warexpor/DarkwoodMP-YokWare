@@ -114,6 +114,24 @@ Still open from the previous entry (host validation, relay and session reset):
 - [ ] Stop and host again in the same game process: no leftover remote players,
       thrown flares, kinematic bodies or pending container takes from the last session.
 
+## Automated runs (test pilot)
+
+Unattended dual-box runs on this machine, no hands needed. Back up both save trees first
+(host `~/.config/unity3d/Acid Wizard Studio/Darkwood`, client compatdata
+`…/LocalLow/Acid Wizard Studio`) and restore them after: the pilot plays on real profiles.
+
+- `PILOT_MODE=host:1 scripts/pilot/pilot-run.sh` — host loads profile 1 and hosts LAN, the
+  client joins (world copy in its slot 1). `newgame:4` / `newgameskip:4` start a new game in
+  an EMPTY slot instead (run `BACKUP_DIR=… scripts/pilot/prologue-reset.sh` first). Both
+  windows are parked on Hyprland workspace 7.
+- `scripts/pilot/pcmd.sh h|c <command>` — run a pilot command on the host / client and print
+  its reply (`status`, `tp x z`, `door open`, `chars 600`, `time 1090`, `endnight`, `die`,
+  `prologue`, `skipmovie`, `dreamend <outcome>`, `shot name`, `desync`, … — see
+  `TestPilot.cs`). Screenshots land in `<game>/pilot/`.
+- `scripts/pilot/pilot-quit.sh <tag>` — quit both and copy both logs to `/tmp/darkwood-pilot`.
+- Read `[Pilot]`, `[Desync]` and `unity Error/Exception` lines (each distinct Unity error is
+  recorded once with its stack).
+
 ## 1. Deploy and version check
 
 - [ ] `md5sum` of `DarkwoodMP.Mod.dll` (and `LiteNetLib.dll`) matches on every box.
