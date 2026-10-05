@@ -717,6 +717,33 @@ host's sends during its prologue ran alongside. Found and fixed:
   filtered (only the host's re-run of a client's examine hides them, as before).
   `PersonalFlavorHud`, `GameEventFireFlavorSourcePatch` (`ExaminableSyncPatches.cs`).
 
+### Black chompers never multiplied in dreams (party balancing)
+
+The co-op balancing that adds one black chomper per extra player in dreams
+(`NamedNpcScaleEnabled` / `NamedNpcAllowlist`, default ChomperBlack) never did anything.
+It only ran when a black chomper was spawned from its prefab (`Core.AddPrefab`). The vanilla
+scene data shows that no dream spawns one that way: every dream black chomper (the church
+ruins, grave meadow, village cellar, doctor dream 2 and the six of the oneChance escape) is
+placed in its scene inactive, and a story event shows it (`activateGameObject`,
+`gameObject setActive`, or `replaceCharacter` with a target). Now:
+
+- The extras come when the scene's chomper first appears (`Character.Start`, host only, on
+  the dream pad), at its spot, outside walls on the dream's walk graph. The one placed
+  active in doctor dream 2 gets its extras when the dream starts.
+- Extras are put in the dream pad, not loose in the world. Vanilla destroys the pad when the
+  dream ends. Loose, the extras would have stayed behind at the pad's far-off spot.
+- They copy the original's scene setup (how it reacts to the player, relentless pursuit). When
+  a story event or activity sends the original to attack, its idle extras join that fight
+  (`HostAttackCharacterPatch` → `NamedNpcScalePatch.OnAttack`). Each one still goes through
+  the target arbiter.
+- Client: a creature the client has to create for a host body in a dream (a phantom, such as
+  an extra) now goes in the dream pad, so it is destroyed with the dream. It used to stay
+  behind on the client.
+
+Files: `Domains/Dream/Patches/NamedNpcScalePatch.cs`, `HostAIPatches.Perception.cs`,
+`CoreAddPrefabPatches.cs` (old AddPrefab hook removed),
+`ClientEntityInterpolationService.Spawn.cs`.
+
 ### Hideout oven unlit for a new client character
 
 - **A client new to the world found the first hideout's oven cold, and examining it gave the

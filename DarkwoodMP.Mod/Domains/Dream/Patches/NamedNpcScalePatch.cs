@@ -1,26 +1,35 @@
 using System.Collections.Generic;
 using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    /// <summary>Marks a dream NPC that already received co-op presence scaling.</summary>
+    /// <summary>
+    /// A dream NPC that already received co-op presence scaling. On the scene's own creature it
+    /// lists the extras it brought, which follow it into its fight.
+    /// </summary>
     public sealed class DreamBalanceProcessedMarker : MonoBehaviour
     {
+        [System.NonSerialized] public List<Character> Extras;
     }
 
     /// <summary>
     /// Host-only: scale presence of allowlisted NPCs (default ChomperBlack) during dreams.
-    /// Only on real spawn (Core.AddPrefab) — CharacterSpawnPoint, GameEvent.spawnCharacter,
-    /// CharacterSpawner, etc. Pre-placed / event-gated characters are NOT doubled at load;
-    /// extras fire when the same spawn path that vanilla uses runs.
+    /// Every dream black chomper is placed in its scene inactive and a story event shows it
+    /// (<c>activateGameObject</c>, <c>gameObject setActive</c>, or <c>replaceCharacter</c> with a
+    /// target, which activates it); none is spawned through <c>Core.AddPrefab</c>. So the extras
+    /// come with the creature's first activation (<c>Character.Start</c>), the moment it enters
+    /// the dream, at its spot. One placed active (dream_doctor_02) starts with the dream.
     /// Night hideout scenarios are intentionally not scaled.
     /// </summary>
+    [HarmonyPatch(typeof(Character), "Start")]
     public static class NamedNpcScalePatch
     {
-        private static bool _spawningExtra;
+        private static bool _spawningExtra; // process-scoped: reentry guard, reset per session
 
         public static void Reset()
         {
@@ -28,28 +37,23 @@ namespace DWMPHorde.Patches
             CoopBalance.InvalidateAllowlistCache();
         }
 
-        private static bool CanScaleDreamNpcs()
+        private static void Postfix(Character __instance)
         {
+            if (__instance == null || _spawningExtra || !__instance.alive)
+                return;
             if (ModConfig.NamedNpcScaleEnabled != null && !ModConfig.NamedNpcScaleEnabled.Value)
-                return false;
-
-            if (!NetGuard.ConnectedHost(out var net))
-                return false;
-
-            if (Dreams.Instance == null || !Dreams.Instance.dreaming)
-                return false;
-
-            return CoopBalance.GetPartyMultiplier() > 1;
-        }
-
-        private static void ProcessOriginal(GameObject go, string label)
-        {
-            if (go == null || _spawningExtra)
                 return;
-            if (go.GetComponent<DreamBalanceProcessedMarker>() != null)
+            if (!NetGuard.ConnectedHost(out _))
+                return;
+            // The dream pad's creatures: the overworld has black chompers of the same name.
+            if (!DreamSyncManager.IsDreamActive || !DreamSyncManager.IsAtDreamPad(__instance.transform.position))
+                return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
+            if (__instance.GetComponent<DreamBalanceProcessedMarker>() != null)
                 return;
 
-            string nameKey = CoopBalance.NormalizeNpcName(go.name);
+            string nameKey = CoopBalance.NormalizeNpcName(__instance.name);
             if (!CoopBalance.IsNamedNpcAllowlisted(nameKey))
                 return;
 
@@ -57,90 +61,95 @@ namespace DWMPHorde.Patches
             if (mult <= 1)
                 return;
 
-            go.AddComponent<DreamBalanceProcessedMarker>();
+            var marker = __instance.gameObject.AddComponent<DreamBalanceProcessedMarker>();
+            marker.Extras = SpawnExtras(__instance, ResolvePrefabPath(__instance.gameObject, nameKey), mult - 1);
 
-            string prefabPath = ResolvePrefabPath(go, nameKey);
-            int extras = mult - 1;
-            SpawnExtras(go, prefabPath, extras);
-
-            ModRuntime.LegacyInfo(
-                $"[DreamNpcScale] {label}: '{nameKey}' mult={mult} extras={extras} path={prefabPath}");
+            ModLog.Event(LogCat.Session,
+                $"[DreamNpcScale] '{nameKey}' at {__instance.transform.position} mult={mult} extras={marker.Extras.Count}");
         }
 
         private static string ResolvePrefabPath(GameObject go, string shortName)
         {
-            var pathComp = go.GetComponent<Sync.PrefabPathComponent>();
+            var pathComp = go.GetComponent<PrefabPathComponent>();
             if (pathComp != null && !string.IsNullOrEmpty(pathComp.Path))
                 return pathComp.Path;
             return "Characters/" + shortName;
         }
 
-        private static void SpawnExtras(GameObject original, string prefabPath, int count)
+        /// <summary>
+        /// Extras stand around the original, in its parent: the dream pad is destroyed with them in
+        /// it when the dream ends (unparented, they outlived it). They take the original's scene
+        /// setup (how it reacts to the player, relentless pursuit); <see cref="OnAttack"/> gives
+        /// them its fight.
+        /// </summary>
+        private static List<Character> SpawnExtras(Character original, string prefabPath, int count)
         {
-            if (count <= 0 || original == null)
-                return;
-
-            // Anchor extras near the original spawn (event position), not near remote
-            // proxies — party mult is extra bodies at the same trigger, not free spawns on peers.
+            var extras = new List<Character>(count);
             Vector3 basePos = original.transform.position;
             Quaternion rot = original.transform.rotation;
+            GameObject parent = original.transform.parent != null ? original.transform.parent.gameObject : null;
 
-            // Parent null (not under dream Location): EntityStateBroadcastService skips
-            // Characters parented under dreamLocation; unparented dream spawns sync like ChomperHalf.
             _spawningExtra = true;
             try
             {
                 for (int i = 0; i < count; i++)
                 {
-                    Vector3 spawnPos = basePos + new Vector3(
-                        UnityEngine.Random.Range(-60f, 60f),
-                        0f,
-                        UnityEngine.Random.Range(-60f, 60f));
+                    Vector3 spawnPos;
                     try
                     {
-                        spawnPos = Core.randomPosAround(basePos, 30f, 90f, canBeInside: true, mustBeInsideGraph: false);
+                        // Outside walls, on the dream's walk graph.
+                        spawnPos = Core.randomPosAround(basePos, 30f, 90f, canBeInside: false, mustBeInsideGraph: true);
                     }
                     catch
                     {
-                        // keep offset fallback
+                        spawnPos = basePos + new Vector3(Random.Range(-60f, 60f), 0f, Random.Range(-60f, 60f));
                     }
+                    spawnPos.y = basePos.y;
 
-                    GameObject extra = Core.AddPrefab(prefabPath, spawnPos, rot, null);
-                    if (extra == null)
+                    GameObject go = Core.AddPrefab(prefabPath, spawnPos, rot, parent, worldSpace: true);
+                    if (go == null)
                     {
-                        ModRuntime.Log?.LogWarning($"[DreamNpcScale] AddPrefab failed for {prefabPath}");
+                        ModLog.Warn(LogCat.Session, "[DreamNpcScale] AddPrefab failed for " + prefabPath);
                         continue;
                     }
+                    go.AddComponent<DreamBalanceProcessedMarker>();
 
-                    if (extra.GetComponent<DreamBalanceProcessedMarker>() == null)
-                        extra.AddComponent<DreamBalanceProcessedMarker>();
-
-                    var ch = extra.GetComponent<Character>();
-                    if (ch != null)
-                        ch.isActive = true;
+                    Character extra = go.GetComponent<Character>();
+                    if (extra == null)
+                        continue;
+                    extra.aggressiveness = original.aggressiveness;
+                    extra.relentlessPursuit = original.relentlessPursuit;
+                    extra.isActive = true;
+                    extras.Add(extra);
                 }
             }
             finally
             {
                 _spawningExtra = false;
             }
+            return extras;
         }
 
-        // ─── Core.AddPrefab only: event / spawn-point / spawner dream NPCs ───
-
-        /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/>.</remarks>
-        public static class DreamNpcAddPrefabScalePatch
+        /// <summary>
+        /// Host, after an attack order: the story's attack events and activities target only the
+        /// scene's creature, so its extras join its fight (each on the arbiter's pick for it).
+        /// An extra already fighting keeps its own target.
+        /// </summary>
+        internal static void OnAttack(Character c)
         {
-            internal static void OnAddPrefab(GameObject __result, string prefab)
+            if (c == null || c.target == null)
+                return;
+            var marker = c.GetComponent<DreamBalanceProcessedMarker>();
+            if (marker == null || marker.Extras == null)
+                return;
+            for (int i = 0; i < marker.Extras.Count; i++)
             {
-                if (__result == null || _spawningExtra)
-                    return;
-                if (!CanScaleDreamNpcs())
-                    return;
-                if (!CoopBalance.IsAllowlistedPrefabPath(prefab))
-                    return;
-
-                ProcessOriginal(__result, "AddPrefab");
+                Character extra = marker.Extras[i];
+                if (extra == null || !extra.alive || extra.target != null)
+                    continue;
+                extra.aggressiveness = c.aggressiveness;
+                extra.relentlessPursuit = c.relentlessPursuit;
+                extra.attackCharacter(c.target);
             }
         }
     }

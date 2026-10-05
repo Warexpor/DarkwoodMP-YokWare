@@ -95,10 +95,11 @@ namespace DWMPHorde.Networking
                 return null;
 
             // During shared dream, ignore overworld-distance host spawns (stale EntityState).
+            Transform dreamParent = null;
             if (DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive)
             {
                 var dreamTf = DreamSyncManager.GetDreamLocationTransform();
-            // During entry, wait for dreamLocation before creating phantoms.
+                // During entry, wait for dreamLocation before creating phantoms.
                 if (DreamSession.IsActive && dreamTf == null)
                     return null;
                 if (dreamTf != null)
@@ -107,6 +108,9 @@ namespace DWMPHorde.Networking
                     const float maxDistSq = 5000f * 5000f;
                     if ((position - dreamTf.position).sqrMagnitude > maxDistSq)
                         return null;
+                    // In the pad, as the host's copy is: vanilla destroys the pad, and with it
+                    // this body, when the dream ends. Unparented, it stayed on the client.
+                    dreamParent = dreamTf;
                 }
             }
 
@@ -115,7 +119,8 @@ namespace DWMPHorde.Networking
             {
                 Quaternion rotation = Quaternion.Euler(90f, rotY, 0f);
 
-                GameObject go = Core.AddPrefab(path, position, rotation, null);
+                GameObject go = Core.AddPrefab(path, position, rotation,
+                    dreamParent != null ? dreamParent.gameObject : null, worldSpace: true);
                 if (go == null) return null;
 
                 Character c = go.GetComponent<Character>();
