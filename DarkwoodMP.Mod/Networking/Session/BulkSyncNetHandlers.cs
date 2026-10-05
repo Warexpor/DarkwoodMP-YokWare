@@ -260,10 +260,12 @@ namespace DWMPHorde.Networking
             Player local = Player.Instance;
             ExperienceMachine ownHome = local != null ? local.experienceMachine : null;
             int applied = 0;
+            var unmatched = new System.Collections.Generic.List<int>();
             for (int i = 0; i < msg.OvenCount; i++)
             {
                 Vector3 pos = new Vector3(msg.PosX[i], msg.PosY[i], msg.PosZ[i]);
                 bool wantOn = msg.IsOn != null && i < msg.IsOn.Length && msg.IsOn[i];
+                bool matched = false;
                 for (int j = 0; j < machines.Length; j++)
                 {
                     var em = machines[j];
@@ -274,18 +276,38 @@ namespace DWMPHorde.Networking
                     else if (!wantOn && em.isOn && em != ownHome)
                         em.disable();
                     applied++;
+                    matched = true;
                     break;
                 }
+                if (!matched)
+                    unmatched.Add(i);
             }
             if (local != null)
                 local.experienceMachine = ownHome;
             if (ownHome != null && !ownHome.isOn)
                 Patches.OvenHomes.RelightOwnHomeNextFrame();
-            // Keep pending until every oven matched (partial spawn / wrong radius).
+            // Keep only the ovens not matched yet (a pad not spawned here). Keeping the whole
+            // snapshot replayed it every frame over ovens that had changed since, undoing a
+            // relit oven and broadcasting that.
             if (applied < msg.OvenCount)
             {
                 _hasPendingHideoutState = true;
-                _pendingHideoutState = msg;
+                _pendingHideoutState = new HideoutStateSyncMessage
+                {
+                    OvenCount = unmatched.Count,
+                    PosX = new float[unmatched.Count],
+                    PosY = new float[unmatched.Count],
+                    PosZ = new float[unmatched.Count],
+                    IsOn = new bool[unmatched.Count]
+                };
+                for (int k = 0; k < unmatched.Count; k++)
+                {
+                    int i = unmatched[k];
+                    _pendingHideoutState.PosX[k] = msg.PosX[i];
+                    _pendingHideoutState.PosY[k] = msg.PosY[i];
+                    _pendingHideoutState.PosZ[k] = msg.PosZ[i];
+                    _pendingHideoutState.IsOn[k] = msg.IsOn != null && i < msg.IsOn.Length && msg.IsOn[i];
+                }
                 if (applied > 0)
                     ModLog.Event(LogCat.Session,
                         $"[BulkSync] Hideout ovens partial matched={applied}/{msg.OvenCount} — keep pending");
@@ -297,15 +319,22 @@ namespace DWMPHorde.Networking
                 $"[BulkSync] Hideout ovens applied count={msg.OvenCount} matched={applied}");
         }
 
+        private float _nextHideoutFlush;
+
         internal void TryFlushPendingHideoutState()
         {
             if (!_hasPendingHideoutState) return;
             if (_net.Role != NetworkRole.Client) return;
+            if (Time.unscaledTime < _nextHideoutFlush) return;
+            _nextHideoutFlush = Time.unscaledTime + 1f;
             if (!LanNetworkManager.ClientCanApplyWorldBulk()) return;
             var pending = _pendingHideoutState;
             _hasPendingHideoutState = false;
             _pendingHideoutState = default;
-            ApplyHideoutStateSync(pending);
+            // Out of the receive scope here: an oven this lights or puts out is the host's state,
+            // not this peer's own change to broadcast.
+            using (new NetworkApplyGuard())
+                ApplyHideoutStateSync(pending);
         }
 
         /// <summary>Send current workbench level to all clients.</summary>

@@ -182,3 +182,17 @@ namespace DWMPHorde.Sync
         private static void Postfix(ref IEnumerator __result) => __result = EventCoroutineScope.Wrap(__result);
     }
 }
+
+namespace DWMPHorde.Sync
+{
+    /// <summary>
+    /// A location's activation runs over a few frames (vanilla activateOverTime) before its
+    /// on-enter events fire; the "who entered" scope around the host's enter for a peer was gone
+    /// by then, so the events credited the host. The scope rides along like the events' own.
+    /// </summary>
+    [HarmonyPatch(typeof(Location), "activateOverTime")]
+    public static class LocationActivateScopePatch
+    {
+        private static void Postfix(ref System.Collections.IEnumerator __result) => __result = EventCoroutineScope.Wrap(__result);
+    }
+}

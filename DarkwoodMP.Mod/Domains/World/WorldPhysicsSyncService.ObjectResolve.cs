@@ -275,10 +275,13 @@ namespace DWMPHorde.Sync
 
             Vector3 targetPos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
 
-            // Strategy 0: last successful resolve for this name (skip if destroyed / too far).
-            if (_s.LastResolvedByName.TryGetValue(obj.Name, out GameObject cached)
-                && IsUsableResolveCandidate(cached, obj.Name, targetPos, ResolvedNameMaxDist))
-                return cached;
+            // Last successful resolve for this name (skip if destroyed / too far). Only taken when
+            // no other object of that name sits closer to the reported spot: two identical chairs
+            // a few steps apart swapped, the update for one moving the other.
+            GameObject cached = null;
+            if (_s.LastResolvedByName.TryGetValue(obj.Name, out GameObject c0)
+                && IsUsableResolveCandidate(c0, obj.Name, targetPos, ResolvedNameMaxDist))
+                cached = c0;
 
             // Strategy 1: overlap sphere near the reported position (avoids teleporting
             // objects with non-unique names because GameObject.Find can match any instance)
@@ -310,6 +313,9 @@ namespace DWMPHorde.Sync
                         bestWide = candidate;
                     }
                 }
+                if (cached != null
+                    && (bestWide == null || Vector3.Distance(cached.transform.position, targetPos) <= bestWideDist))
+                    return cached;
                 if (bestWide != null)
                     return RememberResolved(obj.Name, bestWide);
             }

@@ -31,6 +31,13 @@ namespace DWMPHorde.Networking
             var controller = Singleton<Controller>.Instance;
             if (ol == null || controller == null || string.IsNullOrEmpty(locationName))
                 return;
+            // A pad is its own scene (LocationMarker loads it by name). A name with no scene made
+            // an empty marker and grid and used up a pad slot, again at every heartbeat.
+            if (!UnityEngine.Application.CanStreamedLevelBeLoaded(locationName))
+            {
+                ModRuntime.Log?.LogWarning("[LocationSync] no pad scene named '" + locationName + "' — not spawning");
+                return;
+            }
             controller.StartCoroutine(SpawnRoutine(ol, locationName));
         }
 

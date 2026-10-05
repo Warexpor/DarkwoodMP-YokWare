@@ -254,9 +254,12 @@ namespace DWMPHorde.Networking
             //      so subsequent DragSync messages find the item quickly without
             //      falling to OverlapSphere (which skips beingDragged) or the
             //      expensive FindObjectsOfType<Item>() global scan.
+            // Same name is not the same object: two wardrobes dragged by two players. Only the one
+            // at the reported spot (the conflict rule's radius) is it, or the peer's drag moved ours.
             if (Player.Instance != null && Player.Instance.itemBeingDragged != null &&
                 !string.IsNullOrEmpty(name) &&
-                Player.Instance.itemBeingDragged.gameObject.name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                Player.Instance.itemBeingDragged.gameObject.name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                && Core.trueDistance(Player.Instance.itemBeingDragged.transform.position, nearPos) <= SameDraggedBodyRadius)
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[DragSync] early-return hit for {name} (itemBeingDragged)");
