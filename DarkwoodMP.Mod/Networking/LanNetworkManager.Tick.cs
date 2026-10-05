@@ -65,7 +65,7 @@ namespace DWMPHorde.Networking
             Sync.TrapNetworkId.FlushPending(
                 (p, n) => Sync.WorldPhysicsSyncService.FindTrapByPos(p, n),
                 (go, trig, silent) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig, silentDisarm: silent));
-            Sync.WorldPhysicsSyncService.TickThrownLightExpiry(this);
+            Sync.WorldPhysicsSyncService.TickThrownLights();
             PlayerPresenceHandlers.TickClientCorpseSetup();
             if (perf)
             {

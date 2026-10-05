@@ -159,13 +159,13 @@ namespace DWMPHorde.Networking
                 }
 
                 // Remain from aim-start burn clock when known (else rising timer).
-                if (flareActive && local.heldItem != null)
+                if (flareActive && local.heldItem != null && Sync.FlareClock.AgeOf(local.heldItem) >= 0f)
                 {
-                    float untilDark = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
-                        local.heldItem,
-                        flareComp != null ? flareComp.longevity : 3f);
-                    float total = _localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : (3f + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec);
-                    float rem = Mathf.Clamp01(untilDark / total);
+                    // Lit-on-aim clock (FlareClock): peers start their copy at this point of it.
+                    float total = flareComp != null && flareComp.longevity > 0.05f
+                        ? flareComp.longevity + Sync.FlareClock.FadeSec
+                        : (_localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : 3f + Sync.FlareClock.FadeSec);
+                    float rem = Mathf.Clamp01(1f - Sync.FlareClock.AgeOf(local.heldItem) / total);
                     msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
                     flags |= PlayerStateMessage.LightFlagRemain;
                 }

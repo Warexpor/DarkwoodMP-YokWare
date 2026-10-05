@@ -25,7 +25,6 @@ public class NetMessageContractTests
         Assert.Equal(122, (byte)NetMessageType.AfterNightEndRequest);
         Assert.Equal(123, (byte)NetMessageType.PeerRoster);
         Assert.Equal(124, (byte)NetMessageType.HostHandoff);
-        Assert.Equal(125, (byte)NetMessageType.ThrowableDespawn);
         Assert.Equal(126, (byte)NetMessageType.TrapBulk);
         Assert.Equal(127, (byte)NetMessageType.NightShadowSpawnRequest);
         Assert.Equal(128, (byte)NetMessageType.DreamPropCollider);

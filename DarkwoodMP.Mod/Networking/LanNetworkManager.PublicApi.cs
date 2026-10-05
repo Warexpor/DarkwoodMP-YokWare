@@ -96,9 +96,6 @@ namespace DWMPHorde.Networking
         public IEnumerable<KeyValuePair<int, int>> EnumerateRemoteTrapOccupancy() =>
             PlayerPresenceHandlers.EnumerateRemoteTrapOccupancy();
 
-        public void SendThrowableDespawn(ThrowableDespawnMessage msg) =>
-            WorldObjectSendHandlers.SendThrowableDespawn(msg);
-
         public void SendEntityDespawn(short entityId) =>
             WorldObjectSendHandlers.SendEntityDespawn(entityId);
 

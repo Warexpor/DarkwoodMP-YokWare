@@ -38,6 +38,8 @@ namespace DWMPHorde.Networking
         public GameObject FlareFx;
         /// <summary>Last streamed flare item type (for FX prefab resolution).</summary>
         public string FlareItemType;
+        /// <summary>unscaledTime this player last threw a flare (held-flare re-ON guard).</summary>
+        public float HeldFlareThrownAt = -1f;
         public GameObject ItemLight;
 
         /// <summary>Last applied event-path PlayerLightState fingerprint (skip no-ops / re-spawns).</summary>

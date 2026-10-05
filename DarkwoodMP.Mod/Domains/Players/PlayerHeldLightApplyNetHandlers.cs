@@ -45,6 +45,9 @@ namespace DWMPHorde.Networking
             HandleRemoteFlashlightStream(state, playerId);
         }
 
+        /// <summary>A held-flare flag this soon after that player's throw predates the throw.</summary>
+        private const float StaleHeldFlareAfterThrowSec = 0.5f;
+
         internal void HandleRemoteFlareLight(PlayerStateMessage state, int playerId)
         {
             // Flare or match continuous held burn light (LightFlagFlare).
@@ -59,9 +62,17 @@ namespace DWMPHorde.Networking
                 && Sync.WorldPhysicsSyncService.IsThrownLightFading(fadeCheck.FlareLight))
                 return;
 
-            // Soft extinguish when remain hits 0 while still flagged, or flag drops after burn.
-            bool wantSoftOff = hasRemain && remain01 == 0 && flagOn;
-            bool heldOn = flagOn && !(hasRemain && remain01 == 0);
+            // A match fades from the streamed remain. A flare runs vanilla's own clock on this
+            // peer (FlareClock): it dims and dies by itself, and goes when the owner's flag drops.
+            bool isMatch = state.MatchActive;
+            bool wantSoftOff = isMatch && hasRemain && remain01 == 0 && flagOn;
+            bool heldOn = flagOn && !(isMatch && hasRemain && remain01 == 0);
+
+            // A PlayerState sent before the flare was thrown can arrive after the throw.
+            if (heldOn && !isMatch && _net.RemotePlayers.TryGetValue(playerId, out var thrownCheck)
+                && thrownCheck.FlareLight == null && thrownCheck.HeldFlareThrownAt >= 0f
+                && Time.unscaledTime - thrownCheck.HeldFlareThrownAt < StaleHeldFlareAfterThrowSec)
+                return;
 
             if (heldOn)
             {
@@ -77,10 +88,10 @@ namespace DWMPHorde.Networking
                 if (state.FlareHasItemType && !string.IsNullOrEmpty(state.FlareItemType))
                     remoteState.FlareItemType = state.FlareItemType;
 
-                // V5: last ~2s of ~80s life ≈ remain01 < 6 (2/80*255). Scale intensity.
+                // Match only (a flare fades on its own clock): last stretch of its life dims it.
                 const byte remainFadeThreshold = 6;
                 float remainScale = 1f;
-                if (hasRemain && remain01 > 0 && remain01 < remainFadeThreshold)
+                if (isMatch && hasRemain && remain01 > 0 && remain01 < remainFadeThreshold)
                     remainScale = remain01 / (float)remainFadeThreshold;
 
                 if (rising)
@@ -102,7 +113,6 @@ namespace DWMPHorde.Networking
                     if (proxy != null && remoteState.FlareLight.transform.parent != proxy.transform)
                     {
                         remoteState.FlareLight.transform.SetParent(proxy.transform, false);
-                        remoteState.FlareLight.transform.localRotation = Quaternion.identity;
                     }
                     remoteState.FlareLight.transform.localPosition = localOff;
                     // FlareFx is unused for unified held flare (same GO); keep in sync if legacy.
@@ -191,16 +201,24 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            GameObject go = UnityEngine.Object.Instantiate(prefab);
+            // Vanilla Player aim: the throwable is spawned under the player at Euler(90,0,0) with
+            // its own sprite hidden (only the burning end shows while held).
+            GameObject go = Core.AddPrefab(prefab, Vector3.zero, Quaternion.Euler(90f, 0f, 0f), proxy.gameObject);
+            if (go == null)
+                return;
             go.name = $"RemoteHeldFlare_P{playerId}";
-            go.transform.SetParent(proxy.transform, false);
             go.transform.localPosition = localOff;
-            go.transform.localRotation = Quaternion.identity;
+            Renderer stick = go.GetComponent<Renderer>();
 
             StripRemoteHeldFlareComponents(go);
 
-            // Keep Flare for flicker/lightFlare rotation; network owns burnout.
-            Sync.WorldPhysicsSyncService.ClaimFlareLifetime(go);
+            // The owner lit it on aim: run vanilla's flare clock from the same point (glow phase,
+            // burn-out and fade all vanilla), from the streamed share of its life left.
+            Flare clockFlare = go.GetComponentInChildren<Flare>(true);
+            float age = 0f;
+            if (clockFlare != null && (state.LightFlags & PlayerStateMessage.LightFlagRemain) != 0)
+                age = (1f - state.HeldLightRemain01 / 255f) * (clockFlare.longevity + Sync.FlareClock.FadeSec);
+            Sync.FlareClock.MakeCopy(go, age);
 
             // Exactly one active Light2D (prefab may nest extras).
             Light2D primary = null;
@@ -222,14 +240,15 @@ namespace DWMPHorde.Networking
             {
                 if (!primary.gameObject.activeSelf)
                     primary.gameObject.SetActive(true);
+                // Light2D.Start (next frame) lists it in the logic lights; adding it here too
+                // listed it twice.
                 primary.lightsPlayer = true;
                 primary.updateGraph = true;
-                var ctrl = Singleton<Controller>.Instance;
-                if (ctrl != null && !ctrl.logicLights.Contains(primary))
-                    ctrl.logicLights.Add(primary);
             }
 
             PlayerLightFxAmbientNetHandlers.EnsureEmitterVisible(go);
+            if (stick != null)
+                stick.enabled = false; // vanilla hides the held stick; the line above enabled all
             PlayerLightFxAmbientNetHandlers.PlayAllParticleSystems(go);
             PlayerLightFxAmbientNetHandlers.SetupParticleSorting(go);
             ApplyRemoteHeldLightParams(go, state, remainScale);
@@ -251,8 +270,18 @@ namespace DWMPHorde.Networking
             {
                 Component c = comps[i];
                 if (c == null) continue;
-                if (c is Rigidbody)
-                    UnityEngine.Object.Destroy(c);
+                if (c is Rigidbody rb)
+                {
+                    // A held flare keeps its (kinematic) body: vanilla Flare.Update reads it
+                    // unguarded, and without it threw every frame on every peer.
+                    if (destroyFlare)
+                        UnityEngine.Object.Destroy(rb);
+                    else
+                    {
+                        rb.isKinematic = true;
+                        rb.detectCollisions = false;
+                    }
+                }
                 else if (c is Collider col)
                     col.enabled = false;
                 else if (c is ThrownItem)

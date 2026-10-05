@@ -74,77 +74,6 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>
-        /// Record Flare.Start time (vanilla burn clock starts on aim when heldItem is spawned).
-        /// Total light life = longevity + <see cref="FlareBurnoutFadeSec"/>.
-        /// </summary>
-        public static void NoteFlareBurnStart(GameObject go, float longevity)
-        {
-            if (go == null) return;
-            float lon = longevity > 0.05f ? longevity : 3f;
-            _s.Thrown.FlareBurnStarts[go.GetInstanceID()] = new FlareBurnStart
-            {
-                StartTime = Time.time,
-                Longevity = lon
-            };
-        }
-
-        /// <summary>
-        /// Remaining seconds until light is fully dark (longevity + fade − elapsed).
-        /// Packet LongevitySec uses this; track ExpireAt = now + (remain − fade) so fade starts on time.
-        /// </summary>
-        public static float GetFlareRemainingUntilDark(GameObject go, float longevityFallback = 3f)
-        {
-            float lon = longevityFallback > 0.05f ? longevityFallback : 3f;
-            float total = lon + FlareBurnoutFadeSec;
-            if (go == null)
-                return total;
-            if (!_s.Thrown.FlareBurnStarts.TryGetValue(go.GetInstanceID(), out FlareBurnStart b))
-                return total;
-            float elapsed = Time.time - b.StartTime;
-            float remain = (b.Longevity + FlareBurnoutFadeSec) - elapsed;
-            return Mathf.Max(0.15f, remain);
-        }
-
-        /// <summary>Seconds from now until fade should begin, given remaining-until-dark budget.</summary>
-        public static float UntilFadeStart(float remainingUntilDark)
-        {
-            return Mathf.Max(0.05f, remainingUntilDark - FlareBurnoutFadeSec);
-        }
-
-        /// <summary>
-        /// Host: track a local thrower's projectile so TickThrownLightExpiry can despawn peers
-        /// (host never receives its own ThrowableSpawn).
-        /// </summary>
-        /// <param name="remainingUntilDark">Seconds until light is fully out (includes fade).</param>
-        public static void RegisterLocalThrownLight(int throwId, GameObject go, float remainingUntilDark, string itemType)
-        {
-            if (go == null || throwId <= 0) return;
-            ClaimFlareLifetime(go);
-            float expireAt = Time.time + UntilFadeStart(remainingUntilDark);
-            var track = new ThrownLightTrack
-            {
-                ThrowId = throwId,
-                Go = go,
-                ExpireAt = expireAt,
-                ItemType = itemType ?? ""
-            };
-            // Replace existing same throwId
-            for (int i = _s.Thrown.ThrownLights.Count - 1; i >= 0; i--)
-            {
-                if (_s.Thrown.ThrownLights[i].ThrowId == throwId)
-                    _s.Thrown.ThrownLights.RemoveAt(i);
-            }
-            _s.Thrown.ThrownLights.Add(track);
-            _s.Thrown.ThrownById[throwId] = track;
-            ModRuntime.LegacyInfo($"[ThrowableTrack] host local throwId={throwId} type={itemType} untilFade={(expireAt - Time.time).ToString("F2")} untilDark={remainingUntilDark.ToString("F2")}");
-            // Event so Public/Support presets still see flare track (LegacyInfo is Dev-only).
-            Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableTrack] host local throwId=" + throwId
-                + " type=" + itemType
-                + " untilFade=" + (expireAt - Time.time).ToString("F1")
-                + "s untilDark=" + remainingUntilDark.ToString("F1") + "s claimedLifetime=1");
-        }
-
         /// <summary>True when packet is a grounded late-join / re-sync (no flight).</summary>
         public static bool IsGroundedThrownSpawn(ThrowableSpawnMessage msg)
         {
@@ -200,12 +129,11 @@ namespace DWMPHorde.Sync
 
             if (!primary.gameObject.activeSelf)
                 primary.gameObject.SetActive(true);
-            // Match vanilla prefab: lightsPlayer must draw the radial, but only once.
+            // Match vanilla prefab: lightsPlayer must draw the radial, but only once. Light2D.Start
+            // (next frame, on a fresh copy) adds it to the logic lights itself; adding it here too
+            // listed it twice.
             primary.lightsPlayer = true;
             primary.updateGraph = true;
-            var ctrl = Singleton<Controller>.Instance;
-            if (ctrl != null && !ctrl.logicLights.Contains(primary))
-                ctrl.logicLights.Add(primary);
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[ThrowableSpawn] flare light ok {itemType} radius={primary.LightRadius} intensity={primary.LightIntensity}");

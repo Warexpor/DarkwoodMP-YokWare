@@ -72,10 +72,8 @@ namespace DWMPHorde.Networking
         public float AimY;
         public float Distance;
         public float VelX, VelY, VelZ;
-        /// <summary>Stable throw instance id (0 = none).</summary>
-        public int ThrowId;
-        /// <summary>Seconds until light/projectile expires (0 = use prefab default).</summary>
-        public float LongevitySec;
+        /// <summary>A flare: seconds since it was lit (FlareClock); -1 for anything else.</summary>
+        public float FlareAge;
         /// <summary>
         /// Vanilla <see cref="ThrownItem.landTarget"/> after throwItem (valid when <see cref="HasLandTarget"/>).
         /// Peers use this so checkIfWantToLand / flyTime match the thrower's arc.
@@ -95,8 +93,7 @@ namespace DWMPHorde.Networking
             w.Put(AimY);
             w.Put(Distance);
             w.Put(VelX); w.Put(VelY); w.Put(VelZ);
-            w.Put(ThrowId);
-            w.Put(LongevitySec);
+            w.Put(FlareAge);
             w.Put(HasLandTarget);
             w.Put(LandX); w.Put(LandY); w.Put(LandZ);
             w.Put(Recoverable);
@@ -118,8 +115,7 @@ namespace DWMPHorde.Networking
                 VelY = r.GetFloat(),
                 VelZ = r.GetFloat()
             };
-            msg.ThrowId = r.GetInt();
-            msg.LongevitySec = r.GetFloat();
+            msg.FlareAge = r.GetFloat();
             msg.HasLandTarget = r.GetBool();
             msg.LandX = r.GetFloat();
             msg.LandY = r.GetFloat();

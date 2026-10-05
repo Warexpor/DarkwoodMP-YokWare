@@ -178,22 +178,8 @@ namespace DWMPHorde.Sync
         private const float StateKeyResyncSeconds = 10f;
         private const int StateKeyResyncPerPass = 4;
 
-        private struct ThrownLightTrack
-        {
-            public int ThrowId;
-            public GameObject Go;
-            public float ExpireAt;
-            public string ItemType;
-        }
-
         /// <summary>Vanilla Flare.waitToDie fade length after longevity elapses.</summary>
         public const float FlareBurnoutFadeSec = 2f;
-
-        private struct FlareBurnStart
-        {
-            public float StartTime;
-            public float Longevity;
-        }
 
         private struct ThrownLightFade
         {
@@ -204,28 +190,6 @@ namespace DWMPHorde.Sync
             public Light2D[] Lights;
             /// <summary>Optional sibling (held FlareFx) destroyed after fade completes.</summary>
             public GameObject SiblingDestroy;
-        }
-
-        /// <summary>
-        /// The network owns the lifetime; keep Flare for flicker and rotation
-        /// while Harmony skips waitToDie.
-        /// </summary>
-        public static void ClaimFlareLifetime(GameObject go)
-        {
-            if (go == null) return;
-            var auth = go.GetComponent<NetworkFlareLifetime>();
-            if (auth == null)
-                auth = go.AddComponent<NetworkFlareLifetime>();
-            auth.NetworkOwnsDie = true;
-            // Mark child Flare roots too so parent lookup finds the lifetime.
-            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
-            {
-                if (fl == null || fl.gameObject == go) continue;
-                var childAuth = fl.GetComponent<NetworkFlareLifetime>();
-                if (childAuth == null)
-                    childAuth = fl.gameObject.AddComponent<NetworkFlareLifetime>();
-                childAuth.NetworkOwnsDie = true;
-            }
         }
 
         private static readonly List<GeneratorState> _generators = new List<GeneratorState>(); // process-scoped: per-build scratch
