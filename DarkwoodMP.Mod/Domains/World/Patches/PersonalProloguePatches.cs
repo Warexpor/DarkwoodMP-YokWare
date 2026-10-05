@@ -54,7 +54,8 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// The host's home oven is not a new player's. Runs right after the dream state is loaded: a
     /// save the host made mid-prologue would resume the host's prologue dream at load (SaveManager
-    /// wantToDream); the joiner starts its own instead.
+    /// wantToDream); the joiner starts its own instead. Nor are the host's per-player flags (help
+    /// popups seen, first oven talk, its night), loaded with the save's flags just before.
     /// </summary>
     [HarmonyPatch(typeof(Player.SaveState), nameof(Player.SaveState.loadValues2))]
     public static class PrologueFreshCharacterOvenPatch
@@ -67,6 +68,7 @@ namespace DWMPHorde.Patches
             if (d != null)
                 d.wantToDream = false;
             SetNewGameHome(Player.Instance);
+            DWMPHorde.Networking.ClientStateBackup.ResetPlayerFlagsForNewCharacter();
             return false;
         }
 

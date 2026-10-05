@@ -166,7 +166,7 @@ namespace DWMPHorde.Sync
 
         // ------------------------------------------------------------ sections
 
-        /// <summary>Story flags (database flags), minus the per-player "where am I" ones that stay local.</summary>
+        /// <summary>Story flags (database flags), minus the per-player ones that stay local.</summary>
         private static void CollectFlags(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
             Flags flags = Singleton<Flags>.Instance;
@@ -175,7 +175,7 @@ namespace DWMPHorde.Sync
             foreach (KeyValuePair<string, Flags.Flag> kv in flags.flagsDict)
             {
                 Flags.Flag f = kv.Value;
-                if (f == null || FlagSyncBoolPatch.IsPerPlayerSpatialFlag(kv.Key))
+                if (f == null || PerPlayerFlagPolicy.IsPerPlayer(kv.Key))
                     continue;
                 // Defaults are left out on both sides, so "never set" and "set false" agree.
                 if (!f.isTrue && f.amount == 0)

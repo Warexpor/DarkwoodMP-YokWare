@@ -18,11 +18,41 @@ namespace DWMPHorde
 
     /// <summary>
     /// One active speaker per NPC slot. Different NPCs may be held in parallel
-    /// (Dictionary of slots); same NPC is serialized.
+    /// (one slot per NPC: name, world and spot); same NPC is serialized.
     /// </summary>
     public static class NpcDialogueLockPolicy
     {
         public const float DefaultLeaseSeconds = 90f;
+
+        /// <summary>
+        /// NPC.name is not unique: the vanilla data has 10 NPCs named oven, 24 doctor, 8 musician,
+        /// 7 wolfman, 4 shrine_village, 4 talkingTree. Two of one name in different places are
+        /// thousands of units apart (each hideout's oven, each location's doctor); the closest
+        /// distinct ones in one location are the train-wreck doctor variants (~150 apart, never
+        /// out together), and twins at one spot (the shrine alive / dead) are one talker. Within
+        /// this radius on the ground plane it is the same NPC; it also covers one that walked
+        /// (the wolfman, a following doctor) between two peers' views.
+        /// </summary>
+        public const float SameNpcRadius = 300f;
+
+        /// <summary>
+        /// Same talker: same name (case-insensitive, as NPC lookups match) and, when both sides
+        /// know where it stands, within <see cref="SameNpcRadius"/>. Without a position (an older
+        /// peer) the name alone decides.
+        /// </summary>
+        public static bool IsSameNpc(string nameA, bool hasPosA, float ax, float az,
+            string nameB, bool hasPosB, float bx, float bz)
+        {
+            if (string.IsNullOrEmpty(nameA) || string.IsNullOrEmpty(nameB))
+                return false;
+            if (!string.Equals(nameA, nameB, System.StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!hasPosA || !hasPosB)
+                return true;
+            float dx = ax - bx;
+            float dz = az - bz;
+            return dx * dx + dz * dz <= SameNpcRadius * SameNpcRadius;
+        }
 
         /// <summary>
         /// Per-NPC slot: free if unheld (owner &lt; 0), expired, or same owner renewing.

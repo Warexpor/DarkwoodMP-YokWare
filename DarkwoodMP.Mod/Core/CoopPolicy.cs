@@ -248,14 +248,23 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>
+        /// <c>NPC.name</c> of every vanilla NPC whose Character has <c>isNightTrader</c> set
+        /// (scene + prefab data): the night trader, the Three, and the underground soldier
+        /// (outside_bunker_underground_part2_01). Used when the NPC is not loaded, e.g. after
+        /// the trader is removed at day end.
+        /// </summary>
+        private static readonly string[] NightTraderNpcNames = { "nightTrader", "theThree", "soldier_underground" };
+
         /// <summary>Morning traders keep per-player standing.</summary>
         public static bool IsPerPlayerReputationNpcName(string npcName)
         {
             if (string.IsNullOrEmpty(npcName)) return false;
-            if (npcName == "NightTrader" || npcName == "TheThree")
-                return true;
-            if (npcName.StartsWith("NightTrader") || npcName.StartsWith("TheThree"))
-                return true;
+            for (int i = 0; i < NightTraderNpcNames.Length; i++)
+            {
+                if (string.Equals(npcName, NightTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
             return false;
         }
 
@@ -290,6 +299,85 @@ namespace DWMPHorde
         /// </summary>
         public static bool ShouldRunPersonalEffectsOnApply(int actorPlayerId, int localPlayerId)
             => actorPlayerId > 0 && localPlayerId > 0 && actorPlayerId == localPlayerId;
+    }
+
+    /// <summary>
+    /// World flags (WorldFlagsDatabase) that describe one player, not the shared world. They stay
+    /// local on every peer: no live FlagSync, no join bulk, no host replay of a peer's dialogue or
+    /// GameEvent writing them on the host, no desync compare.
+    /// </summary>
+    public static class PerPlayerFlagPolicy
+    {
+        /// <summary>
+        /// The player's own experience, from the vanilla setters and readers: the one-time help
+        /// popups (map open, first active skill, secondary attack, first drained reloadable), the
+        /// first talk to its own home oven, and its night (<c>player_survivedNight</c> set at its
+        /// dawn, <c>player_diedDuringNight</c> on its night death; the trader greets by them and
+        /// clears both on close). The other <c>player_*</c> flags are world story: the night gift
+        /// chest, the radio night, the cellar dream, the hideout unlocks (porter), the epilogue,
+        /// and <c>player_transportingFromCh1</c> (carries everyone into chapter 2).
+        /// </summary>
+        private static readonly string[] ExperienceFlags =
+        {
+            "player_shownMapPopup",
+            "player_shownActiveSkillPopup",
+            "player_firstActiveSkillObtained",
+            "player_shownSecondaryAttackPopup",
+            "player_firstDrainReloadableItem",
+            "player_firstOvenInteraction",
+            "player_survivedNight",
+            "player_diedDuringNight",
+            "player_diedAtLeastOneTime"
+        };
+
+        /// <summary>Set by vanilla <c>Flags.setCh2flags</c> for every player entering chapter 2.</summary>
+        private static readonly string[] Chapter2TrueFlags =
+        {
+            "player_shownMapPopup",
+            "player_shownActiveSkillPopup"
+        };
+
+        /// <summary>Per-player flags kept in the client's own character snapshot.</summary>
+        public static string[] PersistedFlags => (string[])ExperienceFlags.Clone();
+
+        /// <summary>Per-player flags vanilla turns on when the chapter-2 world is entered.</summary>
+        public static string[] Chapter2Flags => (string[])Chapter2TrueFlags.Clone();
+
+        /// <summary>
+        /// Where this one player is or is arriving: hideout bookkeeping (<c>player_in*</c>), "at the
+        /// doctor's house" (hides talk options there), "entering the road from the radio tower"
+        /// (picks the entry spawn). Recomputed from position, so never persisted.
+        /// </summary>
+        public static bool IsSpatial(string flagName)
+        {
+            if (string.IsNullOrEmpty(flagName))
+                return false;
+            return flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase)
+                || flagName.StartsWith("player_at", System.StringComparison.OrdinalIgnoreCase)
+                || flagName.StartsWith("player_entering", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsExperience(string flagName)
+        {
+            if (string.IsNullOrEmpty(flagName))
+                return false;
+            for (int i = 0; i < ExperienceFlags.Length; i++)
+            {
+                if (string.Equals(flagName, ExperienceFlags[i], System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        public static bool IsPerPlayer(string flagName) => IsSpatial(flagName) || IsExperience(flagName);
+
+        /// <summary>
+        /// Vanilla sets <c>player_survivedNight</c> in <c>startBeforeDay</c>, which a player who died
+        /// that night never reaches (<c>skipDay</c> jumps past it). The shared clock reaches it for
+        /// everyone; only a player alive at dawn counts as having survived.
+        /// </summary>
+        public static bool SurvivedNight(int nightDay, int localNightDeathDay)
+            => localNightDeathDay != nightDay;
     }
 }
 

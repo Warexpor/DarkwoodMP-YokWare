@@ -21,31 +21,13 @@ namespace DWMPHorde.Patches
         private static readonly List<string> _flushKeys = new List<string>(16); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>
-        /// Spatial / per-peer location flags stay local on each peer. Syncing them made
-        /// host and client thrash (playtest: player_inFirstHideout true/false every second
-        /// → client stutter + hideout logic churn). Story flags still sync.
+        /// Per-player flags (<see cref="PerPlayerFlagPolicy"/>) stay local on each peer. Syncing
+        /// the spatial ones made host and client thrash (playtest: player_inFirstHideout
+        /// true/false every second → client stutter + hideout logic churn); syncing the experience
+        /// ones handed one player's tutorial popups and night outcome to everyone. Story flags
+        /// still sync.
         /// </summary>
-        internal static bool IsLocalOnlyEphemeralFlag(string flagName)
-        {
-            if (string.IsNullOrEmpty(flagName))
-                return false;
-            return IsPerPlayerSpatialFlag(flagName);
-        }
-
-        /// <summary>
-        /// Where this one player is or is arriving: hideout bookkeeping (<c>player_in*</c>), "at the
-        /// doctor's house" (hides talk options there), "entering the road from the radio tower"
-        /// (picks the entry spawn). <c>player_transportingFromCh1</c> is not one: it travels in the
-        /// chapter save and every player is carried into chapter 2 by it.
-        /// </summary>
-        internal static bool IsPerPlayerSpatialFlag(string flagName)
-        {
-            if (string.IsNullOrEmpty(flagName))
-                return false;
-            return flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase)
-                || flagName.StartsWith("player_at", System.StringComparison.OrdinalIgnoreCase)
-                || flagName.StartsWith("player_entering", System.StringComparison.OrdinalIgnoreCase);
-        }
+        internal static bool IsLocalOnlyFlag(string flagName) => PerPlayerFlagPolicy.IsPerPlayer(flagName);
 
         public static void Reset()
         {
@@ -77,7 +59,7 @@ namespace DWMPHorde.Patches
                     continue;
                 _pendingBoolFlags.Remove(name);
 
-                if (IsLocalOnlyEphemeralFlag(name))
+                if (IsLocalOnlyFlag(name))
                     continue;
 
                 // Skip if we already successfully sent this value
@@ -112,8 +94,8 @@ namespace DWMPHorde.Patches
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
-            // Never network spatial/location flags (local-only on each peer).
-            if (IsLocalOnlyEphemeralFlag(flagName))
+            // Never network per-player flags (local-only on each peer).
+            if (IsLocalOnlyFlag(flagName))
                 return;
 
             // Already successfully sent this value
@@ -136,7 +118,7 @@ namespace DWMPHorde.Patches
 
         private static void TrySend(LanNetworkManager net, string flagName, bool newValue, float now)
         {
-            if (IsLocalOnlyEphemeralFlag(flagName))
+            if (IsLocalOnlyFlag(flagName))
                 return;
 
             var msg = new FlagSyncMessage { Name = flagName, IsInt = false, BoolValue = newValue, IntValue = 0 };
@@ -190,6 +172,9 @@ namespace DWMPHorde.Patches
                     continue;
                 _pendingIntFlags.Remove(name);
 
+                if (FlagSyncBoolPatch.IsLocalOnlyFlag(name))
+                    continue;
+
                 if (_lastSentIntFlags.TryGetValue(name, out int last) && last == value)
                     continue;
 
@@ -215,6 +200,9 @@ namespace DWMPHorde.Patches
 
             var net = ModRuntime.Network;
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
+                return;
+
+            if (FlagSyncBoolPatch.IsLocalOnlyFlag(flagName))
                 return;
 
             if (_lastSentIntFlags.TryGetValue(flagName, out int lastValue) && lastValue == newValue)

@@ -82,16 +82,15 @@ namespace DWMPHorde.Patches
 
             DialogBoardCommit.NoteChoiceDest(target);
 
-            net.Send(NetMessageType.DialogOutcomeSync,
-                w => new DialogOutcomeSyncMessage
-                {
-                    NpcName = dw.npc.name,
-                    DecisionIndex = index,
-                    DialogueName = sourceDialogue,
-                    BoardIndex = boardIdx,
-                    TargetDialogueName = target
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
+            var msg = new DialogOutcomeSyncMessage
+            {
+                DecisionIndex = index,
+                DialogueName = sourceDialogue,
+                BoardIndex = boardIdx,
+                TargetDialogueName = target
+            };
+            DialogOutcomeNpc.Stamp(ref msg, NpcRef.Of(dw.npc));
+            net.Send(NetMessageType.DialogOutcomeSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] Client → host: NPC={dw.npc.name} " +
@@ -103,6 +102,20 @@ namespace DWMPHorde.Patches
     internal class DialogChoiceIndex : UnityEngine.MonoBehaviour
     {
         public int Index;
+    }
+
+    /// <summary>Which NPC a dialogue outcome is for: name plus spot and world (NPC.name is not unique).</summary>
+    internal static class DialogOutcomeNpc
+    {
+        internal static void Stamp(ref DialogOutcomeSyncMessage msg, NpcRef npc)
+        {
+            msg.NpcName = npc.Name ?? "";
+            msg.HasPos = npc.HasPos;
+            msg.PosX = npc.Pos.x;
+            msg.PosY = npc.Pos.y;
+            msg.PosZ = npc.Pos.z;
+            msg.Dream = npc.Dream;
+        }
     }
 
     /// <summary>Skip dest-board commits after onPress (host drain applies dest).</summary>

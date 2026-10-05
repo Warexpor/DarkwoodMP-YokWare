@@ -99,6 +99,7 @@ namespace DWMPHorde.Networking
             RestoreActiveEffects(data);
             RestoreLocalMapMarkers(data);
             RestoreNightTraderReputations(data);
+            RestorePlayerFlags(data);
             RestoreHomeOven(data);
 
             // Position was always collected on Save; apply on restore so rejoin returns to exit spot.
@@ -284,6 +285,71 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[ClientBackup] restored {data.NightTraderReputations.Count} night-trader reputation(s)");
+        }
+
+        /// <summary>
+        /// The loaded world's per-player flags are the host's (its popups, its oven, its night):
+        /// put back this player's own, so a rejoin does not show the help popups again or greet
+        /// it by the host's night.
+        /// </summary>
+        private static void RestorePlayerFlags(ClientStateBackupData data)
+        {
+            if (data?.PlayerFlags == null)
+                return;
+            var flags = Singleton<Flags>.Instance;
+            if (flags == null) return;
+            int n = 0;
+            for (int i = 0; i < data.PlayerFlags.Count; i++)
+            {
+                FlagEntry e = data.PlayerFlags[i];
+                if (e == null || !PerPlayerFlagPolicy.IsExperience(e.Name))
+                    continue;
+                SetPlayerFlag(flags, e.Name, e.IsTrue, e.Amount);
+                n++;
+            }
+            ApplyChapterPlayerFlags(flags);
+            ModRuntime.LegacyInfo($"[ClientBackup] restored {n} per-player flag(s)");
+        }
+
+        /// <summary>
+        /// A character new to the world (no snapshot of its own): vanilla's new-game values
+        /// (WorldFlagsDatabase: all off), not the host's from the loaded save.
+        /// </summary>
+        internal static void ResetPlayerFlagsForNewCharacter()
+        {
+            var flags = Singleton<Flags>.Instance;
+            if (flags == null) return;
+            string[] names = PerPlayerFlagPolicy.PersistedFlags;
+            for (int i = 0; i < names.Length; i++)
+                SetPlayerFlag(flags, names[i], false, 0);
+            ApplyChapterPlayerFlags(flags);
+            ModRuntime.LegacyInfo("[ClientBackup] fresh character — per-player flags at new-game values");
+        }
+
+        /// <summary>Vanilla <c>Flags.setCh2flags</c> turns these on for every player entering chapter 2.</summary>
+        private static void ApplyChapterPlayerFlags(Flags flags)
+        {
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            if (wg == null || wg.chapterID < 2)
+                return;
+            string[] ch2 = PerPlayerFlagPolicy.Chapter2Flags;
+            for (int i = 0; i < ch2.Length; i++)
+                flags.setFlag(ch2[i], activeModifier: true);
+        }
+
+        private static void SetPlayerFlag(Flags flags, string name, bool isTrue, int amount)
+        {
+            if (flags.flagsDict.TryGetValue(name, out Flags.Flag f) && f != null)
+            {
+                f.isTrue = isTrue;
+                f.amount = amount;
+                return;
+            }
+            // Unset and staying at the default: nothing to add.
+            if (!isTrue && amount == 0)
+                return;
+            flags.setFlag(name, isTrue);
+            flags.setFlag(name, amount);
         }
 
         /// <summary>

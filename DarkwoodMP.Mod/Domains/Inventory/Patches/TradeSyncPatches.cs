@@ -102,9 +102,8 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null) return;
 
-            string npcName = __instance.npc.name;
             int localId = net.LocalPlayerId;
-            NpcDialogueLock.RenewLease(npcName, localId);
+            NpcDialogueLock.RenewLease(__instance.npc, localId);
 
             // Host fans out authoritative stock; a client sends what it traded for the host to check.
             if (net.Role == NetworkRole.Host)
@@ -181,7 +180,7 @@ namespace DWMPHorde.Patches
             if (dw != null && dw.opened && dw.npc == npc)
                 return true;
             var net = ModRuntime.Network;
-            int owner = NpcDialogueLock.GetOwner(npc.name);
+            int owner = NpcDialogueLock.GetOwner(NpcRef.Of(npc));
             return owner > 0 && net != null && owner != net.LocalPlayerId;
         }
 
