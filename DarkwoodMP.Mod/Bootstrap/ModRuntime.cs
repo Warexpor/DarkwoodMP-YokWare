@@ -291,6 +291,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(PadWeather.Reset);
             NetworkResetRegistry.Register(NightVillage.Reset);
             NetworkResetRegistry.Register(LocalBearTrap.Reset);
+            NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);

@@ -32,6 +32,14 @@ namespace DWMPHorde.Sync
                 AudioController.StopMusic(1f);
                 Core.spawnCharactersAtNight = true;
 
+                // Vanilla endDreaming: drop whatever the dream left in hand or in progress, or a
+                // dream item stayed on the cursor and a half-done action ran on in the overworld.
+                player.deselectObject(force: true);
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && !InvItemClass.isNull(ctrl.pickedUpItem))
+                    ctrl.pickedUpItem = null;
+                player.stopWhatImDoing();
+
                 player.Hotbar.clear();
                 player.Inventory.clear();
                 if (dreams.inventorySlotsCopy.Count > 0)
@@ -109,9 +117,18 @@ namespace DWMPHorde.Sync
                 player.Hotbar.selectSlot(0, noiseless: true, force: true);
 
                 // Prefer freeze snapshot over timeCopy when remote startDreaming overwrote it.
-                int restoreTime = _worldFrozen && _savedGameTime > 0
+                // The tutorial wakes at its fixed hour (vanilla timeCopy = 5), not at the snapshot.
+                bool tutorialWake = dreams.preset != null
+                    && Core.getTrueLocationName(dreams.preset.name) == "dream_tutorial_01";
+                int restoreTime = !tutorialWake && _worldFrozen && _savedGameTime > 0
                     ? _savedGameTime
                     : (int)dreams.timeCopy;
+                // Vanilla sets the outcome's own wake time (customEndTime) after the restore; the
+                // personal-effects pass above ran first and its end time was overwritten here.
+                global::DreamPreset.Outcome endOc = FindOutcome(dreams, pendingOutcome);
+                if (endOc != null && endOc.customEndTime && endOc.effects != null && endOc.effects.Count > 0
+                    && !FinalDreamsceneManager.WasLocalDeadThisDream)
+                    restoreTime = endOc.endTime;
                 dreams.timeCopy = restoreTime;
                 Singleton<Controller>.Instance.CurrentTime = restoreTime;
                 UnfreezeWorld(restoreTime: false);
@@ -390,8 +407,18 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            if (!worldEvents && outcomePreset.customEndTime)
-                Singleton<Controller>.Instance.CurrentTime = outcomePreset.endTime;
+        }
+
+        private static global::DreamPreset.Outcome FindOutcome(Dreams dreams, string outcomeName)
+        {
+            if (dreams?.preset?.outcomes == null || string.IsNullOrEmpty(outcomeName))
+                return null;
+            foreach (var oc in dreams.preset.outcomes)
+            {
+                if (oc != null && oc.name == outcomeName)
+                    return oc;
+            }
+            return null;
         }
 
         /// <summary>True when a physics object should sync during an active dream.</summary>

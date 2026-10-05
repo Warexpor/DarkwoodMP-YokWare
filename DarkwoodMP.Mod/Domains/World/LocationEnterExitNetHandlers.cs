@@ -70,8 +70,29 @@ namespace DWMPHorde.Networking
                 // The host keeps every pad a player is in running. A client activates only its
                 // own pad: activating a pad another peer is in ran it here with nothing to
                 // ever leave it again.
-                if (_net.Role == NetworkRole.Host || IsLocalIn(ol, locName))
+                if (_net.Role == NetworkRole.Host)
+                {
+                    // The pad's on-enter events are this peer's arrival: credit them to it, so a
+                    // personal step (items, recipes, a teleport) lands on it and not the host.
+                    GeFireActorContext.Push(playerId);
+                    try
+                    {
+                        bool wasEntered = loc.entered && loc.gameObject.activeInHierarchy;
+                        EnsureEntered(loc);
+                        // Already running for someone else: the entry's one-shots that never
+                        // latched (the first visitor failed a requirement) still get this visitor.
+                        if (wasEntered && firstEnterThisLoc)
+                            FirePendingEnterOneShots(loc);
+                    }
+                    finally
+                    {
+                        GeFireActorContext.Pop();
+                    }
+                }
+                else if (IsLocalIn(ol, locName))
+                {
                     EnsureEntered(loc);
+                }
 
                 // Place the proxy on its first enter here (last PlayerState if it is in this pad,
                 // else the pad's playerSpawn), after a deferred resolve, or when it is missing
@@ -209,6 +230,27 @@ namespace DWMPHorde.Networking
                 return false;
             string local = Sync.DreamSyncManager.CanonicalDreamLocationName(ol.currentLocationName ?? "");
             return CoopWorldPresencePolicy.LocationNamesMatch(local, locName);
+        }
+
+        private static void FirePendingEnterOneShots(Location loc)
+        {
+            if (Core.loadingGame || loc.events == null)
+                return;
+            for (int i = 0; i < loc.events.Count; i++)
+            {
+                EventTriggers et = loc.events[i];
+                if (et == null || et.eventTriggers == null)
+                    continue;
+                bool pending = false;
+                for (int j = 0; j < et.eventTriggers.Count && !pending; j++)
+                {
+                    EventTrigger t = et.eventTriggers[j];
+                    pending = t != null && !t.disabled && !t.multipleFire && !t.fired
+                        && t.type == EventTrigger.Type.onEnterLocation;
+                }
+                if (pending)
+                    Core.sendTriggerInfo(et.gameObject, EventTrigger.Type.onEnterLocation);
+            }
         }
 
         internal static void EnsureEntered(Location loc)

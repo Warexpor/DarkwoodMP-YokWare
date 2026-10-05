@@ -66,6 +66,12 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Sync.DreamSyncManager.OnPeerDreamEntryTransition();
                     break;
 
+                case CutsceneSyncMessage.ActionDreamEntryCancel:
+                    if (_net.Role == NetworkRole.Host)
+                        return;
+                    DWMPHorde.Sync.DreamSyncManager.CancelRefusedEntry();
+                    break;
+
                 case CutsceneSyncMessage.ActionPrologueStart:
                     if (_net.Role == NetworkRole.Host)
                         return;

@@ -62,7 +62,8 @@ namespace DWMPHorde.Networking
             bool survivor = IsMigrationSurvivorAddress(remote.m_SteamID.ToString());
             if (!allowDreamJoin && !survivor
                 && (Sync.DreamSession.ShouldRejectNewConnections
-                    || Sync.DreamSyncManager.IsDreamActive))
+                    || Sync.DreamSyncManager.IsDreamActive
+                    || Sync.DreamSyncManager.IsHostDreamEntryPending))
             {
                 ModLog.Warn(LogCat.Network, "Steam reject " + remote.m_SteamID + " — dream join blocked");
                 Steam.CloseSession(remote);

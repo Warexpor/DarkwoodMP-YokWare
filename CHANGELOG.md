@@ -8,7 +8,9 @@ The current product line is `0.8.x`. The plugin and display version are
 `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
 `PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
 the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
-removed), `ShadowEvent` its end and owner, `ThrowableDespawn` (125) retired;
+removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
+`TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
+`ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
 This file is a public ship log. Code-only status and runtime status are called
@@ -306,6 +308,120 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   "closest to the player" (where a glare forms, what a poltergeist pulls, which door)
   used the host even when only a client was in that location. They now use the player
   in that location.
+
+### Scripted events (triggers and their steps)
+
+- **Scripted events lost track of who set them off.** Vanilla trigger and event steps
+  wait at least a frame before they run. Every guard the mod put around starting them
+  (who the action belongs to, "the host is applying a peer's action", "this is a replay
+  from the host", "this reward is not yours") had already ended when the steps ran. So a
+  client walking into a volume, using or examining something credited it to the host:
+  recipes, items, a teleport or a location transport landed on the host, and the client
+  got nothing. A replayed flag or door change on a client was echoed back to the host.
+  The scope that was active when the steps were started is now carried into each step
+  (`EventCoroutineScope`).
+- **The host now leaves personal steps to the player they belong to.** Even with the
+  right player recorded, the host ran a peer's personal steps on its own body. It now
+  skips them, and that peer's own replay runs them.
+- **Counters and shared reputation were added twice on clients.** Event steps that add
+  to a world flag or to an NPC's shared reputation ran on the host, which sends the new
+  value, and then again in the client's replay. Clients drifted to double values and
+  sent the wrong value back. Replays now skip steps that add.
+- **Events that spawn a creature made a second one on clients.** A client's replay
+  spawned its own copy at its own random spot, beside the host's real one. That copy
+  never matched the host's, which left a phantom and an orphan. Replays now skip spawn
+  and replace steps; the host's creature arrives as usual.
+- **Events that only run on an active object were lost on far clients.** On a client
+  whose copy of the event was culled or inactive, the replay failed to start and the
+  event still counted as fired. The host ran it, so the replay now runs it too.
+- **Story functions that act on "the player" ran on everyone.** Petting the dog,
+  getting out of bed, taking the coat off or putting it on, the flamethrower handover
+  (a teleport plus a weapon), Maciek placed beside "the player", and the table leg
+  breaking all ran on every peer. They now run only for the player the scene is
+  about. A scripted "open this NPC's dialogue" step also opens it only for that
+  player.
+- **Scripted camera and input steps hit players elsewhere in the world.** Black
+  screens, camera pans, shakes, input locks, a hidden HUD and perspective switches
+  dragged a peer's camera across the map or locked its inputs. These steps now run for
+  the player the scene belongs to and for peers in the same location.
+- **Repeatable events set off by a use or an examine reached nobody.** Repeatable
+  event sets are not broadcast, because each peer runs its own ambient and area copies.
+  A client's use and examine are sent to the host and never run locally, so their
+  repeatable events ran on the host alone: the user saw nothing. Uses and examines now
+  broadcast them, including the host's own.
+- **Trigger volumes kept stale occupants.** When a volume was switched off, or a
+  player's stand-in was removed while inside one (the player left, or the stand-in was
+  rebuilt), the volume kept counting that player. A later entry was ignored as
+  "already inside", and the area's exit never fired for anyone. A switched-off volume
+  now drops its occupants, and a removed stand-in counts as walking out.
+- **A location's on-enter events credited the host when a client entered.** The host
+  opens a location for a client who enters it. Its on-enter events now belong to that
+  client. A client who enters a location the host is already in now also gets the
+  entry's one-shots that never fired, for example because the first visitor did not
+  meet their requirements.
+- **Event requirements read the host's body for a client's trigger.** "Health at
+  least", "darkness", "fewer than N enemies attacking" and "has skill" checked the
+  host when a client set the trigger off. They now check that client. Each player
+  sends its health, darkness and skill list with its effect sync (`PlayerEffectSync`
+  gains them). Attackers are counted per body, because the host's own list also held
+  creatures attacking other players.
+
+### Dreams, a full pass
+
+- **A dead player was pulled into the dream, and the dream could never end.** A
+  player waiting for morning after a night death (or for a day respawn) was put on the
+  dream roster. A dead player can't act or die again, so "everyone in the dream is
+  dead" never came: if the dreamers then died, the dream never ended and the clock
+  stayed frozen. Waking from the dream also revived that player early. Dead players
+  now sit the dream out, on both sides.
+- **A client's later level-up dreams all failed after its level 2 dream.** The
+  level 2 bunker dream sets the dream name, and vanilla clears it once the dream is
+  prepared. The client path never cleared it, so every later level-up asked the host
+  for the finished bunker dream again. The host refused, and that level's dream was
+  gone for the party. The client now clears it.
+- **A refused dream is no longer lost.** If the host is dead, or another dream is
+  starting or running, the level-up dream waits. Its entry movie plays again once the
+  host can take it, the same way vanilla keeps a dream wanted until it happens. Level
+  flags are now merged only when the host takes the request, so a refusal no longer
+  uses up that level's dream for the party.
+- **A refused request now releases everyone at once.** Every peer had played the
+  requester's entry movie and frozen for it. They each sat in the black until a 20 s
+  watchdog let go. The host now cancels the entry on all peers (a new `CutsceneSync`
+  action) and lets its own world run.
+- **Quitting mid-dream saved the dream's kit as the player's own.** The exit backup
+  read the live bag, health, effects and clock, which in a dream belong to the dream.
+  The next join restored them. It now saves the real ones that vanilla puts aside
+  for wake-up.
+- **Peers could be killed during the host's entry movie.** The host's world stopped
+  only once the pad was up. Through the movie, the prepare wait and the save, its
+  creatures kept attacking players who were locked in the movie. The host now freezes
+  at the start of the entry (movie or prepare). The clock it saves is then the
+  pre-dream one, not the dream's. If no dream follows, the world is released.
+- **A world saved mid-dream left a joiner on the loading screen.** Vanilla resumes a
+  dream saved in progress, and only that dream lifts the loading screen. A client
+  never runs a dream of its own, so the joiner sat on the loading screen. The client
+  now drops the stale resume and finishes loading normally.
+- **Players outside the dream saw the dream's clock.** A peer that sits a dream out,
+  or whose pad failed to load, now shows the overworld time (`TimeSync` gains
+  `OverworldTime`).
+- **A dream death could break the wake-up.** When a peer died in a dream that has no
+  death outcome, the reward downgrade set the outcome to nothing. Vanilla then threw
+  during wake-up: no heal, inputs left locked. It now wakes the player like the rest
+  of the party, without the rewards.
+- **A failed pad load left a pad behind.** When a dream finished while a client was
+  still loading its pad, the pad stayed in the scene, and the client stayed marked as
+  "about to dream". That blocked its saves and kept it out of the open world. It also
+  kept the entry's input locks. All of that is now cleared.
+- **The hard dream exit didn't match vanilla.** It now drops whatever is in hand and
+  any action in progress. The tutorial wakes at its fixed hour, and an outcome with its
+  own wake time keeps that time instead of being overwritten.
+- **The tutorial's ending sent the player to spectate.** In the tutorial dream, the
+  creature's heavy hit is vanilla's scripted ending, not a death. In co-op it put the
+  player into spectate while the others walked on. It now ends the tutorial for the
+  whole party, like any story ending.
+- **A join could slip into the host's dream entry.** Joins are refused during a
+  dream. They are now also refused between the start of the host's entry movie and
+  the start of the dream.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

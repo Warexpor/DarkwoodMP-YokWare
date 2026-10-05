@@ -53,7 +53,7 @@ namespace DWMPHorde.Sync
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(id))
                         continue;
-                    if (!_deadPlayerIds.Contains(id))
+                    if (!_deadPlayerIds.Contains(id) && !DeathStateTracker.IsRemoteNightDead(id))
                         return false;
                 }
                 foreach (var proxy in net.GetAllProxies())
@@ -62,7 +62,7 @@ namespace DWMPHorde.Sync
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
                         continue;
-                    if (!_deadPlayerIds.Contains(proxy.PlayerId))
+                    if (!_deadPlayerIds.Contains(proxy.PlayerId) && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
                         return false;
                 }
                 // Noted in the dream but not connected (yet): a survivor rejoining a promoted host.

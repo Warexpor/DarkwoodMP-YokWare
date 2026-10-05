@@ -35,6 +35,13 @@ namespace DWMPHorde.Networking
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
 
+            // Dead in the overworld: sit it out (the host leaves dead peers off the roster).
+            if (_net.Role == NetworkRole.Client && DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                ModRuntime.LegacyInfo($"[DreamSync] Sit out DreamStarted {msg.PresetName}: local player is dead");
+                return;
+            }
+
             // Party-once: ignore stale DreamStarted for a preset the party already finished.
             if (!string.IsNullOrEmpty(msg.PresetName)
                 && DreamSession.IsPresetCompleted(msg.PresetName))
@@ -72,6 +79,7 @@ namespace DWMPHorde.Networking
                     DreamSession.AdoptSessionId(msg.SessionId);
             }
 
+            DreamRetry.Clear();
             DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos, msg.EntryTransition);
             DreamSession.MarkActive();
         }
@@ -92,6 +100,7 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo(
                     $"[DreamSession] Host rejected story end — {msg.OutcomeName}");
+                DreamRetry.OnRejected(msg.OutcomeName);
                 DreamSyncManager.ForceLocalDreamCleanup(msg.OutcomeName);
                 return;
             }
@@ -99,7 +108,7 @@ namespace DWMPHorde.Networking
             // Client story completion → host runs full initiateEndDreaming (transition + end).
             if (_net.Role == NetworkRole.Host
                 && !string.IsNullOrEmpty(msg.OutcomeName)
-                && msg.OutcomeName != "playerDeath"
+                && (msg.OutcomeName != "playerDeath" || DreamSyncManager.IsScriptedDeathEnd(msg.OutcomeName))
                 && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
                 && Dreams.Instance != null
                 && Dreams.Instance.dreaming)
@@ -180,6 +189,21 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>
+        /// A refused start request. Outside a running dream everyone also watched the requester's
+        /// entry movie (CutsceneSync) and froze for it: release them all now, the host too.
+        /// </summary>
+        private void RejectStartRequest(int requesterId, string reason)
+        {
+            SendDreamEndedRejected(requesterId, reason);
+            if (DreamSession.IsActive)
+                return;
+            _net.Broadcast(NetMessageType.CutsceneSync,
+                w => new CutsceneSyncMessage { Action = CutsceneSyncMessage.ActionDreamEntryCancel, ManagerName = "" }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            DreamSyncManager.CancelRefusedEntry();
+        }
+
         internal void HandleDreamStartRequest(DreamStartRequestMessage msg)
         {
             if (_net.Role != NetworkRole.Host)
@@ -187,9 +211,14 @@ namespace DWMPHorde.Networking
 
             int requesterId = _net.CurrentReceivePlayerId;
 
-            // Client may have leveled (hadDreamAtLvl*); union before prepare.
-            if (msg.LvlFlags != 0)
-                DreamSession.ApplyLvlFlags(msg.LvlFlags);
+            // The host runs every dream as a participant; dead, it cannot. The requester keeps the
+            // dream and asks again once the host is back (DreamRetry), as vanilla keeps wantToDream.
+            if (DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                ModLog.Event(LogCat.Dream, "[DreamSync] defer start request — host is dead: " + msg.PresetName);
+                RejectStartRequest(requesterId, DreamRetry.HostDeadReason);
+                return;
+            }
 
             if (string.IsNullOrEmpty(msg.PresetName))
             {
@@ -199,7 +228,7 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — session active");
-                    SendDreamEndedRejected(requesterId, "session_active");
+                    RejectStartRequest(requesterId, "session_active");
                     return;
                 }
                 if (Singleton<Dreams>.Instance == null
@@ -208,10 +237,14 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — dream already prepared/active");
-                    SendDreamEndedRejected(requesterId, "already_prepared");
+                    RejectStartRequest(requesterId, "already_prepared");
                     return;
                 }
 
+                // Client may have leveled (hadDreamAtLvl*): union once the request is taken. A
+                // rejected request used to burn that level's dream for the whole party.
+                if (msg.LvlFlags != 0)
+                    DreamSession.ApplyLvlFlags(msg.LvlFlags);
                 ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
                 // Next frame, outside this handler's apply guard: the host's roll hooks
                 // (pool refill, TryBegin, early bulk to clients) stand down inside it, so the
@@ -236,7 +269,7 @@ namespace DWMPHorde.Networking
                         }
                         catch { /* ignore */ }
                         DreamSession.AbortStarting(ex.Message);
-                        SendDreamEndedRejected(requesterId, "prepare_failed");
+                        RejectStartRequest(requesterId, "prepare_failed");
                     }
                 }, 1);
                 return;
@@ -249,7 +282,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] reject start request — no such preset: " + msg.PresetName);
-                SendDreamEndedRejected(requesterId, "unknown_preset");
+                RejectStartRequest(requesterId, "unknown_preset");
                 return;
             }
 
@@ -258,7 +291,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] reject start request — party already completed: " + msg.PresetName);
-                SendDreamEndedRejected(requesterId, "already_completed");
+                RejectStartRequest(requesterId, "already_completed");
                 return;
             }
 
@@ -275,19 +308,22 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] ignore start request — session " + DreamSession.Current
                     + " preset=" + DreamSession.PresetName + " req=" + msg.PresetName);
-                SendDreamEndedRejected(requesterId, "session_active");
+                RejectStartRequest(requesterId, "session_active");
                 return;
             }
 
             if (!DreamSession.TryBegin(msg.PresetName))
             {
                 ModRuntime.LegacyInfo($"[DreamSync] TryBegin failed for request: {msg.PresetName}");
-                SendDreamEndedRejected(requesterId,
+                RejectStartRequest(requesterId,
                     DreamSession.IsPresetCompleted(msg.PresetName)
                         ? "already_completed"
                         : "try_begin_failed");
                 return;
             }
+
+            if (msg.LvlFlags != 0)
+                DreamSession.ApplyLvlFlags(msg.LvlFlags);
 
             // Named prepare on host does not hit the random pool; mirror the client's roll consume.
             DreamSession.MirrorPoolRemove(msg.PresetName);
@@ -302,7 +338,7 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogError("[DreamSync] prepareDream failed: " + ex);
                 DreamSession.AbortStarting(ex.Message);
-                SendDreamEndedRejected(requesterId, "prepare_failed");
+                RejectStartRequest(requesterId, "prepare_failed");
             }
         }
 
@@ -335,7 +371,8 @@ namespace DWMPHorde.Networking
                 && !string.IsNullOrEmpty(msg.ActivePreset)
                 && (Dreams.Instance == null || !Dreams.Instance.dreaming)
                 && !DreamSyncManager.IsLocalDreamActive
-                && !DreamSyncManager.HasPendingEntryTransition)
+                && !DreamSyncManager.HasPendingEntryTransition
+                && !DreamSyncManager.IsLocalDeadOutsideDream())
             {
                 DreamSession.BeginFromHost(msg.ActivePreset, msg.SessionId);
                 int hostId = _net.CurrentReceivePlayerId > 0

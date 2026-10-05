@@ -364,8 +364,15 @@ namespace DWMPHorde.Networking
         public bool IsAfterNight;
         /// <summary>The village's friendly villagers are away for the night (NightVillage).</summary>
         public bool VillagersAway;
-        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); }
-        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool() };
+        /// <summary>
+        /// The overworld clock. Equals <see cref="CurrentTime"/> except while the host is in a dream,
+        /// where CurrentTime is the dream's own time and this is the time the dream will wake to
+        /// (vanilla <c>Dreams.timeCopy</c>). A peer outside the dream (dead, or its pad failed to
+        /// load) shows this one.
+        /// </summary>
+        public int OverworldTime;
+        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); w.Put(OverworldTime); }
+        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool(), OverworldTime = r.GetInt() };
     }
 
     /// <summary>Client→host: post-sleep clock for host-authority forward adopt.</summary>

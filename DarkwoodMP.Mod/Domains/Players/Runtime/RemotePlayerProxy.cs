@@ -53,6 +53,13 @@ namespace DWMPHorde.Players
         public bool RemotePoisoned { get; set; }
         /// <summary>Whether the remote player is bleeding (visual/AI flag; DoT is local).</summary>
         public bool RemoteBleeding { get; set; }
+        /// <summary>The peer's health, 0-100% (host event requirements: <c>playerState health</c>).</summary>
+        public byte RemoteHealthPct { get; set; } = 100;
+        /// <summary>The peer's <c>darknessCounter</c> in 1% steps (host requirement <c>darknessState</c>).</summary>
+        public byte RemoteDarknessPct { get; set; }
+        /// <summary>The peer's learned skills by name (host requirement <c>haveSkill</c>).</summary>
+        public readonly System.Collections.Generic.HashSet<string> RemoteSkills =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
         /// <summary>Whether the remote player is currently running.</summary>
         public bool RemoteRunning { get; set; }
         /// <summary>The last received locomotion state for the remote player.</summary>

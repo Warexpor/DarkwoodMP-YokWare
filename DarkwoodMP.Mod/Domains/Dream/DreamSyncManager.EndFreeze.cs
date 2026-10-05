@@ -121,6 +121,7 @@ namespace DWMPHorde.Sync
         private static void OnDisconnectedCleanup()
         {
             CancelPendingEntries();
+            _hostEntryFreeze = false;
             FinalDreamsceneManager.OnDisconnected();
 
             // Unfreeze any frozen proxies
@@ -212,6 +213,19 @@ namespace DWMPHorde.Sync
                 }
             }
             catch { /* ignore */ }
+            // A prepared flag left behind held saves off and kept this peer out of the open world
+            // (it reads as "a dream is on its way") until the next dream; the entry's input locks
+            // stayed too.
+            try
+            {
+                if (Dreams.Instance != null && !Dreams.Instance.dreaming)
+                {
+                    Dreams.Instance.dreamPrepared = false;
+                    Dreams.Instance.wantToDream = false;
+                }
+            }
+            catch { /* ignore */ }
+            ReleaseDreamInputLocks();
             UnfreezeWorld(restoreTime: false);
             if (DreamSession.IsActive)
                 DreamSession.AbortStarting(reason);

@@ -61,6 +61,24 @@ namespace DWMPHorde.Networking
         }
 
         private int _lastEffectFlags = -1;
+        private string _lastSkills;
+
+        private static string LearnedSkillNames(Player local)
+        {
+            if (local.skills == null || local.skills.skills == null || local.skills.skills.Count == 0)
+                return "";
+            var sb = new System.Text.StringBuilder(128);
+            for (int i = 0; i < local.skills.skills.Count; i++)
+            {
+                PlayerSkill sk = local.skills.skills[i];
+                if (sk == null || sk.gameObject == null)
+                    continue;
+                if (sb.Length > 0)
+                    sb.Append('|');
+                sb.Append(sk.gameObject.name);
+            }
+            return sb.ToString();
+        }
 
         /// <summary>
         /// Every tick: a change (ward, ninja, forest skills, ignoreMe) goes out at once, since host
@@ -87,10 +105,18 @@ namespace DWMPHorde.Networking
                 Burning = local.GetComponent<Burn>() != null,
                 BurnSpecial = local.effects != null && local.effects.hasEffectType(CharacterEffectType.burnSpecial)
             };
-            int flags = msg.Flags | (msg.Flags2 << 8);
-            if (!keepalive && flags == _lastEffectFlags)
+            float maxHp = local.maxHealth > 0f ? local.maxHealth : 1f;
+            msg.HealthPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
+            msg.DarknessPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.darknessCounter * 100f), 0, 100);
+            string skills = LearnedSkillNames(local);
+            bool skillsChanged = !string.Equals(skills, _lastSkills, System.StringComparison.Ordinal);
+            int flags = msg.Flags | (msg.Flags2 << 8) | (msg.HealthPct << 16) | (msg.DarknessPct << 24);
+            if (!keepalive && flags == _lastEffectFlags && !skillsChanged)
                 return;
             _lastEffectFlags = flags;
+            _lastSkills = skills;
+            msg.HasSkills = true;
+            msg.Skills = skills;
             _net.Broadcast(NetMessageType.PlayerEffectSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -106,6 +132,18 @@ namespace DWMPHorde.Networking
             proxy.RemoteHasEnemyOfTheForest = msg.EnemyOfTheForest;
             proxy.RemotePoisoned = msg.Poisoned;
             proxy.RemoteBleeding = msg.Bleeding;
+            proxy.RemoteHealthPct = msg.HealthPct;
+            proxy.RemoteDarknessPct = msg.DarknessPct;
+            if (msg.HasSkills)
+            {
+                proxy.RemoteSkills.Clear();
+                if (!string.IsNullOrEmpty(msg.Skills))
+                {
+                    string[] names = msg.Skills.Split('|');
+                    for (int i = 0; i < names.Length; i++)
+                        proxy.RemoteSkills.Add(names[i]);
+                }
+            }
 
             CharBase cb = proxy.CachedCharBase;
             if (cb != null)

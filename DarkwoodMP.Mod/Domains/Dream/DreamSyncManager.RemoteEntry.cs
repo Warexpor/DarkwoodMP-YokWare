@@ -17,6 +17,13 @@ namespace DWMPHorde.Sync
             bool entryVideo = true)
         {
             if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
+            if (IsLocalDeadOutsideDream())
+            {
+                // Dead in the overworld: stay where the death left us (the host leaves us off the
+                // dream roster). Entering would revive us at the dream's end.
+                ModRuntime.LegacyInfo($"[DreamSync] Sit out remote dream (p{playerId}) {presetName}: local player is dead");
+                return;
+            }
             _remoteEntryHasVideo = entryVideo;
             // Host already refused completed presets in TryBegin / HandleDreamStarted.
             CloseOpenUiForDreamEntry();
@@ -56,6 +63,7 @@ namespace DWMPHorde.Sync
             NoteEntryTransitionStarted();
             CloseOpenUiForDreamEntry();
             FreezeWorld();
+            HostBeginDreamEntry();
 
             float wait = StartRemoteDreamTransition();
             _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, wait);
@@ -298,6 +306,98 @@ namespace DWMPHorde.Sync
         /// timeout and neither a local nor remote dream session started, force-clear
         /// the stuck state so the player is not permanently blinded + paralysed.
         /// </summary>
+        private static bool _hostEntryFreeze; // reset-in: OnDisconnectedCleanup
+
+        /// <summary>
+        /// Host: its own entry movie or prepare is under way, before the session begins. A join let
+        /// in here loaded into a world about to freeze and missed the DreamStarted roster.
+        /// </summary>
+        internal static bool IsHostDreamEntryPending => _hostEntryFreeze;
+        private static int _hostEntryWatch;   // process-scoped: generation of the host entry poll, bumped per start
+
+        /// <summary>
+        /// Host: a dream is on its way in (the entry movie started, here or on a peer, or a dialogue
+        /// or event prepares one). The host's world stopped only once the pad was up, so for the
+        /// whole movie, the prepare wait, the save and the pad spawn its creatures kept attacking
+        /// players who sat locked in the movie; a player killed there entered the dream dead. The
+        /// clock is also taken here, before the dream sets its own time.
+        /// </summary>
+        internal static void HostBeginDreamEntry()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return;
+            if (_localDreamActive || (Dreams.Instance != null && Dreams.Instance.dreaming))
+                return;
+            if (!_worldFrozen)
+                FreezeWorld();
+            if (_hostEntryFreeze)
+                return;
+            _hostEntryFreeze = true;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null)
+                ctrl.StartCoroutine(HostEntryFreezeWatch(++_hostEntryWatch));
+        }
+
+        private static bool HostEntryInProgress()
+        {
+            Dreams d = Dreams.Instance;
+            return DreamSession.IsActive || _localDreamActive
+                || (d != null && (d.dreaming || d.dreamPrepared
+                    || (d.startTransition != null && d.startTransition.isPlaying)));
+        }
+
+        /// <summary>
+        /// The entry ends either in the dream (OnLocalDreamStarted takes the freeze over) or with
+        /// nothing in progress any more (a rejected request, a failed prepare): then the world runs again.
+        /// </summary>
+        private static IEnumerator HostEntryFreezeWatch(int gen)
+        {
+            int idle = 0;
+            while (_hostEntryFreeze && gen == _hostEntryWatch)
+            {
+                yield return new WaitForSecondsRealtime(1f);
+                if (!_hostEntryFreeze || gen != _hostEntryWatch)
+                    yield break;
+                if (_localDreamActive)
+                {
+                    _hostEntryFreeze = false;
+                    yield break;
+                }
+                idle = HostEntryInProgress() || _earlyEntryTransitionPlayed ? 0 : idle + 1;
+                if (idle >= 2)
+                {
+                    _hostEntryFreeze = false;
+                    ModRuntime.LegacyInfo("[DreamSync] Host dream entry ended without a dream — world released");
+                    UnfreezeWorld();
+                    yield break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The host refused a start request. Everyone who played the requester's entry movie and
+        /// froze for it (each peer, and the host) lets go now; before, each sat in the black until
+        /// its 20 s stuck-movie watchdog. Left alone when a dream of its own is on the way.
+        /// </summary>
+        internal static void CancelRefusedEntry()
+        {
+            if (DreamSession.IsActive || _localDreamActive)
+                return;
+            Dreams d = Dreams.Instance;
+            if (d != null && (d.dreaming || d.dreamPrepared))
+                return;
+            if (_earlyEntryTransitionPlayed)
+            {
+                FadeOutDreamTransition();
+                _earlyEntryTransitionPlayed = false;
+                _earlyEntryTransitionDoneAt = 0f;
+                ReleaseDreamInputLocks();
+            }
+            _hostEntryFreeze = false;
+            UnfreezeWorld();
+        }
+
         private static IEnumerator EntryTransitionWatchdog(float expireAt)
         {
             float delay = expireAt - Time.realtimeSinceStartup;

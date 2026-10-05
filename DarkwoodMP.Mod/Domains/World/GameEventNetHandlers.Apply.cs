@@ -158,6 +158,12 @@ namespace DWMPHorde.Networking
             bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
             if (!runPersonal)
                 GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            // dontRunIfInactive starts the steps on the GameEvents object itself; this peer's copy
+            // can be inactive (culled, far away) where the host's was not, and the start then
+            // failed with the event latched as fired. The host ran them: run them here too.
+            bool prevDontRun = best.dontRunIfInactive;
+            if (prevDontRun && !best.gameObject.activeInHierarchy)
+                best.dontRunIfInactive = false;
             try
             {
                 using (new NetworkApplyGuard())
@@ -167,6 +173,7 @@ namespace DWMPHorde.Networking
             }
             finally
             {
+                best.dontRunIfInactive = prevDontRun;
                 GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
             }
             if (!best.fired && !best.multipleFire)

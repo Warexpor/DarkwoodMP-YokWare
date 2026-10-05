@@ -68,6 +68,14 @@ namespace DWMPHorde
     {
         public static bool HaveItem(bool partyHas, bool activeModifier)
             => partyHas ? activeModifier : !activeModifier;
+
+        /// <summary>Vanilla health / darknessState: <c>value &gt;= area ? activeModifier : !activeModifier</c>.</summary>
+        public static bool AtLeast(float value, float area, bool activeModifier)
+            => value >= area ? activeModifier : !activeModifier;
+
+        /// <summary>Vanilla enemiesAttacking: <c>count &lt; amount ? activeModifier : !activeModifier</c>.</summary>
+        public static bool Below(int count, int amount, bool activeModifier)
+            => count < amount ? activeModifier : !activeModifier;
     }
 
     /// <summary>

@@ -80,7 +80,8 @@ namespace DWMPHorde.Patches
             }
 
             // Death: never end the shared session alone; spectate until all are dead or the story ends.
-            if (outcome == "playerDeath")
+            // The tutorial's scripted hit is its story ending and takes the story path below.
+            if (outcome == "playerDeath" && !DreamSyncManager.IsScriptedDeathEnd(outcome))
             {
                 if (Player.Instance != null && Player.Instance.inEpilogue)
                 {

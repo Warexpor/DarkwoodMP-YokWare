@@ -84,8 +84,61 @@ namespace DWMPHorde.Patches
     {
         private static readonly Dictionary<int, HashSet<int>> _proxyIdsByEt =
             new Dictionary<int, HashSet<int>>(64);
+        private static readonly Dictionary<int, EventTriggers> _etByKey =
+            new Dictionary<int, EventTriggers>(64);
+        private static readonly List<int> _scratchKeys = new List<int>(16); // process-scoped: scratch, cleared before each use
 
-        internal static void Reset() => _proxyIdsByEt.Clear();
+        internal static void Reset()
+        {
+            _proxyIdsByEt.Clear();
+            _etByKey.Clear();
+        }
+
+        /// <summary>
+        /// Vanilla <c>OnDisable</c> zeroes entered/exited; Unity sends no exit for bodies still
+        /// inside, and on re-enable it sends a fresh enter. Drop the proxy ids with it, or the
+        /// re-enter is swallowed as "already counted" and the stale id defers every exit.
+        /// </summary>
+        internal static void Forget(EventTriggers et)
+        {
+            if (et == null) return;
+            int key = et.GetInstanceID();
+            _proxyIdsByEt.Remove(key);
+            _etByKey.Remove(key);
+        }
+
+        /// <summary>
+        /// A proxy was destroyed (peer left, died out of the world, re-created): Unity sends no
+        /// exit for it. Count it out of every volume it was in, firing the area exit when it was
+        /// the last body, as if it had walked out.
+        /// </summary>
+        internal static void ForgetPlayer(int playerId)
+        {
+            if (playerId <= 0 || _proxyIdsByEt.Count == 0) return;
+            _scratchKeys.Clear();
+            foreach (KeyValuePair<int, HashSet<int>> kv in _proxyIdsByEt)
+            {
+                if (kv.Value.Contains(playerId))
+                    _scratchKeys.Add(kv.Key);
+            }
+            for (int i = 0; i < _scratchKeys.Count; i++)
+            {
+                int key = _scratchKeys[i];
+                _etByKey.TryGetValue(key, out EventTriggers et);
+                if (et == null)
+                {
+                    _proxyIdsByEt.Remove(key);
+                    _etByKey.Remove(key);
+                    continue;
+                }
+                if (TryRemove(et, playerId)
+                    && EventTriggersAuth.IsMultiplayerConnected()
+                    && et.isActiveAndEnabled
+                    && EventTriggersAuth.CanFireTriggers(et))
+                    EventTriggersProxyExitPatch.CountExit(et, playerId);
+            }
+            _scratchKeys.Clear();
+        }
 
         /// <returns>True when this proxy was not yet counted (first collider enter).</returns>
         internal static bool TryAdd(EventTriggers et, int playerId)
@@ -96,6 +149,7 @@ namespace DWMPHorde.Patches
             {
                 set = new HashSet<int>();
                 _proxyIdsByEt[key] = set;
+                _etByKey[key] = et;
             }
             return set.Add(playerId);
         }
@@ -110,7 +164,10 @@ namespace DWMPHorde.Patches
             if (!set.Remove(playerId))
                 return false;
             if (set.Count == 0)
+            {
                 _proxyIdsByEt.Remove(key);
+                _etByKey.Remove(key);
+            }
             return true;
         }
 
@@ -236,32 +293,43 @@ namespace DWMPHorde.Patches
             if (!EventTriggersProxyOccupancy.TryRemove(__instance, proxy.PlayerId))
                 return;
 
-            __instance.exited++;
-            if (__instance.exited >= __instance.entered)
+            CountExit(__instance, proxy.PlayerId);
+        }
+
+        internal static void CountExit(EventTriggers et, int playerId)
+        {
+            et.exited++;
+            if (et.exited >= et.entered)
             {
                 // Belt: if another proxy is still in the occupancy set, counters
                 // drifted vs the set (local Postfix enter++ / multi-collider). Defer exit
                 // fire so delayed one-shots do not latch while a peer body remains inside.
-                if (EventTriggersProxyOccupancy.HasAny(__instance))
+                if (EventTriggersProxyOccupancy.HasAny(et))
                 {
                     ModRuntime.LegacyInfo(
-                        $"[EventTriggers] proxy exit deferred (peers remain) p{proxy.PlayerId} on {__instance.name} exited={__instance.exited}");
+                        $"[EventTriggers] proxy exit deferred (peers remain) p{playerId} on {et.name} exited={et.exited}");
                     return;
                 }
                 // Flavor HUD gated at delayed GameEvent.fire MoveNext (proximity), not here.
                 if (EventTriggersAuth.IsHost())
                 {
-                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(proxy.PlayerId, () =>
-                        __instance.fireEventTriggerExit(EventTrigger.Type.area));
+                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(playerId, () =>
+                        et.fireEventTriggerExit(EventTrigger.Type.area));
                 }
                 else
                 {
-                    __instance.fireEventTriggerExit(EventTrigger.Type.area);
+                    et.fireEventTriggerExit(EventTrigger.Type.area);
                 }
                 ModRuntime.LegacyInfo(
-                    $"[EventTriggers] proxy exit area p{proxy.PlayerId} on {__instance.name} exited={__instance.exited}");
+                    $"[EventTriggers] proxy exit area p{playerId} on {et.name} exited={et.exited}");
             }
         }
+    }
+
+    [HarmonyPatch(typeof(EventTriggers), "OnDisable")]
+    public static class EventTriggersProxyDisablePatch
+    {
+        private static void Postfix(EventTriggers __instance) => EventTriggersProxyOccupancy.Forget(__instance);
     }
 
     /// <summary>
