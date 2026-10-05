@@ -177,6 +177,7 @@ namespace DWMPHorde.Patches
                 IsMelee = true
             };
             ModRuntime.Network?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ClientEntityInterpolationService.ShowHitHealthBar(c);
 
             // Vanilla's remaining Character-hit steps for a player sensor.
             if (local != null && !InvItemClass.isNull(local.currentItem) && local.currentItem.baseClass.isMelee)

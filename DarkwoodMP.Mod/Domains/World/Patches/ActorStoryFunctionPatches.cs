@@ -25,6 +25,14 @@ namespace DWMPHorde.Patches
                 return;
             switch (msg.Method)
             {
+                case CombatMusicSync.On:
+                case CombatMusicSync.Off:
+                    // Vanilla's combat music follows the creatures chasing this player; those run
+                    // on the host, so the host says when that starts and stops.
+                    bool fight = msg.Method == CombatMusicSync.On;
+                    if (Player.Instance.InCombat != fight)
+                        Player.Instance.InCombat = fight;
+                    break;
                 case "special_onKillNightTrader":
                     ModRuntime.LegacyInfo("[Story] host: this player killed the night trader");
                     NightTraderKillPatch.RunLocal = true;
@@ -137,6 +145,60 @@ namespace DWMPHorde.Patches
             net.SendToPlayer(actor, NetMessageType.PlayerSpecial, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[Story] night trader killed by p{actor} — their blackout, not the host's");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Host: whether creatures are chasing each client (vanilla adds a chaser to the player's
+    /// attackers only when it chases <c>Player.Instance</c>, so a client never got combat music).
+    /// </summary>
+    internal static class CombatMusicSync
+    {
+        internal const string On = "InCombat=1";
+        internal const string Off = "InCombat=0";
+
+        private static readonly Dictionary<int, bool> _sent = new Dictionary<int, bool>(); // reset-in: Reset
+        private static readonly Dictionary<Transform, int> _chasers = new Dictionary<Transform, int>(); // process-scoped: scratch, cleared before each use
+        private static float _next; // reset-in: Reset
+
+        internal static void Reset()
+        {
+            _sent.Clear();
+            _next = 0f;
+        }
+
+        internal static void Tick(LanNetworkManager net)
+        {
+            if (net == null || net.Role != NetworkRole.Host || Time.unscaledTime < _next)
+                return;
+            _next = Time.unscaledTime + 1f;
+            _chasers.Clear();
+            int n = CharacterTracker.CopyAll(out Character[] all);
+            for (int i = 0; i < n; i++)
+            {
+                Character c = all[i];
+                if (c == null || !c.alive || c.target == null || c.behaviour != Character.Behaviour.chasingTarget)
+                    continue;
+                _chasers.TryGetValue(c.target, out int k);
+                _chasers[c.target] = k + 1;
+            }
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null || proxy.PlayerId <= 0)
+                    continue;
+                bool fight = _chasers.ContainsKey(proxy.transform);
+                if (_sent.TryGetValue(proxy.PlayerId, out bool was) && was == fight)
+                    continue;
+                if (!_sent.ContainsKey(proxy.PlayerId) && !fight)
+                {
+                    _sent[proxy.PlayerId] = false;
+                    continue;
+                }
+                _sent[proxy.PlayerId] = fight;
+                var msg = new PlayerSpecialMessage { Method = fight ? On : Off };
+                net.SendToPlayer(proxy.PlayerId, NetMessageType.PlayerSpecial, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
+            _chasers.Clear();
         }
     }
 }

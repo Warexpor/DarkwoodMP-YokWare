@@ -493,7 +493,28 @@ namespace DWMPHorde.Networking
             float max = c.maxHealth > 0.01f ? c.maxHealth : 100f;
             if (downed && healthPct == 0)
                 healthPct = 1;
+            float before = c.Health;
             c.Health = (healthPct / 100f) * max;
+            // The enemy health bar shown after this player's hit follows the host's numbers.
+            if (!Mathf.Approximately(before, c.Health))
+            {
+                var bar = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.enemyHealthBar : null;
+                if (bar != null && bar.currentObj == c.gameObject)
+                    bar.show(c.gameObject, onlyRefresh: true);
+            }
+        }
+
+        /// <summary>
+        /// This player hit a creature: vanilla shows its health bar from the hit, which on a client
+        /// lands on the host. Show it here; the host's health snapshot refreshes it.
+        /// </summary>
+        internal static void ShowHitHealthBar(Character c)
+        {
+            if (c == null || !c.alive)
+                return;
+            var bar = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.enemyHealthBar : null;
+            if (bar != null)
+                bar.show(c.gameObject);
         }
 
         private static void ApplySleepEatFlags(Character c, EntitySnapshotNet e)

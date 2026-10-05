@@ -281,13 +281,19 @@ namespace DWMPHorde.Patches
         /// <summary>Registered with NetworkResetRegistry.</summary>
         public static void Reset() => _victimByBanshee.Clear();
 
-        /// <summary>The remote player nearest to the banshee, or -1 when that is the host (or nobody).</summary>
+        /// <summary>
+        /// The remote player the banshee screams at, or -1 when that is the host (or nobody): vanilla
+        /// screams at the player who sees it, so the nearest body that has it in sight; the nearest
+        /// living body only when nobody does. The nearest alone gave a host facing away the scream
+        /// meant for a client staring at it.
+        /// </summary>
         internal static int NearestRemoteVictim(Character banshee, out Transform victim)
         {
             victim = null;
             if (!HostPlayerIdentity.HostWithRemotes() || banshee == null)
                 return -1;
-            Transform n = HostPlayerIdentity.NearestLiving(banshee.transform.position);
+            Transform n = HostPlayerIdentity.NearestViewer(banshee.transform, canBeFarAway: true)
+                ?? HostPlayerIdentity.NearestLiving(banshee.transform.position);
             Player host = Player.Instance;
             if (n == null || host == null || n == host.transform || n == host._transform)
                 return -1;

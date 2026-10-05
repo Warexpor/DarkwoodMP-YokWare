@@ -227,6 +227,11 @@ namespace DWMPHorde.Networking
             Sync.NightVillage.Tick(this);
             Sync.PeerItemPresence.Tick(this);
             Sync.DreamRetry.Tick(this);
+            if (_role == NetworkRole.Host)
+            {
+                Patches.TraderRestockDefer.Tick();
+                Patches.CombatMusicSync.Tick(this);
+            }
 
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;

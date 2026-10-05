@@ -146,7 +146,7 @@ namespace DWMPHorde.Patches
             }
         }
 
-        private static Transform ResolveSpawnSource(Explodes expl)
+        internal static Transform ResolveSpawnSource(Explodes expl)
         {
             if (expl.objectThatSpawnedMe != null)
                 return expl.objectThatSpawnedMe;
@@ -156,7 +156,7 @@ namespace DWMPHorde.Patches
             return null;
         }
 
-        private static bool IsPlayerSourced(Transform source, LanNetworkManager net)
+        internal static bool IsPlayerSourced(Transform source, LanNetworkManager net)
         {
             if (source == null) return false;
             if (Player.Instance != null)
@@ -168,7 +168,7 @@ namespace DWMPHorde.Patches
             return source.GetComponentInParent<RemotePlayerProxy>() != null;
         }
 
-        private static int ResolveSourcePlayerId(Transform source, LanNetworkManager net)
+        internal static int ResolveSourcePlayerId(Transform source, LanNetworkManager net)
         {
             if (source == null || net == null) return 0;
             if (Player.Instance != null)

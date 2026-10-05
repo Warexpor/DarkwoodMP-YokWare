@@ -72,6 +72,7 @@ namespace DWMPHorde.Patches
                     TargetPosZ = targetPos.z,
                     CanCutInHalf = canCut
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                ClientEntityInterpolationService.ShowHitHealthBar(__instance);
 
                 ModRuntime.LegacyInfo($"[DamageRedirect] sent PlayerAttack: target={entityName} id={stableId} dmg={dmg}");
 

@@ -73,13 +73,32 @@ namespace DWMPHorde.Patches
             if (dest == null)
                 return false;
 
+            return NearestViewer(dest, canBeFarAway, radius) != null;
+        }
+
+        /// <summary>
+        /// The living player body nearest to <paramref name="dest"/> among those that see it (vanilla
+        /// <c>Player.isInSight</c> from each body's pose), or null. A corpse (a dead host waiting
+        /// for morning, a night-dead peer) sees nothing.
+        /// </summary>
+        internal static Transform NearestViewer(Transform dest, bool canBeFarAway, int radius = 0)
+        {
+            if (dest == null)
+                return null;
             Player player = Player.Instance;
-            if (player != null && player.isInSight(dest, canBeFarAway, radius))
-                return true;
+            if (player == null)
+                return null;
+            Transform best = null;
+            float bestD = float.MaxValue;
+            if (player.alive && !DeathStateTracker.LocalNightDeath && player.isInSight(dest, canBeFarAway, radius))
+            {
+                best = player._transform;
+                bestD = (player._transform.position - dest.position).sqrMagnitude;
+            }
 
             var net = ModRuntime.Network;
-            if (net == null || player == null)
-                return false;
+            if (net == null)
+                return best;
 
             Transform saved = player._transform;
             try
@@ -88,16 +107,25 @@ namespace DWMPHorde.Patches
                 {
                     if (proxy == null)
                         continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                        continue;
+                    float d = (proxy.transform.position - dest.position).sqrMagnitude;
+                    if (d >= bestD)
+                        continue;
                     player._transform = proxy.transform;
                     if (player.isInSight(dest, canBeFarAway, radius))
-                        return true;
+                    {
+                        best = proxy.transform;
+                        bestD = d;
+                    }
                 }
             }
             finally
             {
                 player._transform = saved;
             }
-            return false;
+            return best;
         }
 
         /// <summary>
