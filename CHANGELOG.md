@@ -49,7 +49,8 @@ a report. Built and unit-tested; **runtime is not playtested**.
     starts with a new-game character: the save's player block is the host's, and a new
     joiner used to load as a copy of the host (level, skills, recipes, bag, home oven).
   - **A new joiner when the host skipped the prologue** (or a later chapter) also starts
-    fresh, placed in the hideout empty-handed, as vanilla's skip does.
+    fresh, placed in the hideout with the chapter's starting pack and level, as vanilla's
+    skip does.
   - **Returning players** load as before. A small marker next to the character snapshot
     records that the player has a character in the campaign, so one who left right after
     the prologue (no snapshot yet: nothing worth one) does not replay it.
@@ -84,6 +85,98 @@ a report. Built and unit-tested; **runtime is not playtested**.
   longer differences (trader stock keyed by name and spot).
 - Pilot: `newgame:N` / `newgameskip:N` (a new game in an empty slot), `prologue`,
   `skipmovie`, `dreamend <outcome>` (refused during a cutscene), `padcycle`, `ui`.
+
+### The prologue, played for real (pilot run through its scripted endings)
+
+The host walked its prologue by its own triggers (the doctor's dog, the forest path, the
+dead body that ends the first dream, the second dream's opening cutscene, then a monster
+hit that ends it), the joiner ended its own through the house exit; a code audit of the
+host's sends during its prologue ran alongside. Found and fixed:
+
+- **A joiner back before the host finished its prologue sat in the afternoon.** A new
+  game's clock reads 600 until the host's own prologue ends (vanilla sets the morning only
+  then; the first dream even tweens it to night), and that is what the host shared, with no
+  day-1 wait shown since "day 1 not begun" read the same placeholder. While the host is in
+  its prologue the world's time is now the prologue's wake-up (05) and day 1 counts as not
+  begun. A host alone in its prologue gets no "day 1 waits" line (nobody else is waiting).
+- **The host lost the hideout's opening journal pages and recipes.** The joiner's
+  stand-in walking into the hideout fired the hideout's one-shot lesson
+  (`GainRecipes_med_cottage_tree_01`: recipes, journal pages) on the host while the host
+  was still dreaming: its pages were dated "in a dream" (vanilla dates a page by whether the
+  local player dreams) and cleared at the host's wake, and the event, removed once fired,
+  was gone when the host walked in. A world event that runs here while this player is in a
+  dream of its own now writes world pages (`GameEventWorldPageScope`), and a lesson (an
+  event of recipes, messages and journal pages) is served once to each player, like the
+  one-shot moves and hints, and stays in the world for the others (vanilla removes it once
+  fired; kept also on a joiner between the world download and its reconnect, so its copy
+  stays the host's world). The host walking into a volume a stand-in already occupies now
+  gets such an event too (vanilla fires an area only for the first body in), and a client
+  that had the lesson already (the joiner fires it offline on waking) skips the host's
+  replay of it instead of searching for a removed object for a minute ("no GameEvents
+  near … GainRecipes", 20 lines).
+- **Journal pages carry whether they are a dream's** (`JournalItem.InDream`). A receiver
+  used its own state: pages a peer found in the world while this player dreamed alone
+  (the host in its prologue) were cleared at this player's wake (the desync check showed the
+  host missing four pages the joiner had). A dream page from a dream this player is not in
+  is not added, and the join bulk and the desync check leave dream pages out (and dream
+  places in the journal's places list: each player walked their own prologue).
+- **The host's prologue leaked to clients:** the drag of a pad object (it could pull a
+  same-named overworld object onto the pad), NPC reputation changes by name, prefab spawns,
+  burning creatures, pad doors and traps, pad creatures given ids clients do not know,
+  pad physics bodies, and, when someone joined during it, the pad's location, locks,
+  doors, drops, traps and fired GameEvents in the late-join bulk (a reconnecting client
+  logged "no GameEvents near" for the pad's events dozens of times). What happens on a
+  prologue pad now stays there, also in the seconds after its end while vanilla frees the
+  pad (`PersonalPrologue.IsOnProloguePad` follows the pad object, not the prologue flag,
+  and while the pad's scene loads, the location around an object). Pad creatures get no
+  entity id at all (`CharacterTracker`), so nothing keyed by id (sounds, burning, despawn,
+  container contents) can carry them; the periodic physics, door, generator and trap scans
+  skip pad objects; the late-join bulk skips them in every step (locations, locks,
+  interactives, constructions, world lights, generators, doors, barricades, traps and the
+  trap ledger, gas, infection, fire, stations, chains, shadow armour, traders, fired
+  GameEvents, which also stopped counting the host's prologue as a dream); live sends of
+  door closes, trap springs, lights, generators, constructions, switches, padlocks,
+  barricades (the prologue teaches barricading), trap disarms and fire on a pad stay home;
+  the host's drops and thrown flares in the prologue get no co-op id; pickups there skip
+  the co-op claim log. Entity burn sends also refused id 0 only by accident (`< 0`).
+- **The host's prologue pack counted as a party item** for world triggers that need an
+  item in someone's pack, and the host's recorded entry kept listing it after the
+  prologue. The local player's live pack is the only count for it now, and none in the
+  prologue.
+- **No saves in the prologue** (manual or a client's save request): vanilla never saves
+  there, and such a save loads as a broken prologue.
+- **Fresh characters start as vanilla's chapter start**, not empty-handed: the chapter's
+  starting pack and level (`ChapterPreset.initInventory`, its player level). The joiner's
+  prologue keeps that pack through it, as vanilla's does, instead of the host's pack from
+  the save.
+- **Joiner bookkeeping:**
+  - Leaving a join half-way and then loading a single-player save or hosting skipped that
+    load's home oven and dream state (the "fresh character" flag outlived the join). Any
+    other load now ends what a join left behind, and the patch checks the join is still
+    the one loading.
+  - A player who finished the prologue but left before a character snapshot existed loaded
+    the host's character on return (the marker counted as a character). Now it comes back
+    fresh in the hideout without replaying the prologue.
+  - A prologue whose pad never came up gave up but left the dream prepared: the pad
+    arriving later would start it online. Giving up cancels it and puts the player in the
+    hideout.
+  - Prologue pages a join never got to send no longer go to the next host joined.
+  - The host waits on day 1 only for joiners that got the whole world (a download cut short
+    held the day for 45 minutes), and stops waiting for one that came back with another
+    world.
+- **A join woke inactive NPCs on the host:** the late-join NPC visuals lookup used the
+  dialogue apply's finder, which activates an inactive match (the night trader by day) and
+  warns on a miss. It looks only now (`FindNpcByName(…, lookupOnly: true)`).
+- **Trader stock arriving with no trade open logged "refreshReputation skipped"** (vanilla
+  reads the open trade's panes): it refreshes only the open trade now.
+- Checked in the last pilot run (new game, joiner done first): the joiner home at 05:00 with
+  "day 1 waits" until the host woke, both with the chapter start and four recipes, the
+  hideout lesson once for each, journal pages equal, no warnings or errors on either side,
+  the desync check clean. Not run: a joiner arriving after the host, three players, and a
+  prologue walked by hand (the pilot teleports into its triggers and fires its end events).
+- Pilot: `events [radius]` lists the GameEvents of the current dream pad (or nearby) with
+  their steps, `fire N` fires one as its trigger would, `dlg [N|next]` reads or answers the
+  open dialogue, `inv` shows pack, hotbar, experience and recipes; `kill` works offline.
 
 ### Remote players' lights (found by the test pilot)
 

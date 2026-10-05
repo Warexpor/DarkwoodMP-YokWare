@@ -212,6 +212,7 @@ namespace DWMPHorde.Patches
             {
                 if (EventTriggersAuth.IsHost())
                     ThreatTriggerContext.NoteHostEnter();
+                bool occupied = __state > __instance.exited;
                 if (__instance.entered == __state
                     && Player.Instance != null
                     && other.gameObject == Player.Instance.gameObject)
@@ -220,6 +221,13 @@ namespace DWMPHorde.Patches
                     if (Helpers.isComponentAtPos(Player.Instance._transform.position, mask, __instance))
                         __instance.entered++;
                 }
+                // Vanilla fires only for the first body into an empty volume. A stand-in already
+                // inside kept the host from a one-shot each player gets once (the hideout's lesson
+                // after the prologue, when the joiner was home first).
+                var net = ModRuntime.Network;
+                if (occupied && net != null && Player.Instance != null && other.gameObject == Player.Instance.gameObject
+                    && PerPlayerTransportOneShots.HasReopenable(__instance, net.LocalPlayerId))
+                    __instance.fireEventTrigger(EventTrigger.Type.area);
                 return;
             }
 

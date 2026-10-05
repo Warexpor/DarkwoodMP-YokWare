@@ -152,6 +152,8 @@ namespace DWMPHorde.Networking
                     if (verdict == PeerWorldVerdict.Reject)
                     {
                         RejectPeerWorld(playerId, verdictHostChapter, verdictReason);
+                        // Back with another world: not coming back from a prologue in this one.
+                        PersonalPrologue.HostNoteGone(ClientStateBackup.SanitizeStableClientKey(handshake.StableClientKey));
                         return;
                     }
                     if (verdict == PeerWorldVerdict.ResyncChapter)

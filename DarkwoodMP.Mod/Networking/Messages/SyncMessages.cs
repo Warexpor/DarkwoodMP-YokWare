@@ -474,8 +474,10 @@ namespace DWMPHorde.Networking
     {
         public JournalItemKind Kind;
         public string Type;
-        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); }
-        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString() };
+        /// <summary>The sender's page belongs to a dream (vanilla <c>inDream</c>): it goes when that dream ends.</summary>
+        public bool InDream;
+        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); w.Put(InDream); }
+        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString(), InDream = r.GetBool() };
     }
 
     public struct SaveSyncMessage

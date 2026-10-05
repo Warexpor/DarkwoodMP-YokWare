@@ -89,6 +89,9 @@ namespace DWMPHorde.Patches
         {
             if (net == null || inv == null || inv.slots == null)
                 return;
+            // The host's own prologue containers (its private pads) are not the world's.
+            if (PersonalPrologue.IsOnProloguePad(inv.transform))
+                return;
             var slots = new List<SlotStateEntry>();
             for (int i = 0; i < inv.slots.Count; i++)
             {

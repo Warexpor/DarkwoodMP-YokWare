@@ -124,8 +124,9 @@ namespace DWMPHorde.Networking
                 ModRuntime.Log?.LogWarning("[BulkSync] GameEvents scan failed: " + ex.Message);
             }
 
+            // The host's own prologue dream is not a party dream: its pad GEs are not sent.
             bool dreamActive = DreamSyncManager.IsDreamActive
-                || (Dreams.Instance != null && Dreams.Instance.dreaming);
+                || (Dreams.Instance != null && Dreams.Instance.dreaming && !PersonalPrologue.LocalInPrologue);
 
             int scanCap = all != null ? all.Length : 0;
             var list = new List<GameEventsFiredMessage>(
@@ -141,6 +142,9 @@ namespace DWMPHorde.Networking
                     if (!ge.fired || ge.multipleFire)
                         continue;
                     if (ge.isSavedDelayedEvent)
+                        continue;
+                    // Fired one-shots on the host's own prologue pad (exist on its machine only).
+                    if (PersonalPrologue.IsOnProloguePad(ge.transform))
                         continue;
 
                     string eventName = ge.name ?? "";
@@ -237,8 +241,9 @@ namespace DWMPHorde.Networking
                 : (root != null ? root.position : Vector3.zero);
             const float maxDistSqr = WorldLateJoinNetHandlers.PadResyncMaxDistSqr;
 
+            // The host's own prologue dream is not a party dream.
             bool dreamActive = DreamSyncManager.IsDreamActive
-                || (Dreams.Instance != null && Dreams.Instance.dreaming);
+                || (Dreams.Instance != null && Dreams.Instance.dreaming && !PersonalPrologue.LocalInPrologue);
             Transform dreamRoot = dreamActive
                 ? DreamSyncManager.GetDreamLocationTransform()
                 : null;

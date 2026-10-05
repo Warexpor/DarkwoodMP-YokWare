@@ -27,6 +27,9 @@ namespace DWMPHorde.Sync
 
             if (TraverseHack.ApplyingFromNetwork)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -76,6 +79,9 @@ namespace DWMPHorde.Sync
             }
 
             if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -129,6 +135,8 @@ namespace DWMPHorde.Sync
             if (TraverseHack.ApplyingFromNetwork || TrapDisarmHarvestTracker.IsSilentDisarm)
                 return;
             if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
             Vector3 key = WorldPos.Key(__state);
             int trapId = TrapNetworkId.GetOrMintHost(__instance.gameObject);
@@ -189,6 +197,9 @@ namespace DWMPHorde.Sync
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
+            // Placed on the host's own prologue pad: not the world, and not in the trap ledger.
+            if (PersonalPrologue.LocalInPrologue)
+                return;
 
             Vector3 euler = __state.Rot.eulerAngles;
             var spawn = new ItemSpawnMessage
@@ -225,6 +236,9 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -256,6 +270,9 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -286,6 +303,9 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null)
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -352,6 +372,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             string itemType = __instance.invItem != null ? __instance.invItem.type : "";
@@ -383,6 +406,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             string itemType = __instance.invItem != null ? __instance.invItem.type : "";
@@ -413,6 +439,9 @@ namespace DWMPHorde.Sync
             int forceOption = (int)__args[1];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            // The host's own prologue pad exists on its machine only: not sent, not in the bulk.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             if (LanNetworkManager.IsApplyingRemoteState)
@@ -470,6 +499,9 @@ namespace DWMPHorde.Sync
             if (__instance.GetComponent<Generator>() != null)
                 return;
             if (!__instance.isLight && !__instance.switchable)
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;

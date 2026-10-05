@@ -189,8 +189,11 @@ namespace DWMPHorde.Networking
         /// <paramref name="strictPad"/>: with a dream active, return only an NPC on the dream pad
         /// (null when the pad twin is not loaded yet) and never fall back to the overworld twin.
         /// Callers that fire events or SetActive the result must use it (clone trap).
+        /// <paramref name="lookupOnly"/>: a reader that only wants the NPC if it is there (a state
+        /// snapshot): no miss warning, and an inactive one is not woken (a join woke the night
+        /// trader by day).
         /// </summary>
-        internal static NPC FindNpcByName(string name, bool preferDreamPad, bool strictPad)
+        internal static NPC FindNpcByName(string name, bool preferDreamPad, bool strictPad, bool lookupOnly = false)
         {
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
@@ -235,6 +238,8 @@ namespace DWMPHorde.Networking
 
             // Prefer the dream pad because the overworld bunker also has door_underground.
             NPC found = strictPad && preferDreamPad ? bestDream : (bestDream ?? bestActive ?? bestAny);
+            if (lookupOnly)
+                return found;
             if (found == null)
             {
                 ModLog.WarnRate(LogCat.World, "dlg-find-npc-miss:" + name,

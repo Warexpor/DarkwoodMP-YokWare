@@ -217,29 +217,32 @@ namespace DWMPHorde.Networking
 
             var msg = new JournalBulkSyncMessage();
 
-            var notes = journal.notesDict.Keys;
-            msg.NoteTypes = new string[notes.Count];
-            int idx = 0;
-            foreach (var key in notes)
-                msg.NoteTypes[idx++] = key;
+            // The world's pages only: a dream's (vanilla inDream) go when that dream ends, and the
+            // joiner is not in it (the host's prologue pages became its world pages).
+            var notes = new List<string>(journal.notesDict.Count);
+            foreach (var kv in journal.notesDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    notes.Add(kv.Key);
+            msg.NoteTypes = notes.ToArray();
 
-            var keys = journal.keysDict.Keys;
-            msg.KeyTypes = new string[keys.Count];
-            idx = 0;
-            foreach (var key in keys)
-                msg.KeyTypes[idx++] = key;
+            var keys = new List<string>(journal.keysDict.Count);
+            foreach (var kv in journal.keysDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    keys.Add(kv.Key);
+            msg.KeyTypes = keys.ToArray();
 
-            var questItems = journal.itemsDict.Keys;
-            msg.QuestItemTypes = new string[questItems.Count];
-            idx = 0;
-            foreach (var key in questItems)
-                msg.QuestItemTypes[idx++] = key;
+            var questItems = new List<string>(journal.itemsDict.Count);
+            foreach (var kv in journal.itemsDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    questItems.Add(kv.Key);
+            msg.QuestItemTypes = questItems.ToArray();
 
-            var journalEntries = journal.journalEntriesDict.Keys;
-            msg.JournalEntryTypes = new string[journalEntries.Count];
-            idx = 0;
-            foreach (var key in journalEntries)
-                msg.JournalEntryTypes[idx++] = key;
+            var journalEntries = new List<string>(journal.journalEntriesDict.Count);
+            foreach (var kv in journal.journalEntriesDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    journalEntries.Add(kv.Key);
+            msg.JournalEntryTypes = journalEntries.ToArray();
+            int idx;
 
             if (journal.locationsDict != null)
             {

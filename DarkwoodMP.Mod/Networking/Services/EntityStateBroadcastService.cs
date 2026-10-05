@@ -171,6 +171,9 @@ namespace DWMPHorde.Networking
                     int i = (_scanStart + n) % nAll;
                     Character c = all[i];
                     if (c == null) continue;
+                    // The host's own prologue creatures live on its private pads (PersonalPrologue).
+                    if (PersonalPrologue.IsOnProloguePad(c.transform))
+                        continue;
 
                     // During dreams, stream dream NPCs only; skip frozen overworld AI.
                     if (Sync.DreamSyncManager.IsDreamActive
@@ -304,9 +307,6 @@ namespace DWMPHorde.Networking
         {
             snap = default;
 
-            // The host's own prologue creatures live on its private pads (PersonalPrologue).
-            if (PersonalPrologue.IsOnProloguePad(c.transform))
-                return false;
             short id = CharacterTracker.GetStableId(c);
             if (id == 0)
                 return false;

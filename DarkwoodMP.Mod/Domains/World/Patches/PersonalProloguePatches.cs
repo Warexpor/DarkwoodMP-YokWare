@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix()
         {
-            if (!PersonalPrologue.FreshCharacter)
+            if (!PersonalPrologue.FreshCharacterLoad)
                 return true;
             Dreams d = Dreams.Instance;
             if (d != null)

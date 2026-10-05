@@ -77,6 +77,11 @@ namespace DWMPHorde.Patches
             {
                 ModRuntime.LegacyInfo($"[PickupPrefix] getDroppedItem called on {__instance.name}");
 
+                // The host's own prologue: a pickup on its pad is single player (no claim, and
+                // no consumed-pickup record that a later location in the pad's slot would match).
+                if (PersonalPrologue.LocalInPrologue || PersonalPrologue.IsOnProloguePad(__instance.transform))
+                    return true;
+
                 // Co-op rescue: sprung beartrap becomes isDroppedItem; picking it up must free
                 // anyone still stuck (local here + peer DestroyObjectByPos) and grant loot.
                 bool isTrap = false;

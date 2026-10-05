@@ -14,7 +14,9 @@ namespace DWMPHorde.Sync
     /// in got nothing and could be stranded on the wrong side. An event made only of such moves
     /// (plus its screen, sound and message steps) now carries each player once. A plain hint (a
     /// message, maybe a sound) is likewise shown once to each player, not only to whoever walked
-    /// past first. Rewards stay one-shot: items are one shared world.
+    /// past first. So is a lesson (recipes, with its message and journal page): what one player
+    /// learned is not what another knows (the hideout's recipes after the prologue went to whoever
+    /// walked in first). Rewards stay one-shot: items are one shared world.
     /// </summary>
     internal static class PerPlayerTransportOneShots
     {
@@ -26,7 +28,7 @@ namespace DWMPHorde.Sync
         {
             if (ges == null || ges.multipleFire || ges.events == null || ges.events.Count == 0)
                 return false;
-            bool moves = false, message = false, scene = false;
+            bool moves = false, lesson = false, message = false, scene = false;
             for (int i = 0; i < ges.events.Count; i++)
             {
                 GameEvent e = ges.events[i];
@@ -34,6 +36,12 @@ namespace DWMPHorde.Sync
                     continue;
                 if (IsMove(e))
                     moves = true;
+                else if (e.type == GameEvent.Type.addRecipes)
+                    lesson = true;
+                else if (e.type == GameEvent.Type.addJournalItem)
+                {
+                    // The shared journal: a page already there is not written twice.
+                }
                 else if (e.type == GameEvent.Type.displayMessage)
                     message = true;
                 else if (GameEventPersonalActorPatch.IsScenePresentation(e))
@@ -41,8 +49,8 @@ namespace DWMPHorde.Sync
                 else if (!IsPresentation(e))
                     return false;
             }
-            // A move with its screen steps, or a plain hint (message and sound only).
-            return moves || (message && !scene);
+            // A move with its screen steps, a lesson, or a plain hint (message and sound only).
+            return moves || lesson || (message && !scene);
         }
 
         private static bool IsMove(GameEvent e)
@@ -84,6 +92,25 @@ namespace DWMPHorde.Sync
         internal static bool Served(int key, int actor)
             => _served.TryGetValue(key, out HashSet<int> set) && set.Contains(actor);
 
+        /// <summary>
+        /// Client: events of this kind this machine's player already had here (its own fire, e.g.
+        /// offline while joining, or the host's replay for it). Keyed by the scene object, so a new
+        /// world load starts empty.
+        /// </summary>
+        private static readonly HashSet<int> _localServed = new HashSet<int>(); // process-scoped: scene object ids, never reused
+
+        internal static bool LocalServed(int key) => _localServed.Contains(key);
+
+        internal static void NoteLocal(int key) => _localServed.Add(key);
+
+        /// <summary>
+        /// Co-op is on for world events: connected, or between the world download and the
+        /// reconnect of a join (the joiner's copy must stay the host's world meanwhile).
+        /// </summary>
+        internal static bool CoopWorld()
+            => (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+               || (ChapterSessionResume.IsPending && !ChapterSessionResume.WasHost);
+
         internal static void Note(int key, int actor)
         {
             if (actor <= 0)
@@ -122,7 +149,14 @@ namespace DWMPHorde.Sync
         [HarmonyPriority(Priority.First)]
         private static void Prefix(GameEvents __instance)
         {
-            if (__instance == null || !__instance.fired || !PerPlayerTransportOneShots.IsHost())
+            if (__instance == null)
+                return;
+            // Vanilla removes some once fired (destroyOnFire): the next player would find nothing.
+            // Each player is served once, so it stays (host and clients alike: clients replay it).
+            if (__instance.destroyOnFire && PerPlayerTransportOneShots.CoopWorld()
+                && PerPlayerTransportOneShots.Qualifies(__instance))
+                __instance.destroyOnFire = false;
+            if (!__instance.fired || !PerPlayerTransportOneShots.IsHost())
                 return;
             if (!PerPlayerTransportOneShots.Qualifies(__instance))
                 return;
@@ -132,9 +166,18 @@ namespace DWMPHorde.Sync
 
         private static void Postfix(GameEvents __instance)
         {
-            if (__instance != null && __instance.fired && PerPlayerTransportOneShots.IsHost()
-                && PerPlayerTransportOneShots.Qualifies(__instance))
+            if (__instance == null || !__instance.fired || !PerPlayerTransportOneShots.Qualifies(__instance))
+                return;
+            if (PerPlayerTransportOneShots.IsHost())
+            {
                 PerPlayerTransportOneShots.Note(__instance.GetInstanceID(), PerPlayerTransportOneShots.CurrentActor());
+                return;
+            }
+            var net = ModRuntime.Network;
+            int local = net != null ? net.LocalPlayerId : 0;
+            int actor = GeFireActorContext.PeekOr(local);
+            if (actor == local || net == null || !net.IsConnected)
+                PerPlayerTransportOneShots.NoteLocal(__instance.GetInstanceID());
         }
     }
 

@@ -50,6 +50,9 @@ namespace DWMPHorde.Networking
                 return "night death held";
             if (DreamSession.IsActive || DreamSyncManager.IsLocalDreamActive)
                 return "dream session";
+            // Vanilla never saves in the prologue: a save there loads as a broken prologue.
+            if (PersonalPrologue.LocalInPrologue)
+                return "prologue";
             return null;
         }
 

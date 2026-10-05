@@ -21,6 +21,8 @@ namespace DWMPHorde.Networking
             {
                 Door door = doors[i];
                 if (door == null) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(door.transform)) continue;
 
                 Vector3 p = door.transform.position;
                 Vector3 key = new Vector3(
@@ -91,6 +93,7 @@ namespace DWMPHorde.Networking
             {
                 Window window = windows[i];
                 if (window == null || !window.barricaded) continue;
+                if (PersonalPrologue.IsOnProloguePad(window.transform)) continue;
 
                 Vector3 p = window.transform.position;
                 Vector3 key = new Vector3(
@@ -131,6 +134,8 @@ namespace DWMPHorde.Networking
                 if (item == null || item.gameObject == null || !item.gameObject.scene.IsValid())
                     continue;
                 if (!item.destructible)
+                    continue;
+                if (PersonalPrologue.IsOnProloguePad(item.transform))
                     continue;
 
                 bool needSync = item.destroyed

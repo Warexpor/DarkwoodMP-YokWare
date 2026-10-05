@@ -175,6 +175,7 @@ namespace DWMPHorde.Patches
 
             bool byPlayer = (bool)__args[0];
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
 
             bool justRestored = wasDestroyed && !__instance.destroyed;
 
@@ -198,6 +199,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Door __instance)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
             // destroyBarricade called from inside getHit — GetHit Postfix sends instead
             if (BarricadeSyncHelpers.IsInsideGetHit(__instance.GetInstanceID()))
                 return;
@@ -216,6 +218,7 @@ namespace DWMPHorde.Patches
             bool byPlayer = (bool)__args[1];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
             if (__instance.barricaded)
             {
                 BarricadeSyncHelpers.SendBarricadeEvent(__instance.transform.position, 1, BarricadeAction.Built, __instance.barricadeHealth, byPlayer);
@@ -232,6 +235,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Window __instance)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
             if (BarricadeSyncHelpers.IsInsideGetHit(__instance.GetInstanceID()))
                 return;
             BarricadeSyncHelpers.SendBarricadeEvent(__instance.transform.position, 1, BarricadeAction.Destroyed, 0, false);
@@ -286,6 +290,7 @@ namespace DWMPHorde.Patches
             int damage = (int)__args[0];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
 
             // If the client redirected this hit (local player attacking a remote
             // world object), the original getHit was skipped and barricadeHealth
@@ -385,6 +390,7 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
             if (!wasBarricaded)
                 return;
 
@@ -439,6 +445,7 @@ namespace DWMPHorde.Patches
             int damage = (int)__args[0];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (Sync.PersonalPrologue.IsOnProloguePad(__instance.transform)) return; // host prologue pad: not the world
             // Match Door/Window: allow host MeleeWorldHit apply (IsApplyingRemoteState)
             // to fan BarricadeEvent. Loop stop is ProcessingBarricadeEvent only.
             if (LanNetworkManager.ProcessingBarricadeEvent) return;

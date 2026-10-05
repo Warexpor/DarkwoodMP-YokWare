@@ -359,14 +359,6 @@ namespace DWMPHorde.Networking
             if (target <= 0)
                 _broadcastRecipients = new HashSet<int>(_net.EnumeratePeerIds());
             SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
-            if (begin.PrologueOffered)
-            {
-                // A recipient new to the world plays the prologue offline before it comes back.
-                IEnumerable<int> recipients = target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients;
-                foreach (int id in recipients)
-                    if (_net.TryGetStableClientKeyForPlayer(id, out string key))
-                        Sync.PersonalPrologue.HostNoteShared(key);
-            }
 
             int sent = 0;
             int frameBudget = 0;
@@ -407,6 +399,15 @@ namespace DWMPHorde.Networking
             {
                 new WorldSaveEndMessage { Success = true }.Serialize(w);
             });
+            if (begin.PrologueOffered)
+            {
+                // A recipient new to the world plays the prologue offline before it comes back. Only
+                // one that got the whole world: a download cut short brings nobody to wait for.
+                IEnumerable<int> recipients = target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients;
+                foreach (int id in recipients)
+                    if (_net.HasPeer(id) && _net.TryGetStableClientKeyForPlayer(id, out string key))
+                        Sync.PersonalPrologue.HostNoteShared(key);
+            }
 
             ProgressText = "World shared → client profile " + profileId;
             _net.StatusText = ProgressText;

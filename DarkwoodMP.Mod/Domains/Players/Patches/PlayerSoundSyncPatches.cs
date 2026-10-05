@@ -53,6 +53,8 @@ namespace DWMPHorde.Patches
         internal static void ForwardCreatureSound(Transform parentObj, string audioID, float volume)
         {
             if (string.IsNullOrEmpty(audioID) || volume <= 0.001f) return;
+            // A prologue pad creature has no id on purpose: no positional fallback for it either.
+            if (PersonalPrologue.IsOnProloguePad(parentObj)) return;
             if (LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: false)) return;
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (LocalAudioService.IsLoopingItem(audioID)) return;
