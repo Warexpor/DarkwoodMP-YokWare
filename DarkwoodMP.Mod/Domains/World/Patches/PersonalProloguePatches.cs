@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
 
@@ -51,9 +52,9 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// The host's home oven is not a new player's (vanilla sets it when the player uses one). Runs
-    /// right after the dream state is loaded: a save the host made mid-prologue would resume the
-    /// host's prologue dream at load (SaveManager wantToDream); the joiner starts its own instead.
+    /// The host's home oven is not a new player's. Runs right after the dream state is loaded: a
+    /// save the host made mid-prologue would resume the host's prologue dream at load (SaveManager
+    /// wantToDream); the joiner starts its own instead.
     /// </summary>
     [HarmonyPatch(typeof(Player.SaveState), nameof(Player.SaveState.loadValues2))]
     public static class PrologueFreshCharacterOvenPatch
@@ -65,7 +66,42 @@ namespace DWMPHorde.Patches
             Dreams d = Dreams.Instance;
             if (d != null)
                 d.wantToDream = false;
+            SetNewGameHome(Player.Instance);
             return false;
+        }
+
+        /// <summary>
+        /// What vanilla's skipped <c>loadValues2</c> does for a player who never examined an oven
+        /// (<c>setExperienceMachine(home, doEnable: false)</c>), with a new game's home: the
+        /// hideout's default oven (<c>isDefaultExpMachine</c>). <c>setAsDefaultExpMachine</c> lights
+        /// it (light, hum, smoke) and gives it the lit portrait the oven's first dialogue needs. Left
+        /// to the oven's own <c>Start</c>, a joiner met it unlit and got the unlit greeting.
+        /// </summary>
+        private static void SetNewGameHome(Player p)
+        {
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            if (p == null || wg == null || wg.playerBase == null)
+                return;
+            ExperienceMachine home = null;
+            foreach (ExperienceMachine em in wg.playerBase.GetComponentsInChildren<ExperienceMachine>(true))
+            {
+                if (em != null && em.isDefaultExpMachine)
+                {
+                    home = em;
+                    break;
+                }
+            }
+            if (home == null)
+            {
+                ModLog.Warn(LogCat.Session, "[Prologue] no default oven in the hideout for the fresh character");
+                return;
+            }
+            string was = p.experienceMachine != null ? p.experienceMachine.name + " at " + p.experienceMachine.transform.position : "none";
+            // Not the host's home: setExperienceMachine would put that one out.
+            p.experienceMachine = null;
+            p.setExperienceMachine(home, doEnable: false);
+            ModLog.Event(LogCat.Session, "[Prologue] fresh character's home oven: " + home.transform.position
+                + " lit=" + (home.light2D != null && home.light2D.activeSelf) + " (was " + was + ")");
         }
     }
 

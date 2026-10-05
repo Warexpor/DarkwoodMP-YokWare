@@ -717,6 +717,23 @@ host's sends during its prologue ran alongside. Found and fixed:
   filtered (only the host's re-run of a client's examine hides them, as before).
   `PersonalFlavorHud`, `GameEventFireFlavorSourcePatch` (`ExaminableSyncPatches.cs`).
 
+### Hideout oven unlit for a new client character
+
+- **A client new to the world found the first hideout's oven cold, and examining it gave the
+  "unlit oven" greeting instead of the oven's first conversation.** Vanilla makes the oven home and
+  lights it while a save loads: `Player.SaveState.loadValues2` calls
+  `setExperienceMachine(home, doEnable: false)` → `setAsDefaultExpMachine` (light, hum, smoke, lit
+  portrait). The mod skips that step for a new client character, because the save holds the host's
+  home, and put nothing in its place. The skip now does what vanilla does on a new game: the
+  hideout's default oven (`isDefaultExpMachine`, checked against the scene data) becomes the
+  joiner's home and is lit. A `[Prologue] fresh character's home oven` line logs it
+  (`PrologueFreshCharacterOvenPatch`).
+- **Dialogue sync gave every oven the same lit/unlit portrait.** All ovens share the `oven_act1`
+  dialogue, and an oven's portrait is its own lit state (`dontGetPortraitTypeFromDialogue`, set
+  by `ExperienceMachine.enable/disable`), but the dialogue-tree apply copied the dialogue's
+  portrait onto every NPC using it. It now skips NPCs that keep their own portrait, as vanilla
+  `NPC.init` does (`DialogTreeSync.ApplyPayload`).
+
 ### Another player's legs frozen mid-step
 
 - **After the host was freed from a bear trap, the client saw the host standing with one leg
