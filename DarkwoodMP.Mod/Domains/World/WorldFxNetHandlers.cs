@@ -202,12 +202,65 @@ namespace DWMPHorde.Networking
             int claimer = _net.CurrentReceivePlayerId;
             if (claimer <= 0)
                 return;
+            ProcessPickupClaim(msg, claimer, mayHold: true);
+        }
 
+        /// <summary>
+        /// Claims for a location the host has not spawned yet (the claimer entered it moments ago):
+        /// the item is not here to take yet, but it will be. Denied, the client gave the item back
+        /// and its own copy was already gone: the item vanished for it.
+        /// </summary>
+        private readonly System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>> _heldClaims =
+            new System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>>();
+        private float _nextHeldClaimRetry;
+        private const float HoldClaimSec = 20f;
+
+        internal void ClearHeldClaims() => _heldClaims.Clear();
+
+        internal void TickHeldClaims()
+        {
+            if (_heldClaims.Count == 0 || _net.Role != NetworkRole.Host || Time.unscaledTime < _nextHeldClaimRetry)
+                return;
+            _nextHeldClaimRetry = Time.unscaledTime + 1f;
+            var batch = new System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>>(_heldClaims);
+            _heldClaims.Clear();
+            for (int i = 0; i < batch.Count; i++)
+            {
+                bool expired = Time.unscaledTime - batch[i].Value.Value > HoldClaimSec;
+                if (!ProcessPickupClaim(batch[i].Key, batch[i].Value.Key, mayHold: !expired, heldSince: batch[i].Value.Value))
+                    continue;
+            }
+        }
+
+        private bool ClaimerLocationPending(int claimer)
+        {
+            var ol = Singleton<OutsideLocations>.Instance;
+            return ol != null && ol.spawnedLocations != null
+                && _net.RemoteOutsideLocation.TryGetValue(claimer, out string loc)
+                && !string.IsNullOrEmpty(loc)
+                && !ol.spawnedLocations.ContainsKey(Core.getTrueLocationName(loc));
+        }
+
+        /// <returns>False when the claim was put on hold.</returns>
+        private bool ProcessPickupClaim(WorldObjectRemovedMessage msg, int claimer, bool mayHold, float heldSince = -1f)
+        {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             // First claim wins, and only for an object the host actually has: a claim for a
             // pickup the host never had (or already lost) is denied instead of granted.
-            bool granted = Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName)
-                && Sync.WorldPhysicsSyncService.TryDestroyClaimedWorldPickup(pos, msg.ObjectName);
+            bool first = Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+            bool granted = first && Sync.WorldPhysicsSyncService.TryDestroyClaimedWorldPickup(pos, msg.ObjectName);
+            if (first && !granted)
+            {
+                // Not taken by anyone: leave it takeable (a failed claim used to mark it gone).
+                Sync.WorldPhysicsSyncService.UnconsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+                if (mayHold && ClaimerLocationPending(claimer))
+                {
+                    _heldClaims.Add(new KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>(
+                        msg, new KeyValuePair<int, float>(claimer, heldSince >= 0f ? heldSince : Time.unscaledTime)));
+                    ModLog.Event(LogCat.World, "[WorldPickup] hold p" + claimer + " " + msg.ObjectName + " — location still spawning here");
+                    return false;
+                }
+            }
             if (!granted)
             {
                 var deny = new WorldObjectRemovedMessage
@@ -227,7 +280,7 @@ namespace DWMPHorde.Networking
                     DeliveryMethod.ReliableOrdered);
                 ModLog.Event(LogCat.World,
                     "[WorldPickup] deny p" + claimer + " " + msg.ObjectName + " at " + pos);
-                return;
+                return true;
             }
 
             var remove = new WorldObjectRemovedMessage
@@ -248,6 +301,7 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
             ModLog.Event(LogCat.World,
                 "[WorldPickup] grant p" + claimer + " " + msg.ObjectName + " at " + pos);
+            return true;
         }
 
         private void HandleWorldPickupClaimDeny(WorldObjectRemovedMessage msg)

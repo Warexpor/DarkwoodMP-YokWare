@@ -674,6 +674,13 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   later.** A joiner loads the last save, so a newer trap didn't exist for them, and
   one disarmed or picked up since came back armed and could be taken again. The host
   now keeps both lists until the next save and sends them to joiners.
+- **Picking up in a location the host was still loading lost the item.** The host
+  couldn't find it yet and refused the claim, and the client's copy was already gone.
+  Such claims now wait (up to 20 seconds) for the location to load. A failed claim
+  also no longer marks the item as taken.
+- **A player arriving in a location later saw items others had taken there.** Each
+  machine builds a location fresh. Its first visit now carries the pickups already
+  taken there.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 
