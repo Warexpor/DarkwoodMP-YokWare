@@ -127,12 +127,12 @@ namespace DWMPHorde.Networking
                 Patches.HostLocationLeaveKeepRemotePatch.TickHost();
                 if (perf) ClientPerfProbe.EndUpdateSegment();
 
-                _proxyAggroTimer += Time.deltaTime;
-                if (_proxyAggroTimer >= 0.5f)
+                _proxyMaintenanceTimer += Time.deltaTime;
+                if (_proxyMaintenanceTimer >= 0.5f)
                 {
-                    _proxyAggroTimer = 0f;
-                    if (perf) ClientPerfProbe.BeginUpdateSegment("proxyAggro");
-                    WorldProxyLifecycleHandlers.ProxyAggroCheck();
+                    _proxyMaintenanceTimer = 0f;
+                    if (perf) ClientPerfProbe.BeginUpdateSegment("proxyMaintenance");
+                    WorldProxyLifecycleHandlers.ProxyMaintenanceTick();
                     if (perf) ClientPerfProbe.EndUpdateSegment();
                 }
 

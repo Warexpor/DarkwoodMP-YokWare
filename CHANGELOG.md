@@ -236,6 +236,64 @@ host's sends during its prologue ran alongside. Found and fixed:
   `WorldPhysicsSyncService.ObjectResolve.cs`, `GameEventAnimLibraryHostFanPatch.cs`,
   `ModRuntime.cs`.
 
+### Creatures switching between players
+
+- **Dogs that saw both players went for the client first and, while closing in, snapped back
+  and forth between the host and the client many times a second** (automated run: host and
+  client about 70 apart, three dogs). The earlier fix (keep a chased player unless the other is
+  clearly nearer) only acted while a creature was already chasing, and it was one of about a
+  dozen places that each picked "which player" by their own rule and at their own pace:
+  - vanilla's sight check (every 0.5-1 s) makes every seen character the target in turn, so the
+    last one in its sight list wins, and turns the creature to listen to each in turn;
+  - the mod's own sight code then picked the closest player (twice, by two rules), preferred the
+    client when the host was "not yet chasing", and kept the host when it was;
+  - a separate host tick every 0.5 s pulled any hostile creature that could see a client up
+    close onto that client, whatever it was chasing;
+  - an unseen client inside a creature's smell radius counted as seen, the host did not (a dog
+    sniffing around the host still "saw" the client behind it);
+  - the closer-enemy check (every 2.5-3.5 s) picked the closest of everything, also for
+    non-player targets, and `attackPlayer` the nearest body.
+  With two players these disagreed on almost every tick.
+- **One arbiter now decides which player body a creature targets**
+  (`PlayerTargetArbiter`, decision in `PlayerTargetPolicy`). Every player body counts alike (no
+  host or client preference, any number of players). A creature acquires the nearest player it
+  sees, then keeps that player in every behaviour (approaching, listening, defensive, chasing)
+  while the player is alive, visible to AI and seen, or was seen in the last 2 s. It moves to
+  another player only when the current one is lost (then at once, as vanilla turns to whatever
+  it sees) or on vanilla's own closer-enemy check when the other is under 75% of the distance,
+  at most once per 2.5 s. With nobody else in sight a lost target is kept and vanilla's
+  `lostEnemy` timing decides. Non-player targets (other creatures, doors, windows, lures) stay
+  vanilla's.
+  - Sight check: runs after vanilla's; stand-ins vanilla's ray misses are seen by the same range
+    and field of view with vanilla's per-sighting effects, the target among players is the
+    arbiter's, and "stop and listen" fires once, toward that player, under vanilla's conditions
+    (vanilla's per-body listens are held back).
+  - Closer-enemy check: vanilla's first-in-list pick again; when that is a player, the arbiter
+    says which player.
+  - Routed through it: `attackPlayer` (the player the creature is after, else the nearest), the
+    sniffer (among the players inside its smell radius), bird areas (the player who walked in,
+    the host included), the banshee's victim (kept while that player still sees it), scripted
+    activities, the ward and constant-attack checks, the bunker dream spirit (stays on the player
+    who triggered it). Hits and bumps turn a creature on that player, as in vanilla.
+- **Removed:** the 0.5 s proxy aggro tick, the sight patch's closest-player / host-sticky /
+  proxy-preference rules and its duplicate ward and Enemy of the Forest branches (vanilla's
+  own handling covers them), smell counted as sight for stand-ins, `PlayerChaseTarget`, and the
+  `forceAttackClosestCharacter` postfix. `attackCharacter` on a stand-in no longer refuses
+  creatures that are not hostile to players (a deer hit by a client now turns on him as it does
+  on the host) and no longer wakes a sleeper and chases at once (vanilla only wakes it). A bump
+  into a stand-in is vanilla's collision reaction (`reactToCharacter`), not "chase if hostile".
+- **Diagnostic:** `[TargetSwitch]` (AI trace) logs every switch between two player bodies with
+  distances, behaviour and which path made it; `[TargetHold]` logs when the arbiter kept a
+  creature on its player against vanilla's pick. See `docs/LOGGING.md`.
+- Single player and a host without remote players run vanilla untouched.
+- `PlayerTargetArbiter.cs` (new), `CoopPolicy.Targeting.cs` (new),
+  `HostAIPatches.Perception.CanSee.cs`, `HostAIPatches.Perception.cs`,
+  `HostAIPatches.Targeting.cs`, `HostAIPatches.Identity.cs`, `HostDetectionGapPatches.cs`,
+  `HostBodyRedirectPatches.cs`, `HostWardScopePatches.cs`, `BirdAreaSyncPatches.cs`,
+  `DreamForestSpiritSpawnPatch.cs`, `NightSpawnRedirectPatches.cs`,
+  `WorldProxyLifecycleNetHandlers.cs`, `LanNetworkManager.Tick.cs`, `ModRuntime.cs`;
+  `PlayerTargetPolicyTests.cs` (25 tests). Built and unit-tested; not yet run in the game.
+
 ### Lantern light and client view distance
 
 - **Other players never saw a player's lantern.** In vanilla the lantern does not need to be
@@ -257,22 +315,24 @@ host's sends during its prologue ran alongside. Found and fixed:
   second time. The `remote lantern ON` line now logs the layer.
   (`PlayerLightFxAmbientNetHandlers.cs`, `PlayerLightFxApplyNetHandlers.cs`,
   `PlayerHeldLightApplyNetHandlers.cs`, `PlayerHeldLightApplyNetHandlers.Flashlight.cs`.)
-- **The client could look much farther than the host.** Vanilla moves the camera toward the
-  cursor (`CamMain.FixedUpdate`) and allows a cursor position from `-Screen.width` to
-  `Screen.width`. Vanilla confines the pointer to the window, so the camera reaches at most a
-  third of a screen ahead. The dual-box option `FreeCursorForDualBox` (on in both installs'
-  cfg) frees the pointer. The Wine/Proton client most likely keeps reading the pointer while
-  it is over the other game window. That gives a position below zero, so the camera can run
-  up to a full screen width ahead to the left and down, three times the vanilla distance. The
-  native host stops getting pointer motion at its window edge. Neither log records the mouse
-  position, so this cause is inferred; the new log line below confirms it in the next run.
-  This was not a resolution difference:
-  both installs are 1280x720 windowed with camera zoom on (`MULTIPLAYER button @ 1280x720` in
-  both logs, same Unity prefs), so `Controller.refreshZoom` gives both the same view. With the
-  pointer free, the game's cursor (`Core.MouseKeyboardCursorPos` / `ControllerCursorPos`, used
-  for camera look, aim and throws) now stays inside the window, as the vanilla confine would
-  keep it. A new `[Cursor] pointer outside the window` line shows when this happens. With the
-  option off nothing changes. (`CursorConfineFocusGuard.cs`.)
+- **The client could look much farther than the host (still there in the next run).** Vanilla
+  moves the camera toward the cursor by the cursor's offset divided by `CamMain.seeDistance`
+  (`CamMain.FixedUpdate`), and that distance is set by `PlayerSkills.setfarsight` (5.2, or 3.4
+  with the Farsight skill) when the character's skills are initialized: by `PlayerSkills.Start`
+  on a new game, by the save's skill load on a load. A client new to the host's world loads it
+  as a fresh character, and the mod skips the save's player block (the host's character), skill
+  load included, so its skills were never initialized and `seeDistance` kept its default of
+  1.5: the camera ran about three and a half times as far toward the cursor as the host's. The
+  fresh character now gets vanilla's new-game skill setup (skill prefabs unchosen, then
+  `initialize`), which sets the look distance like any new game
+  (`PrologueFreshCharacterPatch.InitNewGameSkills`). A returning client's skills were already
+  restored through `initialize` from its backup.
+- Separately, with `FreeCursorForDualBox` on (the pointer is not confined), the game's cursor
+  (`Core.MouseKeyboardCursorPos` / `ControllerCursorPos`: camera look, aim, throws) now stays
+  inside the window as the vanilla confine would keep it: the Wine/Proton client kept reading
+  the pointer over the other game window, past its own edges (the `[Cursor] pointer outside the
+  window` lines in the next run confirmed it). With the option off nothing changes.
+  (`CursorConfineFocusGuard.cs`.)
 
 ### Doors broken by a client, dragged objects
 
@@ -608,7 +668,8 @@ host's sends during its prologue ran alongside. Found and fixed:
     (`lastKnownTargetPosition`) every frame only while `canSeeEnemyFar` is set; otherwise only in
     vanilla's one-second relentless bursts after losing sight. So the dog ran to where the client
     had been, again and again. A sensed stand-in now gets the same consequences a seen player does
-    (`HostCanSeeEnemyPatch.ApplySeenStandIns`), and a trace line (`[AIChase]`, once a second per
+    (`HostCanSeeEnemyPatch.ApplySeenStandIns`, now `SenseStandIns`, which also drops the smell
+    part: see "Creatures switching between players"), and a trace line (`[AIChase]`, once a second per
     creature chasing a stand-in) logs how far its chase point lags behind the client.
   - **With both players in view, the host's dog kept switching between them.** Vanilla's sight check sets the
     chase target to every character it sees in turn, so the last one in its sight list wins every
@@ -619,7 +680,8 @@ host's sends during its prologue ran alongside. Found and fixed:
     while they are alive and it still sees or smells them, and moves to another player only when
     that one is clearly nearer (under 75% of the distance). Single player is unchanged.
     `PlayerChaseTarget` and `HostCanSeeEnemyPatch` (`HostAIPatches.Perception.CanSee.cs`),
-    `HostCheckForCloserEnemyPatch` (`HostDetectionGapPatches.cs`).
+    `HostCheckForCloserEnemyPatch` (`HostDetectionGapPatches.cs`). Not enough: replaced by one
+    arbiter for every path, see "Creatures switching between players".
   - **Clips ran ahead of the body on the client.** The body is drawn 75-150 ms behind the host
     (the timeline), but the host's clip was played as soon as its packet arrived, so the dog turned
     or stopped before its body did and slid. The clip now rides in the timeline sample and plays

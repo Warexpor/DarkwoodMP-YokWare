@@ -133,6 +133,14 @@ desyncs are open. `grep -n "DESYNC" LogOutput.log` lists them.
 | `[YokWare/Death]` | Death |
 | `[YokWare/Save]` | Save share |
 
+Host creature targeting (AI category, Trace level, host with remote players only):
+
+| Line | When |
+|------|------|
+| `[TargetSwitch] <creature> host→p2 d=120→60 beh=chasingTarget via <path> (<reason>)` | A creature's target moved from one player body to another. `via` names the writer: `canSeeEnemy`, `checkForNewEnemyCloserThanTarget`, `attackPlayer`, `sniff`, `reactToCharacter` (hit or bump), `birdArea`, `onBansheeSeePlayer`, `attackCharacter` (a vanilla caller), or `unrouted (between sight checks)` for a writer that bypasses the arbiter (a bug). Reason: `Acquire`, `Keep`, `CurrentLost`, `ClearlyNearer`, `Pinned`. Per creature, at most every 0.25 s with a suppressed count. |
+| `[TargetHold] <creature> on host (d=…) over <check>'s p2 (d=…)` | Vanilla's check would have moved the creature to another player and the arbiter kept it on its current one (every 2 s per creature). |
+| `[AIChase]` | Once a second per creature chasing a stand-in: how far its chase point lags behind it. |
+
 ## Dialog / dream co-op (parity notes)
 
 | Path | Authority |

@@ -115,7 +115,9 @@ namespace DWMPHorde.Patches
     /// <c>Player</c> attacker gets chased, skipping the cowardice roll). On the host it went wrong
     /// both ways: a client's hit came from a stand-in without a <c>Player</c>, so a hit creature
     /// rolled to flee instead; and the host's own hit called attackPlayer, which the nearest-body
-    /// rule turned on whichever player stood closer. The player who hit it is chased.
+    /// rule turned on whichever player stood closer. The player who hit it is chased. Bumping into
+    /// a stand-in comes through here too (vanilla's collision reaction, from
+    /// <see cref="HostOnCollideWithProxyPatch"/>).
     /// </summary>
     [HarmonyPatch(typeof(Character), "reactToCharacter")]
     public static class HostRetaliateOnAttackerPatch
@@ -142,7 +144,7 @@ namespace DWMPHorde.Patches
             __instance.setBehaviour(Character.Behaviour.chasingTarget);
             if (__instance.aggressiveness != Aggressiveness.defensive)
                 __instance.aggressiveness = Aggressiveness.attackOnSight;
-            __instance.attackCharacter(attackerTransform);
+            PlayerTargetArbiter.Commit(__instance, attackerTransform, "reactToCharacter");
             return false;
         }
     }

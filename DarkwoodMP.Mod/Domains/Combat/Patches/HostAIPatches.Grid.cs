@@ -366,10 +366,4 @@ namespace DWMPHorde.Patches
         private static void Finalizer(WorldGrid __instance)
             => HostGridOccupancy.PopOccupyingGrid(__instance);
     }
-
-    /// <summary>
-    /// After forceAttackClosestCharacter runs, if the entity fell through to
-    /// attackPlayer() because the proxy has no Character component, redirect
-    /// to the proxy only when that proxy is closer than the host.
-    /// </summary>
 }

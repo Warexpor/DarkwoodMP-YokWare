@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
@@ -78,152 +77,246 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Which player body a chasing creature stays on. Vanilla <c>canSeeEnemy</c> sets
-    /// <c>target</c> to every visible character in turn, so the last one in
-    /// <c>charactersInSight</c> wins each sight check (0.5-1 s); that list follows the physics
-    /// overlap order, not distance. <c>checkForNewEnemyCloserThanTarget</c> (patched to the
-    /// nearest) then runs every 2.5-3.5 s. Vanilla has one player body, so both agree; with the
-    /// host and a client in view they disagreed and the chase flipped between the two bodies,
-    /// re-pathing and turning on the spot each time (the creature stutter-chased one player and
-    /// was easy to dodge). One rule for both now: a creature chasing a player body keeps it while
-    /// that body is alive and in sight, and moves to another player body only when that one is
-    /// clearly nearer.
+    /// Host with remote players: vanilla's sight check (<c>canSeeEnemy</c>, every 0.5-1 s) for more
+    /// than one player body.
+    ///
+    /// Vanilla puts every character it sees in <c>charactersInSight</c> and then, for each one in
+    /// list order (the physics overlap order, not distance), turns to listen to it and makes it the
+    /// target, so the last one seen wins. With one player that is always the player. With the host
+    /// and a client both in view the creature flipped between them on every check (and the mod's
+    /// own sensing and closest-player rules flipped it again), turning on the spot each time.
+    ///
+    /// Now: (1) stand-ins vanilla's ray misses (it only counts their root collider) are sensed by
+    /// the same sight test and given vanilla's per-sighting consequences; (2) which player body the
+    /// creature ends up on is <see cref="PlayerTargetArbiter"/>'s choice (hold the current one,
+    /// else the nearest seen); (3) vanilla's "turn and listen" fires once, toward that body, under
+    /// the same conditions vanilla would apply to a single player (<see cref="HostCanSeeListenPatch"/>
+    /// holds back the per-body listens of vanilla's loop). Other targets stay vanilla's.
     /// </summary>
-    internal static class PlayerChaseTarget
-    {
-        /// <summary>
-        /// Another player body must be nearer than this share of the current one's distance to
-        /// take the chase over. Near-equal distances (two players side by side, or crossing) keep
-        /// the creature on the body it is already after.
-        /// </summary>
-        internal const float SwitchDistanceRatio = 0.75f;
-
-        internal static bool IsPlayerBody(Transform t)
-        {
-            if (t == null)
-                return false;
-            Player host = Player.Instance;
-            if (host != null && (t == host.transform || t == host._transform))
-                return true;
-            return CanSeeComponentCache.IsProxy(t);
-        }
-
-        internal static bool ClearlyNearer(float candidateDist, float currentDist)
-            => candidateDist < currentDist * SwitchDistanceRatio;
-
-        /// <summary>
-        /// The body is alive, can be seen by AI and this creature senses it: in its sight list, or
-        /// for a stand-in the same sight / smell test <see cref="HostCanSeeEnemyPatch"/> uses
-        /// (vanilla's ray only counts the stand-in's root collider).
-        /// </summary>
-        internal static bool StillHeld(Character c, Transform body)
-        {
-            if (body == null)
-                return false;
-            Player host = Player.Instance;
-            bool isHost = host != null && (body == host.transform || body == host._transform);
-            CharBase cb = isHost ? CanSeeComponentCache.HostCharBase() : body.GetComponent<CharBase>();
-            if (cb == null || !cb.alive || cb.invisible || cb.ignoreMe)
-                return false;
-            if (c.charactersInSight.Contains(cb))
-                return true;
-            return !isHost && SensesProxy(c, body);
-        }
-
-        private static bool SensesProxy(Character c, Transform body)
-        {
-            CanSeeComponentCache.Get(c, out Sniffer sniffer, out Collider _);
-            float sniffR = sniffer != null ? sniffer.radius : 0f;
-            float range = Mathf.Max((float)c.farViewDistance * c.aniSightRangeModifier, sniffR);
-            Vector3 to = body.position - c.transform.position;
-            float d = to.magnitude;
-            if (d > range)
-                return false;
-            bool inFov = Vector3.Angle(to, c.transform.up) <= (float)c.fieldOfViewRange;
-            if (!inFov)
-                return sniffer != null && d < sniffR;
-            return Physics.Raycast(c.transform.position, to, out var hit, d, 18909185)
-                && hit.collider != null
-                && hit.collider.GetComponentInParent<RemotePlayerProxy>() is RemotePlayerProxy p
-                && p.transform == body;
-        }
-
-        /// <summary>
-        /// After vanilla's sight loop: if it moved a chasing creature from one player body to
-        /// another, put the chase back unless the committed body is lost or the new one is clearly
-        /// nearer. Other targets (other factions, doors) stay vanilla's.
-        /// </summary>
-        internal static void KeepCommitted(Character c, Transform committed)
-        {
-            if (committed == null || c.target == null || c.target == committed)
-                return;
-            if (c.behaviour != Character.Behaviour.chasingTarget || !IsPlayerBody(c.target))
-                return;
-            if (!StillHeld(c, committed))
-                return;
-            Vector3 from = c.transform.position;
-            if (ClearlyNearer(Core.trueDistance(from, c.target.position), Core.trueDistance(from, committed.position)))
-                return;
-            c.target = committed;
-        }
-    }
-
     [HarmonyPatch(typeof(Character), "canSeeEnemy")]
     public static class HostCanSeeEnemyPatch
     {
-        /// <summary>The player body this creature was chasing before vanilla's sight loop ran.</summary>
-        private static void Prefix(Character __instance, ref Transform __state)
+        internal struct State
         {
-            __state = null;
-            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
+            public bool On;
+            public bool Scoped;
+            public Transform Before;
+        }
+
+        /// <summary>The creature whose sight check is running (listens to player bodies are held back).</summary>
+        internal static Character Scope; // process-scoped: call-scoped, cleared by the Finalizer
+
+        /// <summary>Inside the scope, vanilla asked to listen to a player body (held back).</summary>
+        internal static bool PlayerListenHeld; // process-scoped: call-scoped, cleared by the Prefix and Finalizer
+
+        /// <summary>Inside the scope, a listen to a non-player went through after a held one (it was vanilla's last).</summary>
+        internal static bool OtherListenAfter; // process-scoped: call-scoped, cleared by the Prefix and Finalizer
+
+        private static void Prefix(Character __instance, ref State __state)
+        {
+            __state = default;
+            if (__instance == null || !HostPlayerIdentity.HostWithRemotes())
                 return;
-            if (__instance.behaviour == Character.Behaviour.chasingTarget
-                && PlayerChaseTarget.IsPlayerBody(__instance.target))
-                __state = __instance.target;
+            __state.On = true;
+            __state.Before = __instance.target;
+            PlayerTargetArbiter.CheckUnrouted(__instance);
+            if (Scope == null)
+            {
+                Scope = __instance;
+                PlayerListenHeld = false;
+                OtherListenAfter = false;
+                __state.Scoped = true;
+            }
         }
 
         [HarmonyPriority(Priority.Last)]
-        private static void Postfix(Character __instance, Transform __state)
+        private static void Postfix(Character __instance, State __state)
         {
-            // Solo host (no remotes yet / all left) keeps vanilla targeting untouched.
-            if (!HostPlayerIdentity.HostWithRemotes())
+            if (!__state.On || __instance == null)
                 return;
-            PlayerChaseTarget.KeepCommitted(__instance, __state);
-            if (__instance.dummy || __instance.blind || !__instance.alive)
+            Character c = __instance;
+            // Vanilla's own early return (blind / inactive) touched nothing.
+            if (c.blind || !c.isActive || !c.alive)
+            {
+                PlayerTargetArbiter.Observe(c, __state.Before, c.target, "canSeeEnemy");
                 return;
-            Sense(__instance);
-            ApplySeenStandIns(__instance);
+            }
+
+            bool assigns = !c.onlyAttackPlayer && (!c.veryHungry || !c.eating);
+            Transform before = __state.Before;
+            // Vanilla's top clears a dead target before its loop.
+            if (before != null && PlayerTargetArbiter.IsPlayerBody(before))
+            {
+                CharBase bcb = before.GetComponent<CharBase>();
+                if (bcb == null || !bcb.alive)
+                    before = null;
+            }
+
+            if (!c.dummy)
+                SenseStandIns(c, assigns);
+
+            Transform pick = PlayerTargetArbiter.Choose(c, before, switchWindow: false,
+                out PlayerTargetReason reason, out bool pickSensed);
+            Transform after = c.target;
+            if (assigns && pick != null && after != pick && PlayerTargetArbiter.IsPlayerBody(after))
+            {
+                if (after != before)
+                    PlayerTargetArbiter.TraceHold(c, pick, after, "canSeeEnemy", reason);
+                c.target = pick;
+            }
+            // A listen to another character that vanilla made after the player bodies' turn was its
+            // last word; leave it.
+            if (pick != null && pickSensed && !OtherListenAfter)
+                Listen(c, before, pick);
+
+            PlayerTargetArbiter.Observe(c, __state.Before, c.target, "canSeeEnemy", reason);
+            // A player target in sight is always the arbiter's pick (it holds a sensed target).
+            if (pick != null && pickSensed && c.target == pick)
+                PlayerTargetArbiter.NoteSensed(c, pick);
+            TraceProxyChase(c);
+        }
+
+        private static void Finalizer(State __state)
+        {
+            if (!__state.Scoped)
+                return;
+            Scope = null;
+            PlayerListenHeld = false;
+            OtherListenAfter = false;
+        }
+
+        /// <summary>Vanilla <c>seesFaction</c> (private): the creature attacks or flees that faction.</summary>
+        private static bool SeesFaction(Character c, Faction faction)
+        {
+            List<Character.EnemyType> types = c.enemyTypes;
+            if (types == null)
+                return false;
+            for (int i = 0; i < types.Count; i++)
+            {
+                if (types[i] != null && types[i].faction == faction && (types[i].attacks || types[i].runsAwayFrom))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
-        /// Vanilla's sight loop, for each character it put in <c>charactersInSight</c>, also sets
-        /// <c>canSeeEnemyFar</c> (and <c>canSeeEnemyNear</c> in near range) and stops the
-        /// <c>lostEnemy</c> countdown. The stand-ins this patch senses itself (vanilla's ray often
-        /// misses them) were only added to the list. While chasing one, the creature then never
-        /// counted it as seen: its chase point (<c>lastKnownTargetPosition</c>, refreshed every
-        /// frame only while <c>canSeeEnemyFar</c>) was updated only in vanilla's one-second
-        /// relentless bursts, and it ran at where the client had been, again and again (easy to
-        /// walk around). Give a sensed stand-in the same consequences a seen player gets.
+        /// Stand-ins vanilla's ray missed, seen with vanilla's own range and field of view (halved
+        /// while eating, all round while asleep or underwater), added to the sight list with what
+        /// vanilla's loop does for each seen character: <c>canSeeEnemyFar</c>, the <c>lostEnemy</c>
+        /// countdown stopped, the target (when vanilla assigns targets from sight), <c>canSeeEnemyNear</c>
+        /// up close, the sleep-view wake-up and the <c>superTarget</c> follow. The listen is
+        /// <see cref="Listen"/>'s. Before, an unseen stand-in also counted as seen when it was inside
+        /// the creature's smell radius, which the host never did; smell goes through the sniffer for
+        /// every player.
         /// </summary>
-        private static void ApplySeenStandIns(Character c)
+        private static void SenseStandIns(Character c, bool assigns)
         {
-            TraceProxyChase(c);
-            if (c.canSeeEnemyFar && c.canSeeEnemyNear)
+            if (ProxyDistanceHelper.ProxyIsFar(c))
                 return;
+            var net = ModRuntime.Network;
+            if (net == null)
+                return;
+            CanSeeComponentCache.Get(c, out Sniffer _, out Collider own);
+            float maxD = (float)c.farViewDistance * c.aniSightRangeModifier;
+            float fov = c.fieldOfViewRange;
+            if (c.eating)
+            {
+                maxD = c.farViewDistance / 2;
+                fov = c.fieldOfViewRange / 2;
+            }
+            if (c.sleeping || c.isUnderwater)
+                fov = 360f;
             float nearR = (float)c.nearViewDistance * c.aniSightRangeModifier;
             Vector3 from = c.transform.position;
-            for (int i = 0; i < c.charactersInSight.Count; i++)
+            Vector3 up = c.transform.up;
+
+            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
-                CharBase cb = c.charactersInSight[i];
-                if (cb == null || cb.invisible || !cb.alive || !CanSeeComponentCache.IsProxy(cb.transform))
+                if (proxy == null)
                     continue;
-                if (!c.canSeeEnemyFar)
-                {
-                    c.canSeeEnemyFar = true;
-                    c.stopRoutine("lostEnemy", true);
-                }
-                if (Core.trueDistance(cb.transform.position, from) < nearR)
+                CharBase pcb = proxy.CachedCharBase;
+                if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
+                    continue;
+                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    continue;
+                if (c.charactersInSight.Contains(pcb) || !SeesFaction(c, pcb.faction))
+                    continue;
+                Transform pt = proxy.transform;
+                Vector3 to = pt.position - from;
+                float d = to.magnitude;
+                if (d > maxD || !(Vector3.Angle(to, up) < fov))
+                    continue;
+                if (!Physics.Raycast(from, to, out RaycastHit hit, d, 18909185)
+                    || hit.collider == null
+                    || hit.collider == own
+                    || hit.collider.GetComponentInParent<RemotePlayerProxy>() != proxy)
+                    continue;
+
+                c.charactersInSight.Add(pcb);
+                c.canSeeEnemyFar = true;
+                c.stopRoutine("lostEnemy", true);
+                if (assigns)
+                    c.target = pt;
+                float flat = Core.trueDistance(pt.position, from);
+                if (flat < nearR)
                     c.canSeeEnemyNear = true;
+                if (c.sleeping && c.sleepViewDistance > 0 && flat < (float)c.sleepViewDistance)
+                    c.wakeup();
+                if (c.superTarget == pt)
+                {
+                    if (c.AIpath != null)
+                        c.AIpath.setTarget(pt);
+                    c.lastKnownTargetPosition = pt.position;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Vanilla's "stop and listen" for one player, with the player bodies as that one player.
+        /// Vanilla calls it for a seen character when the creature is not chasing, defending,
+        /// following or escaping, sees nothing up close yet, is not neutral, is not heading for a
+        /// lure while starving, and is not already targeting that character. Its loop runs in list
+        /// order, so the conditions are taken where the first player body sits in the list: the
+        /// target the loop had reached there (what the creature had before, or an earlier
+        /// non-player it saw) and whether an earlier sighting was already up close.
+        /// </summary>
+        private static void Listen(Character c, Transform before, Transform pick)
+        {
+            if (c.aggressiveness == Aggressiveness.neutral
+                || c.behaviour == Character.Behaviour.chasingTarget
+                || c.behaviour == Character.Behaviour.defensive
+                || c.behaviour == Character.Behaviour.following
+                || c.behaviour == Character.Behaviour.escaping
+                || (c.veryHungry && c.headingForLure))
+                return;
+            bool assigns = !c.onlyAttackPlayer && (!c.veryHungry || !c.eating);
+            float nearR = (float)c.nearViewDistance * c.aniSightRangeModifier;
+            Vector3 from = c.transform.position;
+            Transform running = before;
+            List<CharBase> list = c.charactersInSight;
+            for (int i = 0; i < list.Count; i++)
+            {
+                CharBase cb = list[i];
+                if (cb == null || cb.invisible || !cb.alive)
+                    continue;
+                if (PlayerTargetArbiter.IsPlayerBody(cb.transform))
+                    break;
+                if (Core.trueDistance(cb.transform.position, from) < nearR)
+                    return;
+                if (assigns)
+                    running = cb.transform;
+            }
+            if (running == pick)
+                return;
+            Character scope = Scope;
+            Scope = null;
+            try
+            {
+                c.stopAndListenTo(pick.position);
+            }
+            finally
+            {
+                Scope = scope;
             }
         }
 
@@ -238,356 +331,48 @@ namespace DWMPHorde.Patches
                 + $"inSight={c.enemyInSight} lag={Core.trueDistance(c.lastKnownTargetPosition, t.position):F0} "
                 + $"dist={Core.trueDistance(c.transform.position, t.position):F0}", 1f);
         }
+    }
 
-        private static void Sense(Character __instance)
+    /// <summary>
+    /// Inside <see cref="HostCanSeeEnemyPatch"/>'s sight check, vanilla's loop turns the creature to
+    /// listen to every player body it sees in turn (the last one wins). Those listens are held back;
+    /// the sight patch then listens once, to the body the arbiter chose. Listens to anything else
+    /// (other characters) and every listen outside the sight check stay vanilla's.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), nameof(Character.stopAndListenTo))]
+    public static class HostCanSeeListenPatch
+    {
+        private static bool Prefix(Character __instance, Vector3 _pos)
         {
+            Character scope = HostCanSeeEnemyPatch.Scope;
+            if (scope == null || scope != __instance)
+                return true;
+            if (AtPlayerBody(_pos))
+            {
+                HostCanSeeEnemyPatch.PlayerListenHeld = true;
+                HostCanSeeEnemyPatch.OtherListenAfter = false;
+                return false;
+            }
+            if (HostCanSeeEnemyPatch.PlayerListenHeld)
+                HostCanSeeEnemyPatch.OtherListenAfter = true;
+            return true;
+        }
+
+        /// <summary>Vanilla passes the seen character's own position.</summary>
+        private static bool AtPlayerBody(Vector3 pos)
+        {
+            Player host = Player.Instance;
+            if (host != null && host.transform.position == pos)
+                return true;
             var net = ModRuntime.Network;
-            if (net == null) return;
-            CanSeeComponentCache.Get(__instance, out Sniffer entitySniffer, out Collider myCollider);
-
-            // --- CASE 3: no or wrong target; acquire the closest player (host or proxy) ---
-            // onlyAttackPlayer entities never set target on proxies via vanilla canSeeEnemy.
-            // Treat host + all proxies as equal player identities: pick closest valid CharBase.
-            if (__instance.aggressiveness != Aggressiveness.neutral &&
-                __instance.aggressiveness != Aggressiveness.follower &&
-                __instance.attacksFaction(Faction.player))
+            if (net == null)
+                return false;
+            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
-                Transform closestPlayer = null;
-                float closestD = float.MaxValue;
-
-                CharBase hostCB = CanSeeComponentCache.HostCharBase();
-                if (hostCB != null && !hostCB.invisible && !hostCB.ignoreMe
-                    && __instance.charactersInSight.Contains(hostCB))
-                {
-                    float dh = Core.trueDistance(__instance.transform.position, hostCB.transform.position);
-                    if (dh < closestD)
-                    {
-                        closestD = dh;
-                        closestPlayer = hostCB.transform;
-                    }
-                }
-
-                // Proxies may not be in charactersInSight yet; use geometric detection.
-                if (!ProxyDistanceHelper.ProxyIsFar(__instance) && net != null)
-                {
-                    float acqRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-                    Sniffer sn = entitySniffer;
-                    float sniffR = sn != null ? sn.radius : 0f;
-                    if (sniffR > acqRange) acqRange = sniffR;
-
-                    foreach (var proxy in net.GetAllProxies())
-                    {
-                        if (proxy == null) continue;
-                        CharBase pcb = proxy.CachedCharBase;
-                        if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
-                            continue;
-                        float d = Core.trueDistance(__instance.transform.position, proxy.transform.position);
-                        if (d > acqRange || d >= closestD) continue;
-
-                        Vector3 to = proxy.transform.position - __instance.transform.position;
-                        bool inFov = Vector3.Angle(to, __instance.transform.up) <= (float)__instance.fieldOfViewRange;
-                        bool inSniff = sn != null && d < sniffR;
-                        if (!inFov && !inSniff) continue;
-
-                        bool detected = inSniff && !inFov;
-                        if (!detected && inFov)
-                        {
-                            if (Physics.Raycast(__instance.transform.position, to, out var hit, d, 18909185))
-                            {
-                                if (hit.collider != null
-                                    && hit.collider.GetComponentInParent<RemotePlayerProxy>() == proxy)
-                                    detected = true;
-                            }
-                        }
-                        if (!detected) continue;
-
-                        if (!__instance.charactersInSight.Contains(pcb))
-                            __instance.charactersInSight.Add(pcb);
-                        closestD = d;
-                        closestPlayer = proxy.transform;
-                    }
-                }
-
-                if (closestPlayer != null)
-                {
-                    float nearR = (float)__instance.nearViewDistance * __instance.aniSightRangeModifier;
-                    bool needAcquire = __instance.target == null
-                        || (__instance.target != closestPlayer
-                            && __instance.behaviour != Character.Behaviour.chasingTarget);
-                    if (needAcquire)
-                    {
-                        // Vanilla: far = sight/listen; near = chase commit.
-                        // Do not attackCharacter at farViewDistance (felt like aggro from too far).
-                        if (closestD <= nearR)
-                        {
-                            __instance.canSeeEnemyNear = true;
-                            __instance.canSeeEnemyFar = true;
-                            __instance.attackCharacter(closestPlayer);
-                        }
-                        else
-                        {
-                            __instance.canSeeEnemyFar = true;
-                            __instance.target = closestPlayer;
-                            if (__instance.aggressiveness != Aggressiveness.neutral
-                                && __instance.behaviour != Character.Behaviour.chasingTarget
-                                && __instance.behaviour != Character.Behaviour.escaping
-                                && __instance.behaviour != Character.Behaviour.running)
-                                __instance.stopAndListenTo(closestPlayer.position);
-                        }
-                    }
-                }
+                if (proxy != null && proxy.transform.position == pos)
+                    return true;
             }
-
-            // Don't modify entity behavior for proxy-specific cases when no
-            // proxy is within detection range.
-            if (ProxyDistanceHelper.ProxyIsFar(__instance))
-                return;
-
-            // --- CASE 1: Entity is already chasing a proxy ---
-            // Check if the host is detectable and add to charactersInSight
-            // so checkForNewEnemyCloserThanTarget can switch to the closer player.
-            if (__instance.target != null && CanSeeComponentCache.IsProxy(__instance.target))
-            {
-                Player hostPlayer = Player.Instance;
-                if (hostPlayer == null) return;
-
-                CharBase hostCB = CanSeeComponentCache.HostCharBase();
-                if (hostCB == null || hostCB.invisible || hostCB.ignoreMe) return;
-                if (__instance.charactersInSight.Contains(hostCB)) return;
-
-                Vector3 toHost = hostPlayer.transform.position - __instance.transform.position;
-                float distToHost = toHost.magnitude;
-
-                // Path A: visual detection with FOV
-                if (distToHost <= (float)__instance.farViewDistance * __instance.aniSightRangeModifier &&
-                    Vector3.Angle(toHost, __instance.transform.up) <= (float)__instance.fieldOfViewRange)
-                {
-                    if (Physics.Raycast(__instance.transform.position, toHost, out var hostHit, distToHost, 18909185))
-                    {
-                        if (hostHit.collider.GetComponentInParent<Player>() != null)
-                        {
-                            __instance.charactersInSight.Add(hostCB);
-                            __instance.canSeeEnemyFar = true;
-                            if (distToHost < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
-                                __instance.canSeeEnemyNear = true;
-                        }
-                    }
-                }
-                // Path B: smell detection bypasses FOV and raycast.
-                else
-                {
-                    if (entitySniffer != null && distToHost < entitySniffer.radius)
-                    {
-                        __instance.charactersInSight.Add(hostCB);
-                    }
-                }
-                return;
-            }
-
-            // Sticky: already chasing the host player; do not steal aggro to a
-            // closer proxy mid-chase (dream forest spirit / any AI). Vanilla has one
-            // body; CASE 2 used to retarget to whoever was nearer and pull threats
-            // off the player who actually entered the woods.
-            if (__instance.target != null && Player.Instance != null
-                && !Player.Instance.ignoreMe && !Player.Instance.invisible
-                && (__instance.target == Player.Instance.transform
-                    || __instance.target == Player.Instance._transform))
-            {
-                float stickRange = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-                if (entitySniffer != null && entitySniffer.radius > stickRange)
-                    stickRange = entitySniffer.radius;
-                stickRange *= 1.5f;
-                float hostStickDist = Core.trueDistance(
-                    __instance.transform.position, Player.Instance._transform.position);
-                if (hostStickDist <= stickRange)
-                    return;
-            }
-
-            // --- CASE 2: Entity is NOT yet chasing any proxy ---
-            // Find the closest detectable proxy and start chasing it.
-            float maxDist = (float)__instance.farViewDistance * __instance.aniSightRangeModifier;
-            float sniffRadius = 0f;
-            if (entitySniffer != null)
-                sniffRadius = entitySniffer.radius;
-            if (sniffRadius > maxDist)
-                maxDist = sniffRadius;
-
-            RemotePlayerProxy bestProxy = null;
-            Transform bestProxyT = null;
-            float bestDist = float.MaxValue;
-
-            foreach (var p in net.GetAllProxies())
-            {
-                if (p == null) continue;
-                // Vanilla never senses a dead, invisible or ignored player (smell included).
-                CharBase pcb = p.CachedCharBase;
-                if (pcb != null && (!pcb.alive || pcb.invisible || pcb.ignoreMe)) continue;
-                if (DeathStateTracker.IsRemoteNightDead(p.PlayerId)) continue;
-                Transform pt = p.transform;
-                Vector3 toRemote = pt.position - __instance.transform.position;
-                float dist = toRemote.magnitude;
-                if (dist > maxDist) continue;
-
-                bool inFOV = Vector3.Angle(toRemote, __instance.transform.up) <= (float)__instance.fieldOfViewRange;
-                bool inSniffRange = entitySniffer != null && dist < sniffRadius;
-                if (!inFOV && !inSniffRange) continue;
-
-                // Don't redirect neutral entities
-                if (__instance.aggressiveness == Aggressiveness.neutral)
-                    continue;
-
-                // Detect by line-of-sight (FOV + raycast) or by smell (direct)
-                bool detected = false;
-                if (inSniffRange && !inFOV)
-                {
-                    detected = true; // smell detection — no line-of-sight needed
-                }
-                else
-                {
-                    if (Physics.Raycast(__instance.transform.position, toRemote, out var hit, dist, 18909185))
-                    {
-                        if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
-                        {
-                            RemotePlayerProxy hitProxy = hit.collider.GetComponentInParent<RemotePlayerProxy>();
-                            if (hitProxy != null && hitProxy == p)
-                                detected = true;
-                        }
-                    }
-                }
-
-                if (!detected) continue;
-
-                // Respect invisible/ignoreMe flags
-                CharBase proxyCB = p.CachedCharBase;
-                if (proxyCB != null && (proxyCB.invisible || proxyCB.ignoreMe))
-                    continue;
-
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestProxy = p;
-                    bestProxyT = pt;
-                }
-            }
-
-            if (bestProxy == null)
-                return;
-
-            // Equal identity: proxy CharBase must sit in charactersInSight so
-            // checkForNewEnemyCloserThanTarget can switch host ↔ client by distance.
-            CharBase bestProxyCB = bestProxy.CachedCharBase;
-            if (bestProxyCB != null && !__instance.charactersInSight.Contains(bestProxyCB))
-                __instance.charactersInSight.Add(bestProxyCB);
-
-            // Wake up sleeping enemies so they react to the proxy
-            if (__instance.sleeping && !__instance.wakeUpOnlyManually)
-                __instance.wakeup();
-
-            __instance.canSeeEnemyFar = true;
-            __instance.stopRoutine("lostEnemy", true);
-
-            // Closest-player identity replaces the old "only target proxy if host not visible"
-            // that made the client second-class whenever host was still in sight list).
-            CharBase hostCharBase = CanSeeComponentCache.HostCharBase();
-            bool hostVisible = hostCharBase != null && !hostCharBase.invisible && !hostCharBase.ignoreMe
-                && __instance.charactersInSight.Contains(hostCharBase);
-            float hostDist = hostVisible && Player.Instance != null
-                ? Core.trueDistance(__instance.transform.position, Player.Instance.transform.position)
-                : float.MaxValue;
-
-            Transform preferT = bestProxyT;
-            float preferDist = bestDist;
-            bool preferIsProxy = true;
-            if (hostVisible && hostDist < preferDist)
-            {
-                preferT = Player.Instance.transform;
-                preferDist = hostDist;
-                preferIsProxy = false;
-            }
-
-            // Flee fauna (rabbits, ravens): still flee from proxy like vanilla flees
-            // from Player, but never attackCharacter. Skipping flee entirely made
-            // client approach a no-op (crows stood on corpses). Do not spam:
-            // only (re)issue runAway when not already escaping/running from preferT.
-            if (__instance.aggressiveness == Aggressiveness.flee ||
-                __instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-            {
-                bool alreadyFleeingPrefer = __instance.target == preferT
-                    && __instance.behaviour == Character.Behaviour.escaping;
-                if (!alreadyFleeingPrefer)
-                {
-                    __instance.target = preferT;
-                    __instance.canSeeEnemyFar = true;
-                    if (preferDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
-                        __instance.canSeeEnemyNear = true;
-                    if (__instance.flier != null && __instance.flier.inFlight)
-                    {
-                        // Still retarget flee while airborne so client scare isn't a no-op mid-flight.
-                        __instance.runAway(preferT.position);
-                    }
-                    else
-                        __instance.runAway(preferT.position);
-                    if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                        __instance.wantToDespawn = true;
-                }
-                return;
-            }
-
-            if (__instance.target == null || __instance.target != preferT)
-            {
-                if (__instance.aggressiveness != Aggressiveness.neutral &&
-                    __instance.behaviour != Character.Behaviour.chasingTarget &&
-                    __instance.behaviour != Character.Behaviour.defensive &&
-                    __instance.behaviour != Character.Behaviour.following &&
-                    !__instance.canSeeEnemyNear &&
-                    __instance.behaviour != Character.Behaviour.escaping &&
-                    __instance.behaviour != Character.Behaviour.running)
-                {
-                    __instance.stopAndListenTo(preferT.position);
-                }
-                __instance.target = preferT;
-            }
-
-            if (preferDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
-                __instance.canSeeEnemyNear = true;
-
-            // Skills on the detected proxy (ward / EotF), matching host ward checks on Player.
-            if (!bestProxy.RemoteHasEnemyOfTheForest)
-            {
-                if (__instance.afraidOfHideout && bestProxy.RemoteHasShadowWard)
-                {
-                    __instance.runAway(bestProxyT.position);
-                    __instance.wantToDespawn = true;
-                }
-                if (__instance.afraidOfForestSpiritWard && bestProxy.RemoteHasForestSpiritWard)
-                {
-                    __instance.runAway(bestProxyT.position);
-                    __instance.blind = true;
-                }
-            }
-
-            if (preferIsProxy && bestProxy.RemoteHasEnemyOfTheForest
-                && __instance.faction == Faction.animalAggressive
-                && __instance.attacksFaction(Faction.player))
-            {
-                __instance.target = bestProxyT;
-                __instance.canSeeEnemyFar = true;
-                if (bestDist < (float)__instance.nearViewDistance * __instance.aniSightRangeModifier)
-                {
-                    __instance.canSeeEnemyNear = true;
-                    if (__instance.behaviour != Character.Behaviour.chasingTarget)
-                        __instance.attackCharacter(bestProxyT);
-                }
-            }
-            else if (preferIsProxy
-                && __instance.behaviour != Character.Behaviour.chasingTarget
-                && __instance.aggressiveness != Aggressiveness.neutral
-                && __instance.canSeeEnemyNear
-                && __instance.attacksFaction(Faction.player))
-            {
-                // Commit chase like vanilla near-sight acquisition on a real Player.
-                __instance.attackCharacter(preferT);
-            }
+            return false;
         }
     }
 }

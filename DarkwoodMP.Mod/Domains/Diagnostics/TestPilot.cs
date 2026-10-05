@@ -352,6 +352,17 @@ namespace DWMPHorde.Sync
                         + " endingSleep=" + p.endingSleep + " performing=" + p.performingAction);
                     return;
                 }
+                case "cam":
+                {
+                    CamMain cam = Singleton<CamMain>.Instance;
+                    if (cam == null) { Out("  no camera"); return; }
+                    Vector3 d = cam.transform.position - p.transform.position;
+                    Out("  seeDistance=" + cam.seeDistance.ToString(CultureInfo.InvariantCulture)
+                        + " screen=" + Screen.width + "x" + Screen.height
+                        + " camOffset=" + Pos(new Vector3(d.x, 0f, d.z))
+                        + " cursor=" + Pos(new Vector3(Core.cursorPos().x, 0f, Core.cursorPos().y)));
+                    return;
+                }
                 case "skipmovie":
                     Out("  skipped=" + Singleton<Controller>.Instance.skipCurrentMovie());
                     return;

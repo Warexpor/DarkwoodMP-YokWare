@@ -9,10 +9,11 @@ namespace DWMPHorde.Patches
     /// Vanilla <c>Character.canSeeEnemy</c> reads "the player" for three things: a
     /// <c>constantlyAttackPlayer</c> character always paths to it, and an <c>afraidOfHideout</c> /
     /// <c>afraidOfForestSpiritWard</c> character flees and despawns whenever it carries the shadow /
-    /// forest-spirit ward. On the host with peers, "the player" is the body this character is
-    /// after (its target, else the nearest living body): the host sitting in a lit hideout no
-    /// longer scares off the monsters hunting a client in the forest, and a constant attacker
-    /// goes for whoever is closest. Wards on a peer are handled in <see cref="HostCanSeeEnemyPatch"/>.
+    /// forest-spirit ward. On the host with peers, "the player" is
+    /// <see cref="PlayerTargetArbiter.ScriptedPick"/> (the player this character is after, else the
+    /// nearest living one): the host sitting in a lit hideout no longer scares off the monsters
+    /// hunting a client in the forest, a constant attacker goes for the player it is after, and a
+    /// warded peer scares off what is after it (<see cref="FleePeerWard"/>).
     /// </summary>
     [HarmonyPatch(typeof(Character), "canSeeEnemy")]
     public static class HostWardScopePatch
@@ -40,7 +41,7 @@ namespace DWMPHorde.Patches
             if (!hostWard && !__instance.constantlyAttackPlayer)
                 return;
 
-            Transform body = BodyOf(__instance, host);
+            Transform body = PlayerTargetArbiter.ScriptedPick(__instance);
             if (body == null || body == host.transform)
                 return;
 
@@ -53,7 +54,7 @@ namespace DWMPHorde.Patches
             {
                 // Same as vanilla's first block, aimed at the peer; vanilla's is skipped this call.
                 if (__instance.AIpath != null)
-                    __instance.AIpath.setTarget(body);
+                    __instance.AIpath.setTarget(body); // path only; the target field is vanilla's
                 __instance.lastKnownTargetPosition = body.position;
                 __instance.constantlyAttackPlayer = false;
                 __state.RestoreConstant = true;
@@ -75,7 +76,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         private static void FleePeerWard(Character c, Player host)
         {
-            Transform body = BodyOf(c, host);
+            Transform body = PlayerTargetArbiter.ScriptedPick(c);
             if (body == null || body == host.transform)
                 return;
             RemotePlayerProxy proxy = body.GetComponent<RemotePlayerProxy>();
@@ -97,20 +98,6 @@ namespace DWMPHorde.Patches
                         fleeing.wantToDespawn = true;
                 }, 10f, timeScaleDependent: true);
             }
-        }
-
-        private static Transform BodyOf(Character c, Player host)
-        {
-            Transform t = c.target;
-            if (t != null)
-            {
-                if (t == host.transform)
-                    return t;
-                RemotePlayerProxy proxy = t.GetComponent<RemotePlayerProxy>();
-                if (proxy != null)
-                    return t;
-            }
-            return HostPlayerIdentity.NearestLiving(c.transform.position);
         }
     }
 
