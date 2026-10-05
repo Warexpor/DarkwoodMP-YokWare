@@ -8,6 +8,8 @@ namespace DWMPHorde.Patches
     public sealed class FlameOrigin : MonoBehaviour
     {
         public int PlayerId;
+        /// <summary>Shot by this machine's own player (its flamethrower), not a copy of someone else's fire.</summary>
+        public bool LocalShot;
     }
 
     /// <summary>
@@ -22,6 +24,11 @@ namespace DWMPHorde.Patches
         internal static int Spawning = -1; // process-scoped: call-scoped, unwound by the patch Finalizers
         /// <summary>Owner of the flame whose contact is being applied; -1 outside a flame contact.</summary>
         internal static int Hitting = -1; // process-scoped: call-scoped, unwound by the patch Finalizer
+        /// <summary>Flames spawned right now come from this machine's own shot.</summary>
+        internal static bool SpawningLocalShot; // process-scoped: call-scoped, unwound by the patch Finalizer
+        /// <summary>The flame whose contact is being applied is this machine's own shot; its effect.</summary>
+        internal static bool HittingLocalShot; // process-scoped: call-scoped, unwound by the patch Finalizer
+        internal static InvItemEffect HittingEffect; // process-scoped: call-scoped, unwound by the patch Finalizer
 
         /// <summary>
         /// For a flame contact: true when friendly fire off spares <paramref name="victimId"/> from it.
@@ -39,10 +46,17 @@ namespace DWMPHorde.Patches
             __state = FlameOriginContext.Spawning;
             var net = ModRuntime.Network;
             if (net != null && net.IsConnected && __instance == Player.Instance)
+            {
                 FlameOriginContext.Spawning = net.LocalPlayerId;
+                FlameOriginContext.SpawningLocalShot = true;
+            }
         }
 
-        private static void Finalizer(int __state) => FlameOriginContext.Spawning = __state;
+        private static void Finalizer(int __state)
+        {
+            FlameOriginContext.Spawning = __state;
+            FlameOriginContext.SpawningLocalShot = false;
+        }
     }
 
     /// <summary>A blast's fire (molotov secondaries): the thrower's, or the world's for a barrel.</summary>
@@ -88,6 +102,7 @@ namespace DWMPHorde.Patches
                 if (o == null)
                     o = flames[i].gameObject.AddComponent<FlameOrigin>();
                 o.PlayerId = FlameOriginContext.Spawning;
+                o.LocalShot = FlameOriginContext.SpawningLocalShot;
             }
         }
     }
@@ -101,8 +116,15 @@ namespace DWMPHorde.Patches
             __state = FlameOriginContext.Hitting;
             FlameOrigin o = __instance != null ? __instance.GetComponent<FlameOrigin>() : null;
             FlameOriginContext.Hitting = o != null ? o.PlayerId : 0;
+            FlameOriginContext.HittingLocalShot = o != null && o.LocalShot;
+            FlameOriginContext.HittingEffect = __instance != null ? __instance.effect : null;
         }
 
-        private static void Finalizer(int __state) => FlameOriginContext.Hitting = __state;
+        private static void Finalizer(int __state)
+        {
+            FlameOriginContext.Hitting = __state;
+            FlameOriginContext.HittingLocalShot = false;
+            FlameOriginContext.HittingEffect = null;
+        }
     }
 }

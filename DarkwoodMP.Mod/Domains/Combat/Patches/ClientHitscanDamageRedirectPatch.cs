@@ -37,6 +37,9 @@ namespace DWMPHorde.Patches
                     && (attackerTransform == Player.Instance.transform
                         || attackerTransform.IsChildOf(Player.Instance.transform));
                 bool isProjectileDamage = attackerTransform == null && TraverseHack.IsInsidePlayerBulletCollision;
+                // This player's own flamethrower fire (FlameOrigin): an attack like a bullet.
+                bool isOwnFlame = attackerTransform == null && FlameOriginContext.HittingLocalShot;
+                isProjectileDamage |= isOwnFlame;
 
                 if (!isPlayerDamage && !isProjectileDamage)
                     return true;
@@ -59,6 +62,9 @@ namespace DWMPHorde.Patches
                 if (entityName.EndsWith("(Clone)"))
                     entityName = entityName.Substring(0, entityName.Length - 7);
 
+                SensorEffectWire[] flameEffects = isOwnFlame && FlameOriginContext.HittingEffect != null
+                    ? SensorEffectCodec.ToWire(new System.Collections.Generic.List<InvItemEffect> { FlameOriginContext.HittingEffect })
+                    : null;
                 net.Send(NetMessageType.PlayerAttack, w => new PlayerAttackMessage
                 {
                     TargetNameHash = stableId,
@@ -70,7 +76,9 @@ namespace DWMPHorde.Patches
                     TargetPosX = targetPos.x,
                     TargetPosY = targetPos.y,
                     TargetPosZ = targetPos.z,
-                    CanCutInHalf = canCut
+                    CanCutInHalf = canCut,
+                    // The flame's burn reaches the host's creature (vanilla activates it before the hit).
+                    Effects = flameEffects
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
                 ClientEntityInterpolationService.ShowHitHealthBar(__instance);
 

@@ -110,15 +110,12 @@ namespace DWMPHorde.Networking
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
-                try { door.unblock(); } catch { /* ignore */ }
-                try { door.unlock(); } catch { /* ignore */ }
-                Locked locked = door.GetComponent<Locked>();
-                if (locked != null) locked.locked = false;
-                Padlock pad = door.GetComponent<Padlock>();
-                if (pad != null) pad.locked = false;
-
+                // Locks travel on their own messages (LockedUnlock, PadlockUnlock) and "blocked" on
+                // the unblock form of this one. A plain open no longer clears them: a story event
+                // forcing a locked door open left every peer unlocked while the host stayed locked.
                 if (unblockOnly)
                 {
+                    try { door.unblock(); } catch { /* ignore */ }
                     ModRuntime.LegacyInfo($"[DoorSync] unblocked door '{door.name}' (msg={msg.DoorName}) at {pos}");
                     return;
                 }
@@ -126,6 +123,14 @@ namespace DWMPHorde.Networking
                 if (door.opened)
                 {
                     ModRuntime.LegacyInfo($"[DoorSync] already open '{door.name}' at {pos}");
+                    return;
+                }
+
+                // Boarded up (or broken) meanwhile, e.g. a teammate finished the barricade while
+                // this open was on its way: vanilla never opens such a door.
+                if (door.barricaded || door.destroyed)
+                {
+                    ModRuntime.LegacyInfo($"[DoorSync] not opening barricaded/destroyed '{door.name}' at {pos}");
                     return;
                 }
 
@@ -145,6 +150,15 @@ namespace DWMPHorde.Networking
                     if (_net.Role == NetworkRole.Host)
                         DialogHostApplyGuard.BeginWorldOnly();
                     door.open(openerPos, null, force);
+                    // Vanilla alerts creatures only when the opener is a Player; here it is a peer
+                    // whose open the host carries out, so creatures by the door heard nothing.
+                    if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
+                        && _net.CurrentReceivePlayerId != _net.LocalPlayerId)
+                    {
+                        bool thump = force >= WorldPhysicsSyncService.DoorThumpForce;
+                        Character.alertInArea(door.transform.position,
+                            thump ? door.openRunSoundDistance : door.openSoundDistance, dangerousSound: false, 1f);
+                    }
                 }
                 finally
                 {

@@ -192,6 +192,7 @@ namespace DWMPHorde.Networking
                         // Barricades: split Door, Window, and Item scans.
                         case 6:
                             BarricadeHandlers.SendBarricadeDoorsTo(playerId);
+                            WorldLateJoinHandlers.SendDoorStatesTo(playerId, null, 2048);
                             break;
                         case 7:
                             BarricadeHandlers.SendBarricadeWindowsTo(playerId);

@@ -12,7 +12,7 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
-        private const float DoorThumpForce = 45000f; // vanilla Door.thumpForce (private): a run-kick
+        internal const float DoorThumpForce = 45000f; // vanilla Door.thumpForce (private): a run-kick
         public static void ApplySnapshot(PhysicsStateMessage state, string fromPeer = "host")
         {
             int objApplied = 0, objSkipped = 0, objFailed = 0;
