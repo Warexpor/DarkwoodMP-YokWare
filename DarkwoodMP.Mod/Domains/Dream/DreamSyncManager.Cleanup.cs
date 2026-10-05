@@ -221,13 +221,16 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnLocalWokeUp();
             ReleaseDreamInputLocks();
 
-            // World events after forest is live again.
-            if (!string.IsNullOrEmpty(pendingOutcome) && dreams.preset != null)
+            // World events after forest is live again: the host (or an offline peer) fires them as
+            // vanilla does, a client replays the host's outcome (RunOutcomeWorldEffects).
+            try
             {
-                bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
-                LanNetworkManager.IsApplyingRemoteState = true;
-                try { ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: true); }
-                finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2); }
+                if (!string.IsNullOrEmpty(pendingOutcome) && dreams.preset != null)
+                    ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: true);
+            }
+            finally
+            {
+                ClearOutcomeWorldReplay();
             }
         }
 
@@ -280,54 +283,22 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            DreamPreset.Outcome outcomePreset = null;
-            foreach (var oc in dreams.preset.outcomes)
-            {
-                if (oc != null && oc.name == outcomeName)
-                {
-                    outcomePreset = oc;
-                    break;
-                }
-            }
             // allDead / reject / disconnect must not grant the preset's default reward.
-            if (outcomePreset == null && DreamSession.IsNonRewardOutcome(outcomeName))
-            {
-                if (outcomeName == "allDead" || outcomeName == "playerDeath")
-                {
-                    foreach (var oc in dreams.preset.outcomes)
-                    {
-                        if (oc != null && oc.name == "playerDeath")
-                        {
-                            outcomePreset = oc;
-                            break;
-                        }
-                    }
-                }
-                if (outcomePreset == null)
-                    return;
-            }
-            if (outcomePreset == null)
-            {
-                foreach (var oc in dreams.preset.outcomes)
-                {
-                    if (oc != null && oc.name == "default")
-                    {
-                        outcomePreset = oc;
-                        break;
-                    }
-                }
-            }
-            if (outcomePreset == null && dreams.preset.outcomes.Count > 0)
-                outcomePreset = dreams.preset.outcomes[0];
-
+            DreamPreset.Outcome outcomePreset = ResolveEffectOutcome(dreams.preset, outcomeName);
             if (outcomePreset == null) return;
+
+            if (worldEvents)
+            {
+                // This peer was in the dream and wakes from it: the events' body steps are its own.
+                RunOutcomeWorldEffects(outcomePreset, personal: true);
+                return;
+            }
 
             foreach (var effect in outcomePreset.effects)
             {
                 switch (effect.type)
                 {
                     case global::DreamPreset.Outcome.Effect.Type.createInvItem:
-                        if (worldEvents) break;
                         if (effect.invItem != null)
                         {
                             var go = effect.invItem as UnityEngine.GameObject;
@@ -341,7 +312,6 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.addJournalItem:
-                        if (worldEvents) break;
                         if (effect.invItem != null)
                         {
                             var go = effect.invItem as UnityEngine.GameObject;
@@ -358,26 +328,8 @@ namespace DWMPHorde.Sync
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.fireGameEvent:
-                        if (!worldEvents) break;
-                        if (effect.destPrefab != null)
-                        {
-                            var go = effect.destPrefab as UnityEngine.GameObject;
-                            if (go != null)
-                            {
-                                var gameEvents = go.GetComponent<GameEvents>();
-                                if (gameEvents != null)
-                                {
-                                    gameEvents.fired = false;
-                                    gameEvents.fire();
-                                }
-                            }
-                        }
-                        break;
-
                     case global::DreamPreset.Outcome.Effect.Type.fireWorldEvent:
-                        if (!worldEvents) break;
-                        if (!string.IsNullOrEmpty(effect.worldEventType))
-                            Singleton<Events>.Instance.fireWorldEvent(effect.worldEventType);
+                        // The world pass (RunOutcomeWorldEffects) runs these.
                         break;
 
                     case global::DreamPreset.Outcome.Effect.Type.transferToDream:
@@ -388,8 +340,7 @@ namespace DWMPHorde.Sync
                         // Vanilla endDreaming loop does not apply this type either; effectsCopy restores pre-dream.
                         break;
                     default:
-                        if (!worldEvents)
-                            ModRuntime.Log?.LogWarning($"[DreamSync] Unhandled outcome effect type: {effect.type}");
+                        ModRuntime.Log?.LogWarning($"[DreamSync] Unhandled outcome effect type: {effect.type}");
                         break;
                 }
             }
