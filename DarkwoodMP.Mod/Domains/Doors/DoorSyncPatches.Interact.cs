@@ -43,6 +43,9 @@ namespace DWMPHorde.Sync
                 return;
             if (__state == __instance.isOn)
                 return; // no actual change
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             // For wells: only sync the fix/repair (false→true), not the use/heal (true→false).
             // Non-well items: sync both directions as before.
@@ -97,6 +100,7 @@ namespace DWMPHorde.Sync
             // switchMe (player toggle) is reported by InteractiveItemSwitchPatch, once.
             if (InteractiveItemSwitchPatch.InsideSwitchMe) return;
             if (__state == __instance.isOn) return; // no actual change
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -129,6 +133,7 @@ namespace DWMPHorde.Sync
             if (__state == __instance.isOn) return; // no actual change
             // A well's use/heal is per-player: only the fix/repair (off→on) is shared.
             if (InteractiveItemSwitchPatch.IsWellInteractiveItem(__instance)) return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -153,6 +158,8 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
+                return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -180,6 +187,8 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
+                return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;

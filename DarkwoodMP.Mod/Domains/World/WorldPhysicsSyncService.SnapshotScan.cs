@@ -44,6 +44,8 @@ namespace DWMPHorde.Sync
                     }
                 }
                 if (distToHost > _scanRadius && !nearAnyProxy) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(door.transform)) continue;
 
                 Vector3 dp = door.transform.position;
                 Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
@@ -183,6 +185,7 @@ namespace DWMPHorde.Sync
                     }
                 }
                 if (distToHost > _scanRadius && !nearAnyProxy) continue;
+                if (PersonalPrologue.IsOnProloguePad(gen.transform)) continue;
 
                 Vector3 dp = gen.transform.position;
                 Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
@@ -243,6 +246,8 @@ namespace DWMPHorde.Sync
 
             int id = root.GetInstanceID();
             if (_s.KnownTraps.ContainsKey(id)) return;
+            // A trap on the host's own prologue pad gets no net id and no TrapState.
+            if (PersonalPrologue.IsOnProloguePad(root.transform)) return;
             float now = Time.time;
 
             // Already classified

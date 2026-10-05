@@ -20,8 +20,9 @@ namespace DWMPHorde.Patches
 
             Character c = __instance.GetComponent<Character>();
             if (c == null) return;
+            // No id (prologue pad creature, id space full): nothing a client can match.
             short stableId = CharacterTracker.GetStableId(c);
-            if (stableId < 0) return;
+            if (stableId <= 0) return;
 
             net.SendEntityBurning(stableId, true, effect.duration, effect.modifier, effect.interval);
             ModRuntime.LegacyInfo($"[BurnSync] Host sent Burn start for entity {stableId}");
@@ -88,7 +89,7 @@ namespace DWMPHorde.Patches
             Character c = __instance.GetComponent<Character>();
             if (c == null) return;
             short stableId = CharacterTracker.GetStableId(c);
-            if (stableId < 0) return;
+            if (stableId <= 0) return;
 
             net.SendEntityBurning(stableId, false);
             ModRuntime.LegacyInfo($"[BurnSync] Host sent Burn stop for entity {stableId}");

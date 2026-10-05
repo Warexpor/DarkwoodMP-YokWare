@@ -7,6 +7,7 @@ using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Sync
@@ -35,6 +36,7 @@ namespace DWMPHorde.Sync
         private static string _dir;                 // process-scoped: pilot folder
         private static bool _hooked;                // process-scoped: log hook installed once
         private static readonly Dictionary<string, int> _errorCounts = new Dictionary<string, int>(); // process-scoped: pilot run error tally
+        private static readonly List<GameEvents> _events = new List<GameEvents>(); // process-scoped: last "events" listing
 
         /// <summary>Each distinct Unity error or exception: the first three with their stack, then a count.</summary>
         private static void OnUnityLog(string message, string stack, LogType type)
@@ -407,7 +409,7 @@ namespace DWMPHorde.Sync
                 }
                 case "kill":
                 {
-                    if (net.Role != NetworkRole.Host) { Out("  host only"); return; }
+                    if (net.Role == NetworkRole.Client) { Out("  host or offline only"); return; }
                     int n = CharacterTracker.CopyAll(out Character[] buf);
                     var list = new List<Character>(n);
                     for (int i = 0; i < n; i++)
@@ -498,6 +500,94 @@ namespace DWMPHorde.Sync
                         Out("  shared " + kv.Key.name + ": " + string.Join(", ", names.ToArray()));
                     }
                     Out("  " + byMesh.Count + " light meshes, " + shared + " shared");
+                    return;
+                }
+                case "events":
+                {
+                    // GameEvents under the current dream pad (or within a radius), numbered for "fire".
+                    Dreams d = Dreams.Instance;
+                    Transform pad = d != null && d.dreaming && d.dreamLocation != null ? d.dreamLocation.transform : null;
+                    float radius = a.Length > 1 ? F(a[1]) : float.MaxValue;
+                    _events.Clear();
+                    foreach (GameEvents ge in UnityEngine.Object.FindObjectsOfType<GameEvents>(true))
+                    {
+                        if (ge == null)
+                            continue;
+                        if (pad != null ? !ge.transform.IsChildOf(pad) : Flat(p.transform.position, ge.transform.position) > radius)
+                            continue;
+                        _events.Add(ge);
+                    }
+                    for (int i = 0; i < _events.Count; i++)
+                    {
+                        GameEvents ge = _events[i];
+                        var sb = new StringBuilder();
+                        foreach (GameEvent e in ge.events)
+                        {
+                            if (e == null)
+                                continue;
+                            sb.Append(' ').Append(e.type);
+                            if (!string.IsNullOrEmpty(e.Value))
+                                sb.Append('=').Append(e.Value);
+                            if (e.type == GameEvent.Type.gameObject)
+                                sb.Append('/').Append(e.gameObjectModifyType);
+                            else if (e.type == GameEvent.Type.modifyMainScript)
+                                sb.Append('/').Append(e.mainScriptModify).Append(e.activeModifier ? "+" : "-");
+                            else if (e.type == GameEvent.Type.tweenTime || e.type == GameEvent.Type.timeScale)
+                                sb.Append('/').Append(e.magnitude.ToString("0.##", CultureInfo.InvariantCulture));
+                            else if (e.type == GameEvent.Type.worldFlag)
+                                sb.Append(e.activeModifier ? "+" : "-");
+                        }
+                        Out("  #" + i + " " + ge.name + "@" + Pos(ge.transform.position) + " fired=" + ge.fired
+                            + " active=" + ge.gameObject.activeInHierarchy + " :" + sb);
+                    }
+                    Out("  " + _events.Count + " GameEvents" + (pad != null ? " on " + pad.name : ""));
+                    return;
+                }
+                case "fire":
+                {
+                    // Fire a listed GameEvents as its trigger, dialogue or cutscene would.
+                    int i = int.Parse(a[1], CultureInfo.InvariantCulture);
+                    if (i < 0 || i >= _events.Count || _events[i] == null) { Out("  no event #" + i + " (run events first)"); return; }
+                    _events[i].fire();
+                    Out("  fired #" + i + " " + _events[i].name);
+                    return;
+                }
+                case "dlg":
+                {
+                    // The open dialogue: list its options, pick one ("dlg 0"), or click on ("dlg next").
+                    DialogueWindow w = Singleton<UI>.Instance.dialogueWindow;
+                    if (w == null || !w.opened) { Out("  no dialogue open"); return; }
+                    if (a.Length > 1 && a[1] == "next")
+                        AccessTools.Method(typeof(DialogueWindow), "onInstantClick").Invoke(w, null);
+                    else if (a.Length > 1)
+                    {
+                        int i = int.Parse(a[1], CultureInfo.InvariantCulture);
+                        if (i < 0 || i >= w.menuOptions.Count) { Out("  no option " + i); return; }
+                        w.menuOptions[i].getClicked(force: true);
+                    }
+                    var sb = new StringBuilder();
+                    for (int i = 0; i < w.menuOptions.Count; i++)
+                        if (w.menuOptions[i] != null)
+                            sb.Append(" [").Append(i).Append("] ").Append(w.menuOptions[i].textMesh != null ? w.menuOptions[i].textMesh.text : w.menuOptions[i].name);
+                    Out("  dialogue " + (w.currentDialogue != null ? w.currentDialogue.name : "-") + " opened=" + w.opened
+                        + " decision=" + w.needsDecision + " finished=" + w.boardFinished + " :" + sb);
+                    return;
+                }
+                case "inv":
+                {
+                    // The pack and hotbar, the level and the recipes known.
+                    var sb = new StringBuilder();
+                    foreach (Inventory inv in new[] { p.Hotbar, p.Inventory })
+                    {
+                        sb.Append(inv == p.Hotbar ? " hotbar:" : " | pack:");
+                        for (int i = 0; i < inv.slots.Count; i++)
+                        {
+                            InvItemClass it = inv.slots[i] != null ? inv.slots[i].invItem : null;
+                            if (!InvItemClass.isNull(it))
+                                sb.Append(' ').Append(it.type).Append('x').Append(it.amount);
+                        }
+                    }
+                    Out("  xp=" + p.experience + " recipes=" + (p.recipes != null ? p.recipes.Count : 0) + sb);
                     return;
                 }
                 case "say":

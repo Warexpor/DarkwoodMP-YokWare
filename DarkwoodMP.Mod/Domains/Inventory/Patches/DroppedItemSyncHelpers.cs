@@ -40,6 +40,9 @@ namespace DWMPHorde.Patches
             if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
             if (!NetGuard.Connected(out var net)) { ModRuntime.LegacyInfo("[SendDrop] net not connected"); return; }
             if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
+            // The host's own prologue: the drop lies on its pad (under ItemContainer, not the pad
+            // root). No GUID, so neither the live spawn nor the late-join drop bulk carries it.
+            if (PersonalPrologue.LocalInPrologue) return;
 
             string guid = System.Guid.NewGuid().ToString("N");
             ModRuntime.LegacyInfo($"[SendDrop] adding identifier guid={guid} to {spawned.name}");

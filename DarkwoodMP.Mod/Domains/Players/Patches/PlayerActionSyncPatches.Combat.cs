@@ -159,7 +159,8 @@ namespace DWMPHorde.Patches
 
             // The thrower's own flare keeps vanilla's clock from the aim. Listed for joiners (and for
             // this peer if it is promoted to host); peers list the copies they spawn.
-            if (isFlare && capture.HeldItem != null)
+            // Not one thrown on the host's own prologue pad (its spawn is not sent either).
+            if (isFlare && capture.HeldItem != null && !Sync.PersonalPrologue.LocalInPrologue)
                 Sync.WorldPhysicsSyncService.NoteThrownFlare(capture.HeldItem);
 
             // Client thrower: local projectile is FX-only. Host spawns the combat copy

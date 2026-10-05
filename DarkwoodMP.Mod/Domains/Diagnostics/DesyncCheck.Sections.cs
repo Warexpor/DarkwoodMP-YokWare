@@ -609,21 +609,27 @@ namespace DWMPHorde.Sync
             Journal j = ui != null ? ui.journal : null;
             if (j == null)
                 return;
-            AddKeys(into, "note:", j.notesDict);
-            AddKeys(into, "key:", j.keysDict);
-            AddKeys(into, "item:", j.itemsDict);
-            AddKeys(into, "entry:", j.journalEntriesDict);
+            // A dream's own pages (vanilla inDream) are that dreamer's until the dream ends.
+            AddKeys(into, "note:", j.notesDict, n => n.inDream);
+            AddKeys(into, "key:", j.keysDict, k => k.inDream);
+            AddKeys(into, "item:", j.itemsDict, i => i.inDream);
+            AddKeys(into, "entry:", j.journalEntriesDict, e => e.inDream);
+            // Places inside a dream (sub_dream_…) are found by whoever walked that dream: each
+            // player's own prologue, a dream the others sat out.
             if (j.locationsDict != null)
                 foreach (KeyValuePair<string, string> kv in j.locationsDict)
-                    Add(into, "loc:" + kv.Key, kv.Value ?? "");
+                    if (kv.Key == null || kv.Key.IndexOf("dream_", StringComparison.OrdinalIgnoreCase) < 0)
+                        Add(into, "loc:" + kv.Key, kv.Value ?? "");
         }
 
-        private static void AddKeys<T>(List<KeyValuePair<string, string>> into, string prefix, Dictionary<string, T> dict)
+        private static void AddKeys<T>(List<KeyValuePair<string, string>> into, string prefix, Dictionary<string, T> dict,
+            Func<T, bool> inDream) where T : class
         {
             if (dict == null)
                 return;
-            foreach (string k in dict.Keys)
-                Add(into, prefix + k, "1");
+            foreach (KeyValuePair<string, T> kv in dict)
+                if (kv.Value == null || !inDream(kv.Value))
+                    Add(into, prefix + kv.Key, "1");
         }
 
         /// <summary>Tonight's scenario and how far its events got (clients replay the host's).</summary>

@@ -69,7 +69,9 @@ namespace DWMPHorde.Sync
             Trigger[] all = WorldQueryHelper.GetCachedSceneComponents<Trigger>();
             for (int i = 0; i < all.Length; i++)
             {
-                if (all[i] != null && TrapNetworkId.IsWorldTrap(all[i].gameObject))
+                // The host's own prologue pad traps: freeing the pad must not log them as gone.
+                if (all[i] != null && TrapNetworkId.IsWorldTrap(all[i].gameObject)
+                    && !PersonalPrologue.IsOnProloguePad(all[i].transform))
                     Watch(all[i].gameObject);
             }
         }

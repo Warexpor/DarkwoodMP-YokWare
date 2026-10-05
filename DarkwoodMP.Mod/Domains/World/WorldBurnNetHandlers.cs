@@ -163,6 +163,8 @@ namespace DWMPHorde.Networking
             {
                 Burn burn = all[i];
                 if (burn == null || burn.transform == null) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(burn.transform)) continue;
                 if (!WorldBurnSyncHelpers.TryResolveWorldTarget(burn, out _, out _))
                     continue;
                 if (padScoped && !IsUnderOrNearLocation(burn.transform, root, anchor, maxDistSqr))

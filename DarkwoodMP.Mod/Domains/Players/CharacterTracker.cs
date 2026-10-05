@@ -50,6 +50,9 @@ namespace DWMPHorde.Sync
         public static short GetStableId(Character c)
         {
             if (c == null) return 0;
+            // The host's own prologue creatures are not the world's: no id, so nothing about them
+            // is sent. Checked before the cache: Start can mint one before the pad is registered.
+            if (PersonalPrologue.IsOnProloguePad(c.transform)) return 0;
             if (_stableIdCache.TryGetValue(c, out var id))
                 return id;
 
@@ -99,6 +102,8 @@ namespace DWMPHorde.Sync
         public static bool TryGetStableId(Character c, out short id)
         {
             if (c == null) { id = 0; return false; }
+            // Prologue pad creatures have no id (see GetStableId).
+            if (PersonalPrologue.IsOnProloguePad(c.transform)) { id = 0; return false; }
             return _stableIdCache.TryGetValue(c, out id);
         }
 
@@ -303,6 +308,9 @@ namespace DWMPHorde.Sync
 
             // Host-only mint. Offline join load + Client: list without id until AssignId(c, hostId).
             if (!NetGuard.Host(out var net))
+                return;
+            // Prologue pad creatures get no id (see GetStableId).
+            if (PersonalPrologue.IsOnProloguePad(c.transform))
                 return;
 
             short id = GetCollisionFreeId();

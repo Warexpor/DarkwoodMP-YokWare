@@ -140,6 +140,13 @@ namespace DWMPHorde.Networking
             if (wasFired && !best.multipleFire && msg.ActorPlayerId > 0 && msg.ActorPlayerId == _net.LocalPlayerId
                 && PerPlayerTransportOneShots.Qualifies(best))
             {
+                // Unless this player had it here already (a joiner fires the hideout's lesson
+                // offline on waking, before the host sees its stand-in walk in).
+                if (PerPlayerTransportOneShots.LocalServed(best.GetInstanceID()))
+                {
+                    ModRuntime.LegacyInfo($"[GameEventsSync] '{best.name}' already had here — not replayed");
+                    return true;
+                }
                 best.fired = false;
                 wasFired = false;
             }

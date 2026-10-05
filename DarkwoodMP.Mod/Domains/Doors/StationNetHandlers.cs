@@ -234,6 +234,8 @@ namespace DWMPHorde.Networking
             {
                 Saw saw = all[i];
                 if (saw == null) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(saw.transform)) continue;
                 var msg = Sync.SawSyncHelpers.BuildMessage(saw);
                 _net.SendBulkOrAll(NetMessageType.SawState, w => msg.Serialize(w), targetPlayerId);
                 sent++;
@@ -332,7 +334,7 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < all.Length; i++)
             {
                 Feeder f = all[i];
-                if (f == null) continue;
+                if (f == null || PersonalPrologue.IsOnProloguePad(f.transform)) continue;
                 Vector3 p = f.transform.position;
                 var msg = new FeederStateMessage
                 {
@@ -449,7 +451,7 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < all.Length; i++)
             {
                 Lure lure = all[i];
-                if (lure == null) continue;
+                if (lure == null || PersonalPrologue.IsOnProloguePad(lure.transform)) continue;
                 Vector3 p = lure.transform.position;
                 var msg = new LureStateMessage
                 {

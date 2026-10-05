@@ -50,7 +50,7 @@ namespace DWMPHorde.Patches
             {
                 string npcName = msg.NpcNames[i];
                 if (string.IsNullOrEmpty(npcName)) continue;
-                NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName, preferDreamPad: dream);
+                NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName, preferDreamPad: dream, strictPad: false, lookupOnly: true);
                 if (npc == null) continue;
                 Vector3 pos = npc.transform.position;
 

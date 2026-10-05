@@ -163,7 +163,8 @@ namespace DWMPHorde.Networking
                 VillagersAway = Sync.NightVillage.Away
             };
             Dreams dreams = Dreams.Instance;
-            msg.OverworldTime = dreams != null && dreams.dreaming ? (int)dreams.timeCopy : msg.CurrentTime;
+            msg.OverworldTime = Sync.PersonalPrologue.HostWorldTime(
+                dreams != null && dreams.dreaming ? (int)dreams.timeCopy : msg.CurrentTime);
             msg.PrologueHold = (byte)Mathf.Clamp(Sync.PersonalPrologue.HoldCount, 0, 255);
             // Reliable: after-night transitions must not be dropped (client wrongly
             // reporting AfterNightActive=false can clear host morning freeze).

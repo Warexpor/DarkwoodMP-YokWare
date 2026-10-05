@@ -125,6 +125,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!TryResolveWorldTarget(burn, out _, out _))
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (Sync.PersonalPrologue.IsOnProloguePad(burn.transform))
+                return;
 
             var msg = BuildMessage(burn, burning);
             ModRuntime.Network.Broadcast(NetMessageType.WorldBurnState,

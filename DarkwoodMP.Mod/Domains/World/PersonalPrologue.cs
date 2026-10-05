@@ -67,6 +67,8 @@ namespace DWMPHorde.Sync
             _holdLogged = false;
             HoldCount = 0;
             _clientHold = 0;
+            _pads.Clear();
+            _padsFrame = -1;
         }
 
         /// <summary>Host shares the world in chapter 1 of a game that did not skip the prologue.</summary>
@@ -91,6 +93,13 @@ namespace DWMPHorde.Sync
         {
             if (!string.IsNullOrEmpty(stableKey) && _pending.Remove(stableKey))
                 ModLog.Event(LogCat.Session, "[Prologue] a player sent the world is in the session now");
+        }
+
+        /// <summary>Host: this peer will not come back from a prologue in this world (it returned with another).</summary>
+        internal static void HostNoteGone(string stableKey)
+        {
+            if (!string.IsNullOrEmpty(stableKey) && _pending.Remove(stableKey))
+                ModLog.Event(LogCat.Session, "[Prologue] a player sent the world came back with another — day 1 no longer waits for it");
         }
 
         /// <summary>Host: players still in a prologue (own included; offline joiners until they return or time out).</summary>
@@ -118,11 +127,25 @@ namespace DWMPHorde.Sync
             return n;
         }
 
+        /// <summary>The clock vanilla wakes the player to when the prologue ends (<c>Dreams.endDreaming</c>).</summary>
+        private const int PrologueWakeTime = 5;
+
         /// <summary>The world's first morning has not begun (vanilla wakes the player at 05 on day 1).</summary>
         internal static bool DayOneNotBegun()
         {
             Controller c = Singleton<Controller>.Instance;
-            return c != null && c.day <= 1 && c.CurrentTime <= 5 + DayOneStartSlack;
+            // A new game's clock reads 600 until the host's own prologue ends.
+            return c != null && c.day <= 1 && (LocalInPrologue || c.CurrentTime <= PrologueWakeTime + DayOneStartSlack);
+        }
+
+        /// <summary>
+        /// Host: the shared world's clock. While the host is in its own prologue its clock is the new
+        /// game's placeholder; the world the others are in starts at the prologue's wake-up time.
+        /// </summary>
+        internal static int HostWorldTime(int overworldTime)
+        {
+            Controller c = Singleton<Controller>.Instance;
+            return c != null && c.day <= 1 && LocalInPrologue ? PrologueWakeTime : overworldTime;
         }
 
         /// <summary>Host: players day 1 waits for at the last clock step (sent on TimeSync).</summary>
@@ -159,7 +182,9 @@ namespace DWMPHorde.Sync
             inPrologue = HostPrologueCount();
             HoldCount = inPrologue;
             bool hold = inPrologue > 0;
-            if (hold != _holdLogged)
+            // Told only when it is about someone else: a host alone in its prologue is not waiting.
+            bool tell = hold ? _pending.Count > 0 || net.IsConnected : _holdLogged;
+            if (tell && hold != _holdLogged)
             {
                 _holdLogged = hold;
                 string line = hold
@@ -178,10 +203,14 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static bool HostBlocksSend(NetMessageType type)
         {
+            // Not after the prologue's end, while its pad is still being freed: by then the host is in
+            // the hideout and its sends are the world's (its hideout entry among them). Objects still on
+            // the pad then are kept out by IsOnProloguePad.
             if (LanNetworkManager.IsApplyingRemoteState || !LocalInPrologue)
                 return false;
             switch (type)
             {
+                case NetMessageType.JournalItem:
                 case NetMessageType.CutsceneSync:
                 case NetMessageType.ItemSpawn:
                 case NetMessageType.DroppedItemSpawn:
@@ -189,7 +218,6 @@ namespace DWMPHorde.Sync
                 case NetMessageType.ThrowableSpawn:
                 case NetMessageType.ExplosionSpawnObject:
                 case NetMessageType.GasTrailSpawn:
-                case NetMessageType.JournalItem:
                 case NetMessageType.MapElementDiscovered:
                 case NetMessageType.MapMarker:
                 case NetMessageType.DialogTreeState:
@@ -204,29 +232,82 @@ namespace DWMPHorde.Sync
                 case NetMessageType.ContainerItem:
                 case NetMessageType.LocationEnter:
                 case NetMessageType.LocationExit:
+                case NetMessageType.DragSync:
+                case NetMessageType.ReputationSync:
+                case NetMessageType.EntitySpawn:
+                case NetMessageType.EntityBurning:
+                case NetMessageType.DoorOpen:
+                case NetMessageType.TrapTriggered:
                     return true;
                 default:
                     return false;
             }
         }
 
-        /// <summary>Under one of this machine's prologue pads (entities, GameEvents there are not the world's).</summary>
-        internal static bool IsOnProloguePad(Transform t)
+        /// <summary>
+        /// This machine's prologue pads while their objects live. Vanilla <c>endDreaming</c> clears the
+        /// prologue state first and frees the pad seconds later (<c>Destroy(…, 4f)</c>); what still
+        /// happens on it meanwhile is not the world's either.
+        /// </summary>
+        private static readonly List<Transform> _pads = new List<Transform>(2); // reset-in: Reset
+        private static int _padsFrame = -1; // reset-in: Reset
+
+        private static void TrackPads()
         {
-            if (t == null || !LocalInPrologue)
-                return false;
+            int frame = Time.frameCount;
+            if (_padsFrame == frame)
+                return;
+            _padsFrame = frame;
+            for (int i = _pads.Count - 1; i >= 0; i--)
+                if (_pads[i] == null)
+                    _pads.RemoveAt(i);
+            if (!LocalInPrologue)
+                return;
             OutsideLocations outs = Singleton<OutsideLocations>.Instance;
             if (outs != null && outs.spawnedLocations != null)
             {
                 foreach (KeyValuePair<string, Location> kv in outs.spawnedLocations)
-                {
-                    if (kv.Value != null && IsPrologueDream(kv.Key) && t.IsChildOf(kv.Value.transform))
-                        return true;
-                }
+                    if (kv.Value != null && IsPrologueDream(kv.Key) && !_pads.Contains(kv.Value.transform))
+                        _pads.Add(kv.Value.transform);
             }
             Dreams d = Dreams.Instance;
-            return d != null && d.dreamLocation != null && d.preset != null && IsPrologueDream(d.preset.name)
-                && t.IsChildOf(d.dreamLocation.transform);
+            if (d != null && d.dreamLocation != null && d.preset != null && IsPrologueDream(d.preset.name)
+                && !_pads.Contains(d.dreamLocation.transform))
+                _pads.Add(d.dreamLocation.transform);
+        }
+
+        /// <summary>One of this machine's prologue pads still exists (the prologue, or the seconds after its end).</summary>
+        internal static bool ProloguePadAlive
+        {
+            get
+            {
+                TrackPads();
+                return _pads.Count > 0;
+            }
+        }
+
+        /// <summary>Under one of this machine's prologue pads (entities, GameEvents there are not the world's).</summary>
+        internal static bool IsOnProloguePad(Transform t)
+        {
+            if (t == null)
+                return false;
+            TrackPads();
+            for (int i = 0; i < _pads.Count; i++)
+                if (_pads[i] != null && t.IsChildOf(_pads[i]))
+                    return true;
+            if (!LocalInPrologue)
+                return false;
+            // While its scene loads, a pad's objects wake (Character.Start) before vanilla lists
+            // the pad as spawned or as the dream's: tell it by the location around them.
+            Location loc = t.GetComponentInParent<Location>(true);
+            while (loc != null)
+            {
+                if (IsPrologueDream(loc.name))
+                    return true;
+                Transform up = loc.transform.parent;
+                loc = up != null ? up.GetComponentInParent<Location>(true) : null;
+            }
+            return false;
         }
 
         // ------------------------------------------------------------ joiner
@@ -270,24 +351,42 @@ namespace DWMPHorde.Sync
         internal static bool DecideFreshAtLoad()
         {
             if (!_joinPackage || !ChapterSessionResume.IsPending || ChapterSessionResume.WasHost)
+            {
+                // Any other load (single player, hosting, after leaving a join half-way): what a
+                // join left behind is over, or that load lost the save's oven and dream state.
+                if (_joinerStage != JoinerStage.None || _freshCharacter)
+                    ClearJoiner();
                 return false;
+            }
             if (_joinerStage != JoinerStage.None)
                 return _freshCharacter;
-            bool known = true;
+            bool snapshot = true;
+            _prologueDone = false;
             try
             {
                 string path = ClientStateBackup.GetLocalSelfBackupPath();
-                known = System.IO.File.Exists(path) || System.IO.File.Exists(path + KnownSuffix);
+                snapshot = System.IO.File.Exists(path);
+                _prologueDone = System.IO.File.Exists(path + KnownSuffix);
             }
             catch (Exception ex) { ModLog.Warn(LogCat.Session, "[Prologue] backup lookup failed: " + ex.Message); }
-            _freshCharacter = !known;
+            // No snapshot of its own: the save's player block is the host's, never this player's.
+            _freshCharacter = !snapshot;
             ModLog.Event(LogCat.Session, !_freshCharacter
                 ? "[Prologue] a character of this player exists for this world — loading as usual"
-                : _offered
+                : PlaysPrologue
                     ? "[Prologue] new to this world (campaign " + (_offeredCampaign ?? "?") + ") — fresh character, own prologue before joining"
-                    : "[Prologue] new to this world — fresh character in the hideout (the game skipped the prologue)");
+                    : _prologueDone
+                        ? "[Prologue] played the prologue here before, no character saved since — fresh character in the hideout"
+                        : "[Prologue] new to this world — fresh character in the hideout (the game skipped the prologue)");
             return _freshCharacter;
         }
+
+        /// <summary>This player played the prologue in this campaign already (its marker, no snapshot yet).</summary>
+        private static bool _prologueDone; // process-scoped: one world package, cleared in ClearJoiner
+
+        /// <summary>The load in progress is a join's, for a character new to the world.</summary>
+        internal static bool FreshCharacterLoad
+            => _freshCharacter && _joinPackage && ChapterSessionResume.IsPending && !ChapterSessionResume.WasHost;
 
         /// <summary>
         /// Next to the character snapshot: this player has a character in the campaign. A snapshot
@@ -308,7 +407,7 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>A fresh character plays the prologue (the host's game has one).</summary>
-        internal static bool PlaysPrologue => _freshCharacter && _offered;
+        internal static bool PlaysPrologue => _freshCharacter && _offered && !_prologueDone;
 
         /// <summary>
         /// A fresh character with no prologue (the host skipped it, or a later chapter): where the
@@ -325,8 +424,7 @@ namespace DWMPHorde.Sync
                 return;
             try
             {
-                p.Hotbar.clear();
-                p.Inventory.clear();
+                ApplyChapterStart(p, wg);
                 Location home = wg != null && wg.playerBase != null ? wg.playerBase.GetComponent<Location>() : null;
                 if (home == null || home.playerSpawn == null)
                 {
@@ -345,6 +443,23 @@ namespace DWMPHorde.Sync
             {
                 ModLog.Warn(LogCat.Session, "[Prologue] placing the fresh character failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// A new character's start in this chapter, as vanilla world generation gives it
+        /// (<c>ChapterPreset.initInventory</c> / <c>initPlayer</c>): the chapter's starting pack and
+        /// level. The workbench level there is the world's, and the world has one already.
+        /// </summary>
+        private static void ApplyChapterStart(Player p, WorldGenerator wg)
+        {
+            p.Hotbar.clear();
+            p.Inventory.clear();
+            ChapterPreset cp = wg != null ? wg.chapterPreset : null;
+            if (cp == null)
+                return;
+            cp.initInventory();
+            if (cp.playerLevel > 0 && p.levelRequirements != null && cp.playerLevel - 1 < p.levelRequirements.Count)
+                p.experience = p.levelRequirements[cp.playerLevel - 1];
         }
 
         private static float _readySince = -1f; // process-scoped: joiner load settle clock, cleared in ClearJoiner
@@ -390,6 +505,9 @@ namespace DWMPHorde.Sync
             // pad. Clear them so the prologue spawns its own, as in a new game.
             ForgetProloguePads();
             SnapshotJournal();
+            // The prologue keeps the pack it began with (vanilla copies it at the dream's start and
+            // gives it back at its end): a new character's, not the host's from the save.
+            ApplyChapterStart(p, Singleton<WorldGenerator>.Instance);
             // As a new game: firstPlay, the first prologue dream, then the movie (WorldGenerator
             // onCreatedAllChunks → tweenLoading → activatePlayer).
             p.firstPlay = true;
@@ -441,7 +559,8 @@ namespace DWMPHorde.Sync
                     OutsideLocations outs = Singleton<OutsideLocations>.Instance;
                     if (!d.dreaming || (outs != null && outs.loading))
                     {
-                        if (now - _stageAt > 60f)
+                        // Once in the dream its pad is arriving (a stall there is vanilla's own).
+                        if (!d.dreaming && now - _stageAt > 60f)
                         {
                             ModLog.Warn(LogCat.Session, "[Prologue] the prologue pad never came up — joining without it");
                             AbandonJoiner(p);
@@ -506,15 +625,22 @@ namespace DWMPHorde.Sync
 
         private static void AbandonJoiner(Player p)
         {
-            _joinerStage = JoinerStage.Arrived;
-            _freshCharacter = false;
-            MarkKnown();
+            // The pad may still arrive: vanilla onLocationSpawned starts the dream only while it is
+            // prepared, and it must not start once this player is back online.
+            Dreams d = Dreams.Instance;
+            if (d != null)
+            {
+                d.wantToDream = false;
+                d.dreamPrepared = false;
+            }
             if (p != null)
                 p.firstPlay = false;
             Core.forbidInputs = false;
             UI ui = Singleton<UI>.Instance;
             if (ui != null && ui.blackScreen != null)
                 ui.blackScreen.SetActive(false);
+            // Where the prologue would have left it.
+            ArriveFresh();
         }
 
         // ---------------------------------------------------- journal after the prologue
@@ -577,7 +703,11 @@ namespace DWMPHorde.Sync
             _readySince = -1f;
             _joinerStage = JoinerStage.None;
             _freshCharacter = false;
+            _prologueDone = false;
             _introVideoSeen = false;
+            // A join that never got back to its session: its pages are not another host's.
+            _journalToShare.Clear();
+            _journalBefore.Clear();
         }
     }
 }

@@ -264,7 +264,8 @@ namespace DWMPHorde.Networking
             {
                 if (list.Count >= maxSend) break;
                 GameObject go = kv.Value;
-                if (go == null) continue;
+                // The host's own prologue pads are not the world.
+                if (go == null || PersonalPrologue.IsOnProloguePad(go.transform)) continue;
                 if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
                     continue;
                 Vector3 p = go.transform.position;
@@ -296,7 +297,7 @@ namespace DWMPHorde.Networking
             foreach (var go in WorldPhysicsSyncService.GetKnownTrapsSnapshot())
             {
                 if (list.Count >= maxSend) break;
-                if (go == null) continue;
+                if (go == null || PersonalPrologue.IsOnProloguePad(go.transform)) continue;
                 if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
                     continue;
                 int id = Sync.TrapNetworkId.GetOrMintHost(go);

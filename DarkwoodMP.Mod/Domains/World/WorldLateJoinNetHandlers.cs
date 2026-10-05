@@ -43,6 +43,9 @@ namespace DWMPHorde.Networking
                     continue;
                 if (item.GetComponent<Generator>() != null)
                     continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(item.transform))
+                    continue;
 
                 Vector3 p = item.transform.position;
                 string itemType = item.invItem != null ? item.invItem.type : "";
@@ -85,6 +88,8 @@ namespace DWMPHorde.Networking
                 if (gen == null || gen.gameObject == null || !gen.gameObject.scene.IsValid())
                     continue;
                 if (scope.HasValue && !scope.Value.Contains(gen.transform))
+                    continue;
+                if (PersonalPrologue.IsOnProloguePad(gen.transform))
                     continue;
 
                 Vector3 p = gen.transform.position;
@@ -313,6 +318,8 @@ namespace DWMPHorde.Networking
                 Door door = doors[i];
                 if (door == null || door.transform == null) continue;
                 if (loc != null && !IsUnderOrNearLocation(door.transform, root, anchor, maxDistSqr))
+                    continue;
+                if (PersonalPrologue.IsOnProloguePad(door.transform))
                     continue;
                 bool opened = TraverseHack.ReadDoorOpened(door);
 

@@ -512,4 +512,21 @@ public class MessageRoundTripTests
         byte[] cut = full.Take(full.Length - 2).ToArray();
         Assert.Throws<InvalidDataException>(() => SensorEffectWire.ReadList(new NetReader(cut)));
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void JournalItem_RoundTripsDreamFlag(bool inDream)
+    {
+        // Whether the page is a dream's travels with it: the receiver's own dream state said
+        // nothing about where the sender found it.
+        var msg = new JournalItemMessage { Kind = JournalItemKind.JournalEntry, Type = "act1_entry1", InDream = inDream };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = JournalItemMessage.Deserialize(r);
+
+        Assert.Equal(JournalItemKind.JournalEntry, back.Kind);
+        Assert.Equal("act1_entry1", back.Type);
+        Assert.Equal(inDream, back.InDream);
+        Assert.Equal(0, r.AvailableBytes);
+    }
 }

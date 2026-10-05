@@ -114,6 +114,8 @@ namespace DWMPHorde.Networking
                 NPC npc = all[i];
                 if (npc == null || !npc.trader || npc.inventory == null) continue;
                 if (string.IsNullOrEmpty(npc.name)) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(npc.transform)) continue;
 
                 var msg = TradeInventorySync.BuildMessage(npc);
                 _net.SendBulkOrAll(NetMessageType.TradeInventorySync, w => msg.Serialize(w), targetPlayerId);

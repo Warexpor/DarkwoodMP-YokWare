@@ -106,6 +106,8 @@ namespace DWMPHorde.Patches
 
             Trigger t = item.GetComponent<Trigger>();
             if (t == null) return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(t.transform)) return;
             // Only after a successful spring / stay-after-disarm presentation.
             if (!t.triggered && t.active && t.canDisarm)
                 return;
@@ -149,6 +151,7 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (!(ModRuntime.Network is LanNetworkManager net) || !net.IsConnected) return;
             if (net.Role == NetworkRole.Offline) return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = new Vector3(

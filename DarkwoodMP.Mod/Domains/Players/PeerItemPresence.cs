@@ -97,6 +97,13 @@ namespace DWMPHorde.Sync
         /// <summary>The player carries anything in bag or hotbar (vanilla getAllItemsInPlayer().Count &gt; 0).</summary>
         public static bool PlayerHasAnyItem(int playerId)
         {
+            if (IsLocalInPrologue(playerId))
+                return false;
+            if (IsLocal(playerId) && Player.Instance != null)
+            {
+                // The live pack (vanilla getAllItemsInPlayer), not the last entry recorded for it.
+                return Player.Instance.Inventory != null && Player.Instance.Inventory.getAllItemsInPlayer().Count > 0;
+            }
             if (_byPlayer.TryGetValue(playerId, out Dictionary<string, int> map) && map != null)
             {
                 foreach (var kv in map)
@@ -113,16 +120,28 @@ namespace DWMPHorde.Sync
             if (string.IsNullOrEmpty(itemType)) return false;
             if (minAmount < 1) minAmount = 1;
 
-            if (LocalHasIncludingHotbar(itemType, minAmount))
+            // In the prologue this player's pack is the prologue's, not something it has in the world.
+            bool prologue = PersonalPrologue.LocalInPrologue;
+            if (!prologue && LocalHasIncludingHotbar(itemType, minAmount))
                 return true;
 
             foreach (var kvp in _byPlayer)
             {
+                // This machine's own entry: its live pack above is the truth (the entry still listed
+                // the prologue's pack after it ended).
+                if (IsLocal(kvp.Key))
+                    continue;
                 if (kvp.Value != null && kvp.Value.TryGetValue(itemType, out int amt) && amt >= minAmount)
                     return true;
             }
             return false;
         }
+
+        private static bool IsLocal(int playerId)
+            => ModRuntime.Network != null && playerId == ModRuntime.Network.LocalPlayerId;
+
+        private static bool IsLocalInPrologue(int playerId)
+            => IsLocal(playerId) && PersonalPrologue.LocalInPrologue;
 
         /// <summary>
         /// Inventory + Hotbar. getItemInPlayer / getItemAmount on Inventory miss Hotbar

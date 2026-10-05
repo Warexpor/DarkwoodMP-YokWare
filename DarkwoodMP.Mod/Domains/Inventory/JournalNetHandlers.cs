@@ -90,20 +90,21 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Vanilla marks a key, note or quest item picked up while dreaming (<c>inDream</c>) and
-        /// clears it from the journal when the dream ends. One picked up by a peer during the
-        /// shared dream is a dream item here too, or it outlived the dream on every other peer.
+        /// Vanilla marks a page picked up or written while dreaming (<c>inDream</c>) and clears it from
+        /// the journal when the dream ends. The sender says which kind its page is: a shared dream's
+        /// page is a dream page here too (or it outlived the dream on every other peer), and a world
+        /// page stays one even while this player is in a dream of its own (the host's prologue lost
+        /// the pages a peer found meanwhile).
         /// </summary>
-        private static bool PickedInDream()
-        {
-            var dreams = Singleton<Dreams>.Instance;
-            return dreams != null && dreams.dreaming || DreamSyncManager.IsDreamActive;
-        }
+        private static bool PickedInDream(JournalItemMessage msg) => msg.InDream;
 
         internal void HandleJournalItem(JournalItemMessage msg)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
             if (journal == null) return;
+            // A page of a dream this player is not in (the sender's own): not this journal's.
+            if (msg.InDream && !DreamSyncManager.IsDreamActive)
+                return;
 
             switch (msg.Kind)
             {
@@ -112,7 +113,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Note note = new Journal.Note();
                         note.type = msg.Type;
-                        note.inDream = PickedInDream();
+                        note.inDream = PickedInDream(msg);
                         note.timePickedUp = Singleton<Controller>.Instance != null
                             ? Singleton<Controller>.Instance.CurrentTime : 0;
                         journal.notesDict.Add(msg.Type, note);
@@ -124,7 +125,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Key key = new Journal.Key();
                         key.type = msg.Type;
-                        key.inDream = PickedInDream();
+                        key.inDream = PickedInDream(msg);
                         journal.keysDict.Add(msg.Type, key);
                         journal.showJournalInfoPopup("Key", msg.Type);
                     }
@@ -134,14 +135,19 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Item item = new Journal.Item();
                         item.type = msg.Type;
-                        item.inDream = PickedInDream();
+                        item.inDream = PickedInDream(msg);
                         journal.itemsDict.Add(msg.Type, item);
                         journal.showJournalInfoPopup("InvItem", msg.Type);
                     }
                     break;
                 case JournalItemKind.JournalEntry:
+                {
+                    bool added = journal.journalEntriesDict != null && !journal.journalEntriesDict.ContainsKey(msg.Type);
                     journal.addJournalEntry(msg.Type, noPopup: false);
+                    if (added && journal.journalEntriesDict.TryGetValue(msg.Type, out Journal.JournalEntry entry))
+                        entry.inDream = msg.InDream;
                     break;
+                }
                 case JournalItemKind.Remove:
                     if (journal.keysDict != null && journal.keysDict.ContainsKey(msg.Type))
                         journal.keysDict.Remove(msg.Type);

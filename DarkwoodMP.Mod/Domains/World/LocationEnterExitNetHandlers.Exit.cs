@@ -149,8 +149,10 @@ namespace DWMPHorde.Networking
 
             // Host's own outside location
             var ol = Singleton<OutsideLocations>.Instance;
+            // Not the host's own prologue pad: it exists on the host's machine only.
             if (ol != null && ol.playerInOutsideLocation
-                && !string.IsNullOrEmpty(ol.currentLocationName))
+                && !string.IsNullOrEmpty(ol.currentLocationName)
+                && !PersonalPrologue.IsPrologueDream(ol.currentLocationName))
             {
                 string hostLoc = ol.currentLocationName;
                 // Host id is LocalPlayerId (normally 1); never hardcode — migration

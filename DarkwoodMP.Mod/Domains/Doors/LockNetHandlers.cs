@@ -120,6 +120,8 @@ namespace DWMPHorde.Networking
             {
                 Constructible c = all[i];
                 if (c == null || !c.constructed) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(c.transform)) continue;
                 Vector3 p = c.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(p.x * 10f) / 10f,
@@ -394,6 +396,7 @@ namespace DWMPHorde.Networking
             {
                 Padlock p = pads[i];
                 if (p == null || p.locked || !p.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(p.transform)) continue;
                 Vector3 pos = p.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -419,6 +422,7 @@ namespace DWMPHorde.Networking
             {
                 Locked l = locks[i];
                 if (l == null || l.locked || !l.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(l.transform)) continue;
                 Vector3 pos = l.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -444,6 +448,7 @@ namespace DWMPHorde.Networking
             {
                 InteractiveItem ii = items[i];
                 if (ii == null || !ii.isOn || !ii.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(ii.transform)) continue;
                 Vector3 pos = ii.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,

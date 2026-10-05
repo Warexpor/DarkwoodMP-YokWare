@@ -111,7 +111,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private bool HasPeer(int playerId) => Peers.Contains(playerId);
+        internal bool HasPeer(int playerId) => Peers.Contains(playerId);
 
         private void RemovePeerSlot(int playerId)
         {

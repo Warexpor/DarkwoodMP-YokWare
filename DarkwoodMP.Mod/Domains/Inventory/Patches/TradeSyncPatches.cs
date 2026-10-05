@@ -384,19 +384,13 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            try
-            {
-                inv.refreshReputation();
-            }
-            catch (System.Exception ex)
-            {
-                // Title/join can apply stock before reputation UI deps exist.
-                ModRuntime.Log?.LogWarning("[TradeSync] refreshReputation skipped: " + ex.Message);
-            }
-
             var dw = Singleton<UI>.Instance?.dialogueWindow;
+            // The trade window's balance line exists only while this trader's trade is open (vanilla
+            // refreshReputation reads the talked-to NPC and the exchange panes).
             if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
             {
+                if (Player.Instance != null && Player.Instance.talkedToNPC != null)
+                    inv.refreshReputation();
                 inv.refreshIcons();
                 if (dw.exchangeTrader != null)
                     dw.exchangeTrader.refreshIcons();
