@@ -37,7 +37,10 @@ namespace DWMPHorde.Patches
         private static void Postfix(Character __instance, State __state)
         {
             if (__state.On && __instance != null)
+            {
                 PlayerTargetArbiter.ObserveAttack(__instance, __state.Before);
+                NamedNpcScalePatch.OnAttack(__instance);
+            }
         }
     }
 
