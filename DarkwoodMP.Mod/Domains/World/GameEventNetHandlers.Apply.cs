@@ -164,7 +164,7 @@ namespace DWMPHorde.Networking
             // Location/proximity flavor (displayMessage + HelpMessage) is personal.
             // fire() only StartCoroutines delayed GameEvent actions — do NOT set a
             // process-wide HUD blacklist here (blanks local examine/help). Delayed
-            // text re-checks NearRange against the GE transform when MoveNext runs
+            // text checks the event owner when MoveNext runs
             // (PersonalFlavorHud + GameEventFireFlavorSourcePatch).
             // Personal Player.Instance effects (bag / recipes / transport) only for
             // the stamped actor; late-join bulk uses ActorPlayerId=0 → world only.
