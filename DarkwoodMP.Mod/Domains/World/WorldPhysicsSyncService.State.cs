@@ -37,6 +37,10 @@ namespace DWMPHorde.Sync
             /// Flushed by <see cref="TryFlushPendingLights"/> once the world is ready.
             /// </summary>
             public readonly List<LightStateMessage> PendingLights = new List<LightStateMessage>(32);
+            /// <summary>Generator states for a generator not in this world yet (a location not spawned here).</summary>
+            public readonly List<GeneratorState> PendingGenerators = new List<GeneratorState>(8);
+            public readonly List<float> PendingGeneratorAt = new List<float>(8);
+            public float NextPendingGeneratorFlush;
             public float NextPendingLightFlushTime;
             public float PendingLightQueuedAt = -1f;
             public readonly Dictionary<int, Vector3> LastPos = new Dictionary<int, Vector3>();

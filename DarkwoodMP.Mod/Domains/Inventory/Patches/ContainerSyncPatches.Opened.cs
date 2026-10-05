@@ -494,12 +494,41 @@ namespace DWMPHorde.Patches
             __state.Pos = __instance.inventory.transform.position;
             __state.Idx = __instance.inventory.slots.IndexOf(__instance);
             __state.PreTakePlayerCount = ContainerSyncHelpers.CountPlayerItem(__state.Type, __state.IsRecipe);
+            _dropsBefore = DroppedItemSyncHelpers.SentDrops;
+        }
+
+        private static int _dropsBefore; // process-scoped: call-scoped, read by the Postfix right after
+
+        /// <summary>Container slot (pos+index key) → the ground drop it became, until the host answers.</summary>
+        private static readonly System.Collections.Generic.Dictionary<string, KeyValuePair<string, float>> _dropBySlot =
+            new System.Collections.Generic.Dictionary<string, KeyValuePair<string, float>>(); // reset-in: Reset
+
+        /// <summary>A refusal answers within a round trip; an older entry belongs to a take the host accepted.</summary>
+        private const float RefusalWindowSec = 10f;
+
+        internal static void Reset() => _dropBySlot.Clear();
+
+        internal static string SlotKey(Vector3 pos, int idx) => $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{idx}";
+
+        /// <summary>The host refused this slot's take: the drop it became is retracted (it had no source).</summary>
+        internal static bool TryRetractDrop(string slotKey)
+        {
+            if (!_dropBySlot.TryGetValue(slotKey, out KeyValuePair<string, float> drop))
+                return false;
+            _dropBySlot.Remove(slotKey);
+            if (Time.unscaledTime - drop.Value > RefusalWindowSec)
+                return false;
+            DroppedItemSyncHelpers.RetractOwnDrop(drop.Key);
+            return true;
         }
 
         private static void Postfix(InvSlot __instance, ContainerSlotActionState __state)
         {
             if (!__state.Active || !InvItemClass.isNull(__instance.invItem))
                 return;
+            if (DroppedItemSyncHelpers.SentDrops != _dropsBefore && !string.IsNullOrEmpty(DroppedItemSyncHelpers.LastSentDropGuid))
+                _dropBySlot[SlotKey(__state.Pos, __state.Idx)] =
+                    new KeyValuePair<string, float>(DroppedItemSyncHelpers.LastSentDropGuid, Time.unscaledTime);
             ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, __state.Amount, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }

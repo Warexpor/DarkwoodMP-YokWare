@@ -191,7 +191,7 @@ namespace DWMPHorde.Sync
                 return;
 
             Vector3 euler = __state.Rot.eulerAngles;
-            ModRuntime.Network.SendItemSpawn(new ItemSpawnMessage
+            var spawn = new ItemSpawnMessage
             {
                 ItemType = __state.Type,
                 PosX = __state.Pos.x,
@@ -201,7 +201,10 @@ namespace DWMPHorde.Sync
                 RotY = euler.y,
                 RotZ = euler.z,
                 PlacerId = (short)ModRuntime.Network.LocalPlayerId
-            });
+            };
+            ModRuntime.Network.SendItemSpawn(spawn);
+            if (ModRuntime.Network.Role == NetworkRole.Host)
+                TrapLedger.NotePlaced(spawn, WorldPhysicsSyncService.FindTrapByPos(__state.Pos));
             ModRuntime.LegacyInfo($"[ItemSpawn] sent {__state.Type} at {__state.Pos}");
         }
 

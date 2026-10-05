@@ -376,6 +376,11 @@ namespace DWMPHorde.Patches
             // Announce only that amount, or the host deletes what the client never received.
             int moved = ContainerSyncHelpers.AmountMoved(__instance, __state.PreSlotAmount);
             if (moved <= 0) return;
+            // Picking a whole item up off the ground: the pickup claim is its message. Sending the
+            // slot removal too made the host destroy its copy first, so the claim found nothing,
+            // was refused, and the client gave the item back: it was gone for everyone.
+            if (WorldPickupWireGuard.IsActive && InvItemClass.isNull(__instance.invItem))
+                return;
             ContainerSyncHelpers.SendContainerAction(ContainerAction.RemoveItem, __state.Pos, __state.Idx, __state.Type, moved, __state.Dur, __state.Ammo, preTakePlayerCount: __state.PreTakePlayerCount, isRecipe: __state.IsRecipe, upgrades: __state.Upgrades, shouldBeActive: __state.ShouldBeActive);
         }
     }

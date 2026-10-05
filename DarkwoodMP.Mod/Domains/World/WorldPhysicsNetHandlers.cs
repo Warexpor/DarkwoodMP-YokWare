@@ -214,7 +214,10 @@ namespace DWMPHorde.Networking
                 Core.addToSaveable(go, isDynamic: true, assignID: true);
                 Singleton<WorldGrid>.Instance?.registerToNode(go);
                 if (_net.Role == NetworkRole.Host && TrapNetworkId.IsWorldTrap(go))
+                {
                     TrapNetworkId.GetOrMintHost(go);
+                    TrapLedger.NotePlaced(msg, go);
+                }
             }
             else
             {

@@ -36,6 +36,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void TryFlushPendingLights()
         {
+            TryFlushPendingGenerators();
             if (_s.PendingLights.Count == 0)
             {
                 _s.PendingLightQueuedAt = -1f;

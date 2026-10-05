@@ -483,8 +483,12 @@ namespace DWMPHorde.Sync
                         Vector3 gPos = new Vector3(gs.PosX, gs.PosY, gs.PosZ);
                         Generator gen = FindGeneratorByPos(gPos);
                         if (gen == null)
-                            gen = SpawnGenerator(gs);
-                        if (gen == null) continue;
+                        {
+                            // Its location isn't spawned here yet. Spawning one made a stray
+                            // generator that later stood on top of the real one and took its updates.
+                            QueuePendingGenerator(gs);
+                            continue;
+                        }
 
                         if (hostAccum && gs.FuelDelta > 0.01f)
                         {
