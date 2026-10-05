@@ -518,6 +518,17 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   prefab, and the outcome items (shovel edge, mutated cockroach, mushrooms, shiny rock,
   the flashlight) are ordinary rewards each dreamer gets, as in vanilla.
 
+- **Level-up dreams, checked end to end: one dream per level slot for the party.**
+  The first player to reach level 2, 3, 5, 6 or 7 brings that level's dream to
+  everyone. Later players reaching the same level just level up. A level the party has
+  not dreamed yet still brings its dream, and a finished dream is never rolled again.
+  One leak is fixed: vanilla marks a level as dreamed as soon as the skills are
+  confirmed, so a client whose dream was refused (another dream running) carried that
+  mark while it waited. Its dream-end snapshot handed the mark to the host, the party
+  counted the level as done, and the owed dream was dropped for good. The host now
+  takes a level only from the dream request it actually starts. A client that becomes
+  the host while owed a dream now starts it as the host.
+
 ### Story and unique content (chapter 1 and 2 NPCs and places)
 
 - **The porter's "bring my stash" could destroy it.** Vanilla empties the other

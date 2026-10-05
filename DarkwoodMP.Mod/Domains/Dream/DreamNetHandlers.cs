@@ -17,6 +17,15 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>
+        /// Level-dream flags a message brings in. The host owns the party's set: it marks a level
+        /// when it takes that level's dream request. A client's own flags include levels whose
+        /// dream it is still owed (refused, waiting in DreamRetry, since vanilla marks the level
+        /// when the skills are confirmed); taking them from its dream-end snapshot told the party
+        /// it had that level's dream, and the owed dream was dropped for good.
+        /// </summary>
+        private byte PeerLvlFlags(byte flags) => _net.Role == NetworkRole.Host ? (byte)0 : flags;
+
         internal void HandleDreamStarted(DreamStartedMessage msg)
         {
             Vector3 locPos = new Vector3(msg.LocPosX, msg.LocPosY, msg.LocPosZ);
@@ -33,7 +42,7 @@ namespace DWMPHorde.Networking
             }
 
             // Merge host completed + lvl flags before entry.
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
             DreamRetry.HostDreamRunning = true;
 
             // Dead in the overworld: sit it out (the host leaves dead peers off the roster).
@@ -136,7 +145,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+                DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
 
                 if (peerState != null)
                     peerState.IsDeadInDream = false;
@@ -166,7 +175,7 @@ namespace DWMPHorde.Networking
             }
 
             DreamSyncManager.ClearStoryEndDefer();
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
             if (!DreamSyncManager.OutcomeChainsToNextDream(Dreams.Instance, msg.OutcomeName))
                 DreamRetry.HostDreamRunning = false;
 
@@ -347,7 +356,7 @@ namespace DWMPHorde.Networking
 
         internal void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets, PeerLvlFlags(msg.LvlFlags));
             if (_net.Role == NetworkRole.Client)
                 DreamRetry.HostDreamRunning = msg.SessionActive;
             // Reconnected (host migration, soft reconnect) while on the dream pad: confirm or leave.
