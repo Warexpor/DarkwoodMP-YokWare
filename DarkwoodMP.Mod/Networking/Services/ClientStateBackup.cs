@@ -32,6 +32,9 @@ namespace DWMPHorde.Networking
         public string Timestamp;
         /// <summary>Chapter the snapshot was taken in (0 = older JSON). A pose from another chapter's map is not restored.</summary>
         public int Chapter;
+        /// <summary>This player's home oven (vanilla Player.experienceMachine, also the respawn home).</summary>
+        public bool HasHomeOven;
+        public float HomeOvenX, HomeOvenY, HomeOvenZ;
         public int Day;
         public int GameTimeMinutes;
         public float PosX, PosY, PosZ;

@@ -52,6 +52,24 @@ namespace DWMPHorde.Patches
     {
         private const float SameOvenSq = 1f;
 
+        /// <summary>
+        /// The local player's home oven is out (a world bulk or the host's world save put it out):
+        /// light it again next frame, outside any apply scope, so peers hear it.
+        /// </summary>
+        internal static void RelightOwnHomeNextFrame()
+        {
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null)
+                return;
+            ctrl.waitFramesAndRun(() =>
+            {
+                Player p = Player.Instance;
+                ExperienceMachine home = p != null ? p.experienceMachine : null;
+                if (home != null && !home.isOn)
+                    home.enable();
+            }, 1);
+        }
+
         /// <summary>Another player (not <paramref name="exceptPlayerId"/>) has this oven as home.</summary>
         internal static bool IsOtherPlayersHome(ExperienceMachine oven, int exceptPlayerId)
         {

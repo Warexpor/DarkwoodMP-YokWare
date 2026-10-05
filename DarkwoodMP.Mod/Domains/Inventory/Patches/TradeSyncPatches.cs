@@ -26,15 +26,21 @@ namespace DWMPHorde.Patches
     {
         /// <summary>Prefix snapshot of exchangeTrader (buy tray) type → amount.</summary>
         private static readonly Dictionary<string, int> _buyTraySnapshot = new Dictionary<string, int>();
+        private static TradeEntry[] _bought = System.Array.Empty<TradeEntry>(); // reset-in: Reset
+        private static TradeEntry[] _sold = System.Array.Empty<TradeEntry>();   // reset-in: Reset
 
         public static void Reset()
         {
             _buyTraySnapshot.Clear();
+            _bought = System.Array.Empty<TradeEntry>();
+            _sold = System.Array.Empty<TradeEntry>();
         }
 
         private static void Prefix(DialogueWindow __instance)
         {
             _buyTraySnapshot.Clear();
+            _bought = TradeCommit.Capture(__instance != null ? __instance.exchangeTrader : null);
+            _sold = TradeCommit.Capture(__instance != null ? __instance.exchangePlayer : null);
             if (__instance?.exchangeTrader == null) return;
 
             var allItems = __instance.exchangeTrader.getAllItems();
@@ -100,11 +106,11 @@ namespace DWMPHorde.Patches
             int localId = net.LocalPlayerId;
             NpcDialogueLock.RenewLease(npcName, localId);
 
-            // Host fans out authoritative stock; clients notify host only (no Forwardable fan-out).
+            // Host fans out authoritative stock; a client sends what it traded for the host to check.
             if (net.Role == NetworkRole.Host)
                 TradeInventorySync.BroadcastNpcInventory(__instance.npc);
-            else
-                TradeInventorySync.SendNpcInventoryToHost(__instance.npc);
+            else if (net is LanNetworkManager lan)
+                TradeCommit.SendFromClient(lan, __instance.npc, _bought, _sold);
         }
     }
 
@@ -235,20 +241,6 @@ namespace DWMPHorde.Patches
             ModRuntime.LegacyInfo(
                 $"[TradeSync] inventory sync '{msg.NpcName}' types={msg.ItemCount}");
             net.SendToAll(NetMessageType.TradeInventorySync, w => msg.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
-        }
-
-        /// <summary>Client-only: notify host after local acceptTrade (host rebroadcasts truth).</summary>
-        public static void SendNpcInventoryToHost(NPC npc)
-        {
-            if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || net.Role == NetworkRole.Host) return;
-
-            var msg = BuildMessage(npc);
-            ModRuntime.LegacyInfo(
-                $"[TradeSync] trade accept → host '{msg.NpcName}' types={msg.ItemCount}");
-            net.Send(NetMessageType.TradeInventorySync, w => msg.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
         }
 

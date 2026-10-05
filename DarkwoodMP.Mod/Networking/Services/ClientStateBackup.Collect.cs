@@ -46,6 +46,14 @@ namespace DWMPHorde.Networking
             bool inDream = dreams != null && dreams.dreaming && !player.firstPlay;
 
             data.Health = inDream ? player.maxHealth : player.health;
+            if (player.experienceMachine != null)
+            {
+                Vector3 home = player.experienceMachine.transform.position;
+                data.HasHomeOven = true;
+                data.HomeOvenX = home.x;
+                data.HomeOvenY = home.y;
+                data.HomeOvenZ = home.z;
+            }
             data.Stamina = player.stamina;
             data.Experience = player.experience;
             data.CurrentLevel = player.currentLevel;

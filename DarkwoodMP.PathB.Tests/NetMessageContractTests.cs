@@ -57,11 +57,14 @@ public class NetMessageContractTests
         Assert.True(Enum.TryParse("PorterTransport", out NetMessageType porterTransport),
             "NetMessageType.PorterTransport (150) is missing");
         Assert.Equal(150, (byte)porterTransport);
-        // 151 (PlayerSpecial) is the highest id.
         Assert.True(Enum.TryParse("PlayerSpecial", out NetMessageType playerSpecial),
             "NetMessageType.PlayerSpecial (151) is missing");
         Assert.Equal(151, (byte)playerSpecial);
-        Assert.Equal(151, (byte)NetMessageType._Highest);
+        // 152 (TradeCommit) is the highest id.
+        Assert.True(Enum.TryParse("TradeCommit", out NetMessageType tradeCommit),
+            "NetMessageType.TradeCommit (152) is missing");
+        Assert.Equal(152, (byte)tradeCommit);
+        Assert.Equal(152, (byte)NetMessageType._Highest);
     }
 
     [Fact]

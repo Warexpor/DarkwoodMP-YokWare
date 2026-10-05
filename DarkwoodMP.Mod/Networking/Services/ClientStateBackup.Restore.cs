@@ -95,6 +95,7 @@ namespace DWMPHorde.Networking
             RestoreActiveEffects(data);
             RestoreLocalMapMarkers(data);
             RestoreNightTraderReputations(data);
+            RestoreHomeOven(data);
 
             // Position was always collected on Save; apply on restore so rejoin returns to exit spot.
             RestorePosition(data);
@@ -279,6 +280,37 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[ClientBackup] restored {data.NightTraderReputations.Count} night-trader reputation(s)");
+        }
+
+        /// <summary>
+        /// A client loads the host's world, whose save holds the host's home oven: every rejoin
+        /// moved the client's home (and respawn point) to the host's hideout. Put back its own,
+        /// lit, as vanilla keeps a home oven.
+        /// </summary>
+        private static void RestoreHomeOven(ClientStateBackupData data)
+        {
+            Player player = Player.Instance;
+            if (player == null || data == null || !data.HasHomeOven)
+                return;
+            int chapterNow = Singleton<WorldGenerator>.Instance != null ? Singleton<WorldGenerator>.Instance.chapterID : 0;
+            if (data.Chapter > 0 && chapterNow > 0 && data.Chapter != chapterNow)
+                return;
+            Vector3 pos = new Vector3(data.HomeOvenX, data.HomeOvenY, data.HomeOvenZ);
+            ExperienceMachine home = null;
+            foreach (ExperienceMachine em in WorldQueryHelper.GetCachedSceneComponents<ExperienceMachine>())
+            {
+                if (em != null && (em.transform.position - pos).sqrMagnitude < 1.5f * 1.5f)
+                {
+                    home = em;
+                    break;
+                }
+            }
+            if (home == null)
+                return;
+            player.experienceMachine = home;
+            if (!home.isOn)
+                Patches.OvenHomes.RelightOwnHomeNextFrame();
+            ModRuntime.LegacyInfo("[ClientBackup] restored home oven at " + pos);
         }
 
         private static void RestorePosition(ClientStateBackupData data)

@@ -413,6 +413,27 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void TradeCommit_RoundTrips()
+    {
+        var msg = new TradeCommitMessage
+        {
+            NpcName = "trader_01", PosX = 1f, PosY = 2f, PosZ = 3f, InDream = false, Denied = true,
+            Bought = new[] { new TradeEntry { Type = "pistol", Count = 1, Durability = 0.5f, Ammo = 3, Active = false, Upgrades = new[] { "u1" } } },
+            Sold = new[] { new TradeEntry { Type = "planks", IsRecipe = false, Count = 4, Durability = 1f } }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = TradeCommitMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("trader_01", back.NpcName);
+        Assert.True(back.Denied);
+        Assert.Single(back.Bought);
+        Assert.Equal(3, back.Bought[0].Ammo);
+        Assert.Equal("u1", back.Bought[0].Upgrades[0]);
+        Assert.Equal(4, back.Sold[0].Count);
+        Assert.Null(back.Sold[0].Upgrades);
+    }
+
+    [Fact]
     public void PlayerSpecial_RoundTrips()
     {
         var msg = new PlayerSpecialMessage { Method = "special_onKillNightTrader" };
