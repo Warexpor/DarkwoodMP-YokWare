@@ -367,6 +367,13 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   sends its health, darkness and skill list with its effect sync (`PlayerEffectSync`
   gains them). Attackers are counted per body, because the host's own list also held
   creatures attacking other players.
+- **Scripted hits and clock tweens ran twice on clients.** A client replaying a
+  scripted hit on a creature ran vanilla's own death on its copy: loot was rolled again
+  and death events fired beside the host's real ones. A clock tween fought every host
+  time sync. Replays now leave both to the host, whose results arrive as usual.
+- **One-time hints reached only the first player past.** A hint (a message, perhaps
+  with a sound) latched for whoever triggered it first. It is now shown once to each
+  player.
 
 ### Dreams, a full pass
 
