@@ -23,7 +23,10 @@ namespace DWMPHorde.Sync
         private static byte _levelBits;     // reset-in: Reset (NetworkResetRegistry)
         /// <summary>A dream is running on the host (this peer sits it out, or its pad failed to load).</summary>
         internal static bool HostDreamRunning; // reset-in: Reset (NetworkResetRegistry)
-        /// <summary>Host: a peer's dialogue dream waiting for the host to be able to start it.</summary>
+        /// <summary>
+        /// Host: a dream waiting for the host to be able to start it (a peer's dialogue dream, or
+        /// one this peer was owed when it became the host; "" = a random level dream).
+        /// </summary>
         private static string _hostWaiting; // reset-in: Reset (NetworkResetRegistry)
         private static float _hostNotBefore; // reset-in: Reset (NetworkResetRegistry)
 
@@ -101,7 +104,7 @@ namespace DWMPHorde.Sync
             if (_hostWaiting == null || Time.unscaledTime < _hostNotBefore)
                 return;
             _hostNotBefore = Time.unscaledTime + 1f;
-            if (DreamSession.IsPresetCompleted(_hostWaiting))
+            if (_hostWaiting.Length > 0 && DreamSession.IsPresetCompleted(_hostWaiting))
             {
                 ModRuntime.LegacyInfo($"[DreamRetry] host: '{_hostWaiting}' finished meanwhile — dropped");
                 _hostWaiting = null;
@@ -153,6 +156,14 @@ namespace DWMPHorde.Sync
         {
             if (net != null && net.Role == NetworkRole.Host)
             {
+                // This peer became the host (migration) while owed a dream: the host starts it.
+                if (_waiting != null && _hostWaiting == null)
+                {
+                    _hostWaiting = _waiting;
+                    _hostNotBefore = Time.unscaledTime + RetryDelaySec;
+                }
+                _waiting = null;
+                _requested = null;
                 HostTick();
                 return;
             }
