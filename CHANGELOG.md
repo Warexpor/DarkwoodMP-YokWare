@@ -343,6 +343,8 @@ host's sends during its prologue ran alongside. Found and fixed:
 - The host now sends the loop the creature's AI chose (the last vanilla `playIdleLoop` /
   `destroySounds`, by vanilla's own rules: underwater, underground, the chasing variant),
   whether or not the host could hear it; each client's own range check decides if it plays.
+  The client logs each loop it starts on a creature (`[EntityLoop] Dog → dog_aggressive_loop
+  playing|culled`, trace, once a second per creature).
 - A sound counts as 3D when its source has any 3D share (the spatial-blend curve is read, not
   only its start), and then carries the game's own max distance. The dog's bark, attack and
   loops now carry 1500 instead of 650. The host sends creature sounds within that range of a

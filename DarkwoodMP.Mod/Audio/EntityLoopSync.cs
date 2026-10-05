@@ -162,6 +162,8 @@ namespace DWMPHorde.Audio
                 // Reverb on the start comes from CharBase.isInside, which only checkGround refreshes.
                 c.checkGround();
                 AudioObject ao = AudioController.Play(want, s.transform);
+                Logging.ModLog.TraceRate(Logging.LogCat.Audio, "loop:" + c.GetInstanceID(),
+                    () => "[EntityLoop] " + c.name + " → " + want + (ao != null ? " playing" : " culled"), 1f);
                 if (ao == null)
                     return; // culled (a 2D loop out of range); the next snapshot retries
                 if (ao.GetComponent<LoopingAudioObject>() == null)
