@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using DWMPHorde.Sync;
 using UnityEngine;
 
@@ -5,8 +6,9 @@ namespace DWMPHorde.Audio
 {
     /// <summary>
     /// A creature's CharacterSounds loop (breathing, buzzing, growl bed, sleeping) as state.
-    /// The host puts the loop it is playing into every entity snapshot as a slot of the
-    /// creature's own loop fields; each client keeps its copy's loop equal to it. A missed
+    /// The host puts the loop the creature's AI has on (vanilla's last playIdleLoop / destroySounds,
+    /// heard on the host or not) into every entity snapshot as a slot of the creature's own loop
+    /// fields; each client keeps its copy's loop equal to it. A missed
     /// message, a client walking up to a creature someone else woke, a late join or a body
     /// the client's WorldGrid toggled all heal on the next snapshot (at most the 1 s resync).
     /// On a host-synced copy the client's own playIdleLoop / destroySounds are blocked
@@ -38,16 +40,77 @@ namespace DWMPHorde.Audio
 
         private const byte SlotCount = 6;
 
-        /// <summary>Host: the slot of the loop this creature is playing now, 0 for none.</summary>
+        private sealed class LoopIntent
+        {
+            public string Loop;
+        }
+
+        /// <summary>
+        /// The loop vanilla's playIdleLoop / destroySounds last chose per creature, whether or not
+        /// this machine could hear it. Weak keys: a destroyed creature's entry goes with it.
+        /// </summary>
+        private static readonly ConditionalWeakTable<CharacterSounds, LoopIntent> _intent = new ConditionalWeakTable<CharacterSounds, LoopIntent>(); // process-scoped: weak per-creature table; vanilla's loop choice is world state, not session state
+
+        /// <summary>
+        /// After vanilla playIdleLoop ran: record the loop it chose, by its own rules (an
+        /// inactive body, underwater or underground leaves the current one; the wolfman's
+        /// aggressive variant while chasing; an empty name stops it).
+        /// </summary>
+        internal static void NoteVanillaPlayIdleLoop(CharacterSounds s, string loopName)
+        {
+            if (s == null || !s.gameObject.activeInHierarchy)
+                return;
+            if (string.IsNullOrEmpty(loopName))
+            {
+                SetIntent(s, null);
+                return;
+            }
+            if (!Patches.EntitySoundSyncHelper.VanillaWouldPlay(s))
+                return;
+            if (loopName == s.idleLoop && !string.IsNullOrEmpty(s.idleLoopAggressive))
+            {
+                Character ch = s.GetComponent<Character>();
+                if (ch != null && ch.behaviour == Character.Behaviour.chasingTarget)
+                    loopName = s.idleLoopAggressive;
+            }
+            SetIntent(s, loopName);
+        }
+
+        /// <summary>After vanilla destroySounds ran: the creature has no loop.</summary>
+        internal static void NoteVanillaDestroySounds(CharacterSounds s)
+        {
+            if (s != null)
+                SetIntent(s, null);
+        }
+
+        private static void SetIntent(CharacterSounds s, string loop)
+        {
+            _intent.GetOrCreateValue(s).Loop = loop;
+        }
+
+        /// <summary>
+        /// Host: the slot of the loop this creature's AI has on, 0 for none. Taken from what
+        /// vanilla asked for, not from the host's own AudioObject: the host culls a 2D loop far
+        /// from the host player, and the client next to the creature must still hear it (its
+        /// own cull decides). A creature with no recorded choice falls back to the live loop.
+        /// </summary>
         internal static byte HostSlot(Character c)
         {
             CharacterSounds s = c != null ? c.sounds : null;
-            if (s == null)
+            if (s == null || !s.gameObject.activeInHierarchy)
                 return 0;
-            AudioObject ao = s.idleAudioObject;
-            if (!IsLive(s, ao))
-                return 0;
-            string id = ao.audioID;
+            string id;
+            if (_intent.TryGetValue(s, out LoopIntent intent))
+            {
+                id = intent.Loop;
+            }
+            else
+            {
+                AudioObject ao = s.idleAudioObject;
+                if (!IsLive(s, ao))
+                    return 0;
+                id = ao.audioID;
+            }
             if (string.IsNullOrEmpty(id))
                 return 0;
             for (byte slot = 1; slot <= SlotCount; slot++)

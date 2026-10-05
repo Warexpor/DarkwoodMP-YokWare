@@ -191,6 +191,7 @@ namespace DWMPHorde.Networking
                         HealthPct = e.HealthPct,
                         TimeAdded = Time.time
                     });
+                    WarmPhantomPrefab(e.PrefabPath);
                     pendingAdded++;
                 }
                 skipped++;
@@ -288,6 +289,7 @@ namespace DWMPHorde.Networking
                     try { state.CachedRb.isKinematic = false; }
                     catch { /* destroyed */ }
                 }
+                ReleaseDrivenBody(state.CachedRb);
                 _states.Remove(hostId);
             }
             _displayPositions.Remove(hostId);
@@ -370,8 +372,19 @@ namespace DWMPHorde.Networking
             {
                 T = hostTime,
                 X = targetPos.x, Y = targetPos.y, Z = targetPos.z,
-                RotY = e.RotY
+                RotY = e.RotY,
+                HasClip = true,
+                Clip = e.Clip,
+                ClipFrame = e.ClipFrame
             }, TimelineGapInterval);
+
+            // The body's own clip (run, turn, idle, defensive) is shown when its pose is: the
+            // timeline renders the pose 75-150 ms behind the host, and a clip played on arrival
+            // turned or stopped the dog before its body did (sliding, stutter). Events stay on
+            // arrival, where the damage, hit sounds and death they belong to land: a reaction
+            // clip (attack, hit), going down, dying, getting back up, and the first sight or a
+            // hard snap (nothing older to wait for).
+            bool clipOnTimeline = !snap && e.Alive && !e.Downed && c.alive && !IsReactionClipName(e.Clip);
 
             state.previousPosition = _displayPositions[e.Index];
             state.previousRotY = _displayRotations[e.Index];
@@ -383,7 +396,10 @@ namespace DWMPHorde.Networking
             c.behaviour = e.PackedBehaviour;
 
             bool wasAlive = state.alive;
-            ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state);
+            ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state,
+                presentAliveClip: !clipOnTimeline);
+            if (!clipOnTimeline)
+                state.Timeline.HoldClipsThrough(hostTime);
             if (e.Alive && wasAlive && e.HealthPct > 0)
             {
                 EntitySyncLog.Interp("hp:" + e.Index,
@@ -437,11 +453,12 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Copy host life onto the local body. Death is presentation only:
-        /// vanilla <c>die()</c> stays on the host.
+        /// vanilla <c>die()</c> stays on the host. <paramref name="presentAliveClip"/> false: a
+        /// living body's clip comes from its timeline (<see cref="PresentTimelineClip"/>).
         /// </summary>
         private static void ApplyAuthoritativeBody(
             Character c, short id, bool alive, bool downed, byte healthPct,
-            string clip, short clipFrame, EntityInterpState state)
+            string clip, short clipFrame, EntityInterpState state, bool presentAliveClip = true)
         {
             if (c == null) return;
             ApplyHealth(c, healthPct, alive, downed);
@@ -480,7 +497,41 @@ namespace DWMPHorde.Networking
                 state.alive = true;
                 state.downed = false;
             }
-            ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+            if (presentAliveClip)
+                ApplyEntityPresentation(c, id, clip, clipFrame, alive: true);
+        }
+
+        /// <summary>
+        /// Show the host clip the rendered pose has reached (from <see cref="TickLateUpdate"/>).
+        /// A body that went down or died since is shown by its death path, not by older clips.
+        /// </summary>
+        private static void PresentTimelineClip(Character c, short id, EntityInterpState state, float hostTime)
+        {
+            if (!state.Timeline.TakeClip(hostTime, out TimelineSample s))
+                return;
+            if (!state.alive || state.downed || !c.alive)
+                return;
+            ApplyEntityPresentation(c, id, s.Clip, s.ClipFrame, alive: true);
+        }
+
+        /// <summary>
+        /// A host attack (EnemyAttack) was played on arrival: snapshot clips up to its host time
+        /// must not replace it once their pose is rendered.
+        /// </summary>
+        internal static void HoldTimelineClips(short id, float hostTime)
+        {
+            if (_states.TryGetValue(id, out EntityInterpState state))
+                state.Timeline.HoldClipsThrough(hostTime);
+        }
+
+        /// <summary>
+        /// This client showed its own hit on the body just now (speculative hit clip): snapshot
+        /// clips the host sent before it saw the hit must not replace it.
+        /// </summary>
+        internal static void HoldTimelineClipsNow(short id)
+        {
+            if (id != 0 && _hostClock.HasEstimate)
+                HoldTimelineClips(id, _hostClock.ToHost(Time.unscaledTime));
         }
 
         private static void ApplyHealth(Character c, byte healthPct, bool alive, bool downed)

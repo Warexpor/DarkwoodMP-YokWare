@@ -149,6 +149,7 @@ namespace DWMPHorde
             try
             {
                 ChapterSessionResume.EnsureSceneHook();
+                SceneRegistries.Install();
 
                 ModLog.BannerSessionStart();
 

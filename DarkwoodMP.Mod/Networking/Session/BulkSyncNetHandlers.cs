@@ -387,16 +387,14 @@ namespace DWMPHorde.Networking
 
             // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69.
             var discoveries = new List<string>(256);
-            MapElement[] elements = WorldQueryHelper.GetCachedSceneComponents<MapElement>();
-            if (elements != null)
+            // Vanilla's own map element lists, not a MapElement scene scan (~40 ms in the bulk).
+            List<MapElement> elements = Sync.MultiplayerMapManager.CollectMapElements();
+            for (int i = 0; i < elements.Count && discoveries.Count < 4096; i++)
             {
-                for (int i = 0; i < elements.Length && discoveries.Count < 4096; i++)
-                {
-                    MapElement el = elements[i];
-                    if (el == null || !el.isOnMap) continue;
-                    if (string.IsNullOrEmpty(el.elementName)) continue;
-                    discoveries.Add(el.elementName);
-                }
+                MapElement el = elements[i];
+                if (el == null || !el.isOnMap) continue;
+                if (string.IsNullOrEmpty(el.elementName)) continue;
+                discoveries.Add(el.elementName);
             }
 
             int mc = Mathf.Min(positions.Count, 4096);

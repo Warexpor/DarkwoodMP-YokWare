@@ -243,9 +243,10 @@ namespace DWMPHorde.Networking
             CharacterSounds cs = c.sounds ?? c.GetComponent<CharacterSounds>();
             if (cs != null)
             {
+                bool prevInside = TraverseHack.InsideCharacterSounds;
                 TraverseHack.InsideCharacterSounds = true;
                 try { cs.playGetHitByAxe1(); }
-                finally { TraverseHack.InsideCharacterSounds = false; }
+                finally { TraverseHack.InsideCharacterSounds = prevInside; }
             }
 
             tk2dSpriteAnimator body = ResolveBodyAnimator(c);
@@ -308,9 +309,10 @@ namespace DWMPHorde.Networking
             if (cs == null || string.IsNullOrEmpty(cs.death)) return;
 
             _localDeathSoundPlayed.Add(id);
+            bool prevInside = TraverseHack.InsideCharacterSounds;
             TraverseHack.InsideCharacterSounds = true;
             try { cs.play(cs.death); }
-            finally { TraverseHack.InsideCharacterSounds = false; }
+            finally { TraverseHack.InsideCharacterSounds = prevInside; }
         }
 
         public static void NoteClientDeathForCorpse(Character c)

@@ -48,6 +48,10 @@ namespace DWMPHorde
         public float T;
         public float X, Y, Z;
         public float RotY;
+        /// <summary>The host's body clip at <see cref="T"/> (false for a sample made on the client).</summary>
+        public bool HasClip;
+        public string Clip;
+        public short ClipFrame;
     }
 
     /// <summary>
@@ -61,11 +65,52 @@ namespace DWMPHorde
 
         private readonly TimelineSample[] _s = new TimelineSample[Capacity];
         private int _count;
+        /// <summary>Host time of the newest clip shown (from a sample, or played on arrival).</summary>
+        private float _clipShownT = float.NegativeInfinity;
 
         public int Count => _count;
         public TimelineSample Newest => _s[_count - 1];
 
-        public void Clear() => _count = 0;
+        public void Clear()
+        {
+            _count = 0;
+            _clipShownT = float.NegativeInfinity;
+        }
+
+        /// <summary>
+        /// The clip to show at host time <paramref name="t"/>: the newest sample with a clip at or
+        /// before <paramref name="t"/>, once. False when that sample (or a newer clip played on
+        /// arrival, see <see cref="HoldClipsThrough"/>) was already shown, so the body's clip
+        /// changes when its pose reaches the host moment of the change.
+        /// </summary>
+        public bool TakeClip(float t, out TimelineSample clip)
+        {
+            clip = default;
+            for (int i = _count - 1; i >= 0; i--)
+            {
+                TimelineSample x = _s[i];
+                if (x.T > t)
+                    continue;
+                if (x.T <= _clipShownT)
+                    return false;
+                if (!x.HasClip)
+                    continue;
+                _clipShownT = x.T;
+                clip = x;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A clip stamped <paramref name="t"/> was played as soon as it arrived (attack, hit,
+        /// death): samples up to that host time no longer change the clip.
+        /// </summary>
+        public void HoldClipsThrough(float t)
+        {
+            if (t > _clipShownT)
+                _clipShownT = t;
+        }
 
         /// <summary>
         /// Appends a sample. Out-of-order or same-time samples are dropped (false). The host
@@ -84,6 +129,7 @@ namespace DWMPHorde
                 {
                     TimelineSample hold = last;
                     hold.T = x.T - sendInterval;
+                    hold.HasClip = false; // a pose hold, not a clip the host sent again
                     Push(hold);
                 }
             }

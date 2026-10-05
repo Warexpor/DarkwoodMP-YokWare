@@ -489,8 +489,8 @@ namespace DWMPHorde.Networking
                     sprite.color = new Color(col.r, col.g, col.b, 1f);
             }
 
-            // Rigidbody left non-kinematic so the client player can push entities via physics.
-            // Host snapshots drive position via Rigidbody.MovePosition, which respects collisions.
+            // Rigidbody left non-kinematic so the client player collides with entities via physics.
+            // Host snapshots drive the pose every frame (WriteShownPose: transform + body).
         }
 
     }
