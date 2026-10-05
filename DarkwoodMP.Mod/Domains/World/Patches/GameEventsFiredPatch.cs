@@ -78,6 +78,9 @@ namespace DWMPHorde.Patches
             // A player's use or examine is the exception: clients never run those locally.
             if (__instance.multipleFire && !PlayerUseScope.Active)
                 return;
+            // A night scene's copy: clients replay the scene where they are (ScenarioEventFired).
+            if (NightEventAnchor.PlayingScene)
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = new Vector3(
@@ -120,5 +123,33 @@ namespace DWMPHorde.Patches
             if (DWMPHorde.Sync.DreamSyncManager.IsDreamActive)
                 DWMPHorde.Sync.WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
         }
+    }
+}
+
+namespace DWMPHorde.Patches
+{
+    /// <summary>
+    /// A world saved while an event's later steps were still waiting keeps those steps as a
+    /// "saved delayed event" that fires on load (vanilla GameEvents init). A client loading the
+    /// host's world had that fire blocked like any client one-shot, and the host had broadcast the
+    /// original fire long before: the waiting steps (a door, a light, a scene step) never happened
+    /// for the joiner. They run here as a replay of the host's world (no actor: personal steps,
+    /// spawns and counters are left out by the replay rules).
+    /// </summary>
+    [HarmonyPatch(typeof(GameEvents), "fire")]
+    public static class SavedDelayedEventClientPatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(GameEvents __instance, out NetworkApplyGuard __state)
+        {
+            __state = null;
+            var net = ModRuntime.Network;
+            if (__instance == null || !__instance.isSavedDelayedEvent || net == null || !net.IsConnected
+                || net.Role != NetworkRole.Client || NetworkApplyGuard.IsActive)
+                return;
+            __state = new NetworkApplyGuard();
+        }
+
+        private static void Finalizer(NetworkApplyGuard __state) => __state?.Dispose();
     }
 }

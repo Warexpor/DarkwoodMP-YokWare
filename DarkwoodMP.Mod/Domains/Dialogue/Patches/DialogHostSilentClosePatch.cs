@@ -45,19 +45,12 @@ namespace DWMPHorde.Patches
             try
             {
                 var dreams = Dreams.Instance;
-                if (dreams != null && dreams.wantToDream && !string.IsNullOrEmpty(dw.dreamToStart)
-                    && !dreams.dreaming && !dreams.dreamPrepared)
+                if (dreams != null && dreams.wantToDream && !string.IsNullOrEmpty(dw.dreamToStart))
                 {
                     string preset = dw.dreamToStart;
                     dw.dreamToStart = "";
-                    if (Singleton<Controller>.Instance != null)
-                    {
-                        Singleton<Controller>.Instance.Invoke(delegate
-                        {
-                            if (Dreams.Instance != null && !Dreams.Instance.dreaming)
-                                Dreams.Instance.StartCoroutine(Dreams.Instance.prepareDream(preset));
-                        }, 0.1f, timeScaleDependent: false);
-                    }
+                    // Started now, or kept until the host can take it (DreamRetry).
+                    DreamRetry.HostDialogueDream(preset);
                 }
             }
             catch (Exception ex)

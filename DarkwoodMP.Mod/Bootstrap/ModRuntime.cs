@@ -297,12 +297,13 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(TraderRestockDefer.Reset);
             NetworkResetRegistry.Register(CombatMusicSync.Reset);
             NetworkResetRegistry.Register(TrapLedger.Reset);
+            NetworkResetRegistry.Register(SightViewers.Reset);
             NetworkResetRegistry.Register(() => (Network as LanNetworkManager)?.WorldFxHandlers?.ClearHeldClaims());
             NetworkResetRegistry.Register(ContainerDropItemPatch.Reset);
             NetworkResetRegistry.Register(EpilogueNetHandlers.EpilogueCredits.Reset);
             // A host lost mid-share must not leave the client black and locked.
             NetworkResetRegistry.Register(ChapterWaitScreen.Release);
-            NetworkResetRegistry.Register(ScenarioPendingEventState.Reset);
+            NetworkResetRegistry.Register(NightEventAnchor.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);
             NetworkResetRegistry.Register(ResetStaticSessionFlags);

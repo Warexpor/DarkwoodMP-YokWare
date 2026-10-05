@@ -32,6 +32,32 @@ namespace DWMPHorde.Patches
             return loc != null && Core.getTrueLocationName(loc.name) == LocationName;
         }
 
+        /// <summary>
+        /// Another living player (not <paramref name="exceptPlayerId"/>) is still in the arena: the
+        /// fight goes on for them, so one player's death does not reset it.
+        /// </summary>
+        internal static bool SomeoneElseFighting(LanNetworkManager net, int exceptPlayerId)
+        {
+            if (net == null)
+                return false;
+            Player host = Player.Instance;
+            if (exceptPlayerId != net.LocalPlayerId && host != null && host.alive && LocalInArena())
+                return true;
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null || proxy.PlayerId == exceptPlayerId)
+                    continue;
+                CharBase cb = proxy.CachedCharBase;
+                if (cb != null && !cb.alive)
+                    continue;
+                Location at = Location.getAtPos(proxy.transform.position);
+                Location big = at != null && at.bigLocation != null ? at.bigLocation : at;
+                if (big != null && Core.getTrueLocationName(big.name) == LocationName)
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary>Host: a peer died in the arena while trapped; reset the fight as vanilla does for the player.</summary>
         internal static void HostFireDeathEvent(LanNetworkManager net, string type)
         {
@@ -39,6 +65,11 @@ namespace DWMPHorde.Patches
             Events events = Singleton<Events>.Instance;
             if (flags == null || events == null || !flags.isFlagTrue("wolf_playerInTrap"))
                 return;
+            if (SomeoneElseFighting(net, net.CurrentReceivePlayerId))
+            {
+                ModRuntime.LegacyInfo($"[WolfArena] p{net.CurrentReceivePlayerId} died in the arena — others still fighting, no reset");
+                return;
+            }
             // The flag decides which reset, as on the dying player's side.
             string fire = flags.isFlagTrue("wolf_killed") ? DieDefeated : DieFighting;
             ModRuntime.LegacyInfo($"[WolfArena] p{net.CurrentReceivePlayerId} died in the arena — host fires {fire}");
@@ -135,7 +166,7 @@ namespace DWMPHorde.Patches
             if (!inArena)
                 return false;
             if (net.Role == NetworkRole.Host)
-                return true;
+                return !WolfArena.SomeoneElseFighting(net as LanNetworkManager, net.LocalPlayerId);
             var msg = new GameEventsFiredMessage { EventName = type };
             net.Send(NetMessageType.GameEventsFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[WolfArena] died in the arena — asking the host to fire {type}");

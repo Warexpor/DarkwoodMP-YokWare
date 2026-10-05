@@ -33,8 +33,6 @@ namespace DWMPHorde.Networking
             _pendingScenarioEvent = default;
             _hasPendingScenarioStateBulk = false;
             _pendingScenarioStateBulk = default;
-            Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-            Patches.ScenarioPendingEventState.PendingScenario = null;
         }
 
         internal void ClearShadowLookups()

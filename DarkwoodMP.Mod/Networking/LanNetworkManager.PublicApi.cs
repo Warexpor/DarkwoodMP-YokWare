@@ -117,8 +117,8 @@ namespace DWMPHorde.Networking
         public void SendScenarioSync(ScenarioSyncMessage msg) =>
             WorldSendHandlers.SendScenarioSync(msg);
 
-        public void SendScenarioEventFired(int nightId, int eventIndex) =>
-            WorldSendHandlers.SendScenarioEventFired(nightId, eventIndex);
+        public void SendScenarioEventFired(int nightId, int eventIndex, string anchors) =>
+            WorldSendHandlers.SendScenarioEventFired(nightId, eventIndex, anchors);
 
         public void SendEntityBurning(short entityId, bool isBurning, float burnTime = 0, float modifier = 0, float interval = 0) =>
             WorldSendHandlers.SendEntityBurning(entityId, isBurning, burnTime, modifier, interval);

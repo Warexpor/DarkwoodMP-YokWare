@@ -751,8 +751,13 @@ namespace DWMPHorde.Networking
     public struct ScenarioEventFiredMessage
     {
         public int NightId, EventIndex;
-        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); }
-        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt() };
+        /// <summary>
+        /// Location event: '|'-joined names of the locations the host played it in (each living
+        /// player's own world location). A client replays it only when it stands in one of them.
+        /// </summary>
+        public string Anchors;
+        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); }
+        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString() };
     }
 
     /// <summary>

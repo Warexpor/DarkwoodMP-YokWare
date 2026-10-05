@@ -68,7 +68,9 @@ namespace DWMPHorde.Patches
             for (int i = 0; i < triggers.eventTriggers.Count; i++)
             {
                 EventTrigger t = triggers.eventTriggers[i];
-                if (t == null || t.disabled || t.multipleFire) continue;
+                // Area triggers only: a pending use or death one-shot in the same set made every
+                // entering player re-fire the volume's repeatable area effects.
+                if (t == null || t.disabled || t.multipleFire || t.type != EventTrigger.Type.area) continue;
                 if (!t.fired) return true;
             }
             return false;
@@ -351,9 +353,61 @@ namespace DWMPHorde.Patches
 
             // Decompile: radius 0 → isInSight(transform); else isInSight(transform, false, radius).
             int radius = (int)__instance.inSightOfPlayerRadius;
-            __result = HostPlayerIdentity.AnyInSight(
-                __instance.transform, canBeFarAway: false, radius);
+            Transform viewer = HostPlayerIdentity.NearestViewer(__instance.transform, canBeFarAway: false, radius);
+            __result = viewer != null;
+            SightViewers.Note(__instance, viewer);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Host: who saw a sight-triggered object last. Its onInSight events are that player's: a
+    /// client spotting it while the host was across the map got the event's personal steps
+    /// (a dialogue, an item, a move) landing on the host.
+    /// </summary>
+    internal static class SightViewers
+    {
+        private static readonly Dictionary<int, int> _viewerByTriggers = new Dictionary<int, int>(); // reset-in: Reset
+
+        internal static void Reset() => _viewerByTriggers.Clear();
+
+        internal static void Note(EventTriggers et, Transform viewer)
+        {
+            int id = 0;
+            RemotePlayerProxy proxy = viewer != null ? viewer.GetComponentInParent<RemotePlayerProxy>() : null;
+            if (proxy != null)
+                id = proxy.PlayerId;
+            if (id > 0)
+                _viewerByTriggers[et.GetInstanceID()] = id;
+            else
+                _viewerByTriggers.Remove(et.GetInstanceID());
+        }
+
+        internal static int ViewerOf(EventTriggers et)
+            => et != null && _viewerByTriggers.TryGetValue(et.GetInstanceID(), out int id) ? id : 0;
+    }
+
+    [HarmonyPatch(typeof(EventTriggers), nameof(EventTriggers.fireEventTrigger))]
+    public static class SightTriggerActorPatch
+    {
+        private static void Prefix(EventTriggers __instance, EventTrigger.Type TriggerType, out bool __state)
+        {
+            __state = false;
+            if (TriggerType != EventTrigger.Type.onInSightOfPlayer || GeFireActorContext.Depth > 0)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            int viewer = SightViewers.ViewerOf(__instance);
+            if (viewer <= 0)
+                return;
+            GeFireActorContext.Push(viewer);
+            __state = true;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state)
+                GeFireActorContext.Pop();
         }
     }
 }
