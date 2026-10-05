@@ -232,6 +232,39 @@ namespace DWMPHorde.Sync
             return null;
         }
 
+        /// <summary>
+        /// The loaded dream pad, dream or not: vanilla keeps <c>Dreams.dreamLocation</c> after the
+        /// dream ends and destroys the pad 4 s later (Dreams.destroyDream), the window in which
+        /// its events can still tick.
+        /// </summary>
+        public static Transform GetLoadedDreamPad()
+        {
+            Location pad = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+            return pad != null ? pad.transform : null;
+        }
+
+        /// <summary>A scene object of the loaded dream pad (not the overworld twin of the same name).</summary>
+        public static bool IsOnDreamPad(Transform t)
+        {
+            Transform pad = GetLoadedDreamPad();
+            return pad != null && t != null && (t == pad || t.IsChildOf(pad));
+        }
+
+        /// <summary>
+        /// Outside-location pad slots (vanilla OutsideLocations.locationPositions) sit 25000 apart:
+        /// a position within half of that from the loaded dream pad is on that pad. Other slots
+        /// hold ordinary outside locations (a cellar, a bunker) whose events are not the dream's.
+        /// </summary>
+        public static bool IsAtDreamPad(Vector3 pos)
+        {
+            Transform pad = GetLoadedDreamPad();
+            if (pad == null) return false;
+            Vector3 d = pos - pad.position;
+            return Mathf.Abs(d.x) < DreamPadHalfSlot && Mathf.Abs(d.z) < DreamPadHalfSlot;
+        }
+
+        private const float DreamPadHalfSlot = 12500f;
+
         /// <summary>Party-once: preset already finished by the shared session.</summary>
         public static bool IsDreamCompleted(int playerId, string presetName)
         {

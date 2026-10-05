@@ -15,7 +15,8 @@ namespace DWMPHorde.Patches
     ///
     /// Location-enter actions (med_bunker_enter_*_enter) are per-player transport —
     /// host must NOT activate() (that TPs the host). Host resolves dest and sends
-    /// LocationTransport so the requester runs createLocation locally.
+    /// LocationTransport so the requester runs prepareLocation locally. An "_enter" action
+    /// whose live triggers move nobody (the closed church hatch) is activated as usual.
     /// </summary>
     [HarmonyPatch(typeof(Core), nameof(Core.sendTriggerInfo),
         new[] { typeof(GameObject), typeof(EventTrigger.Type), typeof(bool) })]
@@ -39,6 +40,9 @@ namespace DWMPHorde.Patches
 
     internal static class CustomCursorActionSync
     {
+        /// <summary>Client: the object of its last deferred use (the host's LocationTransport answers it).</summary>
+        internal static GameObject LastRequested; // process-scoped: scene object ref, replaced by each request
+
         internal static bool TryDeferClientActivate(GameObject destGO, EventTrigger.Type triggerType)
         {
             if (destGO == null) return true;
@@ -56,6 +60,7 @@ namespace DWMPHorde.Patches
             if (!cursor && !worldUse) return true;
 
             Vector3 p = destGO.transform.position;
+            LastRequested = destGO;
             net.Send(NetMessageType.ActivateCursorAction,
                 w => new ActivateCursorActionMessage
                 {
@@ -79,15 +84,32 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Find transportPlayerToObject dest → OutsideLocation name (vanilla GameEvent path).
+        /// The outside location this action takes its user into, read from what vanilla's own
+        /// onActivate would fire: the triggers whose requirements pass (the church hatch has two,
+        /// gated by the church dream's outcome flags) and their transport step.
+        /// transportToOutsideLocation names it in Value (vanilla prepareLocation(Value,
+        /// sourceTransform)); transportPlayerToObject names a target inside it. False when the
+        /// action moves nobody (a locked hatch, a dream hole): it is activated like any other.
         /// </summary>
-        internal static bool TryResolveLocationEnterName(CustomCursorAction action, out string locationName)
+        internal static bool TryResolveLocationEnter(CustomCursorAction action, int actorPlayerId,
+            out string locationName, out Transform source)
         {
             locationName = null;
+            source = null;
             if (action == null) return false;
 
             var geList = new List<GameEvents>(8);
-            CollectGameEvents(action.gameObject, geList);
+            // Requirements read the body of the player using it (location, health, items).
+            bool pushed = actorPlayerId > 0;
+            if (pushed) GeFireActorContext.Push(actorPlayerId);
+            try
+            {
+                CollectActivateGameEvents(action.gameObject, geList);
+            }
+            finally
+            {
+                if (pushed) GeFireActorContext.Pop();
+            }
 
             for (int g = 0; g < geList.Count; g++)
             {
@@ -96,7 +118,16 @@ namespace DWMPHorde.Patches
                 for (int e = 0; e < ge.events.Count; e++)
                 {
                     GameEvent evt = ge.events[e];
-                    if (evt == null || evt.type != GameEvent.Type.transportPlayerToObject)
+                    if (evt == null || evt.disabled) continue;
+                    if (evt.type == GameEvent.Type.transportToOutsideLocation)
+                    {
+                        if (string.IsNullOrEmpty(evt.Value)) continue;
+                        locationName = evt.Value;
+                        source = evt.sourceTransform;
+                        return true;
+                    }
+                    // activeModifier = chapter jump (GameEventPersonalActorPatch.IsChapterJump).
+                    if (evt.type != GameEvent.Type.transportPlayerToObject || evt.activeModifier)
                         continue;
 
                     GameObject target = ResolveFirstTransportTarget(evt);
@@ -116,28 +147,50 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        private static void CollectGameEvents(GameObject go, List<GameEvents> into)
+        /// <summary>
+        /// Vanilla <c>Core.sendTriggerInfo(go, onActivate)</c> → <c>EventTriggers.fireEventTrigger</c>:
+        /// the set's own requirements, then each onActivate trigger that is enabled, not latched,
+        /// and whose requirements pass. An object without onActivate triggers falls back to the
+        /// events on it and its children.
+        /// </summary>
+        private static void CollectActivateGameEvents(GameObject go, List<GameEvents> into)
         {
             if (go == null) return;
 
             EventTriggers ets = go.GetComponent<EventTriggers>();
-            if (ets == null)
-                ets = go.GetComponentInParent<EventTriggers>();
             if (ets != null && ets.eventTriggers != null)
             {
+                bool anyActivate = false;
                 for (int i = 0; i < ets.eventTriggers.Count; i++)
                 {
                     EventTrigger et = ets.eventTriggers[i];
-                    if (et == null || et.type != EventTrigger.Type.onActivate)
-                        continue;
-                    if (et.gameEvents != null && !into.Contains(et.gameEvents))
-                        into.Add(et.gameEvents);
-                    if (et.getGameEventsFromMe)
+                    if (et != null && et.type == EventTrigger.Type.onActivate)
                     {
-                        GameEvents self = ets.GetComponent<GameEvents>();
-                        if (self != null && !into.Contains(self))
-                            into.Add(self);
+                        anyActivate = true;
+                        break;
                     }
+                }
+                if (anyActivate)
+                {
+                    if (!SetRequirementsMet(ets))
+                        return;
+                    for (int i = 0; i < ets.eventTriggers.Count; i++)
+                    {
+                        EventTrigger et = ets.eventTriggers[i];
+                        if (et == null || et.type != EventTrigger.Type.onActivate || et.disabled)
+                            continue;
+                        if ((et.fired && !et.multipleFire) || !et.requirementsMet())
+                            continue;
+                        if (et.gameEvents != null && !into.Contains(et.gameEvents))
+                            into.Add(et.gameEvents);
+                        if (et.getGameEventsFromMe)
+                        {
+                            GameEvents self = ets.GetComponent<GameEvents>();
+                            if (self != null && !into.Contains(self))
+                                into.Add(self);
+                        }
+                    }
+                    return;
                 }
             }
 
@@ -151,6 +204,20 @@ namespace DWMPHorde.Patches
                 if (children[i] != null && !into.Contains(children[i]))
                     into.Add(children[i]);
             }
+        }
+
+        /// <summary>Vanilla <c>EventTriggers.requirementsMet</c> (private): the set's own requirements.</summary>
+        private static bool SetRequirementsMet(EventTriggers ets)
+        {
+            if (ets.eventRequirements == null) return true;
+            for (int i = 0; i < ets.eventRequirements.Count; i++)
+            {
+                EventTriggerRequirement req = ets.eventRequirements[i];
+                if (req == null) continue;
+                if (req.requirementsMet() == ets.inverseRequirements)
+                    return false;
+            }
+            return true;
         }
 
         private static GameObject ResolveFirstTransportTarget(GameEvent evt)
