@@ -192,6 +192,15 @@ host's sends during its prologue ran alongside. Found and fixed:
   stand-in and to a remote match light copied from a live one). Checked in a pilot run: 9
   light meshes, none shared, no errors.
 
+### Log file losing its last lines on quit
+
+- **The console showed lines that never reached `LogOutput.log`, always at the end.** BepInEx's
+  disk log buffers lines and writes them out every 2 seconds; the file is only closed by a
+  finalizer, which Unity's shutdown never runs. So the last seconds before quitting, and
+  everything logged during the teardown, were lost (on both installs). A listener after the disk
+  log (`Logging/DiskLogFlush.cs`) now writes errors out at once, and every line once the game
+  starts quitting; the plugin's teardown writes out the rest.
+
 ### Test pilot (unattended dual-box runs)
 
 - Debug-only driver for automated runs, off unless the game is started with the environment
