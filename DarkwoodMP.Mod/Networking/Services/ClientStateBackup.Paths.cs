@@ -92,6 +92,33 @@ namespace DWMPHorde.Networking
             return GetProfileBackupDirectory() + "/client_backup_self_" + campaign + ".json";
         }
 
+        /// <summary>
+        /// The party chose to start the chapter over (permadeath start-over reloads the chapter
+        /// save for everyone). Every character snapshot of this profile (the host's per-client
+        /// copies and this machine's own) is from before the wipe and would hand the reset world
+        /// back its levels, skills and bags; the next exit snapshot would write the same again.
+        /// </summary>
+        public static bool ChapterReloadWipePending; // process-scoped: set by a chapter reload, consumed by the next exit snapshot
+
+        public static void DiscardAllForChapterReload()
+        {
+            ChapterReloadWipePending = true;
+            try
+            {
+                string dir = GetProfileBackupDirectory();
+                foreach (string f in Directory.GetFiles(dir, "client_backup*.json"))
+                {
+                    try { File.Delete(f); }
+                    catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] delete " + f + ": " + ex.Message); }
+                }
+                ModRuntime.LegacyInfo("[ClientBackup] chapter start-over — character snapshots discarded");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] chapter start-over discard failed: " + ex.Message);
+            }
+        }
+
         /// <summary>Legacy single-file path (pre multi-client / pre-campaign). Load fallback only.</summary>
         public static string GetLegacyBackupFilePath()
         {

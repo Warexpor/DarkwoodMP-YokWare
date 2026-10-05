@@ -74,9 +74,21 @@ namespace DWMPHorde.Patches
             Inventory inv = __instance != null
                 ? __instance.GetComponent<Inventory>()
                 : null;
-            if (inv == null || inv.slots == null)
-                return;
+            // Empty world chests: open-state request is enough. Trader new-day
+            // clear+reroll must push even when the roll yields nothing so peers
+            // that cleared locally stay aligned (and any stale fill is wiped).
+            bool isNpc = __instance != null && __instance.GetComponent<NPC>() != null;
+            ContainerStateFanout.Broadcast(net, inv, evenIfEmpty: isNpc);
+        }
+    }
 
+    /// <summary>Host: push one container's whole contents to every peer (ContainerStateSync).</summary>
+    internal static class ContainerStateFanout
+    {
+        internal static void Broadcast(LanNetworkManager net, Inventory inv, bool evenIfEmpty)
+        {
+            if (net == null || inv == null || inv.slots == null)
+                return;
             var slots = new List<SlotStateEntry>();
             for (int i = 0; i < inv.slots.Count; i++)
             {
@@ -97,12 +109,7 @@ namespace DWMPHorde.Patches
                     ShouldBeActive = it.shouldBeActive
                 });
             }
-
-            // Empty world chests: open-state request is enough. Trader new-day
-            // clear+reroll must push even when the roll yields nothing so peers
-            // that cleared locally stay aligned (and any stale fill is wiped).
-            bool isNpc = __instance.GetComponent<NPC>() != null;
-            if (slots.Count == 0 && !isNpc)
+            if (slots.Count == 0 && !evenIfEmpty)
                 return;
 
             Vector3 pos = inv.transform.position;
@@ -113,9 +120,7 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.VerboseLogging)
                 ModLog.Event(LogCat.Container,
-                    "[InventoryRandom] host fan-out ContainerStateSync slots="
-                    + slots.Count + " at " + pos
-                    + (isNpc ? " (NPC)" : ""));
+                    "[ContainerFanout] host ContainerStateSync slots=" + slots.Count + " at " + pos);
 
             var sync = new ContainerStateSyncMessage
             {

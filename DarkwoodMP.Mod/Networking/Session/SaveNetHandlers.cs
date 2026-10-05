@@ -147,6 +147,12 @@ namespace DWMPHorde.Networking
                 return;
             if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
                 return;
+            if (ClientStateBackup.ChapterReloadWipePending)
+            {
+                ClientStateBackup.ChapterReloadWipePending = false;
+                ModRuntime.LegacyInfo("[ClientBackup] exit snapshot skipped — chapter start-over");
+                return;
+            }
             try
             {
                 PersistClientBackupSnapshot(sendToHost: _net.IsConnected);

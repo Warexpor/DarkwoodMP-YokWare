@@ -32,7 +32,7 @@ All peers in a session must use the same mod version and protocol.
   only the host may send, and relays a client message to the other clients only
   after applying it.
 
-The highest assigned message ID is 149 (`BansheeAgitation`). Voice data uses message
+The highest assigned message ID is 151 (`PlayerSpecial`). Voice data uses message
 129 when Steam voice is enabled. How the code is organised, and the rules for
 adding messages, handlers, patches and session state, are in
 [DarkwoodMP.Mod/docs/ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md).

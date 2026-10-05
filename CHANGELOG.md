@@ -10,6 +10,8 @@ The current product line is `0.8.x`. The plugin and display version are
 the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
+`PlayerEffectSync` the home oven, `ChapterTransition` `StartOver`, new `PorterTransport`
+(150) and `PlayerSpecial` (151),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
@@ -422,6 +424,74 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
 - **A join could slip into the host's dream entry.** Joins are refused during a
   dream. They are now also refused between the start of the host's entry movie and
   the start of the dream.
+
+### Story and unique content (chapter 1 and 2 NPCs and places)
+
+- **The porter's "bring my stash" could destroy it.** Vanilla empties the other
+  hideout's containers and delivers them to the hideout the player stands in. Every
+  peer that replayed it did that against its own position. With the host out in the
+  forest, the stash was emptied and never delivered; with the host in another
+  hideout, it went there; and every peer made its own package. The host now runs it
+  once and delivers to the hideout the porter is standing at. Peers mirror it: their
+  source containers are emptied and the package is placed, and its contents come
+  from the host when opened (new `PorterTransport` message). Replaying a client's
+  "which hideout" question on a host out in the forest also no longer throws and
+  drops that board.
+- **The Wolfman's arena checked the wrong bag and could lock up.** "Did you come
+  armed" checked the host's bag when a client walked in, and each client checked
+  its own and fired its own branch too. The host now decides, using the bag of the
+  player who walked in. A client dying in the arena left it locked, because its
+  reset event was a blocked one-shot. It now goes through the host. A host dying
+  anywhere else no longer resets a fight a client is still in: only a death inside
+  the arena resets it.
+- **The Wolfman's workbench raid differed on every machine.** Each peer drew its own
+  random ten items from its own copy, and a peer without his container loaded lost
+  them. The host draws once and sends both containers. A client streaming out of any
+  location also cleared the shared "wolf in the hideout" flag, which cost the host
+  the next morning's wolf. The wolf's despawn is now the host's.
+- **Story steps that place things "around the player" used each peer's own body.**
+  The act 2 doctor copies (hidden when far from the scene), Maciek next to the player
+  taking the flamethrower, and the Wolfman taking his sister (from the location the
+  scene is in) now use the body of the player the scene belongs to, the same on
+  every peer.
+- **Killing the night trader blacked out the host, not the killer.** The trader dies
+  on the host, so vanilla's blackout and lie-down ran on the host's body. The killer
+  now gets them (new `PlayerSpecial` message).
+- **A player moving home put out the others' oven.** Vanilla puts out your previous
+  oven when you light a new one, and that took the home and the shadow ward from
+  whoever still lived there. A peer's lit oven also became every other player's own
+  home and respawn point. Each player now keeps their own home, carried in the effect
+  sync. An oven goes out only when nobody calls it home.
+- **The permadeath "start over" reset only the host.** The chapter reload resets
+  every character, but clients restored their pre-wipe levels, skills and bags from
+  their character snapshots. The reset world's containers then duplicated those
+  items. A start-over now discards every snapshot on every machine and skips the
+  exit snapshot (`ChapterTransition` gains `StartOver`). Snapshots also record their
+  chapter, and a pose from another chapter's map is not restored.
+- **One-shot moves carried only the first player.** Volumes and uses that carry "the
+  player" somewhere (the road home from the radio tower or the tree village, the
+  border gates, the cottage, the elephants) latched after the first player. The next
+  player got nothing and could be stranded. An event made only of such moves, plus
+  its screen, sound and message steps, now carries each player once. Item rewards
+  stay one-shot, since items are one shared world.
+- **Location flags of one player were set for everyone.** "At the doctor's house"
+  hides talk options there, and "entering the road from the radio tower" picks the
+  entry spawn. Both were set on every peer by the replay. These flags, like the
+  hideout `player_in*` ones, now belong to the player they describe and are not
+  synced.
+- **Cutscenes played for players who were elsewhere.** A cutscene inside a location
+  hid, froze and input-locked every peer, wherever they stood. When the host's
+  manager wasn't found, the cutscene fell back to any manager at all. A cutscene now
+  plays for the players in its location (an open-world one still plays for everyone),
+  and only the host's manager plays.
+- **Scripted slow motion and grid switches hit players elsewhere.** A slow-motion
+  step slowed the whole host simulation for everyone. A walk-grid switch moved
+  players onto a grid for ground they weren't standing on. Both now follow the
+  scene's location, like the camera steps.
+- **Host dialogue offered "give X" on a teammate's bag.** Dialogue choices checked
+  the whole party's bags, so the host could pick an option it couldn't pay. The
+  outcome then found nothing to take and granted the reward anyway. Choices now
+  check only the speaker's bag.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

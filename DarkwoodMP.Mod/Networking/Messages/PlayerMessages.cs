@@ -528,6 +528,15 @@ namespace DWMPHorde.Networking
             set => Flags2 = (byte)((Flags2 & ~4) | (value ? 4 : 0));
         }
 
+        /// <summary><see cref="HomeX"/>.. carry this player's home oven (vanilla Player.experienceMachine).</summary>
+        public bool HasHome
+        {
+            get => (Flags2 & 8) != 0;
+            set => Flags2 = (byte)((Flags2 & ~8) | (value ? 8 : 0));
+        }
+
+        public float HomeX, HomeY, HomeZ;
+
         /// <summary>
         /// The parts of the player that host event requirements read (vanilla
         /// <c>EventTriggerRequirement</c> playerState health, darknessState, haveSkill): the host
@@ -546,6 +555,12 @@ namespace DWMPHorde.Networking
             w.Put(DarknessPct);
             if (HasSkills)
                 w.Put(Skills ?? "");
+            if (HasHome)
+            {
+                w.Put(HomeX);
+                w.Put(HomeY);
+                w.Put(HomeZ);
+            }
         }
 
         public static PlayerEffectSyncMessage Deserialize(NetReader r)
@@ -559,6 +574,12 @@ namespace DWMPHorde.Networking
             };
             if (m.HasSkills)
                 m.Skills = r.GetString();
+            if (m.HasHome)
+            {
+                m.HomeX = r.GetFloat();
+                m.HomeY = r.GetFloat();
+                m.HomeZ = r.GetFloat();
+            }
             return m;
         }
     }

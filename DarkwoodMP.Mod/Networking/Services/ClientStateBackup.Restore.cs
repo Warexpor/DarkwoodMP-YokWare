@@ -291,6 +291,14 @@ namespace DWMPHorde.Networking
             if (pos.sqrMagnitude < 0.01f)
                 return;
 
+            // A snapshot from the previous chapter's map: the new chapter places the player itself.
+            int chapterNow = Singleton<WorldGenerator>.Instance != null ? Singleton<WorldGenerator>.Instance.chapterID : 0;
+            if (data.Chapter > 0 && chapterNow > 0 && data.Chapter != chapterNow)
+            {
+                ModRuntime.LegacyInfo($"[ClientBackup] skip position restore — taken in chapter {data.Chapter}, now {chapterNow}");
+                return;
+            }
+
             // Stale backups taken mid-dream used pad coords; applying them in the
             // overworld is the "abyss" teleport. Keep inv/skills; skip pose.
             bool dreamingNow = DreamSyncManager.IsDreamActive

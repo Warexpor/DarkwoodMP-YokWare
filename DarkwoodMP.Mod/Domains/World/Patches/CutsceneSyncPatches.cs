@@ -61,17 +61,18 @@ namespace DWMPHorde.Patches
             CutsceneManager best = null;
             float bestDist = float.MaxValue;
 
+            CutsceneManager named = null;
+            float namedDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
             {
                 CutsceneManager m = all[i];
                 if (m == null) continue;
-                if (!string.IsNullOrEmpty(name) && m.name == name)
-                {
-                    float d = Vector3.Distance(m.transform.position, pos);
-                    if (d < 25f)
-                        return m;
-                }
                 float dist = Vector3.Distance(m.transform.position, pos);
+                if (!string.IsNullOrEmpty(name) && m.name == name && dist < namedDist)
+                {
+                    namedDist = dist;
+                    named = m;
+                }
                 if (dist < bestDist)
                 {
                     bestDist = dist;
@@ -79,10 +80,13 @@ namespace DWMPHorde.Patches
                 }
             }
 
+            // The host's manager by name (pads share the host's slots, so it is at the same spot).
+            if (named != null)
+                return named;
             if (best != null && bestDist < 40f)
                 return best;
-            // Fallback: any manager (prologue often has one)
-            return all.Length > 0 ? all[0] : null;
+            // No match: never play some other manager's cutscene (the old any-manager fallback).
+            return null;
         }
 
         internal static void ApplyBegin(CutsceneSyncMessage msg)
@@ -91,6 +95,18 @@ namespace DWMPHorde.Patches
             if (mgr == null)
             {
                 ModRuntime.Log?.LogWarning("[CutsceneSync] begin: no CutsceneManager found");
+                return;
+            }
+            // A cutscene inside a location plays for the players in it. A peer elsewhere was hidden,
+            // frozen and input-locked wherever it stood (an open-world manager, like the prologue's,
+            // still plays for everyone).
+            Location mgrLoc = mgr.GetComponentInParent<Location>(true);
+            Location mgrBig = mgrLoc != null && mgrLoc.bigLocation != null ? mgrLoc.bigLocation : mgrLoc;
+            Player local = Player.Instance;
+            Location localBig = local != null && local.whereAmI != null ? local.whereAmI.bigLocation : null;
+            if (mgrBig != null && mgrBig != localBig)
+            {
+                ModRuntime.LegacyInfo($"[CutsceneSync] begin {mgr.name}: not in {mgrBig.name} — not played here");
                 return;
             }
 

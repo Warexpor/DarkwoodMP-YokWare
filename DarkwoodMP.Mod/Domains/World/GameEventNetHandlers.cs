@@ -70,6 +70,11 @@ namespace DWMPHorde.Networking
             // host Postfix broadcasts EpilogueOutcomes to every peer.
             if (_net.Role == NetworkRole.Host)
             {
+                if (Patches.WolfArena.IsDeathEvent(msg.EventName))
+                {
+                    Patches.WolfArena.HostFireDeathEvent(_net, msg.EventName);
+                    return;
+                }
                 if (string.Equals(msg.EventName, EpilogueNetHandlers.EpilogueCameraPanEvent,
                         StringComparison.Ordinal)
                     && EpilogueNetHandlers.IsLocalInEpilogue())

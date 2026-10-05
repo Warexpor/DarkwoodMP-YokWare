@@ -427,7 +427,31 @@ namespace DWMPHorde.Networking
 
                 dw.currentDialogue = dialogue;
                 Traverse.Create(dw).Field("currentBoard").SetValue(msg.BoardIndex - 1);
-                Traverse.Create(dw).Method("displayNextBoard").GetValue();
+                // The porter's "which hideout" board lists choices by the hideout the local body is
+                // in (whereAmI.bigLocation.hideoutId). Replaying a client's talk with the host out in
+                // the forest threw there and lost the board's outcomes: list them for the hideout the
+                // porter stands in, which is where the client is.
+                WhereAmI where = Player.Instance != null ? Player.Instance.whereAmI : null;
+                Location prevWhere = where != null ? where.location : null;
+                bool swapWhere = where != null
+                    && dialogue.type == CharacterDialogue.Dialogue.Type.porterHideoutQuestion;
+                if (swapWhere)
+                {
+                    Location npcLoc = npc.GetComponentInParent<Location>(true);
+                    if (npcLoc != null)
+                        where.location = npcLoc.bigLocation != null ? npcLoc.bigLocation : npcLoc;
+                    else
+                        swapWhere = false;
+                }
+                try
+                {
+                    Traverse.Create(dw).Method("displayNextBoard").GetValue();
+                }
+                finally
+                {
+                    if (swapWhere)
+                        where.location = prevWhere;
+                }
 
                 if (!hostWasInThisTalk)
                     DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);

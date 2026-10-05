@@ -1,0 +1,142 @@
+using System.Collections.Generic;
+using DWMPHorde.Networking;
+using DWMPHorde.Sync;
+using HarmonyLib;
+using LiteNetLib;
+using UnityEngine;
+
+namespace DWMPHorde.Patches
+{
+    /// <summary>
+    /// Vanilla story functions on <c>Player</c> that place or hide things around "the player" (a
+    /// scripted step's SendMessage, or a death). Every peer replays the step, each around its own
+    /// body, so each placed or hid something different. They now work around the body of the
+    /// player the scene belongs to (<see cref="GeFireActorContext.ActorBody"/>), the same on every peer.
+    /// </summary>
+    internal static class ActorStoryFunctions
+    {
+        internal static bool Connected()
+            => ModRuntime.Network != null && ModRuntime.Network.IsConnected;
+
+        /// <summary>Client: the host saw a story function happen to this player.</summary>
+        internal static void ApplyPlayerSpecial(LanNetworkManager net, PlayerSpecialMessage msg)
+        {
+            if (net.Role == NetworkRole.Host || Player.Instance == null)
+                return;
+            switch (msg.Method)
+            {
+                case "special_onKillNightTrader":
+                    ModRuntime.LegacyInfo("[Story] host: this player killed the night trader");
+                    NightTraderKillPatch.RunLocal = true;
+                    try
+                    {
+                        Player.Instance.special_onKillNightTrader();
+                    }
+                    finally
+                    {
+                        NightTraderKillPatch.RunLocal = false;
+                    }
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Act 2: hide the doctor copies far from where the scene plays (vanilla: &gt; 1500 from the player).</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.special_hideDoctorsAct2))]
+    public static class HideDoctorsAct2Patch
+    {
+        private static bool Prefix()
+        {
+            if (!ActorStoryFunctions.Connected())
+                return true;
+            Transform body = GeFireActorContext.ActorBody();
+            if (body == null || Singleton<UniqueObjects>.Instance == null)
+                return true;
+            List<GameObject> objects = Singleton<UniqueObjects>.Instance.getObjects("doctor_act2");
+            for (int i = 0; i < objects.Count; i++)
+            {
+                if (objects[i] != null && Core.trueDistance(objects[i].transform.position, body.position) > 1500f)
+                    objects[i].setMeActive(activeModifier: false);
+            }
+            return false;
+        }
+    }
+
+    /// <summary>The flamethrower scene: Maciek stands beside the player who takes it.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.special_teleportMaciek))]
+    public static class TeleportMaciekPatch
+    {
+        private static readonly AccessTools.FieldRef<Player, Vector3> TelDist =
+            AccessTools.FieldRefAccess<Player, Vector3>("maciekTelDist");
+        private static readonly AccessTools.FieldRef<Player, float> TelRot =
+            AccessTools.FieldRefAccess<Player, float>("maciekTelRot");
+
+        private static bool Prefix(Player __instance)
+        {
+            if (!ActorStoryFunctions.Connected())
+                return true;
+            Transform body = GeFireActorContext.ActorBody();
+            if (body == null || body == __instance._transform)
+                return true;
+            GameObject maciek = Singleton<UniqueObjects>.Instance.getObject("maciek_noFlamethrower");
+            if (maciek == null)
+                return true;
+            float yaw = body.rotation.eulerAngles.y;
+            maciek.transform.position = body.position + Quaternion.Euler(0f, yaw, 0f) * TelDist(__instance);
+            maciek.transform.rotation = Quaternion.Euler(90f, yaw + TelRot(__instance), 0f);
+            maciek.GetComponent<tk2dSprite>().SetSprite("macius_end_frame");
+            Singleton<Controller>.Instance.waitFramesAndRun(delegate
+            {
+                GameObject m = Singleton<UniqueObjects>.Instance.getObject("maciek_noFlamethrower");
+                if (m != null)
+                    m.SetActive(value: true);
+            }, 3);
+            return false;
+        }
+    }
+
+    /// <summary>The Wolfman takes his sister: the NPC in the location where the scene plays goes away.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.wolf_stealSister))]
+    public static class WolfStealSisterPatch
+    {
+        private static bool Prefix()
+        {
+            if (!ActorStoryFunctions.Connected())
+                return true;
+            Location loc = GeFireActorContext.ActorBigLocation();
+            if (loc == null)
+                return true;
+            NPC[] npcs = loc.gameObject.GetComponentsInChildren<NPC>();
+            foreach (NPC npc in npcs)
+            {
+                if (npc.name == "wolfman")
+                    npc.gameObject.SetActive(value: false);
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Killing the night trader (vanilla Character death → Player.special_onKillNightTrader: a
+    /// blackout transition, then lying down). The trader dies on the host, so the host's player
+    /// blacked out whoever swung, and the player who killed it saw nothing. The killer gets it.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.special_onKillNightTrader))]
+    public static class NightTraderKillPatch
+    {
+        internal static bool RunLocal; // process-scoped: call-scoped, set and cleared around the client apply
+
+        private static bool Prefix()
+        {
+            if (RunLocal || !NetGuard.Host(out LanNetworkManager net))
+                return true;
+            int actor = GeFireActorContext.PeekOr(0);
+            if (actor <= 0 || actor == net.LocalPlayerId)
+                return true;
+            var msg = new PlayerSpecialMessage { Method = "special_onKillNightTrader" };
+            net.SendToPlayer(actor, NetMessageType.PlayerSpecial, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo($"[Story] night trader killed by p{actor} — their blackout, not the host's");
+            return false;
+        }
+    }
+}

@@ -94,6 +94,20 @@ namespace DWMPHorde.Sync
                 map[itemType] = amount;
         }
 
+        /// <summary>The player carries anything in bag or hotbar (vanilla getAllItemsInPlayer().Count &gt; 0).</summary>
+        public static bool PlayerHasAnyItem(int playerId)
+        {
+            if (_byPlayer.TryGetValue(playerId, out Dictionary<string, int> map) && map != null)
+            {
+                foreach (var kv in map)
+                {
+                    if (kv.Value > 0)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         public static bool AnyPeerHas(string itemType, int minAmount)
         {
             if (string.IsNullOrEmpty(itemType)) return false;

@@ -45,6 +45,11 @@ namespace DWMPHorde.Patches
                 string key = ItemTypeKey(__instance);
                 if (string.IsNullOrEmpty(key)) return;
                 int need = __instance.amount > 0 ? __instance.amount : 1;
+                // A dialogue choice is offered to the speaker, who pays it from their own bag:
+                // offered on a teammate's bag, "give X" was picked by a speaker without X and the
+                // outcome found nothing to take. Choices are built on the speaker's own machine.
+                if (DialogueRequirementScope.Active)
+                    return;
                 bool has = PeerItemPresence.AnyPeerHas(key, need) || JournalHas(key);
                 __result = PartyRequirementPolicy.HaveItem(has, __instance.activeModifier);
             }
@@ -172,5 +177,21 @@ namespace DWMPHorde.Patches
             catch { /* clone may lack colliders */ }
             return where.bigLocation;
         }
+    }
+
+    /// <summary>A dialogue choice's requirements are being checked (they belong to the speaker).</summary>
+    internal static class DialogueRequirementScope
+    {
+        internal static int Depth; // process-scoped: call-scoped, balanced by the patch Finalizers
+
+        internal static bool Active => Depth > 0;
+    }
+
+    [HarmonyPatch(typeof(CharacterDialogue.Dialogue.Board.Decision), nameof(CharacterDialogue.Dialogue.Board.Decision.requirementsMet))]
+    public static class DialogueDecisionRequirementScopePatch
+    {
+        private static void Prefix() => DialogueRequirementScope.Depth++;
+
+        private static void Finalizer() => DialogueRequirementScope.Depth--;
     }
 }

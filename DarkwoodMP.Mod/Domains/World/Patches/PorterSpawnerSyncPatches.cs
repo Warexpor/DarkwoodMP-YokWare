@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
@@ -93,7 +94,7 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static Location ResolveHideoutForPorter(Vector3 porterPos)
+        internal static Location ResolveHideoutForPorter(Vector3 porterPos)
         {
             Location at = Location.getAtPos(porterPos);
             if (at != null && at.porterPosition != null)
@@ -200,6 +201,134 @@ namespace DWMPHorde.Patches
             ModRuntime.LegacyInfo(
                 $"[PorterWhistle] client deferred spawnPorter → host at {pos}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The porter's "bring my stash from hideout N" (vanilla
+    /// <c>Location.transportAllItemsToCurrentHideout</c>, a dialogue GameEvent's runFunction). Vanilla
+    /// empties hideout N's containers and delivers them to the hideout <c>Player.Instance</c> stands
+    /// in. In co-op that ran on every peer that replayed the event, each against its own position:
+    /// with the host out in the forest the stash was emptied and never delivered (lost), with the
+    /// host in another hideout it went there, and every peer made its own package.
+    /// Now the host runs it once, delivering to the hideout the porter is standing at (where the
+    /// player who asked is), and peers mirror the result.
+    /// </summary>
+    [HarmonyPatch(typeof(Location), nameof(Location.transportAllItemsToCurrentHideout))]
+    public static class PorterTransport
+    {
+        private static bool Prefix(Location __instance)
+        {
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (net == null || !net.IsConnected)
+                return true;
+            if (net.Role != NetworkRole.Host)
+                return false; // the host's PorterTransport message does it here
+            Location dest = DeliveryHideout();
+            if (dest == null || dest.porterDeliveryPosition == null)
+            {
+                ModRuntime.Log?.LogWarning("[Porter] transport: no destination hideout — stash left in place");
+                return false;
+            }
+            Deliver(__instance, dest, authority: true);
+            var msg = new PorterTransportMessage { Source = __instance.name, Dest = dest.name };
+            net.Broadcast(NetMessageType.PorterTransport, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo($"[Porter] transport {__instance.name} -> {dest.name}");
+            return false;
+        }
+
+        /// <summary>The hideout the porter stands at; the asking player's own when none is known.</summary>
+        private static Location DeliveryHideout()
+        {
+            GameObject porter = Singleton<UniqueObjects>.Instance != null
+                ? Singleton<UniqueObjects>.Instance.getObject("porter")
+                : null;
+            if (porter != null)
+            {
+                Location[] all = WorldQueryHelper.GetCachedSceneComponents<Location>();
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i] != null && all[i].porter == porter && all[i].porterDeliveryPosition != null)
+                        return all[i];
+                }
+                Location near = PorterSpawnerAuth.ResolveHideoutForPorter(porter.transform.position);
+                if (near != null && near.porterDeliveryPosition != null)
+                    return near;
+            }
+            Player p = Player.Instance;
+            if (p == null || p.whereAmI == null)
+                return null;
+            p.whereAmI.checkWhereAmI();
+            return p.whereAmI.bigLocation;
+        }
+
+        /// <summary>
+        /// Vanilla body against <paramref name="dest"/>. A peer (not the authority) places the same
+        /// package and spawner but leaves the package empty (its contents come from the host when
+        /// opened, by position) and leaves the porter and the in-transit flag to the host.
+        /// </summary>
+        private static void Deliver(Location source, Location dest, bool authority)
+        {
+            List<InvSlot> sourceSlots = new List<InvSlot>(source.getAllInvSlots());
+            Inventory package = Core.AddPrefab("Objects/_Unique/porterPackage", dest.porterDeliveryPosition.transform.position,
+                Quaternion.Euler(90f, 0f, 0f), dest.gameObject, worldSpace: true).GetComponent<Inventory>();
+            Core.addToSaveable(package.gameObject, isDynamic: true, assignID: true);
+            if (authority)
+            {
+                Inventory.moveSlots(sourceSlots, package.slots);
+                List<InvItemClass> alcohol = package.getAllItems("alcohol");
+                for (int i = 0; i < alcohol.Count; i++)
+                {
+                    if (!InvItemClass.isNull(alcohol[i]))
+                    {
+                        alcohol[i].type = "bottle";
+                        alcohol[i].assignClass();
+                    }
+                }
+            }
+            dest.addToObjects(package.gameObject);
+            package.gameObject.SetActive(false);
+            GameEvents spawner = Core.AddPrefab("Objects/_Unique/porterPackageSpawner", Vector3.zero, Quaternion.identity,
+                dest.gameObject).GetComponent<GameEvents>();
+            Core.addToSaveable(spawner.gameObject, isDynamic: true, assignID: true);
+            dest.addToObjects(spawner.gameObject);
+            dest.events.Add(spawner.GetComponent<EventTriggers>());
+            spawner.events[0].targetGameObjects[0] = package.gameObject;
+            if (!authority)
+                return;
+            GameObject porter = Singleton<UniqueObjects>.Instance.getObject("porter");
+            if (porter != null)
+                porter.GetComponent<Character>().removeMe();
+            Singleton<Flags>.Instance.setFlag("porter_inTransit", activeModifier: true);
+        }
+
+        internal static void ApplyOnClient(LanNetworkManager net, PorterTransportMessage msg)
+        {
+            if (net.Role == NetworkRole.Host)
+                return;
+            Location source = FindLocation(msg.Source, needDelivery: false);
+            Location dest = FindLocation(msg.Dest, needDelivery: true);
+            if (source == null || dest == null)
+            {
+                ModRuntime.Log?.LogWarning($"[Porter] client: hideouts not found ({msg.Source} -> {msg.Dest})");
+                return;
+            }
+            using (new NetworkApplyGuard())
+                Deliver(source, dest, authority: false);
+        }
+
+        private static Location FindLocation(string name, bool needDelivery)
+        {
+            if (string.IsNullOrEmpty(name))
+                return null;
+            Location[] all = WorldQueryHelper.GetCachedSceneComponents<Location>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Location l = all[i];
+                if (l != null && l.name == name && (!needDelivery || l.porterDeliveryPosition != null))
+                    return l;
+            }
+            return null;
         }
     }
 }

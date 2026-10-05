@@ -413,6 +413,27 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void PlayerSpecial_RoundTrips()
+    {
+        var msg = new PlayerSpecialMessage { Method = "special_onKillNightTrader" };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PlayerSpecialMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("special_onKillNightTrader", back.Method);
+    }
+
+    [Fact]
+    public void PorterTransport_RoundTrips()
+    {
+        var msg = new PorterTransportMessage { Source = "hideout_2", Dest = "hideout_1" };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PorterTransportMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("hideout_2", back.Source);
+        Assert.Equal("hideout_1", back.Dest);
+    }
+
+    [Fact]
     public void BansheeAgitation_RoundTrips()
     {
         var msg = new BansheeAgitationMessage { HostId = 7, VictimId = 2, Agitated = true, Overlay = true };
