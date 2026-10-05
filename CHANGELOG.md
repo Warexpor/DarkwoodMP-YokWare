@@ -192,6 +192,28 @@ host's sends during its prologue ran alongside. Found and fixed:
   stand-in and to a remote match light copied from a live one). Checked in a pilot run: 9
   light meshes, none shared, no errors.
 
+### Story thoughts and hints missing (host and client)
+
+- **The character's thought lines ("yesterday I barricaded that window" and the like) and some
+  tutorial hints never showed, on host or client.** A scripted event shows them in a later step,
+  and the mod decided whether this machine's player should see it by measuring the event object
+  against the listener (60 units). A location's event object usually sits away from the volume that
+  sets it off, so the player who walked in lost the line too. The rule is now ownership, the same
+  one the event's other personal steps use: the thought or hint shows for the player who set the
+  event off (the event's actor, carried into every step by `EventCoroutineScope`) and is hidden
+  for everyone else. Speech bubbles over characters and objects are the world's and are no longer
+  filtered (only the host's re-run of a client's examine hides them, as before).
+  `PersonalFlavorHud`, `GameEventFireFlavorSourcePatch` (`ExaminableSyncPatches.cs`).
+
+### Another player's legs frozen mid-step
+
+- **After the host was freed from a bear trap, the client saw the host standing with one leg
+  forward until the host walked again.** The stand-in's legs are hidden during the trap, vault,
+  dodge and the like, and hiding them stopped the walk clip on whatever frame it was on; a run
+  ending stopped the same way. They now stop on the walk clip's standing frame (`FeetNeutral`), as
+  vanilla's legs come back standing (`SecondPlayerAnimController.StopLegsAtNeutral`). Same code on
+  both sides, so a client caught in a trap looks right to the host too.
+
 ### Map would not open (both players, after the hideout lesson)
 
 - **Opening the map threw an error in `UI.hidePlayerUI` on host and client, and the map never

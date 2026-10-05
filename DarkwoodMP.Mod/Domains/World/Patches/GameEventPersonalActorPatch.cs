@@ -104,7 +104,7 @@ namespace DWMPHorde.Patches
                && ModRuntime.Network.IsConnected
                && ModRuntime.Network.Role == NetworkRole.Client;
 
-        private static bool ShouldSuppressPersonal()
+        internal static bool ShouldSuppressPersonal()
         {
             if (DialogHostApplyGuard.SuppressPersonalRewards)
                 return true;
