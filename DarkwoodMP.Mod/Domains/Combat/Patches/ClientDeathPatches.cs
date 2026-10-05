@@ -57,8 +57,9 @@ namespace DWMPHorde.Patches
             if (net == null) return true;
 
             Vector3 pos = __instance._transform.position;
-            bool isNight = DeathStateTracker.IsNightDeathWindow();
             bool permadeathEligible = SharedPermadeathDeath.IsPermadeathEligible(__instance);
+            // A one-life death keeps the player down until morning at any hour.
+            bool isNight = DeathStateTracker.IsDownUntilMorning(permadeathEligible, sharedDeath: true);
 
             ModRuntime.LegacyInfo($"[Death] Client died at {pos}, isNight={isNight}");
 

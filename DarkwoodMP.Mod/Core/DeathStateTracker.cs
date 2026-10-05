@@ -182,6 +182,16 @@ namespace DWMPHorde
                 && (!Core.isDay() || (float)ctrl.CurrentTime > ctrl.nightTime - 50f);
         }
 
+        /// <summary>
+        /// This death keeps the player down until the next morning (spectating the living):
+        /// a night death, or a one-life death (nightmare, or hard on the last life) at any hour
+        /// in co-op. Vanilla ends a one-life run on the spot, day or night; in co-op the run
+        /// ends only when the whole party is down (party wipe), so until then the player sits
+        /// out like a night death instead of getting up again at home.
+        /// </summary>
+        public static bool IsDownUntilMorning(bool permadeathEligible, bool sharedDeath)
+            => IsNightDeathWindow() || (sharedDeath && permadeathEligible);
+
         /// <param name="vanillaEndsRun">
         /// Vanilla's own permadeath outcome runs for this death (host with no ready peer, so
         /// the shared-death rewrite did not apply). The run is already ending locally, so
