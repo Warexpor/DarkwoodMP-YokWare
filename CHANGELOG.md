@@ -200,10 +200,7 @@ The mod's lantern copy follows that; these were the real faults around it.
   and the host clears the shared home area.
 - **A waking client could move everyone's clock.** The host adopted the client's day
   and time whenever it woke up (respawn, dream, prologue). Vanilla waking never moves
-  the clock (the bed's skip already runs on the host), so the host now re-sends its own.
-- **One player could skip the day for everyone.** The bed's "wait until evening" now
-  needs every living player at the hideout; otherwise it is refused with a line for the
-  player at the bed.
+  the clock (there is no sleeping through time in Darkwood), so the host now re-sends its own.
 - **A joiner's world load could put out the party's lit oven.** Vanilla switches unlit
   ovens off as the world loads, and the mod sent each of those as a player action, so the
   lit hideout oven (and its shadow ward) could go dark for everyone. Only a real change

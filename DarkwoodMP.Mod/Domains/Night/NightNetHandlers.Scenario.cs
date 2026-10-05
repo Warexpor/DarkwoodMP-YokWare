@@ -244,8 +244,8 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// A client woke up (vanilla <c>Player.onEndSleep</c>: lying down for a respawn, a dream, the
-        /// prologue). Waking never moves the clock in vanilla; the bed's time skip is run on the
-        /// host itself (cursor action). The host used to adopt the client's day and time here, so a
+        /// prologue). Waking never moves the clock in vanilla (it has no sleep-to-skip; the unused
+        /// TimeSkip item is dead code). The host used to adopt the client's day and time here, so a
         /// lagging or stale client clock could jump everyone forward past the day's events. It now
         /// only re-sends its own clock so the waking client snaps to it.
         /// </summary>
