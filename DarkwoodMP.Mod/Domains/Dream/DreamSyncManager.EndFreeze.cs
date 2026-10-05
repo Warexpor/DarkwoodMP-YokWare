@@ -285,6 +285,28 @@ namespace DWMPHorde.Sync
             return frozen;
         }
 
+        /// <summary>
+        /// Host, between the start of a dream's entry and its pad: a creature that appears now (a
+        /// night spawn, a chunk waking) belongs to the frozen world too. Only creatures alive at
+        /// the freeze were frozen, so these attacked players locked in the movie. Creatures of the
+        /// dream's own pad stay free.
+        /// </summary>
+        internal static void NoteCharacterAppeared(Character c)
+        {
+            if (!_worldFrozen || !_hostEntryFreeze || c == null)
+                return;
+            if (Player.Instance != null && c.gameObject == Player.Instance.gameObject)
+                return;
+            Location loc = c.GetComponentInParent<Location>();
+            string locName = loc != null ? loc.name : "";
+            if (locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
+                || locName.StartsWith("epilog", StringComparison.OrdinalIgnoreCase)
+                || IsDreamLocationName(locName))
+                return;
+            if (_frozenWorldCharacters.Add(c))
+                _frozenByComponent.Clear();
+        }
+
         public static void FreezeWorld()
         {
             if (_worldFrozen) return;

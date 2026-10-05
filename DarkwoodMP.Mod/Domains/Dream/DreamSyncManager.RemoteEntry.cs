@@ -55,6 +55,9 @@ namespace DWMPHorde.Sync
         public static void OnPeerDreamEntryTransition()
         {
             if (_localDreamActive) return;
+            // Dead here: this player sits the dream out, so it does not play the movie either
+            // (it was left frozen, black and muted with no dream to end it).
+            if (IsLocalDeadOutsideDream()) return;
             if (_earlyEntryTransitionPlayed) return;
             // DreamStarted already started the video; do not stack a second Play.
             if (_remoteEntryTransitionPlaying) return;
@@ -74,7 +77,7 @@ namespace DWMPHorde.Sync
             // Arm safety watchdog: if nothing resolves the transition within 20s of
             // the expected completion, force-clear the stuck overlay + EnteringDream.
             Singleton<Controller>.Instance.StartCoroutine(
-                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f));
+                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f, ++_entryWatchGen));
 
             ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
         }
@@ -369,7 +372,8 @@ namespace DWMPHorde.Sync
                 {
                     _hostEntryFreeze = false;
                     ModRuntime.LegacyInfo("[DreamSync] Host dream entry ended without a dream — world released");
-                    UnfreezeWorld();
+                    AbortEntryVisuals();
+                    UnfreezeWorld(restoreTime: false);
                     yield break;
                 }
             }
@@ -389,25 +393,60 @@ namespace DWMPHorde.Sync
                 return;
             if (_earlyEntryTransitionPlayed)
             {
-                FadeOutDreamTransition();
                 _earlyEntryTransitionPlayed = false;
                 _earlyEntryTransitionDoneAt = 0f;
-                ReleaseDreamInputLocks();
+                AbortEntryVisuals();
             }
             _hostEntryFreeze = false;
-            UnfreezeWorld();
+            // The world and its clock ran on through the movie; no dream replaced the time.
+            UnfreezeWorld(restoreTime: false);
         }
 
-        private static IEnumerator EntryTransitionWatchdog(float expireAt)
+        /// <summary>A dream start refused at the last step (the party had finished it meanwhile).</summary>
+        internal static void AbortBlockedStart()
+        {
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            _hostEntryFreeze = false;
+            AbortEntryVisuals();
+            UnfreezeWorld(restoreTime: false);
+        }
+
+        /// <summary>
+        /// An entry movie that leads to no dream here: undo what it did. The fade-out left both
+        /// black layers opaque, and the movie had paused the world sounds and faded the game audio
+        /// out (vanilla DreamTransition.transition); only a dream's start or wake ever undid them,
+        /// so a refused or abandoned entry left the player on a black screen with the sound gone.
+        /// </summary>
+        internal static void AbortEntryVisuals()
+        {
+            FadeOutDreamTransition();
+            DoFadeInDreamBlackScreen();
+            try
+            {
+                Singleton<Controller>.Instance?.fadeAudio(fadeOut: false, 1f, musicToo: true);
+                Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] restore audio after entry: " + ex.Message);
+            }
+            ReleaseDreamInputLocks();
+            try { Core.showGameCursor(); } catch { /* UI not ready */ }
+        }
+
+        /// <summary>Each peer entry movie arms its own watchdog; an older one must not end a newer movie.</summary>
+        private static int _entryWatchGen; // process-scoped: monotonic
+
+        private static IEnumerator EntryTransitionWatchdog(float expireAt, int gen)
         {
             float delay = expireAt - Time.realtimeSinceStartup;
             if (delay > 0f)
                 yield return new WaitForSeconds(delay);
             yield return null; // one frame for any pending transitions to settle
-            if (_earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
+            if (gen == _entryWatchGen && _earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
             {
                 ModRuntime.Log?.LogWarning("[DreamSync] Watchdog: early entry transition stuck — force-clearing");
-                FadeOutDreamTransition();
                 _earlyEntryTransitionPlayed = false;
                 _earlyEntryTransitionDoneAt = 0f;
                 try
@@ -416,8 +455,8 @@ namespace DWMPHorde.Sync
                         Dreams.Instance.dreamPrepared = false;
                 }
                 catch { /* ignore */ }
-                Core.EnteringDream = false;
-                UnfreezeWorld();
+                AbortEntryVisuals();
+                UnfreezeWorld(restoreTime: false);
             }
         }
 

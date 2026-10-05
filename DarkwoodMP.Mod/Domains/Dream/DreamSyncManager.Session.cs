@@ -109,6 +109,14 @@ namespace DWMPHorde.Sync
                 }
                 catch { /* ignore */ }
                 UnfreezeWorld(restoreTime: false);
+                // No dream came of this entry: the movie's audio fade and paused world sounds stay
+                // unless undone here.
+                try
+                {
+                    Singleton<Controller>.Instance?.fadeAudio(fadeOut: false, 1f, musicToo: true);
+                    Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
+                }
+                catch { /* ignore */ }
                 FinalDreamsceneManager.OnDreamEnded();
                 ClearRemoteDreamRoster();
                 ClearPreDreamState();

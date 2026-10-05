@@ -293,7 +293,10 @@ namespace DWMPHorde.Sync
         {
             if (c == null) return;
             if (!_characters.Contains(c))
+            {
                 _characters.Add(c);
+                Sync.DreamSyncManager.NoteCharacterAppeared(c);
+            }
 
             if (_stableIdCache.ContainsKey(c))
                 return;
