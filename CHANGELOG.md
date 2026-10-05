@@ -11,7 +11,7 @@ the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
 `PlayerEffectSync` the home oven, `ChapterTransition` `StartOver`, new `PorterTransport`
-(150) and `PlayerSpecial` (151),
+(150), `PlayerSpecial` (151) and `TradeCommit` (152),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
@@ -500,6 +500,32 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   the whole party's bags, so the host could pick an option it couldn't pay. The
   outcome then found nothing to take and granted the reward anyway. Choices now
   check only the speaker's bag.
+
+### Trading, crafting and homes
+
+- **Trading with a trader whose stock hadn't arrived could wipe it.** After a trade,
+  a client sent its whole copy of the trader's stock and the host took it as the
+  truth. A stale or empty copy wiped the real stock for everyone. A copy the host
+  refused left the client with what it bought while the stock reverted, which
+  duplicated those items. The client now sends what it bought and sold (new
+  `TradeCommit` message). The host checks the purchases against its own stock and
+  applies the trade. If the stock lacks them, the host refuses, and the client gives
+  the purchases back and gets its goods back. The trading client no longer gets its
+  own trade echoed back, which used to rebuild the stock under an open trade window.
+- **A craft finished even after a teammate took the ingredients.** Vanilla checks a
+  craft's, repair's or upgrade's materials when the bar starts, not when it fills.
+  With the workbench pile shared, a teammate could take the planks meanwhile, and a
+  crafter who didn't carry any got the product free. Materials are now checked
+  again when the bar fills. If two players reach for the same pile item at once and
+  the host refuses one, that craft is undone (the product taken back, the repair or
+  upgrade reverted).
+- **A rejoining client lived in the wrong hideout.** Two causes:
+  - A client loads the host's world, so it took the host's home oven.
+  - The join's oven list made every lit oven "home" in turn.
+  
+  Both moved the client's respawn point. The character snapshot now keeps each
+  player's home oven, the join list no longer changes it, and a home that the world
+  load put out is lit again.
 
 ## 0.8.132 — Shared clock: time stops only when everyone is inside
 

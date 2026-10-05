@@ -35,6 +35,7 @@ namespace DWMPHorde.Networking
             OnRaw(NetMessageType.WorkbenchLock, _ => { });
             On(NetMessageType.TradeSync, TradeSyncMessage.Deserialize, m => TradeHandlers.HandleTradeSync(m));
             On(NetMessageType.TradeInventorySync, TradeInventorySyncMessage.Deserialize, m => TradeHandlers.HandleTradeInventorySync(m));
+            On(NetMessageType.TradeCommit, TradeCommitMessage.Deserialize, m => Patches.TradeCommit.Handle(this, m));
             On(NetMessageType.ActivateCursorAction, ActivateCursorActionMessage.Deserialize, m => CursorActionHandlers.HandleActivateCursorAction(m));
             On(NetMessageType.LocationTransport, LocationTransportMessage.Deserialize, m => CursorActionHandlers.HandleLocationTransport(m));
             On(NetMessageType.ChainState, ChainStateMessage.Deserialize, m => ChainHandlers.HandleChainState(m));

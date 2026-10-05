@@ -47,21 +47,10 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
             {
-                // Client stock is not world authority; do not forward the payload.
+                // A client's copy of the stock is never the truth (its trades come as TradeCommit).
                 _net.SuppressRelay();
-
-                int senderId = _net.CurrentReceivePlayerId;
-                NpcDialogueLock.HostRenewLeaseForSender(msg.NpcName, senderId);
-                bool tradingPeer = NpcDialogueLock.GetOwner(msg.NpcName) == senderId;
-                if (tradingPeer)
-                    TradeInventorySync.Handle(msg);
-                else
-                    ModRuntime.LegacyInfo(
-                        $"[TradeSync] rejected inventory from p{senderId} for '{msg.NpcName}' (no dialog lock)");
-
-                NPC npc = TradeInventorySync.FindNpcByName(msg);
-                if (npc != null)
-                    TradeInventorySync.BroadcastNpcInventory(npc);
+                ModRuntime.LegacyInfo(
+                    $"[TradeSync] ignored stock copy from p{_net.CurrentReceivePlayerId} for '{msg.NpcName}'");
                 return;
             }
 

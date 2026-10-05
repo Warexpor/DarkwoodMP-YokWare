@@ -121,6 +121,12 @@ namespace DWMPHorde.Networking
             Vector3 containerPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             _pending.ClearPendingContainerRemove(containerPos, msg.SlotIndex);
 
+            // Not a take: a craft, repair or upgrade drew on pile materials that were already gone.
+            // Undo that action; taking the ingredient back from the bag left a crafter without
+            // it holding the product for free.
+            if (!haveTake && Patches.WorkbenchUndo.TryUndo(containerPos))
+                return;
+
             try
             {
                 Inventory pinv = Player.Instance != null ? Player.Instance.Inventory : null;

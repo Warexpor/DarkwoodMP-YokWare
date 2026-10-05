@@ -255,6 +255,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Vanilla enable() also makes the oven the local player's home: lighting every lit oven
+            // of the world left a joiner living in whichever came last.
+            Player local = Player.Instance;
+            ExperienceMachine ownHome = local != null ? local.experienceMachine : null;
             int applied = 0;
             for (int i = 0; i < msg.OvenCount; i++)
             {
@@ -267,12 +271,16 @@ namespace DWMPHorde.Networking
                     if (Vector3.Distance(em.transform.position, pos) >= 1.5f) continue;
                     if (wantOn && !em.isOn)
                         em.enable();
-                    else if (!wantOn && em.isOn)
+                    else if (!wantOn && em.isOn && em != ownHome)
                         em.disable();
                     applied++;
                     break;
                 }
             }
+            if (local != null)
+                local.experienceMachine = ownHome;
+            if (ownHome != null && !ownHome.isOn)
+                Patches.OvenHomes.RelightOwnHomeNextFrame();
             // Keep pending until every oven matched (partial spawn / wrong radius).
             if (applied < msg.OvenCount)
             {

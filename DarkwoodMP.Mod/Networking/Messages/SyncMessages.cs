@@ -289,6 +289,102 @@ namespace DWMPHorde.Networking
     /// banshee's sight light on or off; only <see cref="VictimId"/> hears the scream, feels the
     /// shake and sees the overlay (vanilla plays them for the one player it sees).
     /// </summary>
+    public struct TradeEntry
+    {
+        public string Type;
+        public bool IsRecipe;
+        /// <summary>Stack amount.</summary>
+        public int Count;
+        public float Durability;
+        public int Ammo;
+        public bool Active;
+        public string[] Upgrades;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Type ?? "");
+            w.Put(IsRecipe);
+            w.Put(Count);
+            w.Put(Durability);
+            w.Put(Ammo);
+            w.Put(Active);
+            int n = Upgrades != null ? Upgrades.Length : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+                w.Put(Upgrades[i] ?? "");
+        }
+
+        public static TradeEntry Deserialize(NetReader r)
+        {
+            var e = new TradeEntry
+            {
+                Type = r.GetString(),
+                IsRecipe = r.GetBool(),
+                Count = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt(),
+                Active = r.GetBool()
+            };
+            int n = r.GetByte();
+            e.Upgrades = n > 0 ? new string[n] : null;
+            for (int i = 0; i < n; i++)
+                e.Upgrades[i] = r.GetString();
+            return e;
+        }
+    }
+
+    public struct TradeCommitMessage
+    {
+        public string NpcName;
+        public float PosX, PosY, PosZ;
+        public bool InDream;
+        /// <summary>Host→client: the host's stock did not have what was bought; undo it.</summary>
+        public bool Denied;
+        public TradeEntry[] Bought;
+        public TradeEntry[] Sold;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
+            w.Put(InDream);
+            w.Put(Denied);
+            PutEntries(w, Bought);
+            PutEntries(w, Sold);
+        }
+
+        private static void PutEntries(NetWriter w, TradeEntry[] entries)
+        {
+            int n = entries != null ? entries.Length : 0;
+            w.Put((short)n);
+            for (int i = 0; i < n; i++)
+                entries[i].Serialize(w);
+        }
+
+        private static TradeEntry[] GetEntries(NetReader r)
+        {
+            int n = r.GetShort();
+            var a = new TradeEntry[n < 0 ? 0 : n];
+            for (int i = 0; i < a.Length; i++)
+                a[i] = TradeEntry.Deserialize(r);
+            return a;
+        }
+
+        public static TradeCommitMessage Deserialize(NetReader r) => new TradeCommitMessage
+        {
+            NpcName = r.GetString(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            InDream = r.GetBool(),
+            Denied = r.GetBool(),
+            Bought = GetEntries(r),
+            Sold = GetEntries(r)
+        };
+    }
+
     public struct PlayerSpecialMessage
     {
         /// <summary>The Player method to run (whitelisted on receipt).</summary>

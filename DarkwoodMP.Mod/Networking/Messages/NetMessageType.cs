@@ -403,7 +403,13 @@ namespace DWMPHorde.Networking
         /// host saw it happen to that player, e.g. killing the night trader). Protocol 33.
         /// </summary>
         [HostOnly] PlayerSpecial = 151,
+        /// <summary>
+        /// Client→host: a finished trade (what this player bought and sold) for the host to check
+        /// against its own stock. Host→client with <c>Denied</c>: the stock lacked it; undo the trade.
+        /// Replaces the client's whole-stock snapshot. Protocol 33.
+        /// </summary>
+        TradeCommit = 152,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 151
+        _Highest = 152
     }
 }
