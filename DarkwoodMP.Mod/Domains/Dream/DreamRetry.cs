@@ -23,6 +23,9 @@ namespace DWMPHorde.Sync
         private static byte _levelBits;     // reset-in: Reset (NetworkResetRegistry)
         /// <summary>A dream is running on the host (this peer sits it out, or its pad failed to load).</summary>
         internal static bool HostDreamRunning; // reset-in: Reset (NetworkResetRegistry)
+        /// <summary>Host: a peer's dialogue dream waiting for the host to be able to start it.</summary>
+        private static string _hostWaiting; // reset-in: Reset (NetworkResetRegistry)
+        private static float _hostNotBefore; // reset-in: Reset (NetworkResetRegistry)
 
         internal static void Reset()
         {
@@ -31,6 +34,85 @@ namespace DWMPHorde.Sync
             _notBefore = 0f;
             _levelBits = 0;
             HostDreamRunning = false;
+            _hostWaiting = null;
+            _hostNotBefore = 0f;
+        }
+
+        /// <summary>
+        /// Host: a peer's dialogue chose a dream (the host applies the outcome). Vanilla starts it
+        /// right after the dialogue closes. When the host cannot take it then (dead, another dream
+        /// starting or running) the start used to be refused and the dream was gone, the dialogue
+        /// already spent. It waits instead, as vanilla's wantToDream does, and starts once the host can.
+        /// </summary>
+        internal static void HostDialogueDream(string preset)
+        {
+            if (string.IsNullOrEmpty(preset))
+                return;
+            if (HostCanStart())
+            {
+                Singleton<Controller>.Instance?.Invoke(delegate
+                {
+                    if (HostCanStart())
+                        HostStart(preset);
+                    else
+                        HostPark(preset);
+                }, 0.1f, timeScaleDependent: false);
+                return;
+            }
+            HostPark(preset);
+        }
+
+        private static void HostPark(string preset)
+        {
+            _hostWaiting = preset;
+            _hostNotBefore = Time.unscaledTime + RetryDelaySec;
+            // Kept here, not in wantToDream: with no dream of its own coming, that flag would
+            // hold the host's location activation and spawning as if one were (WhereAmI, Location).
+            Dreams dreams = Dreams.Instance;
+            if (dreams != null && !dreams.dreaming && !dreams.dreamPrepared
+                && (dreams.startTransition == null || !dreams.startTransition.isPlaying)
+                && !DreamSyncManager.IsHostDreamEntryPending)
+                dreams.wantToDream = false;
+            ModRuntime.LegacyInfo($"[DreamRetry] host: dialogue dream '{preset}' waits");
+        }
+
+        private static bool HostCanStart()
+        {
+            Dreams dreams = Dreams.Instance;
+            if (dreams == null || dreams.dreaming || dreams.dreamPrepared)
+                return false;
+            if (dreams.startTransition != null && dreams.startTransition.isPlaying)
+                return false;
+            if (Core.loadingGame || Core.mainMenu || !Core.worldGenFinished())
+                return false;
+            return !DreamSession.IsActive && !DreamSyncManager.IsHostDreamEntryPending
+                && !DreamSyncManager.IsLocalDeadOutsideDream();
+        }
+
+        private static void HostStart(string preset)
+        {
+            Dreams dreams = Dreams.Instance;
+            dreams.wantToDream = true;
+            dreams.StartCoroutine(dreams.prepareDream(preset));
+        }
+
+        private static void HostTick()
+        {
+            if (_hostWaiting == null || Time.unscaledTime < _hostNotBefore)
+                return;
+            _hostNotBefore = Time.unscaledTime + 1f;
+            if (DreamSession.IsPresetCompleted(_hostWaiting))
+            {
+                ModRuntime.LegacyInfo($"[DreamRetry] host: '{_hostWaiting}' finished meanwhile — dropped");
+                _hostWaiting = null;
+                return;
+            }
+            if (!HostCanStart())
+                return;
+            string name = _hostWaiting;
+            _hostWaiting = null;
+            ModRuntime.LegacyInfo($"[DreamRetry] host: start waiting dialogue dream '{name}'");
+            HostStart(name);
         }
 
         /// <summary>The entry transition sent a start request for <paramref name="dreamName"/> ("" = random roll).</summary>
@@ -69,6 +151,11 @@ namespace DWMPHorde.Sync
 
         internal static void Tick(LanNetworkManager net)
         {
+            if (net != null && net.Role == NetworkRole.Host)
+            {
+                HostTick();
+                return;
+            }
             if (_waiting == null || net == null || net.Role != NetworkRole.Client)
                 return;
             if (Time.unscaledTime < _notBefore)

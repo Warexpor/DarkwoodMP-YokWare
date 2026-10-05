@@ -255,21 +255,34 @@ namespace DWMPHorde.Networking
                 EventTriggers et = loc.events[i];
                 if (et == null || et.eventTriggers == null)
                     continue;
-                bool pending = false;
-                for (int j = 0; j < et.eventTriggers.Count && !pending; j++)
+                if (!et.gameObject.activeInHierarchy && !et.canFireIfInactive)
+                    continue;
+                bool checkedRequirements = false;
+                for (int j = 0; j < et.eventTriggers.Count; j++)
                 {
                     EventTrigger t = et.eventTriggers[j];
-                    pending = t != null && !t.disabled && !t.multipleFire
+                    bool pending = t != null && !t.disabled && !t.multipleFire
                         && t.type == EventTrigger.Type.onEnterLocation
                         && (!t.fired
                             // A move or a hint that has not carried / shown to this player yet.
                             || (PerPlayerTransportOneShots.Qualifies(t.gameEvents)
                                 && !PerPlayerTransportOneShots.Served(t.gameEvents.GetInstanceID(), playerId)));
+                    if (!pending)
+                        continue;
+                    if (!checkedRequirements)
+                    {
+                        if (!(bool)EventTriggersRequirementsMet.Invoke(et, null))
+                            break;
+                        checkedRequirements = true;
+                    }
+                    // Only that trigger: firing the whole set re-ran its repeatable entry effects.
+                    Singleton<Controller>.Instance.StartCoroutine(t.fire(EventTrigger.Type.onEnterLocation, "", et));
                 }
-                if (pending)
-                    Core.sendTriggerInfo(et.gameObject, EventTrigger.Type.onEnterLocation);
             }
         }
+
+        private static readonly System.Reflection.MethodInfo EventTriggersRequirementsMet =
+            HarmonyLib.AccessTools.Method(typeof(EventTriggers), "requirementsMet");
 
         internal static void EnsureEntered(Location loc)
         {

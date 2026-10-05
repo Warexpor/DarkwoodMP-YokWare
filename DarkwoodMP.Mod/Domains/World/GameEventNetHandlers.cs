@@ -129,13 +129,11 @@ namespace DWMPHorde.Networking
 
             int scanCap = all != null ? all.Length : 0;
             var list = new List<GameEventsFiredMessage>(
-                Mathf.Min(scanCap + _destroyedFiredGameEvents.Count, GameEventsBulkMessage.MaxEvents));
+                scanCap + _destroyedFiredGameEvents.Count);
             if (all != null)
             {
                 for (int i = 0; i < all.Length; i++)
                 {
-                    if (list.Count >= GameEventsBulkMessage.MaxEvents)
-                        break;
                     GameEvents ge = all[i];
                     if (ge == null || ge.transform == null)
                         continue;
@@ -167,8 +165,6 @@ namespace DWMPHorde.Networking
             int fromDestroyed = 0;
             for (int i = 0; i < _destroyedFiredGameEvents.Count; i++)
             {
-                if (list.Count >= GameEventsBulkMessage.MaxEvents)
-                    break;
                 var destroyed = _destroyedFiredGameEvents[i];
                 string eventName = destroyed.EventName ?? "";
                 if (IsEphemeralDreamFxEvent(eventName))
@@ -192,23 +188,28 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            var msg = new GameEventsBulkMessage
+            // A big world has more fired events than one message carries; the rest used to be cut
+            // off silently, and their world changes never reached the joiner.
+            for (int offset = 0; offset < list.Count; offset += GameEventsBulkMessage.MaxEvents)
             {
-                EventCount = list.Count,
-                PosX = new float[list.Count],
-                PosY = new float[list.Count],
-                PosZ = new float[list.Count],
-                EventNames = new string[list.Count]
-            };
-            for (int i = 0; i < list.Count; i++)
-            {
-                msg.PosX[i] = list[i].PosX;
-                msg.PosY[i] = list[i].PosY;
-                msg.PosZ[i] = list[i].PosZ;
-                msg.EventNames[i] = list[i].EventName;
+                int n = Mathf.Min(GameEventsBulkMessage.MaxEvents, list.Count - offset);
+                var msg = new GameEventsBulkMessage
+                {
+                    EventCount = n,
+                    PosX = new float[n],
+                    PosY = new float[n],
+                    PosZ = new float[n],
+                    EventNames = new string[n]
+                };
+                for (int i = 0; i < n; i++)
+                {
+                    msg.PosX[i] = list[offset + i].PosX;
+                    msg.PosY[i] = list[offset + i].PosY;
+                    msg.PosZ[i] = list[offset + i].PosZ;
+                    msg.EventNames[i] = list[offset + i].EventName;
+                }
+                _net.SendBulkOrAll(NetMessageType.GameEventsBulk, w => msg.Serialize(w), targetPlayerId);
             }
-
-            _net.SendBulkOrAll(NetMessageType.GameEventsBulk, w => msg.Serialize(w), targetPlayerId);
             ModLog.Event(LogCat.Session, targetPlayerId > 0
                 ? "[BulkSync] Fired GameEvents → p" + targetPlayerId + ": " + list.Count
                     + (fromDestroyed > 0 ? " (destroyOnFire+" + fromDestroyed + ")" : "")

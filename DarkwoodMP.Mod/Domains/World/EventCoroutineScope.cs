@@ -2,6 +2,7 @@ using System.Collections;
 using DWMPHorde.Networking;
 using DWMPHorde.Patches;
 using HarmonyLib;
+using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
@@ -164,10 +165,18 @@ namespace DWMPHorde.Sync
             // and breakables take the host's result through their own sync.
             bool scriptedHit = __instance.type == GameEvent.Type.gameObject
                 && __instance.gameObjectModifyType == GameEvent.GameObjectModify.getHit;
+            // A scripted spawn of a creature or an item: the host's copy is the real one and
+            // reaches this peer through its own sync; a second local one was a phantom creature
+            // or an extra pickup. Plain props and decor still spawn here.
+            Transform spawned = __instance.targetTransform;
+            bool scriptedSpawn = __instance.type == GameEvent.Type.gameObject
+                && __instance.gameObjectModifyType == GameEvent.GameObjectModify.spawn
+                && spawned != null
+                && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null);
             // A clock tween: the host's runs and its clock reaches everyone; a second tween here
             // fought every TimeSync.
             bool clockTween = __instance.type == GameEvent.Type.tweenTime;
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !clockTween)
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !clockTween && !scriptedSpawn)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;

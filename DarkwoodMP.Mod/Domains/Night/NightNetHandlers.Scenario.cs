@@ -210,36 +210,29 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in nightId {msg.NightId}");
 
             CustomEvent ce = scenario.customEventAndInts[msg.EventIndex].customEvent;
-            // Location events belong to a world location; never replay one into a location pad.
-            var olLocal = Singleton<OutsideLocations>.Instance;
-            bool outside = Player.Instance == null || Player.Instance.whereAmI == null
-                || Player.Instance.whereAmI.bigLocation == null
-                || (olLocal != null && olLocal.playerInOutsideLocation);
-            if (ce != null && ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent)
-            {
-                if (outside)
-                {
-                    Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-                    Patches.ScenarioPendingEventState.PendingScenario = null;
-                    return;
-                }
+            bool locationEvent = ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent;
+            // A location event plays only where the host played it: the location this client
+            // stands in. Elsewhere its scene (and the host's creatures) is somewhere else.
+            bool here = locationEvent && Patches.NightEventAnchor.LocalIn(msg.Anchors);
+            if (here)
                 Patches.ClientRandomEventGate.Arm(20f);
-                try
+            try
+            {
+                using (new NetworkApplyGuard())
                 {
-                    using (new NetworkApplyGuard())
+                    ce.lastTimeCheckedIfWantToFire = Singleton<Controller>.Instance.CurrentTimeAndDay;
+                    if (here || !locationEvent)
+                        // RandomEvent.fire stays blocked on clients outside a host replay: this is
+                        // the night's bookkeeping (current event, its start, categories).
                         ce.fire(force: true);
+                    else
+                        Patches.NightEventAnchor.MarkStarted(ce);
                 }
-                catch (System.Exception ex)
-                {
-                    ModRuntime.Log?.LogWarning("[ScenarioEventFired] location event replay failed: " + ex.Message);
-                }
-                Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-                Patches.ScenarioPendingEventState.PendingScenario = null;
-                return;
             }
-
-            Patches.ScenarioPendingEventState.PendingEventIndex = msg.EventIndex;
-            Patches.ScenarioPendingEventState.PendingScenario = scenario;
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ScenarioEventFired] event apply failed: " + ex.Message);
+            }
         }
 
         /// <summary>

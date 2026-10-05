@@ -311,6 +311,22 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   used the host even when only a client was in that location. They now use the player
   in that location.
 
+- **Night scenes (knocking, a voice, a visitor) played in the wrong hideout.** Vanilla
+  plays a night location event where the one player stands. The mod played it in the
+  host's location only (or the first peer's hideout found while the host was away), and
+  every client replayed it in its own location: a client in another hideout heard the
+  knocking and nothing came, and a second peer's hideout got nothing. The host now plays
+  the scene in every world location a living player stands in, each with that player as
+  the scene's owner, and tells clients where (`ScenarioEventFired` gains `Anchors`). A
+  client replays it only there. The scene copy's own fire is no longer broadcast as a
+  GameEvents fire (clients could never find it and kept searching).
+- **A client's night events could start late, at a wrong time, or not at all.** A
+  client waited for its own next frequency check to start the host's event, which never
+  came while it stood outside a location or its previous event had not ended, and the
+  event still went through the client's own random chance roll. A client now starts the
+  host's event the moment it is told; its own check only ends events on the shared
+  clock.
+
 ### Scripted events (triggers and their steps)
 
 - **Scripted events lost track of who set them off.** Vanilla trigger and event steps
@@ -375,6 +391,16 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
 - **One-time hints reached only the first player past.** A hint (a message, perhaps
   with a sound) latched for whoever triggered it first. It is now shown once to each
   player.
+
+- **Repeatable one-shots and enter events, second pass.** A per-player one-shot that
+  another player's fire latched meanwhile stayed latched for the next player; the latch
+  is now lifted only in that case. Entering a location the host is in fires only the
+  entry events still pending for that player, not every entry event again. Location
+  state requirements are checked for the player the trigger belongs to. "In sight of
+  the player" triggers credit the player who saw it. Delayed steps saved in the host's
+  world now run on a joining client. Client replays no longer spawn a scripted
+  creature or item object of their own. The late-join list of fired events is sent in
+  parts, so a long campaign no longer overflows one message.
 
 ### Dreams, a full pass
 
@@ -466,6 +492,15 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   shut and earlier doors closed. The pad's fired events and door states are now
   replayed when a player arrives on it.
 
+- **A dialogue's dream was lost when the host could not start it.** A peer's dialogue
+  that chooses a dream is applied on the host, which starts the dream. When the host was
+  dead, or another dream was starting or running, the start was refused, the dialogue
+  already spent, and the dream never happened. It now waits on the host and starts once
+  the host can, as vanilla's wanted dream does.
+- **Checked against the game's own dream data:** no dream outcome fires a GameEvents
+  prefab, and the outcome items (shovel edge, mutated cockroach, mushrooms, shiny rock,
+  the flashlight) are ordinary rewards each dreamer gets, as in vanilla.
+
 ### Story and unique content (chapter 1 and 2 NPCs and places)
 
 - **The porter's "bring my stash" could destroy it.** Vanilla empties the other
@@ -533,6 +568,10 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
   the whole party's bags, so the host could pick an option it couldn't pay. The
   outcome then found nothing to take and granted the reward anyway. Choices now
   check only the speaker's bag.
+
+- **One death in the Wolfman's arena reset the fight for everyone.** The arena fight
+  reset as soon as any trapped player died, also while another player was still
+  fighting in it. It now resets only when nobody living is left in the arena.
 
 ### Trading, crafting and homes
 

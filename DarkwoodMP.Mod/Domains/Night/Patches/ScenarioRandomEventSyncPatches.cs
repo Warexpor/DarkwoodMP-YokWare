@@ -3,67 +3,24 @@ using HarmonyLib;
 
 namespace DWMPHorde.Patches
 {
-    internal static class ScenarioPendingEventState
-    {
-        public static int PendingEventIndex = -1;
-        public static NightScenario PendingScenario;
-
-        /// <summary>Session end: a host event never consumed must not fire in the next world.</summary>
-        public static void Reset()
-        {
-            PendingEventIndex = -1;
-            PendingScenario = null;
-        }
-    }
-
     /// <summary>
-    /// Client: only host-authoritative night custom events fire.
-    /// When host sends ScenarioEventFired, pending index forces that event's
-    /// frequencyMet true once; all other client auto-fires are blocked.
+    /// Client: night events start only from the host's <c>ScenarioEventFired</c>. Vanilla
+    /// <c>checkFrequencies</c> starts one (a fixed-time one, or a frequency roll with its own random
+    /// chance) only while no event runs; the client lets it run then just to end its current event on
+    /// the shared clock. The old way (a pending index that made the next local <c>frequencyMet</c>
+    /// true) stayed stuck while the client stood outside a location or its own event had not ended,
+    /// and still passed the event through the client's own random chance roll, so the event could
+    /// start late, at a wrong time, or not at all.
     /// </summary>
-    [HarmonyPatch(typeof(CustomEvent), "frequencyMet")]
-    public static class FrequencyMetRedirectPatch
+    [HarmonyPatch(typeof(NightScenario), "checkFrequencies")]
+    public static class ClientNightEventStartBlockPatch
     {
-        private static bool Prefix(CustomEvent __instance, ref bool __result)
+        private static bool Prefix(NightScenario __instance)
         {
             var net = ModRuntime.Network;
-            bool isClient = net != null && net.IsConnected && net.Role == NetworkRole.Client;
-
-            if (ScenarioPendingEventState.PendingEventIndex < 0 || ScenarioPendingEventState.PendingScenario == null)
-            {
-                // No host-driven event waiting: clients must not auto-fire night events.
-                if (isClient)
-                {
-                    __result = false;
-                    return false;
-                }
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return true;
-            }
-
-            var ps = ScenarioPendingEventState.PendingScenario;
-            int idx = ScenarioPendingEventState.PendingEventIndex;
-
-            if (ps.currentEvent == __instance)
-            {
-                ScenarioPendingEventState.PendingEventIndex = -1;
-                ScenarioPendingEventState.PendingScenario = null;
-                __result = false;
-                return false;
-            }
-
-            bool isPending = idx < ps.customEventAndInts.Count
-                && ps.customEventAndInts[idx].customEvent == __instance;
-
-            if (isPending)
-            {
-                ScenarioPendingEventState.PendingEventIndex = -1;
-                ScenarioPendingEventState.PendingScenario = null;
-                __result = true;
-                return false;
-            }
-
-            __result = false;
-            return false;
+            return __instance != null && __instance.currentEvent != null;
         }
     }
 
@@ -104,7 +61,7 @@ namespace DWMPHorde.Patches
                         return;
                     _lastSentNightId = __instance.nightId;
                     _lastSentEventIndex = i;
-                    net.SendScenarioEventFired(__instance.nightId, i);
+                    net.SendScenarioEventFired(__instance.nightId, i, NightEventAnchor.TakeFiredAnchors());
                     return;
                 }
             }

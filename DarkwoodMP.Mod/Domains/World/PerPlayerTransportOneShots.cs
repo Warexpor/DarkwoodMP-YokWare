@@ -107,8 +107,8 @@ namespace DWMPHorde.Sync
             for (int i = 0; i < triggers.eventTriggers.Count; i++)
             {
                 EventTrigger t = triggers.eventTriggers[i];
-                if (t != null && !t.disabled && !t.multipleFire && t.fired && Qualifies(t.gameEvents)
-                    && !Served(t.gameEvents.GetInstanceID(), playerId))
+                if (t != null && !t.disabled && !t.multipleFire && t.fired && t.type == EventTrigger.Type.area
+                    && Qualifies(t.gameEvents) && !Served(t.gameEvents.GetInstanceID(), playerId))
                     return true;
             }
             return false;
@@ -148,7 +148,9 @@ namespace DWMPHorde.Sync
     {
         private static void Postfix(EventTrigger __instance, ref IEnumerator __result)
         {
-            if (__instance == null || __result == null || !__instance.fired || __instance.multipleFire)
+            // Also when not latched yet: players stepping in together each start a fire before the
+            // first one latches; the later ones then met the latch after their delay and were dropped.
+            if (__instance == null || __result == null || __instance.multipleFire)
                 return;
             if (!PerPlayerTransportOneShots.IsHost() || !PerPlayerTransportOneShots.Qualifies(__instance.gameEvents))
                 return;
@@ -164,6 +166,7 @@ namespace DWMPHorde.Sync
             private readonly EventTrigger _trigger;
             private int _steps;
             private bool _settled;
+            private bool _lifted;
 
             internal Reopened(IEnumerator inner, EventTrigger trigger)
             {
@@ -178,14 +181,18 @@ namespace DWMPHorde.Sync
             public bool MoveNext()
             {
                 // The first step only waits out the trigger's delay; its latch check is in the second.
-                if (!_settled && _steps == 1 && _trigger != null)
+                // Lift the latch only if another player's fire set it meanwhile.
+                if (!_settled && _steps == 1 && _trigger != null && _trigger.fired)
+                {
                     _trigger.fired = false;
+                    _lifted = true;
+                }
                 _steps++;
                 bool more = _inner.MoveNext();
                 if (!_settled && _steps >= 2 && _trigger != null)
                 {
-                    if (_trigger.fired)
-                        _settled = true;          // went through: vanilla latched it again
+                    if (!_lifted || _trigger.fired)
+                        _settled = true;          // nothing lifted, or it went through and latched again
                     else if (!more)
                     {
                         _trigger.fired = true;    // did not go through: keep the original latch

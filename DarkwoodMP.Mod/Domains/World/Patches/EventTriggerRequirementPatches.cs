@@ -20,6 +20,22 @@ namespace DWMPHorde.Patches
 
             if (__instance.type == EventTriggerRequirement.Type.locationState)
             {
+                // The location of the player the trigger belongs to (vanilla: "the player's"). Only
+                // a world event with no player behind it asks whether any player's location
+                // matches: OR-ing for a player's own trigger let "fewer than N lights on" in an
+                // empty house the host stood in pass for a client in the hideout.
+                int actor = GeFireActorContext.PeekOr(0);
+                var net = ModRuntime.Network;
+                if (actor > 0 && net != null && actor == net.LocalPlayerId)
+                    return; // vanilla read the local player's location
+                if (actor > 0 && net != null && net.Role == NetworkRole.Host)
+                {
+                    RemotePlayerProxy proxy = net.GetProxy(actor);
+                    Location loc = proxy != null ? LocationForProxy(proxy) : null;
+                    if (loc != null)
+                        __result = __instance.locationState.getBool(loc);
+                    return;
+                }
                 if (__result) return;
                 if (AnyPeerLocationMatches(__instance.locationState))
                     __result = true;

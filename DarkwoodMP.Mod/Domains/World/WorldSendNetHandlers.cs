@@ -163,10 +163,10 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.ScenarioSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendScenarioEventFired(int nightId, int eventIndex)
+        internal void SendScenarioEventFired(int nightId, int eventIndex, string anchors)
         {
             if (!_net.IsConnected) return;
-            var msg = new ScenarioEventFiredMessage { NightId = nightId, EventIndex = eventIndex };
+            var msg = new ScenarioEventFiredMessage { NightId = nightId, EventIndex = eventIndex, Anchors = anchors };
             _net.Broadcast(NetMessageType.ScenarioEventFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
