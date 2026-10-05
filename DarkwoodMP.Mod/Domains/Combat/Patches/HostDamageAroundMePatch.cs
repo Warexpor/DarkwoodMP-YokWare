@@ -83,6 +83,10 @@ namespace DWMPHorde.Patches
                     continue;
 
                 float falloff = (range / 2f - dist) / range;
+                // Vanilla shakes and darkens the screen of a player anywhere in range (the host's
+                // own above); that player's screen is on its own machine.
+                ActorStoryFunctions.SendAuraShake(net, proxy.PlayerId, (float)aroundDmg * falloff,
+                    Mathf.Clamp(range / 4f / Mathf.Max(dist, 0.01f), 0.2f, 0.6f));
                 if (falloff <= 0f)
                     continue;
 
