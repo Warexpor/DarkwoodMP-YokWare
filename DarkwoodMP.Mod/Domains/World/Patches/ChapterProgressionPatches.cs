@@ -220,6 +220,7 @@ namespace DWMPHorde.Patches
         {
             if (chapterId < 1) chapterId = 1;
             ChapterShareExpected = false;
+            ChapterWaitScreen.Forget();
             if (_chapterLoadPending) return;
             _chapterLoadPending = true;
 
@@ -347,6 +348,11 @@ namespace DWMPHorde.Patches
             // world in memory is still the old chapter, and the handshake identity must say so.
             if (msg.ExpectWorldShare)
             {
+                // Vanilla's chapter jump blacks the screen and locks the player while the next
+                // chapter is made; on a client that step is the host's, so the client played on
+                // through the whole share (open to death and menus) with no cue.
+                if (!Core.mainMenu && Player.Instance != null)
+                    ChapterWaitScreen.Hold();
                 ChapterShareExpected = true;
                 _clientChapterId = msg.ChapterId;
                 bool inGame = !Core.mainMenu && Player.Instance != null;
@@ -391,5 +397,39 @@ namespace DWMPHorde.Patches
         internal static bool Requested; // process-scoped: set by the button, consumed by the generateChapter prefix
 
         private static void Prefix() => Requested = true;
+    }
+
+    /// <summary>Client: black screen, locked and unhurt while the host makes and shares the next chapter.</summary>
+    internal static class ChapterWaitScreen
+    {
+        private static bool _held; // reset-in: Release (called from the chapter leave path and the scene load)
+
+        internal static void Hold()
+        {
+            if (_held)
+                return;
+            _held = true;
+            Core.forbidInputs = true;
+            if (Player.Instance != null)
+                Player.Instance.invulnerable = true;
+            try { Singleton<UI>.Instance?.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 1f); }
+            catch { /* UI not ready */ }
+        }
+
+        /// <summary>The share failed and this client stays in the old world: hand it back.</summary>
+        internal static void Release()
+        {
+            if (!_held)
+                return;
+            _held = false;
+            Core.forbidInputs = false;
+            if (Player.Instance != null)
+                Player.Instance.invulnerable = false;
+            try { Singleton<UI>.Instance?.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 1f); }
+            catch { /* UI not ready */ }
+        }
+
+        /// <summary>The new chapter's scene replaced everything; forget the hold.</summary>
+        internal static void Forget() => _held = false;
     }
 }
