@@ -410,7 +410,11 @@ namespace DWMPHorde.Audio
                 if (src == null)
                     return default;
                 a.Known = true;
-                a.Spatial = src.spatialBlend >= 0.99f;
+                // Any 3D share means the source rolls off out to its max distance. The loud NPC
+                // prefab (AO_loud_NPCs_3d: dog bark, attack, defensive loop) blends by a curve,
+                // 2D at the source and 3D from ~190 out to 1500; spatialBlend reads the curve's
+                // start (0), and the old >= 0.99 test made it a 2D sound capped at 650.
+                a.Spatial = FarSpatialBlend(src) > 0f;
                 a.MaxDistance = item.overrideAudioSourceSettings ? item.audioSource_MaxDistance : src.maxDistance;
                 a.Loop = item.Loop != AudioItem.LoopMode.DoNotLoop;
             }
@@ -423,9 +427,26 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// How far from the listener this sound is worth playing: a 3D sound as far as the game
-        /// lets it carry (never less than the peer range, which peer sounds are spatialized to);
-        /// a 2D sound has no falloff of its own, so the peer range.
+        /// The source's largest spatial blend: its spatial-blend curve when it has one (Unity
+        /// evaluates it over distance / maxDistance), else the flat <c>spatialBlend</c>.
+        /// </summary>
+        private static float FarSpatialBlend(AudioSource src)
+        {
+            float blend = src.spatialBlend;
+            AnimationCurve curve = src.GetCustomCurve(AudioSourceCurveType.SpatialBlend);
+            Keyframe[] keys = curve != null ? curve.keys : null;
+            if (keys != null)
+            {
+                for (int i = 0; i < keys.Length; i++)
+                    blend = Mathf.Max(blend, keys[i].value);
+            }
+            return blend;
+        }
+
+        /// <summary>
+        /// How far from the listener this sound is worth playing: a sound with any 3D share as
+        /// far as the game lets it carry (never less than the peer range, which peer sounds are
+        /// spatialized to); a fully 2D sound has no falloff of its own, so the peer range.
         /// </summary>
         public static float AudibleRange(string audioID)
         {

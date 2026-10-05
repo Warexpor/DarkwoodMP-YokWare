@@ -218,7 +218,8 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                // Release MovePosition/kinematic drive before clearing maps.
+                // Release the pose drive (interpolation, kinematic) before clearing maps.
+                ClientEntityInterpolationService.ReleaseAllDrivenBodies();
                 ClientEntityInterpolationService.ReleaseAuthorityForPromote();
             }
             catch (Exception ex)

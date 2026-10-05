@@ -76,15 +76,118 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Which player body a chasing creature stays on. Vanilla <c>canSeeEnemy</c> sets
+    /// <c>target</c> to every visible character in turn, so the last one in
+    /// <c>charactersInSight</c> wins each sight check (0.5-1 s); that list follows the physics
+    /// overlap order, not distance. <c>checkForNewEnemyCloserThanTarget</c> (patched to the
+    /// nearest) then runs every 2.5-3.5 s. Vanilla has one player body, so both agree; with the
+    /// host and a client in view they disagreed and the chase flipped between the two bodies,
+    /// re-pathing and turning on the spot each time (the creature stutter-chased one player and
+    /// was easy to dodge). One rule for both now: a creature chasing a player body keeps it while
+    /// that body is alive and in sight, and moves to another player body only when that one is
+    /// clearly nearer.
+    /// </summary>
+    internal static class PlayerChaseTarget
+    {
+        /// <summary>
+        /// Another player body must be nearer than this share of the current one's distance to
+        /// take the chase over. Near-equal distances (two players side by side, or crossing) keep
+        /// the creature on the body it is already after.
+        /// </summary>
+        internal const float SwitchDistanceRatio = 0.75f;
+
+        internal static bool IsPlayerBody(Transform t)
+        {
+            if (t == null)
+                return false;
+            Player host = Player.Instance;
+            if (host != null && (t == host.transform || t == host._transform))
+                return true;
+            return CanSeeComponentCache.IsProxy(t);
+        }
+
+        internal static bool ClearlyNearer(float candidateDist, float currentDist)
+            => candidateDist < currentDist * SwitchDistanceRatio;
+
+        /// <summary>
+        /// The body is alive, can be seen by AI and this creature senses it: in its sight list, or
+        /// for a stand-in the same sight / smell test <see cref="HostCanSeeEnemyPatch"/> uses
+        /// (vanilla's ray only counts the stand-in's root collider).
+        /// </summary>
+        internal static bool StillHeld(Character c, Transform body)
+        {
+            if (body == null)
+                return false;
+            Player host = Player.Instance;
+            bool isHost = host != null && (body == host.transform || body == host._transform);
+            CharBase cb = isHost ? CanSeeComponentCache.HostCharBase() : body.GetComponent<CharBase>();
+            if (cb == null || !cb.alive || cb.invisible || cb.ignoreMe)
+                return false;
+            if (c.charactersInSight.Contains(cb))
+                return true;
+            return !isHost && SensesProxy(c, body);
+        }
+
+        private static bool SensesProxy(Character c, Transform body)
+        {
+            CanSeeComponentCache.Get(c, out Sniffer sniffer, out Collider _);
+            float sniffR = sniffer != null ? sniffer.radius : 0f;
+            float range = Mathf.Max((float)c.farViewDistance * c.aniSightRangeModifier, sniffR);
+            Vector3 to = body.position - c.transform.position;
+            float d = to.magnitude;
+            if (d > range)
+                return false;
+            bool inFov = Vector3.Angle(to, c.transform.up) <= (float)c.fieldOfViewRange;
+            if (!inFov)
+                return sniffer != null && d < sniffR;
+            return Physics.Raycast(c.transform.position, to, out var hit, d, 18909185)
+                && hit.collider != null
+                && hit.collider.GetComponentInParent<RemotePlayerProxy>() is RemotePlayerProxy p
+                && p.transform == body;
+        }
+
+        /// <summary>
+        /// After vanilla's sight loop: if it moved a chasing creature from one player body to
+        /// another, put the chase back unless the committed body is lost or the new one is clearly
+        /// nearer. Other targets (other factions, doors) stay vanilla's.
+        /// </summary>
+        internal static void KeepCommitted(Character c, Transform committed)
+        {
+            if (committed == null || c.target == null || c.target == committed)
+                return;
+            if (c.behaviour != Character.Behaviour.chasingTarget || !IsPlayerBody(c.target))
+                return;
+            if (!StillHeld(c, committed))
+                return;
+            Vector3 from = c.transform.position;
+            if (ClearlyNearer(Core.trueDistance(from, c.target.position), Core.trueDistance(from, committed.position)))
+                return;
+            c.target = committed;
+        }
+    }
+
     [HarmonyPatch(typeof(Character), "canSeeEnemy")]
     public static class HostCanSeeEnemyPatch
     {
+        /// <summary>The player body this creature was chasing before vanilla's sight loop ran.</summary>
+        private static void Prefix(Character __instance, ref Transform __state)
+        {
+            __state = null;
+            if (!HostPlayerIdentity.HostWithRemotes() || __instance == null)
+                return;
+            if (__instance.behaviour == Character.Behaviour.chasingTarget
+                && PlayerChaseTarget.IsPlayerBody(__instance.target))
+                __state = __instance.target;
+        }
+
         [HarmonyPriority(Priority.Last)]
-        private static void Postfix(Character __instance)
+        private static void Postfix(Character __instance, Transform __state)
         {
             // Solo host (no remotes yet / all left) keeps vanilla targeting untouched.
             if (!HostPlayerIdentity.HostWithRemotes())
                 return;
+            PlayerChaseTarget.KeepCommitted(__instance, __state);
             if (__instance.dummy || __instance.blind || !__instance.alive)
                 return;
 

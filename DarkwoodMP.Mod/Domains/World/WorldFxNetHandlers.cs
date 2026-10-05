@@ -39,15 +39,17 @@ namespace DWMPHorde.Networking
             }
             // Outside interest the copy is not driven: it stands where it was last seen.
             if (!ClientEntityInterpolationService.IsInClientInterest(c.transform.position))
+            {
+                EntitySyncLog.Reaction("snd:far",
+                    "[EntitySound] outside interest id=" + msg.HostId + " sound=" + msg.SoundId, 2f);
                 return;
-
-            EntitySyncLog.Reaction(msg.HostId + ":" + msg.Kind,
-                "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
-                + " kind=" + msg.Kind + " id=" + msg.SoundId, 0.35f);
+            }
 
             if (msg.Kind == EntitySoundKind.Death)
             {
                 ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
+                EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundId,
+                    "[EntitySound] death line id=" + msg.HostId + " " + (c.name ?? "") + " id=" + msg.SoundId, 0.35f);
                 return;
             }
             if (msg.Kind == EntitySoundKind.GetHit
@@ -63,6 +65,7 @@ namespace DWMPHorde.Networking
             bool prevInside = TraverseHack.InsideCharacterSounds;
             TraverseHack.SetExplicitFlag(true);
             TraverseHack.InsideCharacterSounds = true;
+            AudioObject played = null;
             try
             {
                 // Reverb on the copy comes from CharBase.isInside, which only checkGround refreshes.
@@ -70,22 +73,22 @@ namespace DWMPHorde.Networking
                 switch (msg.Kind)
                 {
                     case EntitySoundKind.Play:
-                        s.playedAO = AudioController.Play(msg.SoundId, s.transform);
+                        played = s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
                     case EntitySoundKind.Single:
                         if (s.playedAO != null && s.playedAO.IsPlaying() && s.playedAO.transform.parent == s.transform)
                             s.playedAO.Stop();
-                        s.playedAO = AudioController.Play(msg.SoundId, s.transform);
+                        played = s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
                     case EntitySoundKind.Attached:
-                        AudioController.Play(msg.SoundId, s.transform, Mathf.Clamp01(msg.Volume));
+                        played = AudioController.Play(msg.SoundId, s.transform, Mathf.Clamp01(msg.Volume));
                         break;
                     case EntitySoundKind.GetHit:
-                        AudioController.Play(msg.SoundId, s.transform);
+                        played = AudioController.Play(msg.SoundId, s.transform);
                         break;
                     default:
                         EntitySyncLog.Reaction("snd:kind", "[EntitySound] unknown kind " + msg.Kind, 5f);
-                        break;
+                        return;
                 }
             }
             finally
@@ -93,6 +96,23 @@ namespace DWMPHorde.Networking
                 TraverseHack.InsideCharacterSounds = prevInside;
                 TraverseHack.SetExplicitFlag(prevNet);
             }
+            LogApplied(msg, c, s, played);
+        }
+
+        /// <summary>
+        /// Applied is not played: AudioController.Play returns null for a distance cull
+        /// (AudioSuppressionLogic logs those), MinTimeBetweenPlayCalls, a missing item or clip.
+        /// </summary>
+        private static void LogApplied(EntitySoundMessage msg, Character c, CharacterSounds s, AudioObject played)
+        {
+            if (!EntitySyncLog.On)
+                return;
+            EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundId,
+                () => "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
+                    + " kind=" + msg.Kind + " id=" + msg.SoundId
+                    + (played != null ? " played" : " NOT played")
+                    + " d=" + LocalAudioService.DistanceToListenerXz(s.transform.position).ToString("F0")
+                    + " range=" + LocalAudioService.AudibleRange(msg.SoundId).ToString("F0"), 0.35f);
         }
 
         /// <summary>

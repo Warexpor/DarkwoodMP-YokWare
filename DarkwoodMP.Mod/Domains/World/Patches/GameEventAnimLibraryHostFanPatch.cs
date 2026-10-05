@@ -28,8 +28,8 @@ namespace DWMPHorde.Patches
         private sealed class State
         {
             public string Expected;
-            public readonly List<int> Ids = new List<int>(64);
-            public readonly List<string> Before = new List<string>(64);
+            /// <summary>Instance id → library before the step (a list IndexOf was O(n²) over every character).</summary>
+            public readonly Dictionary<int, string> Before = new Dictionary<int, string>(64);
         }
 
         private static bool Prepare() => TargetMethod() != null;
@@ -71,8 +71,7 @@ namespace DWMPHorde.Patches
             {
                 Character c = all[i];
                 if (c == null) continue;
-                st.Ids.Add(c.GetInstanceID());
-                st.Before.Add(c.animationLibraryOverride ?? "");
+                st.Before[c.GetInstanceID()] = c.animationLibraryOverride ?? "";
             }
         }
 
@@ -94,10 +93,8 @@ namespace DWMPHorde.Patches
             {
                 Character c = all[i];
                 if (c == null) continue;
-                int id = c.GetInstanceID();
-                int idx = __state.Ids.IndexOf(id);
-                if (idx < 0) continue;
-                string was = __state.Before[idx] ?? "";
+                if (!__state.Before.TryGetValue(c.GetInstanceID(), out string was)) continue;
+                was = was ?? "";
                 string now = c.animationLibraryOverride ?? "";
                 if (now == was) continue;
                 if (now != expected) continue;

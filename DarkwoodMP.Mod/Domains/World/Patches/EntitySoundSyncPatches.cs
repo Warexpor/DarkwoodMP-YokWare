@@ -52,8 +52,11 @@ namespace DWMPHorde.Patches
                 return false;
             if (!CharacterTracker.TryGetStableId(c, out short hostId) || hostId == 0)
                 return false;
-            // Within this sound's own carry of some player (a spectator listens at the one it follows).
-            if (!LocalAudioService.IsNearAnyListener(c.transform.position, LocalAudioService.AudibleRange(soundId)))
+            // Within this sound's own carry of some player (a spectator listens at the one it follows),
+            // and within client interest: a copy past it is not driven and drops the sound.
+            float range = Mathf.Min(LocalAudioService.AudibleRange(soundId),
+                ClientEntityInterpolationService.ClientInterestDistance);
+            if (!LocalAudioService.IsNearAnyListener(c.transform.position, range))
                 return true;
 
             var msg = new EntitySoundMessage
@@ -105,10 +108,9 @@ namespace DWMPHorde.Patches
 
         private static bool Prefix(CharacterSounds __instance, out bool __state)
         {
-            __state = false;
+            __state = TraverseHack.InsideCharacterSounds;
             if (!EntityLoopSync.Applying && EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
                 return false;
-            __state = TraverseHack.InsideCharacterSounds;
             TraverseHack.InsideCharacterSounds = true;
             return true;
         }
@@ -116,6 +118,33 @@ namespace DWMPHorde.Patches
         private static void Finalizer(bool __state)
         {
             TraverseHack.InsideCharacterSounds = __state;
+        }
+    }
+
+    /// <summary>
+    /// Every machine: the loop vanilla playIdleLoop chose (<see cref="EntityLoopSync"/>). The host
+    /// sends that choice, not its own AudioObject, which its distance cull may have refused.
+    /// playEscapingLoop goes through playIdleLoop.
+    /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playIdleLoop", new[] { typeof(string), typeof(bool) })]
+    public static class CreatureLoopIntentPatch
+    {
+        private static void Postfix(CharacterSounds __instance, string loopName, bool __runOriginal)
+        {
+            if (__runOriginal && __instance != null && !__instance.isPlayer)
+                EntityLoopSync.NoteVanillaPlayIdleLoop(__instance, loopName);
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "destroySounds")]
+    public static class CreatureLoopIntentClearPatch
+    {
+        private static void Postfix(CharacterSounds __instance, bool __runOriginal)
+        {
+            if (__runOriginal && __instance != null && !__instance.isPlayer)
+                EntityLoopSync.NoteVanillaDestroySounds(__instance);
         }
     }
 

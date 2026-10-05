@@ -68,10 +68,11 @@ namespace DWMPHorde.Networking
                     if (elapsed > MaxInterpDelay)
                     {
                         // Nothing new: the host skips a body that does not change. Sit on its
-                        // last host pose until the next snapshot.
+                        // last host pose (and clip) until the next snapshot.
                         pose = state.Timeline.Newest;
                         state.hasTarget = false;
                         state.staleSince = now;
+                        PresentTimelineClip(tracked, id, state, pose.T);
                     }
                     else
                     {
@@ -86,6 +87,7 @@ namespace DWMPHorde.Networking
                             : Mathf.MoveTowards(state.delay, want, DelaySlewPerSec * Time.unscaledDeltaTime);
                         float renderTime = _hostClock.ToHost(Time.unscaledTime) - state.delay;
                         state.Timeline.Sample(renderTime, MaxExtrapolateSec, out pose);
+                        PresentTimelineClip(tracked, id, state, renderTime);
                     }
                     _displayPositions[id] = new Vector3(pose.X, pose.Y, pose.Z);
                     _displayRotations[id] = pose.RotY;
@@ -124,17 +126,13 @@ namespace DWMPHorde.Networking
                     rbPos = tracked.GetComponent<Rigidbody>();
                     state.CachedRb = rbPos;
                 }
-                if (rbPos != null)
-                    rbPos.MovePosition(_displayPositions[id]);
-                else
-                    tracked.transform.position = _displayPositions[id];
-                Vector3 rot = tracked.transform.eulerAngles;
-                rot.y = _displayRotations[id];
-                tracked.transform.eulerAngles = rot;
+                WriteShownPose(tracked, rbPos, _displayPositions[id], _displayRotations[id]);
             }
 
             for (int i = 0; i < _staleKeys.Count; i++)
             {
+                if (_states.TryGetValue(_staleKeys[i], out EntityInterpState gone))
+                    ReleaseDrivenBody(gone.CachedRb);
                 _states.Remove(_staleKeys[i]);
             }
 
@@ -201,6 +199,85 @@ namespace DWMPHorde.Networking
 
                 _unmatchedSince.Remove(c);
             }
+        }
+
+        /// <summary>
+        /// Interpolation setting each driven body had before the client took it over; handed back
+        /// when it stops being driven. Keyed by the body: a session reset forgets the ids, not this.
+        /// </summary>
+        private static readonly Dictionary<Rigidbody, RigidbodyInterpolation> _drivenInterpolation = new Dictionary<Rigidbody, RigidbodyInterpolation>(32); // process-scoped: keyed by body, restored by ReleaseDrivenBody / ReleaseAllDrivenBodies
+        private static readonly List<Rigidbody> _drivenScratch = new List<Rigidbody>(16); // process-scoped: scratch buffer, cleared before each use
+
+        /// <summary>
+        /// Put a host-driven body at its rendered pose this frame. Rigidbody.MovePosition on these
+        /// non-kinematic bodies only moved them at the next physics step (100 Hz), so a creature
+        /// stepped 2-3 rendered frames at a time while the pose was sampled every frame. The
+        /// transform is written for the frame being drawn and the body for physics (the player's
+        /// collisions and hits test it); its velocity stays zero, the host owns the motion. Rigidbody
+        /// interpolation would overwrite the written transform with an older physics pose on the
+        /// next frame, so it is off while the client drives the body.
+        /// </summary>
+        private static void WriteShownPose(Character c, Rigidbody rb, Vector3 pos, float rotY)
+        {
+            Transform t = c.transform;
+            Vector3 euler = t.eulerAngles;
+            euler.y = rotY;
+            Quaternion rot = Quaternion.Euler(euler);
+            if (rb != null)
+            {
+                if (rb.interpolation != RigidbodyInterpolation.None)
+                {
+                    if (!_drivenInterpolation.ContainsKey(rb))
+                    {
+                        if (_drivenInterpolation.Count >= 256)
+                            PruneDrivenInterpolation();
+                        _drivenInterpolation[rb] = rb.interpolation;
+                    }
+                    rb.interpolation = RigidbodyInterpolation.None;
+                }
+                rb.position = pos;
+                rb.rotation = rot;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+            }
+            t.SetPositionAndRotation(pos, rot);
+        }
+
+        /// <summary>The client stopped driving this body: give it back its own interpolation.</summary>
+        private static void ReleaseDrivenBody(Rigidbody rb)
+        {
+            if (ReferenceEquals(rb, null) || !_drivenInterpolation.TryGetValue(rb, out RigidbodyInterpolation was))
+                return;
+            _drivenInterpolation.Remove(rb);
+            if (rb != null)
+                rb.interpolation = was;
+        }
+
+        /// <summary>Host promotion: every driven body goes back to its own settings before vanilla runs it.</summary>
+        internal static void ReleaseAllDrivenBodies()
+        {
+            foreach (var kv in _drivenInterpolation)
+            {
+                if (kv.Key != null)
+                    kv.Key.interpolation = kv.Value;
+            }
+            _drivenInterpolation.Clear();
+        }
+
+        private static void PruneDrivenInterpolation()
+        {
+            _drivenScratch.Clear();
+            foreach (var kv in _drivenInterpolation)
+            {
+                if (kv.Key == null)
+                    _drivenScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _drivenScratch.Count; i++)
+                _drivenInterpolation.Remove(_drivenScratch[i]);
+            _drivenScratch.Clear();
         }
 
         private static bool HasSyncedTwin(Character c, Character[] allChars, int count)

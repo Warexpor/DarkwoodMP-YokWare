@@ -152,6 +152,7 @@ namespace DWMPHorde.Patches
 
             // Hit SFX + Hit roll locally (host owns damage). Echo GetHit is ignored briefly.
             ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash);
+            ClientEntityInterpolationService.HoldTimelineClipsNow(nameHash);
 
             Vector3 pos = local != null ? local.transform.position : c.transform.position;
             int dmg = Mathf.Max(1, (int)((float)__instance.damage * strengthMod));

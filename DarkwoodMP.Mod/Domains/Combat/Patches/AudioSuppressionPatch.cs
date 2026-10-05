@@ -1,4 +1,5 @@
 using DWMPHorde.Audio;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Spectator;
 using DWMPHorde.Sync;
@@ -96,11 +97,27 @@ namespace DWMPHorde.Patches
                 pos = parentObj.position;
 
             // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
-            if (LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.AudibleRange(audioID)))
+            float range = LocalAudioService.AudibleRange(audioID);
+            if (LocalAudioService.IsNearListenerPeerBand(pos, range))
                 return true;
 
+            LogCreatureCull(audioID, pos, range, parentObj);
             __result = null;
             return false;
+        }
+
+        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace.</summary>
+        private static void LogCreatureCull(string audioID, Vector3 pos, float range, Transform parentObj)
+        {
+            if (parentObj == null || !EntitySyncLog.On)
+                return;
+            Character c = parentObj.GetComponentInParent<Character>();
+            if (c == null)
+                return;
+            EntitySyncLog.Reaction("cull:" + audioID,
+                () => "[AudioCull] " + audioID + " on " + (c.name ?? "") + " d="
+                    + LocalAudioService.DistanceToListenerXz(pos).ToString("F0")
+                    + " range=" + range.ToString("F0"), 2f);
         }
 
         /// <summary>Menu BGM, UI, and playlist music must never be distance-culled in co-op.</summary>

@@ -249,7 +249,7 @@ namespace DWMPHorde.Sync
             return go;
         }
 
-        /// <summary>Largest distance a full-scene scan match may sit from the reported pose.</summary>
+        /// <summary>Largest distance a wide-resolve (strategy 2) match may sit from the reported pose.</summary>
         private const float FullScanMaxDist = 50f;
 
         /// <summary>
@@ -294,7 +294,7 @@ namespace DWMPHorde.Sync
                 return RememberResolved(obj.Name, candidate);
             }
 
-            // Strategy 1b: wider sphere before full-scene scan (client stutter when host
+            // Strategy 1b: wider sphere before the wide resolve (client stutter when host
             // pushes objects away and can miss a small OverlapSphere query.
             {
                 int wideN = OverlapNear(targetPos, 15f);
@@ -320,39 +320,52 @@ namespace DWMPHorde.Sync
                     return RememberResolved(obj.Name, bestWide);
             }
 
-            // Strategy 2: rate-limited full Rigidbody scan (scene-wide FindObjectsOfType
-            // every PhysicsState packet was a dual-box hitch source).
+            // Strategy 2 (rate-limited): every body within FullScanMaxDist. Bodies with a live
+            // collider come from one wide OverlapSphere; pushable props without one (collider off,
+            // object inactive) are Items, read from the Item registry. This used to be a
+            // scene-wide Rigidbody FindObjectsOfType (35-50 ms), a dual-box hitch source.
             float nowScan = Time.time;
             if (nowScan - _s.LastFullRbScanTime >= FullRbScanMinInterval)
             {
                 _s.LastFullRbScanTime = nowScan;
                 DWMPHorde.Logging.ClientPerfProbe.NoteFullRbScan();
-                var footSw = System.Diagnostics.Stopwatch.StartNew();
-                Rigidbody[] allRbs = WorldQueryHelper.GetCachedSceneComponents<Rigidbody>();
-                footSw.Stop();
-                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType("Rigidbody", footSw.Elapsed.TotalMilliseconds);
                 GameObject best = null;
                 float bestDist = float.MaxValue;
-                for (int i = 0; i < allRbs.Length; i++)
+
+                void Consider(GameObject candidate)
                 {
-                    Rigidbody rb = allRbs[i];
-                    if (rb == null) continue;
-                    GameObject candidate = rb.gameObject;
                     // Bounded: an unbounded name match found the overworld twin of a dream-pad
                     // crate (≈70k units away) and the hard snap then dragged it to -75000.
-                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, FullScanMaxDist)) continue;
-                    if (!IsSameWorldAsTarget(candidate.transform, targetPos)) continue;
                     float d = Vector3.Distance(candidate.transform.position, targetPos);
-                    if (d < bestDist)
-                    {
-                        bestDist = d;
-                        best = candidate;
-                    }
+                    if (d > FullScanMaxDist || d >= bestDist) return;
+                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, FullScanMaxDist)) return;
+                    if (!IsSameWorldAsTarget(candidate.transform, targetPos)) return;
+                    bestDist = d;
+                    best = candidate;
+                }
+
+                int farN = OverlapNear(targetPos, FullScanMaxDist);
+                for (int i = 0; i < farN; i++)
+                {
+                    Rigidbody rb = _overlap3D[i] != null ? _overlap3D[i].attachedRigidbody : null;
+                    if (rb != null)
+                        Consider(rb.gameObject);
+                }
+                Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
+                for (int i = 0; i < items.Length; i++)
+                {
+                    Item it = items[i];
+                    if (it == null) continue;
+                    // Distance first: GetComponent and name reads only for the few close ones.
+                    if ((it.transform.position - targetPos).sqrMagnitude > FullScanMaxDist * FullScanMaxDist)
+                        continue;
+                    if (it.GetComponent<Rigidbody>() != null)
+                        Consider(it.gameObject);
                 }
                 if (best != null)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo($"[ObjectApply] found \"{best.name}\" via full scan ({bestDist.ToString("F1")} u from target)");
+                        ModRuntime.LegacyInfo($"[ObjectApply] found \"{best.name}\" via wide resolve ({bestDist.ToString("F1")} u from target)");
                     return RememberResolved(obj.Name, best);
                 }
             }

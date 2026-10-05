@@ -192,6 +192,115 @@ host's sends during its prologue ran alongside. Found and fixed:
   stand-in and to a remote match light copied from a live one). Checked in a pilot run: 9
   light meshes, none shared, no errors.
 
+### Hitches from scene scans
+
+- **The game froze for a moment many times a session: about a third of a second on the host
+  when someone joined, then short stutters for several seconds after, a 36 ms stutter every
+  10 seconds on the host the whole session, and hitches on clients when an event, a map
+  discovery, a door, station, journal pickup, examine, explosion, cutscene, push or porter
+  update or a cursor action arrived.** Almost every one was the mod
+  searching the whole world for one kind of object (`FindObjectsOfType`, 35-50 ms each in this
+  world): the light late-join bulk did about 13 of them in one frame, each phase of the heavy
+  bulk did one, the host's trap ledger did one every 10 s, and the net handlers did one whenever
+  their cached copy was older than 3 s or the object was not near a collider.
+- Those object kinds now have live registries: filled once when the world finishes loading
+  (one pass over every behaviour, inactive ones included, so a trader or a door shell that was
+  never switched on is still found; it runs in vanilla's last load frame, under the loading
+  screen, and logs its time as `[SceneRegistry] world seeded`), then kept by the objects' own
+  wake-up (Awake, or OnEnable / Start where vanilla has none), the whole object on Item / Door /
+  NPC / Character / thrown item wake (locks, constructibles, examinables, explosives and journal,
+  key and quest pickups have no wake-up of their own), Door.lockMe, and every additively loaded
+  scene (outside locations and dream pads, inactive parts included; only a full scene load, a
+  new world, drops back to the old search until that world is seeded). Destroyed objects drop
+  out on their own. Items, doors, windows, NPCs, characters, GameEvents, triggers, chains,
+  hideout machines, saws, feeders, lures, shadow armor, fires, padlocks, interactive items, gas,
+  infection, death bags, cursor actions, generators, inventories, dialogues, constructibles,
+  locks, locations, unique objects, item sounds, cutscene managers, examinables, explosives and
+  journal / key / quest pickups read them. Before the world has finished loading (title,
+  generation, an epilogue scene) the 3 s cached search is still used. Only the trap id rescan
+  on host promotion still searches the scene.
+- A pushed or moved object the client could not find near the reported spot was looked up with
+  a whole-world Rigidbody search every 2 s. It now takes one wide physics query (50 units, the
+  same bound) plus the Item registry for props whose collider is off.
+- The host's anim-library fan-out after a story event matched characters with a list lookup
+  per character (quadratic in the character count); it uses a dictionary now.
+- The trap ledger watches a trap when its trigger is registered and sweeps the registry once
+  when hosting starts or a world loads, instead of rescanning every 10 s.
+- Map discoveries (late-join bulk and each live discovery) read vanilla's own map element lists
+  (each map type's elements and `elementsToInitialize`) instead of searching for MapElements.
+  The name index is rebuilt only when those lists change.
+- The door / generator trackers' reset on disconnect reads the registries too.
+- `SceneRegistry.cs` (new), `WorldQueryHelper.cs`, `TrapLedger.cs`,
+  `MultiplayerMapManager.Discoveries.cs`, `BulkSyncNetHandlers.cs`, `EntityTrackers.cs`,
+  `WorldPhysicsSyncService.ObjectResolve.cs`, `GameEventAnimLibraryHostFanPatch.cs`,
+  `ModRuntime.cs`.
+
+### Creature sounds on the client
+
+- **A dog turned to the client and played its warning animation in silence, then attacked (the
+  attack was heard); the host was far away.** The dog's warning growl-bark is not an animation
+  sound: vanilla starts it as the creature's `defensive` loop (`setBehaviour` →
+  `playIdleLoop`; on the dog that field is `dog_aggressive_loop`), and the client copies the
+  loop the host sends in the entity snapshot. The host sent the loop it was itself playing, and
+  it had refused to play it: the dog's sounds use the loud NPC prefab, which blends from 2D at
+  the source to 3D further out and carries 1500 units, but the mod read only `spatialBlend` (the
+  curve's start, 0), took it for a 2D sound, and culled it 690 units from the host player. So no
+  loop went out and the client heard nothing. Every creature loop on that prefab was dropped the
+  same way whenever the host player was not near, and its one-shots stopped at 650 units.
+- The host now sends the loop the creature's AI chose (the last vanilla `playIdleLoop` /
+  `destroySounds`, by vanilla's own rules: underwater, underground, the chasing variant),
+  whether or not the host could hear it; each client's own range check decides if it plays.
+- A sound counts as 3D when its source has any 3D share (the spatial-blend curve is read, not
+  only its start), and then carries the game's own max distance. The dog's bark, attack and
+  loops now carry 1500 instead of 650. The host sends creature sounds within that range of a
+  player, capped at the client's 1400 interest range (past it a client's copy is not driven and
+  drops the sound), so both sides agree.
+- The occasional dog "whimper" was the dog's own idle call (`dog_bark`, every 15-30 s by day),
+  sent by the host as before. The client's hit and death sounds now restore the sound-scope flag
+  they found instead of clearing it.
+- Logs: a creature sound applied on the client now says whether it actually played, with its
+  distance and range; a creature sound refused by the distance cull is logged (rate-limited).
+- `EntityLoopSync.cs`, `EntitySoundSyncPatches.cs` (`CreatureLoopIntentPatch`,
+  `CreatureLoopIntentClearPatch`), `LocalAudioService.cs`, `AudioSuppressionPatch.cs`,
+  `WorldFxNetHandlers.cs`, `ClientEntityInterpolationService.cs`.
+
+### Creatures chasing the client
+
+- **A dog chasing the client stutter-chased him: it ran a little, turned on the spot, ran again
+  toward where he had been, and was easy to dodge; on the client its movement also looked
+  stuttery.** Four causes:
+  - **The host's dog kept switching between the two players.** Vanilla's sight check sets the
+    chase target to every character it sees in turn, so the last one in its sight list wins every
+    0.5-1 s, and that list follows the physics overlap order, not distance. The mod's "closer
+    enemy" check (every 2.5-3.5 s) then picked the nearest. With one player both agree; with the
+    host and the client in view they disagreed and the dog re-pathed and turned (`Run` →
+    `RotateLeft/Right_Start`) on every flip. Now a creature chasing a player keeps that player
+    while they are alive and it still sees or smells them, and moves to another player only when
+    that one is clearly nearer (under 75% of the distance). Single player is unchanged.
+    `PlayerChaseTarget` and `HostCanSeeEnemyPatch` (`HostAIPatches.Perception.CanSee.cs`),
+    `HostCheckForCloserEnemyPatch` (`HostDetectionGapPatches.cs`).
+  - **Clips ran ahead of the body on the client.** The body is drawn 75-150 ms behind the host
+    (the timeline), but the host's clip was played as soon as its packet arrived, so the dog turned
+    or stopped before its body did and slid. The clip now rides in the timeline sample and plays
+    when the drawn pose reaches it. Attacks, hits, going down, death and getting back up still
+    play on arrival, with the damage and sounds they belong to, and older clips do not override
+    them (`EnemyAttack` and the client's own hit hold the timeline). `EntityTimeline.cs`,
+    `ClientEntityInterpolationService.Snapshot.cs` / `.Tick.cs`, `EnemyAttackNetHandlers.cs`,
+    `ClientCombatPatches.cs`.
+  - **The body only moved at the physics rate.** The drawn pose was handed to
+    `Rigidbody.MovePosition`, which on these bodies only moves them at the next physics step
+    (100 Hz), so the creature stepped every 2-3 frames. The pose is now written to the transform
+    every frame and to the body for collisions and hits, with its velocity kept at zero and
+    Rigidbody interpolation off while the client drives it (given back when it stops driving it or
+    is promoted to host). `ClientEntityInterpolationService.Tick.cs`,
+    `HostMigration.Handoff.Promote.cs`.
+  - **A hitch of about 47 ms on the client for each host-spawned creature.** Its pending match
+    timed out and searched the whole world for a sleeping save body of that name, which a
+    creature the host spawned never has. The search reads the Character scene registry now (no
+    scan), and a host-spawned creature's prefab starts loading in the background when it is
+    first seen, not inside the spawn frame (the first load was another 20-35 ms).
+    `ClientEntityInterpolationService.Spawn.cs` / `.Snapshot.cs`.
+
 ### Story thoughts and hints missing (host and client)
 
 - **The character's thought lines ("yesterday I barricaded that window" and the like) and some

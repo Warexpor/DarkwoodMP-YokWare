@@ -7,9 +7,9 @@ namespace DWMPHorde.Sync
 {
     /// <summary>
     /// Scene spatial lookups for net apply handlers.
-    /// OverlapSphere first; use a short-TTL scene cache only when needed
-    /// (never FindObjectsOfTypeAll). Lures may have no collider, so uncached
-    /// scene scans are avoided on the client.
+    /// OverlapSphere first; on a miss, the type's scene registry (no scan) or, for
+    /// types without one, a short-TTL scene cache (never FindObjectsOfTypeAll).
+    /// Lures may have no collider, so uncached scene scans are avoided on the client.
     /// </summary>
     internal static class WorldQueryHelper
     {
@@ -98,8 +98,9 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Shared short-TTL scene scan for soft-match / bulk paths that cannot use
-        /// OverlapSphere alone. Prefer <see cref="FindNearest{T}"/> when possible.
+        /// Every scene T (inactive included) for soft-match / bulk paths that cannot use
+        /// OverlapSphere alone: the type's registry when it has one (<see cref="SceneRegistries"/>),
+        /// else a short-TTL scene scan. Prefer <see cref="FindNearest{T}"/> when possible.
         /// </summary>
         public static T[] GetCachedSceneComponents<T>() where T : Component
             => SceneScanCache<T>.Get();
@@ -148,7 +149,12 @@ namespace DWMPHorde.Sync
             WorldPhysicsSyncService.InvalidateDreamPropColliderCache();
         }
 
-        /// <summary>Per-T scene array, refreshed at most every <see cref="SceneScanTtl"/> seconds.</summary>
+        /// <summary>
+        /// Per-T scene array. Types with a <see cref="SceneRegistry{T}"/> read it once the world is
+        /// seeded (same objects, inactive included, no scan; invalidating them is a no-op since the
+        /// registry is live). Other types, and every type before the seed, scan at most every
+        /// <see cref="SceneScanTtl"/> seconds.
+        /// </summary>
         private static class SceneScanCache<T> where T : Component
         {
             private static T[] _items = Array.Empty<T>(); // process-scoped: short-TTL scene cache, dropped by InvalidateCommonSceneScanCaches on stop
@@ -156,6 +162,8 @@ namespace DWMPHorde.Sync
 
             public static T[] Get()
             {
+                if (SceneRegistries.Covers<T>())
+                    return SceneRegistry<T>.Snapshot();
                 float now = Time.unscaledTime;
                 if (_items.Length == 0 && _at < 0f || now - _at >= SceneScanTtl)
                 {

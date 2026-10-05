@@ -260,7 +260,9 @@ namespace DWMPHorde.Patches
     /// The original checkForNewEnemyCloserThanTarget just picks the first valid
     /// entry in charactersInSight regardless of distance. This Prefix replaces
     /// it with a version that actually finds the CLOSEST enemy, so entities
-    /// switch between host and proxy based on proximity.
+    /// switch between host and proxy based on proximity. From one player body to
+    /// another only when the other is clearly nearer (<see cref="PlayerChaseTarget"/>),
+    /// the same rule the sight check keeps.
     /// </summary>
     [HarmonyPatch(typeof(Character), "checkForNewEnemyCloserThanTarget")]
     public static class HostCheckForCloserEnemyPatch
@@ -282,8 +284,15 @@ namespace DWMPHorde.Patches
             float currentDist = currentTarget != null
                 ? Core.trueDistance(__instance.transform.position, currentTarget.position)
                 : float.MaxValue;
-            float closestDist = currentDist;
+            // A player body still alive and sensed is held until another is clearly nearer; one
+            // this creature lost gives way to whoever it does see.
+            bool targetIsPlayer = PlayerChaseTarget.IsPlayerBody(currentTarget);
+            bool targetHeld = targetIsPlayer && PlayerChaseTarget.StillHeld(__instance, currentTarget);
+            float closestDist = targetIsPlayer && !targetHeld ? float.MaxValue : currentDist;
             Transform closestTransform = null;
+            float playerSwitchDist = targetHeld
+                ? currentDist * PlayerChaseTarget.SwitchDistanceRatio
+                : float.MaxValue;
 
             for (int i = 0; i < __instance.charactersInSight.Count; i++)
             {
@@ -293,6 +302,7 @@ namespace DWMPHorde.Patches
                 if (cb.transform == currentTarget) continue;
 
                 float d = Core.trueDistance(__instance.transform.position, cb.transform.position);
+                if (d >= playerSwitchDist && PlayerChaseTarget.IsPlayerBody(cb.transform)) continue;
                 if (d < closestDist)
                 {
                     closestDist = d;

@@ -57,6 +57,40 @@ public class EntityTimelineTests
         Assert.Equal(EntityTimeline.Capacity + 4, tl.Newest.X, 3);
     }
 
+    private static TimelineSample C(float t, string clip) =>
+        new TimelineSample { T = t, HasClip = true, Clip = clip };
+
+    [Fact]
+    public void TakeClip_ShowsEachClipWhenTheRenderTimeReachesIt_Once()
+    {
+        var tl = new EntityTimeline();
+        tl.Add(C(1.00f, "Run"), 0.1f);
+        tl.Add(C(1.05f, "RotateLeft_Start"), 0.1f);
+        Assert.False(tl.TakeClip(0.99f, out _));
+        Assert.True(tl.TakeClip(1.02f, out TimelineSample run));
+        Assert.Equal("Run", run.Clip);
+        Assert.False(tl.TakeClip(1.03f, out _));
+        Assert.True(tl.TakeClip(1.06f, out TimelineSample rot));
+        Assert.Equal("RotateLeft_Start", rot.Clip);
+        Assert.False(tl.TakeClip(2f, out _));
+    }
+
+    [Fact]
+    public void TakeClip_SkipsSamplesUpToAClipPlayedOnArrival_AndPoseHolds()
+    {
+        var tl = new EntityTimeline();
+        tl.Add(C(1.00f, "Run"), 0.1f);
+        tl.Add(C(1.05f, "Attack1"), 0.1f);
+        tl.HoldClipsThrough(1.05f); // the attack played when it arrived
+        Assert.False(tl.TakeClip(1.02f, out _));
+        Assert.False(tl.TakeClip(1.06f, out _));
+        // Quiet gap: the client-made pose hold does not replay the attack.
+        tl.Add(C(2.00f, "Idle"), 0.1f);
+        Assert.False(tl.TakeClip(1.95f, out _));
+        Assert.True(tl.TakeClip(2.00f, out TimelineSample idle));
+        Assert.Equal("Idle", idle.Clip);
+    }
+
     [Fact]
     public void LerpAngle_TakesTheShortWay()
     {

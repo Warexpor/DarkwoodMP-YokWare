@@ -18,12 +18,14 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<long, ItemSpawnMessage> _placed = new Dictionary<long, ItemSpawnMessage>(); // reset-in: Reset
         private static readonly List<KeyValuePair<Vector3, string>> _removed = new List<KeyValuePair<Vector3, string>>(); // reset-in: Reset
         private static float _nextScan; // reset-in: Reset
+        private static int _sweptGeneration = -1; // reset-in: Reset
 
         internal static void Reset()
         {
             _placed.Clear();
             _removed.Clear();
             _nextScan = 0f;
+            _sweptGeneration = -1;
         }
 
         internal static bool Active
@@ -60,20 +62,55 @@ namespace DWMPHorde.Sync
             _removed.Clear();
         }
 
-        /// <summary>Host tick: watch every world trap (location traps appear as locations spawn).</summary>
+        /// <summary>
+        /// Host tick: once the ledger turns active (and again after each world seed), watch every
+        /// world trap in the trigger registry. Traps that appear later (placed, or in a location
+        /// that spawns) are watched as they register (<see cref="OnTriggerRegistered"/>); this
+        /// used to be a full Trigger scene scan every 10 s (~36 ms stutter each time).
+        /// </summary>
         internal static void Tick()
         {
-            if (!Active || Time.unscaledTime < _nextScan)
-                return;
-            _nextScan = Time.unscaledTime + 10f;
-            Trigger[] all = WorldQueryHelper.GetCachedSceneComponents<Trigger>();
-            for (int i = 0; i < all.Length; i++)
+            if (!Active)
             {
-                // The host's own prologue pad traps: freeing the pad must not log them as gone.
-                if (all[i] != null && TrapNetworkId.IsWorldTrap(all[i].gameObject)
-                    && !PersonalPrologue.IsOnProloguePad(all[i].transform))
-                    Watch(all[i].gameObject);
+                _sweptGeneration = -1;
+                return;
             }
+            if (!SceneRegistries.Covers<Trigger>())
+            {
+                // World not seeded (no WorldGenerator finish seen): keep the periodic scan.
+                if (Time.unscaledTime < _nextScan)
+                    return;
+                _nextScan = Time.unscaledTime + 10f;
+                Sweep(WorldQueryHelper.GetCachedSceneComponents<Trigger>());
+                return;
+            }
+            if (_sweptGeneration == SceneRegistries.Generation)
+                return;
+            _sweptGeneration = SceneRegistries.Generation;
+            Sweep(SceneRegistry<Trigger>.Snapshot());
+        }
+
+        /// <summary>Trigger registry: a trigger woke or a location's triggers were registered.</summary>
+        internal static void OnTriggerRegistered(Trigger t)
+        {
+            // Until the activation sweep has run, that sweep picks it up.
+            if (_sweptGeneration != SceneRegistries.Generation || !Active)
+                return;
+            WatchIfWorldTrap(t);
+        }
+
+        private static void Sweep(Trigger[] all)
+        {
+            for (int i = 0; i < all.Length; i++)
+                WatchIfWorldTrap(all[i]);
+        }
+
+        private static void WatchIfWorldTrap(Trigger t)
+        {
+            // The host's own prologue pad traps: freeing the pad must not log them as gone.
+            if (t != null && TrapNetworkId.IsWorldTrap(t.gameObject)
+                && !PersonalPrologue.IsOnProloguePad(t.transform))
+                Watch(t.gameObject);
         }
 
         private static void Watch(GameObject go)
