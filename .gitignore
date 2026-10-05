@@ -77,6 +77,7 @@ appsettings.*.local.json
 !/scripts/build-loaders.sh
 !/scripts/pack-release.sh
 !/scripts/pack-release.ps1
+!/scripts/unity-yaml.py
 /tools/
 /libs/
 
