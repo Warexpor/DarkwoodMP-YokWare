@@ -61,7 +61,9 @@ namespace DWMPHorde.Networking
 
             // The client decides IsNight on its own clock. After the host's morning edge a
             // lagging client would otherwise be recorded night-dead and spectate all day.
-            if (isNight && _net.Role == NetworkRole.Host && DeathStateTracker.HostMorningAlreadyReleased())
+            // A one-life death is down until the next morning whatever the hour: not a stale clock.
+            if (isNight && !msg.PermadeathEligible && _net.Role == NetworkRole.Host
+                && DeathStateTracker.HostMorningAlreadyReleased())
                 isNight = HostDowngradeStaleNightDeath(playerId, msg);
 
             if (isNight)

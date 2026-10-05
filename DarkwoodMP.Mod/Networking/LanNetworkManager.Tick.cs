@@ -227,6 +227,7 @@ namespace DWMPHorde.Networking
             Sync.NightVillage.Tick(this);
             Sync.PeerItemPresence.Tick(this);
             Sync.DreamRetry.Tick(this);
+            Sync.MenuShield.Tick(this);
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();

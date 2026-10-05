@@ -27,6 +27,23 @@ Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Pr
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
 a report. Built and unit-tested; **runtime is not playtested**.
 
+### Menus and Nightmare deaths
+
+- **Players in the level-up menu or a dialogue were chased and hit.** Vanilla pauses
+  the game in both, so nothing can reach the player there. Co-op keeps the world
+  running for the others, so a player at the oven or talking (trading included) stood
+  helpless. While a player is in one of those menus, creatures now ignore it and
+  nothing hurts it (`MenuShield`: vanilla `ignoreMe`, which the host learns through
+  PlayerEffectSync, plus `invulnerable`). A creature already chasing that player loses
+  it, and the host's "closer enemy" switch skips it.
+- **Nightmare (and hard on the last life): one life, and only a full party wipe ends
+  the run.** Vanilla ends a one-life run at the first death, day or night. In co-op a
+  night death already kept the player down until morning, and the run ended only if
+  the whole party was down. A one-life death by day, though, got the player up again at
+  home, so in daytime it was not one life at all. It now keeps the player down
+  (spectating) until the next morning at any hour. If everyone is down at once, day or
+  night, the run ends for the party (the vanilla game-over screen, the save gone).
+
 ### Bear traps and other traps
 
 - **A player freed from a bear trap by a teammate stayed frozen.** When a teammate

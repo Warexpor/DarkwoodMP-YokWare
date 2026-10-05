@@ -236,6 +236,7 @@ namespace DWMPHorde.Patches
             // body; CASE 2 used to retarget to whoever was nearer and pull threats
             // off the player who actually entered the woods.
             if (__instance.target != null && Player.Instance != null
+                && !Player.Instance.ignoreMe && !Player.Instance.invisible
                 && (__instance.target == Player.Instance.transform
                     || __instance.target == Player.Instance._transform))
             {

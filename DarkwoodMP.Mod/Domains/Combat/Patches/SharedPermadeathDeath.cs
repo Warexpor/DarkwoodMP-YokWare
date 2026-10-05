@@ -122,6 +122,12 @@ namespace DWMPHorde.Patches
                     while (inner.MoveNext())
                         yield return inner.Current;
                 }
+                // A one-life death by day: vanilla's body got up at home (its death-time skipDay,
+                // which puts a night-dead player into spectating, only runs at night). It stays
+                // down until morning like a night death; the whole party down ends the run.
+                if (generation == _generation && DeathStateTracker.LocalNightDeath
+                    && !DeathStateTracker.IsNightDeathWindow() && !DeathStateTracker.PartyWipeDeclared)
+                    NightDeathSkipDayPatch.EnterNightDeathSpectator();
             }
             finally
             {

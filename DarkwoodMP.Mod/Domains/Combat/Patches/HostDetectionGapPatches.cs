@@ -288,7 +288,7 @@ namespace DWMPHorde.Patches
             for (int i = 0; i < __instance.charactersInSight.Count; i++)
             {
                 CharBase cb = __instance.charactersInSight[i];
-                if (cb == null || !cb.alive) continue;
+                if (cb == null || !cb.alive || cb.ignoreMe || cb.invisible) continue;
                 if (!__instance.attacksFaction(cb.faction)) continue;
                 if (cb.transform == currentTarget) continue;
 

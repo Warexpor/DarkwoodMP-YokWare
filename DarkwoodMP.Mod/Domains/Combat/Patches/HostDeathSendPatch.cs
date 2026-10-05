@@ -57,7 +57,6 @@ namespace DWMPHorde.Patches
             if (net == null) return true;
 
             Vector3 pos = __instance._transform.position;
-            bool isNight = DeathStateTracker.IsNightDeathWindow();
             bool permadeathEligible = SharedPermadeathDeath.IsPermadeathEligible(__instance);
 
             // One ready-peer decision for both the rewrite and the morning/party-wipe logic.
@@ -65,6 +64,8 @@ namespace DWMPHorde.Patches
             // permadeath outcome and DeathStateTracker must not run a second one.
             bool sharedDeath = net.RemotePlayerCount > 0;
             bool vanillaEndsRun = permadeathEligible && !sharedDeath;
+            // A one-life death keeps the player down until morning at any hour.
+            bool isNight = DeathStateTracker.IsDownUntilMorning(permadeathEligible, sharedDeath);
 
             ModRuntime.LegacyInfo($"[Death] Host died at {pos}, isNight={isNight}");
 

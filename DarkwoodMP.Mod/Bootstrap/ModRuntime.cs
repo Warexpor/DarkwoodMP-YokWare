@@ -292,6 +292,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(NightVillage.Reset);
             NetworkResetRegistry.Register(LocalBearTrap.Reset);
             NetworkResetRegistry.Register(DreamRetry.Reset);
+            NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);
             NetworkResetRegistry.Register(WorkbenchUndo.Reset);
             NetworkResetRegistry.Register(TraderRestockDefer.Reset);

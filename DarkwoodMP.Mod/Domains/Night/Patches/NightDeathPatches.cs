@@ -52,7 +52,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        private static void EnterNightDeathSpectator()
+        internal static void EnterNightDeathSpectator()
         {
             if (DeathStateTracker.PreventSpectator)
             {
