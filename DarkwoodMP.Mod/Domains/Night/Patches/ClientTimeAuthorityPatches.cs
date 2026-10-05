@@ -1,5 +1,4 @@
 using DWMPHorde.Networking;
-using DWMPHorde.Players;
 using HarmonyLib;
 
 namespace DWMPHorde.Patches
@@ -162,58 +161,12 @@ namespace DWMPHorde.Patches
     /// Item.activate still continues after client defers onActivate, so the client
     /// would call useTimeSkip locally. Host adopts via ActivateCursorAction + TimeSync.
     /// </summary>
-    /// <remarks>
-    /// The bed's "wait until evening" moves the one clock everyone shares, so in co-op it needs
-    /// every living player at the hideout (vanilla: the sleeper is the whole party). Otherwise it
-    /// is refused, with a line for whoever used the bed.
-    /// </remarks>
     [HarmonyPatch(typeof(Controller), "useTimeSkip")]
     public static class ClientUseTimeSkipSuppressPatch
     {
-        internal const string NotEveryoneHomeMessage = "Everyone has to be at the hideout to wait for the evening.";
-
         private static bool Prefix()
         {
-            if (!NetGuard.Connected(out LanNetworkManager net))
-                return true;
-            bool everyoneHome = CoopTimeSkip.EveryoneHome(net);
-            // The host applying a client's bed (cursor action): the client shows its own line.
-            if (!everyoneHome && !LanNetworkManager.IsApplyingRemoteState && Player.Instance != null)
-                Player.Instance.displayMessage(NotEveryoneHomeMessage);
-            if (ClientTimeFixedUpdateSuppressPatch.IsClientRole())
-                return false;
-            return everyoneHome;
-        }
-    }
-
-    internal static class CoopTimeSkip
-    {
-        /// <summary>Every living player stands in a hideout (dead players do not count).</summary>
-        internal static bool EveryoneHome(LanNetworkManager net)
-        {
-            Player p = Player.Instance;
-            if (p != null && p.alive && !DeathStateTracker.LocalNightDeath)
-            {
-                var ol = Singleton<OutsideLocations>.Instance;
-                bool home = (ol == null || !ol.playerInOutsideLocation) && p.whereAmI != null
-                    && p.whereAmI.bigLocation != null && p.whereAmI.bigLocation.playerBase;
-                if (!home)
-                    return false;
-            }
-            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
-            {
-                if (proxy == null || !net.IsPeerReadyForGameplay(proxy.PlayerId))
-                    continue;
-                CharBase cb = proxy.CachedCharBase;
-                if (cb != null && !cb.alive || DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
-                    continue;
-                if (!net.RemotePlayers.TryGetValue(proxy.PlayerId, out RemotePlayerState st) || !st.InOpenWorld)
-                    return false;
-                Location loc = Location.getAtPos(proxy.transform.position);
-                if (loc == null || !loc.playerBase)
-                    return false;
-            }
-            return true;
+            return !ClientTimeFixedUpdateSuppressPatch.IsClientRole();
         }
     }
 }
