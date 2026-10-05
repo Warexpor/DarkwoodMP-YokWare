@@ -202,7 +202,8 @@ namespace DWMPHorde.Networking
                         _session.Link.AwaitingLateJoinBulk[playerId] = 0f;
                         // Immediate bulk settle path (shorter for reconnect).
                         MarkPeerGameplayReady(playerId);
-                        PrologueSync.SendCatchUpTo(playerId);
+                        // Back from a prologue played offline (or any phase-3 return): day 1 stops waiting for it.
+                        PersonalPrologue.HostNoteArrived(ClientStateBackup.SanitizeStableClientKey(handshake.StableClientKey));
                     }
                     else if (HostHasShareableWorld())
                     {
@@ -210,8 +211,6 @@ namespace DWMPHorde.Networking
                             "Join pipeline phase 1: client " + playerId
                             + " handshaked while host fully in-world — HostWorldReady + scheduling world share");
                         SendHostWorldReadyTo(playerId);
-                        // Mid-prologue / stuck-End catch-up before offline-load detach.
-                        PrologueSync.SendCatchUpTo(playerId);
                         MarkPeerLoadingWorld(playerId);
                         StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
                     }

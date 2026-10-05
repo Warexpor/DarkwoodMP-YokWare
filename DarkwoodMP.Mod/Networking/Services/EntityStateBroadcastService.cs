@@ -304,6 +304,9 @@ namespace DWMPHorde.Networking
         {
             snap = default;
 
+            // The host's own prologue creatures live on its private pads (PersonalPrologue).
+            if (PersonalPrologue.IsOnProloguePad(c.transform))
+                return false;
             short id = CharacterTracker.GetStableId(c);
             if (id == 0)
                 return false;

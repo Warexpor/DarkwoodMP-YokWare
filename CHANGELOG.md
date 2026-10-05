@@ -28,6 +28,63 @@ Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Pr
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
 a report. Built and unit-tested; **runtime is not playtested**.
 
+### Every player plays their own prologue
+
+- **The prologue was the host's, shared.** The host played the opening movie and the two
+  prologue dreams (`dream_tutorial_00`, `_01`) as party dreams; every client was held on
+  the host's movie, pulled into the host's dreams and woke when the host did. A newcomer
+  joining mid-prologue landed in the middle of someone else's prologue, and one joining
+  later never had one. Now each player has their own, as in single player:
+  - **The host's own prologue** (a new game) runs vanilla and stays connected. Its
+    prologue dreams are not party dreams (no session, no entry freeze, joins are not
+    refused during them), and what it does on its prologue pads is not sent: its
+    cutscenes, items, journal pages, dialogue, pickups and location announcements while
+    in the prologue, the creatures and GameEvents under its pads. A client's level-up
+    dream waits for it, as for a dead host (`host_prologue`, `DreamRetry`).
+  - **A joiner new to the world** (chapter 1, the host did not skip the prologue, and this
+    machine has no character of this player in the campaign) plays it after the world
+    download, still offline (join phase 2), so every co-op patch stays out of the way and
+    its creatures, items and dreams run as in single player. Its own opening movie, the
+    prologue dreams, then it wakes in the hideout and reconnects (phase 3) as usual. It
+    starts with a new-game character: the save's player block is the host's, and a new
+    joiner used to load as a copy of the host (level, skills, recipes, bag, home oven).
+  - **A new joiner when the host skipped the prologue** (or a later chapter) also starts
+    fresh, placed in the hideout empty-handed, as vanilla's skip does.
+  - **Returning players** load as before. A small marker next to the character snapshot
+    records that the player has a character in the campaign, so one who left right after
+    the prologue (no snapshot yet: nothing worth one) does not replay it.
+- **Day 1 waits for everyone.** On a world whose first morning has not begun, the host's
+  clock holds at 05:00 while anyone is still in the prologue: the host, or a joiner sent
+  the world for one (until it comes back, or 45 minutes). The host and clients get a
+  line when it starts waiting and when day 1 begins (`TimeSync.PrologueHold`). A player
+  who joins later plays the prologue without holding anyone and arrives at the current
+  time.
+- **Journal pages a joiner's prologue wrote** reach the shared journal: once back in the
+  session it sends them (the join bulk only adds the host's pages to the joiner's).
+- Wire (protocol 33): `WorldSaveBegin.PrologueOffered`, `TimeSync.PrologueHold`,
+  `PlayerEffectSync` `InPrologue` bit; `CutsceneSync` actions 4/5 (shared opening movie)
+  retired. Files: `Domains/World/PersonalPrologue.cs`, `Domains/World/PrologueIntro.cs`
+  (was `PrologueSyncPatches.cs`), `Domains/World/Patches/PersonalProloguePatches.cs`; the
+  shared-prologue paths in `CutsceneNetHandlers`, session handlers, the late-join steps,
+  `DreamSession.IsFirstPlayTutorial` and the tutorial special cases in dream cleanup and
+  story end are gone.
+- Tested with the pilot (new game in an empty slot, client joining during the host's
+  prologue): both prologues side by side; client first (it waited in the hideout with the
+  clock held) and host first (held at 05:00, "Everyone is here — day 1 begins" on the
+  client's return); skipped prologue; rejoin of a known player. Prologue content was
+  stepped through with dream-end commands, not played; the dreams' own scripted endings
+  were not exercised. The desync check found nothing after both prologues.
+- Found on the way and fixed: a joiner's loaded save names the host's prologue pad with no
+  object behind it (pads are not saved); the joiner's prologue drops it and spawns its own.
+  The movie starts only once the pad's arrival is done and keeps input locked (the arrival
+  unlocked it: the player could walk under the movie and could not skip it), the main
+  camera is off under it as in a new game, and the wake-up's white screen gets vanilla's
+  fade (startDreaming's), which in a new game runs after the movie.
+- Desync check: a broken door's health and trader copies only one machine has woken are no
+  longer differences (trader stock keyed by name and spot).
+- Pilot: `newgame:N` / `newgameskip:N` (a new game in an empty slot), `prologue`,
+  `skipmovie`, `dreamend <outcome>` (refused during a cutscene), `padcycle`, `ui`.
+
 ### Remote players' lights (found by the test pilot)
 
 - **The host logged "Mesh.colors is out of bounds" every frame once a client joined** (about

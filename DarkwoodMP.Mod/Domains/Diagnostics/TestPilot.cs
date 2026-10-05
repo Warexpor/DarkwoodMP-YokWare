@@ -106,7 +106,8 @@ namespace DWMPHorde.Sync
                     // The title menu is up and has settled.
                     if (!Core.mainMenu || Singleton<MainMenu>.Instance == null || now < 8f)
                         return;
-                    if (Mode.StartsWith("host", StringComparison.OrdinalIgnoreCase))
+                    if (Mode.StartsWith("host", StringComparison.OrdinalIgnoreCase)
+                        || Mode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
                     {
                         net.StartHost(ModConfig.GetConnectPort());
                         Out("StartHost → " + net.Role + " (" + net.StatusText + ")");
@@ -161,6 +162,25 @@ namespace DWMPHorde.Sync
                     _nextStepAt = now + 2f;
                     return;
                 case 1:
+                    if (Mode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A new game with the prologue in an EMPTY slot (displayProfile on an inactive
+                        // slot clears it, as the menu does).
+                        if (Core.profiles.Count < profile || Core.profiles[profile - 1].Active)
+                        {
+                            Out("newgame needs an empty profile slot; " + profile + " is in use");
+                            _nextStepAt = float.MaxValue;
+                            return;
+                        }
+                        menu.displayProfile(profile);
+                        // "newgameskip:N" starts with the prologue skipped (the menu's toggle).
+                        Singleton<Controller>.Instance.skipTutorial = Mode.StartsWith("newgameskip", StringComparison.OrdinalIgnoreCase);
+                        _menuStep = 3;
+                        Out("new game " + (Singleton<Controller>.Instance.skipTutorial ? "skipping" : "with") + " the prologue in profile " + profile);
+                        Singleton<UI>.Instance.StartCoroutine(Singleton<UI>.Instance.initNewGame());
+                        Enter(Stage.Loading);
+                        return;
+                    }
                     if (Core.profiles.Count < profile || !Core.profiles[profile - 1].Active)
                     {
                         Out("profile " + profile + " missing or empty (" + Core.profiles.Count + " profiles)");
@@ -295,6 +315,58 @@ namespace DWMPHorde.Sync
                     Singleton<Controller>.Instance.CurrentTime = int.Parse(a[1], CultureInfo.InvariantCulture);
                     Out("  time=" + Singleton<Controller>.Instance.CurrentTime);
                     return;
+                case "prologue":
+                {
+                    Dreams d = Dreams.Instance;
+                    WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+                    Out("  local=" + PersonalPrologue.LocalInPrologue + " firstPlay=" + p.firstPlay
+                        + " intro=" + (wg != null && wg.playingIntro)
+                        + " dreaming=" + (d != null && d.dreaming) + " preset=" + (d != null && d.preset != null ? d.preset.name : "-")
+                        + " fresh=" + PersonalPrologue.FreshCharacter + " joiner=" + PersonalPrologue.JoinerActive
+                        + " hold=" + PersonalPrologue.HoldCount + " forbid=" + Core.forbidInputs
+                        + " cantChange=" + Core.cantChangeForbidInputs + " cutscene=" + Singleton<Controller>.Instance.playingCutscene);
+                    return;
+                }
+                case "padcycle":
+                {
+                    // Debug: switch a spawned location off and on (re-runs its OnEnable / trigger enters).
+                    string name = a.Length > 1 ? a[1] : "dream_tutorial_00";
+                    OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+                    if (outs == null || !outs.spawnedLocations.TryGetValue(name, out Location loc) || loc == null)
+                    { Out("  no location " + name); return; }
+                    loc.gameObject.SetActive(false);
+                    loc.gameObject.SetActive(true);
+                    Out("  cycled " + name);
+                    return;
+                }
+                case "ui":
+                {
+                    UI ui = Singleton<UI>.Instance;
+                    tk2dSprite top = ui.blackScreenTop != null ? ui.blackScreenTop.GetComponent<tk2dSprite>() : null;
+                    tk2dSprite bs = ui.blackScreen != null ? ui.blackScreen.GetComponent<tk2dSprite>() : null;
+                    Out("  top=" + (ui.blackScreenTop != null && ui.blackScreenTop.activeInHierarchy) + " a=" + (top != null ? top.color.a : -1f)
+                        + " black=" + (ui.blackScreen != null && ui.blackScreen.activeInHierarchy) + " a=" + (bs != null ? bs.color.a : -1f)
+                        + " video=" + (ui.videoOverlay != null && ui.videoOverlay.activeInHierarchy)
+                        + " endingSleep=" + p.endingSleep + " performing=" + p.performingAction);
+                    return;
+                }
+                case "skipmovie":
+                    Out("  skipped=" + Singleton<Controller>.Instance.skipCurrentMovie());
+                    return;
+                case "dreamend":
+                {
+                    // End the current dream with an outcome, as its GameEvent would (prologue:
+                    // dream_tutorial_00 "default" moves on to _01; _01 "chomper_attack" wakes home).
+                    Dreams d = Dreams.Instance;
+                    if (d == null || !d.dreaming) { Out("  not dreaming"); return; }
+                    // Mid-cutscene the dream's own scripts never end it; ending it there leaves the
+                    // cutscene running on a pad that is gone.
+                    if (Singleton<Controller>.Instance.playingCutscene) { Out("  a cutscene is playing — try again after it"); return; }
+                    d.outcome = a.Length > 1 ? a[1] : "default";
+                    d.initiateEndDreaming();
+                    Out("  ending " + (d.preset != null ? d.preset.name : "-") + " with " + d.outcome);
+                    return;
+                }
                 case "endnight":
                     // What walking out of the hideout does in the morning (Location.OnTriggerExit);
                     // a teleport fires no trigger exit.

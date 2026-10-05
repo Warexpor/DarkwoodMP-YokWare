@@ -87,7 +87,7 @@ namespace DWMPHorde.Patches
             var wg = Singleton<WorldGenerator>.Instance;
             if (wg != null && wg.playingIntro)
                 return false;
-            return !PrologueSync.ClientDeferredFirstPlay;
+            return !Sync.PersonalPrologue.LocalInPrologue;
         }
 
         private static void Prefix(Controller __instance, out bool __state)

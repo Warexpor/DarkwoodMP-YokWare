@@ -81,6 +81,9 @@ namespace DWMPHorde.Patches
             // A night scene's copy: clients replay the scene where they are (ScenarioEventFired).
             if (NightEventAnchor.PlayingScene)
                 return;
+            // The host's own prologue: its pads exist on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = new Vector3(

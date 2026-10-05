@@ -445,16 +445,11 @@ namespace DWMPHorde.Sync
             _seededProfile = -1;
         }
 
-        public static bool ShouldRejectNewConnections => IsActive && !IsFirstPlayTutorial;
-
         /// <summary>
-        /// The new game's tutorial dream (dream_tutorial_00 / _01). It starts as the world is made,
-        /// while friends who waited at the title are still loading the shared world and reconnecting;
-        /// refusing joins for it locked them out of the whole opening. They join and are pulled in.
+        /// A party dream is on. The prologue's dreams are never party dreams (each player plays its
+        /// own, <see cref="PersonalPrologue"/>), so joining during the host's prologue is allowed.
         /// </summary>
-        public static bool IsFirstPlayTutorial
-            => IsActive && !string.IsNullOrEmpty(PresetName)
-               && PresetName.StartsWith("dream_tutorial", System.StringComparison.OrdinalIgnoreCase);
+        public static bool ShouldRejectNewConnections => IsActive;
 
         // ── Snapshot (level flags + completed) ───────────────────────────
 

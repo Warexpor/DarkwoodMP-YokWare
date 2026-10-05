@@ -1,0 +1,583 @@
+using System;
+using System.Collections.Generic;
+using DWMPHorde.Logging;
+using DWMPHorde.Networking;
+using DWMPHorde.Patches;
+using UnityEngine;
+
+namespace DWMPHorde.Sync
+{
+    /// <summary>
+    /// Every player plays the prologue on their own, as in single player.
+    ///
+    /// Vanilla runs it as two dreams (<c>dream_tutorial_00</c>, then <c>dream_tutorial_01</c>) on
+    /// pads of their own; the second one's end puts the player in the hideout at 05:00 with an
+    /// empty pack. It touches no world flag (checked against the pads' data), so it can run on one
+    /// machine without the others:
+    /// <list type="bullet">
+    /// <item>A joiner new to the world (chapter 1, the host did not skip the prologue, no character
+    /// of this player on this machine for the campaign) loads the world with a new-game character
+    /// and plays the prologue while still offline after the world download (join phase 2), then
+    /// reconnects as usual (phase 3) when it wakes in the hideout. Offline, every co-op patch
+    /// stays out of its way: its creatures, items and dreams run as in single player.</item>
+    /// <item>The host's own prologue (a new game) stays connected: its prologue dreams are not party
+    /// dreams, and what it does on the pads is not sent (<see cref="HostBlocksSend"/>).</item>
+    /// <item>Day 1 waits for everyone: while anyone is still in the prologue on a world whose first
+    /// morning has not begun, the host's clock holds (<see cref="HoldDayOne"/>).</item>
+    /// </list>
+    /// </summary>
+    internal static class PersonalPrologue
+    {
+        /// <summary>Game minutes past the prologue's wake-up (05) that still count as "day 1 not begun".</summary>
+        private const int DayOneStartSlack = 10;
+        /// <summary>Host: a joiner sent the world for its prologue that never came back stops holding day 1.</summary>
+        private const float PendingTimeoutSec = 45f * 60f;
+
+        internal static bool IsPrologueDream(string presetName)
+        {
+            if (string.IsNullOrEmpty(presetName))
+                return false;
+            return Core.getTrueLocationName(presetName).StartsWith("dream_tutorial", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>This machine's player is in its prologue (the movie, either prologue dream).</summary>
+        internal static bool LocalInPrologue
+        {
+            get
+            {
+                Player p = Player.Instance;
+                if (p == null)
+                    return false;
+                if (p.firstPlay)
+                    return true;
+                Dreams d = Dreams.Instance;
+                return d != null && (d.dreaming || d.dreamPrepared) && d.preset != null && IsPrologueDream(d.preset.name);
+            }
+        }
+
+        // ------------------------------------------------------------ host
+
+        /// <summary>Host: stable key → when it was sent the world with the prologue offered.</summary>
+        private static readonly Dictionary<string, float> _pending = new Dictionary<string, float>(); // reset-in: Reset
+        private static bool _holdLogged; // reset-in: Reset
+
+        internal static void Reset()
+        {
+            _pending.Clear();
+            _holdLogged = false;
+            HoldCount = 0;
+            _clientHold = 0;
+        }
+
+        /// <summary>Host shares the world in chapter 1 of a game that did not skip the prologue.</summary>
+        internal static bool HostOffersPrologue()
+        {
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            if (wg == null || wg.chapterID != 1)
+                return false;
+            return Core.currentProfile == null || !Core.currentProfile.skippedPrologue;
+        }
+
+        /// <summary>Host: this peer was sent the world with the prologue offered; it may be playing it offline.</summary>
+        internal static void HostNoteShared(string stableKey)
+        {
+            if (string.IsNullOrEmpty(stableKey))
+                return;
+            _pending[stableKey] = Time.realtimeSinceStartup;
+        }
+
+        /// <summary>Host: this peer is back in the session (phase 3), done with any prologue.</summary>
+        internal static void HostNoteArrived(string stableKey)
+        {
+            if (!string.IsNullOrEmpty(stableKey) && _pending.Remove(stableKey))
+                ModLog.Event(LogCat.Session, "[Prologue] a player sent the world is in the session now");
+        }
+
+        /// <summary>Host: players still in a prologue (own included; offline joiners until they return or time out).</summary>
+        internal static int HostPrologueCount()
+        {
+            int n = LocalInPrologue ? 1 : 0;
+            if (_pending.Count > 0)
+            {
+                float now = Time.realtimeSinceStartup;
+                List<string> stale = null;
+                foreach (KeyValuePair<string, float> kv in _pending)
+                {
+                    if (now - kv.Value > PendingTimeoutSec)
+                        (stale ?? (stale = new List<string>())).Add(kv.Key);
+                    else
+                        n++;
+                }
+                if (stale != null)
+                {
+                    foreach (string k in stale)
+                        _pending.Remove(k);
+                    ModLog.Event(LogCat.Session, "[Prologue] " + stale.Count + " joiner(s) never came back from the prologue — day 1 no longer waits for them");
+                }
+            }
+            return n;
+        }
+
+        /// <summary>The world's first morning has not begun (vanilla wakes the player at 05 on day 1).</summary>
+        internal static bool DayOneNotBegun()
+        {
+            Controller c = Singleton<Controller>.Instance;
+            return c != null && c.day <= 1 && c.CurrentTime <= 5 + DayOneStartSlack;
+        }
+
+        /// <summary>Host: players day 1 waits for at the last clock step (sent on TimeSync).</summary>
+        internal static int HoldCount { get; private set; } // reset-in: Reset
+
+        private static int _clientHold; // reset-in: Reset
+
+        /// <summary>Client: the host's day-1 wait, shown once when it starts and when it ends.</summary>
+        internal static void ClientNoteHold(byte count)
+        {
+            if ((count > 0) == (_clientHold > 0))
+            {
+                _clientHold = count;
+                return;
+            }
+            _clientHold = count;
+            ChatHud.AddLocalSystem(count > 0
+                ? "Day 1 waits: " + count + " player(s) still in the prologue."
+                : "Everyone is here — day 1 begins.");
+        }
+
+        /// <summary>Host: hold the clock — day 1 starts once nobody is in the prologue.</summary>
+        internal static bool HoldDayOne(out int inPrologue)
+        {
+            inPrologue = 0;
+            HoldCount = 0;
+            // Hosting, connected peers or not: a joiner plays its prologue offline, and while it does
+            // the host may have nobody connected at all.
+            LanNetworkManager net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host)
+                return false;
+            if (!DayOneNotBegun())
+                return false;
+            inPrologue = HostPrologueCount();
+            HoldCount = inPrologue;
+            bool hold = inPrologue > 0;
+            if (hold != _holdLogged)
+            {
+                _holdLogged = hold;
+                string line = hold
+                    ? "Day 1 waits: " + inPrologue + " player(s) still in the prologue."
+                    : "Everyone is here — day 1 begins.";
+                ModLog.Event(LogCat.Session, "[Prologue] " + line);
+                ChatHud.AddLocalSystem(line);
+            }
+            return hold;
+        }
+
+        /// <summary>
+        /// Host in its own prologue: what it does on the prologue pads is not the shared world.
+        /// These are sent by the host's own actions only (relays of clients' messages go out while
+        /// a message is being applied and are not stopped), and none of them is world upkeep.
+        /// </summary>
+        internal static bool HostBlocksSend(NetMessageType type)
+        {
+            if (LanNetworkManager.IsApplyingRemoteState || !LocalInPrologue)
+                return false;
+            switch (type)
+            {
+                case NetMessageType.CutsceneSync:
+                case NetMessageType.ItemSpawn:
+                case NetMessageType.DroppedItemSpawn:
+                case NetMessageType.DroppedItemPickup:
+                case NetMessageType.ThrowableSpawn:
+                case NetMessageType.ExplosionSpawnObject:
+                case NetMessageType.GasTrailSpawn:
+                case NetMessageType.JournalItem:
+                case NetMessageType.MapElementDiscovered:
+                case NetMessageType.MapMarker:
+                case NetMessageType.DialogTreeState:
+                case NetMessageType.DialogNpcLock:
+                case NetMessageType.DialogOutcomeSync:
+                case NetMessageType.DreamItemPickup:
+                case NetMessageType.DreamAudio:
+                case NetMessageType.DreamEntered:
+                case NetMessageType.PlayerScare:
+                case NetMessageType.ExamineObject:
+                case NetMessageType.WorldObjectRemoved:
+                case NetMessageType.ContainerItem:
+                case NetMessageType.LocationEnter:
+                case NetMessageType.LocationExit:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Under one of this machine's prologue pads (entities, GameEvents there are not the world's).</summary>
+        internal static bool IsOnProloguePad(Transform t)
+        {
+            if (t == null || !LocalInPrologue)
+                return false;
+            OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+            if (outs != null && outs.spawnedLocations != null)
+            {
+                foreach (KeyValuePair<string, Location> kv in outs.spawnedLocations)
+                {
+                    if (kv.Value != null && IsPrologueDream(kv.Key) && t.IsChildOf(kv.Value.transform))
+                        return true;
+                }
+            }
+            Dreams d = Dreams.Instance;
+            return d != null && d.dreamLocation != null && d.preset != null && IsPrologueDream(d.preset.name)
+                && t.IsChildOf(d.dreamLocation.transform);
+        }
+
+        // ------------------------------------------------------------ joiner
+
+        private enum JoinerStage { None, Preparing, Intro, Playing, Arrived }
+
+        /// <summary>
+        /// The host's world package offered the prologue (chapter 1, not skipped). Kept across the
+        /// network stop of join phase 2: the load that reads it runs offline.
+        /// </summary>
+        private static bool _offered;             // process-scoped: one world package, cleared in ClearJoiner
+        private static string _offeredCampaign;   // process-scoped: one world package, cleared in ClearJoiner
+        /// <summary>The package is a join from the title (not a chapter change of a running session).</summary>
+        private static bool _joinPackage;         // process-scoped: one world package, cleared in ClearJoiner
+        private static JoinerStage _joinerStage;  // process-scoped: one offline prologue per load, cleared in AbandonJoiner
+        private static bool _freshCharacter;      // process-scoped: set by the join load, cleared in AbandonJoiner
+        private static float _stageAt;            // process-scoped: joiner stage clock
+        private static bool _introVideoSeen;      // process-scoped: joiner intro poll
+        private static bool _wakeFadeDone;        // process-scoped: joiner wake fade, once per prologue
+        private static float _arrivedAt = -1f;    // process-scoped: joiner home settle clock
+
+        internal static void NoteOffered(bool offered, string campaignId, bool joinFromTitle)
+        {
+            _offered = offered;
+            _offeredCampaign = campaignId;
+            _joinPackage = joinFromTitle;
+        }
+
+        /// <summary>The join load is for a player new to this world: its character is not loaded from the save.</summary>
+        internal static bool FreshCharacter => _freshCharacter;
+
+        internal static bool JoinerActive => _joinerStage != JoinerStage.None && _joinerStage != JoinerStage.Arrived;
+        internal static bool JoinerArrived => _joinerStage == JoinerStage.Arrived;
+
+        /// <summary>
+        /// Join load (phase 2), before the save's player state is applied: a player this machine has
+        /// never had a character for in this campaign (no own snapshot of it) is new. It starts with a
+        /// new-game character, not the host's (the save's player block is the host's: level, skills,
+        /// bag, all copied), and plays the prologue when the host's game has one.
+        /// </summary>
+        internal static bool DecideFreshAtLoad()
+        {
+            if (!_joinPackage || !ChapterSessionResume.IsPending || ChapterSessionResume.WasHost)
+                return false;
+            if (_joinerStage != JoinerStage.None)
+                return _freshCharacter;
+            bool known = true;
+            try
+            {
+                string path = ClientStateBackup.GetLocalSelfBackupPath();
+                known = System.IO.File.Exists(path) || System.IO.File.Exists(path + KnownSuffix);
+            }
+            catch (Exception ex) { ModLog.Warn(LogCat.Session, "[Prologue] backup lookup failed: " + ex.Message); }
+            _freshCharacter = !known;
+            ModLog.Event(LogCat.Session, !_freshCharacter
+                ? "[Prologue] a character of this player exists for this world — loading as usual"
+                : _offered
+                    ? "[Prologue] new to this world (campaign " + (_offeredCampaign ?? "?") + ") — fresh character, own prologue before joining"
+                    : "[Prologue] new to this world — fresh character in the hideout (the game skipped the prologue)");
+            return _freshCharacter;
+        }
+
+        /// <summary>
+        /// Next to the character snapshot: this player has a character in the campaign. A snapshot
+        /// is only written once the character has some progress, so a player who finished the
+        /// prologue and left at once would otherwise count as new again and replay it.
+        /// </summary>
+        private const string KnownSuffix = ".known";
+
+        private static void MarkKnown()
+        {
+            try
+            {
+                string path = ClientStateBackup.GetLocalSelfBackupPath() + KnownSuffix;
+                if (!System.IO.File.Exists(path))
+                    System.IO.File.WriteAllText(path, DateTime.UtcNow.ToString("o"));
+            }
+            catch (Exception ex) { ModLog.Warn(LogCat.Session, "[Prologue] marking the character failed: " + ex.Message); }
+        }
+
+        /// <summary>A fresh character plays the prologue (the host's game has one).</summary>
+        internal static bool PlaysPrologue => _freshCharacter && _offered;
+
+        /// <summary>
+        /// A fresh character with no prologue (the host skipped it, or a later chapter): where the
+        /// vanilla prologue would leave it — in the hideout, empty-handed.
+        /// </summary>
+        internal static void ArriveFresh()
+        {
+            Player p = Player.Instance;
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            _joinerStage = JoinerStage.Arrived;
+            _freshCharacter = false;
+            MarkKnown();
+            if (p == null)
+                return;
+            try
+            {
+                p.Hotbar.clear();
+                p.Inventory.clear();
+                Location home = wg != null && wg.playerBase != null ? wg.playerBase.GetComponent<Location>() : null;
+                if (home == null || home.playerSpawn == null)
+                {
+                    ModLog.Warn(LogCat.Session, "[Prologue] no hideout spawn — fresh character stays where the save put it");
+                    return;
+                }
+                p.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+                OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+                if (outs != null && outs.playerInOutsideLocation)
+                    outs.returningOnTeleportedPlayer();
+                else if (Singleton<WorldGrid>.Instance != null)
+                    Singleton<WorldGrid>.Instance.refreshPosition(p.transform.position, instant: true, force: true);
+                ModLog.Event(LogCat.Session, "[Prologue] fresh character placed in the hideout");
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "[Prologue] placing the fresh character failed: " + ex.Message);
+            }
+        }
+
+        private static float _readySince = -1f; // process-scoped: joiner load settle clock, cleared in ClearJoiner
+
+        /// <summary>
+        /// The join load is completely over: vanilla's own end of load (tweenLoading, activatePlayer)
+        /// has run. Load clears <c>Core.loadingGame</c> before it, and starting the prologue then
+        /// sent that pending tweenLoading down the new-game branch with no prologue pad.
+        /// </summary>
+        internal static bool ReadyToBegin()
+        {
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            bool ready = !Core.loadingGame && Core.coreStarted && !Core.forbidInputs
+                && wg != null && !wg.playingIntro && Player.Instance != null;
+            if (!ready)
+            {
+                _readySince = -1f;
+                return false;
+            }
+            float now = Time.realtimeSinceStartup;
+            if (_readySince < 0f)
+                _readySince = now;
+            return now - _readySince >= 1f;
+        }
+
+        /// <summary>Join phase 2 finished loading (still offline): start this player's own prologue.</summary>
+        internal static void BeginJoiner()
+        {
+            Dreams d = Dreams.Instance;
+            Player p = Player.Instance;
+            UI ui = Singleton<UI>.Instance;
+            if (d == null || p == null || ui == null)
+                return;
+            ModLog.Event(LogCat.Session, "[Prologue] starting this player's own prologue (offline)");
+            _joinerStage = JoinerStage.Preparing;
+            _stageAt = Time.realtimeSinceStartup;
+            _introVideoSeen = false;
+            Core.forbidInputs = true;
+            ui.blackScreen.SetActive(true);
+            ui.blackScreen.GetComponent<tk2dSprite>().color = new Color(0f, 0f, 0f, 1f);
+            // The loaded save may list the host's prologue pads among its spawned locations: the
+            // names come back with no object (a pad is not saved), and going there ended on a null
+            // pad. Clear them so the prologue spawns its own, as in a new game.
+            ForgetProloguePads();
+            SnapshotJournal();
+            // As a new game: firstPlay, the first prologue dream, then the movie (WorldGenerator
+            // onCreatedAllChunks → tweenLoading → activatePlayer).
+            p.firstPlay = true;
+            d.wantToDream = true;
+            d.StartCoroutine(d.prepareDream("dream_tutorial_00"));
+        }
+
+        private static void ForgetProloguePads()
+        {
+            OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+            if (outs == null || outs.spawnedLocations == null)
+                return;
+            foreach (string name in new[] { "dream_tutorial_00", "dream_tutorial_01" })
+            {
+                if (!outs.spawnedLocations.TryGetValue(name, out Location pad))
+                    continue;
+                // destroyLocation's own steps, without its error lines for the parts never made.
+                WorldGrid.Grid grid = Singleton<WorldGrid>.Instance != null ? Singleton<WorldGrid>.Instance.getGrid(name) : null;
+                if (grid != null)
+                    Singleton<WorldGrid>.Instance.grids.Remove(grid);
+                Pathfinding.NavGraph graph = AstarPath.active != null ? AstarPath.active.astarData.GetGraph(name) : null;
+                if (graph != null)
+                    AstarPath.active.astarData.RemoveGraph(graph);
+                outs.spawnedLocations.Remove(name);
+                if (pad != null)
+                    UnityEngine.Object.Destroy(pad.gameObject);
+                ModLog.Event(LogCat.Session, "[Prologue] dropped the saved prologue pad " + name + (pad == null ? " (no object)" : ""));
+            }
+        }
+
+        /// <summary>Joiner stages; true once it woke in the hideout and may reconnect.</summary>
+        internal static bool TickJoiner()
+        {
+            if (_joinerStage == JoinerStage.None)
+                return true;
+            if (_joinerStage == JoinerStage.Arrived)
+                return true;
+            float now = Time.realtimeSinceStartup;
+            Dreams d = Dreams.Instance;
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            Player p = Player.Instance;
+            if (d == null || wg == null || p == null)
+                return false;
+            switch (_joinerStage)
+            {
+                case JoinerStage.Preparing:
+                    // In the pad and its arrival done (OutsideLocations clears loading and unlocks
+                    // input at the end; the movie starts after that, locked).
+                    OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+                    if (!d.dreaming || (outs != null && outs.loading))
+                    {
+                        if (now - _stageAt > 60f)
+                        {
+                            ModLog.Warn(LogCat.Session, "[Prologue] the prologue pad never came up — joining without it");
+                            AbandonJoiner(p);
+                            return true;
+                        }
+                        return false;
+                    }
+                    _joinerStage = JoinerStage.Intro;
+                    _stageAt = now;
+                    PrologueIntro.Play(wg);
+                    return false;
+
+                case JoinerStage.Intro:
+                    // The movie ends by itself or is skipped (vanilla skipCurrentMovie runs activatePlayer,
+                    // and only from a locked start, as vanilla's own intro is).
+                    if (wg.playingIntro && !Core.forbidInputs)
+                        Core.forbidInputs = true;
+                    if (wg.playingIntro && !PrologueIntro.Finished(ref _introVideoSeen))
+                        return false;
+                    if (wg.playingIntro)
+                        PrologueIntro.Wake(wg);
+                    _joinerStage = JoinerStage.Playing;
+                    _stageAt = now;
+                    _wakeFadeDone = false;
+                    return false;
+
+                case JoinerStage.Playing:
+                    // activatePlayer's wake-up leaves the screen white; vanilla's startDreaming fades it
+                    // (one frame after it ran). In a new game the pad arrives after the movie, so that
+                    // fade comes after the wake. Here the pad arrived before the movie: same last step.
+                    if (!_wakeFadeDone && now - _stageAt > 0.5f)
+                    {
+                        _wakeFadeDone = true;
+                        UI ui = Singleton<UI>.Instance;
+                        if (ui != null && ui.blackScreenTop != null && ui.blackScreenTop.activeInHierarchy
+                            && ui.blackScreenTop.GetComponent<tk2dBaseSprite>().color.a != 0f)
+                            ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    }
+                    // Vanilla endDreaming of dream_tutorial_01: firstPlay off, in the hideout, awake.
+                    OutsideLocations outsNow = Singleton<OutsideLocations>.Instance;
+                    if (p.firstPlay || d.dreaming || d.dreamPrepared || wg.playingIntro || p.endingSleep
+                        || (outsNow != null && outsNow.loading))
+                    {
+                        _arrivedAt = -1f;
+                        return false;
+                    }
+                    if (_arrivedAt < 0f)
+                        _arrivedAt = now;
+                    if (now - _arrivedAt < 2f)
+                        return false;
+                    _joinerStage = JoinerStage.Arrived;
+                    _freshCharacter = false;
+                    MarkKnown();
+                    _journalToShare.Clear();
+                    _journalToShare.AddRange(JournalGainedSinceSnapshot());
+                    ModLog.Event(LogCat.Session, "[Prologue] prologue done — joining the session"
+                        + (_journalToShare.Count > 0 ? " (" + _journalToShare.Count + " journal page(s) to share)" : ""));
+                    return true;
+            }
+            return false;
+        }
+
+        private static void AbandonJoiner(Player p)
+        {
+            _joinerStage = JoinerStage.Arrived;
+            _freshCharacter = false;
+            MarkKnown();
+            if (p != null)
+                p.firstPlay = false;
+            Core.forbidInputs = false;
+            UI ui = Singleton<UI>.Instance;
+            if (ui != null && ui.blackScreen != null)
+                ui.blackScreen.SetActive(false);
+        }
+
+        // ---------------------------------------------------- journal after the prologue
+
+        /// <summary>
+        /// The journal is shared, and the join bulk only adds the host's pages to a joiner's. The
+        /// pages a joiner's prologue wrote (offline) would stay its own: once back in the session
+        /// it sends them as the live journal sync does (JournalItem), every player having the same
+        /// prologue pages anyway.
+        /// </summary>
+        private static readonly List<KeyValuePair<JournalItemKind, string>> _journalToShare = new List<KeyValuePair<JournalItemKind, string>>(); // process-scoped: one prologue, sent once after the reconnect
+        private static readonly HashSet<string> _journalBefore = new HashSet<string>(); // process-scoped: one prologue, filled in BeginJoiner
+
+        private static IEnumerable<KeyValuePair<JournalItemKind, string>> JournalPages()
+        {
+            Journal j = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.journal : null;
+            if (j == null)
+                yield break;
+            foreach (string k in j.notesDict.Keys) yield return new KeyValuePair<JournalItemKind, string>(JournalItemKind.Note, k);
+            foreach (string k in j.keysDict.Keys) yield return new KeyValuePair<JournalItemKind, string>(JournalItemKind.Key, k);
+            foreach (string k in j.itemsDict.Keys) yield return new KeyValuePair<JournalItemKind, string>(JournalItemKind.QuestItem, k);
+            foreach (string k in j.journalEntriesDict.Keys) yield return new KeyValuePair<JournalItemKind, string>(JournalItemKind.JournalEntry, k);
+            foreach (string k in j.locationsDict.Keys) yield return new KeyValuePair<JournalItemKind, string>(JournalItemKind.Location, k);
+        }
+
+        private static void SnapshotJournal()
+        {
+            _journalBefore.Clear();
+            _journalToShare.Clear();
+            foreach (KeyValuePair<JournalItemKind, string> page in JournalPages())
+                _journalBefore.Add((int)page.Key + ":" + page.Value);
+        }
+
+        private static List<KeyValuePair<JournalItemKind, string>> JournalGainedSinceSnapshot()
+        {
+            var gained = new List<KeyValuePair<JournalItemKind, string>>();
+            foreach (KeyValuePair<JournalItemKind, string> page in JournalPages())
+                if (!_journalBefore.Contains((int)page.Key + ":" + page.Value))
+                    gained.Add(page);
+            return gained;
+        }
+
+        /// <summary>Client tick: back in the session after the prologue, share its journal pages.</summary>
+        internal static void TickClient(LanNetworkManager net)
+        {
+            if (_journalToShare.Count == 0 || net == null || net.Role != NetworkRole.Client || !net.IsHandshakeComplete)
+                return;
+            foreach (KeyValuePair<JournalItemKind, string> page in _journalToShare)
+                JournalSyncHelpers.SendJournalItem(page.Key, page.Value);
+            ModLog.Event(LogCat.Session, "[Prologue] shared " + _journalToShare.Count + " journal page(s) from the prologue");
+            _journalToShare.Clear();
+        }
+
+        /// <summary>A new join load starts over (the previous one reached the session or was abandoned).</summary>
+        internal static void ClearJoiner()
+        {
+            _offered = false;
+            _offeredCampaign = null;
+            _joinPackage = false;
+            _readySince = -1f;
+            _joinerStage = JoinerStage.None;
+            _freshCharacter = false;
+            _introVideoSeen = false;
+        }
+    }
+}

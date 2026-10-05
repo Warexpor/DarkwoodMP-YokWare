@@ -497,8 +497,10 @@ namespace DWMPHorde.Networking
         /// load) shows this one.
         /// </summary>
         public int OverworldTime;
-        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); w.Put(OverworldTime); }
-        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool(), OverworldTime = r.GetInt() };
+        /// <summary>Players still in the prologue while day 1 waits for them (0 = the clock runs). Protocol 33.</summary>
+        public byte PrologueHold;
+        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); w.Put(OverworldTime); w.Put(PrologueHold); }
+        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool(), OverworldTime = r.GetInt(), PrologueHold = r.GetByte() };
     }
 
     /// <summary>Client→host: post-sleep clock for host-authority forward adopt.</summary>

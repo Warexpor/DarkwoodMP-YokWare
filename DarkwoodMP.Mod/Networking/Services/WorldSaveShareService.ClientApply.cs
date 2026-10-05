@@ -79,6 +79,9 @@ namespace DWMPHorde.Networking
             _awaitingSlotPick = false;
             _awaitingEnterWorld = false;
             _pendingBegin = msg;
+            Sync.PersonalPrologue.ClearJoiner();
+            Sync.PersonalPrologue.NoteOffered(msg.PrologueOffered, msg.CampaignId,
+                joinFromTitle: Core.mainMenu && !Patches.ChapterTransitionHelpers.ChapterShareExpected);
             Patches.ChapterTransitionHelpers.ClientNoteSharePass(msg.SharePass);
             // Host profile ID is metadata only; the client picks a permanent local slot after download.
             _hostSourceProfileId = msg.ProfileId;

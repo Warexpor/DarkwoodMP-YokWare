@@ -250,6 +250,22 @@ namespace DWMPHorde.Sync
 
             if (ChapterSessionResume.IsLocalPlayableForCoopReconnect())
             {
+                // A player new to this world plays its own prologue here, still offline; the
+                // session resumes once it wakes in the hideout (PersonalPrologue).
+                if (PersonalPrologue.FreshCharacter && !PersonalPrologue.JoinerActive && !PersonalPrologue.JoinerArrived)
+                {
+                    if (!PersonalPrologue.ReadyToBegin())
+                        return;
+                    if (PersonalPrologue.PlaysPrologue)
+                    {
+                        PersonalPrologue.BeginJoiner();
+                        return;
+                    }
+                    PersonalPrologue.ArriveFresh();
+                }
+                if (PersonalPrologue.JoinerActive && !PersonalPrologue.TickJoiner())
+                    return;
+
                 // Join offline load can leave a fat WorldGrid active set (Player.log ~500k objects).
                 // Force a cull pass around the player before co-op traffic starts.
                 try

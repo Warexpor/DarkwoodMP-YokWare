@@ -180,6 +180,9 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+            // The prologue's dreams are this player's own (PersonalPrologue): vanilla, no entry freeze.
+            if (PersonalPrologue.IsPrologueDream(presetName))
+                return true;
 
             // Client loading a world saved mid-dream (vanilla forces a Save inside prepareDream
             // with wantToDream set): vanilla resumes that dream at load and only its startDreaming

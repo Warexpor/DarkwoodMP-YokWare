@@ -94,8 +94,7 @@ namespace DWMPHorde.Sync
             new Section { Id = 1, Name = "Flags", Collect = CollectFlags },
             new Section { Id = 2, Name = "Npcs", Collect = CollectNpcs },
             new Section { Id = 3, Name = "Players", Focus = true, Collect = CollectPlayers, Same = SamePlayer },
-            new Section { Id = 4, Name = "Doors", Focus = true, Collect = CollectDoors,
-                Same = NearSame(NearRadius, "open", "destroyed", "barricaded", "bstate", "hp", "bhp", "blocked") },
+            new Section { Id = 4, Name = "Doors", Focus = true, Collect = CollectDoors, Same = SameDoor },
             new Section { Id = 5, Name = "Creatures", Focus = true, Collect = CollectCreatures, Same = SameCreature },
             new Section { Id = 6, Name = "Traps", Focus = true, Collect = CollectTraps,
                 Same = NearSame(NearRadius, "triggered", "active") },
@@ -104,7 +103,7 @@ namespace DWMPHorde.Sync
             new Section { Id = 9, Name = "Drops", Collect = CollectDrops },
             new Section { Id = 10, Name = "Containers", Focus = true, Collect = CollectContainers, Same = SameContainer },
             new Section { Id = 11, Name = "Burning", Focus = true, Collect = CollectBurning, Same = NearSame(NearRadius) },
-            new Section { Id = 12, Name = "Traders", Collect = CollectTraders },
+            new Section { Id = 12, Name = "Traders", Collect = CollectTraders, Same = SameTrader },
             new Section { Id = 13, Name = "Journal", Collect = CollectJournal },
             new Section { Id = 14, Name = "Night", Collect = CollectNight },
             new Section { Id = 15, Name = "World", Collect = CollectWorld },
@@ -322,6 +321,20 @@ namespace DWMPHorde.Sync
                     + "|barricaded=" + B(d.barricaded) + "|bstate=" + I(d.barricadeState) + "|hp=" + I(d.health)
                     + "|bhp=" + I(d.barricadeHealth) + "|blocked=" + B(d.blocked));
             }
+        }
+
+        /// <summary>A broken door's health means nothing (vanilla leaves whatever it had).</summary>
+        private static bool SameDoor(string key, string host, string client)
+        {
+            if (host == null || client == null)
+                return OnlyInEdge(host ?? client, NearRadius);
+            var a = Fields(host);
+            var b = Fields(client);
+            foreach (string f in new[] { "open", "destroyed", "barricaded", "bstate", "blocked" })
+                if (!SameField(a, b, f))
+                    return false;
+            a.TryGetValue("destroyed", out string destroyed);
+            return destroyed == "1" || (SameField(a, b, "hp") && SameField(a, b, "bhp"));
         }
 
         /// <summary>
@@ -576,9 +589,18 @@ namespace DWMPHorde.Sync
                 for (int k = 0; k < m.ItemCount; k++)
                     parts.Add((m.IsRecipe[k] ? "recipe:" : "") + m.ItemTypes[k] + "x" + I(m.Amounts[k]));
                 parts.Sort(StringComparer.Ordinal);
-                Add(into, npc.name, string.Join(",", parts));
+                // By name and spot: one trader can have several copies (story stages), and which of
+                // them have woken differs per machine.
+                Add(into, npc.name + "@" + PosKey(npc.transform.position), string.Join(",", parts));
             }
         }
+
+        /// <summary>
+        /// A trader copy only one machine has woken is not a difference (the registry holds what
+        /// woke); the stock of one both have is (TradeInventorySync keeps it the host's).
+        /// </summary>
+        private static bool SameTrader(string key, string host, string client)
+            => host == null || client == null || string.Equals(host, client, StringComparison.Ordinal);
 
         /// <summary>Journal notes, keys, items, entries and locations (shared; dream pages are gone after it).</summary>
         private static void CollectJournal(Ctx ctx, List<KeyValuePair<string, string>> into)

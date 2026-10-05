@@ -71,18 +71,6 @@ namespace DWMPHorde.Networking
                         return;
                     DWMPHorde.Sync.DreamSyncManager.CancelRefusedEntry();
                     break;
-
-                case CutsceneSyncMessage.ActionPrologueStart:
-                    if (_net.Role == NetworkRole.Host)
-                        return;
-                    PrologueSync.ApplyStart();
-                    break;
-
-                case CutsceneSyncMessage.ActionPrologueEnd:
-                    if (_net.Role == NetworkRole.Host)
-                        return;
-                    PrologueSync.ApplyEnd();
-                    break;
             }
         }
     

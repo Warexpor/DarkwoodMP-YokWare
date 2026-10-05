@@ -116,7 +116,7 @@ namespace DWMPHorde.Networking
             // Client story completion → host runs full initiateEndDreaming (transition + end).
             if (_net.Role == NetworkRole.Host
                 && !string.IsNullOrEmpty(msg.OutcomeName)
-                && (msg.OutcomeName != "playerDeath" || DreamSyncManager.IsScriptedDeathEnd(msg.OutcomeName))
+                && msg.OutcomeName != "playerDeath"
                 && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
                 && Dreams.Instance != null
                 && Dreams.Instance.dreaming)
@@ -227,6 +227,15 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Dream, "[DreamSync] defer start request — host is dead: " + msg.PresetName);
                 RejectStartRequest(requesterId, DreamRetry.HostDeadReason);
+                return;
+            }
+
+            // The host is in its own prologue (PersonalPrologue): a party dream waits for it, as
+            // for a dead host.
+            if (PersonalPrologue.LocalInPrologue)
+            {
+                ModLog.Event(LogCat.Dream, "[DreamSync] defer start request — host is in its prologue: " + msg.PresetName);
+                RejectStartRequest(requesterId, DreamRetry.HostPrologueReason);
                 return;
             }
 

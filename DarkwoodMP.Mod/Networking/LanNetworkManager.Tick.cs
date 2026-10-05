@@ -230,6 +230,7 @@ namespace DWMPHorde.Networking
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
             Sync.DesyncCheck.Tick(this);
+            Sync.PersonalPrologue.TickClient(this);
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();

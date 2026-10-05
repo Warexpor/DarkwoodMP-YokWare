@@ -49,6 +49,7 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false,
             int excludePlayerId = 0)
         {
+            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
             BuildPacketHot(type, writeBody, out byte[] data, out int length);
             FanOutHot(data, length, method, skipLoadingPeers, excludePlayerId);
         }
@@ -201,6 +202,8 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (PeerCount == 0) return;
+            // The host's own prologue happens on its private pads, not in the shared world.
+            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
             // Built before the loop: a body writer that itself sends must not run mid-iteration.
             byte[] data = BuildPacket(type, writeBody);
             SendFramedToPeers(data, data.Length, method,
