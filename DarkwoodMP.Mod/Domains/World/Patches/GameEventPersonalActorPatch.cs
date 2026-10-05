@@ -61,9 +61,15 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.switchCantChangeForbidInputs:
                 case GameEvent.Type.switchVisibleUI:
                     return true;
+                case GameEvent.Type.timeScale:
+                    // Slow motion: on the host it slowed the whole simulation for everyone.
+                    return true;
                 case GameEvent.Type.modifyMainScript:
+                    // setWorldGrid picks the walk grid of the area the scene is in; a peer elsewhere
+                    // was switched onto a grid for ground it is not standing on.
                     return ge.mainScriptModify == GameEvent.MainScriptModify.switchPerspective
-                        || ge.mainScriptModify == GameEvent.MainScriptModify.tweenPerspectiveAlpha;
+                        || ge.mainScriptModify == GameEvent.MainScriptModify.tweenPerspectiveAlpha
+                        || ge.mainScriptModify == GameEvent.MainScriptModify.setWorldGrid;
                 default:
                     return false;
             }
@@ -128,6 +134,11 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.transportPlayerToObject:
                     // activeModifier = chapter jump (world event, see IsChapterJump).
                     return !ge.activeModifier;
+                case GameEvent.Type.worldFlag:
+                    // A flag about where this one player is (player_at*, player_entering*, player_in*):
+                    // replayed on everyone it put every peer "at the doctor's house" or "entering
+                    // the road", wherever they stood.
+                    return FlagSyncBoolPatch.IsPerPlayerSpatialFlag(ge.Value);
                 case GameEvent.Type.openDialogue:
                     // The scene opens the NPC's talk window for the player it is about.
                     return true;
@@ -163,7 +174,6 @@ namespace DWMPHorde.Patches
                 case "special_changeClothes":
                 case "special_removeClothes":
                 case "special_addFlamethrower":
-                case "special_teleportMaciek":
                     return true;
                 default:
                     return false;

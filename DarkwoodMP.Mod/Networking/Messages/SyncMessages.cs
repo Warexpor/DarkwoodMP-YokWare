@@ -289,6 +289,36 @@ namespace DWMPHorde.Networking
     /// banshee's sight light on or off; only <see cref="VictimId"/> hears the scream, feels the
     /// shake and sees the overlay (vanilla plays them for the one player it sees).
     /// </summary>
+    public struct PlayerSpecialMessage
+    {
+        /// <summary>The Player method to run (whitelisted on receipt).</summary>
+        public string Method;
+
+        public void Serialize(NetWriter w) => w.Put(Method ?? "");
+
+        public static PlayerSpecialMessage Deserialize(NetReader r) => new PlayerSpecialMessage { Method = r.GetString() };
+    }
+
+    public struct PorterTransportMessage
+    {
+        /// <summary>The hideout whose containers were emptied.</summary>
+        public string Source;
+        /// <summary>The hideout the package goes to.</summary>
+        public string Dest;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Source ?? "");
+            w.Put(Dest ?? "");
+        }
+
+        public static PorterTransportMessage Deserialize(NetReader r) => new PorterTransportMessage
+        {
+            Source = r.GetString(),
+            Dest = r.GetString()
+        };
+    }
+
     public struct BansheeAgitationMessage
     {
         public short HostId;

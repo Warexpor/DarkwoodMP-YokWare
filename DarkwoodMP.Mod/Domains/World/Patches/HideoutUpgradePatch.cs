@@ -42,6 +42,53 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Each player's home is their own lit oven (vanilla <c>Player.experienceMachine</c>, also the
+    /// respawn home). Vanilla puts out your previous oven when you move home, and that took the
+    /// home (and the shadow ward) away from whoever else still lived there. An oven now goes out
+    /// only when nobody calls it home any more. Homes travel with each player's effect sync.
+    /// </summary>
+    internal static class OvenHomes
+    {
+        private const float SameOvenSq = 1f;
+
+        /// <summary>Another player (not <paramref name="exceptPlayerId"/>) has this oven as home.</summary>
+        internal static bool IsOtherPlayersHome(ExperienceMachine oven, int exceptPlayerId)
+        {
+            var net = ModRuntime.Network as LanNetworkManager;
+            if (oven == null || net == null || !net.IsConnected)
+                return false;
+            Vector3 p = oven.transform.position;
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null || proxy.PlayerId == exceptPlayerId || !proxy.RemoteHomeOven.HasValue)
+                    continue;
+                if ((proxy.RemoteHomeOven.Value - p).sqrMagnitude <= SameOvenSq)
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>Moving home keeps the old oven lit while another player lives there.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.setExperienceMachine))]
+    public static class OvenMoveHomePatch
+    {
+        private static bool Prefix(Player __instance, ExperienceMachine machine, bool doEnable)
+        {
+            if (machine == null || __instance.experienceMachine == null || __instance.experienceMachine == machine)
+                return true;
+            if (!OvenHomes.IsOtherPlayersHome(__instance.experienceMachine, exceptPlayerId: -1))
+                return true;
+            ModRuntime.LegacyInfo("[HideoutUpgrade] moving home — old oven stays lit (another player's home)");
+            if (doEnable)
+                machine.enable();
+            else
+                machine.setAsDefaultExpMachine();
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(ExperienceMachine), "enable")]
     public static class HideoutUpgradeEnablePatch
     {

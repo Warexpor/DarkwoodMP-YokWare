@@ -399,6 +399,11 @@ namespace DWMPHorde.Networking
         /// Optional trailing byte.
         /// </summary>
         public bool AckRequired;
+        /// <summary>
+        /// The party starts the chapter over (permadeath "start over"): the chapter save resets
+        /// every character, so every character snapshot is discarded. Protocol 33.
+        /// </summary>
+        public bool StartOver;
 
         public void Serialize(NetWriter w)
         {
@@ -406,6 +411,7 @@ namespace DWMPHorde.Networking
             w.Put(LoadChapterSave);
             w.Put(ExpectWorldShare);
             w.Put(AckRequired);
+            w.Put(StartOver);
         }
 
         public static ChapterTransitionMessage Deserialize(NetReader r) => new ChapterTransitionMessage
@@ -413,7 +419,8 @@ namespace DWMPHorde.Networking
             ChapterId = r.GetInt(),
             LoadChapterSave = r.GetBool(),
             ExpectWorldShare = r.GetBool(),
-            AckRequired = r.GetBool()
+            AckRequired = r.GetBool(),
+            StartOver = r.GetBool()
         };
     }
 

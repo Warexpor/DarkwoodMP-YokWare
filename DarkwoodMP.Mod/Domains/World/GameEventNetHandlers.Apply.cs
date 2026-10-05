@@ -135,6 +135,14 @@ namespace DWMPHorde.Networking
             // Without it GameEventsFiredPatch blocks client one-shots and fire() is a no-op.
             // Vanilla fired+!multipleFire guard prevents double-fire if client already ran it.
             bool wasFired = best.fired;
+            // A one-shot move the host just ran again for this player (PerPlayerTransportOneShots):
+            // the copy here latched on the first player's replay.
+            if (wasFired && !best.multipleFire && msg.ActorPlayerId > 0 && msg.ActorPlayerId == _net.LocalPlayerId
+                && PerPlayerTransportOneShots.Qualifies(best))
+            {
+                best.fired = false;
+                wasFired = false;
+            }
             if (wasFired && !best.multipleFire)
             {
                 ModRuntime.LegacyInfo(
@@ -164,6 +172,10 @@ namespace DWMPHorde.Networking
             bool prevDontRun = best.dontRunIfInactive;
             if (prevDontRun && !best.gameObject.activeInHierarchy)
                 best.dontRunIfInactive = false;
+            // Who the event belongs to, for story steps that act around that player's body.
+            bool pushedActor = msg.ActorPlayerId > 0;
+            if (pushedActor)
+                GeFireActorContext.Push(msg.ActorPlayerId);
             try
             {
                 using (new NetworkApplyGuard())
@@ -173,6 +185,8 @@ namespace DWMPHorde.Networking
             }
             finally
             {
+                if (pushedActor)
+                    GeFireActorContext.Pop();
                 best.dontRunIfInactive = prevDontRun;
                 GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
             }

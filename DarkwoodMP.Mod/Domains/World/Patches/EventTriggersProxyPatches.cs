@@ -239,7 +239,8 @@ namespace DWMPHorde.Patches
             // First body into an empty volume fires. A later peer still fires when a
             // one-shot never latched (first body failed requirements). Already-fired
             // one-shots and multipleFire ambients are not blasted again.
-            if (volumeWasEmpty || EventTriggersAuth.HasPendingOneShot(__instance))
+            if (volumeWasEmpty || EventTriggersAuth.HasPendingOneShot(__instance)
+                || PerPlayerTransportOneShots.HasReopenable(__instance, proxy.PlayerId))
             {
                 // Host: stamp proxy as GE actor and suppress host Player.Instance
                 // personal grants/teleports. Client: still fire multipleFire locally;

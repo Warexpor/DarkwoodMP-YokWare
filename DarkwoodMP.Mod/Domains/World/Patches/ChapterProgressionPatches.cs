@@ -36,14 +36,17 @@ namespace DWMPHorde.Patches
             if (net.Role == NetworkRole.Client)
             {
                 int chapter = _chapterId < 1 ? 1 : _chapterId;
+                bool startOver = PermadeathStartOverPatch.Requested;
                 net.Send(NetMessageType.ChapterTransition,
                     w => new ChapterTransitionMessage
                     {
                         ChapterId = chapter,
                         LoadChapterSave = loadChapterSave,
-                        ExpectWorldShare = generateSave
+                        ExpectWorldShare = generateSave,
+                        StartOver = startOver
                     }.Serialize(w),
                     DeliveryMethod.ReliableOrdered);
+                PermadeathStartOverPatch.Requested = false;
                 ModLog.Event(LogCat.Session,
                     $"[Chapter] Client requested generateChapter({chapter}) — host decides");
                 return false;
@@ -53,7 +56,9 @@ namespace DWMPHorde.Patches
             if (_chapterId < 1)
                 _chapterId = 1;
 
-            ChapterTransitionHelpers.HostCoordinatedChapter(_chapterId, generateSave, loadChapterSave);
+            ChapterTransitionHelpers.HostCoordinatedChapter(_chapterId, generateSave, loadChapterSave,
+                startOver: PermadeathStartOverPatch.Requested);
+            PermadeathStartOverPatch.Requested = false;
             return false;
         }
     }
@@ -129,7 +134,7 @@ namespace DWMPHorde.Patches
         /// Host story path and accepted client reload. Broadcasts one transition,
         /// then loads. Does not call generateChapter (that patch is the caller).
         /// </summary>
-        internal static void HostCoordinatedChapter(int chapterId, bool generateSave, bool loadChapterSave)
+        internal static void HostCoordinatedChapter(int chapterId, bool generateSave, bool loadChapterSave, bool startOver = false)
         {
             if (chapterId < 1) chapterId = 1;
             var net = ModRuntime.Network;
@@ -192,9 +197,13 @@ namespace DWMPHorde.Patches
                 {
                     ChapterId = chapterId,
                     LoadChapterSave = loadChapterSave,
-                    ExpectWorldShare = false
+                    ExpectWorldShare = false,
+                    StartOver = startOver
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
+            // The permadeath start-over: nobody keeps pre-wipe progress.
+            if (startOver)
+                ClientStateBackup.DiscardAllForChapterReload();
 
             ApplyChapterLoad(chapterId, loadChapterSave, resumeAfter: true);
             ModLog.Event(LogCat.Session,
@@ -329,7 +338,7 @@ namespace DWMPHorde.Patches
 
                 ModLog.Event(LogCat.Session,
                     $"[Chapter] Client p{net.CurrentReceivePlayerId} reload chapter{hostChapter}");
-                HostCoordinatedChapter(hostChapter, generateSave: false, loadChapterSave: true);
+                HostCoordinatedChapter(hostChapter, generateSave: false, loadChapterSave: true, startOver: msg.StartOver);
                 return;
             }
 
@@ -368,7 +377,19 @@ namespace DWMPHorde.Patches
                 return;
             }
 
+            if (msg.StartOver)
+                ClientStateBackup.DiscardAllForChapterReload();
             ApplyChapterLoad(msg.ChapterId, msg.LoadChapterSave, resumeAfter: true);
         }
+    }
+
+    /// <summary>The permadeath box's "start over" (vanilla Button: reload this chapter's save).</summary>
+    [HarmonyPatch(typeof(global::Button), "permadeathBox_startOverFromCh2")]
+    public static class PermadeathStartOverPatch
+    {
+        /// <summary>Set until the chapter reload it leads to is sent.</summary>
+        internal static bool Requested; // process-scoped: set by the button, consumed by the generateChapter prefix
+
+        private static void Prefix() => Requested = true;
     }
 }

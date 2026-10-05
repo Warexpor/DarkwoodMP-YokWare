@@ -42,6 +42,7 @@ namespace DWMPHorde.Sync
             }
             else
             {
+                s.Actor = GeFireActorContext.PeekOr(0);
                 s.ClientReplay = NetworkApplyGuard.IsActive || LanNetworkManager.IsApplyingRemoteState;
                 s.SuppressPersonal = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
             }

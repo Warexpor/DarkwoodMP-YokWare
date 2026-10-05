@@ -29,6 +29,7 @@ namespace DWMPHorde.Networking
             data.StableClientKey = GetOrCreateLanClientKey();
 
             data.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            data.Chapter = Singleton<WorldGenerator>.Instance != null ? Singleton<WorldGenerator>.Instance.chapterID : 0;
             data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
             data.ContentFingerprint = CoopWorldCopyMeta.TryGetCurrentContentFingerprint();
 

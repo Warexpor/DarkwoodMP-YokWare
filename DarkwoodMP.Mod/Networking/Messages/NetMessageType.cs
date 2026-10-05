@@ -391,7 +391,19 @@ namespace DWMPHorde.Networking
         /// scream, shake and overlay for the player it sees. Protocol 31.
         /// </summary>
         [HostOnly] BansheeAgitation = 149,
+        /// <summary>
+        /// Host→clients: the porter carried a hideout's stash to another hideout (vanilla
+        /// Location.transportAllItemsToCurrentHideout, run on the host only). Peers empty the source
+        /// containers and place the delivery package shell; its contents come from the host when
+        /// opened. Protocol 33.
+        /// </summary>
+        [HostOnly] PorterTransport = 150,
+        /// <summary>
+        /// Host→one client: run a vanilla Player story function on that client's own body (the
+        /// host saw it happen to that player, e.g. killing the night trader). Protocol 33.
+        /// </summary>
+        [HostOnly] PlayerSpecial = 151,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 149
+        _Highest = 151
     }
 }

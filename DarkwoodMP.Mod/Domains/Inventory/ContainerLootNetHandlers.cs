@@ -70,9 +70,24 @@ namespace DWMPHorde.Networking
             }
 
             if (msg.IsOn && !best.isOn)
+            {
+                // Vanilla enable() also makes it the local player's home (and respawn point);
+                // a peer lighting its oven must not move this player's home.
+                Player local = Player.Instance;
+                ExperienceMachine ownHome = local != null ? local.experienceMachine : null;
                 best.enable();
+                if (local != null)
+                    local.experienceMachine = ownHome;
+            }
             else if (!msg.IsOn && best.isOn)
-                best.disable();
+            {
+                // Another player moved out; the oven stays lit while it is still someone's home.
+                Player local = Player.Instance;
+                bool stillHome = (local != null && local.experienceMachine == best)
+                    || Patches.OvenHomes.IsOtherPlayersHome(best, _net.CurrentReceivePlayerId);
+                if (!stillHome)
+                    best.disable();
+            }
         }
 
         /// <summary>Session reset: a queued upgrade must not apply to a later session's hideout.</summary>

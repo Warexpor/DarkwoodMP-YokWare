@@ -29,10 +29,22 @@ namespace DWMPHorde.Patches
         {
             if (string.IsNullOrEmpty(flagName))
                 return false;
-            // Vanilla hideout / location bookkeeping (not dialog story choices).
-            if (flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase))
-                return true;
-            return false;
+            return IsPerPlayerSpatialFlag(flagName);
+        }
+
+        /// <summary>
+        /// Where this one player is or is arriving: hideout bookkeeping (<c>player_in*</c>), "at the
+        /// doctor's house" (hides talk options there), "entering the road from the radio tower"
+        /// (picks the entry spawn). <c>player_transportingFromCh1</c> is not one: it travels in the
+        /// chapter save and every player is carried into chapter 2 by it.
+        /// </summary>
+        internal static bool IsPerPlayerSpatialFlag(string flagName)
+        {
+            if (string.IsNullOrEmpty(flagName))
+                return false;
+            return flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase)
+                || flagName.StartsWith("player_at", System.StringComparison.OrdinalIgnoreCase)
+                || flagName.StartsWith("player_entering", System.StringComparison.OrdinalIgnoreCase);
         }
 
         public static void Reset()

@@ -62,6 +62,8 @@ namespace DWMPHorde.Networking
 
         private int _lastEffectFlags = -1;
         private string _lastSkills;
+        private bool _lastHasHome;
+        private Vector3 _lastHome;
 
         private static string LearnedSkillNames(Player local)
         {
@@ -110,8 +112,17 @@ namespace DWMPHorde.Networking
             msg.DarknessPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.darknessCounter * 100f), 0, 100);
             string skills = LearnedSkillNames(local);
             bool skillsChanged = !string.Equals(skills, _lastSkills, System.StringComparison.Ordinal);
+            ExperienceMachine home = local.experienceMachine;
+            Vector3 homePos = home != null ? home.transform.position : Vector3.zero;
+            msg.HasHome = home != null;
+            msg.HomeX = homePos.x;
+            msg.HomeY = homePos.y;
+            msg.HomeZ = homePos.z;
+            bool homeChanged = msg.HasHome != _lastHasHome || (homePos - _lastHome).sqrMagnitude > 0.01f;
+            _lastHasHome = msg.HasHome;
+            _lastHome = homePos;
             int flags = msg.Flags | (msg.Flags2 << 8) | (msg.HealthPct << 16) | (msg.DarknessPct << 24);
-            if (!keepalive && flags == _lastEffectFlags && !skillsChanged)
+            if (!keepalive && flags == _lastEffectFlags && !skillsChanged && !homeChanged)
                 return;
             _lastEffectFlags = flags;
             _lastSkills = skills;
@@ -132,6 +143,7 @@ namespace DWMPHorde.Networking
             proxy.RemoteHasEnemyOfTheForest = msg.EnemyOfTheForest;
             proxy.RemotePoisoned = msg.Poisoned;
             proxy.RemoteBleeding = msg.Bleeding;
+            proxy.RemoteHomeOven = msg.HasHome ? new Vector3(msg.HomeX, msg.HomeY, msg.HomeZ) : (Vector3?)null;
             proxy.RemoteHealthPct = msg.HealthPct;
             proxy.RemoteDarknessPct = msg.DarknessPct;
             if (msg.HasSkills)

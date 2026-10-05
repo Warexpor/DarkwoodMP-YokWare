@@ -30,6 +30,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         public string ContentFingerprint;
         public string Timestamp;
+        /// <summary>Chapter the snapshot was taken in (0 = older JSON). A pose from another chapter's map is not restored.</summary>
+        public int Chapter;
         public int Day;
         public int GameTimeMinutes;
         public float PosX, PosY, PosZ;
