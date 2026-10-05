@@ -228,6 +228,7 @@ namespace DWMPHorde.Networking
             Sync.PeerItemPresence.Tick(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
+            Sync.DesyncCheck.Tick(this);
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();

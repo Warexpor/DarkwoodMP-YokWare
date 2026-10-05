@@ -65,7 +65,7 @@ namespace DWMPHorde.Networking
         private bool _lastHasHome;
         private Vector3 _lastHome;
 
-        private static string LearnedSkillNames(Player local)
+        internal static string LearnedSkillNames(Player local)
         {
             if (local.skills == null || local.skills.skills == null || local.skills.skills.Count == 0)
                 return "";

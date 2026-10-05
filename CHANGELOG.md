@@ -11,7 +11,8 @@ the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
 `PlayerEffectSync` the home oven and the in-ending flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
-(150), `PlayerSpecial` (151) and `TradeCommit` (152),
+(150), `PlayerSpecial` (151), `TradeCommit` (152) and the desync check's `DesyncDigest`,
+`DesyncDetailRequest`, `DesyncDetail` and `DesyncReport` (153-156),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
 
@@ -26,6 +27,32 @@ tested in the game.
 Branch `dev-entity-sync-remaster`, on top of 0.8.132. **Protocol 32 → 33.** Product
 **0.8.132 → 0.8.133**. Found by reading the mod against the vanilla decompile, not by
 a report. Built and unit-tested; **runtime is not playtested**.
+
+### Desync checker (new diagnostic)
+
+- **Playtests now find drift on their own.** Every 15 s (`Debug.DesyncCheckIntervalSec`) the
+  host sends each settled client a fingerprint of the state they should share
+  (`DesyncDigest`): a hash per world section (story flags, NPC deaths and standing, player
+  drops, trader stock, journal, tonight's scenario and events, workbench and weather) and the
+  entries themselves for the sections around that player (players' health, alive and skills;
+  doors, creatures, traps, generators, ground pickups, opened containers and fires within
+  12-30 units). The client builds the same sections from its own world, asks for the
+  entries of any hashed section that differs (`DesyncDetailRequest` / `DesyncDetail`) and
+  diffs key by key. A difference seen in two checks in a row is logged once as
+  `[Desync] DESYNC <section> <key>: host=... client=...` and again as `resolved` when it
+  goes away; the host log gets the same lines as `[Desync pN]` (`DesyncReport`). Clock and
+  chapter are compared too (10 game minutes of slack).
+- Read-only: it never changes the world and mints no ids. Skipped during dreams, joins,
+  world shares and migrations, and for a third player still joining. Containers are compared
+  only after the client opened them (loot is rolled on the host); objects at the edge of the
+  near radius are not counted as missing. Near objects come from a wake-time registry
+  (`DesyncRegistry`, patches on `Item.Awake`, `Inventory.Start`, `Trigger.Awake`,
+  `Burn.Start`, `NPC.Awake`) so no check does a scene-wide search.
+- New config `Debug.DesyncCheck` (default on; the host's setting decides) and
+  `Debug.DesyncCheckIntervalSec` (default 15, 5-300). Files: `Domains/Diagnostics/DesyncCheck*.cs`,
+  `Core/DesyncEntries.cs` (pure, unit tested), `Networking/Messages/DesyncMessages.cs`.
+- Untuned: the first playtest shows which sections are noisy for legitimate reasons; those
+  get their rule fixed from the logs.
 
 ### Menus and Nightmare deaths
 

@@ -50,6 +50,9 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> FreeCursorForDualBox { get; private set; }
         /// <summary>Co-op frame-cost probe ([Perf] lines) outside Dev/Trace presets. Off by default.</summary>
         public static ModSetting<bool> PerfProbe { get; private set; }
+        /// <summary>Host↔client world fingerprint compare; differences logged as DESYNC lines.</summary>
+        public static ModSetting<bool> DesyncCheck { get; private set; }
+        public static ModSetting<int> DesyncCheckIntervalSec { get; private set; }
         public static ModSetting<int> MaxPlayers { get; private set; }
         public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
         public static ModSetting<int> MaxPeerDamage { get; private set; }
@@ -242,6 +245,12 @@ namespace DWMPHorde.Config
             PerfProbe = config.Bind("Debug", "PerfProbe", false,
                 "Co-op frame-cost probe: per-frame timing + [Perf] line every 2 s while connected. "
                 + "Always on under LogPreset=Dev/Trace; set true to capture it under Support/Public.");
+            DesyncCheck = config.Bind("Debug", "DesyncCheck", true,
+                "Host sends each client a fingerprint of the world state they should share; the client "
+                + "compares it with its own and logs any difference that lasts two checks as a DESYNC "
+                + "line (both logs). Needs the host's setting on; a client with it off ignores digests.");
+            DesyncCheckIntervalSec = config.Bind("Debug", "DesyncCheckIntervalSec", 15,
+                "Seconds between desync checks (clamped 5..300).");
 
             // A read-only or locked cfg must not abort startup: every setting is already bound
             // with its in-memory value, the file is only a convenience.

@@ -86,6 +86,26 @@ Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
 
 MelonLoader installs write `MelonLoader/Latest.log` in the game folder instead.
 
+## Desync check
+
+With `DesyncCheck` on (default), the host sends each settled client a fingerprint of the
+state they should share every `DesyncCheckIntervalSec` seconds; the client compares it with
+its own world. A difference seen in two checks in a row is logged once as a warning, and again
+when it goes away:
+
+```
+[YokWare/Session] [Desync] DESYNC Doors door_wood_01@-1204,2,388: host=d=6|open=1|... client=d=6|open=0|...
+[YokWare/Session] [Desync] resolved Doors door_wood_01@-1204,2,388
+```
+
+The host log carries the same lines as `[Desync p2] ...` (p2 = the client). Sections: Clock,
+Flags, Npcs, Players, Doors, Creatures, Traps, Generators, Pickups, Drops, Containers, Burning,
+Traders, Journal, Night, World. Doors, creatures, traps, generators, pickups, containers and
+fires are compared only near that client (`d=` is the distance); containers only once the
+client has opened them (loot is rolled on the host). No check runs during a dream, a join or
+a world share. Every five minutes the client logs a `[Desync] check #N` line with how many
+desyncs are open. `grep -n "DESYNC" LogOutput.log` lists them.
+
 ## Tags
 
 | Tag | Category |
