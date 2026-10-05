@@ -291,5 +291,40 @@ namespace DWMPHorde
         public static bool ShouldRunPersonalEffectsOnApply(int actorPlayerId, int localPlayerId)
             => actorPlayerId > 0 && localPlayerId > 0 && actorPlayerId == localPlayerId;
     }
+
+    /// <summary>
+    /// Vanilla Player functions a scripted step calls on the player body (runFunction with
+    /// targetUniqueObjects "player") that act on the world rather than that body. Every other
+    /// Player function such a step calls moves, animates, dresses or equips the body (diveIn,
+    /// diveOut, fakeDeathAni, lieDown, pause/resumeAnimation, special_petDog, ...).
+    /// </summary>
+    public static class CoopStoryPolicy
+    {
+        public static bool IsWorldPlayerFunction(string fn)
+        {
+            switch (fn)
+            {
+                // Night shadow event: CharacterSpawner flags, shadow spawns and the generator
+                // lights of the location (host-run wave, see the night shadow patches).
+                case "tryToSpawnShadow":
+                case "pauseShadows":
+                case "unpauseShadows":
+                case "removeShadows":
+                case "shadowLightsTurnOff":
+                // Events.refreshWorldEvents.
+                case "special_refreshWorldEvents":
+                // Story placements measured from the player: redirected to the body of the
+                // player the scene belongs to (actor story function patches).
+                case "special_hideDoctorsAct2":
+                case "special_teleportMaciek":
+                case "special_spawnDreamForestSpirit":
+                case "wolf_stealSister":
+                case "spawnWolfInCurrentHideout":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
 }
 

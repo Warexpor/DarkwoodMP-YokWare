@@ -14,9 +14,12 @@ namespace DWMPHorde.Networking
         /// <returns>True when the event is resolved (fired, already fired, or intentionally skipped).</returns>
         private bool ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
         {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+
             // Post-teardown dream GEs (e.g. fov_trigger_* after LocationExit) must not apply.
-            if (!string.IsNullOrEmpty(msg.EventName)
-                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+            // A dream GE is one at the dream pad, not one with "dream_" in its name: overworld
+            // events after a dream (the church entrance, the hideout aftermath) were dropped.
+            if (DreamSyncManager.IsAtDreamPad(pos)
                 && !DreamSyncManager.IsDreamActive
                 && (Dreams.Instance == null || !Dreams.Instance.dreaming))
             {
@@ -37,18 +40,14 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             GameEvents best = null;
 
             // Resolve dream events only under the active pad. A name-only
             // fallback can select the overworld bunker copy, so queue events
             // until the pad is loaded and finishedLoading is true.
-            // Unnamed pad effects are also identified by their pad coordinates.
-            bool dreamNamed = !string.IsNullOrEmpty(msg.EventName)
-                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            // Dream events are the ones at the dream pad's slot; before the pad
+            // exists here, any pad-slot position counts (outside locations share them).
             bool padCoords = ClientStateBackup.IsDreamPadCoordinate(pos);
-            bool isDreamEnter = dreamNamed
-                && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
             bool dreamSceneFx = padCoords && !string.IsNullOrEmpty(msg.EventName)
                 && (msg.EventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || msg.EventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0
@@ -65,9 +64,9 @@ namespace DWMPHorde.Networking
                 && (dreamRoot == null
                     || dreamLoc == null || !dreamLoc.finishedLoading
                     || Dreams.Instance == null || !Dreams.Instance.dreaming);
-            if ((dreamNamed || dreamSceneFx || (padCoords && DreamSyncManager.IsDreamActive))
-                && padNotReady
-                && (isDreamEnter || dreamNamed || dreamSceneFx || padCoords))
+            bool onDreamPad = DreamSyncManager.IsDreamActive
+                && (dreamRoot != null ? DreamSyncManager.IsAtDreamPad(pos) : padCoords);
+            if ((onDreamPad || dreamSceneFx) && padNotReady)
             {
                 if (queueIfMissing)
                 {
@@ -96,14 +95,17 @@ namespace DWMPHorde.Networking
             // strip) often missed, then nameless FindNearest stole a nearby already-fired
             // GE and returned "success" — setActive / renderer / remove never ran on the
             // peer. SoftMatch strips (Clone), prefers the dream pad, and prefers unfired.
-            float softMax = (DreamSyncManager.IsDreamActive || padCoords) ? 250f : 8f;
+            // Only the pad's own events are held to the pad: an overworld or outside-location
+            // event fired during a dream (the cellar's dream start, oneChance's dream end) never
+            // resolved under the pad root.
+            float softMax = (onDreamPad || padCoords) ? 250f : 8f;
             if (!string.IsNullOrEmpty(msg.EventName))
             {
-                best = SoftMatchGameEvents(msg.EventName, pos, dreamRoot, softMax);
+                best = SoftMatchGameEvents(msg.EventName, pos, onDreamPad ? dreamRoot : null, softMax);
             }
             else
             {
-                float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
+                float posR = onDreamPad ? 12f : 2.5f;
                 best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
             }
 
@@ -218,7 +220,7 @@ namespace DWMPHorde.Networking
                     PosZ = Mathf.Round(bp.z * 10f) / 10f,
                     EventName = geName,
                     ActorPlayerId = 0
-                });
+                }, DreamSyncManager.IsOnDreamPad(best.transform));
             }
 
             // After GE (which owns openSound): mute late DoorOpen / skip ForceOpen.
@@ -374,17 +376,22 @@ namespace DWMPHorde.Networking
         /// <summary>Drop queued dream GEs so they cannot re-fire after pad teardown.</summary>
         internal void ClearPendingDreamGameEvents()
         {
+            DropDreamPadDestroyedRecords();
             if (_pendingGameEvents.Count == 0) return;
+            // The pad is still standing here (vanilla destroys it 4 s after the dream): drop only
+            // what was queued for its slot. Without it, any pad slot.
+            bool padKnown = DreamSyncManager.GetLoadedDreamPad() != null;
             int removed = 0;
             for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingGameEvents[i];
                 string n = msg.EventName ?? "";
-                bool dreamName = n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
                 bool ephemeral = IsEphemeralDreamFxEvent(n);
-                bool padPos = ClientStateBackup.IsDreamPadCoordinate(
-                    new Vector3(msg.PosX, msg.PosY, msg.PosZ));
-                if (dreamName || ephemeral || padPos)
+                Vector3 msgPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                bool padPos = padKnown
+                    ? DreamSyncManager.IsAtDreamPad(msgPos)
+                    : ClientStateBackup.IsDreamPadCoordinate(msgPos);
+                if (ephemeral || padPos)
                 {
                     int key = msg.EventName != null ? msg.EventName.GetHashCode() : 0;
                     key ^= (int)(msg.PosX * 10f) ^ ((int)(msg.PosZ * 10f) << 10);
@@ -441,10 +448,9 @@ namespace DWMPHorde.Networking
                 if (!_pendingGameEventQueuedAt.ContainsKey(key))
                     _pendingGameEventQueuedAt[key] = now;
 
-                bool dreamish = (!string.IsNullOrEmpty(msg.EventName)
-                        && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    || ClientStateBackup.IsDreamPadCoordinate(
-                        new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                // Pad-slot events (a dream's onEnterLocation, its FX) wait for the pad to load.
+                bool dreamish = ClientStateBackup.IsDreamPadCoordinate(
+                    new Vector3(msg.PosX, msg.PosY, msg.PosZ));
                 float maxAge = dreamish ? PendingDreamGameEventsMaxAge : PendingGameEventsMaxAge;
                 if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
@@ -454,10 +460,7 @@ namespace DWMPHorde.Networking
                 }
 
                 // Dream onEnterLocation / pad FX: keep queued until pad finished.
-                bool dreamEnter = !string.IsNullOrEmpty(msg.EventName)
-                    && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
-                if (dreamEnter || dreamish)
+                if (dreamish)
                 {
                     Location dLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
                     if (DreamSyncManager.IsDreamActive

@@ -162,9 +162,12 @@ namespace DWMPHorde.Sync
                 || __instance.type == GameEvent.Type.replaceCharacter;
             // A scripted hit: on a creature here it ran vanilla's own death on the copy (loot
             // rolled again, death events fired here) beside the host's real one; doors, windows
-            // and breakables take the host's result through their own sync.
+            // and breakables take the host's result through their own sync. A hit on the player
+            // body is that player's own (the host's copy skips it for a peer's scene): the
+            // personal-step rules run it on the actor only.
             bool scriptedHit = __instance.type == GameEvent.Type.gameObject
-                && __instance.gameObjectModifyType == GameEvent.GameObjectModify.getHit;
+                && __instance.gameObjectModifyType == GameEvent.GameObjectModify.getHit
+                && !GameEventPersonalActorPatch.TargetsPlayerBody(__instance);
             // A scripted spawn of a creature or an item: the host's copy is the real one and
             // reaches this peer through its own sync; a second local one was a phantom creature
             // or an extra pickup. Plain props and decor still spawn here.
