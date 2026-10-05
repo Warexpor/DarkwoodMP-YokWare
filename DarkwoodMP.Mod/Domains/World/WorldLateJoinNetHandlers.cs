@@ -222,9 +222,11 @@ namespace DWMPHorde.Networking
             int stations = _net.StationHandlers.SendStationsNearLocationTo(
                 targetPlayerId, loc);
             _net.BulkSyncHandlers.SendReputationBulkSyncTo(targetPlayerId);
+            int taken = SendTakenPickupsNearLocationTo(targetPlayerId, loc);
 
             ModLog.Event(LogCat.Session,
                 "[LocationSync] pad resync → p" + targetPlayerId
+                + " taken=" + taken
                 + " barrDoor=" + barrDoors
                 + " win=" + barrWindows
                 + " item=" + barrItems
@@ -240,6 +242,38 @@ namespace DWMPHorde.Networking
                 + " shadowArmor=" + shadowArmor
                 + " station=" + stations
                 + " loc=" + (loc.gameObject != null ? loc.gameObject.name : loc.name));
+        }
+
+        /// <summary>
+        /// Host→peer: ground items already taken in this location. A location spawns from its
+        /// prefab on each machine; a player arriving later saw (and could pick at) items others had
+        /// long taken there.
+        /// </summary>
+        private int SendTakenPickupsNearLocationTo(int targetPlayerId, Location loc)
+        {
+            Transform root = loc.transform;
+            Vector3 anchor = loc.playerSpawn != null
+                ? loc.playerSpawn.transform.position
+                : (root != null ? root.position : Vector3.zero);
+            int sent = 0;
+            var log = WorldPhysicsSyncService.ConsumedWorldPickupLog;
+            for (int i = 0; i < log.Count; i++)
+            {
+                Vector3 p = log[i].Key;
+                if ((p - anchor).sqrMagnitude > WorldLateJoinNetHandlers.PadResyncMaxDistSqr)
+                    continue;
+                var rm = new WorldObjectRemovedMessage
+                {
+                    PosX = p.x,
+                    PosY = p.y,
+                    PosZ = p.z,
+                    ObjectName = log[i].Value,
+                    Mode = WorldObjectRemovedMessage.ModeRemove
+                };
+                _net.SendToPlayer(targetPlayerId, NetMessageType.WorldObjectRemoved, w => rm.Serialize(w), DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+            return sent;
         }
 
         /// <summary>

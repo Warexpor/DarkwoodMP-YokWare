@@ -68,6 +68,8 @@ namespace DWMPHorde.Sync
             /// cannot grant after the first remove is claimed locally or on the wire.
             /// </summary>
             public readonly HashSet<PosNameKey> ConsumedWorldPickups = new HashSet<PosNameKey>();
+            /// <summary>The same pickups with their real spot and name, for a location's first visitor.</summary>
+            public readonly List<KeyValuePair<Vector3, string>> ConsumedWorldPickupLog = new List<KeyValuePair<Vector3, string>>();
             public readonly Dictionary<Vector3, bool> LastDoorOpen = new Dictionary<Vector3, bool>();
             public readonly Dictionary<Vector3, bool> LastTrapTriggered = new Dictionary<Vector3, bool>();
             public float FullResyncTimer;

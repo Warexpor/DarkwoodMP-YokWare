@@ -233,6 +233,7 @@ namespace DWMPHorde.Networking
                 Patches.CombatMusicSync.Tick(this);
                 EpilogueNetHandlers.EpilogueCredits.Tick(this);
                 Sync.TrapLedger.Tick();
+                WorldFxHandlers?.TickHeldClaims();
             }
 
             _effectSyncTimer += Time.deltaTime;

@@ -92,7 +92,30 @@ namespace DWMPHorde.Sync
         public static bool TryConsumeWorldPickup(float x, float y, float z, string objectName)
         {
             PosNameKey key = MakePosNameKey(x, y, z, objectName);
-            return _s.ConsumedWorldPickups.Add(key);
+            if (!_s.ConsumedWorldPickups.Add(key))
+                return false;
+            if (_s.ConsumedWorldPickupLog.Count < 4096)
+                _s.ConsumedWorldPickupLog.Add(new KeyValuePair<Vector3, string>(new Vector3(x, y, z), objectName ?? ""));
+            return true;
+        }
+
+        internal static List<KeyValuePair<Vector3, string>> ConsumedWorldPickupLog => _s.ConsumedWorldPickupLog;
+
+        /// <summary>A claim that could not be granted after all: the pickup is still there to take.</summary>
+        public static void UnconsumeWorldPickup(float x, float y, float z, string objectName)
+        {
+            PosNameKey key = MakePosNameKey(x, y, z, objectName);
+            if (!_s.ConsumedWorldPickups.Remove(key))
+                return;
+            for (int i = _s.ConsumedWorldPickupLog.Count - 1; i >= 0; i--)
+            {
+                var e = _s.ConsumedWorldPickupLog[i];
+                if (MakePosNameKey(e.Key.x, e.Key.y, e.Key.z, e.Value).Equals(key))
+                {
+                    _s.ConsumedWorldPickupLog.RemoveAt(i);
+                    break;
+                }
+            }
         }
 
         public static bool IsWorldPickupConsumed(float x, float y, float z, string objectName)
@@ -103,6 +126,7 @@ namespace DWMPHorde.Sync
         public static void ResetConsumedWorldPickups()
         {
             _s.ConsumedWorldPickups.Clear();
+            _s.ConsumedWorldPickupLog.Clear();
         }
 
         /// <summary>Position quantized to 0.1 u and packed without overlap, plus the normalized name.</summary>
