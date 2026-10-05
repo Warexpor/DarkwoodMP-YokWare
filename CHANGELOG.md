@@ -10,7 +10,7 @@ The current product line is `0.8.x`. The plugin and display version are
 the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
 removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
 `TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
-`PlayerEffectSync` the home oven and the in-ending flag, `ChapterTransition` the start-over flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
+`PlayerEffectSync` the home oven and the in-ending flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
 (150), `PlayerSpecial` (151) and `TradeCommit` (152),
 `ThrowableDespawn` (125) retired;
 32 held for 0.8.132 only).
