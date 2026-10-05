@@ -34,6 +34,7 @@ namespace DWMPHorde.Networking
 
             // Merge host completed + lvl flags before entry.
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamRetry.HostDreamRunning = true;
 
             // Dead in the overworld: sit it out (the host leaves dead peers off the roster).
             if (_net.Role == NetworkRole.Client && DreamSyncManager.IsLocalDeadOutsideDream())
@@ -166,6 +167,8 @@ namespace DWMPHorde.Networking
 
             DreamSyncManager.ClearStoryEndDefer();
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            if (!DreamSyncManager.OutcomeChainsToNextDream(Dreams.Instance, msg.OutcomeName))
+                DreamRetry.HostDreamRunning = false;
 
             // playerDeath, spectate, and remote cleanup clear dream-death tracking.
             if (_net.TryGetRemoteState(playerId, out peerState))
@@ -345,6 +348,8 @@ namespace DWMPHorde.Networking
         internal void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
             DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            if (_net.Role == NetworkRole.Client)
+                DreamRetry.HostDreamRunning = msg.SessionActive;
             // Reconnected (host migration, soft reconnect) while on the dream pad: confirm or leave.
             if (DreamSyncManager.OnSessionBulkWhileInsideDream(msg, _net))
                 return;
@@ -453,7 +458,19 @@ namespace DWMPHorde.Networking
             }
             // Peer pad ready; push collider parity (lamp trigger and bell solid).
             if (_net.Role == NetworkRole.Host)
+            {
                 WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
+                // A peer arriving in a dream already under way (a joiner, a reconnect, the
+                // tutorial) loaded a fresh pad: the bunker's dialogue door shut, earlier doors
+                // closed. Replay what the pad's events and doors did so far.
+                Transform padT = DreamSyncManager.GetDreamLocationTransform();
+                Location pad = padT != null ? padT.GetComponent<Location>() : null;
+                if (pad != null && playerId > 0)
+                {
+                    _net.GameEventHandlers.SendFiredGameEventsNearLocationTo(playerId, pad);
+                    _net.WorldLateJoinHandlers.SendDoorStatesTo(playerId, pad, 128);
+                }
+            }
         }
 
         internal void HandleDreamPropCollider(DreamPropColliderMessage msg)

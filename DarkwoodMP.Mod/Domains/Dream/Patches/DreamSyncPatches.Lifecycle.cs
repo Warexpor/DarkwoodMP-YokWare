@@ -33,6 +33,19 @@ namespace DWMPHorde.Patches
                     ModRuntime.LegacyInfo(
                         $"[DreamSync] Block startDreaming — party already completed: {preset}");
                     __state = true;
+                    // Undo the entry: the pad, the prepared flag (which kept the host's entry freeze
+                    // on for good), the movie's black screen and muted audio.
+                    try
+                    {
+                        __instance.destroyDream();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[DreamSync] blocked start pad cleanup: " + ex.Message);
+                    }
+                    __instance.dreamPrepared = false;
+                    __instance.wantToDream = false;
+                    DreamSyncManager.AbortBlockedStart();
                     return false;
                 }
 
@@ -359,6 +372,30 @@ namespace DWMPHorde.Patches
             Player.Instance?.Hotbar.clear();
             Player.Instance?.Hotbar.refresh();
             ModRuntime.LegacyInfo("[DreamSync] Client chain switch — waiting for host pocket: " + dest);
+            return false;
+        }
+    }
+}
+
+namespace DWMPHorde.Patches
+{
+    /// <summary>
+    /// A dream chaining into its next part runs the player's wake-up (Player.endDreaming: full
+    /// health, alive). A player who died in the first part stays dead and spectating in co-op
+    /// (the death roster carries over), but its body came back alive and could be hit, while
+    /// "everyone is dead" kept counting it dead. It stays down until the dream really ends.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.endDreaming))]
+    public static class DreamChainKeepDeadPatch
+    {
+        private static bool Prefix()
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return true;
+            Dreams d = Dreams.Instance;
+            if (d == null || !d.switchingDream || !Sync.FinalDreamsceneManager.IsLocalDead)
+                return true;
+            ModRuntime.LegacyInfo("[DreamDeath] dream chains on — dead player stays down");
             return false;
         }
     }

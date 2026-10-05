@@ -49,6 +49,8 @@ namespace DWMPHorde.Sync
         /// for bunker and random lvl 3/5/6/7 (second peer must not re-fire).
         /// </summary>
         private static byte _unionLvlFlags;
+        /// <summary>Level-dream flags the host has confirmed (its snapshots), not this peer's own level-ups.</summary>
+        internal static byte HostLvlFlags { get; private set; } // reset-in: ResetIncludingCompletions
 
         /// <summary>How long a session may sit in Starting before the watchdog cleans it up.</summary>
         private const float StartingTimeoutSec = 60f;
@@ -382,6 +384,7 @@ namespace DWMPHorde.Sync
             Reset();
             _completedPresets.Clear();
             _unionLvlFlags = 0;
+            HostLvlFlags = 0;
         }
 
         public static bool ShouldRejectNewConnections => IsActive && !IsFirstPlayTutorial;
@@ -468,6 +471,7 @@ namespace DWMPHorde.Sync
                 }
             }
             ApplyLvlFlags(lvlFlags);
+            HostLvlFlags |= lvlFlags;
             // Party-once skill gate: bunker completion counts as hadDreamAtLvl2 even if flag lagged.
             if (IsPresetCompleted("dream_bunker_underground_01") && Dreams.Instance != null)
                 Dreams.Instance.hadDreamAtLvl2 = true;

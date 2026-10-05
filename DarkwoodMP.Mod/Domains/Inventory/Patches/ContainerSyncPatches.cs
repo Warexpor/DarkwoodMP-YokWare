@@ -223,20 +223,8 @@ namespace DWMPHorde.Patches
             if (preTakePlayerCount >= 0 && (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem))
                 net.RecordPendingTakePreCount(pos, slotIdx, preTakePlayerCount, isRecipe, itemType, durability, ammo);
 
-            // Dream item pickup visual for spectators / other peers (host → all via Broadcast).
-            if (Sync.DreamSyncManager.IsDreamActive && (action == ContainerAction.TakeItem || action == ContainerAction.RemoveItem))
-            {
-                net.Broadcast(NetMessageType.DreamItemPickup,
-                    w => new DreamItemPickupMessage
-                    {
-                        ItemType = itemType ?? "",
-                        Amount = amount,
-                        PosX = pos.x,
-                        PosY = pos.y,
-                        PosZ = pos.z
-                    }.Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
-            }
+            // (A container take in a dream needs nothing more: ContainerItem above carries it. The old
+            // DreamItemPickup extra destroyed a same-type ground item near the chest on the others.)
         }
     }
 

@@ -432,6 +432,39 @@ age, so all machines see the same glow and the same burn-out with nothing to sen
 - **A join could slip into the host's dream entry.** Joins are refused during a
   dream. They are now also refused between the start of the host's entry movie and
   the start of the dream.
+- **A refused or abandoned dream entry left players black and muted.** Undoing an
+  entry movie (a refused request, a stuck movie, a start blocked at the last step,
+  the host's entry that led nowhere) left both black layers on and the game's sound
+  faded out until the next dream. All of these now bring back the picture, the sound
+  and the cursor. They also leave the clock alone: it ran through the movie.
+- **Dead players still played and froze for the entry movie.** They now skip it, as
+  they skip the dream.
+- **Creatures appearing during the host's entry movie weren't frozen.** Only
+  creatures alive when the freeze started were held. Night spawns and waking ground
+  in the 20 seconds before the pad attacked players locked in the movie. They are
+  now held too; the dream's own creatures stay free.
+- **Stuck-movie watchdogs from an old movie ended a newer one.** Each movie now has
+  its own.
+- **A waiting level dream replayed its movie every few seconds during someone else's
+  dream.** It now waits until the host's dream ends. If another player's dream for
+  the same level happened in between, the party has had it, and the waiting one is
+  dropped (before, it gave a second dream for that level).
+- **A dream start blocked at the last step kept the host frozen.** When the party had
+  already finished that dream, the pad stayed, the dream stayed "prepared" and the
+  world stayed frozen. All of that is now undone.
+- **A dream reward could be lost on the pad.** In the hard wake path, a reward that
+  didn't fit in the bag was dropped where the player stood, on the dream pad, before
+  the move home. Rewards now come after the move, as in vanilla.
+- **A dead dreamer came back to life when the dream chained into its next part.** The
+  chain runs the wake-up, which heals and revives. A player dead in the dream now
+  stays down until the dream really ends.
+- **Taking from a dream chest deleted a ground item for the others.** A redundant
+  dream pickup message destroyed a same-type item near the chest on other players.
+  The container sync already carries the take, so the extra message is no longer
+  sent.
+- **Joining a dream in progress gave a fresh pad.** The bunker's dialogue door was
+  shut and earlier doors closed. The pad's fired events and door states are now
+  replayed when a player arrives on it.
 
 ### Story and unique content (chapter 1 and 2 NPCs and places)
 

@@ -50,10 +50,6 @@ namespace DWMPHorde.Sync
                     player.Hotbar.show();
                 }
 
-                // Personal rewards first (items and journal); defer fireGameEvent and world
-                // changes until unfreeze.
-                if (!string.IsNullOrEmpty(pendingOutcome))
-                    ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
                 // Vanilla endDreaming parity: journal dream entries, rain, unique teleport, time.
                 try { Singleton<UI>.Instance?.journal?.clearDreamEntries(); }
@@ -115,6 +111,13 @@ namespace DWMPHorde.Sync
 
                 player.teleportTo(restorePos, Quaternion.Euler(90f, 0f, 0f));
                 player.Hotbar.selectSlot(0, noiseless: true, force: true);
+
+                // Personal rewards (items and journal) after the move home, as vanilla endDreaming
+                // does: a reward that does not fit in the bag is dropped at the player's feet, which
+                // before the move was the dream pad (destroyed seconds later). World changes and
+                // fireGameEvent wait until unfreeze.
+                if (!string.IsNullOrEmpty(pendingOutcome))
+                    ApplyOutcomeEffects(dreams, player, pendingOutcome, worldEvents: false);
 
                 // Prefer freeze snapshot over timeCopy when remote startDreaming overwrote it.
                 // The tutorial wakes at its fixed hour (vanilla timeCopy = 5), not at the snapshot.

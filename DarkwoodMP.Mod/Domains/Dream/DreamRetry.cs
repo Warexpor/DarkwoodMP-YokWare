@@ -19,12 +19,18 @@ namespace DWMPHorde.Sync
         private static string _requested;   // reset-in: Reset (NetworkResetRegistry)
         private static string _waiting;     // reset-in: Reset (NetworkResetRegistry)
         private static float _notBefore;    // reset-in: Reset (NetworkResetRegistry)
+        /// <summary>Level-dream flags this request was for (this peer's level-up, not yet the party's).</summary>
+        private static byte _levelBits;     // reset-in: Reset (NetworkResetRegistry)
+        /// <summary>A dream is running on the host (this peer sits it out, or its pad failed to load).</summary>
+        internal static bool HostDreamRunning; // reset-in: Reset (NetworkResetRegistry)
 
         internal static void Reset()
         {
             _requested = null;
             _waiting = null;
             _notBefore = 0f;
+            _levelBits = 0;
+            HostDreamRunning = false;
         }
 
         /// <summary>The entry transition sent a start request for <paramref name="dreamName"/> ("" = random roll).</summary>
@@ -32,6 +38,7 @@ namespace DWMPHorde.Sync
         {
             _requested = dreamName ?? "";
             _waiting = null;
+            _levelBits = (byte)(DreamSession.ReadLocalLvlFlags() & ~DreamSession.HostLvlFlags);
         }
 
         internal static void Clear()
@@ -73,8 +80,15 @@ namespace DWMPHorde.Sync
                 return;
             if (Core.loadingGame || Core.mainMenu || !Core.worldGenFinished())
                 return;
-            if (DreamSession.IsActive || dreams.dreaming || dreams.dreamPrepared || dreams.startTransition.isPlaying)
+            if (DreamSession.IsActive || HostDreamRunning || dreams.dreaming || dreams.dreamPrepared || dreams.startTransition.isPlaying)
                 return;
+            // Another player's dream for the same level came first: the party has had it.
+            if (_levelBits != 0 && (_levelBits & DreamSession.HostLvlFlags) == _levelBits)
+            {
+                ModRuntime.LegacyInfo("[DreamRetry] the party already had this level's dream — dropped");
+                _waiting = null;
+                return;
+            }
             if (DreamSyncManager.IsLocalDeadOutsideDream() || DreamSyncManager.IsLocalDreamActive
                 || DreamSyncManager.HasPendingEntryTransition)
                 return;
