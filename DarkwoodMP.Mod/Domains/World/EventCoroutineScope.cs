@@ -138,9 +138,9 @@ namespace DWMPHorde.Sync
     public static class GameEventFireScopePatch
     {
         /// <summary>
-        /// Client replaying the host's event: character spawns, and steps that ADD to a value (a world flag counter,
-        /// shared NPC reputation) already happened on the host, which sends the resulting value.
-        /// Adding again here gave double (or, racing the host's value, wrong) totals.
+        /// Client replaying the host's event: character spawns, scripted hits, clock tweens, and
+        /// steps that ADD to a value (a world flag counter, shared NPC reputation) already happened
+        /// on the host, which sends the result. Doing them again here doubled or fought it.
         /// </summary>
         private static bool Prefix(GameEvent __instance, ref IEnumerator __result)
         {
@@ -159,7 +159,15 @@ namespace DWMPHorde.Sync
             // event replay already skips: ClientScenarioEventNoCharacterSpawnPatch).
             bool characterSpawn = __instance.type == GameEvent.Type.spawnCharacter
                 || __instance.type == GameEvent.Type.replaceCharacter;
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn)
+            // A scripted hit: on a creature here it ran vanilla's own death on the copy (loot
+            // rolled again, death events fired here) beside the host's real one; doors, windows
+            // and breakables take the host's result through their own sync.
+            bool scriptedHit = __instance.type == GameEvent.Type.gameObject
+                && __instance.gameObjectModifyType == GameEvent.GameObjectModify.getHit;
+            // A clock tween: the host's runs and its clock reaches everyone; a second tween here
+            // fought every TimeSync.
+            bool clockTween = __instance.type == GameEvent.Type.tweenTime;
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !clockTween)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;

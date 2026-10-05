@@ -12,8 +12,9 @@ namespace DWMPHorde.Sync
     /// Vanilla latches them after the first fire, which in single player is the only fire. In
     /// co-op the first player through was carried and the event latched: the next player walking
     /// in got nothing and could be stranded on the wrong side. An event made only of such moves
-    /// (plus its screen, sound and message steps) now carries each player once.
-    /// Rewards stay one-shot: items are one shared world.
+    /// (plus its screen, sound and message steps) now carries each player once. A plain hint (a
+    /// message, maybe a sound) is likewise shown once to each player, not only to whoever walked
+    /// past first. Rewards stay one-shot: items are one shared world.
     /// </summary>
     internal static class PerPlayerTransportOneShots
     {
@@ -25,21 +26,23 @@ namespace DWMPHorde.Sync
         {
             if (ges == null || ges.multipleFire || ges.events == null || ges.events.Count == 0)
                 return false;
-            bool moves = false;
+            bool moves = false, message = false, scene = false;
             for (int i = 0; i < ges.events.Count; i++)
             {
                 GameEvent e = ges.events[i];
                 if (e == null)
                     continue;
                 if (IsMove(e))
-                {
                     moves = true;
-                    continue;
-                }
-                if (!IsPresentation(e))
+                else if (e.type == GameEvent.Type.displayMessage)
+                    message = true;
+                else if (GameEventPersonalActorPatch.IsScenePresentation(e))
+                    scene = true;
+                else if (!IsPresentation(e))
                     return false;
             }
-            return moves;
+            // A move with its screen steps, or a plain hint (message and sound only).
+            return moves || (message && !scene);
         }
 
         private static bool IsMove(GameEvent e)
