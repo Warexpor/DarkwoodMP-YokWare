@@ -82,6 +82,11 @@ On top of 0.8.137. **Protocol 37 → 38.** Product **0.8.137 → 0.8.138**. Buil
 - Stale "host migration during a dream is deferred" lines in the README and `COOP_COVERAGE.md`
   now say done in code, not playtested. The new doc is added to the "docs do not restate the
   version" test.
+- **README rewritten** for players first: what the mod is and how it works, status, install,
+  hosting and joining as the title screen actually labels it (MULTIPLAYER, HOST/JOIN LAN or STEAM,
+  CHOOSE SLOT, ENTER WORLD), controls, settings, bug reports, known limits; building, tests and
+  dual-box notes follow, then a documentation index. The duplicate "Current ship" line is gone
+  (the table carries the version; `ReleaseConsistencyTests` no longer requires the line).
 
 ---
 

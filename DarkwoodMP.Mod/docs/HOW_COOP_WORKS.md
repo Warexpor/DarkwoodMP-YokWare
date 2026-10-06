@@ -2,10 +2,10 @@
 
 Darkwood is a single-player game. Almost every system in it assumes one player:
 `Player.Instance`, one clock, one save, one bag, one camera, one set of story
-choices. YokWare Branch turns it into a co-op game for 2 to 8 players. This document
-explains how: the design philosophy, the rules every system follows, what each
-player can and cannot do, what is shared, what is personal, what is duplicated or
-scaled for the party, and what is still open.
+choices. YokWare Branch turns it into a co-op game for two or more players (up to
+8 by default). This document explains how: the design philosophy, the rules every
+system follows, what each player can and cannot do, what is shared, what is
+personal, what is duplicated or scaled for the party, and what is still open.
 
 It describes the current build. The version, the wire protocol and the install
 steps are in the [README](../../README.md). What changed and when is in the

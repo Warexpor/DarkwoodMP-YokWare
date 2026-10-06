@@ -1,223 +1,274 @@
 # YokWare Branch
 
-Darkwood co-op multiplayer, Path B: a host-authoritative Horde sync mod.
+Co-op multiplayer for **Darkwood**. One player hosts their campaign and friends
+join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
 | Product | YokWare Branch **0.8.138** |
 | Wire | Horde protocol **38** |
-| Transport | LiteNetLib LAN, with optional SteamNetworkingSockets |
-| Loaders | BepInEx 5.x and MelonLoader 0.7.x (peer builds) |
+| Players | Up to 8 by default (`MaxPlayers`, host included) |
+| Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
+| Loaders | BepInEx 5.x or MelonLoader 0.7.x |
 | License | GPLv3, see [LICENSE](LICENSE) |
 | Authors | Warexpor and Yokyy |
 
-Path B is the supported load path. Earlier Path A and Ironbark material is not
-part of the shipped mod. See [CHANGELOG.md](CHANGELOG.md) for history and
-known gaps.
-
-**How co-op works:** the design philosophy, what is shared, personal or scaled
-for the party, the rules for every gameplay area and what players can and cannot
-do are in [DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md).
+Every player in a session must run the same version: the protocol number is
+checked when a player joins.
 
 ---
 
-## Wire
+## How it works
 
-All peers in a session must use the same mod version and protocol.
+Darkwood is built for one player. In this mod the **host's game is the world**:
+it runs the creatures, the story, the clock and the save. The other players send
+what they do to the host, the host checks it against its world and tells everyone
+the result. A client sees the host's world and should barely notice that it is not
+the host.
 
-- LiteNetLib UDP provides LAN sessions.
-- SteamNetworkingSockets provides the optional Steam lobby transport.
-- Both transports use the same Horde message framing.
-- The host owns world simulation, combat authority, entity AI, and the
-  day/night clock where the mod has a multiplayer path.
-- Clients present host state and suppress the local systems that would create
-  duplicate world simulation.
-- The host validates client requests against its own world, drops message types
-  only the host may send, and relays a client message to the other clients only
-  after applying it.
+- **The world is shared.** Items are unique: what one player takes is gone for
+  everyone, what one player opens is open for everyone. Story choices, the journal,
+  NPCs and the workbench are shared.
+- **Each character is personal.** Every player keeps their own bag, health, skills,
+  level, recipes, home oven and trader standing.
+- **Single-player rules are adapted, not removed.** Menus no longer pause the world
+  (players in a dialogue or the level-up menu are protected instead). A night death
+  makes you spectate until morning instead of skipping the night for everyone. Each
+  player plays their own prologue. Dreams take the whole party.
 
-The highest assigned message ID is 160 (`DialogMirror`). Voice data uses message
-129 when Steam voice is enabled. How the code is organised, and the rules for
-adding messages, handlers, patches and session state, are in
-[DarkwoodMP.Mod/docs/ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md).
+The full rulebook (design philosophy, who owns what, how every gameplay area
+behaves, what players can and cannot do, and what is still open) is
+**[How co-op works](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md)**.
+
+---
+
+## Status
+
+Every gameplay area has a multiplayer path in code, and the unit tests run on
+every push. Runtime verification is a dual-box (two game installs on one machine)
+or three-player playtest. Recent releases are built and unit-tested but not yet
+playtested; the [CHANGELOG](CHANGELOG.md) says which is which for each release.
+Expect bugs, and send logs (see [Reporting a bug](#reporting-a-bug)).
 
 ---
 
 ## Install
 
-Use one loader per game process. Do not place both loader variants in the same
-game installation.
+Use one loader per game installation. Never put both loader builds in the same
+game folder.
 
-### BepInEx
+Prebuilt zips are attached to a [GitHub release](https://github.com/Warexpor/DarkwoodMP-YokWare/releases)
+when one is published (each zip has an `INSTALL.txt`). Otherwise build the DLLs
+yourself (see [Building from source](#building-from-source)).
 
-1. Install BepInEx 5.x for the installed Darkwood architecture.
-2. Build both loaders (recommended), or BepInEx only:
+### BepInEx (default)
 
-   `./scripts/build-loaders.sh`
-
-   `dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx`
-
-3. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
-   `DarkwoodMP.Mod/bin/Release/BepInEx/` to
-   `Darkwood/BepInEx/plugins/`.
-4. Launch Darkwood. The F2 window title should read YokWare Branch &lt;version&gt; / Path B
-   and its footer the protocol, both as in the table above.
-
-The project can also copy these files to the configured local Steam and
-SecondDarkwood plugin directories after a BepInEx build. Treat that as a local
-development convenience, not as a release packaging step.
+1. Install BepInEx 5.x for your Darkwood build (Windows, or Linux native).
+2. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` into `Darkwood/BepInEx/plugins/`.
+3. Launch Darkwood. On Linux with Steam, launch through BepInEx's
+   `run_bepinex.sh` (Steam launch options: `./run_bepinex.sh %command%`); a plain
+   Steam launch skips the loader.
 
 ### MelonLoader
 
-Melon and BepInEx share the same Path B runtime. The Melon DLL does **not**
-need BepInEx installed.
+1. Install MelonLoader 0.7.x for Darkwood. BepInEx is not needed.
+2. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` into `Darkwood/Mods/`.
+3. Launch Darkwood.
 
-1. Install MelonLoader 0.7.x for Darkwood (separate game dir from BepInEx —
-   one Doorstop per install).
-2. Fetch Melon reference assemblies (once per clone):
+To check the install, press **F2** in game: the window title shows
+`YokWare Branch <version> / Path B` and the footer shows the protocol, both as in
+the table above.
 
-   `./scripts/fetch-melonloader-refs.sh`
+---
 
-3. Build:
+## Playing
 
-   `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader`
+### Host and join
 
-   Or both: `./scripts/build-loaders.sh`
+The title screen has a **MULTIPLAYER** button with **HOST**, **JOIN** and
+**SETTINGS** (LAN or Steam for each). The **F2** window in game has the same
+options.
 
-4. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` from
-   `DarkwoodMP.Mod/bin/Release/MelonLoader/` to `Darkwood/Mods/`.
+- **Host:** choose HOST LAN or HOST STEAM, then load or start a campaign and enter
+  a chapter. Players can join once the host is in the world; until then they see
+  "WAIT HOST".
+- **Join over LAN:** set the host's IP address (default port 7788) in SETTINGS or
+  F2, then JOIN LAN.
+- **Join over Steam:** accept the host's Steam invite, or set the lobby id in
+  SETTINGS and press JOIN STEAM. The host chooses the lobby type (friends, public or
+  private).
+- **Password:** optional. If the host sets `HostPassword`, every player needs the
+  same one.
 
-Configuration uses the same INI key shape on both loaders:
+When you join, you download the host's world, **CHOOSE SLOT** (one of your 5 save
+slots for your copy of it) and **ENTER WORLD**. Empty slots are safe; an occupied slot asks before it is
+overwritten, and a slot from a different campaign is marked
+`[DIFFERENT CAMPAIGN]`. Your other saves are not touched. Your character (bag,
+skills, level) is saved separately and comes back when you rejoin.
+
+Only the host saves the world. When the host saves, every player's copy and
+character are saved with it.
+
+A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| **F2** | Multiplayer window (host, join, settings, session status) |
+| **F3** | Save (host only) |
+| **F4** | Spectate other players; also used while dead at night |
+| **Ctrl+C** | Text chat (Enter sends, Esc closes) |
+| **V** | Push-to-talk voice chat (needs a logged-in Steam client) |
+| **Right mouse** with a walkie-talkie in hand | Talk on the radio |
+
+### Settings
+
+Settings live in one INI file, created on first launch:
 
 - BepInEx: `Darkwood/BepInEx/config/com.yokware.branch.cfg`
-- Melon: Melon `UserData/YokWare/com.yokware.branch.cfg`
+- MelonLoader: `UserData/YokWare/com.yokware.branch.cfg`
 
-Every key, its default and what it does is listed in
-[DarkwoodMP.Mod/docs/CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md).
+Edit it with the game closed. The gameplay settings (friendly fire, loot sharing,
+party scaling) are the host's and apply to everyone. Every key and its default is
+in [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md).
 
-### Entity spawner (optional)
+### Reporting a bug
 
-`DarkwoodMP.EntitySpawner` is a separate debug plugin (**F5** opens its
-window). It is not part of the co-op mod and is not needed to play; build it
-with `dotnet build DarkwoodMP.EntitySpawner -c Release` and copy its DLL next to
-the mod only when you want to spawn entities while testing.
-
-### Dual-box testing
-
-SecondDarkwood is the second (GOG) installation used as the client box. Use LAN
-for Steam to GOG testing. Steam lobby sessions require two Steam clients. The
-second installation uses an isolated `Darkwood_Second` save root when the normal
-local setup is used.
-
-| | Linux (Steam host + Wine/Proton client) | Windows |
-|--|--|--|
-| Host game | `~/.local/share/Steam/steamapps/common/Darkwood` | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood` |
-| Client game | `~/Work/MyProjects/SecondDarkwood/Darkwood` | `C:\MyProjects\SecondDarkwood\Darkwood` |
-
-On Linux dual-box (Wayland + Wine), set `FreeCursorForDualBox = true` in both
-installs' `com.yokware.branch.cfg`; it defaults to off.
+Send the `LogOutput.log` (BepInEx) or Melon log from **every** player, taken right
+after the problem and before the game is started again (it is overwritten on each
+launch). Say who was the host and what each player did. Log settings and what they
+capture: [LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
 
 ---
 
-## Controls
+## Known limitations
 
-- **F2**: multiplayer settings
-- **F3**: manual save
-- **F4**: spectator mode
-- **Ctrl+C**: chat (`ChatEnabled`, on by default). Enter sends, Esc closes;
-  gameplay input is held while the input box is open.
+- Runtime verification of a full campaign with two and three players is still in
+  progress. The per-area status is in
+  [COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
+- The wrong-save warnings (slot picker, overwrite confirm, `WRONG SAVE` on join)
+  are in code; the multi-slot experience still needs a playtest.
+- There is no exclusive lock on containers or the workbench. Two players can have
+  the same one open; the host settles any race and refunds the loser exactly.
+- Host migration during a dream is in code but not yet playtested.
+- Some dream, spectator and dialogue presentation details can differ between
+  players. They do not change the world.
 
-The title menu provides HOST, JOIN, SETTINGS, and recovery actions. The host
-must enter a chapter before a client can join its world.
+The full list, including what was left as is on purpose, is in
+[How co-op works, section 20](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md#20-known-gaps-and-parked-items).
 
 ---
 
-## Build and test
+## Building from source
 
-Create `DarkwoodMP.Mod/GamePath.local.props` locally (gitignored). On Linux it
-is required, because the built-in default is a Windows path. `SecondPlugins` is
-optional and only used by the post-build deploy to the second install.
+### Requirements
 
-Linux:
+- .NET SDK 8 (the mod targets `net471`; the tests target `net8.0`).
+- A local Darkwood install. The game and loader assemblies are referenced from
+  it and are not in this repository. `LiteNetLib` 1.3.5 comes from NuGet.
+
+### Game path
+
+Create `DarkwoodMP.Mod/GamePath.local.props` (gitignored). It is required on
+Linux, where the built-in default (a Windows path) does not exist. `SecondPlugins`
+is optional; it is the plugins folder of a second install for dual-box testing.
 
 ```xml
 <Project>
   <PropertyGroup>
     <GameDir>/home/you/.local/share/Steam/steamapps/common/Darkwood</GameDir>
-    <SecondPlugins>/home/you/Work/MyProjects/SecondDarkwood/Darkwood/BepInEx/plugins</SecondPlugins>
+    <SecondPlugins>/home/you/Games/SecondDarkwood/Darkwood/BepInEx/plugins</SecondPlugins>
   </PropertyGroup>
 </Project>
 ```
 
-Windows:
+On Windows, use paths like
+`C:\Program Files (x86)\Steam\steamapps\common\Darkwood`.
 
-```xml
-<Project>
-  <PropertyGroup>
-    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Darkwood</GameDir>
-    <SecondPlugins>C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
-  </PropertyGroup>
-</Project>
+### Build
+
+Both loaders (fetches the MelonLoader references on first run):
+
+```bash
+./scripts/build-loaders.sh
 ```
 
-`-p:SkipDeploy=true` builds without copying into any game directory.
+One loader:
 
-Build the solution:
+```bash
+dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx
+```
 
-`dotnet build DarkwoodMP.sln -c Release`
+```bash
+dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
+```
 
-Run the tests (no game install needed; .NET 8 SDK):
+The output is in `DarkwoodMP.Mod/bin/Release/<Loader>/`. A BepInEx build also
+copies the DLLs into `GameDir` and `SecondPlugins` as a development convenience;
+add `-p:SkipDeploy=true` to build without copying. Release zips for both loaders:
 
-`dotnet test DarkwoodMP.PathB.Tests -c Release`
+```bash
+./scripts/pack-release.sh
+```
 
-They cover wire round-trips for every message, dispatch coverage, the Harmony
-and session-reset rules, policy helpers, and release consistency (version,
-protocol, docs). CI runs them on every push and pull request to `dev` and `main`.
+### Test
 
-`LiteNetLib` version 1.3.5 comes from NuGet. Game and loader assemblies are
-resolved from the local installation.
+No game install is needed:
+
+```bash
+dotnet test DarkwoodMP.PathB.Tests -c Release
+```
+
+The tests cover the wire format of every message, handler coverage, the Harmony
+and session-reset rules, the policy helpers, and that the version, protocol, docs
+and config table agree with the code. CI runs them on every push and pull request
+to `dev` and `main`.
+
+### Dual-box testing
+
+Two Darkwood installs on one machine, one hosting and one joining over LAN
+(typically a Steam host and a GOG client, which cannot use Steam). The second
+install keeps its saves in its own `Darkwood_Second` folder automatically; set
+`SaveRootOverride` if both still share one. On Linux with Wayland and a
+Wine/Proton client, set `FreeCursorForDualBox = true` in both installs' config
+(it is off by default).
+
+### Entity spawner (optional)
+
+`DarkwoodMP.EntitySpawner` is a separate debug plugin (**F5** opens it) for
+spawning creatures while testing. It is not part of the co-op mod. Build it with
+`dotnet build DarkwoodMP.EntitySpawner -c Release` and copy its DLL next to the
+mod.
+
+### Network notes
+
+LAN and Steam carry the same messages. The host owns the world simulation and
+validates everything clients send; it relays a client's message to the other
+clients only after applying it, and drops message types only the host may send.
+The highest assigned message ID is 160 (`DialogMirror`). Voice uses message 129.
 
 ---
 
-## Coverage and limitations
+## Documentation
 
-The mod covers the main Path B multiplayer paths for player state, entities,
-physics, locations, inventory, combat, story events, dreams, audio, spectator
-mode, and world save sharing. Coverage is not a claim of complete runtime
-parity.
-
-Known deferred or runtime-dependent areas include:
-
-- full dual-box and three-player campaign soak: every domain is code-covered,
-  runtime verification is still pending (start with
-  [PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md))
-- wrong-save warning UI: **code shipped** — slot picker `[DIFFERENT CAMPAIGN]`
-  + overwrite confirm; backup refuse → in-world / join `WRONG SAVE` via
-  `WrongSaveWarning`. Dual-box / multi-slot UX still soak-pending.
-- complete interaction-lock coverage (no workbench exclusive lock by design:
-  both players may share a bench; msg **119** stays reserved)
-- some dream, spectator, and dialogue presentation edge cases (parked as
-  presentation-only in `COOP_COVERAGE.md` — not world-authority gaps)
-- host migration during a dream: done in code, not playtested
-
-Late-join `GameEventsBulk` / `ScenarioStateBulk`, EventTriggers FOV parity,
-worldgen RNG host-auth, and Examinable `onExamine` host triggers are no longer
-deferred — see
-[CHANGELOG.md](CHANGELOG.md) and
-[DarkwoodMP.Mod/docs/COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
-For support logs, use [DarkwoodMP.Mod/docs/LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
-The manual playtest checklist is
-[DarkwoodMP.Mod/docs/PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md).
+| Document | For |
+|---|---|
+| [How co-op works](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md) | The design and rules of the co-op game |
+| [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md) | Every setting and its default |
+| [LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md) | Log presets, what to send with a bug report |
+| [PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md) | Manual playtest checklist |
+| [ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md) | Code layout and the rules for a change |
+| [COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md) | Code and runtime coverage per area |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release ([older entries](CHANGELOG-ARCHIVE.md)) |
+| [CONTRIBUTORS.md](CONTRIBUTORS.md) | Authors, lineage, how to contribute |
 
 ---
 
 ## Credits and license
 
-Warexpor and Yokyy co-author the YokWare Branch. See
-[CONTRIBUTORS.md](CONTRIBUTORS.md).
+Warexpor and Yokyy co-author YokWare Branch; see [CONTRIBUTORS.md](CONTRIBUTORS.md).
+Built on BepInEx, MelonLoader, Harmony and LiteNetLib. Darkwood is a game by Acid
+Wizard Studio; this is an unofficial fan mod and needs a legal copy of the game.
 
-GPLv3: see [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT), and
-[CONTRIBUTORS.md](CONTRIBUTORS.md).
-
-Current ship: **0.8.138**, protocol **38**. See
-[CHANGELOG.md](CHANGELOG.md).
+Licensed under GPLv3: see [LICENSE](LICENSE) and [COPYRIGHT](COPYRIGHT).
