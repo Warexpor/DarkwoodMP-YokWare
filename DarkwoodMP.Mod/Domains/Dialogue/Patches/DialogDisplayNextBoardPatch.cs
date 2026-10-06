@@ -16,8 +16,11 @@ namespace DWMPHorde.Patches
     /// <item>Stale continuation: changePortrait schedules displayNextBoard after silent close
     /// nulls currentDialogue; skip it.</item>
     /// <item>One-shot / chained board gate of a host board apply (consumes the one-shot).</item>
-    /// <item>Client co-op: defer world outcomes to the host (flags / world events / location
-    /// load), clear dialogue-triggered wantToDream, commit linear boards (msg 90).</item>
+    /// <item>Hand-in arbitration: a board handing over a shared journal item another player
+    /// already gave away does not run (<see cref="DialogHandInArbiter"/>).</item>
+    /// <item>Client co-op: defer world outcomes to the host (flags / world events / map marks),
+    /// clear dialogue-triggered wantToDream, commit linear boards (msg 90). A host replay of a
+    /// board that moves its speaker keeps the host where it is (<see cref="DialogPeerTrip"/>).</item>
     /// </list>
     /// The Finalizer balances the drain scope and the defer scope and clears the host input lock
     /// even if displayNextBoard throws.
@@ -41,6 +44,8 @@ namespace DWMPHorde.Patches
             public int BoardIndex;
             /// <summary>Host's own conversation: journal entries its outcomes remove go to the peers.</summary>
             public bool HostJournalDiff;
+            /// <summary>Host replaying a peer's board that moves the speaker (<see cref="DialogPeerTrip"/>).</summary>
+            public bool PeerTrip;
         }
 
         private static bool InSession()
@@ -70,8 +75,18 @@ namespace DWMPHorde.Patches
             if (!DialogHostApplyGuard.ShouldRunDisplayNextBoard())
                 return false;
 
+            // A shared journal item this board hands over that another player already gave away.
+            if (!DialogHandInArbiter.AllowBoard(__instance))
+                return false;
+
             TryBeginClientDefer(__instance, ref __state);
             TryBeginHostJournalDiff(ref __state);
+            if (DialogHostApplyGuard.DialogueApplyActive && ModRuntime.Network.Role == NetworkRole.Host
+                && DialogPeerTrip.BoardMovesSpeaker(__instance))
+            {
+                DialogPeerTrip.Begin();
+                __state.PeerTrip = true;
+            }
             DialogOutcomeIndexPatch.ResetCounter();
             return true;
         }
@@ -175,6 +190,9 @@ namespace DWMPHorde.Patches
 
             if (__state.Deferred)
                 DialogClientWorldDefer.End();
+
+            if (__state.PeerTrip)
+                DialogPeerTrip.End();
 
             if (__state.HostJournalDiff)
             {

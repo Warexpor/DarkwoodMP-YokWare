@@ -88,8 +88,8 @@ public class CoopPolicyTests
     [InlineData("fireWorldEvent", true)]
     [InlineData("startDream", true)]
     [InlineData("endDream", true)]
-    [InlineData("transportToOutsideLoc", true)]
-    [InlineData("returnToWorld", true)]
+    [InlineData("transportToOutsideLoc", false)]
+    [InlineData("returnToWorld", false)]
     [InlineData("modifyReputation", true)]
     [InlineData("markOnMap", true)]
     [InlineData("enableDialogue", true)]
@@ -103,6 +103,16 @@ public class CoopPolicyTests
         Assert.True(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false));
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, true)); // applying remote
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, false, false)); // host
+    }
+
+    [Theory]
+    [InlineData("transportToOutsideLoc", true)]
+    [InlineData("returnToWorld", true)]
+    [InlineData("startDream", false)]
+    [InlineData("worldFlag", false)]
+    public void DialogPolicy_TripsBelongToTheSpeaker(string type, bool trip)
+    {
+        Assert.Equal(trip, DialogApplyPolicy.IsSpeakerTripOutcomeType(type));
     }
 
     [Fact]

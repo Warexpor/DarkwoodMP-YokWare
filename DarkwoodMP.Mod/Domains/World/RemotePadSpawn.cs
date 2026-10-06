@@ -106,6 +106,11 @@ namespace DWMPHorde.Networking
     [HarmonyPatch(typeof(OutsideLocations), "prepareLocation")]
     public static class RemotePadSpawnLocalPreparePatch
     {
-        private static void Prefix() => RemotePadSpawn.NoteLocalPrepare();
+        private static void Prefix()
+        {
+            // A peer's dialogue trip replayed on the host: the host is not going anywhere.
+            if (!DWMPHorde.Patches.DialogPeerTrip.Active)
+                RemotePadSpawn.NoteLocalPrepare();
+        }
     }
 }

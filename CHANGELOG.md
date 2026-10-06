@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.136**. The current Horde wire protocol is **36** (bumped in 0.8.136:
-new `QuestHandoff` (158).
+**0.8.137**. The current Horde wire protocol is **37** (bumped in 0.8.137:
+new `DialogHandInGone` (159).
+36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
 35 held for 0.8.135, bumped there: new `OxygenTankTier` (157).
 34 held for 0.8.134, bumped there: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
 33 held for 0.8.133, bumped there:
@@ -24,6 +25,44 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.137 — Story choices one player at a time, trips and ambushes for every player
+
+On top of 0.8.136. **Protocol 36 → 37.** Product **0.8.136 → 0.8.137**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Fixed
+
+- **Two players could hand the same story item to two different NPCs.** Chapter 1's big choices
+  are who gets an item: the sister's key goes to the Wolf or the Musician, the egg to the Wolf or
+  Piotrek. Both are journal items, and the journal is shared, so both players had the item on
+  their "show item" list. Two players talking to the two NPCs at the same time could both hand it
+  over, and the host ran both outcomes (both NPCs' flags and world events: the Wolf steals the
+  sister *and* the Musician gets the key). Now a dialogue board that takes a shared journal item
+  only runs while the item is still there: the speaker goes back to the NPC's main options with
+  "Someone already handed that over.", and the host refuses a client's board that arrives after
+  someone else's hand-in and tells that client (new `DialogHandInGone` (159)). A board that takes
+  several variants at once (the Wolf takes every version of the church box) runs while any of them
+  is held. Talking to the *same* NPC was already one player at a time (the dialogue lock); this
+  covers two NPCs who want the same thing. Left as is: a client's personal reward (the Wolf's
+  pistol for the egg) when both hand-ins land within one network round trip; the story outcome is
+  still only the first one. (`DialogHandInArbiter`, `DialogDisplayNextBoardPatch`.)
+- **The Wolf's lift to the Doctor's house moved the host, not the client who said yes.** A
+  dialogue trip (`transportToOutsideLoc`, and the `returnToWorld` back) was deferred on the
+  speaking client like a world outcome, so the client never went; the host, replaying the
+  client's board, then ran it and was carried off itself. A dialogue trip now carries its speaker
+  like a door into a location does: the client travels, and the host replaying that board stays
+  where it is (`DialogPeerTrip`, `DialogClientWorldDeferPatches`, `RemotePadSpawn`).
+- **The daytime redneck ambush only ever came for the host.** From day 2 vanilla sends a
+  hit-and-run redneck at the player when it is out on the road (not under a roof, not in a
+  location). Only the host's body was checked: with the host at home a client walking the forest
+  never met him, and with the host on the road the far-player redirect could drop him next to a
+  client sitting in a hideout. Any living player who meets vanilla's condition can draw him now,
+  one at random (`HostRedneckPartyPatch`).
+- `QuestHandoff` (158) now rejects an out-of-range item count as malformed instead of reading it
+  as an empty list, like every other list message.
 
 ---
 
