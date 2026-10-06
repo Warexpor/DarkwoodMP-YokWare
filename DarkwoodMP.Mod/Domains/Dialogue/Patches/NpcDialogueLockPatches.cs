@@ -17,6 +17,9 @@ namespace DWMPHorde.Patches
         {
             if (_npc == null || string.IsNullOrEmpty(_npc.name))
                 return true;
+            // A listener's view takes no lock (it is the talking player's talk).
+            if (DialogMirror.SpectatorActive)
+                return true;
 
             if (!NetGuard.Connected(out var net))
                 return true;
@@ -99,6 +102,8 @@ namespace DWMPHorde.Patches
             // A prefix (DialogHostSilentClosePatch) skipped vanilla: not a real close.
             if (!__runOriginal) return;
             if (__state == null || string.IsNullOrEmpty(__state.name)) return;
+            // A listener's view held no lock.
+            if (DialogMirror.Closing) return;
             // close() returned early and left npc bound: the conversation is still open.
             if (__instance != null && __instance.npc != null) return;
 

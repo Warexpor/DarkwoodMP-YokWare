@@ -64,7 +64,7 @@ public class NetMessageContractTests
         Assert.True(Enum.TryParse("TradeCommit", out NetMessageType tradeCommit),
             "NetMessageType.TradeCommit (152) is missing");
         Assert.Equal(152, (byte)tradeCommit);
-        Assert.Equal(159, (byte)NetMessageType._Highest);
+        Assert.Equal(160, (byte)NetMessageType._Highest);
     }
 
     [Fact]

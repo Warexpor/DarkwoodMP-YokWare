@@ -79,8 +79,13 @@ namespace DWMPHorde.Networking
             try
             {
                 var dw = Singleton<UI>.Instance?.dialogueWindow;
-                if (dw != null && dw.npc != null && npc.Matches(dw.npc) && dw.opened)
-                    dw.close();
+                NPC talked = dw != null && dw.npc != null && npc.Matches(dw.npc) ? dw.npc : null;
+                // Someone else got there first: close this talk and listen in on theirs.
+                if (talked != null)
+                {
+                    DialogMirror.OnOwnTalkDenied(talked);
+                    return;
+                }
                 if (Player.Instance != null)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();

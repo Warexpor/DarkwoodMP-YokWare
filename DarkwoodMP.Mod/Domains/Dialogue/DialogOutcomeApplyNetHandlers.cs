@@ -75,6 +75,9 @@ namespace DWMPHorde.Networking
         private bool ApplyBusyFor(DialogueWindow dw, NPC npc)
         {
             if (dw == null) return false;
+            // The host listens in on someone's talk: its window is that view until it leaves.
+            if (DialogMirror.SpectatorActive)
+                return true;
             if (Player.Instance != null && Player.Instance.inDialogue && dw.opened
                 && dw.npc != null && (npc == null || dw.npc != npc))
                 return true;

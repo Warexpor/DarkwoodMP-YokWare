@@ -528,6 +528,46 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void DialogMirror_RoundTripsABoard()
+    {
+        var msg = new DialogMirrorMessage
+        {
+            Kind = DialogMirrorMessage.KindBoard,
+            OwnerId = 3,
+            NpcName = "wolf",
+            HasPos = true,
+            PosX = 1f, PosY = 2f, PosZ = 3f,
+            Index = 2,
+            Flag = true,
+            OffsetX = 4f, OffsetY = 5f,
+            DialogueName = "item_key_baba_sister",
+            Elements = new[]
+            {
+                new DialogMirrorElement { Kind = DialogMirrorElement.KindText, Text = "line", Z = -40f, A = 1f, WriteSpeed = 0.025f, Interval = 0.5f, Menu = -1 },
+                new DialogMirrorElement { Kind = DialogMirrorElement.KindDecisionBtn, Text = "nod", Target = "x_yes", Menu = 0 }
+            }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = DialogMirrorMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("item_key_baba_sister", back.DialogueName);
+        Assert.Equal(2, back.Elements.Length);
+        Assert.Equal("x_yes", back.Elements[1].Target);
+        Assert.Equal((short)0, back.Elements[1].Menu);
+        Assert.Equal(0.025f, back.Elements[0].WriteSpeed);
+    }
+
+    [Fact]
+    public void DialogMirror_RejectsTooManyElements()
+    {
+        var w = new NetWriter();
+        new DialogMirrorMessage { Kind = DialogMirrorMessage.KindOptions }.Serialize(w);
+        byte[] bytes = w.CopyData();
+        bytes[bytes.Length - 1] = DialogMirrorMessage.MaxElements + 1;
+        Assert.Throws<InvalidDataException>(() => DialogMirrorMessage.Deserialize(new NetReader(bytes)));
+    }
+
+    [Fact]
     public void PorterTransport_RoundTrips()
     {
         var msg = new PorterTransportMessage { Source = "hideout_2", Dest = "hideout_1" };
