@@ -139,7 +139,7 @@ namespace DWMPHorde.Sync
     public static class GameEventFireScopePatch
     {
         /// <summary>
-        /// Client replaying the host's event: character spawns, scripted hits, clock tweens, and
+        /// Client replaying the host's event: character spawns, scripted hits, and
         /// steps that ADD to a value (a world flag counter, shared NPC reputation) already happened
         /// on the host, which sends the result. Doing them again here doubled or fought it.
         /// </summary>
@@ -147,6 +147,14 @@ namespace DWMPHorde.Sync
         {
             if (__instance == null || !NetGuard.Connected(out LanNetworkManager net) || net.Role != NetworkRole.Client)
                 return true;
+            // A clock tween: the host's runs and its clock reaches everyone. A client's own run of a
+            // repeatable step (entering the doctor's house sets the hour, on every entry) turned this
+            // clock alone to night until the next TimeSync; on a replay it fought every TimeSync.
+            if (__instance.type == GameEvent.Type.tweenTime)
+            {
+                __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
+                return false;
+            }
             if (!NetworkApplyGuard.IsActive && !LanNetworkManager.IsApplyingRemoteState)
                 return true;
             bool relativeFlag = __instance.type == GameEvent.Type.worldFlag
@@ -176,10 +184,7 @@ namespace DWMPHorde.Sync
                 && __instance.gameObjectModifyType == GameEvent.GameObjectModify.spawn
                 && spawned != null
                 && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null);
-            // A clock tween: the host's runs and its clock reaches everyone; a second tween here
-            // fought every TimeSync.
-            bool clockTween = __instance.type == GameEvent.Type.tweenTime;
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !clockTween && !scriptedSpawn)
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;

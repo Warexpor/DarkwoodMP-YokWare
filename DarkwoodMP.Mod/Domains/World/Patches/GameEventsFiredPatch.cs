@@ -8,14 +8,14 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Host-authoritative GameEvents one-shots:
     /// - Host fires → Broadcast GameEventsFired (pos + name) → clients fire local copy.
-    /// - Clients do not run one-shot fires locally (except compressor + apply path).
+    /// - Clients do not run one-shot fires locally (only the apply path does).
     /// </summary>
     [HarmonyPatch(typeof(GameEvents), "fire")]
     public static class GameEventsFiredPatch
     {
         /// <summary>
         /// Client: block one-shot world fires when multiplayer is live so only host
-        /// runs them and syncs. Compressor is exempt (2.8 convert path).
+        /// runs them and syncs.
         /// </summary>
         private static bool Prefix(GameEvents __instance, out bool __state)
         {
@@ -29,15 +29,9 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
 
-            if (ModRuntime.Network.Role == NetworkRole.Client)
-            {
-                // Compressor GameEvents still run on client for convert FX + 2.8 detect.
-                if (CompressorSyncHelpers.IsCompressorGameEvents(__instance))
-                    return true;
-                // multipleFire can re-run (ambient loops); still prefer host for one-shots.
-                if (!__instance.multipleFire)
-                    return false;
-            }
+            // multipleFire can re-run (ambient loops); still prefer host for one-shots.
+            if (ModRuntime.Network.Role == NetworkRole.Client && !__instance.multipleFire)
+                return false;
 
             return true;
         }

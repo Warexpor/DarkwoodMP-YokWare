@@ -134,10 +134,8 @@ namespace DWMPHorde.Networking
         [Forwardable] MapMarker = 68,
         /// <summary>Either peer: a MapElement was discovered (isOnMap set to true).</summary>
         [Forwardable] MapElementDiscovered = 69,
-        /// <summary>Either peer: an oxygentank_empty was acquired; stash a copy in the Workbench.</summary>
-        [Forwardable] OxygenTankStash = 70,
-        /// <summary>Either peer: the compressor converted an empty tank to a full one.</summary>
-        [Forwardable] CompressorTankConvert = 71,
+        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): oxygen tanks are unique items;
+        // the compressor's convert is the user's own event step (host-run use, replayed for its actor).
         /// <summary>Either peer: a player removed a map marker.</summary>
         [Forwardable] MapMarkerRemove = 72,
         /// <summary>Host->Client: bulk-sync all journal entries on connection.</summary>

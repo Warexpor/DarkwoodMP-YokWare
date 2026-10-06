@@ -144,9 +144,9 @@ namespace DWMPHorde.Sync
             => IsLocal(playerId) && PersonalPrologue.LocalInPrologue;
 
         /// <summary>
-        /// Inventory + Hotbar. getItemInPlayer / getItemAmount on Inventory miss Hotbar
-        /// (compressor / walkie already check both). Unique haveItem EventTriggers softlock
-        /// 3p when the only holder keeps oxygentank_full / keys on the hotbar.
+        /// Inventory + Hotbar. getItemInPlayer / getItemAmount on Inventory miss Hotbar.
+        /// Unique haveItem EventTriggers softlock 3p when the only holder keeps the full
+        /// oxygen tank or a key on the hotbar.
         /// </summary>
         private static bool LocalHasIncludingHotbar(string itemType, int minAmount)
         {

@@ -260,21 +260,5 @@ namespace DWMPHorde.Networking
             }
             catch { /* destroyed Unity object */ }
         }
-
-
-        
-
-        internal void HandleOxygenTankStash(OxygenTankStashMessage msg)
-        {
-            // Any peer: grant empty tank if local player lacks one.
-            Patches.OxygenTankStashHandler.Handle();
-        }
-
-        internal void HandleCompressorTankConvert(CompressorTankConvertMessage msg)
-        {
-            // Host and clients both convert local empty→full when a peer uses
-            // the compressor (sender excluded by Forwardable / no self-receive).
-            Patches.CompressorTankConvertHandler.Handle();
-        }
     }
 }

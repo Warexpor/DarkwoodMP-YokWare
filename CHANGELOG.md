@@ -3,7 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.133**. The current Horde wire protocol is **33** (bumped in 0.8.133:
+**0.8.134**. The current Horde wire protocol is **34** (bumped in 0.8.134:
+`OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
+33 held for 0.8.133, bumped there:
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
 `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
 `PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
@@ -22,6 +24,71 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.134 — Scene data pass: every unique location and dream
+
+On top of 0.8.133. **Protocol 33 → 34.** Product **0.8.133 → 0.8.134**. Found by walking every
+unique location, border scene, dream and epilogue part in the vanilla scene export (component
+census, every scripted event and trigger, every step aimed at the player) against the mod, not by
+a report. Built and unit-tested; **runtime is not playtested**.
+
+### What the pass covered
+
+Chapter 1 (hideouts 1-3, the village and its well, cellar and brother's house, church ruins and
+both church undergrounds, the bunker and its underground, the doctor's house, pig sheds, Piotrek,
+the hunter, burned houses, the musician's house and hideout, the cottage trailer wedding, the train
+wreck and the doctor's trap, the Wolfman's hideout and border gates), chapter 2 (hideout 5, the
+swamp lake, junkyard, mask family, mushroom granny, the snail and its cottage, the radio tower and
+oneChance underground, the tree village gate and its cellar, the Mi-17, the villagers' quarry, the
+Wolfman's arena, the road home and the doctor's camps), the dreams (acid, bunker underground,
+church ruins, doctor 1 and 2, grave meadow, home, oneChance, village cellar) and the epilogue
+parts. Scripted steps, trigger types and requirement types the scenes use were each checked
+against the mod's host/replay rules; the names the mod looks up were checked against the data.
+
+### Fixed
+
+- **Oxygen tanks: a sync that never worked, removed.** The mod gave every player an empty tank when
+  one picked one up and converted every player's tanks when anyone used the hideout 5 compressor.
+  It looked for `oxygentank_empty` / `oxygentank_full`; the game's items are `oxygenTank_empty` /
+  `oxygenTank_full` (case-sensitive), so none of it ever ran, and copying a unique item to every
+  player is against the shared-world rule anyway. The compressor needs nothing extra: its convert is
+  the user's own event step (`addOrRemoveInvItem` on the player), which the host runs for a client's
+  use and replays for that player only. The compressor's events also lost their exemption from the
+  client one-shot rule (they now run like any other event). Messages 70 and 71 retired
+  (`CompressorSyncPatches.cs` deleted, `GameEventsFiredPatch`, dispatch, `JournalNetHandlers`).
+- **A body the host destroyed stayed on clients, frozen in its last pose.** Only `Character.removeMe`
+  told peers; vanilla destroys creatures and NPCs directly in many places: a story step replacing a
+  character (the Wolfman at the doctor's house is swapped for another body when he dies), the morning trader and the porter when a hideout empties, the
+  trader when the talking tree's burning ends, old corpses cleared on entry, the spawner's despawns.
+  The host now sends the despawn whenever a tracked character is destroyed during play (not during a
+  scene load, a save load or world generation) (`CharacterDestroyPatch`).
+- **A client walking out of a hideout destroyed its copy of the morning trader (and the porter).**
+  Vanilla's location exit despawns them; on a client those are the host's bodies. The wolf already
+  had this guard; the trader and porter despawns are now host-only as well, and the host's despawn
+  reaches clients through the change above (`TraderDespawnClientPatch`, `PorterDespawnClientPatch`).
+- **Entering the doctor's house turned a client's clock to the middle of the night until the next
+  time sync.** Its repeatable on-enter event sets the hour; the client ran its own copy. A client
+  never tweens the clock now; the host's run (it activates the house for the entering player)
+  moves the shared clock as before (`GameEventFireScopePatch`).
+- **dream_home (a level-up dream) left a dreamer in the dream's clothes after waking.** The dream's
+  opening changes the dreamer's clothes and gets them out of bed, and its exits change them back
+  (or take them off through the hole), each on "the player". The opening ran only for the host's
+  body, and an exit only for the player who used it, so the host or a client woke up dressed for the
+  dream. A party dream's opening (its pad's on-spawn, on-enter and on-exit events) and its endings
+  (events with an end-dream step), plus everything they fire, are now every dreamer's: their steps
+  on the player body run for each dreamer. Same for the epilogue room's clothes and the bunker
+  dream's "in the dream" flag (`PartyDreamScene`, `GameEventPersonalActorPatch`).
+- **The Wolfman's arena took the table leg from one player only.** Killing the Wolfman or walking out
+  victorious drains "the player's" table leg; only the killer or the first one out lost theirs, and
+  a teammate kept a full one. Every player still in the arena loses it now (`WolfArena`).
+
+### Checked and left as they are
+
+- The village cellar dream's closing corridor moves as each body enters its trigger, on every
+  machine for every body; peers see the same entries, so it stays in step. Worth watching in a
+  playtest with players far apart in that corridor.
+- "Has item" requirements stay a party check (any player holding it), the existing design that
+  keeps unique items (keys, the full oxygen tank for diving) from soft-locking a 3-player party.
 
 ## 0.8.133 — Decompile audit pass: traps, night, enemies, players, lights, items, explosions, quests and death
 

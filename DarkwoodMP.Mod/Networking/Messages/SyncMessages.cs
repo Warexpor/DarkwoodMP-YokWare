@@ -913,18 +913,6 @@ namespace DWMPHorde.Networking
         }
     }
 
-    public struct OxygenTankStashMessage
-    {
-        public void Serialize(NetWriter w) { }
-        public static OxygenTankStashMessage Deserialize(NetReader r) => new OxygenTankStashMessage();
-    }
-
-    public struct CompressorTankConvertMessage
-    {
-        public void Serialize(NetWriter w) { }
-        public static CompressorTankConvertMessage Deserialize(NetReader r) => new CompressorTankConvertMessage();
-    }
-
     public struct JournalBulkSyncMessage
     {
         public string[] NoteTypes, KeyTypes, QuestItemTypes, JournalEntryTypes;

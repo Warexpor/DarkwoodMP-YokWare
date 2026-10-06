@@ -19,6 +19,11 @@ namespace DWMPHorde.Patches
         internal static bool IsDeathEvent(string type)
             => type == DieFighting || type == DieDefeated;
 
+        /// <summary>The arena's step taking the table leg it handed out (vanilla Player function).</summary>
+        internal static bool IsTableLegDrain(GameEvent ge)
+            => ge != null && ge.type == GameEvent.Type.runFunction
+               && ge.Value == "special_drainAllTableLegDurability";
+
         /// <summary>
         /// Where the local player died, taken when the death starts: vanilla fires the arena reset
         /// a second later, after it has already carried the body home.
@@ -219,10 +224,35 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Location), nameof(Location.despawnWolf))]
     public static class WolfDespawnClientPatch
     {
-        private static bool Prefix()
+        private static bool Prefix() => HostOwnedDespawn.Allowed();
+    }
+
+    internal static class HostOwnedDespawn
+    {
+        /// <summary>Outside a session, or on the host.</summary>
+        internal static bool Allowed()
         {
             var net = ModRuntime.Network;
             return net == null || !net.IsConnected || net.Role == NetworkRole.Host;
         }
+    }
+
+    /// <summary>
+    /// The same exit runs vanilla's trader and porter despawn (<c>Location.checkExitEvents</c>). Both
+    /// are host bodies (the host spawns the morning trader and the porter, peers get them through
+    /// entity sync): a client walking out of a hideout destroyed its copy while the host's stayed, and
+    /// the hideout 5 trader-burn step (<c>despawnTrader</c>) did the same on replay. The host's despawn
+    /// reaches clients as an entity despawn.
+    /// </summary>
+    [HarmonyPatch(typeof(Location), nameof(Location.despawnTrader))]
+    public static class TraderDespawnClientPatch
+    {
+        private static bool Prefix() => HostOwnedDespawn.Allowed();
+    }
+
+    [HarmonyPatch(typeof(Location), nameof(Location.despawnPorter))]
+    public static class PorterDespawnClientPatch
+    {
+        private static bool Prefix() => HostOwnedDespawn.Allowed();
     }
 }
