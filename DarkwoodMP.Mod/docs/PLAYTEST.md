@@ -27,6 +27,11 @@ version and protocol in the README table. The sections follow
 The releases since the last playtest that need a first look, newest first. Each item
 points to the section with the full check.
 
+- [ ] **Animations in step:** stand host and client side by side at a campfire, swaying
+      trees and water, and the mimic bodies under the church / the Musician's house
+      zombies: the same frame at the same moment. Turn away and back: still in step. Pause
+      everyone, resume: no jump. A late joiner is in step within a few seconds (client log:
+      `[AnimClock] following the host's clock`; section 17).
 - [ ] **Same look everywhere:** grass, trees, debris, creature tints, flickering and
       twitching animations and vines look the same for host and client, in a fresh
       world, after a reload, for a late joiner and after a chapter change; examine

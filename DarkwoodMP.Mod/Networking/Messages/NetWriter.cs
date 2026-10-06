@@ -15,6 +15,7 @@ namespace DWMPHorde.Networking
         public void Put(int value) => _inner.Put(value);
         public void Put(uint value) => _inner.Put(value);
         public void Put(float value) => _inner.Put(value);
+        public void Put(double value) => _inner.Put(value);
         public void Put(bool value) => _inner.Put(value);
         public void Put(string value) => _inner.Put(value ?? string.Empty);
 
@@ -114,6 +115,7 @@ namespace DWMPHorde.Networking
         public int GetInt() { Require(4, "int"); return _inner.GetInt(); }
         public uint GetUInt() { Require(4, "uint"); return _inner.GetUInt(); }
         public float GetFloat() { Require(4, "float"); return _inner.GetFloat(); }
+        public double GetDouble() { Require(8, "double"); return _inner.GetDouble(); }
         public bool GetBool() { Require(1, "bool"); return _inner.GetBool(); }
         public string GetString()
         {

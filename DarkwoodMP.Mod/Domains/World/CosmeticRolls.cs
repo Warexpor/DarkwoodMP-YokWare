@@ -80,13 +80,15 @@ namespace DWMPHorde.Sync
         internal const int SaltAnim = 2;
         internal const int SaltParallax = 3;
         internal const int SaltAnchor = 4;
+        internal const int SaltSchedule = 5;
+        internal const int SaltTk2dRandom = 6;
 
         /// <summary>
         /// The seed a roll of kind <paramref name="salt"/> on <paramref name="t"/> runs on: the seed
         /// the loaded save stored for it, else <paramref name="liveSeed"/>. Either way it is kept for
         /// the next save.
         /// </summary>
-        private static int SeedFor(Transform t, int salt, int liveSeed)
+        internal static int SeedFor(Transform t, int salt, int liveSeed)
         {
             int seed = liveSeed;
             if (_storedSeeds.Count > 0 && TryStoreKey(t, salt, out long storeKey)
