@@ -13,7 +13,7 @@ namespace DWMPHorde.Patches
         /// player SFX via PlayerAudio; bidirectional DreamAudio was flooding both ends
         /// (client→host 30+ pkt/2s) and stacking on local ambients.
         /// </summary>
-        internal static bool ShouldForward(string audioID, Vector3 worldPosition)
+        internal static bool ShouldForward(string audioID, Vector3 worldPosition, Transform parentObj)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return false;
@@ -24,6 +24,21 @@ namespace DWMPHorde.Patches
             if (Dreams.Instance == null || !Dreams.Instance.dreaming)
                 return false;
             if (string.IsNullOrEmpty(audioID))
+                return false;
+            // Peers replay these themselves: creature sounds through EntitySound, synced object
+            // and game-event sounds through their own replay. Forwarding them too doubled them.
+            if (TraverseHack.InsideCharacterSounds || ReplayOwnedSound.Active)
+                return false;
+            // The host's own player sounds travel as PlayerAudio (allowed in dreams).
+            if (parentObj != null && (PlayerAudioHelper.IsPlayerTransform(parentObj) || PlayerAudioHelper.IsPlayerChild(parentObj)))
+                return false;
+            // A synced creature's direct plays (footsteps, shots) go as EntitySound on its copy.
+            if (parentObj != null && PlayerAudioHelper.IsEnemyTransform(parentObj)
+                && CharacterTracker.TryGetStableId(parentObj.GetComponent<Character>(), out short creatureId)
+                && creatureId != 0)
+                return false;
+            // A forwarded loop is a bare positional play nothing ever stops.
+            if (LocalAudioService.IsLoopingItem(audioID))
                 return false;
 
             // Each peer already plays music/ambience/BGM from their local dream scene.
@@ -39,7 +54,7 @@ namespace DWMPHorde.Patches
                 return false;
             // Equip get/hide (Get_01 etc.) — PlayerAudio owns these; DreamAudio cannot resolve
             // many clip names and only produces "Could not resolve clip" noise.
-            if (LocalAudioService.IsPrefer2dNetworkOneShot(audioID))
+            if (LocalAudioService.IsEquipGetHideSound(audioID))
                 return false;
             if (audioID.IndexOf("aimReturn", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return false;
@@ -51,7 +66,7 @@ namespace DWMPHorde.Patches
 
             // Match suppression: do not ship far dream SFX to spectators/peers.
             if (worldPosition != Vector3.zero
-                && !LocalAudioService.IsNearAnyListener(worldPosition, LocalAudioService.DefaultMaxAudioDistance))
+                && !LocalAudioService.IsNearAnyListener(worldPosition, LocalAudioService.AudibleRange(audioID)))
                 return false;
 
             return true;
@@ -62,17 +77,17 @@ namespace DWMPHorde.Patches
     /// Host-only dream world one-shot forward (not ambience/music/UI).
     /// Priority Last so distance/suppression prefixes run first.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(AudioController))]
     [HarmonyPatch("_PlayAsSound")]
     public static class DreamAudioPlayPrefix
     {
-        private static void Prefix(string audioID, float volume, Vector3 worldPosition)
+        [HarmonyPriority(Priority.Last)]
+        private static void Prefix(string audioID, float volume, Vector3 worldPosition, Transform parentObj)
         {
-            if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition)) return;
+            if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition, parentObj)) return;
             if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             float vol = Mathf.Clamp01(volume);
             if (vol <= 0f) vol = 1f;
             // Broadcast so host-originated dream SFX reach all clients (Send = first peer only).

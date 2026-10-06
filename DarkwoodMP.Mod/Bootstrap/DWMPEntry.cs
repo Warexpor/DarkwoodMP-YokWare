@@ -14,6 +14,7 @@ namespace DWMPHorde
     {
         private void Awake()
         {
+            DiskLogFlush.Install();
             string cfgPath = Path.Combine(Paths.ConfigPath, PluginInfo.Guid + ".cfg");
             var store = new ModConfigStore(
                 cfgPath, PluginInfo.Name, PluginInfo.Version, PluginInfo.Guid);
@@ -23,6 +24,7 @@ namespace DWMPHorde
         private void OnDestroy()
         {
             ModRuntime.Stop();
+            DiskLogFlush.FlushNow();
         }
     }
 }

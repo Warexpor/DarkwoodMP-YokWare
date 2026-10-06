@@ -49,9 +49,20 @@ namespace DWMPHorde.Networking
         public int[] Amounts;
         /// <summary>True when this stock belongs to the dream-pad copy, not the overworld twin.</summary>
         public bool InDream;
-        /// <summary>Which body, when two traders share a name. Missing on old packets.</summary>
+        /// <summary>Which body, when two traders share a name (valid when HasPos).</summary>
         public bool HasPos;
         public float PosX, PosY, PosZ;
+        /// <summary>
+        /// Per-entry recipe flag. ItemTypes stores recipeFor when true
+        /// (vanilla InvItemClass ctor flips type to "recipe").
+        /// </summary>
+        public bool[] IsRecipe;
+        /// <summary>Absolute durability per entry.</summary>
+        public float[] Durabilities;
+        /// <summary>Per-entry workbench upgrade names.</summary>
+        public string[][] Upgrades;
+        /// <summary>Per-entry shouldBeActive (flashlight on).</summary>
+        public bool[] ShouldBeActive;
 
         public void Serialize(NetWriter w)
         {
@@ -67,28 +78,46 @@ namespace DWMPHorde.Networking
             w.Put(PosX);
             w.Put(PosY);
             w.Put(PosZ);
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(Durabilities != null && i < Durabilities.Length ? Durabilities[i] : 0f);
+            for (int i = 0; i < ItemCount; i++)
+                DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades != null && i < Upgrades.Length ? Upgrades[i] : null);
+            for (int i = 0; i < ItemCount; i++)
+                w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
         }
 
         public static TradeInventorySyncMessage Deserialize(NetReader r)
         {
             var msg = new TradeInventorySyncMessage { NpcName = r.GetString(), ItemCount = r.GetInt() };
-            if (msg.ItemCount < 0 || msg.ItemCount > 4096) msg.ItemCount = 0;
-            msg.ItemTypes = new string[msg.ItemCount];
-            msg.Amounts = new int[msg.ItemCount];
-            for (int i = 0; i < msg.ItemCount; i++)
+            if (msg.ItemCount < 0 || msg.ItemCount > 4096)
+                throw new System.IO.InvalidDataException("TradeInventorySync item count " + msg.ItemCount);
+            int n = msg.ItemCount;
+            msg.ItemTypes = new string[n];
+            msg.Amounts = new int[n];
+            for (int i = 0; i < n; i++)
             {
                 msg.ItemTypes[i] = r.GetString();
                 msg.Amounts[i] = r.GetInt();
             }
-            if (r.AvailableBytes >= 1)
-                msg.InDream = r.GetBool();
-            if (r.AvailableBytes >= 13)
-            {
-                msg.HasPos = r.GetBool();
-                msg.PosX = r.GetFloat();
-                msg.PosY = r.GetFloat();
-                msg.PosZ = r.GetFloat();
-            }
+            msg.InDream = r.GetBool();
+            msg.HasPos = r.GetBool();
+            msg.PosX = r.GetFloat();
+            msg.PosY = r.GetFloat();
+            msg.PosZ = r.GetFloat();
+            msg.IsRecipe = new bool[n];
+            msg.Durabilities = new float[n];
+            for (int i = 0; i < n; i++)
+                msg.IsRecipe[i] = r.GetBool();
+            for (int i = 0; i < n; i++)
+                msg.Durabilities[i] = r.GetFloat();
+            msg.Upgrades = new string[n][];
+            for (int i = 0; i < n; i++)
+                msg.Upgrades[i] = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = new bool[n];
+            for (int i = 0; i < n; i++)
+                msg.ShouldBeActive[i] = r.GetBool();
             return msg;
         }
     }
@@ -101,6 +130,13 @@ namespace DWMPHorde.Networking
         public int BoardIndex;
         /// <summary>DialogueButton.destDialogueName. The host applies this node without matching UI.</summary>
         public string TargetDialogueName;
+        /// <summary>
+        /// Where the speaker's NPC stands and its world (dream-pad twin or overworld). NPC.name is
+        /// not unique (every hideout's oven is "oven"); the host binds the one at this spot.
+        /// </summary>
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
+        public bool Dream;
 
         public void Serialize(NetWriter w)
         {
@@ -109,6 +145,11 @@ namespace DWMPHorde.Networking
             w.Put(DialogueName ?? "");
             w.Put(BoardIndex);
             w.Put(TargetDialogueName ?? "");
+            w.Put(HasPos);
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
+            w.Put(Dream);
         }
         public static DialogOutcomeSyncMessage Deserialize(NetReader r) => new DialogOutcomeSyncMessage
         {
@@ -116,7 +157,12 @@ namespace DWMPHorde.Networking
             DecisionIndex = r.GetInt(),
             DialogueName = r.GetString(),
             BoardIndex = r.GetInt(),
-            TargetDialogueName = r.GetString()
+            TargetDialogueName = r.GetString(),
+            HasPos = r.GetBool(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Dream = r.GetBool()
         };
     }
 
@@ -153,6 +199,20 @@ namespace DWMPHorde.Networking
         public bool Granted;
         public bool Release;
         public bool IsRequest;
+        /// <summary>
+        /// The lock's world: the NPC is the dream-pad twin (true) or the overworld one. The
+        /// requester's view on a request; the host's decision on grant / deny / release.
+        /// </summary>
+        public bool Dream;
+        /// <summary>Client lease renewal of a talk already open: never a fresh grant on the host.</summary>
+        public bool Renewal;
+        /// <summary>
+        /// Where the NPC stands. NPC.name is not unique (ovens, doctors, musicians): the lock is
+        /// on the NPC of that name at this spot, so two players at two hideouts' ovens do not
+        /// block each other.
+        /// </summary>
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -161,16 +221,32 @@ namespace DWMPHorde.Networking
             w.Put(Granted);
             w.Put(Release);
             w.Put(IsRequest);
+            w.Put(Dream);
+            w.Put(Renewal);
+            w.Put(HasPos);
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
         }
 
-        public static DialogNpcLockMessage Deserialize(NetReader r) => new DialogNpcLockMessage
+        public static DialogNpcLockMessage Deserialize(NetReader r)
         {
-            NpcName = r.GetString(),
-            OwnerPlayerId = r.GetInt(),
-            Granted = r.GetBool(),
-            Release = r.GetBool(),
-            IsRequest = r.GetBool()
-        };
+            var msg = new DialogNpcLockMessage
+            {
+                NpcName = r.GetString(),
+                OwnerPlayerId = r.GetInt(),
+                Granted = r.GetBool(),
+                Release = r.GetBool(),
+                IsRequest = r.GetBool()
+            };
+            msg.Dream = r.GetBool();
+            msg.Renewal = r.GetBool();
+            msg.HasPos = r.GetBool();
+            msg.PosX = r.GetFloat();
+            msg.PosY = r.GetFloat();
+            msg.PosZ = r.GetFloat();
+            return msg;
+        }
     }
 
     /// <summary>
@@ -180,10 +256,10 @@ namespace DWMPHorde.Networking
     {
         public string Payload;
 
-        public void Serialize(NetWriter w) => w.Put(Payload ?? "");
+        public void Serialize(NetWriter w) => w.PutLongString(Payload);
         public static DialogTreeStateMessage Deserialize(NetReader r) => new DialogTreeStateMessage
         {
-            Payload = r.GetString()
+            Payload = r.GetLongString()
         };
     }
 
@@ -197,24 +273,394 @@ namespace DWMPHorde.Networking
         public static RemotePlayerForwardMessage Deserialize(NetReader r) => new RemotePlayerForwardMessage { OriginalPlayerId = r.GetInt(), InnerType = r.GetByte(), InnerPayload = r.GetBytes() };
     }
 
-    public enum EntitySoundType : byte
+    /// <summary>How a creature one-shot is played, matching the vanilla call that played it on the host.</summary>
+    public enum EntitySoundKind : byte
     {
-        Growl = 0, Attack1 = 1, Attack2 = 2, Death = 3, Curious = 4,
-        Aggressive = 5, Defensive = 6, Escaping = 7, Idle = 8, GetHit = 9,
-        /// <summary>Vanilla runAway stinger (playSingleInstance).</summary>
-        EscapingStart = 10,
-        /// <summary>Vanilla runAway crow overlay (play).</summary>
-        EscapingStart2 = 11,
+        /// <summary><c>CharacterSounds.play</c>: overlaps the creature's other sounds.</summary>
+        Play = 0,
+        /// <summary><c>CharacterSounds.playSingleInstance</c> / <c>playGrowl</c>: cuts the creature's previous voice line.</summary>
+        Single = 1,
+        /// <summary><c>AudioController.Play</c> parented to the creature: footsteps, shots, sniffs, howls.</summary>
+        Attached = 2,
+        /// <summary><c>CharacterSounds.playGetHitByAxe1</c>.</summary>
+        GetHit = 3,
+        /// <summary>The creature's death line.</summary>
+        Death = 4,
     }
 
+    /// <summary>
+    /// Host→clients: a one-shot a host creature played. Loops are not sent here; the creature's
+    /// current loop travels in its <see cref="EntitySnapshotNet.Loop"/>.
+    /// </summary>
     public struct EntitySoundMessage
     {
         public short HostId;
-        public EntitySoundType SoundType;
-        public string LoopName;
+        public EntitySoundKind Kind;
+        public string SoundId;
+        public float Volume;
+        /// <summary>GetHit: the player whose attack the host was applying (-1: host or AI).</summary>
+        public int AttackerId;
 
-        public void Serialize(NetWriter w) { w.Put(HostId); w.Put((byte)SoundType); w.Put(LoopName ?? string.Empty); }
-        public static EntitySoundMessage Deserialize(NetReader r) => new EntitySoundMessage { HostId = r.GetShort(), SoundType = (EntitySoundType)r.GetByte(), LoopName = r.GetString() };
+        public void Serialize(NetWriter w)
+        {
+            w.Put(HostId); w.Put((byte)Kind); w.Put(SoundId ?? string.Empty); w.Put(Volume); w.Put(AttackerId);
+        }
+
+        public static EntitySoundMessage Deserialize(NetReader r) => new EntitySoundMessage
+        {
+            HostId = r.GetShort(),
+            Kind = (EntitySoundKind)r.GetByte(),
+            SoundId = r.GetString(),
+            Volume = r.GetFloat(),
+            AttackerId = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Host→clients: a banshee started or stopped screaming at a player. Every peer turns the
+    /// banshee's sight light on or off; only <see cref="VictimId"/> hears the scream, feels the
+    /// shake and sees the overlay (vanilla plays them for the one player it sees).
+    /// </summary>
+    public struct TradeEntry
+    {
+        public string Type;
+        public bool IsRecipe;
+        /// <summary>Stack amount.</summary>
+        public int Count;
+        public float Durability;
+        public int Ammo;
+        public bool Active;
+        public string[] Upgrades;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Type ?? "");
+            w.Put(IsRecipe);
+            w.Put(Count);
+            w.Put(Durability);
+            w.Put(Ammo);
+            w.Put(Active);
+            int n = Upgrades != null ? Upgrades.Length : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+                w.Put(Upgrades[i] ?? "");
+        }
+
+        public static TradeEntry Deserialize(NetReader r)
+        {
+            var e = new TradeEntry
+            {
+                Type = r.GetString(),
+                IsRecipe = r.GetBool(),
+                Count = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt(),
+                Active = r.GetBool()
+            };
+            int n = r.GetByte();
+            e.Upgrades = n > 0 ? new string[n] : null;
+            for (int i = 0; i < n; i++)
+                e.Upgrades[i] = r.GetString();
+            return e;
+        }
+    }
+
+    public struct TradeCommitMessage
+    {
+        public string NpcName;
+        public float PosX, PosY, PosZ;
+        public bool InDream;
+        /// <summary>Host→client: the host's stock did not have what was bought; undo it.</summary>
+        public bool Denied;
+        public TradeEntry[] Bought;
+        public TradeEntry[] Sold;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(PosX);
+            w.Put(PosY);
+            w.Put(PosZ);
+            w.Put(InDream);
+            w.Put(Denied);
+            PutEntries(w, Bought);
+            PutEntries(w, Sold);
+        }
+
+        private static void PutEntries(NetWriter w, TradeEntry[] entries)
+        {
+            int n = entries != null ? entries.Length : 0;
+            w.Put((short)n);
+            for (int i = 0; i < n; i++)
+                entries[i].Serialize(w);
+        }
+
+        private static TradeEntry[] GetEntries(NetReader r)
+        {
+            int n = r.GetShort();
+            var a = new TradeEntry[n < 0 ? 0 : n];
+            for (int i = 0; i < a.Length; i++)
+                a[i] = TradeEntry.Deserialize(r);
+            return a;
+        }
+
+        public static TradeCommitMessage Deserialize(NetReader r) => new TradeCommitMessage
+        {
+            NpcName = r.GetString(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            InDream = r.GetBool(),
+            Denied = r.GetBool(),
+            Bought = GetEntries(r),
+            Sold = GetEntries(r)
+        };
+    }
+
+    public struct OxygenTankTierMessage
+    {
+        /// <summary>1: an empty tank, 2: a full one.</summary>
+        public byte Tier;
+
+        public void Serialize(NetWriter w) => w.Put(Tier);
+
+        public static OxygenTankTierMessage Deserialize(NetReader r) => new OxygenTankTierMessage { Tier = r.GetByte() };
+    }
+
+    public struct QuestHandoffMessage
+    {
+        public string[] Types;
+        public int[] Amounts;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Types != null && Amounts != null ? System.Math.Min(Types.Length, Amounts.Length) : 0;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put(Types[i] ?? "");
+                w.Put(Amounts[i]);
+            }
+        }
+
+        public static QuestHandoffMessage Deserialize(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0 || n > 256)
+                throw new System.IO.InvalidDataException("QuestHandoff item count " + n);
+            var msg = new QuestHandoffMessage { Types = new string[n], Amounts = new int[n] };
+            for (int i = 0; i < n; i++)
+            {
+                msg.Types[i] = r.GetString();
+                msg.Amounts[i] = r.GetInt();
+            }
+            return msg;
+        }
+    }
+
+    /// <summary>One element of a mirrored dialogue screen: an option line, an item icon, a board text.</summary>
+    public struct DialogMirrorElement
+    {
+        public const byte KindDialogueOption = 0;
+        public const byte KindExclamationMark = 1;
+        public const byte KindItemIcon = 2;
+        public const byte KindShowItemBtn = 3;
+        public const byte KindDecisionBtn = 4;
+        public const byte KindText = 5;
+        public const byte KindDescText = 6;
+
+        public byte Kind;
+        /// <summary>The shown text (a board line: the full formatted line its typewriter writes out).</summary>
+        public string Text;
+        public float X, Y, Z;
+        public float R, G, B, A;
+        public string Sprite;
+        public float WriteSpeed;
+        public float Interval;
+        /// <summary>A decision's target dialogue.</summary>
+        public string Target;
+        /// <summary>Its place in the window's menu options (-1: not an option).</summary>
+        public short Menu;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(Text ?? "");
+            w.Put(X); w.Put(Y); w.Put(Z);
+            w.Put(R); w.Put(G); w.Put(B); w.Put(A);
+            w.Put(Sprite ?? "");
+            w.Put(WriteSpeed);
+            w.Put(Interval);
+            w.Put(Target ?? "");
+            w.Put(Menu);
+        }
+
+        public static DialogMirrorElement Deserialize(NetReader r)
+        {
+            return new DialogMirrorElement
+            {
+                Kind = r.GetByte(),
+                Text = r.GetString(),
+                X = r.GetFloat(), Y = r.GetFloat(), Z = r.GetFloat(),
+                R = r.GetFloat(), G = r.GetFloat(), B = r.GetFloat(), A = r.GetFloat(),
+                Sprite = r.GetString(),
+                WriteSpeed = r.GetFloat(),
+                Interval = r.GetFloat(),
+                Target = r.GetString(),
+                Menu = r.GetShort()
+            };
+        }
+    }
+
+    /// <summary>
+    /// A dialogue another player watches (<c>Sync.DialogMirror</c>). The talking player reports each
+    /// screen and action to the host; the host keeps the latest and passes it to the players
+    /// listening in. A listener asks to join (Join) and to leave (Leave).
+    /// </summary>
+    public struct DialogMirrorMessage
+    {
+        public const byte KindOpen = 1;
+        public const byte KindBoard = 2;
+        public const byte KindOptions = 3;
+        public const byte KindItems = 4;
+        public const byte KindTrade = 5;
+        public const byte KindTextStart = 6;
+        public const byte KindSpeedup = 7;
+        public const byte KindSelect = 8;
+        public const byte KindPortrait = 9;
+        public const byte KindClose = 10;
+        public const byte KindBoardDone = 11;
+        public const byte KindJoin = 20;
+        public const byte KindLeave = 21;
+        public const byte KindRefused = 22;
+
+        public const int MaxElements = 64;
+
+        public byte Kind;
+        /// <summary>The talking player (the host stamps it).</summary>
+        public int OwnerId;
+        public string NpcName;
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
+        public bool Dream;
+        /// <summary>Board index, selected option, or portrait type (by kind).</summary>
+        public int Index;
+        /// <summary>Board: its text started writing. Portrait: the white overlay variant.</summary>
+        public bool Flag;
+        public float OffsetX, OffsetY;
+        public string DialogueName;
+        public DialogMirrorElement[] Elements;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(OwnerId);
+            w.Put(NpcName ?? "");
+            w.Put(HasPos);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Dream);
+            w.Put(Index);
+            w.Put(Flag);
+            w.Put(OffsetX); w.Put(OffsetY);
+            w.Put(DialogueName ?? "");
+            int n = Elements != null ? System.Math.Min(Elements.Length, MaxElements) : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+                Elements[i].Serialize(w);
+        }
+
+        public static DialogMirrorMessage Deserialize(NetReader r)
+        {
+            var msg = new DialogMirrorMessage
+            {
+                Kind = r.GetByte(),
+                OwnerId = r.GetInt(),
+                NpcName = r.GetString(),
+                HasPos = r.GetBool(),
+                PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(),
+                Dream = r.GetBool(),
+                Index = r.GetInt(),
+                Flag = r.GetBool(),
+                OffsetX = r.GetFloat(), OffsetY = r.GetFloat(),
+                DialogueName = r.GetString()
+            };
+            int n = r.GetByte();
+            if (n > MaxElements)
+                throw new System.IO.InvalidDataException("DialogMirror element count " + n);
+            if (n > 0)
+            {
+                msg.Elements = new DialogMirrorElement[n];
+                for (int i = 0; i < n; i++)
+                    msg.Elements[i] = DialogMirrorElement.Deserialize(r);
+            }
+            return msg;
+        }
+    }
+
+    public struct DialogHandInGoneMessage
+    {
+        /// <summary>The NPC the refused hand-in was for (NPC.name).</summary>
+        public string NpcName;
+        /// <summary>The journal item someone else already handed over.</summary>
+        public string ItemType;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(ItemType ?? "");
+        }
+
+        public static DialogHandInGoneMessage Deserialize(NetReader r)
+            => new DialogHandInGoneMessage { NpcName = r.GetString(), ItemType = r.GetString() };
+    }
+
+    public struct PlayerSpecialMessage
+    {
+        /// <summary>The Player method to run (whitelisted on receipt).</summary>
+        public string Method;
+
+        public void Serialize(NetWriter w) => w.Put(Method ?? "");
+
+        public static PlayerSpecialMessage Deserialize(NetReader r) => new PlayerSpecialMessage { Method = r.GetString() };
+    }
+
+    public struct PorterTransportMessage
+    {
+        /// <summary>The hideout whose containers were emptied.</summary>
+        public string Source;
+        /// <summary>The hideout the package goes to.</summary>
+        public string Dest;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Source ?? "");
+            w.Put(Dest ?? "");
+        }
+
+        public static PorterTransportMessage Deserialize(NetReader r) => new PorterTransportMessage
+        {
+            Source = r.GetString(),
+            Dest = r.GetString()
+        };
+    }
+
+    public struct BansheeAgitationMessage
+    {
+        public short HostId;
+        public int VictimId;
+        public bool Agitated;
+        /// <summary>Agitated from a sighting (vanilla fades the banshee overlay in); false from a defensive start.</summary>
+        public bool Overlay;
+
+        public void Serialize(NetWriter w) { w.Put(HostId); w.Put(VictimId); w.Put(Agitated); w.Put(Overlay); }
+
+        public static BansheeAgitationMessage Deserialize(NetReader r) => new BansheeAgitationMessage
+        {
+            HostId = r.GetShort(),
+            VictimId = r.GetInt(),
+            Agitated = r.GetBool(),
+            Overlay = r.GetBool()
+        };
     }
 
     public struct EntityBurningMessage
@@ -251,14 +697,16 @@ namespace DWMPHorde.Networking
         public static WorkbenchLevelMessage Deserialize(NetReader r) => new WorkbenchLevelMessage { Level = r.GetInt() };
     }
 
-    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3, Remove = 4 }
+    public enum JournalItemKind : byte { Note = 0, Key = 1, QuestItem = 2, JournalEntry = 3, Remove = 4, Location = 5 }
 
     public struct JournalItemMessage
     {
         public JournalItemKind Kind;
         public string Type;
-        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); }
-        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString() };
+        /// <summary>The sender's page belongs to a dream (vanilla <c>inDream</c>): it goes when that dream ends.</summary>
+        public bool InDream;
+        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); w.Put(InDream); }
+        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString(), InDream = r.GetBool() };
     }
 
     public struct SaveSyncMessage
@@ -271,8 +719,19 @@ namespace DWMPHorde.Networking
     {
         public int CurrentTime, Day;
         public bool IsAfterNight;
-        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); }
-        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool() };
+        /// <summary>The village's friendly villagers are away for the night (NightVillage).</summary>
+        public bool VillagersAway;
+        /// <summary>
+        /// The overworld clock. Equals <see cref="CurrentTime"/> except while the host is in a dream,
+        /// where CurrentTime is the dream's own time and this is the time the dream will wake to
+        /// (vanilla <c>Dreams.timeCopy</c>). A peer outside the dream (dead, or its pad failed to
+        /// load) shows this one.
+        /// </summary>
+        public int OverworldTime;
+        /// <summary>Players still in the prologue while day 1 waits for them (0 = the clock runs). Protocol 33.</summary>
+        public byte PrologueHold;
+        public void Serialize(NetWriter w) { w.Put(CurrentTime); w.Put(Day); w.Put(IsAfterNight); w.Put(VillagersAway); w.Put(OverworldTime); w.Put(PrologueHold); }
+        public static TimeSyncMessage Deserialize(NetReader r) => new TimeSyncMessage { CurrentTime = r.GetInt(), Day = r.GetInt(), IsAfterNight = r.GetBool(), VillagersAway = r.GetBool(), OverworldTime = r.GetInt(), PrologueHold = r.GetByte() };
     }
 
     /// <summary>Client→host: post-sleep clock for host-authority forward adopt.</summary>
@@ -331,9 +790,9 @@ namespace DWMPHorde.Networking
                 HostPlayerId = r.GetInt(),
                 SessionPort = r.GetInt()
             };
-            int n = r.AvailableBytes >= 1 ? r.GetByte() : 0;
-            if (n < 0) n = 0;
-            if (n > 32) n = 32;
+            int n = r.GetByte();
+            if (n > 32)
+                throw new System.IO.InvalidDataException("PeerRoster entry count " + n);
             msg.Entries = new PeerRosterEntry[n];
             for (int i = 0; i < n; i++)
                 msg.Entries[i] = PeerRosterEntry.Deserialize(r);
@@ -416,16 +875,103 @@ namespace DWMPHorde.Networking
     public struct ClientStateBackupMessage
     {
         public string JsonData;
-        public void Serialize(NetWriter w) { w.Put(JsonData ?? ""); }
-        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetString() };
+        // Long-string framing: a full inventory/skills/journal backup can pass the 65535-byte limit of
+        // Put(string), which wrapped the length and corrupted the packet.
+        public void Serialize(NetWriter w) { w.PutLongString(JsonData); }
+        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString() };
     }
 
     public struct ReputationSyncMessage
     {
         public string NpcName;
         public int Reputation;
-        public void Serialize(NetWriter w) { w.Put(NpcName ?? ""); w.Put(Reputation); }
-        public static ReputationSyncMessage Deserialize(NetReader r) => new ReputationSyncMessage { NpcName = r.GetString(), Reputation = r.GetInt() };
+        /// <summary>Host Flags.NPCState.attackedID (valid when HasAttackedId).</summary>
+        public bool HasAttackedId;
+        public int AttackedId;
+        /// <summary>Host Flags.NPCState.dead + deadID (valid when HasDead; otherwise death fields are left alone).</summary>
+        public bool HasDead;
+        public bool Dead;
+        public int DeadId;
+        /// <summary>NPC.portraitType after GameEvent CharacterModify (valid when HasPortrait).</summary>
+        public bool HasPortrait;
+        public int PortraitType;
+        /// <summary>Vanilla activeModifier: also write characterDialogue.portraitType.</summary>
+        public bool ApplyDialoguePortrait;
+        public float PosX, PosY, PosZ;
+        /// <summary>
+        /// Character.animationLibraryOverride after GameEvent CharacterModify.
+        /// Valid when HasAnimLibrary. String is the Resources path vanilla's setter loads.
+        /// </summary>
+        public bool HasAnimLibrary;
+        public string AnimLibraryName;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(Reputation);
+            w.Put(HasAttackedId);
+            if (HasAttackedId)
+                w.Put(AttackedId);
+            w.Put(HasDead);
+            if (HasDead)
+            {
+                w.Put(Dead);
+                w.Put(DeadId);
+            }
+            w.Put(HasPortrait);
+            if (HasPortrait)
+            {
+                w.Put(PortraitType);
+                w.Put(ApplyDialoguePortrait);
+                w.Put(PosX);
+                w.Put(PosY);
+                w.Put(PosZ);
+            }
+            w.Put(HasAnimLibrary);
+            if (HasAnimLibrary)
+            {
+                w.Put(AnimLibraryName ?? "");
+                w.Put(PosX);
+                w.Put(PosY);
+                w.Put(PosZ);
+            }
+        }
+
+        public static ReputationSyncMessage Deserialize(NetReader r)
+        {
+            var msg = new ReputationSyncMessage
+            {
+                NpcName = r.GetString(),
+                Reputation = r.GetInt()
+            };
+            msg.HasAttackedId = r.GetBool();
+            if (msg.HasAttackedId)
+                msg.AttackedId = r.GetInt();
+            msg.HasDead = r.GetBool();
+            if (msg.HasDead)
+            {
+                msg.Dead = r.GetBool();
+                msg.DeadId = r.GetInt();
+            }
+            msg.HasPortrait = r.GetBool();
+            if (msg.HasPortrait)
+            {
+                msg.PortraitType = r.GetInt();
+                msg.ApplyDialoguePortrait = r.GetBool();
+                msg.PosX = r.GetFloat();
+                msg.PosY = r.GetFloat();
+                msg.PosZ = r.GetFloat();
+            }
+            msg.HasAnimLibrary = r.GetBool();
+            if (msg.HasAnimLibrary)
+            {
+                msg.AnimLibraryName = r.GetString();
+                msg.PosX = r.GetFloat();
+                msg.PosY = r.GetFloat();
+                msg.PosZ = r.GetFloat();
+            }
+            return msg;
+        }
     }
 
     public struct ScenarioSyncMessage
@@ -438,8 +984,13 @@ namespace DWMPHorde.Networking
     public struct ScenarioEventFiredMessage
     {
         public int NightId, EventIndex;
-        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); }
-        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt() };
+        /// <summary>
+        /// Location event: '|'-joined names of the locations the host played it in (each living
+        /// player's own world location). A client replays it only when it stands in one of them.
+        /// </summary>
+        public string Anchors;
+        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); }
+        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString() };
     }
 
     /// <summary>
@@ -532,39 +1083,58 @@ namespace DWMPHorde.Networking
     public struct MapElementDiscoveredMessage
     {
         public string ElementName;
-        public void Serialize(NetWriter w) => w.Put(ElementName ?? "");
-        public static MapElementDiscoveredMessage Deserialize(NetReader r) => new MapElementDiscoveredMessage { ElementName = r.GetString() };
-    }
+        /// <summary>Where the element stands: names repeat across the map, the first match by name was not always it.</summary>
+        public bool HasPos;
+        public float PosX, PosZ;
 
-    public struct OxygenTankStashMessage
-    {
-        public void Serialize(NetWriter w) { }
-        public static OxygenTankStashMessage Deserialize(NetReader r) => new OxygenTankStashMessage();
-    }
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ElementName ?? "");
+            w.Put(HasPos);
+            if (HasPos)
+            {
+                w.Put(PosX);
+                w.Put(PosZ);
+            }
+        }
 
-    public struct CompressorTankConvertMessage
-    {
-        public void Serialize(NetWriter w) { }
-        public static CompressorTankConvertMessage Deserialize(NetReader r) => new CompressorTankConvertMessage();
+        public static MapElementDiscoveredMessage Deserialize(NetReader r)
+        {
+            var m = new MapElementDiscoveredMessage { ElementName = r.GetString(), HasPos = r.GetBool() };
+            if (m.HasPos)
+            {
+                m.PosX = r.GetFloat();
+                m.PosZ = r.GetFloat();
+            }
+            return m;
+        }
     }
 
     public struct JournalBulkSyncMessage
     {
         public string[] NoteTypes, KeyTypes, QuestItemTypes, JournalEntryTypes;
+        /// <summary>Journal locationsDict keys.</summary>
+        public string[] LocationTypes;
 
         public void Serialize(NetWriter w)
         {
             WriteArray(w, NoteTypes); WriteArray(w, KeyTypes);
             WriteArray(w, QuestItemTypes); WriteArray(w, JournalEntryTypes);
+            WriteArray(w, LocationTypes);
         }
 
-        public static JournalBulkSyncMessage Deserialize(NetReader r) => new JournalBulkSyncMessage
+        public static JournalBulkSyncMessage Deserialize(NetReader r)
         {
-            NoteTypes = ReadArray(r),
-            KeyTypes = ReadArray(r),
-            QuestItemTypes = ReadArray(r),
-            JournalEntryTypes = ReadArray(r)
-        };
+            var msg = new JournalBulkSyncMessage
+            {
+                NoteTypes = ReadArray(r),
+                KeyTypes = ReadArray(r),
+                QuestItemTypes = ReadArray(r),
+                JournalEntryTypes = ReadArray(r),
+                LocationTypes = ReadArray(r)
+            };
+            return msg;
+        }
 
         static void WriteArray(NetWriter w, string[] arr)
         {
@@ -583,8 +1153,13 @@ namespace DWMPHorde.Networking
 
     public struct ShadowEventMessage
     {
-        public void Serialize(NetWriter w) { }
-        public static ShadowEventMessage Deserialize(NetReader r) => new ShadowEventMessage();
+        /// <summary>The wave ended on the host (vanilla Player.endShadows); else it started.</summary>
+        public bool End;
+        /// <summary>Whose curse the starting wave is (vanilla spawnedShadows blocks only that player's natural lights).</summary>
+        public short OwnerId;
+
+        public void Serialize(NetWriter w) { w.Put(End); w.Put(OwnerId); }
+        public static ShadowEventMessage Deserialize(NetReader r) => new ShadowEventMessage { End = r.GetBool(), OwnerId = r.GetShort() };
     }
 
     /// <summary>Client→host: request a NightShadows perk wave around the requester's proxy.</summary>
@@ -656,6 +1231,21 @@ namespace DWMPHorde.Networking
         public string[] NpcNames;
         public int[] Reputations;
         public bool[] Dead;
+        /// <summary>Host Flags.NPCState.wantsToTalk.</summary>
+        public bool[] WantsToTalk;
+        /// <summary>Host Flags.NPCState.attackedID.</summary>
+        public int[] AttackedIds;
+        /// <summary>Host Flags.NPCState.deadID.</summary>
+        public int[] DeadIds;
+        /// <summary>Sparse NPC.portraitType after GameEvent CharacterModify (per-slot HasPortrait + payload).</summary>
+        public bool[] HasPortrait;
+        public int[] PortraitTypes;
+        public bool[] ApplyDialoguePortrait;
+        public float[] PortraitPosX, PortraitPosY, PortraitPosZ;
+        /// <summary>Sparse Character.animationLibraryOverride (per-slot HasAnimLibrary + payload).</summary>
+        public bool[] HasAnimLibrary;
+        public string[] AnimLibraryNames;
+        public float[] AnimPosX, AnimPosY, AnimPosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -665,21 +1255,83 @@ namespace DWMPHorde.Networking
                 w.Put(NpcNames?[i] ?? "");
                 w.Put(Reputations != null && i < Reputations.Length ? Reputations[i] : 0);
                 w.Put(Dead != null && i < Dead.Length && Dead[i]);
+                w.Put(WantsToTalk == null || i >= WantsToTalk.Length || WantsToTalk[i]);
+                w.Put(AttackedIds != null && i < AttackedIds.Length ? AttackedIds[i] : 0);
+                w.Put(DeadIds != null && i < DeadIds.Length ? DeadIds[i] : 0);
+
+                bool portrait = HasPortrait != null && i < HasPortrait.Length && HasPortrait[i];
+                w.Put(portrait);
+                if (portrait)
+                {
+                    w.Put(PortraitTypes != null && i < PortraitTypes.Length ? PortraitTypes[i] : 0);
+                    w.Put(ApplyDialoguePortrait != null && i < ApplyDialoguePortrait.Length
+                        && ApplyDialoguePortrait[i]);
+                    w.Put(PortraitPosX != null && i < PortraitPosX.Length ? PortraitPosX[i] : 0f);
+                    w.Put(PortraitPosY != null && i < PortraitPosY.Length ? PortraitPosY[i] : 0f);
+                    w.Put(PortraitPosZ != null && i < PortraitPosZ.Length ? PortraitPosZ[i] : 0f);
+                }
+
+                bool anim = HasAnimLibrary != null && i < HasAnimLibrary.Length && HasAnimLibrary[i];
+                w.Put(anim);
+                if (anim)
+                {
+                    w.Put(AnimLibraryNames != null && i < AnimLibraryNames.Length
+                        ? (AnimLibraryNames[i] ?? "") : "");
+                    w.Put(AnimPosX != null && i < AnimPosX.Length ? AnimPosX[i] : 0f);
+                    w.Put(AnimPosY != null && i < AnimPosY.Length ? AnimPosY[i] : 0f);
+                    w.Put(AnimPosZ != null && i < AnimPosZ.Length ? AnimPosZ[i] : 0f);
+                }
             }
         }
 
         public static ReputationBulkSyncMessage Deserialize(NetReader r)
         {
             var msg = new ReputationBulkSyncMessage { NpcCount = r.GetInt() };
-            if (msg.NpcCount < 0 || msg.NpcCount > 4096) msg.NpcCount = 0;
-            msg.NpcNames = new string[msg.NpcCount];
-            msg.Reputations = new int[msg.NpcCount];
-            msg.Dead = new bool[msg.NpcCount];
-            for (int i = 0; i < msg.NpcCount; i++)
+            if (msg.NpcCount < 0 || msg.NpcCount > 4096)
+                throw new System.IO.InvalidDataException("ReputationBulkSync NPC count " + msg.NpcCount);
+            int n = msg.NpcCount;
+            msg.NpcNames = new string[n];
+            msg.Reputations = new int[n];
+            msg.Dead = new bool[n];
+            msg.WantsToTalk = new bool[n];
+            msg.AttackedIds = new int[n];
+            msg.DeadIds = new int[n];
+            msg.HasPortrait = new bool[n];
+            msg.PortraitTypes = new int[n];
+            msg.ApplyDialoguePortrait = new bool[n];
+            msg.PortraitPosX = new float[n];
+            msg.PortraitPosY = new float[n];
+            msg.PortraitPosZ = new float[n];
+            msg.HasAnimLibrary = new bool[n];
+            msg.AnimLibraryNames = new string[n];
+            msg.AnimPosX = new float[n];
+            msg.AnimPosY = new float[n];
+            msg.AnimPosZ = new float[n];
+            for (int i = 0; i < n; i++)
             {
                 msg.NpcNames[i] = r.GetString();
                 msg.Reputations[i] = r.GetInt();
                 msg.Dead[i] = r.GetBool();
+                msg.WantsToTalk[i] = r.GetBool();
+                msg.AttackedIds[i] = r.GetInt();
+                msg.DeadIds[i] = r.GetInt();
+                msg.HasPortrait[i] = r.GetBool();
+                if (msg.HasPortrait[i])
+                {
+                    msg.PortraitTypes[i] = r.GetInt();
+                    msg.ApplyDialoguePortrait[i] = r.GetBool();
+                    msg.PortraitPosX[i] = r.GetFloat();
+                    msg.PortraitPosY[i] = r.GetFloat();
+                    msg.PortraitPosZ[i] = r.GetFloat();
+                }
+                msg.HasAnimLibrary[i] = r.GetBool();
+                if (msg.HasAnimLibrary[i])
+                {
+                    msg.AnimLibraryNames[i] = r.GetString();
+                    msg.AnimPosX[i] = r.GetFloat();
+                    msg.AnimPosY[i] = r.GetFloat();
+                    msg.AnimPosZ[i] = r.GetFloat();
+                }
             }
             return msg;
         }
@@ -846,11 +1498,72 @@ namespace DWMPHorde.Networking
                 TimeToFadeOutFog_Hours = r.GetFloat(),
                 TimeToFadeOutFog_Day = r.GetInt(),
                 FogFadedOutToday = r.GetBool(),
-                FogIsActive = r.GetBool()
+                FogIsActive = r.GetBool(),
+                Strike = r.GetByte()
             };
-            if (r.AvailableBytes >= 1)
-                msg.Strike = r.GetByte();
             return msg;
         }
+    }
+    /// <summary>
+    /// Asking the host before handing a shared journal item to an NPC (<c>Sync.DialogHandInArbiter</c>).
+    /// Client→host: Claim (the items the talk is about to hand over) or Release (the talk ended without
+    /// handing them over). Host→client: Grant or Deny for that claim.
+    /// </summary>
+    public struct DialogHandInClaimMessage
+    {
+        public const byte KindClaim = 0;
+        public const byte KindGrant = 1;
+        public const byte KindDeny = 2;
+        public const byte KindRelease = 3;
+
+        public byte Kind;
+        public int ClaimId;
+        /// <summary>The NPC the hand-in is for (NPC.name).</summary>
+        public string NpcName;
+        /// <summary>The journal items the board takes (several variants: any one held is enough).</summary>
+        public string[] Types;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(ClaimId);
+            w.Put(NpcName ?? "");
+            int n = Types != null ? Types.Length : 0;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+                w.Put(Types[i] ?? "");
+        }
+
+        public static DialogHandInClaimMessage Deserialize(NetReader r)
+        {
+            var msg = new DialogHandInClaimMessage { Kind = r.GetByte(), ClaimId = r.GetInt(), NpcName = r.GetString() };
+            int n = r.GetInt();
+            if (n < 0 || n > 64)
+                throw new System.IO.InvalidDataException("DialogHandInClaim item count " + n);
+            msg.Types = new string[n];
+            for (int i = 0; i < n; i++)
+                msg.Types[i] = r.GetString();
+            return msg;
+        }
+    }
+
+    /// <summary>Client→host: this player's in-game pause menu (Esc) is open or closed (<c>Sync.PauseMenuSync</c>).</summary>
+    public struct PauseMenuStateMessage
+    {
+        public bool Open;
+
+        public void Serialize(NetWriter w) => w.Put(Open);
+
+        public static PauseMenuStateMessage Deserialize(NetReader r) => new PauseMenuStateMessage { Open = r.GetBool() };
+    }
+
+    /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>
+    public struct WorldPauseMessage
+    {
+        public bool Paused;
+
+        public void Serialize(NetWriter w) => w.Put(Paused);
+
+        public static WorldPauseMessage Deserialize(NetReader r) => new WorldPauseMessage { Paused = r.GetBool() };
     }
 }

@@ -35,13 +35,6 @@ namespace DWMPHorde.Sync
         public static bool InsideCharacterSounds = false;
 
         /// <summary>
-        /// Set true on client during a local Explodes.explode() call so
-        /// ClientDamageRedirectPatch can redirect AOE splash damage to the host
-        /// (the host re-enacts the explosion and applies damage authoritatively).
-        /// </summary>
-        public static bool IsInsideLocalExplosion = false;
-
-        /// <summary>
         /// Set true on client while inside Bullet.onCollide for a player-fired
         /// projectile (objectThatSpawnedMe == null). ClientDamageRedirectPatch
         /// checks this to detect projectile weapon damage where the vanilla
@@ -60,8 +53,8 @@ namespace DWMPHorde.Sync
         public static void ResetTransientFlags()
         {
             _explicitApplyingFromNetwork = false;
+            WorldPhysicsSyncService._suppressBroadcast = false;
             InsideCharacterSounds = false;
-            IsInsideLocalExplosion = false;
             IsInsidePlayerBulletCollision = false;
             IsInsideFastProjectileRaycast = false;
         }
@@ -80,7 +73,8 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void SetDoorOpened(Door door, bool opened, Vector3 openerPos = default, float openForce = 0f, float bodyRotY = 0f, float angVelX = 0f, float angVelY = 0f, float angVelZ = 0f)
         {
-            InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce);
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+                InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce));
 
             var t = Traverse.Create(door);
             if (t.Field("opened").GetValue<bool>() != opened)
@@ -116,11 +110,11 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static MethodInfo _doorOpenMethod;
-        private static MethodInfo _doorCloseMethod;
-        private static ParameterInfo[] _doorOpenPars = Array.Empty<ParameterInfo>();
-        private static ParameterInfo[] _doorClosePars = Array.Empty<ParameterInfo>();
-        private static object[] _doorInvokeArgs = Array.Empty<object>();
+        private static MethodInfo _doorOpenMethod; // process-scoped: reflection cache
+        private static MethodInfo _doorCloseMethod; // process-scoped: reflection cache
+        private static ParameterInfo[] _doorOpenPars = Array.Empty<ParameterInfo>(); // process-scoped: reflection cache
+        private static ParameterInfo[] _doorClosePars = Array.Empty<ParameterInfo>(); // process-scoped: reflection cache
+        private static object[] _doorInvokeArgs = Array.Empty<object>(); // process-scoped: scratch
 
         private static void EnsureDoorMethodsCached()
         {

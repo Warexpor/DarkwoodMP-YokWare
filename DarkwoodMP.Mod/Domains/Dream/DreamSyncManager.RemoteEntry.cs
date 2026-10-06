@@ -13,10 +13,20 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
-        public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition)
+        public static void OnRemoteDreamStarted(int playerId, string presetName, Vector3 locationPosition,
+            bool entryVideo = true)
         {
             if (_remoteDreamActive.TryGetValue(playerId, out bool active) && active) return;
+            if (IsLocalDeadOutsideDream())
+            {
+                // Dead in the overworld: stay where the death left us (the host leaves us off the
+                // dream roster). Entering would revive us at the dream's end.
+                ModRuntime.LegacyInfo($"[DreamSync] Sit out remote dream (p{playerId}) {presetName}: local player is dead");
+                return;
+            }
+            _remoteEntryHasVideo = entryVideo;
             // Host already refused completed presets in TryBegin / HandleDreamStarted.
+            CloseOpenUiForDreamEntry();
             _remoteDreamActive[playerId] = true;
             _currentDreamPreset[playerId] = presetName;
 
@@ -45,12 +55,18 @@ namespace DWMPHorde.Sync
         public static void OnPeerDreamEntryTransition()
         {
             if (_localDreamActive) return;
+            // Dead here: this player sits the dream out, so it does not play the movie either
+            // (it was left frozen, black and muted with no dream to end it).
+            if (IsLocalDeadOutsideDream()) return;
             if (_earlyEntryTransitionPlayed) return;
             // DreamStarted already started the video; do not stack a second Play.
             if (_remoteEntryTransitionPlaying) return;
 
             _earlyEntryTransitionPlayed = true;
+            NoteEntryTransitionStarted();
+            CloseOpenUiForDreamEntry();
             FreezeWorld();
+            HostBeginDreamEntry();
 
             float wait = StartRemoteDreamTransition();
             _earlyEntryTransitionDoneAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, wait);
@@ -61,12 +77,53 @@ namespace DWMPHorde.Sync
             // Arm safety watchdog: if nothing resolves the transition within 20s of
             // the expected completion, force-clear the stuck overlay + EnteringDream.
             Singleton<Controller>.Instance.StartCoroutine(
-                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f));
+                EntryTransitionWatchdog(_earlyEntryTransitionDoneAt + 20f, ++_entryWatchGen));
 
             ModRuntime.LegacyInfo($"[DreamSync] Early entry transition (peer), wait={wait:F1}s");
         }
 
+        /// <summary>
+        /// Pull-in closes whatever the player has open the way a vanilla dream start does
+        /// (trade, container/workbench, journal, then the dialogue itself). Nothing closed them
+        /// on a pulled-in peer, so the NPC dialogue lock stayed held until its lease expired
+        /// and the window sat over the pad.
+        /// </summary>
+        internal static void CloseOpenUiForDreamEntry()
+        {
+            try
+            {
+                var player = Player.Instance;
+                var ui = Singleton<UI>.Instance;
+                if (player == null || ui == null) return;
+
+                if (ui.journal != null && ui.journal.opened)
+                    ui.journal.close(doUnpause: true);
+
+                var dw = ui.dialogueWindow;
+                if (dw != null && dw.npc != null && player.inShop && !dw.tweening)
+                    dw.closeTrade();
+
+                if (player.openedItemInventory != null || player.openedItemInventory2 != null)
+                    player.closeInventory();
+
+                if (dw != null && dw.npc != null && !dw.tweening)
+                {
+                    dw.close();
+                    // An exit dialogue is shown instead of closing on the first call.
+                    if (dw.npc != null && !dw.tweening)
+                        dw.close();
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] CloseOpenUiForDreamEntry: " + ex.Message);
+            }
+        }
+
         /// <summary>Skip / cancel early entry wait so DreamStarted load is not blocked.</summary>
+        /// <summary>The dream video on screen is a peer's entry replayed here, not a local vanilla transition.</summary>
+        internal static bool IsPeerEntryTransitionPlaying => _earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying;
+
         public static void OnEntryTransitionSkipped()
         {
             if (!_earlyEntryTransitionPlayed) return;
@@ -78,6 +135,8 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
+            int gen = _entryGeneration;
+            int sid = DreamSession.SessionId;
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
 
             // Keep the snapshot aligned with host prepareDream.
@@ -119,12 +178,28 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                float waitTime = StartRemoteDreamTransition();
+                // Same entry as the host: its video, or the black fade of a dialogue / event start.
+                float waitTime;
+                if (_remoteEntryHasVideo)
+                    waitTime = StartRemoteDreamTransition();
+                else
+                {
+                    ShowDreamTransitionFallback();
+                    waitTime = 0f;
+                }
                 if (waitTime > 0f)
                 {
                     ModRuntime.LegacyInfo($"[DreamSync] Waiting {waitTime:F1}s for remote dream transition");
                     yield return new WaitForSecondsRealtime(waitTime);
                 }
+            }
+
+            // Disconnect / reject / cleanup during the video: that teardown already unfroze and
+            // cleared the overlay; loading the pad now would strand us in a sessionless dream.
+            if (EntryStale(gen, sid))
+            {
+                ModRuntime.LegacyInfo("[DreamSync] Remote entry cancelled during transition — not loading pad");
+                yield break;
             }
 
             // 2. Clean up the video overlay (fade out)
@@ -147,15 +222,26 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
+        /// <summary>Client: the pocket the host's DreamChainStart is loading (see ClientDreamSwitchPatch).</summary>
+        private static string _chainPocketLoading; // reset-in: OnDisconnectedCleanup
+
+        internal static string ChainPocketLoading => _chainPocketLoading;
+
+        internal static void ClearChainPocketLoading() => _chainPocketLoading = null;
+
         public static void OnDreamChain(string nextPreset)
         {
             if (string.IsNullOrEmpty(nextPreset)) return;
+            _chainPocketLoading = nextPreset;
+            // Pocket 1's host-ordered exit is done; leaving the flag would let the initiateEndDreaming
+            // authority patch end pocket 2 locally.
+            _hostOrderedDreamEnd = false;
             _localDreamPreset = nextPreset;
             _localDreamActive = true;
             if (Player.Instance != null)
             {
                 int pid = 0;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null)
                     pid = net.LocalPlayerId;
                 _currentDreamPreset[pid] = nextPreset;
@@ -170,9 +256,12 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessChainCoroutine(string presetName, Vector3 locationPosition)
         {
+            int gen = _entryGeneration;
+            int sid = DreamSession.SessionId;
             // Keep world frozen; tear previous dream location if still present.
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
             {
+                bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try
                 {
@@ -183,7 +272,7 @@ namespace DWMPHorde.Sync
                 {
                     ModRuntime.Log?.LogWarning("[DreamSync] chain destroy: " + ex.Message);
                 }
-                finally { LanNetworkManager.IsApplyingRemoteState = false; }
+                finally { LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1); }
             }
 
                 // Preserve inventory and time copies across a dream-chain pocket.
@@ -191,6 +280,8 @@ namespace DWMPHorde.Sync
                 Dreams.Instance.switchingDream = true;
 
             yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
+            if (EntryStale(gen, sid))
+                yield break;
             DreamSession.MarkActive();
         }
 
@@ -218,16 +309,144 @@ namespace DWMPHorde.Sync
         /// timeout and neither a local nor remote dream session started, force-clear
         /// the stuck state so the player is not permanently blinded + paralysed.
         /// </summary>
-        private static IEnumerator EntryTransitionWatchdog(float expireAt)
+        private static bool _hostEntryFreeze; // reset-in: OnDisconnectedCleanup
+
+        /// <summary>
+        /// Host: its own entry movie or prepare is under way, before the session begins. A join let
+        /// in here loaded into a world about to freeze and missed the DreamStarted roster.
+        /// </summary>
+        internal static bool IsHostDreamEntryPending => _hostEntryFreeze;
+        private static int _hostEntryWatch;   // process-scoped: generation of the host entry poll, bumped per start
+
+        /// <summary>
+        /// Host: a dream is on its way in (the entry movie started, here or on a peer, or a dialogue
+        /// or event prepares one). The host's world stopped only once the pad was up, so for the
+        /// whole movie, the prepare wait, the save and the pad spawn its creatures kept attacking
+        /// players who sat locked in the movie; a player killed there entered the dream dead. The
+        /// clock is also taken here, before the dream sets its own time.
+        /// </summary>
+        internal static void HostBeginDreamEntry()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return;
+            if (_localDreamActive || (Dreams.Instance != null && Dreams.Instance.dreaming))
+                return;
+            if (!_worldFrozen)
+                FreezeWorld();
+            if (_hostEntryFreeze)
+                return;
+            _hostEntryFreeze = true;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null)
+                ctrl.StartCoroutine(HostEntryFreezeWatch(++_hostEntryWatch));
+        }
+
+        private static bool HostEntryInProgress()
+        {
+            Dreams d = Dreams.Instance;
+            return DreamSession.IsActive || _localDreamActive
+                || (d != null && (d.dreaming || d.dreamPrepared
+                    || (d.startTransition != null && d.startTransition.isPlaying)));
+        }
+
+        /// <summary>
+        /// The entry ends either in the dream (OnLocalDreamStarted takes the freeze over) or with
+        /// nothing in progress any more (a rejected request, a failed prepare): then the world runs again.
+        /// </summary>
+        private static IEnumerator HostEntryFreezeWatch(int gen)
+        {
+            int idle = 0;
+            while (_hostEntryFreeze && gen == _hostEntryWatch)
+            {
+                yield return new WaitForSecondsRealtime(1f);
+                if (!_hostEntryFreeze || gen != _hostEntryWatch)
+                    yield break;
+                if (_localDreamActive)
+                {
+                    _hostEntryFreeze = false;
+                    yield break;
+                }
+                idle = HostEntryInProgress() || _earlyEntryTransitionPlayed ? 0 : idle + 1;
+                if (idle >= 2)
+                {
+                    _hostEntryFreeze = false;
+                    ModRuntime.LegacyInfo("[DreamSync] Host dream entry ended without a dream — world released");
+                    AbortEntryVisuals();
+                    UnfreezeWorld(restoreTime: false);
+                    yield break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The host refused a start request. Everyone who played the requester's entry movie and
+        /// froze for it (each peer, and the host) lets go now; before, each sat in the black until
+        /// its 20 s stuck-movie watchdog. Left alone when a dream of its own is on the way.
+        /// </summary>
+        internal static void CancelRefusedEntry()
+        {
+            if (DreamSession.IsActive || _localDreamActive)
+                return;
+            Dreams d = Dreams.Instance;
+            if (d != null && (d.dreaming || d.dreamPrepared))
+                return;
+            if (_earlyEntryTransitionPlayed)
+            {
+                _earlyEntryTransitionPlayed = false;
+                _earlyEntryTransitionDoneAt = 0f;
+                AbortEntryVisuals();
+            }
+            _hostEntryFreeze = false;
+            // The world and its clock ran on through the movie; no dream replaced the time.
+            UnfreezeWorld(restoreTime: false);
+        }
+
+        /// <summary>A dream start refused at the last step (the party had finished it meanwhile).</summary>
+        internal static void AbortBlockedStart()
+        {
+            _earlyEntryTransitionPlayed = false;
+            _earlyEntryTransitionDoneAt = 0f;
+            _hostEntryFreeze = false;
+            AbortEntryVisuals();
+            UnfreezeWorld(restoreTime: false);
+        }
+
+        /// <summary>
+        /// An entry movie that leads to no dream here: undo what it did. The fade-out left both
+        /// black layers opaque, and the movie had paused the world sounds and faded the game audio
+        /// out (vanilla DreamTransition.transition); only a dream's start or wake ever undid them,
+        /// so a refused or abandoned entry left the player on a black screen with the sound gone.
+        /// </summary>
+        internal static void AbortEntryVisuals()
+        {
+            FadeOutDreamTransition();
+            DoFadeInDreamBlackScreen();
+            try
+            {
+                Singleton<Controller>.Instance?.fadeAudio(fadeOut: false, 1f, musicToo: true);
+                Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] restore audio after entry: " + ex.Message);
+            }
+            ReleaseDreamInputLocks();
+            try { Core.showGameCursor(); } catch { /* UI not ready */ }
+        }
+
+        /// <summary>Each peer entry movie arms its own watchdog; an older one must not end a newer movie.</summary>
+        private static int _entryWatchGen; // process-scoped: monotonic
+
+        private static IEnumerator EntryTransitionWatchdog(float expireAt, int gen)
         {
             float delay = expireAt - Time.realtimeSinceStartup;
             if (delay > 0f)
                 yield return new WaitForSeconds(delay);
             yield return null; // one frame for any pending transitions to settle
-            if (_earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
+            if (gen == _entryWatchGen && _earlyEntryTransitionPlayed && !DreamSession.IsActive && !_localDreamActive)
             {
                 ModRuntime.Log?.LogWarning("[DreamSync] Watchdog: early entry transition stuck — force-clearing");
-                FadeOutDreamTransition();
                 _earlyEntryTransitionPlayed = false;
                 _earlyEntryTransitionDoneAt = 0f;
                 try
@@ -236,8 +455,8 @@ namespace DWMPHorde.Sync
                         Dreams.Instance.dreamPrepared = false;
                 }
                 catch { /* ignore */ }
-                Core.EnteringDream = false;
-                UnfreezeWorld();
+                AbortEntryVisuals();
+                UnfreezeWorld(restoreTime: false);
             }
         }
 

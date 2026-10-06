@@ -35,13 +35,14 @@ namespace DWMPHorde.Patches
         {
             _lastProxyPlayerId = 0;
             _lastProxyEnterTime = -999f;
+            _lastProxyEnterPos = Vector3.zero;
         }
 
         public static Transform TryGetRecentProxyTransform(float maxAgeSec)
         {
             if (_lastProxyPlayerId <= 0) return null;
             if (Time.unscaledTime - _lastProxyEnterTime > maxAgeSec) return null;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return null;
             RemotePlayerProxy proxy = net.GetProxy(_lastProxyPlayerId);
             if (proxy == null) return null;

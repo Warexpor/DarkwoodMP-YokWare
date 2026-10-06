@@ -25,7 +25,7 @@ namespace DWMPHorde.Players
         /// </summary>
         public static bool IsSpawningCoopClone { get; private set; }
 
-        private static float _lastInactiveLog = -999f;
+        private static float _lastInactiveLog = -999f; // process-scoped: log throttle
 
         /// <summary>
         /// Creates a clone of sourcePlayer, strips unwanted components, and attaches the appropriate controller.
@@ -93,6 +93,9 @@ namespace DWMPHorde.Players
                 UnityEngine.Object.DestroyImmediate(dummyParent);
                 return null;
             }
+
+            // Own light meshes before any copied Light2D draws into the source player's.
+            Light2DUnshare.Apply(clone);
 
             // Strip ragdoll component before anything awakens
             // (PlayerRagdoll.Awake calls EnforceFullRagdoll which doesn't exist in this build)

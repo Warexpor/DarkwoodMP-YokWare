@@ -50,7 +50,7 @@ namespace DWMPHorde.Networking
         internal void SendSaveSync(bool hostAlreadySavedLocally = false)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager._isRemoteSaveInProgress) return;
+            if (LanNetworkManager.RemoteSaveInProgress) return;
             if (_net.Role == NetworkRole.Offline) return;
 
             if (Time.unscaledTime < _deathSaveSyncSuppressUntil)
@@ -92,12 +92,25 @@ namespace DWMPHorde.Networking
             if (Time.unscaledTime - _lastSaveSyncBroadcastAt < SaveSyncHostCooldownSec)
                 return;
 
+            // A world share reads the profile files over several frames: a Save now would hand
+            // clients a sav/savs pair from two different moments. Retry once the share is done.
+            if (_net.WorldSaveShare != null && _net.WorldSaveShare.IsHostShareRunning)
+                return;
+
             _saveSyncBroadcastPending = false;
             _lastSaveSyncBroadcastAt = Time.unscaledTime;
 
             if (_saveSyncHostNeedsApply)
             {
                 _saveSyncHostNeedsApply = false;
+                string blocked = WorldSaveGuards.GetAutomaticHostSaveBlockReason(_net);
+                if (blocked != null)
+                {
+                    // Declined: peers are not told to Save either, so nobody writes a world the
+                    // host itself refuses to persist.
+                    ModLog.Event(LogCat.Save, "SaveSync request declined — " + blocked);
+                    return;
+                }
                 ApplySaveSyncLocalSave("host debounced client request");
             }
 
@@ -132,8 +145,14 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Client)
                 return;
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
                 return;
+            if (ClientStateBackup.ChapterReloadWipePending)
+            {
+                ClientStateBackup.ChapterReloadWipePending = false;
+                ModRuntime.LegacyInfo("[ClientBackup] exit snapshot skipped — chapter start-over");
+                return;
+            }
             try
             {
                 PersistClientBackupSnapshot(sendToHost: _net.IsConnected);
@@ -142,6 +161,54 @@ namespace DWMPHorde.Networking
             catch (Exception ex)
             {
                 ModRuntime.Log?.LogWarning("[ClientBackup] exit snapshot failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Intentional host StopNetwork while in-world: flush sav.dat so the next session
+        /// (same or new host) loads current world ownership. Never on a promoted host (survivor
+        /// client world corrupts the slot), a chapter change (the new chapter save is already
+        /// written), a dream, a held night death, or application quit (scene is being torn down).
+        /// Local Save only — no SaveSync fan-out (peers are tearing down).
+        /// </summary>
+        internal void TryHostWorldSaveCheckpointOnExit()
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
+                return;
+            if (LanNetworkManager.RemoteSaveInProgress)
+                return;
+            string blocked = WorldSaveGuards.GetAutomaticHostSaveBlockReason(_net);
+            if (blocked != null)
+            {
+                ModLog.Event(LogCat.Save, "Host leave checkpoint skipped — " + blocked);
+                return;
+            }
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null)
+                return;
+            try
+            {
+                ModLog.Event(LogCat.Save,
+                    "Host leave checkpoint → local Save (intentional StopNetwork)");
+                LanNetworkManager.RemoteSaveInProgress = true;
+                sm.Save(
+                    doJson: true,
+                    doSaveProfile: true,
+                    force: true,
+                    forceSaveStatic: false,
+                    showSavingIndicator: false);
+                CoopWorldCopyMeta.RefreshAfterLocalSave();
+                ModRuntime.LegacyInfo("[HostLeave] world save checkpoint written");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[HostLeave] world save checkpoint failed: " + ex.Message);
+            }
+            finally
+            {
+                LanNetworkManager.RemoteSaveInProgress = false;
             }
         }
 
@@ -178,9 +245,7 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.ClientStateBackup,
                 w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo("[ClientBackup] sent backup to host (" + (data.InventoryItems?.Count ?? 0)
-                + " items, " + (data.Skills?.Count ?? 0) + " skills, pos=("
-                + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
+            ModRuntime.LegacyInfo($"[ClientBackup] sent backup to host ({(data.InventoryItems?.Count ?? 0)} items, {(data.Skills?.Count ?? 0)} skills, pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
         }
     }
 }

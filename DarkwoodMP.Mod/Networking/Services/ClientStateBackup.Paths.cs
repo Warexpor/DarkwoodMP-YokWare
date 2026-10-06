@@ -39,28 +39,100 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Host-side path for a remote client's backup, keyed by network PlayerId + campaign.
+        /// Prefer <see cref="GetBackupFilePathForSteam"/> when SteamID64 is known —
+        /// PlayerId reshuffles across cold sessions and restores the wrong inventory.
         /// </summary>
         public static string GetBackupFilePathForPlayer(int playerId)
         {
             if (playerId <= 0)
                 return GetLocalSelfBackupPath();
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_p" + playerId + ".json";
             return GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + campaign + ".json";
         }
 
         /// <summary>
+        /// Host-side path keyed by SteamID64 + campaign (stable across PlayerId reshuffles).
+        /// </summary>
+        public static string GetBackupFilePathForSteam(ulong steamId)
+        {
+            if (steamId == 0)
+                return GetLocalSelfBackupPath();
+            // Path lookup only: never mints or writes the meta file.
+            string campaign = SanitizeCampaignIdForPath(
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
+            if (string.IsNullOrEmpty(campaign))
+                return GetProfileBackupDirectory() + "/client_backup_s" + steamId + ".json";
+            return GetProfileBackupDirectory() + "/client_backup_s" + steamId + "_" + campaign + ".json";
+        }
+
+        /// <summary>Parse SteamID64 from backup JSON field; 0 if missing/invalid.</summary>
+        public static ulong TryParseSteamId(string steamIdRaw)
+        {
+            if (string.IsNullOrEmpty(steamIdRaw)) return 0;
+            return ulong.TryParse(steamIdRaw.Trim(), out ulong sid) ? sid : 0;
+        }
+
+        private static string GetLegacySteamBackupPath(ulong steamId) =>
+            GetProfileBackupDirectory() + "/client_backup_s" + steamId + ".json";
+
+        /// <summary>
         /// Local-only path for this machine's snapshot, keyed by current campaign.
         /// </summary>
         public static string GetLocalSelfBackupPath()
         {
+            // Path lookup only: never mints or writes the meta file.
             string campaign = SanitizeCampaignIdForPath(
-                CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile());
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_self.json";
             return GetProfileBackupDirectory() + "/client_backup_self_" + campaign + ".json";
+        }
+
+        /// <summary>
+        /// The party chose to start the chapter over (permadeath start-over reloads the chapter
+        /// save for everyone). Every character snapshot of this profile (the host's per-client
+        /// copies and this machine's own) is from before the wipe and would hand the reset world
+        /// back its levels, skills and bags; the next exit snapshot would write the same again.
+        /// </summary>
+        public static bool ChapterReloadWipePending; // process-scoped: set by a chapter reload, consumed by the next exit snapshot
+
+        public static void DiscardAllForChapterReload()
+        {
+            ChapterReloadWipePending = true;
+            // The party wipe marked every peer's profile dead (vanilla PreparePermadeathVideo); only
+            // the player who pressed "start over" had it cleared by vanilla. The profile menu deletes
+            // a dead profile's slot on its next visit.
+            try
+            {
+                if (Core.currentProfile != null && Core.currentProfile.dead)
+                {
+                    Core.currentProfile.dead = false;
+                    Singleton<SaveManager>.Instance?.saveGameProfiles();
+                    ModRuntime.LegacyInfo("[ClientBackup] chapter start-over — profile no longer marked dead");
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] clearing the dead mark failed: " + ex.Message);
+            }
+            try
+            {
+                string dir = GetProfileBackupDirectory();
+                foreach (string f in Directory.GetFiles(dir, "client_backup*.json"))
+                {
+                    try { File.Delete(f); }
+                    catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] delete " + f + ": " + ex.Message); }
+                }
+                ModRuntime.LegacyInfo("[ClientBackup] chapter start-over — character snapshots discarded");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] chapter start-over discard failed: " + ex.Message);
+            }
         }
 
         /// <summary>Legacy single-file path (pre multi-client / pre-campaign). Load fallback only.</summary>
@@ -90,6 +162,15 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(current) || !string.IsNullOrEmpty(data.CampaignId))
                 return null; // mismatched non-empty id, or no campaign to adopt
 
+            // Refuse BEFORE stamping CampaignId — empty-CampaignId Jul poison must not
+            // become "matched" then slip past day>1 / fingerprint checks (hotbar/inv).
+            if (LooksLikeLegacyPoisonSnapshot(data))
+            {
+                ModRuntime.LegacyInfo(
+                    "[ClientBackup] refuse legacy migrate — empty-CampaignId poison/spoil snapshot");
+                return null;
+            }
+
             data.CampaignId = current;
             try
             {
@@ -99,7 +180,7 @@ namespace DWMPHorde.Networking
                 else
                     SaveLocalSelfBackupFile(json);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] migrated legacy backup → campaign " + current);
+                    $"[ClientBackup] migrated legacy backup → campaign {current}");
             }
             catch (Exception ex)
             {
@@ -109,24 +190,55 @@ namespace DWMPHorde.Networking
             return data;
         }
 
-        /// <summary>Save a remote client's backup on the host (or any peer-keyed store).</summary>
-        public static void SaveBackupFile(string json, int playerId)
+        /// <summary>
+        /// Save a remote client's backup on the host.
+        /// Key order: SteamID64 → StableClientKey (LAN) → PlayerId (same-session soft reconnect).
+        /// </summary>
+        public static void SaveBackupFile(
+            string json, int playerId, ulong steamId = 0, string stableClientKey = null)
         {
             try
             {
-                // Ensure JSON CampaignId matches disk key when host stamps current campaign.
+                ClientStateBackupData parsed = null;
+                string stableKey = SanitizeStableClientKey(stableClientKey);
                 try
                 {
-                    var parsed = DeserializeFromJson(json);
+                    parsed = DeserializeFromJson(json);
                     if (parsed != null)
                     {
+                        if (steamId == 0)
+                            steamId = TryParseSteamId(parsed.SteamId);
+                        if (string.IsNullOrEmpty(stableKey))
+                            stableKey = SanitizeStableClientKey(parsed.StableClientKey);
+                        if (steamId != 0
+                            && (string.IsNullOrEmpty(parsed.SteamId)
+                                || TryParseSteamId(parsed.SteamId) != steamId))
+                        {
+                            parsed.SteamId = steamId.ToString();
+                            json = SerializeToJson(parsed);
+                        }
+                        if (!string.IsNullOrEmpty(stableKey)
+                            && !string.Equals(parsed.StableClientKey, stableKey, StringComparison.OrdinalIgnoreCase))
+                        {
+                            parsed.StableClientKey = stableKey;
+                            json = SerializeToJson(parsed);
+                        }
+
                         string cur = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
                         if (!string.IsNullOrEmpty(cur)
                             && !string.Equals(parsed.CampaignId, cur, StringComparison.OrdinalIgnoreCase))
                         {
-                            // Prefer payload's campaign if set (client's view); else stamp host.
                             if (string.IsNullOrEmpty(parsed.CampaignId))
                             {
+                                if (LooksLikeLegacyPoisonSnapshot(parsed))
+                                {
+                                    ModRuntime.LegacyInfo(
+                                        "[ClientBackup] refuse save stamp — empty-CampaignId poison/spoil snapshot p"
+                                        + playerId
+                                        + (steamId != 0 ? " s" + steamId : "")
+                                        + (stableKey != null ? " k" + stableKey.Substring(0, Math.Min(8, stableKey.Length)) : ""));
+                                    return;
+                                }
                                 parsed.CampaignId = cur;
                                 json = SerializeToJson(parsed);
                             }
@@ -135,27 +247,69 @@ namespace DWMPHorde.Networking
                 }
                 catch { /* keep raw json */ }
 
-                string path = GetBackupFilePathForPlayer(playerId);
-                // If JSON has its own CampaignId, write under that key (host world may differ
-                // only if misconfigured; prefer the embedded ID for the file name).
-                try
+                string path;
+                string keyTag;
+                if (steamId != 0)
                 {
-                    var parsed = DeserializeFromJson(json);
-                    if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId) && playerId > 0)
+                    path = GetBackupFilePathForSteam(steamId);
+                    keyTag = " steam=" + steamId;
+                    try
                     {
-                        string c = SanitizeCampaignIdForPath(parsed.CampaignId);
-                        if (!string.IsNullOrEmpty(c))
-                            path = GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + c + ".json";
+                        if (parsed == null)
+                            parsed = DeserializeFromJson(json);
+                        if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId))
+                        {
+                            string c = SanitizeCampaignIdForPath(parsed.CampaignId);
+                            if (!string.IsNullOrEmpty(c))
+                                path = GetProfileBackupDirectory() + "/client_backup_s" + steamId + "_" + c + ".json";
+                        }
                     }
+                    catch { /* use GetBackupFilePathForSteam */ }
                 }
-                catch { /* use path from GetBackupFilePathForPlayer */ }
+                else if (!string.IsNullOrEmpty(stableKey))
+                {
+                    path = GetBackupFilePathForStableKey(stableKey);
+                    keyTag = " k" + stableKey.Substring(0, Math.Min(8, stableKey.Length));
+                    try
+                    {
+                        if (parsed == null)
+                            parsed = DeserializeFromJson(json);
+                        if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId))
+                        {
+                            string c = SanitizeCampaignIdForPath(parsed.CampaignId);
+                            if (!string.IsNullOrEmpty(c))
+                                path = GetProfileBackupDirectory() + "/client_backup_k" + stableKey + "_" + c + ".json";
+                        }
+                    }
+                    catch { /* use GetBackupFilePathForStableKey */ }
+                }
+                else
+                {
+                    path = GetBackupFilePathForPlayer(playerId);
+                    keyTag = " player " + playerId;
+                    try
+                    {
+                        if (parsed == null)
+                            parsed = DeserializeFromJson(json);
+                        if (parsed != null && !string.IsNullOrEmpty(parsed.CampaignId) && playerId > 0)
+                        {
+                            string c = SanitizeCampaignIdForPath(parsed.CampaignId);
+                            if (!string.IsNullOrEmpty(c))
+                                path = GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + c + ".json";
+                        }
+                    }
+                    catch { /* use path from GetBackupFilePathForPlayer */ }
+                }
 
                 File.WriteAllText(path, json);
-                ModRuntime.LegacyInfo("[ClientBackup] saved player " + playerId + " → " + path);
+                ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
             }
             catch (Exception ex)
             {
-                ModRuntime.Log?.LogError("[ClientBackup] failed to save player " + playerId + ": " + ex);
+                ModRuntime.Log?.LogError(
+                    "[ClientBackup] failed to save"
+                    + (steamId != 0 ? " steam=" + steamId : " player " + playerId)
+                    + ": " + ex);
             }
         }
 
@@ -197,7 +351,7 @@ namespace DWMPHorde.Networking
                 catch { /* default path */ }
 
                 File.WriteAllText(path, json);
-                ModRuntime.LegacyInfo("[ClientBackup] saved local self → " + path);
+                ModRuntime.LegacyInfo($"[ClientBackup] saved local self → {path}");
             }
             catch (Exception ex)
             {
@@ -205,42 +359,104 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Load host-stored backup for a specific network player id (current campaign only).</summary>
-        public static ClientStateBackupData LoadBackupFileForPlayer(int playerId)
+        /// <summary>
+        /// Load host-stored backup for a peer (current campaign only).
+        /// Prefer SteamID64 → StableClientKey → PlayerId (PlayerId only when
+        /// <paramref name="allowPlayerIdFallback"/> — soft reconnect same session).
+        /// </summary>
+        public static ClientStateBackupData LoadBackupFileForPlayer(
+            int playerId,
+            ulong steamId = 0,
+            string stableClientKey = null,
+            bool allowPlayerIdFallback = true)
         {
             try
             {
-                string path = GetBackupFilePathForPlayer(playerId);
-                ClientStateBackupData data = TryReadBackup(path);
-                if (data == null && playerId > 0)
-                    data = TryReadBackup(GetLegacyPlayerBackupPath(playerId));
-                if (data == null)
+                ClientStateBackupData data = null;
+                string stableKey = SanitizeStableClientKey(stableClientKey);
+                string tag = "p" + playerId
+                    + (steamId != 0 ? " s" + steamId : "")
+                    + (stableKey != null ? " k" + stableKey.Substring(0, Math.Min(8, stableKey.Length)) : "");
+
+                if (steamId != 0)
                 {
-                    string legacy = GetLegacyBackupFilePath();
-                    if (playerId > 0)
-                        data = TryReadBackup(legacy);
+                    data = TryReadBackup(GetBackupFilePathForSteam(steamId));
+                    if (data == null)
+                        data = TryReadBackup(GetLegacySteamBackupPath(steamId));
                 }
+                if (data == null && !string.IsNullOrEmpty(stableKey))
+                {
+                    data = TryReadBackup(GetBackupFilePathForStableKey(stableKey));
+                    if (data == null)
+                        data = TryReadBackup(GetLegacyStableBackupPath(stableKey));
+                }
+                if (data == null && allowPlayerIdFallback && playerId > 0)
+                {
+                    data = TryReadBackup(GetBackupFilePathForPlayer(playerId));
+                    if (data == null)
+                        data = TryReadBackup(GetLegacyPlayerBackupPath(playerId));
+                }
+                // One-shot migrate PlayerId-keyed → Steam / StableClientKey.
+                if (data != null && (steamId != 0 || !string.IsNullOrEmpty(stableKey)))
+                {
+                    try
+                    {
+                        bool migrated = false;
+                        if (steamId != 0 && TryParseSteamId(data.SteamId) != steamId)
+                        {
+                            data.SteamId = steamId.ToString();
+                            migrated = true;
+                        }
+                        if (!string.IsNullOrEmpty(stableKey)
+                            && !string.Equals(data.StableClientKey, stableKey, StringComparison.OrdinalIgnoreCase))
+                        {
+                            data.StableClientKey = stableKey;
+                            migrated = true;
+                        }
+                        if (migrated)
+                        {
+                            SaveBackupFile(SerializeToJson(data), playerId, steamId, stableKey);
+                            if (steamId != 0)
+                                ModRuntime.LegacyInfo($"[ClientBackup] migrated {tag} → steam key");
+                            else
+                                ModRuntime.LegacyInfo($"[ClientBackup] migrated {tag} → LAN k key");
+                        }
+                    }
+                    catch (Exception migEx)
+                    {
+                        ModRuntime.Log?.LogWarning(
+                            "[ClientBackup] key migrate failed: " + migEx.Message);
+                    }
+                }
+                // Never fall back to shared client_backup.json for a remote player id —
+                // that file is host/self-shaped and caused wrong-player pushes (p5 got
+                // host Jul-9 shotgun backup on 2026-09-26 dual-box).
                 if (data == null) return null;
                 data = MigrateLegacyCampaignIfNeeded(data, playerId);
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip p" + playerId
-                        + " backup — campaign mismatch (file=(none/mismatched) current="
-                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                        $"[ClientBackup] skip {tag} backup — campaign mismatch (file=(none/mismatched) current={(CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)")})");
                     return null;
                 }
                 if (!HasMeaningfulProgress(data))
                 {
+                    ModRuntime.LegacyInfo($"[ClientBackup] skip {tag} backup — empty/no progress");
+                    return null;
+                }
+                if (LooksLikeStaleBackupOnFreshWorld(data))
+                {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip p" + playerId + " backup — empty/no progress");
+                        $"[ClientBackup] skip {tag} backup — stale/legacy-poison snapshot");
                     return null;
                 }
                 return data;
             }
             catch (Exception ex)
             {
-                ModRuntime.Log?.LogError("[ClientBackup] failed to load player " + playerId + ": " + ex);
+                ModRuntime.Log?.LogError(
+                    "[ClientBackup] failed to load p" + playerId
+                    + (steamId != 0 ? " s" + steamId : "") + ": " + ex);
                 return null;
             }
         }
@@ -260,13 +476,18 @@ namespace DWMPHorde.Networking
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
-                        "[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current="
-                        + (CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)") + ")");
+                        $"[ClientBackup] skip local self — campaign mismatch (file=(none/mismatched) current={(CoopWorldCopyMeta.TryGetCurrentCampaignId() ?? "(none)")})");
                     return null;
                 }
                 if (!HasMeaningfulProgress(data))
                 {
                     ModRuntime.LegacyInfo("[ClientBackup] skip local self — empty/no progress");
+                    return null;
+                }
+                if (LooksLikeStaleBackupOnFreshWorld(data))
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] skip local self — stale/legacy-poison snapshot");
                     return null;
                 }
                 return data;

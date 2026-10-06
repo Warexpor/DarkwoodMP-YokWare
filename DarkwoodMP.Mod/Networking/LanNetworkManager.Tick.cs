@@ -18,13 +18,25 @@ namespace DWMPHorde.Networking
     {
         private void Update()
         {
-            bool perf = IsConnected && _handshakeComplete
+            bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 
-            _net?.PollEvents();
+            // Message handlers are isolated in ProcessInboundMessage; this catches what is left (a
+            // peer connect/disconnect callback). LiteNetLib drops the remaining queued events of the
+            // poll when one throws, but the rest of this frame (sends, Steam poll) must still run.
+            try { _net?.PollEvents(); }
+            catch (Exception ex)
+            {
+                if (NetLogThrottle.ShouldLog("pollevents-ex", 5f, out int dropped))
+                    ModLog.Error(LogCat.Network,
+                        "LiteNetLib PollEvents threw" + NetLogThrottle.SuppressedSuffix(dropped), ex);
+            }
             PollSteamBackend();
+            Sync.TestPilot.Tick(this);
+            Sync.PauseMenuSync.Tick(this);
+            Sync.DialogHandInArbiter.TickClient(this);
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
 
@@ -35,7 +47,11 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("flushPending");
             // Apply join bulk/deltas that arrived before Flags existed (menu → load)
             FlagHandlers.TryFlushPendingFlags();
+            LocationEnterExitHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
+            Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
+            BulkSyncHandlers?.TryFlushPendingHideoutState();
+            ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();
             TradeHandlers.TryFlushPendingTradeInventories();
             LockHandlers.TryFlushPendingConstructibles();
             StationHandlers.TryFlushPendingSawStates();
@@ -52,7 +68,7 @@ namespace DWMPHorde.Networking
             Sync.TrapNetworkId.FlushPending(
                 (p, n) => Sync.WorldPhysicsSyncService.FindTrapByPos(p, n),
                 (go, trig, silent) => Sync.WorldPhysicsSyncService.ApplyTrapState(go, trig, silentDisarm: silent));
-            Sync.WorldPhysicsSyncService.TickThrownLightExpiry(this);
+            Sync.WorldPhysicsSyncService.TickThrownLights();
             PlayerPresenceHandlers.TickClientCorpseSetup();
             if (perf)
             {
@@ -68,11 +84,14 @@ namespace DWMPHorde.Networking
             TickHeavyLateJoinBulk();
             TickHostWorldShareWhenReady();
             TickSaveSyncBroadcast();
+            Sync.QuestItemHandoff.Tick(this);
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
             TickPeerRosterGossip();
             TickHostMigrationRetry();
+            TickSoftReconnectRetry();
+            TickSteamUnauthTimeout();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("gameEvents");
@@ -80,10 +99,10 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("meleeDebounce");
-            CombatFxHandlers?.TickMeleeHitDebounceCleanup();
+            CombatFxImpactHandlers?.TickMeleeHitDebounceCleanup();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
-            if (!IsConnected || !_handshakeComplete)
+            if (!IsConnected || !_session.Link.HandshakeComplete)
             {
                 if (perf) ClientPerfProbe.MarkUpdateRest();
                 return;
@@ -108,14 +127,15 @@ namespace DWMPHorde.Networking
             {
                 if (perf) ClientPerfProbe.BeginUpdateSegment("entityBroadcast");
                 EntityStateBroadcastService.Tick();
+                Patches.HostLocationLeaveKeepRemotePatch.TickHost();
                 if (perf) ClientPerfProbe.EndUpdateSegment();
 
-                _proxyAggroTimer += Time.deltaTime;
-                if (_proxyAggroTimer >= 0.5f)
+                _proxyMaintenanceTimer += Time.deltaTime;
+                if (_proxyMaintenanceTimer >= 0.5f)
                 {
-                    _proxyAggroTimer = 0f;
-                    if (perf) ClientPerfProbe.BeginUpdateSegment("proxyAggro");
-                    WorldProxyHandlers.ProxyAggroCheck();
+                    _proxyMaintenanceTimer = 0f;
+                    if (perf) ClientPerfProbe.BeginUpdateSegment("proxyMaintenance");
+                    WorldProxyLifecycleHandlers.ProxyMaintenanceTick();
                     if (perf) ClientPerfProbe.EndUpdateSegment();
                 }
 
@@ -152,20 +172,14 @@ namespace DWMPHorde.Networking
             if (physTick)
             {
                 bool clientNotReady = _role == NetworkRole.Client
-                    && (Core.mainMenu || Core.loadingGame || !Core.coreStarted);
+                    && (GameScreen.AtTitle || Core.loadingGame || !Core.coreStarted);
                 if (!clientNotReady)
                 {
                     if (perf) ClientPerfProbe.MarkUpdateRest();
                     bool built = Sync.WorldPhysicsSyncService.TryBuildWorldSnapshot(out var snap);
                     if (perf) ClientPerfProbe.MarkPhysBuild();
                     if (built)
-                    {
-                        if (_role == NetworkRole.Host)
-                            BroadcastHot(NetMessageType.PhysicsState, w => snap.Serialize(w),
-                                skipLoadingPeers: true);
-                        else
-                            BroadcastHot(NetMessageType.PhysicsState, w => snap.Serialize(w));
-                    }
+                        SendPhysicsStateStream(snap, skipLoadingPeers: _role == NetworkRole.Host);
                 }
                 else if (perf)
                 {
@@ -192,7 +206,7 @@ namespace DWMPHorde.Networking
             // is ready. The host waits for the first in-world packet before
             // sending heavy bulk.
             if (_role == NetworkRole.Client
-                && (Core.mainMenu || Core.loadingGame || !Core.coreStarted))
+                && (GameScreen.AtTitle || Core.loadingGame || !Core.coreStarted))
                 return;
 
             // Don't send position updates while dead in a dream (freezes proxy at death position)
@@ -214,19 +228,36 @@ namespace DWMPHorde.Networking
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
             // Include host effect flags so clients can present shadow and forest
             // spirit wards.
-            _effectSyncTimer += Time.deltaTime;
-            if (_effectSyncTimer >= 2f)
+            Sync.NightVillage.Tick(this);
+            Sync.PeerItemPresence.Tick(this);
+            Sync.OxygenTankParty.Tick(this);
+            Sync.QuestItemHandoff.TickClient(this);
+            Sync.DreamRetry.Tick(this);
+            Sync.MenuShield.Tick(this);
+            Sync.DesyncCheck.Tick(this);
+            Sync.PersonalPrologue.TickClient(this);
+            if (_role == NetworkRole.Host)
             {
-                _effectSyncTimer = 0f;
-                WorldProxyHandlers.SendPlayerEffects();
+                Patches.TraderRestockDefer.Tick();
+                Patches.CombatMusicSync.Tick(this);
+                EpilogueNetHandlers.EpilogueCredits.Tick(this);
+                Sync.TrapLedger.Tick();
+                WorldFxHandlers?.TickHeldClaims();
             }
+
+            _effectSyncTimer += Time.deltaTime;
+            bool effectKeepalive = _effectSyncTimer >= 2f;
+            if (effectKeepalive)
+                _effectSyncTimer = 0f;
+            WorldProxyEffectHandlers.SendPlayerEffects(effectKeepalive);
 
             // Both sides: send own position to the other side at ~30 Hz
             string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);
             string legsClip = PlayerAnimationSnapshot.ReadLegsClip(local);
-            // Night-dead + spectating: vanilla still plays get-up clips on the local body.
-            // Force death clips so host never "revives" our proxy mid-spectate.
-            if (DeathStateTracker.LocalNightDeath)
+            // Dead local body (night OR day spectate): vanilla still plays get-up clips.
+            // Force Death1 so peers never revive our proxy mid-spectate (day death used to
+            // send Idle → premature proxy.alive and AI re-aggro on a corpse).
+            if (DeathStateTracker.LocalNightDeath || (local != null && !local.alive))
             {
                 torsoClip = "Death1";
                 legsClip = "Death1";
@@ -243,7 +274,7 @@ namespace DWMPHorde.Networking
                 VelZ = vel.z,
                 LocomotionState = (byte)PlayerAnimationSnapshot.ReadLocomotion(local),
                 FlipX = false, // The game uses rotation for this pose.
-                Running = local.running && !DeathStateTracker.LocalNightDeath,
+                Running = local.running && !DeathStateTracker.LocalNightDeath && local.alive,
                 LegFacingY = PlayerAnimationSnapshot.ReadLegFacingY(local),
                 ReverseLegs = PlayerAnimationSnapshot.ReadReverseLegs(local),
                 TorsoFacingY = PlayerAnimationSnapshot.ReadTorsoFacingY(local),
@@ -254,9 +285,10 @@ namespace DWMPHorde.Networking
                 HasLightProtection = local.isInLight,
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
-                TrapNetId = local.inBearTrap
-                    ? Sync.TrapNetworkId.ResolveOccupyingTrapId(pos, hostMint: _role == NetworkRole.Host)
-                    : 0
+                InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
+                SeesVillager = Sync.NightVillage.LocalSeesVillager,
+                Aiming = local.aiming,
+                TrapNetId = local.inBearTrap ? Sync.LocalBearTrap.CurrentId(hostMint: _role == NetworkRole.Host) : 0
             };
 
             PackContinuousLights(ref msg, local);
@@ -310,7 +342,14 @@ namespace DWMPHorde.Networking
                     bool stayInDreamPad = Sync.DreamSyncManager.IsDreamActive
                         || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared))
                         || Core.EnteringDream;
-                    if (stayInDreamPad)
+                    // Soft-reconnect / mid OutsideLocations load: playerInOutsideLocation briefly
+                    // false while ol.loading — do not fan LocationExit (membership gap / thrash).
+                    // Do NOT key off pending ForceAnnounce alone: a real return-to-world must
+                    // still emit Exit (OnLocalReturnedToWorld clears the sticky queue).
+                    var olInst = Singleton<OutsideLocations>.Instance;
+                    bool stayForLoading = Core.loadingGame
+                        || (olInst != null && olInst.loading);
+                    if (stayInDreamPad || stayForLoading)
                     {
                         inOutsideLoc = true;
                         if (string.IsNullOrEmpty(locName) && !string.IsNullOrEmpty(_previousLocationName))
@@ -344,9 +383,10 @@ namespace DWMPHorde.Networking
             if (local.dragging && local.itemBeingDragged != null)
             {
                 Item dragged = local.itemBeingDragged;
+                _lastDraggedItem = dragged;
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
-                _dragClaims[_lastDraggedItemName] = _localPlayerId;
+                PlayerInteractHandlers.DragClaims[_lastDraggedItemName] = _localPlayerId;
                 // Keep scrape authority so host PhysicsState / DragSync echo cannot arm MOS.
                 DWMPHorde.Audio.ItemMovingSoundHelper.NoteLocalPushAuthority(_lastDraggedItemName);
 
@@ -373,19 +413,27 @@ namespace DWMPHorde.Networking
                         _dragScrapeActive = false;
                 }
 
+                // The pose observers play back (RemoteDragTimeline), stamped with the moment
+                // it shows. The rotation goes as Euler angles of the one quaternion; receivers
+                // rebuild that quaternion and slerp it, never the angles.
+                Transform dragT = dragged.transform;
+                Vector3 dragPos = dragT.position;
+                Vector3 dragEuler = dragT.rotation.eulerAngles;
                 var dragMsg = new DragSyncMessage
                 {
-                    PosX = dragged.transform.position.x,
-                    PosY = dragged.transform.position.y,
-                    PosZ = dragged.transform.position.z,
-                    RotX = dragged.transform.eulerAngles.x,
-                    RotY = dragged.transform.eulerAngles.y,
-                    RotZ = dragged.transform.eulerAngles.z,
+                    PosX = dragPos.x,
+                    PosY = dragPos.y,
+                    PosZ = dragPos.z,
+                    RotX = dragEuler.x,
+                    RotY = dragEuler.y,
+                    RotZ = dragEuler.z,
                     IsDragging = true,
                     ObjectName = _lastDraggedItemName,
                     ItemType = dragged.invItem != null ? dragged.invItem.type : "",
                     ClaimedByPlayerId = _localPlayerId,
-                    ScrapeActive = _dragScrapeActive
+                    ScrapeActive = _dragScrapeActive,
+                    SendTime = RemoteDragTimeline.StampFor(dragged.GetComponent<Rigidbody>()),
+                    HasPose = true
                 };
                 // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
                 // observers kept the last NoteMoving loop until full release.

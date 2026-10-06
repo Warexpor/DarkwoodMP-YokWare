@@ -6,10 +6,10 @@ using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class CoreAddPrefabPhysicsSyncPatch
     {
-        private static void Postfix(GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, string path, Vector3 pos, Quaternion rot)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
@@ -18,7 +18,6 @@ namespace DWMPHorde.Patches
             if (__result == null)
                 return;
 
-            string path = (string)__args[0];
             if (string.IsNullOrEmpty(path))
                 return;
 
@@ -49,11 +48,8 @@ namespace DWMPHorde.Patches
                     return;
             }
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
-
-            Vector3 pos = (Vector3)__args[1];
-            Quaternion rot = (Quaternion)__args[2];
 
             // Broadcast: host → all clients; client → host (3+ peer fan-out on host receive).
             // Do not use Send() — that only reaches the first peer.

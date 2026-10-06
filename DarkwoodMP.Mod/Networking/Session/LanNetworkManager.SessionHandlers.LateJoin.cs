@@ -21,19 +21,40 @@ namespace DWMPHorde.Networking
     {
 
         /// <summary>
-        /// After a broadcast world resend (host entered chapter), mark peers for bulk.
+        /// Host: the peer is playing on this link — a phase-3 reconnect, or it has sent an in-world
+        /// PlayerState (clients send none on the title or mid-load). It ignores a world package.
         /// </summary>
-        public void ScheduleLateJoinBulkAfterWorldShare()
+        internal bool IsPeerInWorld(int playerId)
+        {
+            return playerId > 1
+                && (_session.Link.CoopReconnect.Contains(playerId) || _session.Link.LastPlayerStateSequence.ContainsKey(playerId));
+        }
+
+        /// <summary>
+        /// Host, broadcast resend / new-world share: mute only the peers that will load the package
+        /// (not in-world) and queue their late-join bulk, so their first in-world PlayerState
+        /// unmutes them and the bulk follows. Peers already playing keep their gameplay traffic.
+        /// </summary>
+        internal void MarkTitlePeersLoadingForWorldShare()
         {
             if (_role != NetworkRole.Host)
                 return;
-            foreach (int id in _handshakedPeers)
+            int marked = 0;
+            foreach (int id in EnumeratePeerIds())
             {
-                if (id > 1)
-                    _awaitingLateJoinBulk[id] = 0f;
+                if (id <= 1 || IsPeerInWorld(id))
+                    continue;
+                MarkPeerLoadingWorld(id);
+                if (_session.Link.Handshaked.Contains(id))
+                {
+                    if (!_session.Link.AwaitingLateJoinBulk.ContainsKey(id))
+                        _session.Link.AwaitingLateJoinBulk[id] = 0f;
+                    ReserveIdForJoinPipeline(id);
+                }
+                marked++;
             }
             ModLog.Event(LogCat.Session,
-                "Marked " + _awaitingLateJoinBulk.Count + " peer(s) for late-join bulk after settle");
+                "World share: " + marked + " title peer(s) muted until in-world (late-join bulk queued)");
         }
 
         /// <summary>
@@ -47,66 +68,102 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || playerId <= 0)
                 return;
 
-            _awaitingLateJoinBulk.Remove(playerId);
-            _peersCoopReconnect.Remove(playerId);
+            _session.Link.AwaitingLateJoinBulk.Remove(playerId);
+            _session.Link.CoopReconnect.Remove(playerId);
             ModLog.Event(LogCat.Session,
                 "Sending late-join bulk → player " + playerId
                 + " (light now; heavy sticky world staggered)");
 
+            // Each step is isolated: one failing sender used to abort every step after it (and the
+            // heavy phases below were never queued), leaving the joiner with half a world.
+            LateJoinStep(playerId, "nightDeathSnapshot",
+                () => DeathStateTracker.HostSendNightDeathSnapshotTo(this, playerId));
+
             // Light / already-capped / no full-scene bag thrash.
-            JournalHandlers.SendJournalBulkSyncTo(playerId);
-            FlagHandlers.SendFlagBulkSyncTo(playerId);
-            DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId);
-            BulkSyncHandlers.SendReputationBulkSyncTo(playerId);
-            BulkSyncHandlers.SendHideoutStateSyncTo(playerId);
-            BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId);
-            BulkSyncHandlers.SendMapStateSyncTo(playerId);
-            SendTimeSyncTo(playerId);
-            StationHandlers.SendSawStatesTo(playerId);
-            StationHandlers.SendFeederStatesTo(playerId);
-            StationHandlers.SendLureStatesTo(playerId);
-            ChainHandlers.SendChainStatesTo(playerId);
-            ShadowArmorHandlers.SendShadowArmorStatesTo(playerId);
-            WorldBurnHandlers.SendWorldBurnStatesTo(playerId);
-            DreamHandlers.SendDreamSessionBulkTo(playerId);
-            SendStoredClientBackupTo(playerId);
-            SyncCurrentLightState();
-            WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId);
-            WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId);
-            SendTrapBulkTo(playerId);
-            Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId);
+            LateJoinStep(playerId, "journal", () => JournalHandlers.SendJournalBulkSyncTo(playerId));
+            LateJoinStep(playerId, "flags", () => FlagHandlers.SendFlagBulkSyncTo(playerId));
+            LateJoinStep(playerId, "oxygenTank", () => DWMPHorde.Sync.OxygenTankParty.SendTierTo(this, playerId));
+            LateJoinStep(playerId, "questHandoff", () => DWMPHorde.Sync.QuestItemHandoff.HostPlayerReturned(this, playerId));
+            LateJoinStep(playerId, "dialogTrees", () => DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId));
+            LateJoinStep(playerId, "reputation", () => BulkSyncHandlers.SendReputationBulkSyncTo(playerId));
+            LateJoinStep(playerId, "hideoutState", () => BulkSyncHandlers.SendHideoutStateSyncTo(playerId));
+            LateJoinStep(playerId, "workbenchLevel", () => BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId));
+            LateJoinStep(playerId, "mapState", () => BulkSyncHandlers.SendMapStateSyncTo(playerId));
+            LateJoinStep(playerId, "timeSync", () => SendTimeSyncTo(playerId));
+            LateJoinStep(playerId, "sawStates", () => StationHandlers.SendSawStatesTo(playerId));
+            LateJoinStep(playerId, "feederStates", () => StationHandlers.SendFeederStatesTo(playerId));
+            LateJoinStep(playerId, "lureStates", () => StationHandlers.SendLureStatesTo(playerId));
+            LateJoinStep(playerId, "chainStates", () => ChainHandlers.SendChainStatesTo(playerId));
+            LateJoinStep(playerId, "shadowArmor", () => ShadowArmorHandlers.SendShadowArmorStatesTo(playerId));
+            LateJoinStep(playerId, "worldBurn", () => WorldBurnHandlers.SendWorldBurnStatesTo(playerId));
+            LateJoinStep(playerId, "dreamSession", () => DreamHandlers.SendDreamSessionBulkTo(playerId));
+            LateJoinStep(playerId, "clientBackup", () => SendStoredClientBackupTo(playerId));
+            LateJoinStep(playerId, "hostLight", () => SyncCurrentLightState());
+            LateJoinStep(playerId, "hostAnimLibrary", () => SyncCurrentAnimLibrary());
+            // Other clients' light state / anim library (the host's own went out just above).
+            LateJoinStep(playerId, "clientLightAnim", () => ReplayStickyPlayerStateTo(playerId));
+            LateJoinStep(playerId, "worldLights", () => WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId));
+            LateJoinStep(playerId, "generators", () => WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId));
+            LateJoinStep(playerId, "traps", () => SendTrapBulkTo(playerId));
+            LateJoinStep(playerId, "trapLedger", () => Sync.TrapLedger.SendTo(this, playerId));
+            LateJoinStep(playerId, "thrownLights", () => Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId));
             // Registry-cheap (no FindObjectsOfType scene thrash).
-            LocationHandlers.SyncExistingLocationsTo(playerId);
-            SendShadowsTo(playerId);
-            WorldObjectSendHandlers.SyncExistingDroppedItems(playerId);
+            LateJoinStep(playerId, "locations", () => LocationEnterExitHandlers.SyncExistingLocationsTo(playerId));
+            LateJoinStep(playerId, "shadows", () => SendShadowsTo(playerId));
+            LateJoinStep(playerId, "droppedItems", () => WorldObjectSendHandlers.SyncExistingDroppedItems(playerId));
             // Night scenario name + fired latch flags (no CustomEvent/RandomEvent.fire).
-            BulkSyncHandlers.SendScenarioBulkSyncTo(playerId);
+            LateJoinStep(playerId, "scenario", () => BulkSyncHandlers.SendScenarioBulkSyncTo(playerId));
             // Fired GameEvents: heavy phase 11 (conservative fired && !multipleFire).
             // Proxy from live PlayerState once CanSpawnRemoteProxies.
 
             // Heavy sticky world: weather/trade/construct/locks/barricades/gas/deathbags/GE.
-            _pendingHeavyLateJoinBulk[playerId] = 0;
+            _session.Link.PendingHeavyLateJoinBulk[playerId] = 0;
+            _session.Link.HeavyPhaseFailures.Remove(playerId);
         }
+
+        /// <summary>Run one light late-join step; a throw is logged by name and does not stop the rest.</summary>
+        private void LateJoinStep(int playerId, string name, Action step)
+        {
+            try { step(); }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Session,
+                    "[BulkSync] late-join step '" + name + "' failed for p" + playerId
+                    + " — joiner may be missing this state", ex);
+            }
+        }
+
+        private const int HeavyPhaseMaxAttempts = 3;
+
+        private static readonly string[] HeavyPhaseNames =
+        {
+            "weather", "tradeInventories", "constructedSites", "padlocks", "lockeds", "interactives",
+            "barricadeDoors", "barricadeWindows", "barricadeItems", "gas+infection", "deathBags", "gameEvents"
+        };
+
+        private static string HeavyPhaseName(int phase)
+            => phase >= 0 && phase < HeavyPhaseNames.Length ? HeavyPhaseNames[phase] : ("phase" + phase);
 
         /// <summary>
         /// Host: one heavy late-join phase per frame total (not one per peer).
         /// </summary>
         private void TickHeavyLateJoinBulk()
         {
-            if (_role != NetworkRole.Host || _pendingHeavyLateJoinBulk.Count == 0)
+            if (_role != NetworkRole.Host || _session.Link.PendingHeavyLateJoinBulk.Count == 0)
                 return;
 
             // Copy keys because the dictionary changes as peers finish.
-            var peers = new List<int>(_pendingHeavyLateJoinBulk.Keys);
+            var peers = new List<int>(_session.Link.PendingHeavyLateJoinBulk.Keys);
             for (int p = 0; p < peers.Count; p++)
             {
                 int playerId = peers[p];
                 if (!HasPeer(playerId))
                 {
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
+                    _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
+                    _session.Link.HeavyPhaseFailures.Remove(playerId);
                     continue;
                 }
-                if (!_pendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
+                if (!_session.Link.PendingHeavyLateJoinBulk.TryGetValue(playerId, out int phase))
                     continue;
 
                 try
@@ -135,6 +192,7 @@ namespace DWMPHorde.Networking
                         // Barricades: split Door, Window, and Item scans.
                         case 6:
                             BarricadeHandlers.SendBarricadeDoorsTo(playerId);
+                            WorldLateJoinHandlers.SendDoorStatesTo(playerId, null, 2048);
                             break;
                         case 7:
                             BarricadeHandlers.SendBarricadeWindowsTo(playerId);
@@ -147,14 +205,14 @@ namespace DWMPHorde.Networking
                             SendInfectionStatesTo(playerId);
                             break;
                         case 10:
-                            CombatHandlers.SyncExistingDeathBags(playerId);
+                            CombatDeathBagHandlers.SyncExistingDeathBags(playerId);
                             break;
                         case 11:
                             // FindObjectsOfType GameEvents — conservative fired one-shots only.
                             GameEventHandlers.SendGameEventsBulkTo(playerId);
                             break;
                         default:
-                            _pendingHeavyLateJoinBulk.Remove(playerId);
+                            _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
                             ModLog.Event(LogCat.Session,
                                 "Late-join heavy bulk complete → player " + playerId);
                             return;
@@ -162,20 +220,36 @@ namespace DWMPHorde.Networking
                 }
                 catch (System.Exception ex)
                 {
-                    ModRuntime.Log?.LogWarning(
-                        "[BulkSync] heavy phase " + phase + " p" + playerId + ": " + ex.Message);
+                    // Retry the same phase on the next frames; only give up (loudly, naming the phase)
+                    // after a bounded number of attempts. Skipping on the first throw silently left the
+                    // joiner without e.g. every lock / barricade state.
+                    _session.Link.HeavyPhaseFailures.TryGetValue(playerId, out int failures);
+                    failures++;
+                    if (failures < HeavyPhaseMaxAttempts)
+                    {
+                        _session.Link.HeavyPhaseFailures[playerId] = failures;
+                        ModLog.Warn(LogCat.Session,
+                            "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
+                            + " failed (attempt " + failures + "/" + HeavyPhaseMaxAttempts + "), retrying: " + ex.Message);
+                        return;
+                    }
+                    _session.Link.HeavyPhaseFailures.Remove(playerId);
+                    ModLog.Error(LogCat.Session,
+                        "[BulkSync] heavy phase " + phase + " (" + HeavyPhaseName(phase) + ") p" + playerId
+                        + " failed " + HeavyPhaseMaxAttempts + " times — SKIPPING; the joiner is missing this state", ex);
                 }
 
+                _session.Link.HeavyPhaseFailures.Remove(playerId);
                 phase++;
                 if (phase >= HeavyLateJoinPhaseCount)
                 {
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
+                    _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
                     ModLog.Event(LogCat.Session,
                         "Late-join heavy bulk complete → player " + playerId);
                 }
                 else
                 {
-                    _pendingHeavyLateJoinBulk[playerId] = phase;
+                    _session.Link.PendingHeavyLateJoinBulk[playerId] = phase;
                 }
 
                 // Process one peer and phase per frame to avoid stacked scene scans.
@@ -190,23 +264,31 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 0)
                 return;
-            if (!_awaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
+            if (!_session.Link.AwaitingLateJoinBulk.TryGetValue(playerId, out float firstSeen))
+            {
+                // In-world PlayerState from a muted peer with no bulk pending: it ignored a world
+                // package (already playing). Nothing else would ever unmute it.
+                if (_session.Link.LoadingWorld.Contains(playerId)
+                    && (_worldSaveShare == null || !_worldSaveShare.IsHostShareRunning)
+                    && !Patches.ChapterTransitionHelpers.IsChapterTransitionActive)
+                    MarkPeerGameplayReady(playerId);
                 return;
+            }
 
             float now = Time.realtimeSinceStartup;
-            float settle = _peersCoopReconnect.Contains(playerId)
+            float settle = _session.Link.CoopReconnect.Contains(playerId)
                 ? CoopReconnectBulkSettleSeconds
                 : ClientBulkSettleSeconds;
 
             if (firstSeen <= 0f)
             {
-                _awaitingLateJoinBulk[playerId] = now;
+                _session.Link.AwaitingLateJoinBulk[playerId] = now;
                 // The joiner is past LoadScene, so high-rate gameplay packets can resume.
                 MarkPeerGameplayReady(playerId);
                 ModLog.Event(LogCat.Session,
                     "Player " + playerId + " in-world — bulk in "
                     + settle.ToString("F1") + "s (settle"
-                    + (_peersCoopReconnect.Contains(playerId) ? ", phase3 reconnect" : "")
+                    + (_session.Link.CoopReconnect.Contains(playerId) ? ", phase3 reconnect" : "")
                     + ")");
                 return;
             }
@@ -217,28 +299,28 @@ namespace DWMPHorde.Networking
             SendLateJoinGameplayBulk(playerId);
         }
 
-        /// <summary>True when host has a chapter world worth sending to title clients.</summary>
+        /// <summary>
+        /// True when host is fully in-chapter and safe to start world share / download.
+        /// Mid-load (<see cref="Core.loadingGame"/>), title-only, and profile-select are NOT ready.
+        /// Requires a live Player past load (<see cref="Core.loadedGame"/> /
+        /// <see cref="Core.coreStarted"/>). Sticky <c>Core.mainMenu</c> with a loaded
+        /// player still counts (dual-box quirk that used to block share forever).
+        /// Does not treat mainMenu-cleared-but-not-yet-loaded as ready (mid-transition).
+        /// </summary>
         private static bool HostHasShareableWorld()
         {
             try
             {
-                // Live loaded player wins over a sticky Core.mainMenu flag.
-                // Dual-box saw: mainMenu=true + player=true + loaded=true while host still
-                // had full world bulk (lights/generators); the old gate blocked all world share,
-                // so clients never left CONNECTED and never saw ENTER WORLD.
-                if (Player.Instance != null && (Core.loadedGame || Core.coreStarted || Core.loadingGame))
-                    return true;
-                if (Core.mainMenu)
+                if (Core.loadingGame)
                     return false;
-                if (Player.Instance != null)
-                    return true;
-                if (Singleton<WorldGenerator>.Instance != null)
-                    return true;
-                if (Core.loadedGame || Core.loadingGame)
-                    return true;
-                if (Core.currentProfile != null)
-                    return true;
-                return false;
+
+                Player p = Player.Instance;
+                if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)
+                    return false;
+
+                // Fully past load only — no !mainMenu shortcut (avoids mid-transition true).
+                // Sticky mainMenu with loaded/coreStarted still wins.
+                return Core.loadedGame || Core.coreStarted;
             }
             catch
             {
@@ -246,46 +328,126 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>Public mirror for share service / UI (same gate as auto-share).</summary>
+        internal static bool HostIsFullyInWorld() => HostHasShareableWorld();
+
         /// <summary>
-        /// Host recovery: if we become shareable while title clients are already connected
-        /// (Player.Start may already have run, or mainMenu flag was sticky), push the world once.
+        /// Host recovery: when host becomes fully in-world, emit HostWorldReady and push
+        /// save share to title clients already waiting (Player.Start may have raced mid-load,
+        /// or mainMenu was sticky). Rising-edge only.
         /// </summary>
         private void TickHostWorldShareWhenReady()
         {
-            if (_role != NetworkRole.Host || !IsConnected || !_handshakeComplete)
+            if (_role != NetworkRole.Host || !IsConnected || !_session.Link.HandshakeComplete)
             {
-                _hostWasShareableForWaitingClients = false;
+                _session.HostWasShareableForWaitingClients = false;
+                _session.HostWorldReadyEmitted = false;
                 return;
             }
 
             bool shareable = HostHasShareableWorld();
             if (!shareable)
             {
-                _hostWasShareableForWaitingClients = false;
+                _session.HostWasShareableForWaitingClients = false;
+                if (_session.HostWorldReadyEmitted)
+                {
+                    _session.HostWorldReadyEmitted = false;
+                    BroadcastHostWorldReady(ready: false);
+                    ModLog.Event(LogCat.Session,
+                        "Host left fully-in-world state — HostWorldReady Ready=false broadcast");
+                }
                 return;
             }
 
-                // Share only on the transition to the ready state.
-            if (_hostWasShareableForWaitingClients)
+            // Always announce ready (even with zero waiters) so mid-session joiners
+            // that handshaked during load get the signal on the next tick if missed.
+            EmitHostWorldReadyIfNeeded();
+
+            // Share only on the transition to the ready state.
+            if (_session.HostWasShareableForWaitingClients)
                 return;
-            _hostWasShareableForWaitingClients = true;
+
+            // A share already running would coalesce this one away: keep the edge armed and retry
+            // once it is done instead of losing the waiting peers.
+            if (_worldSaveShare != null && _worldSaveShare.IsBusy)
+                return;
+            _session.HostWasShareableForWaitingClients = true;
 
             int waiting = 0;
-            foreach (int id in _handshakedPeers)
+            foreach (int id in _session.Link.Handshaked)
             {
-                if (id > 1)
+                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the world.
+                if (id > 1 && !IsPeerInWorld(id))
                     waiting++;
             }
             if (waiting == 0)
                 return;
-            if (_worldSaveShare != null && _worldSaveShare.IsBusy)
-                return;
 
+            // The only automatic "host became ready" share: the broadcast mutes the waiting title
+            // peers and queues their late-join bulk (MarkTitlePeersLoadingForWorldShare).
             ModLog.Event(LogCat.Save,
-                "Host shareable with " + waiting
-                + " peer(s) waiting — auto world share (sticky-mainMenu / late enter recovery)");
+                "Host fully in-world with " + waiting
+                + " peer(s) waiting — auto world share (host-ready gate)");
             _worldSaveShare?.ScheduleHostResend();
-            ScheduleLateJoinBulkAfterWorldShare();
+        }
+
+        /// <summary>Host→all peers: world is fully loaded. Idempotent until host leaves world.</summary>
+        private void EmitHostWorldReadyIfNeeded()
+        {
+            if (_role != NetworkRole.Host || !HostHasShareableWorld())
+                return;
+            if (_session.HostWorldReadyEmitted)
+                return;
+            _session.HostWorldReadyEmitted = true;
+            BroadcastHostWorldReady(ready: true);
+        }
+
+        /// <summary>Host→one peer (late handshake while already in-world).</summary>
+        private void SendHostWorldReadyTo(int playerId)
+        {
+            if (_role != NetworkRole.Host || playerId <= 0 || !HostHasShareableWorld())
+                return;
+            var msg = BuildHostWorldReadyMessage(ready: true);
+            SendToPlayer(playerId, NetMessageType.HostWorldReady,
+                w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session,
+                "HostWorldReady → p" + playerId
+                + " ready=" + msg.Ready
+                + " ch" + msg.ChapterId + " day" + msg.DayIndex);
+        }
+
+        private void BroadcastHostWorldReady(bool ready)
+        {
+            if (_role != NetworkRole.Host)
+                return;
+            var msg = BuildHostWorldReadyMessage(ready);
+            SendToAll(NetMessageType.HostWorldReady,
+                w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.Session,
+                "HostWorldReady broadcast ready=" + msg.Ready
+                + " ch" + msg.ChapterId
+                + " day" + msg.DayIndex + " peers=" + _session.Link.Handshaked.Count);
+        }
+
+        private static HostWorldReadyMessage BuildHostWorldReadyMessage(bool ready)
+        {
+            int chapter = 0;
+            int day = 0;
+            if (ready)
+            {
+                try
+                {
+                    chapter = ClientSaveBridge.GetChapterId();
+                    day = ClientSaveBridge.GetDayIndex();
+                }
+                catch { /* ignore */ }
+            }
+            return new HostWorldReadyMessage
+            {
+                Ready = ready,
+                ChapterId = chapter,
+                DayIndex = day
+            };
         }
 
         /// <summary>
@@ -296,7 +458,7 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return false;
                 if (Core.loadingGame)
                     return false;

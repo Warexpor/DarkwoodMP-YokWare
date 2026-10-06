@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -7,25 +8,26 @@ namespace DWMPHorde.Networking
 {
     public static partial class ClientEntityInterpolationService
     {
-        private static Character[] _inactiveScanCache;
-        private static float _inactiveScanCacheTime = -999f;
+        private static Character[] _inactiveScanCache; // process-scoped: short TTL scene-scan cache
+        private static float _inactiveScanCacheTime = -999f; // process-scoped: short TTL scene-scan cache
         private const float InactiveScanCacheTtl = 2f;
 
+        /// <summary>
+        /// A save body that never woke (inactive since the world loaded, so the tracker never
+        /// listed it) at the host's position. Reads the Character scene registry, filled once
+        /// when the world finished loading and kept by Character.Awake: the scene-wide search it
+        /// used to run cost about 47 ms each time a host-spawned creature (no save body to match)
+        /// waited out its pending match, a hitch per dog of a pack.
+        /// </summary>
         private static Character FindInactiveCharacter(string entityName, Vector3 position, float radius)
         {
-            string searchName = entityName;
-            if (searchName.EndsWith("(Clone)"))
-                searchName = searchName.Substring(0, searchName.Length - 7);
-
-            // Share WorldQueryHelper TTL cache — do not Invalidate here (was forcing FoT
+            // Share WorldQueryHelper's array — do not Invalidate here (was forcing FoT
             // every 0.5s while any pending timeout fired, poisoning other Character consumers).
+            // Before the world is seeded that is still the cached search; the probe is noted there.
             float now = Time.time;
             if (_inactiveScanCache == null || now - _inactiveScanCacheTime >= InactiveScanCacheTtl)
             {
-                var footSw = System.Diagnostics.Stopwatch.StartNew();
                 _inactiveScanCache = WorldQueryHelper.GetCachedSceneComponents<Character>();
-                footSw.Stop();
-                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType("Character", footSw.Elapsed.TotalMilliseconds);
                 _inactiveScanCacheTime = now;
             }
 
@@ -50,10 +52,10 @@ namespace DWMPHorde.Networking
                         continue;
                 }
 
-                string cname = c.name;
-                if (cname.EndsWith("(Clone)"))
-                    cname = cname.Substring(0, cname.Length - 7);
-                if (!string.Equals(cname, searchName, System.StringComparison.OrdinalIgnoreCase))
+                if (!CharacterTracker.BaseNameEquals(c.name, entityName))
+                    continue;
+                // Another host body's save twin (its own pending row finds it by id).
+                if (RejectOtherSaveTwin(c))
                     continue;
 
                 float dx = c.transform.position.x - position.x;
@@ -68,16 +70,36 @@ namespace DWMPHorde.Networking
             return best;
         }
 
+        /// <summary>Prefab path (under Resources/Prefabs) → its background load, held so the prefab stays loaded.</summary>
+        private static readonly Dictionary<string, ResourceRequest> _phantomPrefabWarm = new Dictionary<string, ResourceRequest>(16); // process-scoped: creature prefabs, loaded once per run
+
+        private static string PhantomPrefabPath(string entityName, string prefabPath)
+            => !string.IsNullOrEmpty(prefabPath) ? prefabPath : "Characters/" + entityName;
+
+        /// <summary>
+        /// A body the host spawned at runtime (it carries its prefab path) normally has no save
+        /// twin here and becomes a phantom when its pending match times out. Start loading its prefab in the
+        /// background now: the first Resources.Load of a creature prefab cost 20-35 ms inside the
+        /// spawn frame, on top of the instantiate.
+        /// </summary>
+        private static void WarmPhantomPrefab(string prefabPath)
+        {
+            if (string.IsNullOrEmpty(prefabPath) || _phantomPrefabWarm.ContainsKey(prefabPath))
+                return;
+            _phantomPrefabWarm[prefabPath] = Resources.LoadAsync("Prefabs/" + prefabPath);
+        }
+
         private static Character SpawnEntityLocally(string entityName, string prefabPath, Vector3 position, float rotY)
         {
             if (string.IsNullOrEmpty(entityName) && string.IsNullOrEmpty(prefabPath))
                 return null;
 
             // During shared dream, ignore overworld-distance host spawns (stale EntityState).
+            Transform dreamParent = null;
             if (DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive)
             {
                 var dreamTf = DreamSyncManager.GetDreamLocationTransform();
-            // During entry, wait for dreamLocation before creating phantoms.
+                // During entry, wait for dreamLocation before creating phantoms.
                 if (DreamSession.IsActive && dreamTf == null)
                     return null;
                 if (dreamTf != null)
@@ -86,15 +108,19 @@ namespace DWMPHorde.Networking
                     const float maxDistSq = 5000f * 5000f;
                     if ((position - dreamTf.position).sqrMagnitude > maxDistSq)
                         return null;
+                    // In the pad, as the host's copy is: vanilla destroys the pad, and with it
+                    // this body, when the dream ends. Unparented, it stayed on the client.
+                    dreamParent = dreamTf;
                 }
             }
 
-            string path = !string.IsNullOrEmpty(prefabPath) ? prefabPath : "Characters/" + entityName;
+            string path = PhantomPrefabPath(entityName, prefabPath);
             try
             {
                 Quaternion rotation = Quaternion.Euler(90f, rotY, 0f);
 
-                GameObject go = Core.AddPrefab(path, position, rotation, null);
+                GameObject go = Core.AddPrefab(path, position, rotation,
+                    dreamParent != null ? dreamParent.gameObject : null, worldSpace: true);
                 if (go == null) return null;
 
                 Character c = go.GetComponent<Character>();

@@ -17,7 +17,9 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostPresentation.ShouldSuppress) return true;
+            // Only inside the synchronous apply scope. The sticky flag outlives it for the whole
+            // drain and swallowed the host's own fades (sleep, death) during that window.
+            if (!DialogHostApplyGuard.DialogueApplyActive) return true;
             // Allow clearing; block fade-to-black from changePortrait / journal note.
             return _color.a < 0.01f;
         }
@@ -28,44 +30,8 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Color _color)
         {
-            if (!DialogHostPresentation.ShouldSuppress) return true;
+            if (!DialogHostApplyGuard.DialogueApplyActive) return true;
             return _color.a < 0.01f;
-        }
-    }
-
-    /// <summary>
-    /// changePortrait schedules displayNextBoard after silent close nulls currentDialogue.
-    /// Block that stale continuation (and any other null-dialogue board advance).
-    /// </summary>
-    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
-    public static class DialogHostStaleBoardGuardPatch
-    {
-        private static bool Prefix(DialogueWindow __instance)
-        {
-            if (__instance == null) return false;
-            if (__instance.currentDialogue == null)
-                return false;
-            return true;
-        }
-
-        /// <summary>
-        /// World-only host apply: changePortrait sets Core.forbidInputs and relies on a
-        /// delayed Invoke to clear it. Silent-close / inactive DialogueWindow cancels that
-        /// Invoke → host stuck unable to walk/look/inv. Clear immediately after each board.
-        /// Also hide dialogue text / force-finish typewriter so host never sees peer lines.
-        /// </summary>
-        private static void Postfix(DialogueWindow __instance)
-        {
-            if (!DialogHostPresentation.ShouldSuppress) return;
-            try
-            {
-                Core.forbidInputs = false;
-                Core.cantChangeForbidInputs = false;
-                if (__instance != null)
-                    __instance.forbidInputs = false;
-                DialogHostPresentation.HideSpeakerVisuals(__instance);
-            }
-            catch { /* ignore */ }
         }
     }
 
@@ -115,7 +81,7 @@ namespace DWMPHorde.Patches
         private static bool _stickySuppress;
 
         public static bool ShouldSuppress =>
-            _stickySuppress || DialogHostApplyGuard.Active;
+            _stickySuppress || DialogHostApplyGuard.DialogueApplyActive;
 
         public static void ArmStickySuppress()
         {

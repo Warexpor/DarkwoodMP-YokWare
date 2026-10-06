@@ -9,13 +9,14 @@ namespace DWMPHorde
         public const string Guid = "com.yokware.branch";
         public const string Name = "YokWare Branch";
         /// <summary>
-        /// BepInEx plugin version. The supported product line is 0.8.x.
+        /// BepInEx plugin version and the single source of the product version: the csproj reads it
+        /// from this line and AssemblyInfo derives from it. The supported product line is 0.8.x.
         /// </summary>
-        public const string Version = "0.8.31";
-        /// <summary>Shown in UI banners and multiplayer menu.</summary>
-        public const string DisplayVersion = "0.8.31 Path B (architecture rewrite)";
-        /// <summary>Horde wire protocol. 25 includes ordered state snapshots.</summary>
-        public const int ProtocolVersion = 25;
+        public const string Version = "0.8.139";
+        /// <summary>Full product label shown in UI banners, the multiplayer menu and log banners (already includes the product name).</summary>
+        public const string DisplayVersion = Name + " " + Version + " / Path B";
+        /// <summary>Horde wire protocol. Bumped whenever a wire format changes or a message id is added.</summary>
+        public const int ProtocolVersion = 39;
         public const int DefaultPort = 7788;
         public const string Authors = "Warexpor & Yokyy";
         public const string Description = "Darkwood co-op — Horde host-authoritative sync (Path B)";

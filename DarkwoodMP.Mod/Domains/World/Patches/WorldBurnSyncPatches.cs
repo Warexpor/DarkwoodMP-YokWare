@@ -21,6 +21,9 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static readonly HashSet<int> RemoteAppliedInstanceIds = new HashSet<int>();
 
+        /// <summary>Session end: ids marked but never consumed (burn destroyed first) must not leak.</summary>
+        internal static void Reset() => RemoteAppliedInstanceIds.Clear();
+
         internal static void MarkRemoteApplied(Burn burn)
         {
             if (burn != null)
@@ -121,6 +124,9 @@ namespace DWMPHorde.Sync
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
             if (!TryResolveWorldTarget(burn, out _, out _))
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (Sync.PersonalPrologue.IsOnProloguePad(burn.transform))
                 return;
 
             var msg = BuildMessage(burn, burning);

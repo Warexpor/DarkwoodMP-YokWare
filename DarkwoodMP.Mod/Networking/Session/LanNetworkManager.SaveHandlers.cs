@@ -44,6 +44,11 @@ namespace DWMPHorde.Networking
             SaveHandlers.TrySnapshotClientBackupOnExit();
         }
 
+        private void TryHostWorldSaveCheckpointOnExit()
+        {
+            SaveHandlers.TryHostWorldSaveCheckpointOnExit();
+        }
+
         /// <summary>
         /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.

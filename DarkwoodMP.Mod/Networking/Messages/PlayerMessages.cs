@@ -16,6 +16,24 @@ namespace DWMPHorde.Networking
         /// Client→host: unused (0).
         /// </summary>
         public short HostPlayerId;
+        /// <summary>
+        /// Client→host: install-scoped LAN StableClientKey (empty on host→client).
+        /// </summary>
+        public string StableClientKey;
+        /// <summary>
+        /// Client→host: CampaignId of the world the client currently has loaded (empty when the
+        /// client has no co-op campaign identity). Host compares it to its own before trusting
+        /// <see cref="AlreadyInWorld"/>.
+        /// </summary>
+        public string CampaignId;
+        /// <summary>Client→host: chapter of the world the client currently has loaded (0 = unknown).</summary>
+        public int ChapterId;
+        /// <summary>
+        /// Client→host over Steam: the connection key (host password). LAN joins prove it in the
+        /// LiteNetLib connection request instead; Steam has no such step, so the host checks it here.
+        /// Empty on LAN and host→client.
+        /// </summary>
+        public string ConnectionKey;
 
         public void Serialize(NetWriter writer)
         {
@@ -23,6 +41,10 @@ namespace DWMPHorde.Networking
             writer.Put(PlayerId);
             writer.Put(AlreadyInWorld);
             writer.Put(HostPlayerId);
+            writer.Put(StableClientKey ?? string.Empty);
+            writer.Put(CampaignId ?? string.Empty);
+            writer.Put(ChapterId);
+            writer.Put(ConnectionKey ?? string.Empty);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -32,12 +54,23 @@ namespace DWMPHorde.Networking
                 ProtocolVersion = reader.GetInt(),
                 PlayerId = reader.GetShort(),
             };
-            // Older payloads may omit the trailing fields. Read each field only
-            // when enough bytes remain so a short payload stays parseable.
+            // The handshake is how a peer on another protocol is told so: everything after
+            // ProtocolVersion is read tolerantly, so any older or newer layout still parses far
+            // enough for HandleHandshake to reject it with a clear mismatch instead of a malformed
+            // packet drop.
             if (reader.AvailableBytes >= 1)
                 msg.AlreadyInWorld = reader.GetBool();
             if (reader.AvailableBytes >= 2)
                 msg.HostPlayerId = reader.GetShort();
+            // Length-prefixed string needs at least 2 bytes for the ushort length.
+            if (reader.AvailableBytes >= 2)
+                msg.StableClientKey = reader.GetString();
+            if (reader.AvailableBytes >= 2)
+                msg.CampaignId = reader.GetString();
+            if (reader.AvailableBytes >= 4)
+                msg.ChapterId = reader.GetInt();
+            if (reader.AvailableBytes >= 2)
+                msg.ConnectionKey = reader.GetString();
             return msg;
         }
     }
@@ -92,6 +125,18 @@ namespace DWMPHorde.Networking
         /// <summary>Optional trailer for the per-player NightShadows effect.</summary>
         public bool HasNightShadows;
         public bool AfterNightActive;
+        /// <summary>
+        /// Sender is in the open world, where vanilla would run its clock: not inside an
+        /// outside location, not dreaming, not loading or in the opening movie. Trailer.
+        /// </summary>
+        public bool InOpenWorld;
+        /// <summary>Sender is in the village and sees a villager (or stands close to one). Trailer.</summary>
+        public bool SeesVillager;
+        /// <summary>
+        /// Sender is aiming (vanilla <c>Player.aiming</c>): its walking steps alert nobody and play
+        /// at half volume. Trailer.
+        /// </summary>
+        public bool Aiming;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -176,6 +221,9 @@ namespace DWMPHorde.Networking
             writer.Put(HeldLightRemain01);
             writer.Put(FlashAimY);
             writer.Put(HasNightShadows);
+            writer.Put(InOpenWorld);
+            writer.Put(SeesVillager);
+            writer.Put(Aiming);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -238,15 +286,13 @@ namespace DWMPHorde.Networking
             }
 
             msg.AfterNightActive = reader.GetBool();
-            // Trailer: TrapNetId(int) + Remain(byte) + FlashAimY(short) = 7 bytes; + HasNightShadows bool = 8
-            if (reader.AvailableBytes >= 7)
-            {
-                msg.TrapNetId = reader.GetInt();
-                msg.HeldLightRemain01 = reader.GetByte();
-                msg.FlashAimY = reader.GetShort();
-                if (reader.AvailableBytes >= 1)
-                    msg.HasNightShadows = reader.GetBool();
-            }
+            msg.TrapNetId = reader.GetInt();
+            msg.HeldLightRemain01 = reader.GetByte();
+            msg.FlashAimY = reader.GetShort();
+            msg.HasNightShadows = reader.GetBool();
+            msg.InOpenWorld = reader.GetBool();
+            msg.SeesVillager = reader.GetBool();
+            msg.Aiming = reader.GetBool();
             return msg;
         }
     }
@@ -259,6 +305,10 @@ namespace DWMPHorde.Networking
         public string TargetName;
         public float TargetPosX, TargetPosY, TargetPosZ;
         public bool CanCutInHalf;
+        /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the host to apply to the target. Trailing count + effects; null = none.</summary>
+        public SensorEffectWire[] Effects;
+        /// <summary>Melee sensor hit: the host applies the short melee range (false = ranged).</summary>
+        public bool IsMelee;
 
         public void Serialize(NetWriter w)
         {
@@ -268,21 +318,29 @@ namespace DWMPHorde.Networking
             w.Put(TargetName ?? "");
             w.Put(TargetPosX); w.Put(TargetPosY); w.Put(TargetPosZ);
             w.Put(CanCutInHalf);
+            SensorEffectWire.WriteList(w, Effects);
+            w.Put(IsMelee);
         }
 
-        public static PlayerAttackMessage Deserialize(NetReader r) => new PlayerAttackMessage
+        public static PlayerAttackMessage Deserialize(NetReader r)
         {
-            TargetNameHash = r.GetShort(),
-            Damage = r.GetInt(),
-            AttackerPosX = r.GetFloat(),
-            AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat(),
-            TargetName = r.GetString(),
-            TargetPosX = r.GetFloat(),
-            TargetPosY = r.GetFloat(),
-            TargetPosZ = r.GetFloat(),
-            CanCutInHalf = r.GetBool()
-        };
+            var msg = new PlayerAttackMessage
+            {
+                TargetNameHash = r.GetShort(),
+                Damage = r.GetInt(),
+                AttackerPosX = r.GetFloat(),
+                AttackerPosY = r.GetFloat(),
+                AttackerPosZ = r.GetFloat(),
+                TargetName = r.GetString(),
+                TargetPosX = r.GetFloat(),
+                TargetPosY = r.GetFloat(),
+                TargetPosZ = r.GetFloat(),
+                CanCutInHalf = r.GetBool()
+            };
+            msg.Effects = SensorEffectWire.ReadList(r);
+            msg.IsMelee = r.GetBool();
+            return msg;
+        }
     }
 
     public struct DamagePlayerMessage
@@ -295,6 +353,10 @@ namespace DWMPHorde.Networking
         public bool NormalHit;
         /// <summary>Vanilla <c>canInterrupt</c>. Optional wire trailer; default true.</summary>
         public bool CanInterrupt;
+        /// <summary>A shadow sensor (<c>MeleeSensor.shadowSensor</c>): the victim takes vanilla <c>getHitByShadow</c> (flat, no armor, no interrupt).</summary>
+        public bool ShadowHit;
+        /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) the victim's own client applies. Trailing count + effects; null = none.</summary>
+        public SensorEffectWire[] Effects;
 
         public void Serialize(NetWriter w)
         {
@@ -304,6 +366,8 @@ namespace DWMPHorde.Networking
             w.Put(ShowRedScreen);
             w.Put(NormalHit);
             w.Put(CanInterrupt);
+            w.Put(ShadowHit);
+            SensorEffectWire.WriteList(w, Effects);
         }
 
         public static DamagePlayerMessage Deserialize(NetReader r)
@@ -316,14 +380,11 @@ namespace DWMPHorde.Networking
                 AttackerPosZ = r.GetFloat(),
                 CanCutInHalf = r.GetBool(),
                 ShowRedScreen = r.GetBool(),
-                // Older peers omit these trailers, so retain the default values.
-                NormalHit = true,
-                CanInterrupt = true
+                NormalHit = r.GetBool(),
+                CanInterrupt = r.GetBool(),
+                ShadowHit = r.GetBool()
             };
-            if (r.AvailableBytes > 0)
-                msg.NormalHit = r.GetBool();
-            if (r.AvailableBytes > 0)
-                msg.CanInterrupt = r.GetBool();
+            msg.Effects = SensorEffectWire.ReadList(r);
             return msg;
         }
     }
@@ -333,12 +394,19 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public bool IsNight;
         public bool HasDropBag;
+        /// <summary>
+        /// Vanilla would have ended this peer's run (nightmare, or hard on the last
+        /// life). The mod rewrites it to a shared death; a night party wipe made
+        /// only of such deaths is a coordinated game over.
+        /// </summary>
+        public bool PermadeathEligible;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(IsNight);
             w.Put(HasDropBag);
+            w.Put(PermadeathEligible);
         }
         public static PlayerDiedMessage Deserialize(NetReader r) => new PlayerDiedMessage
         {
@@ -346,7 +414,8 @@ namespace DWMPHorde.Networking
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
             IsNight = r.GetBool(),
-            HasDropBag = r.GetBool()
+            HasDropBag = r.GetBool(),
+            PermadeathEligible = r.GetBool()
         };
     }
 
@@ -377,12 +446,23 @@ namespace DWMPHorde.Networking
     public struct PlayerScareMessage
     {
         public float Range;
+        /// <summary>The scary-face skill (vanilla <c>PlayerSkill.activate</c>), not an aim scare.</summary>
+        public bool ScaryFace;
+        /// <summary>Host relay of a scary face: who cast it (0 on a client's own send).</summary>
+        public short CasterId;
 
-        public void Serialize(NetWriter w) => w.Put(Range);
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Range);
+            w.Put(ScaryFace);
+            w.Put(CasterId);
+        }
 
         public static PlayerScareMessage Deserialize(NetReader r) => new PlayerScareMessage
         {
-            Range = r.GetFloat()
+            Range = r.GetFloat(),
+            ScaryFace = r.GetBool(),
+            CasterId = r.GetShort()
         };
     }
 
@@ -433,26 +513,117 @@ namespace DWMPHorde.Networking
             set => Flags = (byte)((Flags & ~128) | (value ? 128 : 0));
         }
 
-        public void Serialize(NetWriter w) => w.Put(Flags);
+        public byte Flags2;
+
+        /// <summary>The player is on fire (a Burn component): joiners and missed burn messages converge on it.</summary>
+        public bool Burning
+        {
+            get => (Flags2 & 1) != 0;
+            set => Flags2 = (byte)((Flags2 & ~1) | (value ? 1 : 0));
+        }
+        /// <summary>The burn is vanilla burnSpecial (no fire particles or sound).</summary>
+        public bool BurnSpecial
+        {
+            get => (Flags2 & 2) != 0;
+            set => Flags2 = (byte)((Flags2 & ~2) | (value ? 2 : 0));
+        }
+
+        /// <summary><see cref="Skills"/> is carried (on a change and on the keepalive).</summary>
+        public bool HasSkills
+        {
+            get => (Flags2 & 4) != 0;
+            set => Flags2 = (byte)((Flags2 & ~4) | (value ? 4 : 0));
+        }
+
+        /// <summary>The player is in the ending (epilogue crawl or outcome pages).</summary>
+        public bool InEpilogue
+        {
+            get => (Flags2 & 16) != 0;
+            set => Flags2 = (byte)((Flags2 & ~16) | (value ? 16 : 0));
+        }
+
+        /// <summary>The player is in its own prologue (PersonalPrologue). Protocol 33.</summary>
+        public bool InPrologue
+        {
+            get => (Flags2 & 32) != 0;
+            set => Flags2 = (byte)((Flags2 & ~32) | (value ? 32 : 0));
+        }
+
+        /// <summary><see cref="HomeX"/>.. carry this player's home oven (vanilla Player.experienceMachine).</summary>
+        public bool HasHome
+        {
+            get => (Flags2 & 8) != 0;
+            set => Flags2 = (byte)((Flags2 & ~8) | (value ? 8 : 0));
+        }
+
+        public float HomeX, HomeY, HomeZ;
+
+        /// <summary>
+        /// The parts of the player that host event requirements read (vanilla
+        /// <c>EventTriggerRequirement</c> playerState health, darknessState, haveSkill): the host
+        /// checks a peer's trigger against that peer, not its own body.
+        /// </summary>
+        public byte HealthPct;
+        public byte DarknessPct;
+        /// <summary>Learned skill names, '|' separated; only when <see cref="HasSkills"/>.</summary>
+        public string Skills;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Flags);
+            w.Put(Flags2);
+            w.Put(HealthPct);
+            w.Put(DarknessPct);
+            if (HasSkills)
+                w.Put(Skills ?? "");
+            if (HasHome)
+            {
+                w.Put(HomeX);
+                w.Put(HomeY);
+                w.Put(HomeZ);
+            }
+        }
+
         public static PlayerEffectSyncMessage Deserialize(NetReader r)
-            => new PlayerEffectSyncMessage { Flags = r.GetByte() };
+        {
+            var m = new PlayerEffectSyncMessage
+            {
+                Flags = r.GetByte(),
+                Flags2 = r.GetByte(),
+                HealthPct = r.GetByte(),
+                DarknessPct = r.GetByte()
+            };
+            if (m.HasSkills)
+                m.Skills = r.GetString();
+            if (m.HasHome)
+            {
+                m.HomeX = r.GetFloat();
+                m.HomeY = r.GetFloat();
+                m.HomeZ = r.GetFloat();
+            }
+            return m;
+        }
     }
 
     public struct PlayerBurningMessage
     {
         public bool IsBurning;
         public float BurnTime;
+        /// <summary>Vanilla burnSpecial (a curse burn): no fire particles or sound, as on the owner.</summary>
+        public bool Special;
 
         public void Serialize(NetWriter w)
         {
             w.Put(IsBurning);
             w.Put(BurnTime);
+            w.Put(Special);
         }
 
         public static PlayerBurningMessage Deserialize(NetReader r) => new PlayerBurningMessage
         {
             IsBurning = r.GetBool(),
-            BurnTime = r.GetFloat()
+            BurnTime = r.GetFloat(),
+            Special = r.GetBool()
         };
     }
 
@@ -561,9 +732,7 @@ namespace DWMPHorde.Networking
         public string SoundId;
         public float Volume;
         public float PosX, PosY, PosZ;
-        public bool IsStopSignal;
-        public string ObjectName;
-        /// <summary>False for creature one-shots stamped with the host id. Missing on old packets means true.</summary>
+        /// <summary>True for the sender's own player sounds; false for world and creature sounds the sender forwards.</summary>
         public bool StickToSender;
 
         public void Serialize(NetWriter w)
@@ -571,8 +740,6 @@ namespace DWMPHorde.Networking
             w.Put(SoundId ?? "");
             w.Put(Volume);
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
-            w.Put(IsStopSignal);
-            w.Put(ObjectName ?? "");
             w.Put(StickToSender);
         }
 
@@ -585,12 +752,8 @@ namespace DWMPHorde.Networking
                 PosX = r.GetFloat(),
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
-                IsStopSignal = r.GetBool(),
-                ObjectName = r.GetString(),
-                StickToSender = true
+                StickToSender = r.GetBool()
             };
-            if (r.AvailableBytes >= 1)
-                msg.StickToSender = r.GetBool();
             return msg;
         }
     }

@@ -95,15 +95,9 @@ namespace DWMPHorde.Networking.Steam
 
             _lobbyId = new CSteamID(result.m_ulSteamIDLobby);
 
-            string expected = ModConfig.GetConnectionKey() ?? "";
-            string remoteKey = SteamMatchmaking.GetLobbyData(_lobbyId, LobbyKeyConn) ?? "";
-            if (!string.IsNullOrEmpty(remoteKey) && !string.Equals(remoteKey, expected, StringComparison.Ordinal))
-            {
-                ModLog.Error(LogCat.Network, "Steam lobby password mismatch (HostPassword must match).");
-                _owner.OnSteamLobbyFailed("password mismatch");
-                return;
-            }
-
+            // The host password is never read from lobby data (it used to be published there, readable
+            // by anyone who could see the lobby). The client sends it in its Handshake and the host
+            // verifies it; see LanNetworkManager.HandleHandshake.
             string modTag = SteamMatchmaking.GetLobbyData(_lobbyId, LobbyKeyMod) ?? "";
             if (!string.Equals(modTag, "1", StringComparison.Ordinal))
                 ModLog.Warn(LogCat.Network, "Lobby missing yokware tag — joining anyway.");
@@ -152,7 +146,6 @@ namespace DWMPHorde.Networking.Steam
                 return;
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyMod, "1");
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyProto, PluginInfo.ProtocolVersion.ToString());
-            SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyConn, ModConfig.GetConnectionKey() ?? "");
             string name = ModConfig.PlayerName?.Value;
             if (string.IsNullOrEmpty(name))
             {

@@ -1,9 +1,11 @@
 using DWMPHorde.Audio;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Spectator;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
@@ -11,6 +13,7 @@ namespace DWMPHorde.Patches
     /// Distance-cull world SFX so far-away networked sounds don't spam.
     /// Must NEVER touch menu music / global music / ambience.
     /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(AudioController), "_PlayAsSound")]
     public static class AudioSuppressionPatch
     {
@@ -38,7 +41,7 @@ namespace DWMPHorde.Patches
             // Title / main menu — no distance culling at all.
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return true;
             }
             catch
@@ -47,8 +50,7 @@ namespace DWMPHorde.Patches
             }
 
             // Single-player / not connected: do not interfere with vanilla audio.
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             Vector3 pos = worldPosition;
@@ -82,32 +84,40 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            // Peer proxy SFX: XZ + exit band so spatial rolloff can fade without Play flicker
-            // at exactly 650 (hard bool gate caused enter/exit hitch).
-            if (parentObj != null
-                && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
-            {
-                Vector3 proxyPos = parentObj.position;
-                if (pos == Vector3.zero)
-                    pos = proxyPos;
-                return LocalAudioService.IsNearListenerPeerBand(
-                    pos, LocalAudioService.DefaultMaxAudioDistance);
-            }
-
-            // Host CharacterSounds (dog growl/aggro near client): entity interest is 1400 XZ,
-            // not the 650 peer band; otherwise host hears silence while clients get EntitySound.
-            if (TraverseHack.InsideCharacterSounds)
-            {
-                return LocalAudioService.IsNearAnyListener(
-                    pos, ClientEntityInterpolationService.ClientInterestDistance);
-            }
-
-            // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
-            if (LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
+            // Each sound is culled only beyond its own range (LocalAudioService.AudibleRange):
+            // a 3D sound as far as the game lets it carry, a 2D one at the peer range. The host
+            // keeps areas around remote players awake, so far sounds there are not played.
+            if (LocalAudioService.IsSpatialLoop(audioID))
                 return true;
 
+            // Peer proxy SFX: the stand-in's position, XZ + exit band so spatial rolloff can fade
+            // without Play flicker at the edge.
+            if (parentObj != null
+                && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
+                pos = parentObj.position;
+
+            // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
+            float range = LocalAudioService.AudibleRange(audioID);
+            if (LocalAudioService.IsNearListenerPeerBand(pos, range))
+                return true;
+
+            LogCreatureCull(audioID, pos, range, parentObj);
             __result = null;
             return false;
+        }
+
+        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace.</summary>
+        private static void LogCreatureCull(string audioID, Vector3 pos, float range, Transform parentObj)
+        {
+            if (parentObj == null || !EntitySyncLog.On)
+                return;
+            Character c = parentObj.GetComponentInParent<Character>();
+            if (c == null)
+                return;
+            EntitySyncLog.Reaction("cull:" + audioID,
+                () => "[AudioCull] " + audioID + " on " + (c.name ?? "") + " d="
+                    + LocalAudioService.DistanceToListenerXz(pos).ToString("F0")
+                    + " range=" + range.ToString("F0"), 2f);
         }
 
         /// <summary>Menu BGM, UI, and playlist music must never be distance-culled in co-op.</summary>

@@ -21,7 +21,7 @@ namespace DWMPHorde.Patches
 
             try
             {
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null || net.Role != NetworkRole.Client)
                     return true;
 
@@ -31,19 +31,18 @@ namespace DWMPHorde.Patches
                     && __instance.gameObject == Player.Instance.gameObject)
                     return true;
 
-                // Outgoing attacks only: local player melee root, player bullets, local explosion AOE.
+                // Outgoing attacks only: local player melee root, player bullets. (Explosions
+                // are the host's: the client's blast is visual, ExplosionDamageSkipPatch.)
                 bool isPlayerDamage = attackerTransform != null && Player.Instance != null
                     && (attackerTransform == Player.Instance.transform
                         || attackerTransform.IsChildOf(Player.Instance.transform));
                 bool isProjectileDamage = attackerTransform == null && TraverseHack.IsInsidePlayerBulletCollision;
-                bool isExplosionAOE = TraverseHack.IsInsideLocalExplosion;
+                // This player's own flamethrower fire (FlameOrigin): an attack like a bullet.
+                bool isOwnFlame = attackerTransform == null && FlameOriginContext.HittingLocalShot;
+                isProjectileDamage |= isOwnFlame;
 
-                if (!isPlayerDamage && !isProjectileDamage && !isExplosionAOE)
+                if (!isPlayerDamage && !isProjectileDamage)
                     return true;
-
-                // Muted throwables (visualOnly / client own throw) zero Explodes.damage.
-                if (isExplosionAOE && Damage <= 0f)
-                    return false;
 
                 // Always send name + hit pos so host can resolve phantoms / unsynced ids.
                 // Prefer stable id when host-synced; 0 forces position+name match on host.
@@ -63,6 +62,9 @@ namespace DWMPHorde.Patches
                 if (entityName.EndsWith("(Clone)"))
                     entityName = entityName.Substring(0, entityName.Length - 7);
 
+                SensorEffectWire[] flameEffects = isOwnFlame && FlameOriginContext.HittingEffect != null
+                    ? SensorEffectCodec.ToWire(new System.Collections.Generic.List<InvItemEffect> { FlameOriginContext.HittingEffect })
+                    : null;
                 net.Send(NetMessageType.PlayerAttack, w => new PlayerAttackMessage
                 {
                     TargetNameHash = stableId,
@@ -74,8 +76,11 @@ namespace DWMPHorde.Patches
                     TargetPosX = targetPos.x,
                     TargetPosY = targetPos.y,
                     TargetPosZ = targetPos.z,
-                    CanCutInHalf = canCut
+                    CanCutInHalf = canCut,
+                    // The flame's burn reaches the host's creature (vanilla activates it before the hit).
+                    Effects = flameEffects
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                ClientEntityInterpolationService.ShowHitHealthBar(__instance);
 
                 ModRuntime.LegacyInfo($"[DamageRedirect] sent PlayerAttack: target={entityName} id={stableId} dmg={dmg}");
 

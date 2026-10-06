@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -18,9 +19,8 @@ namespace DWMPHorde
 
     public sealed class ManualSaveGUI : MonoBehaviour
     {
-        private static ManualSaveGUI _instance;
+        private static ManualSaveGUI _instance; // process-scoped: UI singleton
         private bool _visible;
-        private bool _scheduledBackupRestore;
         private Rect _windowRect;
         private bool _windowRectInitialized;
         private Vector2 _scroll;
@@ -29,30 +29,53 @@ namespace DWMPHorde
         private bool _confirmingOverwrite;
         private int _pendingSlot;
         private bool _pendingIsSave;
+        private const string LockOwner = "f3";
 
         private const int SlotCount = 10;
         private readonly ManualSaveSlotMeta[] _slotMetas = new ManualSaveSlotMeta[SlotCount];
-        private static string[] _slotPaths;
+        /// <summary>Per slot: where a save goes (this profile's own folder).</summary>
+        private readonly string[] _slotPaths = new string[SlotCount];
+        /// <summary>Per slot: where the shown data is read from (own folder, else the legacy shared one).</summary>
+        private readonly string[] _slotReadPaths = new string[SlotCount];
+        private readonly bool[] _slotIsLegacy = new bool[SlotCount];
 
         private static float UiScale => Mathf.Clamp(Screen.height / 900f, 1f, 2f);
 
         private static string SaveDir => Application.persistentDataPath + "/1_4Save";
-        private static string SlotsBase => SaveDir + "/manual_saves";
+        /// <summary>Pre-profile layout: one set of slots shared by every profile. Read-only fallback.</summary>
+        private static string LegacySlotsBase => SaveDir + "/manual_saves";
+        /// <summary>Slots belong to one PLAY profile, so another profile's world never shows up here.</summary>
+        private static string SlotsBaseFor(int profileId) => SaveDir + "/manual_saves/prof" + profileId;
 
         public static void ToggleVisible()
         {
             if (_instance == null) return;
+            _instance.Toggle();
+        }
 
-            if (!_instance._visible)
+        /// <summary>Open (when the game allows it) or close the window; confirm state never survives either.</summary>
+        private void Toggle()
+        {
+            if (_visible)
             {
-                if (Core.mainMenu || Core.loadingGame || Core.forbidInputs)
-                    return;
+                _visible = false;
+                _confirmingOverwrite = false;
+                return;
             }
 
-            _instance._visible = !_instance._visible;
-            if (_instance._visible)
-                _instance.RefreshMetas();
+            if (Core.mainMenu || Core.loadingGame || Core.forbidInputs)
+                return;
+
+            if (Core.currentProfile == null)
+                return;
+
+            _visible = true;
+            _confirmingOverwrite = false;
+            RefreshMetas();
         }
+
+        private static Networking.LanNetworkManager Net => ModRuntime.Network;
+
 
         public static void EnsureExists()
         {
@@ -65,74 +88,73 @@ namespace DWMPHorde
 
         private void Init()
         {
-            _slotPaths = new string[SlotCount];
+            Networking.WorldSaveGuards.EnsureQuitHook();
             for (int i = 0; i < SlotCount; i++)
-            {
-                _slotPaths[i] = SlotsBase + "/slot" + (i + 1);
-                Directory.CreateDirectory(_slotPaths[i]);
-            }
-            RefreshMetas();
+                _slotMetas[i] = new ManualSaveSlotMeta();
         }
 
+        /// <summary>Runs before any OnDestroy at shutdown: automatic saves must stop now.</summary>
+        private void OnApplicationQuit()
+        {
+            Networking.WorldSaveGuards.NoteQuitting();
+        }
+
+        /// <summary>Resolve slot folders for the current profile and reload what each slot shows.</summary>
         private void RefreshMetas()
         {
+            int profileId = Core.currentProfile != null ? Core.currentProfile.id : 0;
             for (int i = 0; i < SlotCount; i++)
-                _slotMetas[i] = ReadMeta(i);
+            {
+                string own = SlotsBaseFor(profileId) + "/slot" + (i + 1);
+                string legacy = LegacySlotsBase + "/slot" + (i + 1);
+                _slotPaths[i] = own;
+                bool useLegacy = !File.Exists(own + "/sav.dat") && File.Exists(legacy + "/sav.dat");
+                _slotReadPaths[i] = useLegacy ? legacy : own;
+                _slotIsLegacy[i] = useLegacy;
+                _slotMetas[i] = ReadMeta(_slotReadPaths[i]);
+            }
         }
 
-        private ManualSaveSlotMeta ReadMeta(int idx)
+        private static ManualSaveSlotMeta ReadMeta(string slotDir)
         {
-            string metaPath = _slotPaths[idx] + "/meta.json";
+            string metaPath = slotDir + "/meta.json";
             if (File.Exists(metaPath))
             {
                 try
                 {
                     var m = JsonConvert.DeserializeObject<ManualSaveSlotMeta>(File.ReadAllText(metaPath));
-                    if (m != null) return m;
+                    if (m != null)
+                    {
+                        m.hasData = m.hasData && File.Exists(slotDir + "/sav.dat");
+                        return m;
+                    }
                 }
                 catch (System.Exception ex)
                 {
                     ModRuntime.Log?.LogError("[ManualSave] failed to read slot meta: " + ex);
                 }
             }
-            return new ManualSaveSlotMeta { hasData = File.Exists(_slotPaths[idx] + "/sav.dat") };
+            return new ManualSaveSlotMeta { hasData = File.Exists(slotDir + "/sav.dat") };
         }
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F3) && !Core.mainMenu && !Core.loadingGame && !Core.forbidInputs)
+            if (Input.GetKeyDown(KeyCode.F3))
+                Toggle();
+
+            if (_visible)
             {
-                _visible = !_visible;
-                if (_visible) RefreshMetas();
+                // Scene change / title under an open window, or Esc: close it.
+                if (Core.mainMenu || Core.loadingGame || Input.GetKeyDown(KeyCode.Escape))
+                    Toggle();
             }
+            // Hold vanilla input (movement, hotbar, walkie) while the window is up.
+            UiInputLock.Set(LockOwner, _visible);
 
             if (_statusTimer > 0)
             {
                 _statusTimer -= Time.unscaledDeltaTime;
                 if (_statusTimer <= 0) _statusMsg = "";
-            }
-
-            if (_scheduledBackupRestore && Player.Instance != null)
-            {
-                _scheduledBackupRestore = false;
-                // Host character lives in sav.dat; never overlay ClientBackup on host.
-                // Role==Host alone: IsConnected is PeerCount>0, so solo host before any
-                // client join used to restore and overwrite the host body with an old self.
-                var net = ModRuntime.Network as Networking.LanNetworkManager;
-                if (net != null && net.Role == Networking.NetworkRole.Host)
-                {
-                    ModRuntime.LegacyInfo(
-                        "[ManualSave] skip backup restore on host — sav.dat is authoritative");
-                }
-                else
-                {
-                    var data = Networking.ClientStateBackup.LoadLocalSelfBackupFile();
-                    if (data != null)
-                    {
-                        Networking.ClientStateBackup.RestoreFromBackup(data);
-                        ModRuntime.LegacyInfo("[ManualSave] restored local self backup after load");
-                    }
-                }
             }
         }
 
@@ -172,9 +194,13 @@ namespace DWMPHorde
                 GUI.color = Color.white;
             }
 
+            GameProfile profile = Core.currentProfile;
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Profile " + Core.currentProfile.id + " | Day " + Core.currentProfile.day + " | Ch." + Core.currentProfile.chapter, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("X", GUILayout.Width(24))) { _visible = false; }
+            GUILayout.Label(profile != null
+                    ? "Profile " + profile.id + " | Day " + profile.day + " | Ch." + profile.chapter
+                    : "No active profile",
+                GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("X", GUILayout.Width(24))) { _visible = false; _confirmingOverwrite = false; }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4f);
@@ -199,6 +225,8 @@ namespace DWMPHorde
                 string info = "Day " + m.day + " | Ch." + m.chapter;
                 if (!string.IsNullOrEmpty(m.timeSaved))
                     info += " | " + m.timeSaved;
+                if (_slotIsLegacy[idx])
+                    info += " | shared (old)";
                 GUILayout.Label(info, GUILayout.ExpandWidth(true));
             }
             else
@@ -208,7 +236,7 @@ namespace DWMPHorde
 
             if (_confirmingOverwrite && _pendingSlot == idx)
             {
-                GUILayout.Label("Overwrite?", GUILayout.Width(90f));
+                GUILayout.Label(_pendingIsSave ? "Overwrite?" : "Load? (lose progress)", GUILayout.Width(_pendingIsSave ? 90f : 140f));
                 if (GUILayout.Button("Yes", GUILayout.Width(50f)))
                 {
                     _confirmingOverwrite = false;
@@ -236,7 +264,12 @@ namespace DWMPHorde
 
                 GUI.enabled = m.hasData;
                 if (GUILayout.Button("Load", GUILayout.Width(60f)))
-                    DoLoad(idx);
+                {
+                    // Loading replaces the live profile files: always confirm.
+                    _confirmingOverwrite = true;
+                    _pendingSlot = idx;
+                    _pendingIsSave = false;
+                }
                 GUI.enabled = true;
             }
 
@@ -253,26 +286,53 @@ namespace DWMPHorde
                     return;
                 }
 
-                // Block manual save during partial night death or an active dream.
-                if (DeathStateTracker.LocalNightDeath && !DeathStateTracker.AllDeadAtNight)
+                // A connected client's world Save is blocked (the host owns Flags/DynamicSave), so
+                // the profile files on disk are stale: copying them would report a save that never
+                // happened. Personal inventory is backed up automatically.
+                var net = Net;
+                if (net != null && net.IsConnected && net.Role == Networking.NetworkRole.Client)
                 {
-                    SetStatus("Blocked: cannot save during partial night death");
+                    SetStatus("Blocked: only the host can save the co-op world (F3 on the host)");
                     return;
                 }
-                if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsLocalDreamActive)
+
+                if (Core.currentProfile == null)
                 {
-                    SetStatus("Blocked: cannot save during dream session");
+                    SetStatus("Error: no active profile");
                     return;
                 }
+
+                // Same rule as every automatic host save: no partial night death, no dream.
+                string blocked = Networking.WorldSaveGuards.GetWorldSaveBlockReason();
+                if (blocked != null)
+                {
+                    SetStatus("Blocked: cannot save during " + blocked);
+                    return;
+                }
+                string profDir = SaveDir + "/prof" + Core.currentProfile.id;
+                string slotDir = _slotPaths[idx];
+                string savPath = profDir + "/sav.dat";
+                DateTime savBefore = File.Exists(savPath) ? File.GetLastWriteTimeUtc(savPath) : DateTime.MinValue;
+
                 // Co-op: local Save + SaveSyncPatch fans out so every peer Saves with Saving UI.
                 Singleton<SaveManager>.Instance.Save(true, true, true, false, true);
 
-                string profDir = SaveDir + "/prof" + Core.currentProfile.id;
-                string slotDir = _slotPaths[idx];
+                // Save returns silently when it declines (loading, patched out): only report
+                // success when the profile file really changed.
+                if (!File.Exists(savPath) || File.GetLastWriteTimeUtc(savPath) <= savBefore)
+                {
+                    SetStatus("Save did not write — try again in a moment");
+                    ModRuntime.Log?.LogWarning("[ManualSave] Save produced no new sav.dat (" + savPath + ")");
+                    return;
+                }
 
-                CopyIfExists(profDir + "/sav.dat", slotDir + "/sav.dat");
-                CopyIfExists(profDir + "/savs.dat", slotDir + "/savs.dat");
-                CopyIfExists(profDir + "/savch.dat", slotDir + "/savch.dat");
+                // Whole set in one read, then an atomic swap into the slot: a stale savch.dat
+                // from an older save in this slot is removed with the rest.
+                if (!CopySaveSet(profDir, slotDir, out string copyError))
+                {
+                    SetStatus("Save error: " + copyError);
+                    return;
+                }
 
                 var meta = new ManualSaveSlotMeta
                 {
@@ -283,9 +343,9 @@ namespace DWMPHorde
                     minorVersion = Core.minorVersion,
                     hasData = true
                 };
-                File.WriteAllText(slotDir + "/meta.json", JsonConvert.SerializeObject(meta, Formatting.Indented));
+                WriteTextAtomic(slotDir + "/meta.json", JsonConvert.SerializeObject(meta, Formatting.Indented));
 
-                _slotMetas[idx] = meta;
+                RefreshMetas();
                 SetStatus("Saved to slot " + (idx + 1));
             }
             catch (Exception ex)
@@ -299,15 +359,15 @@ namespace DWMPHorde
         {
             try
             {
-                if (!File.Exists(_slotPaths[idx] + "/sav.dat"))
-                {
-                    SetStatus("Slot " + (idx + 1) + " is empty");
-                    return;
-                }
-
                 if (Core.currentProfile == null)
                 {
                     SetStatus("Error: no active profile");
+                    return;
+                }
+
+                if (!File.Exists(_slotReadPaths[idx] + "/sav.dat"))
+                {
+                    SetStatus("Slot " + (idx + 1) + " is empty");
                     return;
                 }
 
@@ -317,13 +377,33 @@ namespace DWMPHorde
                     return;
                 }
 
+                // Loading swaps the live profile files and reloads the chapter: that would pull
+                // the host's world out from under connected peers (or desync a client from its
+                // host). Leave the session first.
+                var session = Net;
+                if (session != null && session.Role != Networking.NetworkRole.Offline)
+                {
+                    SetStatus("Blocked: leave the co-op session first (F2 > Disconnect), then load");
+                    return;
+                }
+
+                if (Core.loadingGame || Core.mainMenu)
+                {
+                    SetStatus("Blocked: wait until the game finishes loading");
+                    return;
+                }
+
                 ManualSaveSlotMeta meta = _slotMetas[idx];
                 string profDir = SaveDir + "/prof" + Core.currentProfile.id;
-                string slotDir = _slotPaths[idx];
+                string slotDir = _slotReadPaths[idx];
 
-                CopyIfExists(slotDir + "/sav.dat", profDir + "/sav.dat");
-                CopyIfExists(slotDir + "/savs.dat", profDir + "/savs.dat");
-                CopyIfExists(slotDir + "/savch.dat", profDir + "/savch.dat");
+                // Atomic: the profile ends up with exactly the slot's set (a savch.dat the slot
+                // does not have is removed), or untouched when anything fails.
+                if (!CopySaveSet(slotDir, profDir, out string copyError))
+                {
+                    SetStatus("Load error: " + copyError);
+                    return;
+                }
 
                 // Loading a ManualSave slot is a different save instance; remint so
                 // ClientBackup from another slot/campaign cannot apply.
@@ -335,20 +415,8 @@ namespace DWMPHorde
                 Core.currentProfile.majorVersion = meta.majorVersion;
                 Core.currentProfile.minorVersion = meta.minorVersion;
 
-                // Snapshot personal inv/skills before slot files overwrite the profile.
-                // Skip empty collects so we never clobber a good self backup (title/load race).
-                var backupData = Networking.ClientStateBackup.CollectBackupData();
-                if (Networking.ClientStateBackup.HasMeaningfulProgress(backupData))
-                {
-                    string backupJson = Networking.ClientStateBackup.SerializeToJson(backupData);
-                    Networking.ClientStateBackup.SaveLocalSelfBackupFile(backupJson);
-                }
-                else
-                {
-                    ModRuntime.LegacyInfo(
-                        "[ManualSave] skip pre-load self snapshot — player not ready / empty");
-                }
-
+                // Offline load: the slot's sav.dat holds the character. No personal backup is
+                // snapshotted or overlaid — that put the pre-load inventory back on (item dupe).
                 Singleton<SaveManager>.Instance.saveGameProfiles();
 
                 _visible = false;
@@ -357,11 +425,6 @@ namespace DWMPHorde
                 Sync.WorldPhysicsSyncService.Reset();
                 Sync.DreamSyncManager.OnDisconnected();
                 Sync.MultiplayerMapManager.Reset();
-
-                // Only clients need post-load overlay (host uses slot character as-is).
-                var net = ModRuntime.Network as Networking.LanNetworkManager;
-                bool isHost = net != null && net.IsConnected && net.Role == Networking.NetworkRole.Host;
-                _scheduledBackupRestore = !isHost;
 
                 int chapterId = meta.chapter > 0 ? meta.chapter : 1;
 
@@ -383,10 +446,28 @@ namespace DWMPHorde
             }
         }
 
-        private static void CopyIfExists(string src, string dst)
+        /// <summary>Copy a whole save set from one folder to another through the crash-safe swap.</summary>
+        private static bool CopySaveSet(string srcDir, string dstDir, out string error)
         {
-            if (File.Exists(src))
-                File.Copy(src, dst, true);
+            List<KeyValuePair<string, byte[]>> set;
+            try { set = Networking.WorldSaveShareService.ReadSaveSet(srcDir); }
+            catch (Exception ex)
+            {
+                error = "could not read " + srcDir + ": " + ex.Message;
+                return false;
+            }
+            bool hasSav = false;
+            foreach (var f in set)
+                if (f.Key == "sav.dat") hasSav = true;
+            if (!hasSav)
+            {
+                error = "no sav.dat in " + srcDir;
+                return false;
+            }
+            return Networking.WorldSaveShareService.TryReplaceSaveSet(dstDir, set, out error);
         }
+
+        private static void WriteTextAtomic(string path, string text) =>
+            Networking.CoopWorldCopyMeta.WriteAllTextAtomic(path, text);
     }
 }

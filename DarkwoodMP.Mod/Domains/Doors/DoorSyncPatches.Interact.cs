@@ -16,9 +16,23 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchMe")]
     public static class InteractiveItemSwitchPatch
     {
+        /// <summary>
+        /// True while vanilla switchMe runs: it calls switchOn/switchOff itself, and those patches
+        /// must not send a second (duplicate, well-heal-ignoring) message for the same toggle.
+        /// </summary>
+        [ThreadStatic] private static int _insideSwitchMe; // process-scoped: call-scoped, unwound by Finalizer
+        internal static bool InsideSwitchMe => _insideSwitchMe > 0;
+
         private static void Prefix(InteractiveItem __instance, out bool __state)
         {
             __state = __instance.isOn;
+            _insideSwitchMe++;
+        }
+
+        // Finalizer (not Postfix): switchMe's event triggers can throw; the scope must close.
+        private static void Finalizer()
+        {
+            if (_insideSwitchMe > 0) _insideSwitchMe--;
         }
 
         private static void Postfix(InteractiveItem __instance, bool __state)
@@ -29,6 +43,9 @@ namespace DWMPHorde.Sync
                 return;
             if (__state == __instance.isOn)
                 return; // no actual change
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             // For wells: only sync the fix/repair (false→true), not the use/heal (true→false).
             // Non-well items: sync both directions as before.
@@ -49,10 +66,10 @@ namespace DWMPHorde.Sync
                 PosZ = key.z,
                 IsOn = __instance.isOn
             });
-            ModRuntime.LegacyInfo("[InteractiveItemSync] switchMe at " + key + " isOn=" + __instance.isOn);
+            ModRuntime.LegacyInfo($"[InteractiveItemSync] switchMe at {key} isOn={__instance.isOn}");
         }
 
-        private static bool IsWellInteractiveItem(InteractiveItem ii)
+        internal static bool IsWellInteractiveItem(InteractiveItem ii)
         {
             Transform t = ii.transform;
             while (t != null)
@@ -71,10 +88,19 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchOn")]
     public static class InteractiveItemSwitchOnPatch
     {
-        private static void Postfix(InteractiveItem __instance)
+        private static void Prefix(InteractiveItem __instance, out bool __state)
+        {
+            __state = __instance.isOn;
+        }
+
+        private static void Postfix(InteractiveItem __instance, bool __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            // switchMe (player toggle) is reported by InteractiveItemSwitchPatch, once.
+            if (InteractiveItemSwitchPatch.InsideSwitchMe) return;
+            if (__state == __instance.isOn) return; // no actual change
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -93,10 +119,21 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(InteractiveItem), "switchOff")]
     public static class InteractiveItemSwitchOffPatch
     {
-        private static void Postfix(InteractiveItem __instance)
+        private static void Prefix(InteractiveItem __instance, out bool __state)
+        {
+            __state = __instance.isOn;
+        }
+
+        private static void Postfix(InteractiveItem __instance, bool __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            // switchMe (player toggle) is reported by InteractiveItemSwitchPatch, once.
+            if (InteractiveItemSwitchPatch.InsideSwitchMe) return;
+            if (__state == __instance.isOn) return; // no actual change
+            // A well's use/heal is per-player: only the fix/repair (off→on) is shared.
+            if (InteractiveItemSwitchPatch.IsWellInteractiveItem(__instance)) return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform)) return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -122,6 +159,8 @@ namespace DWMPHorde.Sync
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -132,7 +171,7 @@ namespace DWMPHorde.Sync
                 PosY = key.y,
                 PosZ = key.z
             });
-            ModRuntime.LegacyInfo("[PadlockSync] unlock at " + key);
+            ModRuntime.LegacyInfo($"[PadlockSync] unlock at {key}");
         }
     }
 
@@ -149,6 +188,8 @@ namespace DWMPHorde.Sync
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -159,15 +200,23 @@ namespace DWMPHorde.Sync
                 PosY = key.y,
                 PosZ = key.z
             });
-            ModRuntime.LegacyInfo("[LockedSync] unlock at " + key);
+            ModRuntime.LegacyInfo($"[LockedSync] unlock at {key}");
         }
     }
 
-    /// <summary>Harmony patch: intercepts Generator.addFuel() and broadcasts updated state.</summary>
+    /// <summary>
+    /// Generator.addFuel: clients send FuelDelta for host-auth accumulation (concurrent pour
+    /// no longer last-writer absolute underfuel). Host pours stay absolute (FuelDelta=0).
+    /// </summary>
     [HarmonyPatch(typeof(Generator), "addFuel")]
     public static class GeneratorAddFuelPatch
     {
-        private static void Postfix(Generator __instance)
+        private static void Prefix(float addFuelAmount, out float __state)
+        {
+            __state = addFuelAmount;
+        }
+
+        private static void Postfix(Generator __instance, float __state)
         {
             if (ModRuntime.Network == null)
                 return;
@@ -180,6 +229,12 @@ namespace DWMPHorde.Sync
             Item itemComp = __instance.GetComponent<Item>();
             string itemType = itemComp != null && itemComp.invItem != null ? itemComp.invItem.type : "";
 
+            // Client → host: delta so concurrent pours sum. Host → peers: absolute.
+            float delta = 0f;
+            var net = ModRuntime.Network;
+            if (net != null && net.Role == NetworkRole.Client && __state > 0.01f)
+                delta = __state;
+
             ModRuntime.Network.SendGeneratorState(new GeneratorState
             {
                 PosX = key.x,
@@ -188,10 +243,11 @@ namespace DWMPHorde.Sync
                 IsOn = __instance.isOn,
                 Fuel = __instance.fuel,
                 LowPower = __instance.lowPower,
-                ItemType = itemType
+                ItemType = itemType,
+                FuelDelta = delta
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GeneratorSync] send addFuel at " + key + " fuel=" + __instance.fuel);
+                ModRuntime.LegacyInfo($"[GeneratorSync] send addFuel at {key} fuel={__instance.fuel} delta={delta}");
         }
     }
 
@@ -223,7 +279,7 @@ namespace DWMPHorde.Sync
                 ItemType = itemType
             });
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[GeneratorSync] send setLowPower=" + __instance.lowPower + " at " + key);
+                ModRuntime.LegacyInfo($"[GeneratorSync] send setLowPower={__instance.lowPower} at {key}");
         }
     }
 }

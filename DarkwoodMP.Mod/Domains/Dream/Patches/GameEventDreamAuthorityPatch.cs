@@ -1,4 +1,5 @@
 using System.Collections;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
@@ -29,18 +30,12 @@ namespace DWMPHorde.Patches
                 || __instance.type == GameEvent.Type.endDream)
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] Client skip GE " + __instance.type
-                    + " under NetworkApplyGuard (host Dream* authority)");
-                __result = EmptyRoutine();
+                    $"[DreamSync] Client skip GE {__instance.type} under NetworkApplyGuard (host Dream* authority)");
+                __result = HarmonyCoroutineUtil.Empty();
                 return false;
             }
 
             return true;
-        }
-
-        private static IEnumerator EmptyRoutine()
-        {
-            yield break;
         }
     }
 }

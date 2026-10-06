@@ -29,19 +29,22 @@ namespace DWMPHorde.Networking
             _needsJournalWorldCleanup = false;
         }
 
-        internal void HandleWorkbenchLock(WorkbenchLockMessage msg)
-        {
-            // The exclusive workbench feature is disabled; ignore its wire traffic.
-            // Keep the handler so older WorkbenchLock packets are ignored cleanly.
-            // No grant, deny, or release action is performed.
-            _ = msg;
-        }
         internal void HandleWorkbenchLevel(WorkbenchLevelMessage msg)
         {
             if (_net.Role == NetworkRole.Client)
                 return;
 
-            ApplyWorkbenchLevel(msg.Level);
+            // Host rebroadcasts the authoritative level below; never relay the raw client value.
+            _net.SuppressRelay();
+
+            // A client sends this only after it paid for one upgrade (vanilla workbenchLevel++).
+            // Ahead of the host: take it. Not ahead: someone upgraded the same level at the same
+            // time, and both paid, so this one is the next level (taking the max lost a level).
+            int current = Singleton<Controller>.Instance != null
+                ? Singleton<Controller>.Instance.workbenchLevel : 0;
+            int level = msg.Level > current ? msg.Level : current + 1;
+            if (level != current)
+                ApplyWorkbenchLevel(level);
             _net.BulkSyncHandlers.SendWorkbenchLevelSync();
         }
 
@@ -57,7 +60,7 @@ namespace DWMPHorde.Networking
             else
             {
                 Singleton<Controller>.Instance.workbenchLevel = level;
-                ModRuntime.LegacyInfo("[Workbench] Level synced from " + prevLevel + " to " + level);
+                ModRuntime.LegacyInfo($"[Workbench] Level synced from {prevLevel} to {level}");
             }
 
             // If the workbench inventory is currently open, refresh the display
@@ -86,10 +89,22 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Vanilla marks a page picked up or written while dreaming (<c>inDream</c>) and clears it from
+        /// the journal when the dream ends. The sender says which kind its page is: a shared dream's
+        /// page is a dream page here too (or it outlived the dream on every other peer), and a world
+        /// page stays one even while this player is in a dream of its own (the host's prologue lost
+        /// the pages a peer found meanwhile).
+        /// </summary>
+        private static bool PickedInDream(JournalItemMessage msg) => msg.InDream;
+
         internal void HandleJournalItem(JournalItemMessage msg)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
             if (journal == null) return;
+            // A page of a dream this player is not in (the sender's own): not this journal's.
+            if (msg.InDream && !DreamSyncManager.IsDreamActive)
+                return;
 
             switch (msg.Kind)
             {
@@ -98,6 +113,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Note note = new Journal.Note();
                         note.type = msg.Type;
+                        note.inDream = PickedInDream(msg);
                         note.timePickedUp = Singleton<Controller>.Instance != null
                             ? Singleton<Controller>.Instance.CurrentTime : 0;
                         journal.notesDict.Add(msg.Type, note);
@@ -109,6 +125,7 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Key key = new Journal.Key();
                         key.type = msg.Type;
+                        key.inDream = PickedInDream(msg);
                         journal.keysDict.Add(msg.Type, key);
                         journal.showJournalInfoPopup("Key", msg.Type);
                     }
@@ -118,13 +135,19 @@ namespace DWMPHorde.Networking
                     {
                         Journal.Item item = new Journal.Item();
                         item.type = msg.Type;
+                        item.inDream = PickedInDream(msg);
                         journal.itemsDict.Add(msg.Type, item);
                         journal.showJournalInfoPopup("InvItem", msg.Type);
                     }
                     break;
                 case JournalItemKind.JournalEntry:
+                {
+                    bool added = journal.journalEntriesDict != null && !journal.journalEntriesDict.ContainsKey(msg.Type);
                     journal.addJournalEntry(msg.Type, noPopup: false);
+                    if (added && journal.journalEntriesDict.TryGetValue(msg.Type, out Journal.JournalEntry entry))
+                        entry.inDream = msg.InDream;
                     break;
+                }
                 case JournalItemKind.Remove:
                     if (journal.keysDict != null && journal.keysDict.ContainsKey(msg.Type))
                         journal.keysDict.Remove(msg.Type);
@@ -132,6 +155,13 @@ namespace DWMPHorde.Networking
                         journal.notesDict.Remove(msg.Type);
                     if (journal.itemsDict != null && journal.itemsDict.ContainsKey(msg.Type))
                         journal.itemsDict.Remove(msg.Type);
+                    break;
+                case JournalItemKind.Location:
+                    // Journal Locations tab (Location.discoverMe). Map pins sync separately.
+                    // No popup — discoverMe already showed on the discovering peer.
+                    if (journal.locationsDict != null && !string.IsNullOrEmpty(msg.Type)
+                        && !journal.locationsDict.ContainsKey(msg.Type))
+                        journal.locationsDict.Add(msg.Type, msg.Type);
                     break;
                 default:
                     ModRuntime.Log?.LogWarning($"[Journal] Unhandled JournalItemKind: {msg.Kind}");
@@ -147,6 +177,8 @@ namespace DWMPHorde.Networking
         /// Finds and destroys the physical world object (JournalNoteReference,
         /// KeyReference, or QuestItemReference) matching the given journal item,
         /// so the host's world reflects that the remote player already took it.
+        /// Item path + InvItem-only path (keys/notes on InvItem without Item used to
+        /// survive peer pickup and stay dual-pickable).
         /// </summary>
         internal static void DestroyWorldJournalObject(JournalItemKind kind, string type)
         {
@@ -161,12 +193,10 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allNotes.Length; i++)
                         {
                             if (allNotes[i] == null) continue;
+                            if (allNotes[i].dontDestroy) continue;
                             var note = Singleton<JournalDatabase>.Instance?.getNote(allNotes[i].noteName);
                             if (note != null && note.type == type)
-                            {
-                                if (allNotes[i].GetComponent<Item>() != null)
-                                    UnityEngine.Object.Destroy(allNotes[i].gameObject);
-                            }
+                                DestroyJournalWorldGo(allNotes[i]);
                         }
                         break;
                     }
@@ -177,10 +207,7 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allKeys.Length; i++)
                         {
                             if (allKeys[i] != null && allKeys[i].type == type)
-                            {
-                                if (allKeys[i].GetComponent<Item>() != null)
-                                    UnityEngine.Object.Destroy(allKeys[i].gameObject);
-                            }
+                                DestroyJournalWorldGo(allKeys[i]);
                         }
                         break;
                     }
@@ -191,12 +218,15 @@ namespace DWMPHorde.Networking
                         for (int i = 0; i < allQuest.Length; i++)
                         {
                             if (allQuest[i] != null && allQuest[i].type == type)
-                                UnityEngine.Object.Destroy(allQuest[i].gameObject);
+                                DestroyJournalWorldGo(allQuest[i]);
                         }
                         break;
                     }
                 case JournalItemKind.JournalEntry:
                     // Story journal entries have no world pickup object to despawn.
+                    break;
+                case JournalItemKind.Location:
+                    // Journal location names have no world pickup object to despawn.
                     break;
                 default:
                     // Avoid per-frame spam: log once per kind value.
@@ -205,20 +235,30 @@ namespace DWMPHorde.Networking
             }
         }
 
-
-        
-
-        internal void HandleOxygenTankStash(OxygenTankStashMessage msg)
+        /// <summary>
+        /// Destroy a scene journal pickup GO. Prefer parent Item root so mesh+colliders go;
+        /// InvItem-only scene keys/notes (no Item) destroy the reference GO. Scene-valid
+        /// guard skips database prefabs (FindObjectsOfType never returns those anyway).
+        /// </summary>
+        internal static void DestroyJournalWorldGo(Component journalRef)
         {
-            // Any peer: grant empty tank if local player lacks one.
-            Patches.OxygenTankStashHandler.Handle();
-        }
+            if (journalRef == null) return;
+            GameObject go = journalRef.gameObject;
+            if (go == null) return;
+            try
+            {
+                if (!go.scene.IsValid() || !go.scene.isLoaded)
+                    return;
+            }
+            catch { return; }
 
-        internal void HandleCompressorTankConvert(CompressorTankConvertMessage msg)
-        {
-            // Host and clients both convert local empty→full when a peer uses
-            // the compressor (sender excluded by Forwardable / no self-receive).
-            Patches.CompressorTankConvertHandler.Handle();
+            Item item = journalRef.GetComponent<Item>() ?? journalRef.GetComponentInParent<Item>();
+            GameObject target = item != null ? item.gameObject : go;
+            try
+            {
+                UnityEngine.Object.Destroy(target);
+            }
+            catch { /* destroyed Unity object */ }
         }
     }
 }

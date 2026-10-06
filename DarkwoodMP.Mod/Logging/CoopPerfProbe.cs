@@ -10,6 +10,8 @@ namespace DWMPHorde.Logging
     /// Co-op frame cost probe for Host and Client. Emits a periodic Event line while
     /// connected so dual-box FPS bugs show in LogOutput without Trace spam.
     /// Times are milliseconds accumulated between reports.
+    /// Only runs under LogPreset Dev/Trace or Debug.PerfProbe; otherwise every entry point
+    /// is a single bool check (SetActive refuses to arm it).
     /// </summary>
     public static partial class CoopPerfProbe
     {
@@ -50,6 +52,10 @@ namespace DWMPHorde.Logging
 
         private static int _hostEntSendSnaps;
         private static int _hostEntSendCount;
+        /// <summary>Host snapshot ticks this window and the real time between them (target 50 ms).</summary>
+        private static int _hostEntTicks;
+        private static float _hostEntIntervalSum;
+        private static float _hostEntIntervalMax;
 
         private static string _segName;
         private static string _lastSegName = "";
@@ -70,8 +76,23 @@ namespace DWMPHorde.Logging
 
         public static bool IsActive => _active;
 
+        /// <summary>Probe allowed by config: Dev/Trace preset or the PerfProbe flag.</summary>
+        public static bool IsEnabledByConfig
+        {
+            get
+            {
+                LogPreset preset = ModLog.CurrentPreset;
+                return preset == LogPreset.Dev || preset == LogPreset.Trace
+                    || Config.ModConfig.IsPerfProbe;
+            }
+        }
+
         public static void SetActive(bool active, NetworkRole role = NetworkRole.Offline)
         {
+            if (active && !IsEnabledByConfig)
+                active = false;
+            if (!active && !_active)
+                return; // already idle: nothing to reset or log
             string tag = role == NetworkRole.Host ? "Host"
                 : role == NetworkRole.Client ? "Client" : "?";
             if (_active == active && _roleTag == tag) return;
@@ -110,6 +131,8 @@ namespace DWMPHorde.Logging
             Array.Clear(_pktByType, 0, _pktByType.Length);
             _pendLure = _pendLock = _pendLight = _pendTrap = _pendFeeder = _pendSaw = _pendConstruct = 0;
             _hostEntSendSnaps = _hostEntSendCount = 0;
+            _hostEntTicks = 0;
+            _hostEntIntervalSum = _hostEntIntervalMax = 0f;
             _segName = null;
             _lastSegName = "";
             _segMaxMs = 0;
@@ -334,6 +357,16 @@ namespace DWMPHorde.Logging
             _hostEntSendCount += entityCount;
         }
 
+        /// <summary>Host: one snapshot tick ran, <paramref name="interval"/> seconds after the previous one.</summary>
+        public static void NoteEntityTick(float interval)
+        {
+            if (!_active || interval <= 0f) return;
+            _hostEntTicks++;
+            _hostEntIntervalSum += interval;
+            if (interval > _hostEntIntervalMax)
+                _hostEntIntervalMax = interval;
+        }
+
         private static void MaybeReport()
         {
             if (Time.unscaledTime < _reportAt) return;
@@ -392,6 +425,11 @@ namespace DWMPHorde.Logging
             {
                 sb.Append(" | hostEntSend snaps=").Append(_hostEntSendSnaps);
                 sb.Append(" ents=").Append(_hostEntSendCount);
+            }
+            if (_hostEntTicks > 0)
+            {
+                sb.Append(" | hostEntTick ms avg=").Append((_hostEntIntervalSum / _hostEntTicks * 1000f).ToString("F1"));
+                sb.Append(" max=").Append((_hostEntIntervalMax * 1000f).ToString("F1"));
             }
             if (_segMaxMs >= 1.0 && !string.IsNullOrEmpty(_segMaxName))
             {

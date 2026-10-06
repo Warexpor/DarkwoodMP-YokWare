@@ -16,4 +16,11 @@ namespace DWMPHorde.Networking
     /// </summary>
     [AttributeUsage(AttributeTargets.Field)]
     internal sealed class ForwardablePlayerAttribute : Attribute { }
+
+    /// <summary>
+    /// Mark a NetMessageType that only the host may send. The host drops it unread when a client
+    /// sends it, so a modified or confused client cannot drive host-authoritative state.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    internal sealed class HostOnlyAttribute : Attribute { }
 }

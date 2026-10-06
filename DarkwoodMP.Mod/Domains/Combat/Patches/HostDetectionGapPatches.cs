@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -11,21 +12,42 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Replaces Sniffer.Update entirely on the host.
     /// Checks BOTH the host player (Player.Instance) and ALL proxies for smell range,
-    /// and sniffs the closest one. When the sniff completes, attacks whichever player
+    /// and sniffs the one <see cref="PlayerTargetArbiter.PickSmelled"/> picks (the player it is
+    /// already after, else the nearest). When the sniff completes, attacks whichever player
     /// triggered the sniff.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Sniffer), "Update")]
     public static class HostSnifferUpdatePatch
     {
         /// <summary>Maps Sniffer → playerId of the target that triggered the current/next sniff.</summary>
         private static readonly Dictionary<Sniffer, int> _sniffTargetPlayerId = new Dictionary<Sniffer, int>();
 
+        /// <summary>Sniffer instance id → owning Character (Update runs every frame).</summary>
+        private static readonly Dictionary<int, Character> _characterBySniffer = new Dictionary<int, Character>();
+
+        private static readonly AccessTools.FieldRef<Sniffer, float> TimeStartedSniffing =
+            AccessTools.FieldRefAccess<Sniffer, float>("timeStartedSniffing");
+
         public static void Reset()
         {
             _sniffTargetPlayerId.Clear();
+            _characterBySniffer.Clear();
         }
 
+        private static Character CharacterOf(Sniffer sniffer)
+        {
+            int id = sniffer.GetInstanceID();
+            if (!_characterBySniffer.TryGetValue(id, out Character c) || c == null)
+            {
+                if (_characterBySniffer.Count >= 4096)
+                    _characterBySniffer.Clear();
+                c = sniffer.GetComponent<Character>();
+                _characterBySniffer[id] = c;
+            }
+            return c;
+        }
+
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(Sniffer __instance)
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
@@ -35,7 +57,7 @@ namespace DWMPHorde.Patches
             if (__instance.disabled)
                 return false;
 
-            Character charComponent = __instance.GetComponent<Character>();
+            Character charComponent = CharacterOf(__instance);
             if (charComponent == null)
                 return false;
 
@@ -44,18 +66,11 @@ namespace DWMPHorde.Patches
             if (ProxyDistanceHelper.ProxyIsFar(charComponent))
                 return true;
 
-            // Entity is busy; skip sniff logic.
-            if (charComponent.behaviour == Character.Behaviour.chasingTarget ||
-                charComponent.behaviour == Character.Behaviour.defensive ||
-                charComponent.behaviour == Character.Behaviour.escaping)
-                return false;
-
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return false;
 
             // --- Sniff lifecycle ---
-            var tSniff = Traverse.Create(__instance);
-            float timeStarted = tSniff.Field("timeStartedSniffing").GetValue<float>();
+            float timeStarted = TimeStartedSniffing(__instance);
 
             if (__instance.sniffing)
             {
@@ -66,38 +81,24 @@ namespace DWMPHorde.Patches
 
             if (__instance.canSniff)
             {
-                // Check BOTH host and all proxies for proximity
-                bool hostInRange = Player.Instance != null &&
-                    Core.trueDistance(__instance.transform.position, Player.Instance._transform.position) < __instance.radius;
+                // Vanilla startSniffing gates: not while the entity already sees an enemy or is
+                // chasing / defending / escaping. (Vanilla only gates the START, so the sniff
+                // timer and cooldown above/below keep running while the entity is busy.)
+                if (charComponent.enemyInSight
+                    || charComponent.behaviour == Character.Behaviour.chasingTarget
+                    || charComponent.behaviour == Character.Behaviour.defensive
+                    || charComponent.behaviour == Character.Behaviour.escaping)
+                    return false;
 
-                // Find the closest in-range proxy
-                int closestProxyId = -1;
-                float closestProxyDist = float.MaxValue;
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy == null) continue;
-                    float d = Core.trueDistance(__instance.transform.position, proxy.transform.position);
-                    if (d < __instance.radius && d < closestProxyDist)
-                    {
-                        closestProxyDist = d;
-                        closestProxyId = proxy.PlayerId;
-                    }
-                }
+                // Every player body inside the smell radius counts alike: the one the creature is
+                // already after, else the nearest (PlayerTargetArbiter).
+                if (!PlayerTargetArbiter.PickSmelled(charComponent, __instance.radius, out int sniffedId))
+                    return false;
 
-                if (!hostInRange && closestProxyId < 0)
-                    return false; // neither host nor any proxy in range
-
-                float distToHost = hostInRange
-                    ? Core.trueDistance(__instance.transform.position, Player.Instance._transform.position)
-                    : float.MaxValue;
-
-                // Sniff the closer player (or host if equal)
-                bool sniffProxy = closestProxyId >= 0 && (!hostInRange || closestProxyDist < distToHost);
-
-                _sniffTargetPlayerId[__instance] = sniffProxy ? closestProxyId : -1; // -1 = host
+                _sniffTargetPlayerId[__instance] = sniffedId; // -1 = host
 
                 __instance.sniffing = true;
-                tSniff.Field("timeStartedSniffing").SetValue(Time.time);
+                TimeStartedSniffing(__instance) = Time.time;
                 AudioController.Play(__instance.sniffSound, __instance.transform);
                 return false;
             }
@@ -140,7 +141,11 @@ namespace DWMPHorde.Patches
                 if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
                     return;
 
-                charComponent.attackCharacter(proxy.transform);
+                // Vanilla stopSniffing: the sniffed body must still be within smell range.
+                if (Core.trueDistance(__instance.transform.position, proxy.transform.position) >= __instance.radius)
+                    return;
+
+                PlayerTargetArbiter.Commit(charComponent, proxy.transform, "sniff");
             }
             else
             {
@@ -149,43 +154,121 @@ namespace DWMPHorde.Patches
                 if (host == null || host.invisible || host.ignoreMe)
                     return;
 
-                charComponent.attackPlayer();
+                // Vanilla stopSniffing: the sniffed body must still be within smell range.
+                if (Core.trueDistance(__instance.transform.position, host._transform.position) >= __instance.radius)
+                    return;
+
+                // Attack the sniffed body. attackPlayer() retargets to the nearest
+                // peer and would drop the host the sniffer just finished on.
+                PlayerTargetArbiter.Commit(charComponent, host.transform, "sniff");
             }
         }
     }
 
     /// <summary>
-    /// Applies EnemyOfTheForest / FriendOfTheForest effects when a
-    /// remote proxy is seen near an animalAggressive entity, overriding
-    /// its default behaviour.
+    /// Friend / Enemy of the Forest for every player body. Vanilla checks
+    /// <c>target == Player.Instance._transform &amp;&amp; faction == animalAggressive &amp;&amp;
+    /// Player.Instance.skills.FriendOfTheForest</c> (or EnemyOfTheForest) in two places: the far
+    /// sighting in processAnims (a defensive animal turns defensive at a slower count for a Friend,
+    /// chases an Enemy) and onSeeEnemyNear (a Friend is chased even when the path cannot search).
+    /// A client's stand-in failed the identity test, so its skills never counted. Both
+    /// conditions read "the target is a player" and "that player's skill" instead; the rest of
+    /// vanilla's logic is untouched.
     /// </summary>
-    [HarmonyPatch(typeof(Character), "onSeeEnemyNear")]
-    public static class HostOnSeeEnemyNearPatch
+    [HarmonyPatch]
+    public static class HostForestSkillTargetPatch
     {
-        private static void Postfix(Character __instance)
+        private static IEnumerable<MethodBase> TargetMethods()
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!PlayerPositionManager.HasRemotePlayer)
-                return;
-            if (__instance.target == null)
-                return;
-            if (__instance.faction != Faction.animalAggressive)
-                return;
+            yield return AccessTools.Method(typeof(Character), "processAnims");
+            yield return AccessTools.Method(typeof(Character), "onSeeEnemyNear");
+        }
 
-            RemotePlayerProxy proxy = __instance.target.GetComponent<RemotePlayerProxy>();
-            if (proxy == null)
-                return;
+        /// <summary>Vanilla's <c>target == Player.Instance._transform</c>, for any player body.</summary>
+        public static bool TargetIsPlayer(Transform target)
+        {
+            Player host = Player.Instance;
+            if (host != null && target == host.transform)
+                return true;
+            return target != null && target.GetComponent<RemotePlayerProxy>() != null;
+        }
 
-            if (proxy.RemoteHasEnemyOfTheForest)
+        /// <summary>The Friend of the Forest skill of the player <paramref name="c"/> targets.</summary>
+        public static bool TargetFriendOfTheForest(Character c) => TargetSkill(c, friend: true);
+
+        /// <summary>The Enemy of the Forest skill of the player <paramref name="c"/> targets.</summary>
+        public static bool TargetEnemyOfTheForest(Character c) => TargetSkill(c, friend: false);
+
+        private static bool TargetSkill(Character c, bool friend)
+        {
+            Transform t = c != null ? c.target : null;
+            Player host = Player.Instance;
+            if (t == null || host != null && t == host.transform)
+                return host != null && host.skills != null
+                    && (friend ? host.skills.FriendOfTheForest : host.skills.EnemyOfTheForest);
+            RemotePlayerProxy proxy = t.GetComponent<RemotePlayerProxy>();
+            return proxy != null && (friend ? proxy.RemoteHasFriendOfTheForest : proxy.RemoteHasEnemyOfTheForest);
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            MethodInfo getInstance = AccessTools.PropertyGetter(typeof(Player), nameof(Player.Instance));
+            FieldInfo transformField = AccessTools.Field(typeof(Player), "_transform");
+            FieldInfo targetField = AccessTools.Field(typeof(Character), nameof(Character.target));
+            FieldInfo skillsField = AccessTools.Field(typeof(Player), nameof(Player.skills));
+            FieldInfo friendField = AccessTools.Field(typeof(PlayerSkills), nameof(PlayerSkills.FriendOfTheForest));
+            FieldInfo enemyField = AccessTools.Field(typeof(PlayerSkills), nameof(PlayerSkills.EnemyOfTheForest));
+            MethodInfo opEquality = AccessTools.Method(typeof(UnityEngine.Object), "op_Equality");
+            MethodInfo isPlayer = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetIsPlayer));
+            MethodInfo friendOf = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetFriendOfTheForest));
+            MethodInfo enemyOf = AccessTools.Method(typeof(HostForestSkillTargetPatch), nameof(TargetEnemyOfTheForest));
+
+            var list = new List<CodeInstruction>(instructions);
+            if (getInstance == null || transformField == null || targetField == null || skillsField == null
+                || friendField == null || enemyField == null || opEquality == null)
             {
-                if (__instance.behaviour != Character.Behaviour.chasingTarget)
-                    __instance.setBehaviour(Character.Behaviour.chasingTarget);
+                Logging.ModLog.Error(Logging.LogCat.AI, "[ForestSkill] " + original.Name + " hook not applied (missing member)");
+                return list;
             }
-            else if (proxy.RemoteHasFriendOfTheForest)
+
+            int patched = 0;
+            for (int i = 2; i < list.Count; i++)
             {
-                __instance.setBehaviour(Character.Behaviour.defensive);
+                bool friend = list[i].LoadsField(friendField);
+                if (!friend && !list[i].LoadsField(enemyField))
+                    continue;
+                if (!list[i - 1].LoadsField(skillsField) || !list[i - 2].Calls(getInstance))
+                    continue;
+                // Player.Instance.skills.X → this.target's player's X (stack: one bool either way).
+                // Rewritten in place so branch labels on these instructions stay put.
+                list[i - 2].opcode = OpCodes.Ldarg_0;
+                list[i - 2].operand = null;
+                list[i - 1].opcode = OpCodes.Call;
+                list[i - 1].operand = friend ? friendOf : enemyOf;
+                list[i].opcode = OpCodes.Nop;
+                list[i].operand = null;
+
+                // The same condition's earlier `target == Player.Instance._transform`.
+                for (int k = i - 3; k >= 3 && k > i - 24; k--)
+                {
+                    if (!list[k].Calls(opEquality) || !list[k - 1].LoadsField(transformField)
+                        || !list[k - 2].Calls(getInstance) || !list[k - 3].LoadsField(targetField))
+                        continue;
+                    list[k - 2].opcode = OpCodes.Nop;
+                    list[k - 2].operand = null;
+                    list[k - 1].opcode = OpCodes.Nop;
+                    list[k - 1].operand = null;
+                    list[k].operand = isPlayer;
+                    patched++;
+                    break;
+                }
             }
+
+            int expected = original.Name == "processAnims" ? 2 : 1;
+            if (patched != expected)
+                Logging.ModLog.Error(Logging.LogCat.AI,
+                    "[ForestSkill] " + original.Name + " expected " + expected + " forest checks, patched " + patched);
+            return list;
         }
     }
 
@@ -207,65 +290,67 @@ namespace DWMPHorde.Patches
             if (__instance.target.GetComponent<RemotePlayerProxy>() == null)
                 return true;
 
-            // Proxy target; skip vanilla growl, which only works for Player.Instance.
-            // and play the growl + area-alert ourselves to avoid double-fire.
+            // Proxy target; vanilla growl only accepts a Player or Character target. Same body for
+            // the stand-in, including vanilla's throttle and its repeat while the chase lasts
+            // (dropped before: no re-growl, and every re-acquire growled and alerted at once).
+            if (__instance.isRoutineActive("waitToGrowl"))
+                return false;
             if (__instance.sounds != null && !__instance.sleeping)
                 __instance.sounds.playGrowl();
 
-            var alertMethod = AccessTools.Method(typeof(Character), "alertCharactersInArea", new[] { typeof(float), typeof(bool) });
-            alertMethod?.Invoke(__instance, new object[] { 500f, false });
-
+            AlertInArea?.Invoke(__instance, new object[] { 500f, false });
+            __instance.startRoutine(AccessTools.MethodDelegate<System.Action>(WaitToGrowl, __instance), 6f, 30f);
             return false;
         }
+
+        private static readonly System.Reflection.MethodInfo AlertInArea =
+            AccessTools.Method(typeof(Character), "alertCharactersInArea", new[] { typeof(float), typeof(bool) });
+        private static readonly System.Reflection.MethodInfo WaitToGrowl =
+            AccessTools.Method(typeof(Character), "waitToGrowl");
     }
 
     /// <summary>
-    /// The original checkForNewEnemyCloserThanTarget just picks the first valid
-    /// entry in charactersInSight regardless of distance. This Prefix replaces
-    /// it with a version that actually finds the CLOSEST enemy, so entities
-    /// switch between host and proxy based on proximity.
+    /// Vanilla's closer-enemy check (every 2.5-3.5 s while chasing) attacks the first character in
+    /// its sight list that it is hostile to. With several player bodies that first entry is just
+    /// whichever the physics overlap listed first. The player bodies count as one entry here:
+    /// when vanilla's pick is a player, <see cref="PlayerTargetArbiter"/> says which one (the held
+    /// one, or one clearly nearer: this check is the only switch window). Non-player picks stay
+    /// vanilla's (it was changed to "the closest of everything" before, also for non-players).
     /// </summary>
     [HarmonyPatch(typeof(Character), "checkForNewEnemyCloserThanTarget")]
     public static class HostCheckForCloserEnemyPatch
     {
         private static bool Prefix(Character __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return true;
-            if (!PlayerPositionManager.HasRemotePlayer)
+            if (__instance == null || !HostPlayerIdentity.HostWithRemotes())
                 return true;
 
-            if (ProxyDistanceHelper.ProxyIsFar(__instance))
-                return true;
-
-            if (__instance.charactersInSight.Count == 0)
-                return false;
-
-            Transform currentTarget = __instance.target;
-            float currentDist = currentTarget != null
-                ? Core.trueDistance(__instance.transform.position, currentTarget.position)
-                : float.MaxValue;
-            float closestDist = currentDist;
-            Transform closestTransform = null;
-
-            for (int i = 0; i < __instance.charactersInSight.Count; i++)
+            List<CharBase> list = __instance.charactersInSight;
+            for (int i = 0; i < list.Count; i++)
             {
-                CharBase cb = __instance.charactersInSight[i];
-                if (cb == null || !cb.alive) continue;
-                if (!__instance.attacksFaction(cb.faction)) continue;
-                if (cb.transform == currentTarget) continue;
-
-                float d = Core.trueDistance(__instance.transform.position, cb.transform.position);
-                if (d < closestDist)
+                CharBase cb = list[i];
+                if (cb == null || !__instance.attacksFaction(cb.faction))
+                    continue;
+                Transform pick = cb.transform;
+                PlayerTargetReason reason = PlayerTargetReason.None;
+                if (PlayerTargetArbiter.IsPlayerBody(pick))
                 {
-                    closestDist = d;
-                    closestTransform = cb.transform;
+                    Transform chosen = PlayerTargetArbiter.Choose(__instance, __instance.target,
+                        switchWindow: true, out reason, out bool chosenSensed);
+                    if (chosen != null)
+                    {
+                        if (chosen != pick)
+                            PlayerTargetArbiter.TraceHold(__instance, chosen, pick, "checkForNewEnemyCloserThanTarget", reason);
+                        // A held target out of sight for a moment is not re-committed (that would
+                        // hand the creature its real position); vanilla only attacks what it sees.
+                        if (!chosenSensed && chosen == __instance.target)
+                            return false;
+                        pick = chosen;
+                    }
                 }
+                PlayerTargetArbiter.Commit(__instance, pick, "checkForNewEnemyCloserThanTarget", reason);
+                return false;
             }
-
-            if (closestTransform != null)
-                __instance.attackCharacter(closestTransform);
-
             return false;
         }
     }
@@ -332,8 +417,26 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Shooter), "shoot")]
     public static class HostShooterShootPatch
     {
+        private static void HitIfSeen(Shooter shooter, Transform body)
+        {
+            CharBase cb = body != null ? body.GetComponent<CharBase>() : null;
+            if (cb == null || !cb.alive || !Core.canSee(shooter.transform, body))
+                return;
+            cb.getHit(
+                shooter.damage / Core.trueDistance(shooter.transform, body),
+                null,
+                CanCutInHalf: false,
+                byPlayer: false,
+                canInterrupt: false,
+                normalHit: false,
+                showRedScreen: true);
+        }
+
         private static bool Prefix(Shooter __instance)
         {
+            var net = ModRuntime.Network;
+            if (net != null && net.IsConnected && net.Role == NetworkRole.Client)
+                return false;
             if (!HostPlayerIdentity.HostWithRemotes())
                 return true;
             if (__instance == null || __instance.target == null)
@@ -357,17 +460,13 @@ namespace DWMPHorde.Patches
             float num2 = Core.trueDistance(vector, vector2)
                 + UnityEngine.Random.Range(0f - __instance.radius, __instance.radius);
 
-            CharBase cb = targetT.GetComponent<CharBase>();
-            if (cb != null && cb.alive && Core.canSee(__instance.transform, targetT))
+            // Vanilla hurts "the player" whenever the shooter can see them, whatever it aims at:
+            // every player it can see, as each would be alone.
+            HitIfSeen(__instance, Player.Instance != null ? Player.Instance.transform : null);
+            foreach (var proxy in net.GetAllProxies())
             {
-                cb.getHit(
-                    __instance.damage / Core.trueDistance(__instance.transform, targetT),
-                    null,
-                    CanCutInHalf: false,
-                    byPlayer: false,
-                    canInterrupt: false,
-                    normalHit: false,
-                    showRedScreen: true);
+                if (proxy != null && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    HitIfSeen(__instance, proxy.transform);
             }
 
             if (Physics.Raycast(vector, vector3, out var hitInfo, num2, 16809985))
@@ -404,7 +503,7 @@ namespace DWMPHorde.Patches
                 return true;
 
             float minHp = Player.Instance != null ? Player.Instance.health : float.MaxValue;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net != null)
             {
                 foreach (var proxy in net.GetAllProxies())

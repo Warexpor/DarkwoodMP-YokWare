@@ -12,9 +12,13 @@ namespace DWMPHorde
     /// </summary>
     public sealed class JoinWorldSlotPicker : MonoBehaviour
     {
-        private static JoinWorldSlotPicker _instance;
+        private static JoinWorldSlotPicker _instance; // process-scoped: UI singleton
+
+        private const string LockOwner = "slotpicker";
 
         private bool _confirmOverwrite;
+        private bool _wasActive;
+        private object _lastShare;
         private int _pendingSlot;
         private bool _pendingCampaignMismatch;
         private string _status = "";
@@ -33,16 +37,34 @@ namespace DWMPHorde
             _instance = go.AddComponent<JoinWorldSlotPicker>();
         }
 
+        /// <summary>The picker is on screen: title menu, share downloaded, still connected, no terminal failure.</summary>
+        private static bool IsPickerActive(out LanNetworkManager net)
+        {
+            net = ModRuntime.Network;
+            var share = net?.WorldSaveShare;
+            return share != null
+                && net.Role != NetworkRole.Offline
+                && share.IsAwaitingSlotPick
+                && !share.HasTerminalShareFailure
+                && GameScreen.AtTitle;
+        }
+
+        /// <summary>Drop a pending overwrite confirm / stale status (open, close, disconnect, new share).</summary>
+        private void ResetPickerState()
+        {
+            _confirmOverwrite = false;
+            _pendingCampaignMismatch = false;
+            _pendingSlot = 0;
+            _status = "";
+            _statusTimer = 0f;
+            _scroll = Vector2.zero;
+        }
+
         private void OnGUI()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            var share = net?.WorldSaveShare;
-            if (share == null || !share.IsAwaitingSlotPick)
+            if (!IsPickerActive(out LanNetworkManager net))
                 return;
-            if (!Core.mainMenu)
-                return;
-            if (share.HasTerminalShareFailure)
-                return;
+            var share = net.WorldSaveShare;
 
             if (!_rectInit)
             {
@@ -63,6 +85,16 @@ namespace DWMPHorde
 
         private void Update()
         {
+            bool active = IsPickerActive(out LanNetworkManager net);
+            object share = net?.WorldSaveShare;
+            // Open / close / a different share (disconnect + rejoin): never carry a pending
+            // "Overwrite & keep permanently" confirm for a slot onto the next session.
+            if (active != _wasActive || (active && !ReferenceEquals(share, _lastShare)))
+                ResetPickerState();
+            _wasActive = active;
+            _lastShare = active ? share : null;
+            UiInputLock.Set(LockOwner, active);
+
             if (_statusTimer > 0f)
             {
                 _statusTimer -= Time.unscaledDeltaTime;
@@ -73,7 +105,7 @@ namespace DWMPHorde
 
         private void DrawWindow(int id)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             var share = net?.WorldSaveShare;
             if (share == null)
                 return;
@@ -199,7 +231,7 @@ namespace DWMPHorde
 
         private void Commit(int slotId, bool overwriteConfirmed)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             var share = net?.WorldSaveShare;
             if (share == null)
                 return;

@@ -52,7 +52,11 @@ check_one() {
   fi
 }
 
-echo "=== dual-box perf check (0.8.1) ==="
+# Product version from the source of truth, so the banner never goes stale.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION="$(grep -E 'const string Version *=' "$ROOT/DarkwoodMP.Mod/Bootstrap/PluginInfo.cs" 2>/dev/null \
+  | sed -E 's/.*"([^"]+)".*/\1/' || true)"
+echo "=== dual-box perf check (${VERSION:-unknown version}) ==="
 check_one Host "$HOST_LOG"
 check_one Client "$CLIENT_LOG"
 

@@ -53,6 +53,19 @@ namespace DWMPHorde.Players
         public bool RemotePoisoned { get; set; }
         /// <summary>Whether the remote player is bleeding (visual/AI flag; DoT is local).</summary>
         public bool RemoteBleeding { get; set; }
+        /// <summary>The peer's health, 0-100% (host event requirements: <c>playerState health</c>).</summary>
+        public byte RemoteHealthPct { get; set; } = 100;
+        /// <summary>The peer's <c>darknessCounter</c> in 1% steps (host requirement <c>darknessState</c>).</summary>
+        public byte RemoteDarknessPct { get; set; }
+        /// <summary>The peer is in the ending (epilogue crawl or outcome pages).</summary>
+        public bool RemoteInEpilogue { get; set; }
+        /// <summary>The player is in its own prologue (only a host can be, connected).</summary>
+        public bool RemoteInPrologue { get; set; }
+        /// <summary>Where the peer's home oven stands (vanilla Player.experienceMachine), if it has one.</summary>
+        public Vector3? RemoteHomeOven { get; set; }
+        /// <summary>The peer's learned skills by name (host requirement <c>haveSkill</c>).</summary>
+        public readonly System.Collections.Generic.HashSet<string> RemoteSkills =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
         /// <summary>Whether the remote player is currently running.</summary>
         public bool RemoteRunning { get; set; }
         /// <summary>The last received locomotion state for the remote player.</summary>
@@ -93,11 +106,22 @@ namespace DWMPHorde.Players
             proxy._anim = clone.GetComponent<SecondPlayerAnimController>();
             proxy._shadow = clone.transform.Find("Shadow");
 
-            // Destroy all AudioSources on the proxy so no ambient/status-effect sound plays.
-            // Proxy is a visual-only representation; all audio is forwarded via PlayerAudioMessage
-            // (HandlePlayerAudio) or PlayProxyFootstepSound (AudioController.Play, not proxy AudioSource).
+            // Mute/disable native AudioSources — do NOT Destroy them.
+            // Inventory presence SFX (open_drawer) parents under the proxy with
+            // AudioReverbFilter (RequireComponent(AudioSource)). Destroying clone
+            // sources races that filter and logs:
+            // "Can't remove AudioSource because AudioReverbFilter depends on it".
+            // Proxy remains visual-only; ambient/status loops stay silent; remote
+            // inventory reverb still works via AudioController-spawned children.
             foreach (var src in clone.GetComponentsInChildren<AudioSource>(true))
-                UnityEngine.Object.Destroy(src);
+            {
+                if (src == null) continue;
+                src.Stop();
+                src.mute = true;
+                src.volume = 0f;
+                src.playOnAwake = false;
+                src.enabled = false;
+            }
 
             return true;
         }

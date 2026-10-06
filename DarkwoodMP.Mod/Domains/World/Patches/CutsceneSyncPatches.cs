@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
         {
             if (!IsHost()) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = manager != null ? manager.transform.position : Vector3.zero;
@@ -61,17 +61,18 @@ namespace DWMPHorde.Patches
             CutsceneManager best = null;
             float bestDist = float.MaxValue;
 
+            CutsceneManager named = null;
+            float namedDist = float.MaxValue;
             for (int i = 0; i < all.Length; i++)
             {
                 CutsceneManager m = all[i];
                 if (m == null) continue;
-                if (!string.IsNullOrEmpty(name) && m.name == name)
-                {
-                    float d = Vector3.Distance(m.transform.position, pos);
-                    if (d < 25f)
-                        return m;
-                }
                 float dist = Vector3.Distance(m.transform.position, pos);
+                if (!string.IsNullOrEmpty(name) && m.name == name && dist < namedDist)
+                {
+                    namedDist = dist;
+                    named = m;
+                }
                 if (dist < bestDist)
                 {
                     bestDist = dist;
@@ -79,10 +80,13 @@ namespace DWMPHorde.Patches
                 }
             }
 
+            // The host's manager by name (pads share the host's slots, so it is at the same spot).
+            if (named != null)
+                return named;
             if (best != null && bestDist < 40f)
                 return best;
-            // Fallback: any manager (prologue often has one)
-            return all.Length > 0 ? all[0] : null;
+            // No match: never play some other manager's cutscene (the old any-manager fallback).
+            return null;
         }
 
         internal static void ApplyBegin(CutsceneSyncMessage msg)
@@ -93,7 +97,20 @@ namespace DWMPHorde.Patches
                 ModRuntime.Log?.LogWarning("[CutsceneSync] begin: no CutsceneManager found");
                 return;
             }
+            // A cutscene inside a location plays for the players in it. A peer elsewhere was hidden,
+            // frozen and input-locked wherever it stood (an open-world manager, like the prologue's,
+            // still plays for everyone).
+            Location mgrLoc = mgr.GetComponentInParent<Location>(true);
+            Location mgrBig = mgrLoc != null && mgrLoc.bigLocation != null ? mgrLoc.bigLocation : mgrLoc;
+            Player local = Player.Instance;
+            Location localBig = local != null && local.whereAmI != null ? local.whereAmI.bigLocation : null;
+            if (mgrBig != null && mgrBig != localBig)
+            {
+                ModRuntime.LegacyInfo($"[CutsceneSync] begin {mgr.name}: not in {mgrBig.name} — not played here");
+                return;
+            }
 
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -115,15 +132,18 @@ namespace DWMPHorde.Patches
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
             }
 
             SetProxiesHidden(true);
+            _playingHostCutscene = true;
             ModRuntime.LegacyInfo($"[CutsceneSync] applied begin mgr={mgr.name}");
         }
 
         internal static void ApplyEnd()
         {
+            _playingHostCutscene = false;
+            bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -156,38 +176,57 @@ namespace DWMPHorde.Patches
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2);
             }
 
             SetProxiesHidden(false);
             ModRuntime.LegacyInfo("[CutsceneSync] applied end");
         }
 
+        /// <summary>True while a peer's skip is applied here: the skip patch must not send it back.</summary>
+        internal static bool ApplyingRemoteSkip; // process-scoped: call-scoped, unwound by its finally
+
+        /// <summary>
+        /// A peer skipped the dream video. The early entry copy (a peer's video replayed here) is
+        /// only a timer and an overlay: vanilla skip() on it ran onFinishedVideo, which prepares
+        /// dreamToTransitionTo ("": a random, untracked dream on the host, a bogus start request on
+        /// a client). A real local transition is skipped next frame, outside this handler's apply
+        /// guard, so the endDreaming it runs keeps its session bookkeeping (DreamEndPatch stands
+        /// down inside the guard, which left the dream flagged active after the exit).
+        /// </summary>
         internal static void ApplySkipTransition()
         {
-            LanNetworkManager.IsApplyingRemoteState = true;
-            try
-            {
-                var dreams = Singleton<Dreams>.Instance;
-                if (dreams == null) return;
-                // A start overlay, current cutscene, or outcome transition may be playing.
-                if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
-                    dreams.currentTransition.skip();
-                if (dreams.startTransition != null && dreams.startTransition.isPlaying
-                    && dreams.startTransition != dreams.currentTransition)
-                    dreams.startTransition.skip();
-            }
-            finally
-            {
-                LanNetworkManager.IsApplyingRemoteState = false;
-            }
-            // Early peer entry path uses a timer, not only vanilla isPlaying skip.
+            bool peerEntryCopy = DreamSyncManager.IsPeerEntryTransitionPlaying;
             DreamSyncManager.OnEntryTransitionSkipped();
+            if (peerEntryCopy)
+                return;
+            var controller = Singleton<Controller>.Instance;
+            if (controller == null)
+                return;
+            controller.waitFramesAndRun(() =>
+            {
+                ApplyingRemoteSkip = true;
+                try
+                {
+                    var dreams = Singleton<Dreams>.Instance;
+                    if (dreams == null) return;
+                    // A start overlay, current cutscene, or outcome transition may be playing.
+                    if (dreams.currentTransition != null && dreams.currentTransition.isPlaying)
+                        dreams.currentTransition.skip();
+                    if (dreams.startTransition != null && dreams.startTransition.isPlaying
+                        && dreams.startTransition != dreams.currentTransition)
+                        dreams.startTransition.skip();
+                }
+                finally
+                {
+                    ApplyingRemoteSkip = false;
+                }
+            }, 1);
         }
 
         internal static void SetProxiesHidden(bool hide)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             if (!hide)
@@ -220,8 +259,19 @@ namespace DWMPHorde.Patches
             }
         }
 
+        /// <summary>A host cutscene is playing here; the host owns its end.</summary>
+        private static bool _playingHostCutscene; // reset-in: Reset
+
         internal static void Reset()
         {
+            // The host left mid-cutscene: nobody will send the end, so end it here (vanilla
+            // prologue_endCutscene: inputs, player visibility, cursor).
+            if (_playingHostCutscene)
+            {
+                _playingHostCutscene = false;
+                try { ApplyEnd(); }
+                catch (System.Exception ex) { ModRuntime.Log?.LogWarning("[CutsceneSync] release on disconnect: " + ex.Message); }
+            }
             SetProxiesHidden(false);
             _hiddenProxyIds.Clear();
         }
@@ -320,9 +370,11 @@ namespace DWMPHorde.Patches
                 && __instance != Dreams.Instance.startTransition)
                 return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
+            DWMPHorde.Sync.DreamSyncManager.NoteEntryTransitionStarted();
+            DWMPHorde.Sync.DreamSyncManager.HostBeginDreamEntry();
             Vector3 pos = __instance.transform.position;
             net.Broadcast(NetMessageType.CutsceneSync,
                 w => new CutsceneSyncMessage
@@ -350,9 +402,9 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null || !__instance.skippable) return;
             if (!CutsceneSyncHelpers.IsMultiplayerConnected()) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (LanNetworkManager.IsApplyingRemoteState || CutsceneSyncHelpers.ApplyingRemoteSkip) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             Vector3 pos = __instance.transform.position;

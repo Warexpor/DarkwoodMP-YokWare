@@ -1,115 +1,13 @@
 using System.Linq;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using DWMPHorde.Players;
 using HarmonyLib;
+using LiteNetLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    /// <summary>
-    /// Syncs inventory-item drops and pickups between host and client.
-    /// Each dropped item gets a GUID so that when either player picks it up
-    /// the remote copy is destroyed too.
-    /// </summary>
-    internal static class DroppedItemSyncHelpers
-    {
-        internal static void SendDrop(Transform spawned, InvItemClass item, string prefabPath)
-        {
-            if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) { ModRuntime.LegacyInfo("[SendDrop] net not connected"); return; }
-            if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
-
-            string guid = System.Guid.NewGuid().ToString("N");
-            ModRuntime.LegacyInfo("[SendDrop] adding identifier guid=" + guid + " to " + spawned.name);
-
-            var ident = spawned.gameObject.AddComponent<DroppedItemIdentifier>();
-            ident.Id = guid;
-            DroppedItemIdentifier.Register(ident);
-
-            Vector3 pos = spawned.position;
-            Vector3 euler = spawned.eulerAngles;
-
-            int amt = item.amount;
-            float dur = item.durability;
-            int ammo = 0;
-            if (item.baseClass != null && item.baseClass.hasAmmo)
-                ammo = item.ammo;
-
-            net.SendDroppedItemSpawn(new DroppedItemSpawnMessage
-            {
-                Guid = guid,
-                PrefabPath = prefabPath,
-                PosX = pos.x,
-                PosY = pos.y,
-                PosZ = pos.z,
-                RotX = euler.x,
-                RotY = euler.y,
-                RotZ = euler.z,
-                ItemType = item.type,
-                Amount = amt,
-                Durability = dur,
-                Ammo = ammo
-            });
-        }
-
-        internal static void SendPickup(Item worldItem)
-        {
-            ModRuntime.LegacyInfo("[SendPickup] called for " + (worldItem != null ? worldItem.name : "null"));
-
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
-
-            // GUID-based dropped item: send pickup by GUID
-            var ident = worldItem != null ? worldItem.GetComponent<DroppedItemIdentifier>() : null;
-            if (ident != null && !string.IsNullOrEmpty(ident.Id))
-            {
-                ModRuntime.LegacyInfo("[SendPickup] sending pickup for guid=" + ident.Id);
-                net.SendDroppedItemPickup(new DroppedItemPickupMessage { Guid = ident.Id });
-                return;
-            }
-
-            // World-placed item (no GUID): broadcast WorldObjectRemoved so the
-            // remote peer destroys their copy too.
-            if (worldItem != null)
-            {
-                Vector3 pos = worldItem.transform.position;
-                // Prefer invItem.type over localized display name ("Scrap metal") so
-                // peer DestroyObjectByPos can match GO / type without Language tables.
-                string sendName = worldItem.name;
-                Item asItem = worldItem.GetComponent<Item>();
-                if (asItem != null && asItem.invItem != null
-                    && !string.IsNullOrEmpty(asItem.invItem.type))
-                    sendName = asItem.invItem.type;
-                else
-                {
-                    Inventory inv = worldItem.GetComponent<Inventory>();
-                    if (inv != null && inv.slots != null && inv.slots.Count > 0
-                        && !InvItemClass.isNull(inv.slots[0].invItem)
-                        && !string.IsNullOrEmpty(inv.slots[0].invItem.type))
-                        sendName = inv.slots[0].invItem.type;
-                }
-                net.SendWorldObjectRemoved(new WorldObjectRemovedMessage
-                {
-                    PosX = pos.x,
-                    PosY = pos.y,
-                    PosZ = pos.z,
-                    ObjectName = sendName
-                });
-                ModRuntime.LegacyInfo("[SendPickup] sent WorldObjectRemoved for " + sendName + " at " + pos);
-            }
-        }
-
-        internal static InvItemClass GetItemFromSpawned(Transform t)
-        {
-            Inventory inv = t.GetComponent<Inventory>();
-            if (inv == null || inv.slots == null || inv.slots.Count == 0) return null;
-            InvItemClass item = inv.slots[0].invItem;
-            if (InvItemClass.isNull(item)) return null;
-            return item;
-        }
-    }
 
     /// <summary>
     /// Intercepts Inventory-slot drop — Player.spawnDroppedInvItem(InvItemClass).
@@ -141,7 +39,8 @@ namespace DWMPHorde.Patches
             if (__result == null) return;
             InvItemClass item = DroppedItemSyncHelpers.GetItemFromSpawned(__result);
             if (item == null) return;
-            string prefab = __instance.inWater ? "Items/DroppedItem_water" : "Items/DroppedItem";
+            // Vanilla spawnDroppedInvItemm always uses the plain prefab, in water too.
+            const string prefab = "Items/DroppedItem";
             DroppedItemSyncHelpers.SendDrop(__result, item, prefab);
         }
     }
@@ -153,46 +52,252 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Item), "getDroppedItem")]
     public static class PlayerPickupDroppedItemPatch
     {
-        [HarmonyPrefix]
-        private static bool Prefix(Item __instance)
+        private struct PrefixState
         {
-            ModRuntime.LegacyInfo("[PickupPrefix] getDroppedItem called on " + __instance.name);
+            public bool BeganTrapGuard;
+            public bool BeganWireGuard;
+            public bool DeferredWorldClaim;
+            public bool DeferredGuidClaim;
+            public string Guid;
+            public Vector3 Pos;
+            public string SendName;
+            public string ItemType;
+            public string RecipeFor;
+            public int Amount;
+            public float Durability;
+            public int Ammo;
+            public int PreCount;
+        }
 
-            // Block pickup only when THIS trap is occupied (per-trap, not global).
-            if (ModRuntime.Network is LanNetworkManager net && net.IsConnected)
+        [HarmonyPrefix]
+        private static bool Prefix(Item __instance, ref PrefixState __state)
+        {
+            __state = default;
+            try
             {
-                string name = __instance.name.ToLowerInvariant();
-                if (TrapNameHelper.IsTrap(name) && net.IsTrapOccupied(__instance.gameObject))
+                ModRuntime.LegacyInfo($"[PickupPrefix] getDroppedItem called on {__instance.name}");
+
+                // The host's own prologue: a pickup on its pad is single player (no claim, and
+                // no consumed-pickup record that a later location in the pad's slot would match).
+                if (PersonalPrologue.LocalInPrologue || PersonalPrologue.IsOnProloguePad(__instance.transform))
+                    return true;
+
+                // Co-op rescue: sprung beartrap becomes isDroppedItem; picking it up must free
+                // anyone still stuck (local here + peer DestroyObjectByPos) and grant loot.
+                bool isTrap = false;
+                if (ModRuntime.Network != null && ModRuntime.Network.IsConnected && __instance != null)
                 {
-                    ModRuntime.LegacyInfo("[PickupPrefix] blocked pickup of \""
-                        + __instance.name + "\" — player still trapped in this trap");
+                    GameObject go = __instance.gameObject;
+                    // Object flags only: display names ("Teddy bear") made ordinary items look like traps.
+                    isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go);
+                    if (isTrap)
+                    {
+                        Vector3 pos = __instance.transform.position;
+                        LocalBearTrap.ReleaseIfRemoved(go, pos);
+                        // Mark so container RemoveItem for the trap's junk slot is not sent —
+                        // host would miss the inventory (already destroying) and deny/refund.
+                        TrapPickupGuard.Begin(__instance);
+                        __state.BeganTrapGuard = true;
+                    }
+                }
+
+                // Already taken by peer (or us) — destroy ghost, do not grant item again.
+                var ident = __instance.GetComponent<DroppedItemIdentifier>();
+                bool hasGuid = ident != null && !string.IsNullOrEmpty(ident.Id);
+                if (hasGuid && LanNetworkManager.IsDropGuidConsumed(ident.Id))
+                {
+                    ModRuntime.LegacyInfo($"[PickupPrefix] guid already consumed: {ident.Id}");
+                    UnityEngine.Object.Destroy(__instance.gameObject);
+                    if (__state.BeganTrapGuard)
+                        TrapPickupGuard.End(__instance);
                     return false;
                 }
-            }
 
-            // Already taken by peer (or us) — destroy ghost, do not grant item again.
-            var ident = __instance.GetComponent<DroppedItemIdentifier>();
-            if (ident != null && !string.IsNullOrEmpty(ident.Id)
-                && LanNetworkManager.IsDropGuidConsumed(ident.Id))
+                // GUID drop: host-auth claim after successful transfer (mirror world unique).
+                if (hasGuid
+                    && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                {
+                    DroppedItemSyncHelpers.CaptureWorldPickupItemMeta(__instance,
+                        out string gType, out int gAmt, out float gDur, out int gAmmo,
+                        out string gRecipeFor);
+                    __state.DeferredGuidClaim = true;
+                    __state.Guid = ident.Id;
+                    __state.ItemType = gType;
+                    __state.RecipeFor = gRecipeFor;
+                    __state.Amount = gAmt;
+                    __state.Durability = gDur;
+                    __state.Ammo = gAmmo;
+                    __state.PreCount = string.IsNullOrEmpty(gType)
+                        ? -1
+                        : CountForClaim(gType, gRecipeFor);
+                    WorldPickupWireGuard.Begin();
+                    __state.BeganWireGuard = true;
+                    return true; // no wire yet — Postfix after successful destroy
+                }
+
+                // Non-GUID world unique / placed pickup: session claim before grant.
+                if (!hasGuid)
+                {
+                    DroppedItemSyncHelpers.ResolveWorldPickupClaim(__instance,
+                        out Vector3 cPos, out string cName, out bool cTrap);
+                    isTrap = isTrap || cTrap;
+                    if (!isTrap
+                        && WorldPhysicsSyncService.IsWorldPickupConsumed(cPos.x, cPos.y, cPos.z, cName))
+                    {
+                        ModRuntime.LegacyInfo($"[PickupPrefix] world pickup already consumed: {cName} at {cPos}");
+                        UnityEngine.Object.Destroy(__instance.gameObject);
+                        if (__state.BeganTrapGuard)
+                            TrapPickupGuard.End(__instance);
+                        return false;
+                    }
+
+                    if (!isTrap
+                        && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                    {
+                        // Capture meta before transfer empties the slot; claim after success.
+                        DroppedItemSyncHelpers.CaptureWorldPickupItemMeta(__instance,
+                            out string itemType, out int amount, out float dur, out int ammo,
+                            out string recipeFor);
+                        __state.DeferredWorldClaim = true;
+                        __state.Pos = cPos;
+                        __state.SendName = cName;
+                        __state.ItemType = itemType;
+                        __state.RecipeFor = recipeFor;
+                        __state.Amount = amount;
+                        __state.Durability = dur;
+                        __state.Ammo = ammo;
+                        __state.PreCount = string.IsNullOrEmpty(itemType)
+                            ? -1
+                            : CountForClaim(itemType, recipeFor);
+                        WorldPickupWireGuard.Begin();
+                        __state.BeganWireGuard = true;
+                        return true; // no wire yet — Postfix after successful destroy
+                    }
+                }
+
+                WorldPickupWireGuard.Begin();
+                __state.BeganWireGuard = true;
+                DroppedItemSyncHelpers.SendPickup(__instance);
+                return true;
+            }
+            catch
             {
-                ModRuntime.LegacyInfo("[PickupPrefix] guid already consumed: " + ident.Id);
-                UnityEngine.Object.Destroy(__instance.gameObject);
-                return false;
+                // Prefix must leave the guard up through the original + Postfix on
+                // success; only clear here if we throw before Postfix can End.
+                if (__state.BeganTrapGuard)
+                    TrapPickupGuard.End(__instance);
+                if (__state.BeganWireGuard)
+                    WorldPickupWireGuard.End();
+                throw;
+            }
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(Item __instance, PrefixState __state)
+        {
+            // TrapPickupGuard / WorldPickupWireGuard cleared in Finalizer
+            // (covers throw before/during Postfix).
+
+            if (!__state.DeferredGuidClaim && !__state.DeferredWorldClaim)
+                return;
+
+            // Vanilla destroys only when slots[0].transferItemAllToPlayer() returned true — and
+            // Object.Destroy is deferred, so the item is still alive here. Every true path
+            // empties slot 0 (removeAmount → clear); a failed / partial transfer leaves it filled.
+            if (string.IsNullOrEmpty(__state.ItemType) || !TransferredAll(__instance))
+                return;
+
+            if (__state.DeferredGuidClaim)
+            {
+                DroppedItemSyncHelpers.FinishGuidPickupClaim(
+                    __state.Guid, __state.ItemType, __state.Amount,
+                    __state.Durability, __state.Ammo, __state.PreCount, __state.RecipeFor);
+                return;
             }
 
-            DroppedItemSyncHelpers.SendPickup(__instance);
-            return true;
+            if (!__state.DeferredWorldClaim)
+                return;
+
+            DroppedItemSyncHelpers.FinishWorldPickupClaim(
+                __state.Pos, __state.SendName, __state.ItemType, __state.Amount,
+                __state.Durability, __state.Ammo, __state.PreCount, __state.RecipeFor);
+        }
+
+        /// <summary>True when the dropped item's single slot was fully moved into the player's bags.</summary>
+        private static bool TransferredAll(Item item)
+        {
+            if (item == null) return true; // already destroyed by something that took it
+            Inventory bag = item.GetComponent<Inventory>();
+            if (bag == null || bag.slots == null || bag.slots.Count == 0) return true;
+            return InvItemClass.isNull(bag.slots[0].invItem);
+        }
+
+        /// <summary>Bag count the pickup's refund compares against (recipe-aware).</summary>
+        private static int CountForClaim(string itemType, string recipeFor)
+            => string.IsNullOrEmpty(recipeFor)
+                ? ContainerSyncHelpers.CountPlayerItem(itemType, false)
+                : ContainerSyncHelpers.CountPlayerItem(recipeFor, true);
+
+        // Finalizer (not Postfix): getDroppedItem throw after Prefix Begin leaves
+        // TrapPickupGuard / WorldPickupWireGuard sticky → RemoveItem suppress for that
+        // trap inv and WorldObjectRemoved mute forever.
+        [HarmonyFinalizer]
+        private static void Finalizer(Item __instance, PrefixState __state)
+        {
+            if (__state.BeganTrapGuard)
+                TrapPickupGuard.End(__instance);
+            if (__state.BeganWireGuard)
+                WorldPickupWireGuard.End();
         }
     }
 
     /// <summary>
-    /// Helper for identifying trap GameObjects by name.
+    /// While getDroppedItem runs, Object.Destroy must not fan WorldObjectRemoved —
+    /// FinishWorldPickupClaim / SendPickup owns the wire (avoids Mode0 beat host-auth).
     /// </summary>
-    internal static class TrapNameHelper
+    internal static class WorldPickupWireGuard
     {
-        public static bool IsTrap(string name)
+        private static int _depth; // process-scoped: call-scoped, unwound by its Finalizer/finally
+        public static bool IsActive => _depth > 0;
+        public static void Begin() => _depth++;
+        public static void End()
         {
-            return name.Contains("trap") || name.Contains("bear") || name.Contains("snap") || name.Contains("animal");
+            if (_depth > 0) _depth--;
+        }
+    }
+
+    /// <summary>
+    /// While getDroppedItem runs on a sprung trap, suppress container RemoveItem sync
+    /// for that inventory so the granted loot is not refunded by ContainerTakeDenied.
+    /// </summary>
+    internal static class TrapPickupGuard
+    {
+        private static int _depth; // process-scoped: call-scoped, unwound by its Finalizer/finally
+        private static Inventory _inv; // process-scoped: call-scoped, unwound by its Finalizer/finally
+
+        public static bool IsActive => _depth > 0;
+
+        public static bool IsGuarded(Inventory inv)
+        {
+            // Exact inventory only — null _inv must not suppress RemoveItem for all containers.
+            return _depth > 0 && inv != null && _inv != null && inv == _inv;
+        }
+
+        public static void Begin(Item item)
+        {
+            _depth++;
+            if (item != null)
+                _inv = item.GetComponent<Inventory>();
+        }
+
+        public static void End(Item item)
+        {
+            if (_depth > 0) _depth--;
+            if (_depth <= 0)
+            {
+                _depth = 0;
+                _inv = null;
+            }
         }
     }
 }

@@ -15,38 +15,64 @@ namespace DWMPHorde.Sync
     /// </summary>
     public static partial class WorldPhysicsSyncService
     {
+        /// <summary>Max XZ distance between the reported pose and this peer's copy.</summary>
+        private const float DestroyMatchRadius = 2f;
+
         /// <summary>
-        /// Finds a world object (mushroom, exp item, shiny stone, etc.) by position and destroys it.
-        /// Used when the remote peer reports that they harvested/picked up the object.
+        /// Finds a world object (mushroom, exp item, shiny stone, trap, etc.) at the reported
+        /// position by exact normalized name or item type and destroys it. Used when the remote
+        /// peer reports that they harvested/picked up the object. Returns false on a miss.
         /// </summary>
-        public static void DestroyObjectByPos(Vector3 pos, string objectName)
+        public static bool DestroyObjectByPos(Vector3 pos, string objectName)
+        {
+            return DestroyObjectByPos(pos, objectName, useDebounce: true);
+        }
+
+        /// <summary>
+        /// Host claim check: destroy the host's copy of a claimed world pickup. On a miss the
+        /// scene item cache is refreshed once (it can lag a fresh spawn) before giving up.
+        /// </summary>
+        internal static bool TryDestroyClaimedWorldPickup(Vector3 pos, string objectName)
+        {
+            if (DestroyObjectByPos(pos, objectName, useDebounce: false))
+                return true;
+            WorldQueryHelper.InvalidateSceneScanCache<Item>();
+            return DestroyObjectByPos(pos, objectName, useDebounce: false);
+        }
+
+        private static bool DestroyObjectByPos(Vector3 pos, string objectName, bool useDebounce)
         {
             // AudioObject removal requests are ephemeral sound effects, not actual traps
-            if (!string.IsNullOrEmpty(objectName) && objectName.ToLowerInvariant().Contains("audioobject"))
-                return;
+            if (!string.IsNullOrEmpty(objectName)
+                && objectName.IndexOf("audioobject", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+
+            string needle = NormalizeObjectName(objectName);
+            if (needle.Length == 0)
+                return false;
 
             // Debounce before scene queries to avoid duplicate removal work.
             // from disarm was repeatedly scanning and then throwing on DestroyImmediate+name.
-            int posKey = MakePosNameKey(pos.x, pos.y, pos.z, objectName);
+            PosNameKey posKey = MakePosNameKey(pos.x, pos.y, pos.z, objectName);
             float now = Time.time;
-            if (_destroyDebounce.TryGetValue(posKey, out float lastDestroy)
-                && (now - lastDestroy) < DestroyDebounceTime)
+            if (useDebounce)
             {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ObjectDestroy] debounced duplicate at " + pos);
-                return;
+                if (_s.DestroyDebounce.TryGetValue(posKey, out float lastDestroy)
+                    && (now - lastDestroy) < DestroyDebounceTime)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[ObjectDestroy] debounced duplicate at {pos}");
+                    return false;
+                }
+                PruneDestroyDebounce(now);
             }
 
-            string needle = string.IsNullOrEmpty(objectName) ? null : objectName.ToLowerInvariant();
             GameObject best = null;
+            float matchSq = DestroyMatchRadius * DestroyMatchRadius;
             float bestDistSq = float.MaxValue;
-            const float overlapR = 8f;
-            const float scanR = 12f;
-            float overlapSq = overlapR * overlapR;
-            float scanSq = scanR * scanR;
 
-            // 1) OverlapSphere: any nearby root matching name/type OR harvest keywords.
-            int nearbyN = OverlapNear(pos, overlapR);
+            // 1) OverlapSphere: nearby roots whose name or item type matches exactly.
+            int nearbyN = OverlapNear(pos, DestroyMatchRadius);
             for (int i = 0; i < nearbyN; i++)
             {
                 Collider col = _overlap3D[i];
@@ -56,34 +82,21 @@ namespace DWMPHorde.Sync
                 Rigidbody rb = col.attachedRigidbody;
                 if (rb != null && rb.gameObject != null) root = rb.gameObject;
 
-                // Prefer Item / itemInv Inventory roots for world pickups (shiny stone, etc.).
                 Item item = col.GetComponentInParent<Item>();
                 if (item != null && item.gameObject != null) root = item.gameObject;
-                else
-                {
-                    Inventory inv = col.GetComponentInParent<Inventory>();
-                    if (inv != null && inv.invType == Inventory.InvType.itemInv && inv.gameObject != null)
-                        root = inv.gameObject;
-                }
 
                 if (root == null) continue;
+                float dSq = XzDistSq(root.transform.position, pos);
+                if (dSq > matchSq || dSq >= bestDistSq) continue;
                 if (!ShouldDestroyWorldPickup(root, needle))
                     continue;
-
-                float dSq = XzDistSq(root.transform.position, pos);
-                if (dSq < bestDistSq && dSq <= overlapSq)
-                {
-                    bestDistSq = dSq;
-                    best = root;
-                }
+                bestDistSq = dSq;
+                best = root;
             }
 
-            // 2) Scene scan by display name / invItem.type near pos (no collider items).
-            // Skip the scene-wide search for known trap names after the overlap
-            // query. A missing trap has already been removed.
-            bool trapNeedle = needle != null
-                && (needle.Contains("trap") || needle.Contains("bear") || needle.Contains("snap"));
-            if (best == null && needle != null && !trapNeedle)
+            // 2) Scene scan for collider-less / culled items near pos. Skip it for known trap
+            // names after the overlap query: a missing trap has already been removed.
+            if (best == null && !NeedleLooksLikeTrap(needle))
             {
                 Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
                 for (int i = 0; i < items.Length; i++)
@@ -92,57 +105,25 @@ namespace DWMPHorde.Sync
                     if (it == null) continue;
                     GameObject go = it.gameObject;
                     if (go == null || !go.scene.IsValid()) continue;
-                    string itemType = it.invItem != null ? it.invItem.type : null;
-                    if (!NameOrItemTypeMatches(go, itemType, needle)) continue;
                     float dSq = XzDistSq(go.transform.position, pos);
-                    if (dSq > scanSq) continue;
-                    if (dSq < bestDistSq)
-                    {
-                        bestDistSq = dSq;
-                        best = go;
-                    }
-                }
-
-                if (best == null)
-                {
-                    Inventory[] invs = WorldQueryHelper.GetCachedSceneComponents<Inventory>();
-                    for (int i = 0; i < invs.Length; i++)
-                    {
-                        Inventory inv = invs[i];
-                        if (inv == null || inv.invType != Inventory.InvType.itemInv) continue;
-                        GameObject go = inv.gameObject;
-                        if (go == null || !go.scene.IsValid()) continue;
-                        string slotType = FirstSlotType(inv);
-                        bool nameOk = NameOrItemTypeMatches(go, slotType, needle);
-                        if (!nameOk)
-                            continue;
-                        float dSq = XzDistSq(go.transform.position, pos);
-                        if (dSq > scanSq) continue;
-                        if (dSq < bestDistSq)
-                        {
-                            bestDistSq = dSq;
-                            best = go;
-                        }
-                    }
+                    if (dSq > matchSq || dSq >= bestDistSq) continue;
+                    if (!ShouldDestroyWorldPickup(go, needle)) continue;
+                    bestDistSq = dSq;
+                    best = go;
                 }
             }
 
+            if (useDebounce)
+                _s.DestroyDebounce[posKey] = now;
             if (best == null)
             {
-                // Still claim debounce so follow-up removes of an already-gone trap skip the scan.
-                _destroyDebounce[posKey] = now;
-                ModRuntime.LegacyInfo("[ObjectDestroy] miss name=\"" + (objectName ?? "") + "\" at " + pos);
-                return;
+                // Debounce stays claimed so follow-up removes of an already-gone object skip the scan.
+                ModRuntime.LegacyInfo($"[ObjectDestroy] miss name=\"{(objectName ?? "")}\" at {pos}");
+                return false;
             }
-
-            _destroyDebounce[posKey] = now;
 
             string destroyedName = objectName;
-            try
-            {
-                if (best != null)
-                    destroyedName = best.name;
-            }
+            try { destroyedName = best.name; }
             catch { /* destroyed Unity object */ }
 
             RemoveObjectFromInterpolation(best);
@@ -152,14 +133,32 @@ namespace DWMPHorde.Sync
                     Core.RemovePooledPrefab(best.transform);
             }
             catch { /* ignore */ }
+            bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
-                TraverseHack.ApplyingFromNetwork = true;
+                TraverseHack.SetExplicitFlag(true);
+                // Co-op rescue: free anyone still flagged inBearTrap near this destroy pose.
+                LocalBearTrap.ReleaseIfRemoved(best, best.transform.position);
+
                 UnityEngine.Object.DestroyImmediate(best);
             }
-            finally { TraverseHack.ApplyingFromNetwork = false; }
-            ModRuntime.LegacyInfo("[ObjectDestroy] destroyed \"" + (destroyedName ?? "") + "\" at " + pos
-                + " d=" + Mathf.Sqrt(bestDistSq).ToString("F1"));
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
+            ModRuntime.LegacyInfo($"[ObjectDestroy] destroyed \"{(destroyedName ?? "")}\" at {pos} d={Mathf.Sqrt(bestDistSq).ToString("F1")}");
+            return true;
+        }
+
+        private static void PruneDestroyDebounce(float now)
+        {
+            if (_s.DestroyDebounce.Count <= 64) return;
+            _destroyDebounceStaleKeys.Clear();
+            foreach (var kv in _s.DestroyDebounce)
+            {
+                if (now - kv.Value >= DestroyDebounceTime || kv.Value > now)
+                    _destroyDebounceStaleKeys.Add(kv.Key);
+            }
+            for (int i = 0; i < _destroyDebounceStaleKeys.Count; i++)
+                _s.DestroyDebounce.Remove(_destroyDebounceStaleKeys[i]);
+            _destroyDebounceStaleKeys.Clear();
         }
 
         private static float XzDistSq(Vector3 a, Vector3 b)
@@ -176,71 +175,110 @@ namespace DWMPHorde.Sync
             return InvItemClass.isNull(c) ? null : c.type;
         }
 
-        private static bool NameOrItemTypeMatches(GameObject go, string itemType, string needleLower)
+        /// <summary>
+        /// Lower-case name without Unity's "(Clone)" markers or a trailing " (N)" duplicate index,
+        /// so "Mushroom_exp(Clone)", "mushroom_exp (2)" and "mushroom_exp" compare equal.
+        /// </summary>
+        internal static string NormalizeObjectName(string name)
         {
-            if (go == null || string.IsNullOrEmpty(needleLower)) return false;
-            string n;
-            try { n = go.name.ToLowerInvariant(); }
-            catch { return false; }
-            string bare = n.Replace("(clone)", "").Trim();
-            if (n == needleLower || bare == needleLower)
-                return true;
-            if (needleLower.Length >= 4 && n.Contains(needleLower))
-                return true;
-            if (bare.Length >= 4 && needleLower.Contains(bare))
-                return true;
-            if (!string.IsNullOrEmpty(itemType)
-                && itemType.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
-                return true;
-            // Display name "Scrap metal" vs type scrap_metal / scrapMetal
-            if (!string.IsNullOrEmpty(itemType))
+            if (string.IsNullOrEmpty(name)) return "";
+            string n = name.Trim().ToLowerInvariant();
+            int clone;
+            while ((clone = n.IndexOf("(clone)", StringComparison.Ordinal)) >= 0)
+                n = n.Remove(clone, 7);
+            n = n.Trim();
+            // Strip one trailing " (N)" index.
+            if (n.Length > 3 && n[n.Length - 1] == ')')
             {
-                string t = itemType.ToLowerInvariant();
-                string tSpaced = t.Replace('_', ' ');
-                string needleSpaced = needleLower.Replace('_', ' ');
-                if (n.Contains(tSpaced) || needleSpaced.Contains(tSpaced) || tSpaced.Contains(needleSpaced))
-                    return true;
-                // Localized display: Language.Get(type + "_name") == "Scrap metal"
-                try
+                int open = n.LastIndexOf('(');
+                if (open > 0 && open < n.Length - 2)
                 {
-                    string display = Language.Get(itemType + "_name", "Items");
-                    if (!string.IsNullOrEmpty(display)
-                        && display.Equals(needleLower, System.StringComparison.OrdinalIgnoreCase))
-                        return true;
-                    if (!string.IsNullOrEmpty(display)
-                        && display.ToLowerInvariant() == needleSpaced)
-                        return true;
+                    bool digits = true;
+                    for (int i = open + 1; i < n.Length - 1; i++)
+                    {
+                        if (n[i] < '0' || n[i] > '9') { digits = false; break; }
+                    }
+                    if (digits)
+                        n = n.Substring(0, open).Trim();
                 }
-                catch { /* Language table may not be ready */ }
             }
+            return n;
+        }
+
+        /// <summary>Exact match on normalized GO name, item type, or the item's display name.</summary>
+        private static bool NameOrItemTypeMatches(GameObject go, string itemType, string needleNorm)
+        {
+            if (go == null || string.IsNullOrEmpty(needleNorm)) return false;
+            string n;
+            try { n = NormalizeObjectName(go.name); }
+            catch { return false; }
+            if (n == needleNorm)
+                return true;
+            if (string.IsNullOrEmpty(itemType))
+                return false;
+            if (itemType.Equals(needleNorm, StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Display name "Scrap metal" vs type scrap_metal.
+            string needleSpaced = needleNorm.Replace('_', ' ');
+            if (itemType.Replace('_', ' ').Equals(needleSpaced, StringComparison.OrdinalIgnoreCase))
+                return true;
+            try
+            {
+                string display = Language.Get(itemType + "_name", "Items");
+                if (!string.IsNullOrEmpty(display)
+                    && (display.Equals(needleNorm, StringComparison.OrdinalIgnoreCase)
+                        || display.Equals(needleSpaced, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            }
+            catch { /* Language table may not be ready */ }
             return false;
         }
 
-        private static bool ShouldDestroyWorldPickup(GameObject root, string needleLower)
+        private static bool NeedleLooksLikeTrap(string needleLower)
         {
-            if (root == null) return false;
+            if (string.IsNullOrEmpty(needleLower)) return false;
+            return needleLower.Contains("trap") || needleLower.Contains("bear")
+                || needleLower.Contains("snap") || needleLower.Contains("animal")
+                || needleLower.Contains("mushroom") || needleLower.Contains("brokenglass")
+                || needleLower.Contains("broken_glass");
+        }
+
+        /// <summary>
+        /// True for a world pickup / harvestable / trap whose name or type matches exactly.
+        /// itemInv containers (wardrobes, chests, desks, piles) only qualify when they are a
+        /// real dropped-item pickup.
+        /// </summary>
+        private static bool ShouldDestroyWorldPickup(GameObject root, string needleNorm)
+        {
+            if (root == null || string.IsNullOrEmpty(needleNorm)) return false;
             string rootName;
             try { rootName = root.name.ToLowerInvariant(); }
             catch { return false; }
             if (rootName.Contains("audioobject"))
                 return false;
 
-            if (needleLower == null) return false;
+            // Sprung beartraps keep an Item/Inventory whose slot type is often "junk"
+            // (display "Scrap metal"). A junk WorldObjectRemoved must not eat the trap GO
+            // — that vanished the trap without a co-op free / grant path.
+            bool trapGo = TrapNetworkId.IsWorldTrap(root) || TrapNetworkId.IsOccupancyTrap(root)
+                || rootName.Contains("trap") || rootName.Contains("bear") || rootName.Contains("snap");
+            if (trapGo && !NeedleLooksLikeTrap(needleNorm))
+                return false;
 
-            Item item = root.GetComponent<Item>() ?? root.GetComponentInParent<Item>();
-            if (item != null)
+            Item item = root.GetComponent<Item>();
+            Inventory inv = root.GetComponent<Inventory>();
+            if (inv != null && inv.invType == Inventory.InvType.itemInv)
             {
-                string t = item.invItem != null ? item.invItem.type : null;
-                if (NameOrItemTypeMatches(item.gameObject, t, needleLower))
-                    return true;
+                if (item == null || !item.isDroppedItem)
+                    return false;
+                return NameOrItemTypeMatches(root, item.invItem != null ? item.invItem.type : null, needleNorm)
+                    || NameOrItemTypeMatches(root, FirstSlotType(inv), needleNorm);
             }
 
-            Inventory inv = root.GetComponent<Inventory>() ?? root.GetComponentInParent<Inventory>();
-            if (inv != null && inv.invType == Inventory.InvType.itemInv
-                && NameOrItemTypeMatches(inv.gameObject, FirstSlotType(inv), needleLower))
-                return true;
+            if (item != null)
+                return NameOrItemTypeMatches(root, item.invItem != null ? item.invItem.type : null, needleNorm);
 
-            return NameOrItemTypeMatches(root, null, needleLower);
+            return NameOrItemTypeMatches(root, null, needleNorm);
         }
 
         /// <summary>

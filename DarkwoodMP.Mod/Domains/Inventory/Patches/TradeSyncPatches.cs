@@ -14,21 +14,33 @@ namespace DWMPHorde.Patches
     /// Live path: after a successful acceptTrade, broadcast absolute NPC inventory.
     /// Restock path: host-only randomizeTraderInv, then absolute push.
     /// Join path: host SendTradeInventoriesTo(playerId) for every trader NPC.
+    ///
+    /// The wire carries isRecipe + absolute durability per stack (recipes keep their
+    /// recipeFor instead of collapsing to type "recipe", so client trade replies cannot
+    /// poison the host stock). Empty-mag firearms (ammo=0) stay on the wire and broken
+    /// items keep absolute durability 0. Workbench upgrades + shouldBeActive travel per
+    /// entry for player-sold upgraded / flashlight-on items.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "acceptTrade")]
     public static class TradeSyncAcceptPatch
     {
         /// <summary>Prefix snapshot of exchangeTrader (buy tray) type → amount.</summary>
         private static readonly Dictionary<string, int> _buyTraySnapshot = new Dictionary<string, int>();
+        private static TradeEntry[] _bought = System.Array.Empty<TradeEntry>(); // reset-in: Reset
+        private static TradeEntry[] _sold = System.Array.Empty<TradeEntry>();   // reset-in: Reset
 
         public static void Reset()
         {
             _buyTraySnapshot.Clear();
+            _bought = System.Array.Empty<TradeEntry>();
+            _sold = System.Array.Empty<TradeEntry>();
         }
 
         private static void Prefix(DialogueWindow __instance)
         {
             _buyTraySnapshot.Clear();
+            _bought = TradeCommit.Capture(__instance != null ? __instance.exchangeTrader : null);
+            _sold = TradeCommit.Capture(__instance != null ? __instance.exchangePlayer : null);
             if (__instance?.exchangeTrader == null) return;
 
             var allItems = __instance.exchangeTrader.getAllItems();
@@ -87,18 +99,17 @@ namespace DWMPHorde.Patches
                 return;
 
             // Renew dialog lock so host auth check survives long trade sessions (>90s lease).
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
-            string npcName = __instance.npc.name;
             int localId = net.LocalPlayerId;
-            NpcDialogueLock.RenewLease(npcName, localId);
+            NpcDialogueLock.RenewLease(__instance.npc, localId);
 
-            // Host fans out authoritative stock; clients notify host only (no Forwardable fan-out).
+            // Host fans out authoritative stock; a client sends what it traded for the host to check.
             if (net.Role == NetworkRole.Host)
                 TradeInventorySync.BroadcastNpcInventory(__instance.npc);
-            else
-                TradeInventorySync.SendNpcInventoryToHost(__instance.npc);
+            else if (net is LanNetworkManager lan)
+                TradeCommit.SendFromClient(lan, __instance.npc, _bought, _sold);
         }
     }
 
@@ -116,13 +127,20 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             // Clients must not independently restock — host assortment is shared.
             if (net.Role == NetworkRole.Client)
                 return false;
 
+            // A new day while someone trades with it: vanilla clears the stock under the open buy
+            // tray, and closing the trade put the tray back into the new stock. Restock after.
+            if (TraderRestockDefer.InTrade(__instance))
+            {
+                TraderRestockDefer.Add(__instance);
+                return false;
+            }
             return true;
         }
 
@@ -133,13 +151,64 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
-            var net = LanNetworkManager.Instance;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             if (__instance == null || !__instance.trader)
                 return;
 
             TradeInventorySync.BroadcastNpcInventory(__instance);
+        }
+    }
+
+    /// <summary>Host: trader restocks held while a player is talking or trading with that trader.</summary>
+    internal static class TraderRestockDefer
+    {
+        private static readonly List<NPC> _waiting = new List<NPC>(4); // reset-in: Reset
+        private static float _next; // reset-in: Reset
+
+        internal static void Reset()
+        {
+            _waiting.Clear();
+            _next = 0f;
+        }
+
+        internal static bool InTrade(NPC npc)
+        {
+            if (npc == null)
+                return false;
+            var dw = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
+            if (dw != null && dw.opened && dw.npc == npc)
+                return true;
+            var net = ModRuntime.Network;
+            int owner = NpcDialogueLock.GetOwner(NpcRef.Of(npc));
+            return owner > 0 && net != null && owner != net.LocalPlayerId;
+        }
+
+        internal static void Add(NPC npc)
+        {
+            if (!_waiting.Contains(npc))
+                _waiting.Add(npc);
+            ModRuntime.LegacyInfo($"[TradeSync] restock of '{npc.name}' waits for the trade to end");
+        }
+
+        internal static void Tick()
+        {
+            if (_waiting.Count == 0 || Time.unscaledTime < _next)
+                return;
+            _next = Time.unscaledTime + 1f;
+            for (int i = _waiting.Count - 1; i >= 0; i--)
+            {
+                NPC npc = _waiting[i];
+                if (npc == null)
+                {
+                    _waiting.RemoveAt(i);
+                    continue;
+                }
+                if (InTrade(npc))
+                    continue;
+                _waiting.RemoveAt(i);
+                Traverse.Create(npc).Method("randomizeTraderInv").GetValue();
+            }
         }
     }
 
@@ -155,33 +224,53 @@ namespace DWMPHorde.Patches
                 NpcName = npc != null ? npc.name : "",
                 ItemCount = 0,
                 ItemTypes = System.Array.Empty<string>(),
-                Amounts = System.Array.Empty<int>()
+                Amounts = System.Array.Empty<int>(),
+                IsRecipe = System.Array.Empty<bool>(),
+                Durabilities = System.Array.Empty<float>(),
+                Upgrades = System.Array.Empty<string[]>(),
+                ShouldBeActive = System.Array.Empty<bool>()
             };
             if (npc?.inventory == null) return msg;
 
-            var totals = new Dictionary<string, int>();
+            // Per-stack entries (do NOT collapse by item.type). Vanilla recipes all
+            // share type "recipe" with distinct recipeFor — aggregating wiped which
+            // recipes the trader sold and let client→host trade replies poison stock.
+            var types = new System.Collections.Generic.List<string>(16);
+            var amounts = new System.Collections.Generic.List<int>(16);
+            var recipes = new System.Collections.Generic.List<bool>(16);
+            var durs = new System.Collections.Generic.List<float>(16);
+            var ups = new System.Collections.Generic.List<string[]>(16);
+            var actives = new System.Collections.Generic.List<bool>(16);
             var items = npc.inventory.getAllItems();
             for (int i = 0; i < items.Count; i++)
             {
-                if (InvItemClass.isNull(items[i])) continue;
-                string type = items[i].type;
+                InvItemClass it = items[i];
+                if (InvItemClass.isNull(it)) continue;
+                bool isRecipe = it.isRecipe;
+                string type = isRecipe ? it.recipeFor : it.type;
                 if (string.IsNullOrEmpty(type)) continue;
-                if (totals.ContainsKey(type))
-                    totals[type] += items[i].amount;
-                else
-                    totals[type] = items[i].amount;
+                bool hasAmmo = it.baseClass != null && it.baseClass.hasAmmo;
+                int amt = hasAmmo ? it.ammo : it.amount;
+                // Empty-mag firearms must stay on the wire (Amounts=0), or peers never
+                // see sold/restocked empty guns.
+                if (amt <= 0 && !isRecipe && !hasAmmo) continue;
+                if (amt < 0) amt = 0;
+                if (amt <= 0 && isRecipe) amt = 1;
+                types.Add(type);
+                amounts.Add(amt);
+                recipes.Add(isRecipe);
+                durs.Add(it.durability);
+                ups.Add(Sync.InvItemUpgradeWire.CollectNames(it));
+                actives.Add(it.shouldBeActive);
             }
 
-            msg.ItemCount = totals.Count;
-            msg.ItemTypes = new string[msg.ItemCount];
-            msg.Amounts = new int[msg.ItemCount];
-            int idx = 0;
-            foreach (var kv in totals)
-            {
-                msg.ItemTypes[idx] = kv.Key;
-                msg.Amounts[idx] = kv.Value;
-                idx++;
-            }
+            msg.ItemCount = types.Count;
+            msg.ItemTypes = types.ToArray();
+            msg.Amounts = amounts.ToArray();
+            msg.IsRecipe = recipes.ToArray();
+            msg.Durabilities = durs.ToArray();
+            msg.Upgrades = ups.ToArray();
+            msg.ShouldBeActive = actives.ToArray();
             msg.InDream = NpcIsOnDreamPad(npc);
             if (npc != null)
             {
@@ -204,27 +293,12 @@ namespace DWMPHorde.Patches
         public static void BroadcastNpcInventory(NPC npc)
         {
             if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = LanNetworkManager.Instance;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.ConnectedHost(out var net)) return;
 
             var msg = BuildMessage(npc);
             ModRuntime.LegacyInfo(
                 $"[TradeSync] inventory sync '{msg.NpcName}' types={msg.ItemCount}");
             net.SendToAll(NetMessageType.TradeInventorySync, w => msg.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
-        }
-
-        /// <summary>Client-only: notify host after local acceptTrade (host rebroadcasts truth).</summary>
-        public static void SendNpcInventoryToHost(NPC npc)
-        {
-            if (npc == null || string.IsNullOrEmpty(npc.name)) return;
-            var net = LanNetworkManager.Instance;
-            if (net == null || !net.IsConnected || net.Role == NetworkRole.Host) return;
-
-            var msg = BuildMessage(npc);
-            ModRuntime.LegacyInfo(
-                $"[TradeSync] trade accept → host '{msg.NpcName}' types={msg.ItemCount}");
-            net.Send(NetMessageType.TradeInventorySync, w => msg.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
         }
 
@@ -236,7 +310,7 @@ namespace DWMPHorde.Patches
             if (npc == null)
             {
                 // NPC may not be streamed yet — queue for flush.
-                LanNetworkManager.Instance?.TradeHandlers?.QueuePendingTradeInventory(msg);
+                ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }
 
@@ -262,16 +336,60 @@ namespace DWMPHorde.Patches
                     string type = msg.ItemTypes[i];
                     if (string.IsNullOrEmpty(type)) continue;
                     int amount = i < msg.Amounts.Length ? msg.Amounts[i] : 0;
-                    if (amount <= 0) continue;
-                    inv.addItemType(type, amount);
+                    if (amount < 0) amount = 0;
+                    bool isRecipe = msg.IsRecipe != null && i < msg.IsRecipe.Length && msg.IsRecipe[i];
+                    bool hasAbsDur = msg.Durabilities != null && i < msg.Durabilities.Length;
+                    float absDur = hasAbsDur ? msg.Durabilities[i] : 0f;
+
+                    // amount==0 is empty-mag firearm only (Build keeps hasAmmo zeros).
+                    if (amount <= 0 && !isRecipe)
+                    {
+                        InvItem def = null;
+                        try
+                        {
+                            if (Singleton<ItemsDatabase>.Instance != null)
+                                def = Singleton<ItemsDatabase>.Instance.getItem(type, instantiate: false);
+                        }
+                        catch { /* title/join race */ }
+                        if (def == null || !def.hasAmmo)
+                            continue;
+                    }
+
+                    InvSlot slot = inv.getNextFreeSlot();
+                    if (slot == null) break;
+                    // createItem durability arg is a 0..1 multiplier; set absolute after.
+                    // hasAmmo: Amount→ammo (0 stays empty). Non-ammo never reaches here at 0.
+                    InvItemClass created = slot.createItem(type, amount, 1f,
+                        InvItem.ModifierQuality.none, isRecipe);
+                    if (created == null) continue;
+                    // Always assign absolute durability (0 = broken); createItem's
+                    // default is a full bar.
+                    bool hasActive = msg.ShouldBeActive != null && i < msg.ShouldBeActive.Length;
+                    bool active = hasActive && msg.ShouldBeActive[i];
+                    if (hasAbsDur && hasActive)
+                        Sync.InvItemTransferApply.ApplyMeta(created, absDur, amount, active);
+                    else
+                    {
+                        if (hasAbsDur)
+                            created.durability = absDur;
+                        if (created.baseClass != null && created.baseClass.hasAmmo)
+                            created.ammo = amount;
+                        if (hasActive)
+                            created.shouldBeActive = active;
+                    }
+                    string[] upNames = msg.Upgrades != null && i < msg.Upgrades.Length
+                        ? msg.Upgrades[i] : null;
+                    Sync.InvItemUpgradeWire.Apply(created, upNames);
                 }
             }
 
-            inv.refreshReputation();
-
             var dw = Singleton<UI>.Instance?.dialogueWindow;
+            // The trade window's balance line exists only while this trader's trade is open (vanilla
+            // refreshReputation reads the talked-to NPC and the exchange panes).
             if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
             {
+                if (Player.Instance != null && Player.Instance.talkedToNPC != null)
+                    inv.refreshReputation();
                 inv.refreshIcons();
                 if (dw.exchangeTrader != null)
                     dw.exchangeTrader.refreshIcons();

@@ -28,11 +28,6 @@ namespace DWMPHorde.Networking
         private const float HostWaitForSaveSeconds = 2.5f;
         private const int MinProfileId = 1;
         private const int MaxProfileId = 5;
-        /// <summary>
-        /// Legacy default receive slot (pre permanent-copy picker). Still used as a soft
-        /// fallback suggestion when PreferredCoopCopySlot is unset and all slots are full.
-        /// </summary>
-        public const int ClientReceiveProfileId = 5;
 
         private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat" };
 
@@ -43,6 +38,30 @@ namespace DWMPHorde.Networking
         private Action _afterHostShare;
         /// <summary>-1 = all handshaked peers; else only that player id.</summary>
         private int _shareTargetPlayerId = -1;
+        /// <summary>
+        /// Broadcast share only: the peers that were connected when <c>WorldSaveBegin</c> went out.
+        /// Null until Begin is sent. Chunks and End go to exactly this set, and a peer outside it
+        /// (joined mid-broadcast, never got Begin) gets its own share once the broadcast ends.
+        /// </summary>
+        private HashSet<int> _broadcastRecipients;
+
+        /// <summary>
+        /// Bumped by <see cref="Reset"/> (and when a newer package supersedes one being applied).
+        /// A share/apply coroutine captures it at start and quits when it no longer matches, so a
+        /// share from a dead session can never clear <c>_hostShareRunning</c> or fire the next
+        /// session's <c>afterShare</c>.
+        /// </summary>
+        private int _shareGeneration;
+        private Coroutine _hostShareCoroutine;
+
+        /// <summary>
+        /// A broadcast share was requested while another share was already running. The running one
+        /// may have packed older files or covered fewer peers, so everyone gets a fresh share when it
+        /// ends; <see cref="_rerunAfter"/> (the chapter load) waits for that second pass.
+        /// </summary>
+        private bool _rerunBroadcast;
+        private bool _rerunWaitForSave;
+        private Action _rerunAfter;
 
         private WorldSaveBeginMessage _pendingBegin;
         private Dictionary<int, byte[][]> _chunkBuffers;
@@ -65,8 +84,17 @@ namespace DWMPHorde.Networking
         private int _enterProfileId;
         private int _enterChapterId;
 
+        /// <summary>
+        /// Chapter share: package received, verified and inflated, held in RAM until the host's go.
+        /// The save slot is not touched before the go (and never if the host aborts).
+        /// </summary>
+        private List<VerifiedFile> _verifiedPackage;
+        private bool _awaitingChapterGo;
+
         public bool IsBusy => _hostShareRunning || _clientReceiving || _clientApplying
             || _awaitingSlotPick || _awaitingEnterWorld;
+        /// <summary>Host is packing or sending a world package.</summary>
+        public bool IsHostShareRunning => _hostShareRunning;
         /// <summary>Client is mid download, slot pick, or apply of host world package.</summary>
         public bool IsClientReceivingOrApplying =>
             _clientReceiving || _clientApplying || _awaitingSlotPick;
@@ -94,27 +122,40 @@ namespace DWMPHorde.Networking
         public WorldSaveShareService(LanNetworkManager net)
         {
             _net = net;
+            // Automatic host saves check IsQuitting; hook it as soon as networking exists.
+            WorldSaveGuards.EnsureQuitHook();
         }
 
         public void Reset()
         {
-            _hostShareRunning = false;
-            _clientReceiving = false;
-            _clientApplying = false;
-            _afterHostShare = null;
-            // Phase-2 enter captures locals then StopNetwork → Reset; do not wipe mid-enter apply.
-            if (!_clientApplying)
+            // Session over: no share/apply coroutine of the old session may run another line.
+            _shareGeneration++;
+            if (_hostShareCoroutine != null)
             {
-                _chunkBuffers = null;
-                _chunksReceived = 0;
-                _chunksExpected = 0;
-                _awaitingSlotPick = false;
-                _awaitingEnterWorld = false;
-                _enterProfileId = 0;
-                _enterChapterId = 0;
-                _hostSourceProfileId = 0;
-                _pendingPackageFingerprint = null;
+                if (_net != null)
+                    _net.StopCoroutine(_hostShareCoroutine);
+                _hostShareCoroutine = null;
             }
+            _hostShareRunning = false;
+            _shareTargetPlayerId = -1;
+            _broadcastRecipients = null;
+            _clientReceiving = false;
+            _afterHostShare = null;
+            _rerunBroadcast = false;
+            _rerunWaitForSave = false;
+            _rerunAfter = null;
+            _clientApplying = false;
+            _chunkBuffers = null;
+            _chunksReceived = 0;
+            _chunksExpected = 0;
+            _awaitingSlotPick = false;
+            _awaitingEnterWorld = false;
+            _enterProfileId = 0;
+            _enterChapterId = 0;
+            _hostSourceProfileId = 0;
+            _pendingPackageFingerprint = null;
+            _verifiedPackage = null;
+            _awaitingChapterGo = false;
             ProgressText = string.Empty;
         }
 
@@ -131,6 +172,16 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void ScheduleHostResend()
         {
+            if (!LanNetworkManager.HostIsFullyInWorld())
+            {
+                ModLog.Warn(LogCat.Save,
+                    "Resend world skipped — host not fully in-world yet (loading="
+                    + Core.loadingGame + " player=" + (Player.Instance != null) + ")");
+                ProgressText = "Host not ready — enter world first";
+                if (_net != null)
+                    _net.StatusText = ProgressText;
+                return;
+            }
             // waitForGameSave=true enables the single force Save path (see HostShareCoroutine).
             ScheduleHostShare(waitForGameSave: true, afterShare: null, targetPlayerId: -1);
         }
@@ -141,6 +192,13 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void ScheduleHostShareToPlayer(int playerId)
         {
+            if (!LanNetworkManager.HostIsFullyInWorld())
+            {
+                ModLog.Warn(LogCat.Save,
+                    "World share to p" + playerId
+                    + " deferred — host not fully in-world yet");
+                return;
+            }
             if (playerId <= 0)
             {
                 ScheduleHostResend();
@@ -175,11 +233,31 @@ namespace DWMPHorde.Networking
             if (_hostShareRunning)
             {
                 ProgressText = "World share already in progress";
+                if (targetPlayerId <= 0)
+                {
+                    // Broadcast while a share runs: the running one may have packed files that have
+                    // since changed (chapter save) or cover fewer peers. Chaining only the callback
+                    // let the chapter load proceed with other clients never sent the new world.
+                    _rerunBroadcast = true;
+                    _rerunWaitForSave |= waitForGameSave;
+                    if (afterShare != null)
+                        _rerunAfter += afterShare;
+                    ModLog.Event(LogCat.Save,
+                        "World share running (target=" + _shareTargetPlayerId
+                        + ") — broadcast queued to re-run to all peers when it ends");
+                    return;
+                }
                 // Coalesce: a second push to the same peer (or while broadcasting to all)
                 // mid-share caused client Missing chunk 0:0 — Begin wiped buffers under apply.
                 // Still chain afterShare (chapter load must not stall); skip duplicate share.
+                // A running broadcast only covers a peer that was connected when its Begin went out
+                // (or any peer, while Begin is still to be sent): a peer that joined after Begin
+                // never got it, so it is chained below to get its own share when this one ends.
                 bool samePeerAlreadyCovered = targetPlayerId > 0
-                    && (_shareTargetPlayerId == targetPlayerId || _shareTargetPlayerId < 0);
+                    && (_shareTargetPlayerId == targetPlayerId
+                        || (_shareTargetPlayerId < 0
+                            && (_broadcastRecipients == null
+                                || _broadcastRecipients.Contains(targetPlayerId))));
                 if (samePeerAlreadyCovered && afterShare == null)
                 {
                     ModLog.Event(LogCat.Save,
@@ -205,17 +283,27 @@ namespace DWMPHorde.Networking
 
             _afterHostShare = afterShare;
             _shareTargetPlayerId = targetPlayerId;
-            // Mute high-rate entity/physics flood to title joiners only.
+            // Mute high-rate entity/physics flood only for peers that will load this package.
             // Soft-reconnect (AlreadyInWorld) peers must keep receiving PlayerState or
             // they never spawn the host proxy.
             if (targetPlayerId > 0)
             {
                 if (!_net.IsCoopReconnectPeer(targetPlayerId))
                     _net.MarkPeerLoadingWorld(targetPlayerId);
+                _net.ReserveIdForJoinPipeline(targetPlayerId);
+            }
+            else if (afterShare != null || Patches.ChapterTransitionHelpers.IsChapterTransitionActive)
+            {
+                // Chapter share: every peer, in-world ones included, loads the new chapter.
+                _net.MarkAllClientPeersLoadingWorld(excludeCoopReconnect: true);
             }
             else
-                _net.MarkAllClientPeersLoadingWorld(excludeCoopReconnect: true);
-            _net.StartCoroutine(HostShareCoroutine(waitForGameSave));
+            {
+                // Resend / new world: peers already playing ignore the package (HandleBegin) and
+                // must keep their traffic; title joiners are muted until their first PlayerState.
+                _net.MarkTitlePeersLoadingForWorldShare();
+            }
+            _hostShareCoroutine = _net.StartCoroutine(HostShareCoroutine(waitForGameSave, _shareGeneration));
         }
     }
 }

@@ -20,7 +20,7 @@ namespace DWMPHorde.Sync
         public static void RemoveObjectFromInterpolation(GameObject go)
         {
             if (go == null) return;
-            _objectInterp.Remove(go.GetInstanceID());
+            _s.ObjectInterp.Remove(go.GetInstanceID());
         }
 
         /// <summary>
@@ -33,7 +33,7 @@ namespace DWMPHorde.Sync
             if (string.IsNullOrEmpty(objectName)) return;
 
             List<int> dropIds = null;
-            foreach (var kv in _clientKinematic)
+            foreach (var kv in _s.ClientKinematic)
             {
                 if (string.Equals(kv.Value.objName, objectName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -51,22 +51,22 @@ namespace DWMPHorde.Sync
                 for (int i = 0; i < dropIds.Count; i++)
                 {
                     int id = dropIds[i];
-                    if (_clientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
+                    if (_s.ClientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
                         kin.rb.isKinematic = false;
-                    _clientKinematic.Remove(id);
-                    _clientKinematicGate[id] = Time.time;
-                    _objectInterp.Remove(id);
-                    _bodyPushSoundActive.Remove(objectName);
-                    _bodyPushSoundTimer.Remove(id);
-                    if (_pushGidToName.TryGetValue(id, out string n) && string.Equals(n, objectName, StringComparison.OrdinalIgnoreCase))
-                        _pushGidToName.Remove(id);
-                    _pushNameToGid.Remove(objectName);
+                    _s.ClientKinematic.Remove(id);
+                    _s.ClientKinematicGate[id] = Time.time;
+                    _s.ObjectInterp.Remove(id);
+                    _s.BodyPushSoundActive.Remove(objectName);
+                    _s.BodyPushSoundTimer.Remove(id);
+                    if (_s.PushGidToName.TryGetValue(id, out string n) && string.Equals(n, objectName, StringComparison.OrdinalIgnoreCase))
+                        _s.PushGidToName.Remove(id);
+                    _s.PushNameToGid.Remove(objectName);
                 }
             }
 
             // Name-only cleanup when gid maps already gone.
-            _bodyPushSoundActive.Remove(objectName);
-            _pushNameToGid.Remove(objectName);
+            _s.BodyPushSoundActive.Remove(objectName);
+            _s.PushNameToGid.Remove(objectName);
         }
 
         /// <summary>
@@ -79,7 +79,7 @@ namespace DWMPHorde.Sync
             float now = Time.time;
             float duration = durationSec > 0.001f ? durationSec : InterpFixedDuration;
 
-            if (_objectInterp.TryGetValue(id, out var state))
+            if (_s.ObjectInterp.TryGetValue(id, out var state))
             {
                 float dur = state.TargetTime - state.PrevTime;
                 if (dur > 0.001f)
@@ -115,11 +115,37 @@ namespace DWMPHorde.Sync
             }
 
             state.Target = go;
+
+            // Large jumps (trap/door/object teleports across locations): hard-snap like
+            // the client-push path (ClientPushSnapDistance). Generic 0.2s lerp left
+            // furniture sliding across the map after a pad teleport.
+            float jump = Vector3.Distance(state.PrevPos, targetPos);
+            if (jump >= ClientPushSnapDistance)
+            {
+                state.PrevPos = targetPos;
+                state.PrevRot = targetRot;
+                Rigidbody rbSnap = go.GetComponent<Rigidbody>();
+                if (rbSnap != null)
+                {
+                    rbSnap.position = targetPos;
+                    rbSnap.rotation = Quaternion.Euler(targetRot);
+                    rbSnap.velocity = Vector3.zero;
+                    rbSnap.angularVelocity = Vector3.zero;
+                }
+                else
+                {
+                    go.transform.position = targetPos;
+                    go.transform.rotation = Quaternion.Euler(targetRot);
+                }
+                // Short residual interp so a late packet does not re-lerp from far Prev.
+                duration = Mathf.Min(duration, 0.05f);
+            }
+
             state.TargetPos = targetPos;
             state.TargetRot = targetRot;
             state.PrevTime = now;
             state.TargetTime = now + duration;
-            _objectInterp[id] = state;
+            _s.ObjectInterp[id] = state;
 
             if (IsSceneFixedLightItem(go))
                 return;
@@ -206,34 +232,56 @@ namespace DWMPHorde.Sync
         {
             if (string.IsNullOrEmpty(name) || go == null)
                 return go;
-            if (!_lastResolvedByName.ContainsKey(name)
-                && _lastResolvedByName.Count >= MaxResolvedByName)
+            if (!_s.LastResolvedByName.ContainsKey(name)
+                && _s.LastResolvedByName.Count >= MaxResolvedByName)
             {
                 // Drop one entry so long sessions cannot grow unboundedly.
                 string drop = null;
-                foreach (var k in _lastResolvedByName.Keys)
+                foreach (var k in _s.LastResolvedByName.Keys)
                 {
                     drop = k;
                     break;
                 }
                 if (drop != null)
-                    _lastResolvedByName.Remove(drop);
+                    _s.LastResolvedByName.Remove(drop);
             }
-            _lastResolvedByName[name] = go;
+            _s.LastResolvedByName[name] = go;
             return go;
         }
 
-        private static GameObject FindOrSpawnObject(WorldObjectState obj)
+        /// <summary>Largest distance a wide-resolve (strategy 2) match may sit from the reported pose.</summary>
+        private const float FullScanMaxDist = 50f;
+
+        /// <summary>
+        /// While a dream is active, a pad-side target may only resolve to a pad body and an
+        /// overworld-side target never to one (the pad is a clone of overworld locations).
+        /// </summary>
+        private static bool IsSameWorldAsTarget(Transform candidate, Vector3 targetPos)
+        {
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            if (pad == null) return true;
+            bool targetOnPad = Vector3.Distance(targetPos, pad.position) <= 250f;
+            bool candOnPad = candidate.IsChildOf(pad)
+                || Vector3.Distance(candidate.position, pad.position) <= 250f;
+            return targetOnPad == candOnPad;
+        }
+
+        /// <param name="allowSpawn">False for client-origin snapshots: the host owns item existence
+        /// and must never mint a prefab because a client still reports an object the host removed.</param>
+        private static GameObject FindOrSpawnObject(WorldObjectState obj, bool allowSpawn)
         {
             if (string.IsNullOrEmpty(obj.Name))
                 return null;
 
             Vector3 targetPos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
 
-            // Strategy 0: last successful resolve for this name (skip if destroyed / too far).
-            if (_lastResolvedByName.TryGetValue(obj.Name, out GameObject cached)
-                && IsUsableResolveCandidate(cached, obj.Name, targetPos, ResolvedNameMaxDist))
-                return cached;
+            // Last successful resolve for this name (skip if destroyed / too far). Only taken when
+            // no other object of that name sits closer to the reported spot: two identical chairs
+            // a few steps apart swapped, the update for one moving the other.
+            GameObject cached = null;
+            if (_s.LastResolvedByName.TryGetValue(obj.Name, out GameObject c0)
+                && IsUsableResolveCandidate(c0, obj.Name, targetPos, ResolvedNameMaxDist))
+                cached = c0;
 
             // Strategy 1: overlap sphere near the reported position (avoids teleporting
             // objects with non-unique names because GameObject.Find can match any instance)
@@ -246,7 +294,7 @@ namespace DWMPHorde.Sync
                 return RememberResolved(obj.Name, candidate);
             }
 
-            // Strategy 1b: wider sphere before full-scene scan (client stutter when host
+            // Strategy 1b: wider sphere before the wide resolve (client stutter when host
             // pushes objects away and can miss a small OverlapSphere query.
             {
                 int wideN = OverlapNear(targetPos, 15f);
@@ -265,45 +313,67 @@ namespace DWMPHorde.Sync
                         bestWide = candidate;
                     }
                 }
+                if (cached != null
+                    && (bestWide == null || Vector3.Distance(cached.transform.position, targetPos) <= bestWideDist))
+                    return cached;
                 if (bestWide != null)
                     return RememberResolved(obj.Name, bestWide);
             }
 
-            // Strategy 2: rate-limited full Rigidbody scan (scene-wide FindObjectsOfType
-            // every PhysicsState packet was a dual-box hitch source).
+            // Strategy 2 (rate-limited): every body within FullScanMaxDist. Bodies with a live
+            // collider come from one wide OverlapSphere; pushable props without one (collider off,
+            // object inactive) are Items, read from the Item registry. This used to be a
+            // scene-wide Rigidbody FindObjectsOfType (35-50 ms), a dual-box hitch source.
             float nowScan = Time.time;
-            if (nowScan - _lastFullRbScanTime >= FullRbScanMinInterval)
+            if (nowScan - _s.LastFullRbScanTime >= FullRbScanMinInterval)
             {
-                _lastFullRbScanTime = nowScan;
+                _s.LastFullRbScanTime = nowScan;
                 DWMPHorde.Logging.ClientPerfProbe.NoteFullRbScan();
-                var footSw = System.Diagnostics.Stopwatch.StartNew();
-                Rigidbody[] allRbs = WorldQueryHelper.GetCachedSceneComponents<Rigidbody>();
-                footSw.Stop();
-                DWMPHorde.Logging.ClientPerfProbe.NoteFindObjectsOfType("Rigidbody", footSw.Elapsed.TotalMilliseconds);
                 GameObject best = null;
                 float bestDist = float.MaxValue;
-                for (int i = 0; i < allRbs.Length; i++)
+
+                void Consider(GameObject candidate)
                 {
-                    Rigidbody rb = allRbs[i];
-                    if (rb == null) continue;
-                    GameObject candidate = rb.gameObject;
-                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, float.MaxValue)) continue;
+                    // Bounded: an unbounded name match found the overworld twin of a dream-pad
+                    // crate (≈70k units away) and the hard snap then dragged it to -75000.
                     float d = Vector3.Distance(candidate.transform.position, targetPos);
-                    if (d < bestDist)
-                    {
-                        bestDist = d;
-                        best = candidate;
-                    }
+                    if (d > FullScanMaxDist || d >= bestDist) return;
+                    if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, FullScanMaxDist)) return;
+                    if (!IsSameWorldAsTarget(candidate.transform, targetPos)) return;
+                    bestDist = d;
+                    best = candidate;
+                }
+
+                int farN = OverlapNear(targetPos, FullScanMaxDist);
+                for (int i = 0; i < farN; i++)
+                {
+                    Rigidbody rb = _overlap3D[i] != null ? _overlap3D[i].attachedRigidbody : null;
+                    if (rb != null)
+                        Consider(rb.gameObject);
+                }
+                Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
+                for (int i = 0; i < items.Length; i++)
+                {
+                    Item it = items[i];
+                    if (it == null) continue;
+                    // Distance first: GetComponent and name reads only for the few close ones.
+                    if ((it.transform.position - targetPos).sqrMagnitude > FullScanMaxDist * FullScanMaxDist)
+                        continue;
+                    if (it.GetComponent<Rigidbody>() != null)
+                        Consider(it.gameObject);
                 }
                 if (best != null)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[ObjectApply] found \"" + best.name + "\" via full scan (" + bestDist.ToString("F1") + " u from target)");
+                        ModRuntime.LegacyInfo($"[ObjectApply] found \"{best.name}\" via wide resolve ({bestDist.ToString("F1")} u from target)");
                     return RememberResolved(obj.Name, best);
                 }
             }
 
             // Strategy 3: spawn from ItemsDatabase (cross-world-chunk support)
+            if (!allowSpawn)
+                return null;
+
             // Do not spawn a duplicate inside the active dream pad.
             // (client solid lamp / ghost bell) while the real prop already exists.
             if (DreamSyncManager.IsDreamActive
@@ -330,16 +400,17 @@ namespace DWMPHorde.Sync
 
             Quaternion rot = Quaternion.Euler(obj.RotX, obj.RotY, obj.RotZ);
             GameObject spawned;
+            bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
-                TraverseHack.ApplyingFromNetwork = true;
+                TraverseHack.SetExplicitFlag(true);
                 spawned = Core.AddPrefab(prefab, targetPos, rot, null);
                 if (spawned == null)
                     spawned = UnityEngine.Object.Instantiate(prefab, targetPos, rot);
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
 
             if (spawned != null)
@@ -354,7 +425,7 @@ namespace DWMPHorde.Sync
                     rb.angularVelocity = Vector3.zero;
                 }
 
-                ModRuntime.LegacyInfo("[ObjectApply] spawned \"" + obj.Name + "\" type=" + obj.ItemType + " at " + targetPos);
+                ModRuntime.LegacyInfo($"[ObjectApply] spawned \"{obj.Name}\" type={obj.ItemType} at {targetPos}");
             }
 
             return spawned;

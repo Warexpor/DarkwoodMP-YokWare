@@ -30,7 +30,7 @@ namespace DWMPHorde
             {
                 if (alsoSetShareProgress)
                 {
-                    var net = ModRuntime.Network as LanNetworkManager;
+                    var net = ModRuntime.Network;
                     if (net?.WorldSaveShare != null)
                         net.WorldSaveShare.SetWrongSaveProgress(msg);
                 }
@@ -39,8 +39,12 @@ namespace DWMPHorde
 
             try
             {
-                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
-                    Player.Instance.displayMessage(msg);
+                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
+                {
+                    DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                    try { Player.Instance.displayMessage(msg); }
+                    finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                }
             }
             catch { /* non-fatal */ }
         }

@@ -11,7 +11,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class NightSpawnFarProxies
     {
-        private static readonly List<RemotePlayerProxy> Buf = new List<RemotePlayerProxy>(8);
+        private static readonly List<RemotePlayerProxy> Buf = new List<RemotePlayerProxy>(8); // process-scoped: scratch buffer, cleared before each use
         private static readonly float FarSqr =
             NightSpawnConstants.FarProxyMinDist * NightSpawnConstants.FarProxyMinDist;
 
@@ -23,6 +23,9 @@ namespace DWMPHorde.Patches
             foreach (RemotePlayerProxy p in net.GetAllProxies())
             {
                 if (p == null)
+                    continue;
+                // Night spawns belong to the open world, never a location pad or a loading peer.
+                if (!net.RemotePlayers.TryGetValue(p.PlayerId, out RemotePlayerState st) || !st.InOpenWorld)
                     continue;
                 Vector3 d = p.transform.position - from;
                 if (d.sqrMagnitude >= FarSqr)

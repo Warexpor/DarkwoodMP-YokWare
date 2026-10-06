@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using LiteNetLib;
@@ -24,7 +25,7 @@ namespace DWMPHorde.Networking
         }
 
         private static readonly NetWriter _hotPacketWriter = new NetWriter();
-        private static byte[] _hotPacketBuf = Array.Empty<byte>();
+        private static byte[] _hotPacketBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>
         /// Hot-path packet build into recycled buffers. <paramref name="writeBody"/> must not
@@ -48,29 +49,68 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false,
             int excludePlayerId = 0)
         {
+            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
             BuildPacketHot(type, writeBody, out byte[] data, out int length);
+            FanOutHot(data, length, method, skipLoadingPeers, excludePlayerId);
+        }
+
+        /// <summary>Send an already-framed hot buffer: host to every peer, client to the host only.</summary>
+        private void FanOutHot(byte[] data, int length, DeliveryMethod method,
+            bool skipLoadingPeers, int excludePlayerId)
+        {
             if (length <= 0) return;
             if (_role == NetworkRole.Host)
-            {
-                if (PeerCount == 0) return;
-                foreach (int peerId in EnumeratePeerIds())
-                {
-                    if (excludePlayerId > 0 && peerId == excludePlayerId)
-                        continue;
-                    if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                        continue;
-                    SendRawToPlayer(peerId, data, length, method);
-                }
-            }
+                SendFramedToPeers(data, length, method,
+                    skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
             else
+                SendFramedToFirstPeer(data, length, method, excludePlayerId);
+        }
+
+        private enum FanOutFilter { All, SkipLoading, GameplayReady }
+
+        private bool PassesFanOut(int peerId, FanOutFilter filter, int excludePlayerId)
+        {
+            if (excludePlayerId > 0 && peerId == excludePlayerId)
+                return false;
+            if (_session.Link.Rejected.Count > 0 && _session.Link.Rejected.Contains(peerId))
+                return false;
+            switch (filter)
             {
-                foreach (int peerId in EnumeratePeerIds())
-                {
-                    if (excludePlayerId > 0 && peerId == excludePlayerId)
-                        continue;
-                    SendRawToPlayer(peerId, data, length, method);
-                    return;
-                }
+                case FanOutFilter.SkipLoading: return !_session.Link.LoadingWorld.Contains(peerId);
+                case FanOutFilter.GameplayReady: return IsPeerReadyForGameplay(peerId);
+                default: return true;
+            }
+        }
+
+        /// <summary>
+        /// The one fan-out loop behind every broadcast: walks the active peer table by index (no
+        /// per-send allocation) with the same gates as EnumeratePeerIds.
+        /// </summary>
+        private void SendFramedToPeers(byte[] data, int length, DeliveryMethod method,
+            FanOutFilter filter, int excludePlayerId)
+        {
+            if (data == null || length <= 0)
+                return;
+            IPeerTable peers = Peers;
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                int id = ids[i];
+                if (!peers.IsRoutable(id) || !PassesFanOut(id, filter, excludePlayerId))
+                    continue;
+                peers.Send(id, data, length, method);
+            }
+        }
+
+        /// <summary>Client: the only peer is the host.</summary>
+        private void SendFramedToFirstPeer(byte[] data, int length, DeliveryMethod method, int excludePlayerId)
+        {
+            foreach (int peerId in EnumeratePeerIds())
+            {
+                if (excludePlayerId > 0 && peerId == excludePlayerId)
+                    continue;
+                SendRawToPlayer(peerId, data, length, method);
+                return;
             }
         }
 
@@ -94,14 +134,43 @@ namespace DWMPHorde.Networking
                 return;
             if (length > data.Length)
                 length = data.Length;
-            if (IsSteamSession)
+            Peers.Send(playerId, data, length, method);
+        }
+
+        /// <summary>Steam SNS fragments internally, but a lost fragment drops the message — keep hot chunks near one packet.</summary>
+        private const int SteamUnreliableChunkBytes = 1180;
+        /// <summary>Fallback when no peer is registered yet (LiteNetLib default MTU 1024 minus header).</summary>
+        private const int DefaultUnreliableChunkBytes = 1000;
+
+        /// <summary>
+        /// Largest framed unreliable packet every targeted peer can take in one datagram
+        /// (hot snapshot senders split to this so nothing hits TooBigPacketException).
+        /// </summary>
+        internal int MinUnreliablePacketBytes(bool gameplayReadyOnly, bool skipLoadingPeers = false,
+            int excludePlayerId = 0)
+        {
+            int min = int.MaxValue;
+            foreach (int peerId in EnumeratePeerIds())
             {
-                SendSteamToPlayer(playerId, data, length, method);
-                return;
+                if (excludePlayerId > 0 && peerId == excludePlayerId)
+                    continue;
+                if (gameplayReadyOnly && !IsPeerReadyForGameplay(peerId))
+                    continue;
+                if (skipLoadingPeers && _session.Link.LoadingWorld.Contains(peerId))
+                    continue;
+                int budget;
+                if (IsSteamSession)
+                    budget = SteamUnreliableChunkBytes;
+                else
+                {
+                    budget = _lanPeers.MaxSinglePacketSize(peerId, DeliveryMethod.Unreliable);
+                    if (budget <= 0)
+                        budget = DefaultUnreliableChunkBytes;
+                }
+                if (budget < min)
+                    min = budget;
             }
-            if (!_peers.TryGetValue(playerId, out NetPeer peer))
-                return;
-            peer.Send(data, 0, length, method);
+            return min == int.MaxValue ? DefaultUnreliableChunkBytes : min;
         }
 
         /// <summary>
@@ -116,49 +185,37 @@ namespace DWMPHorde.Networking
         {
             if (data == null || length <= 0 || PeerCount == 0)
                 return;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (!IsPeerReadyForGameplay(peerId))
-                    continue;
-                SendRawToPlayer(peerId, data, length, method);
-            }
+            SendFramedToPeers(data, length, method, FanOutFilter.GameplayReady, 0);
         }
+
+        /// <summary>
+        /// LiteNetLib queues unreliable sends for its logic thread, which wakes every
+        /// <c>UpdateTime</c> (15 ms): a snapshot burst waited 0-15 ms on top of the network, a
+        /// jitter the client's render delay had to absorb. Wake the thread to send now. Steam SNS
+        /// unreliable sends already go out at once (NoNagle | NoDelay).
+        /// </summary>
+        public void FlushQueuedSends() => _net?.TriggerUpdate();
 
         /// <summary>Send a message to all connected peers.</summary>
         /// <param name="skipLoadingPeers">
-        /// When true, skip peers in <see cref="_peersLoadingWorld"/> (title join / LoadScene).
+        /// When true, skip peers in <see cref="_session.Link.LoadingWorld"/> (title join / LoadScene).
         /// World share must pass false (default) so targeted broadcast resends still land.
         /// </param>
         public void SendToAll(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
-        {
-            if (PeerCount == 0) return;
-            byte[] data = null;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                    continue;
-                if (data == null)
-                    data = BuildPacket(type, writeBody);
-                SendRawToPlayer(peerId, data, method);
-            }
-        }
+            => SendToAllExcept(0, type, writeBody, method, skipLoadingPeers);
 
-        /// <summary>Send a message to all peers except one.</summary>
+        /// <summary>Send a message to all peers except one (0 = nobody excluded).</summary>
         public void SendToAllExcept(int excludePlayerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (PeerCount == 0) return;
-            byte[] data = null;
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                if (peerId == excludePlayerId) continue;
-                if (skipLoadingPeers && _peersLoadingWorld.Contains(peerId))
-                    continue;
-                if (data == null)
-                    data = BuildPacket(type, writeBody);
-                SendRawToPlayer(peerId, data, method);
-            }
+            // The host's own prologue happens on its private pads, not in the shared world.
+            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
+            // Built before the loop: a body writer that itself sends must not run mid-iteration.
+            byte[] data = BuildPacket(type, writeBody);
+            SendFramedToPeers(data, data.Length, method,
+                skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
         }
 
         /// <summary>
@@ -181,7 +238,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 1)
                 return;
-            if (_peersLoadingWorld.Add(playerId))
+            if (_session.Link.LoadingWorld.Add(playerId))
                 ModLog.Event(LogCat.Session, "Peer " + playerId + " marked loading-world (gameplay flood muted)");
         }
 
@@ -195,7 +252,7 @@ namespace DWMPHorde.Networking
             {
                 if (id > 1)
                 {
-                    if (excludeCoopReconnect && _peersCoopReconnect.Contains(id))
+                    if (excludeCoopReconnect && _session.Link.CoopReconnect.Contains(id))
                         continue;
                     MarkPeerLoadingWorld(id);
                 }
@@ -205,7 +262,7 @@ namespace DWMPHorde.Networking
         /// <summary>Host: peer reconnected with AlreadyInWorld (soft join pipeline phase 3).</summary>
         public bool IsCoopReconnectPeer(int playerId)
         {
-            return playerId > 1 && _peersCoopReconnect.Contains(playerId);
+            return playerId > 1 && _session.Link.CoopReconnect.Contains(playerId);
         }
 
         /// <summary>Host: joiner sent its first in-world PlayerState.</summary>
@@ -213,14 +270,14 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || playerId <= 1)
                 return;
-            if (_peersLoadingWorld.Remove(playerId))
+            if (_session.Link.LoadingWorld.Remove(playerId))
                 ModLog.Event(LogCat.Session, "Peer " + playerId + " gameplay-ready (first PlayerState)");
         }
 
         /// <summary>Host: true if peer should receive high-rate gameplay packets.</summary>
         public bool IsPeerReadyForGameplay(int playerId)
         {
-            return playerId > 0 && !_peersLoadingWorld.Contains(playerId);
+            return playerId > 0 && !_session.Link.LoadingWorld.Contains(playerId);
         }
 
         /// <summary>
@@ -232,13 +289,20 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                // Preferred: fully playable after offline load.
+                // Title / cold rejoin MUST receive world share. loadedGame can linger
+                // after quit-to-menu (vanilla rarely clears it) — never treat menu as
+                // AlreadyInWorld or host skips share and bricks the session.
+                if (GameScreen.AtTitle)
+                    return false;
+                // Preferred: fully playable after offline load (phase 3 soft reconnect).
                 if (Sync.ChapterSessionResume.IsLocalPlayableForCoopReconnect())
                     return true;
-                // Mid LoadScene / SaveManager.Load (should be rare once resume waits for playable).
-                if (Core.loadingGame || Core.loadedGame)
+                // Phase-2 offline load in chapter (scene/load without menu).
+                if (Core.loadingGame)
                     return true;
-                if (!Core.mainMenu && Core.currentProfile != null)
+                if (Core.loadedGame && Core.currentProfile != null)
+                    return true;
+                if (Core.currentProfile != null)
                     return true;
                 return false;
             }
@@ -248,15 +312,13 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Legacy send to first connected peer (backward compat during migration).</summary>
+        /// <summary>Client → host (a client's only peer). On the host this reaches one arbitrary client.</summary>
         public void Send(NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
-            foreach (int peerId in EnumeratePeerIds())
-            {
-                SendRawToPlayer(peerId, BuildPacket(type, writeBody), method);
-                return; // Send to first peer only
-            }
+            if (PeerCount == 0) return;
+            byte[] data = BuildPacket(type, writeBody);
+            SendFramedToFirstPeer(data, data.Length, method, 0);
         }
     }
 }

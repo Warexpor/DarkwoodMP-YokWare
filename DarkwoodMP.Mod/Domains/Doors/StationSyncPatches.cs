@@ -84,8 +84,7 @@ namespace DWMPHorde.Sync
                 return;
             _lastLureFlush = Time.unscaledTime;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
             {
                 _lureOutbox.Clear();
                 return;
@@ -146,23 +145,44 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(Lure), "removeHealth")]
     public static class LureRemoveHealthPatch
     {
-        private static void Prefix(Lure __instance)
+        private struct RngState
         {
+            public bool Saved;
+            public UnityEngine.Random.State State;
+        }
+
+        private static void Prefix(Lure __instance, int amountToRemove, Character eatingCharacter, ref RngState __state)
+        {
+            __state = default;
             if (__instance == null) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
-            // Deterministic gore drops when both peers run the delta path.
+            // Only the death-with-eater path rolls Random (gps_ear / finger / nose drop).
+            if (eatingCharacter == null || __instance.health - amountToRemove > 0)
+                return;
+            // Deterministic gore drops when both peers run the delta path. Seed the roll only and
+            // hand the global RNG stream back in the Finalizer so gameplay randomness is untouched.
             try
             {
                 var ctrl = Singleton<Controller>.Instance;
                 int day = ctrl != null ? ctrl.day : 0;
                 Vector3 p = __instance.transform.position;
+                __state.State = UnityEngine.Random.state;
+                __state.Saved = true;
                 UnityEngine.Random.InitState(day
                     ^ ((int)Mathf.Round(p.x) * 73856093)
                     ^ ((int)Mathf.Round(p.z) * 19349663)
                     ^ __instance.health);
             }
             catch { /* ignore */ }
+        }
+
+        // Finalizer (not Postfix): removeHealth must never leave the global RNG re-seeded.
+        private static void Finalizer(RngState __state)
+        {
+            if (__state.Saved)
+                UnityEngine.Random.state = __state.State;
         }
 
         private static void Postfix(Lure __instance, Character eatingCharacter)

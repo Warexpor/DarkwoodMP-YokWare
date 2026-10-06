@@ -22,10 +22,10 @@ namespace DWMPHorde.Networking
         /// Cached while slot-pick UI polls every OnGUI — avoid re-invoking SaveManager
         /// hundreds of times (empty Darkwood_Second had no profs.dat → WARN spam).
         /// </summary>
-        private static List<GameProfile> _cachedDiskProfiles;
-        private static float _cachedDiskProfilesAt = -999f;
-        private static bool _diskProfilesCacheValid;
-        private static bool _loggedMissingProfs;
+        private static List<GameProfile> _cachedDiskProfiles; // process-scoped: disk profile cache, not session state
+        private static float _cachedDiskProfilesAt = -999f; // process-scoped: disk profile cache, not session state
+        private static bool _diskProfilesCacheValid; // process-scoped: disk profile cache, not session state
+        private static bool _loggedMissingProfs; // process-scoped: disk profile cache, not session state
         private const float DiskProfilesCacheSeconds = 2f;
 
         private static List<GameProfile> LoadProfilesFromDisk()

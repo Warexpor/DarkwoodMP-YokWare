@@ -27,17 +27,19 @@ namespace DWMPHorde.Patches
             string objName = __instance.gameObject.name;
 
             bool nameHeld = net.IsDragClaimedByOther(objName, net.LocalPlayerId)
-                || net._remoteDragItemNames.Contains(objName);
-            bool thisBodyHeld = net._remoteDragItemIds.Contains(__instance.GetInstanceID());
+                || net.PlayerInteractHandlers.RemoteDragItemNames.Contains(objName);
+            bool thisBodyHeld = net.PlayerInteractHandlers.RemoteDragItemIds.Contains(__instance.GetInstanceID());
             bool thisSpotHeld = false;
-            if (nameHeld && !thisBodyHeld && net._remoteDragItemIds.Count == 0
+            if (nameHeld && !thisBodyHeld && net.PlayerInteractHandlers.RemoteDragItemIds.Count == 0
                 && net.LastDragSyncPos.TryGetValue(objName, out Vector3 heldPos))
             {
                 thisSpotHeld = Vector3.Distance(__instance.transform.position, heldPos) <= 2f;
             }
             if (thisBodyHeld || thisSpotHeld)
             {
-                Player.Instance?.displayMessage("This object is already being moved by another player");
+                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                try { Player.Instance?.displayMessage("This object is already being moved by another player"); }
+                finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 return false;
             }
 
@@ -74,11 +76,15 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net == null || !net.IsConnected) return;
 
-            // Only broadcast end if WE own the claim (don't clear a remote player's claim).
-            if (net._dragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId)
+            // Only broadcast end if WE own the claim (don't clear a remote player's claim). Names
+            // repeat: a peer's claim on another same-named object (its drag is elsewhere) is not
+            // this one, and our end must still go out.
+            if (net.PlayerInteractHandlers.DragClaims.TryGetValue(objName, out int claimerId) && claimerId != net.LocalPlayerId
+                && net.LastDragSyncPos.TryGetValue(objName, out Vector3 peerDragPos)
+                && Core.trueDistance(peerDragPos, __instance.transform.position) <= 60f)
                 return;
 
-            net.NotifyLocalDragEnded(objName);
+            net.NotifyLocalDragEnded(objName, __instance);
         }
     }
 }

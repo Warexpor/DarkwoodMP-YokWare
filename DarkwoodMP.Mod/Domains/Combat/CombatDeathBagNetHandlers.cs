@@ -73,6 +73,9 @@ namespace DWMPHorde.Networking
                 var amounts = new List<int>();
                 var durabilities = new List<float>();
                 var ammos = new List<int>();
+                var recipes = new List<bool>();
+                var upgrades = new List<string[]>();
+                var actives = new List<bool>();
 
                 if (inv.slots != null)
                 {
@@ -80,10 +83,15 @@ namespace DWMPHorde.Networking
                     {
                         if (!InvItemClass.isNull(slot.invItem))
                         {
-                            types.Add(slot.invItem.type);
+                            // recipes share type "recipe" — wire craftable + IsRecipe.
+                            bool isRecipe = slot.invItem.isRecipe;
+                            types.Add(isRecipe ? slot.invItem.recipeFor : slot.invItem.type);
                             amounts.Add(slot.invItem.amount);
                             durabilities.Add(slot.invItem.durability);
                             ammos.Add(slot.invItem.ammo);
+                            recipes.Add(isRecipe);
+                            upgrades.Add(Sync.InvItemUpgradeWire.CollectNames(slot.invItem));
+                            actives.Add(slot.invItem.shouldBeActive);
                         }
                     }
                 }
@@ -118,7 +126,14 @@ namespace DWMPHorde.Networking
                     ItemAmounts = amounts.ToArray(),
                     ItemDurabilities = durabilities.ToArray(),
                     ItemAmmos = ammos.ToArray(),
-                    BagId = bagId
+                    BagId = bagId,
+                    IsRecipe = recipes.ToArray(),
+                    ItemUpgrades = upgrades.ToArray(),
+                    ShouldBeActive = actives.ToArray(),
+                    HasMarker = bag.additionalMapMarker != null,
+                    MarkerX = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.x : 0f,
+                    MarkerY = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.y : 0f,
+                    MarkerZ = bag.additionalMapMarker != null ? bag.additionalMapMarker.transform.position.z : 0f
                 };
 
                 _net.SendToPlayer(targetPlayerId, NetMessageType.DeathBagSpawn,
@@ -136,6 +151,48 @@ namespace DWMPHorde.Networking
         {
             if (!string.IsNullOrEmpty(bagId))
                 _spawnedDeathBags.Remove(bagId);
+        }
+
+        /// <summary>
+        /// Host: bag emptied via ContainerItem take/remove — fan DeathBagLooted so peers
+        /// destroy without waiting for opener Inventory.hide (disconnect mid-open left ghosts).
+        /// Idempotent via _lootedDeathBagIds. Does not Destroy the local opener's GO (UI may
+        /// still be open); vanilla removeWhenEmpty + hide cleans the opener copy.
+        /// </summary>
+        internal void TryHostFanDeathBagEmptied(Inventory inv)
+        {
+            if (_net.Role != NetworkRole.Host || inv == null) return;
+            if (inv.invType != Inventory.InvType.deathDrop) return;
+            if (!inv.removeWhenEmpty) return;
+            if (inv.getAllItems() == null || inv.getAllItems().Count != 0) return;
+
+            DeathDrop drop = inv.GetComponent<DeathDrop>();
+            if (drop == null) return;
+
+            string bagId = Sync.DeathBagNetworkId.GetBagId(inv.gameObject);
+            if (string.IsNullOrEmpty(bagId))
+                bagId = Sync.DeathBagNetworkId.GetOrAssignBagId(inv.gameObject);
+            if (!string.IsNullOrEmpty(bagId) && _lootedDeathBagIds.Contains(bagId))
+                return;
+
+            if (!string.IsNullOrEmpty(bagId))
+            {
+                _lootedDeathBagIds.Add(bagId);
+                _spawnedDeathBags.Remove(bagId);
+            }
+
+            Vector3 pos = inv.transform.position;
+            _net.Broadcast(NetMessageType.DeathBagLooted,
+                w => new DeathBagLootedMessage
+                {
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    BagId = bagId ?? ""
+                }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo(
+                $"[Death] host fan DeathBagLooted (emptied via container take) id={(bagId ?? "?")} at {pos}");
         }
 
         /// <summary>Lookup by BagId; purges destroyed entries.</summary>
@@ -204,7 +261,14 @@ namespace DWMPHorde.Networking
 
             DeathDrop deathDrop = bagGO.GetComponent<DeathDrop>();
             if (deathDrop != null)
+            {
                 deathDrop.expAmount = msg.ExpAmount;
+                // Vanilla dropBody inside a location marks its entrance on the map; the bag
+                // removes the marker when it goes (DeathDrop.OnDestroy).
+                if (msg.HasMarker && deathDrop.additionalMapMarker == null)
+                    deathDrop.additionalMapMarker = Core.AddPrefab("Objects/_Unique/deathDrop_marker",
+                        new Vector3(msg.MarkerX, msg.MarkerY, msg.MarkerZ), Quaternion.Euler(90f, 0f, 0f), null);
+            }
 
             Sync.DeathBagNetworkId.Ensure(bagGO, bagId, msg.InWater);
             if (deathDrop != null)
@@ -227,13 +291,21 @@ namespace DWMPHorde.Networking
                             if (slot != null)
                             {
                                 int amount = msg.ItemAmounts != null && i < msg.ItemAmounts.Length ? msg.ItemAmounts[i] : 1;
-                                InvItemClass item = slot.createItem(msg.ItemTypes[i], amount);
+                                bool isRecipe = msg.IsRecipe != null && i < msg.IsRecipe.Length && msg.IsRecipe[i];
+                                InvItemClass item = slot.createItem(msg.ItemTypes[i], amount, 1f,
+                                    InvItem.ModifierQuality.none, isRecipe);
                                 if (item != null)
                                 {
-                                    if (msg.ItemDurabilities != null && i < msg.ItemDurabilities.Length)
-                                        item.durability = msg.ItemDurabilities[i];
-                                    if (msg.ItemAmmos != null && i < msg.ItemAmmos.Length && msg.ItemAmmos[i] > 0)
-                                        item.ammo = msg.ItemAmmos[i];
+                                    float dur = msg.ItemDurabilities != null && i < msg.ItemDurabilities.Length
+                                        ? msg.ItemDurabilities[i] : item.durability;
+                                    int ammo = msg.ItemAmmos != null && i < msg.ItemAmmos.Length
+                                        ? msg.ItemAmmos[i] : 0;
+                                    bool active = msg.ShouldBeActive != null && i < msg.ShouldBeActive.Length
+                                        && msg.ShouldBeActive[i];
+                                    Sync.InvItemTransferApply.ApplyMeta(item, dur, ammo, active);
+                                    string[] ups = msg.ItemUpgrades != null && i < msg.ItemUpgrades.Length
+                                        ? msg.ItemUpgrades[i] : null;
+                                    Sync.InvItemUpgradeWire.Apply(item, ups);
                                 }
                             }
                         }
@@ -306,6 +378,21 @@ namespace DWMPHorde.Networking
                     _lootedDeathBagIds.Add(id);
                     _spawnedDeathBags.Remove(id);
                 }
+
+                // Do not Destroy under an open local inventory UI (host fan on empty take
+                // can arrive while the opener still has the bag open). Vanilla
+                // removeWhenEmpty + hide will drop the GO when they close.
+                Inventory openInv = Player.Instance != null
+                    ? Player.Instance.openedItemInventory
+                    : null;
+                Inventory bagInv = found.GetComponent<Inventory>();
+                if (openInv != null && bagInv != null && openInv == bagInv)
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[Death] DeathBagLooted id={id ?? "?"} — local UI open, defer Destroy");
+                    return;
+                }
+
                 // Destroy under apply guard so Inventory.hide loot patch does not echo.
                 using (new NetworkApplyGuard())
                 {

@@ -1,12 +1,15 @@
+using System;
+
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// While host applies a remote peer's dialog outcome, suppress personal
-    /// bag mutations on host Player.Instance. Journal is shared world
-    /// identity. Apply and fan out; do not snapshot-restore.
+    /// While host applies a remote peer's dialog outcome (or a world action that may open
+    /// one): <see cref="HostApplyGuard"/> fan-out semantics plus the dialogue-only presentation
+    /// scope (<see cref="DialogueApplyActive"/>: silent close, board gating, black screens).
     /// </summary>
     public static class DialogHostApplyGuard
     {
+        /// <summary>Dialogue-apply depth; every level also holds one <see cref="HostApplyGuard"/> level.</summary>
         private static int _depth;
 
         /// <summary>Allow exactly one displayNextBoard, then block chained/delayed calls.</summary>
@@ -15,47 +18,126 @@ namespace DWMPHorde.Sync
         /// <summary>Dest displayDialogue + drain may chain portrait boards.</summary>
         public static bool DestDrainActive { get; set; }
 
+        /// <summary>
+        /// A multi-board world-only drain is waiting on delayed boards. The guard itself is NOT held
+        /// across that wait (it used to be, for up to 8s, which swallowed the host's own
+        /// addItemTypeToPlayer, fade-to-black and real close()). Each board advance and the final
+        /// close re-enter the guard for exactly their synchronous body via
+        /// <see cref="BeginDrainScope"/> / <see cref="EndDrainScope"/>.
+        /// </summary>
+        public static bool DrainPending { get; private set; }
+
+        private static int _drainActorId;
+
         private static bool _oneShotConsumed;
 
-        public static bool SuppressPersonalRewards => _depth > 0;
+        public static bool SuppressPersonalRewards => HostApplyGuard.Active;
 
-        /// <summary>True while host is applying a client's dialog outcome (no host UI session).</summary>
-        public static bool Active => _depth > 0;
+        /// <summary>
+        /// Host is replaying a remote peer's dialogue (no host UI session). Dialogue
+        /// presentation gates read this; a client combat hit does not set it.
+        /// </summary>
+        public static bool DialogueApplyActive => _depth > 0;
 
         public static void BeginWorldOnly()
         {
             _depth++;
-            if (_depth == 1)
-            {
-                try { DWMPHorde.Patches.JournalSyncHelpers.BeginWorldApplyDiff(); }
-                catch { /* journal UI may be missing */ }
-            }
+            HostApplyGuard.Begin();
         }
 
         public static void EndWorldOnly()
         {
-            if (_depth == 1)
-            {
-                try { DWMPHorde.Patches.JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
-                catch { /* ignore */ }
-            }
-            if (_depth > 0)
-                _depth--;
+            if (_depth <= 0)
+                return;
+            HostApplyGuard.End();
+            _depth--;
             if (_depth == 0)
             {
                 OneShotBoardActive = false;
-                DestDrainActive = false;
+                // A pending drain keeps dest-drain semantics between its scoped board advances.
+                if (!DrainPending)
+                    DestDrainActive = false;
                 _oneShotConsumed = false;
             }
+        }
+
+        /// <summary>
+        /// Start waiting on delayed boards. Call before the synchronous apply scope ends so
+        /// <see cref="DestDrainActive"/> survives it.
+        /// </summary>
+        public static void BeginDrain(int actorPlayerId)
+        {
+            DrainPending = true;
+            DestDrainActive = true;
+            _drainActorId = actorPlayerId;
+        }
+
+        public static void EndDrain()
+        {
+            DrainPending = false;
+            DestDrainActive = false;
+            _drainActorId = 0;
+        }
+
+        /// <summary>
+        /// Re-enter the world-only guard for one synchronous board advance / close of a pending
+        /// drain, stamping the peer that started it as the GameEventsFired actor. Returns whether
+        /// an actor was pushed (hand it to <see cref="EndDrainScope"/>).
+        /// </summary>
+        public static bool BeginDrainScope()
+        {
+            bool pushed = _drainActorId > 0 && GeFireActorContext.Depth == 0;
+            if (pushed) GeFireActorContext.Push(_drainActorId);
+            BeginWorldOnly();
+            return pushed;
+        }
+
+        public static void EndDrainScope(bool pushedActor)
+        {
+            EndWorldOnly();
+            if (pushedActor) GeFireActorContext.Pop();
+        }
+
+        /// <summary>
+        /// Host apply of a remote world action runs inside NetworkApplyGuard, which
+        /// swallows GameEventsFired. This lets the one-shot fan out, including back
+        /// to the peer who performed the action.
+        /// </summary>
+        public static void RunHostWorldFanout(Action body)
+        {
+            if (body == null) return;
+            bool host = ModRuntime.Network is Networking.LanNetworkManager net
+                && net.IsConnected
+                && net.Role == Networking.NetworkRole.Host;
+            if (host) BeginWorldOnly();
+            try { body(); }
+            finally { if (host) EndWorldOnly(); }
+        }
+
+        /// <summary>
+        /// Same as <see cref="RunHostWorldFanout"/> but stamps <paramref name="actorPlayerId"/>
+        /// as the GameEventsFired actor (proxy enter / cursor when receive id is unset).
+        /// </summary>
+        public static void RunHostWorldFanoutForPlayer(int actorPlayerId, Action body)
+        {
+            if (body == null) return;
+            bool pushed = actorPlayerId > 0;
+            if (pushed) GeFireActorContext.Push(actorPlayerId);
+            try { RunHostWorldFanout(body); }
+            finally { if (pushed) GeFireActorContext.Pop(); }
         }
 
         public static void Reset()
         {
             _depth = 0;
+            HostApplyGuard.Reset();
             OneShotBoardActive = false;
             DestDrainActive = false;
+            DrainPending = false;
+            _drainActorId = 0;
             _oneShotConsumed = false;
             _blockChainedDisplayUntilMs = 0;
+            GeFireActorContext.Reset();
         }
 
         /// <summary>

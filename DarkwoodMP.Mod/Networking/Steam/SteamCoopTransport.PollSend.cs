@@ -33,6 +33,7 @@ namespace DWMPHorde.Networking.Steam
             }
 
             FlushReliableOutbox();
+            ReportStalledConnections();
 
             if (_hosting)
             {
@@ -40,14 +41,39 @@ namespace DWMPHorde.Networking.Steam
                     ResolvePendingHostConnects();
 
                 if (_pollGroup != HSteamNetPollGroup.Invalid)
-                    DrainMessages(() => SteamNetworkingSockets.ReceiveMessagesOnPollGroup(
-                        _pollGroup, _recvBuffer, MaxMessagesPerPoll));
+                    DrainMessages(_receiveOnPollGroup ?? (_receiveOnPollGroup = ReceiveOnPollGroup));
             }
             else if (_serverConn != HSteamNetConnection.Invalid)
             {
-                DrainMessages(() => SteamNetworkingSockets.ReceiveMessagesOnConnection(
-                    _serverConn, _recvBuffer, MaxMessagesPerPoll));
+                DrainMessages(_receiveOnServer ?? (_receiveOnServer = ReceiveOnServer));
             }
+        }
+
+        // Cached so the per-frame poll does not allocate a delegate.
+        private Func<int> _receiveOnPollGroup;
+        private Func<int> _receiveOnServer;
+
+        private int ReceiveOnPollGroup()
+            => SteamNetworkingSockets.ReceiveMessagesOnPollGroup(_pollGroup, _recvBuffer, MaxMessagesPerPoll);
+
+        private int ReceiveOnServer()
+            => SteamNetworkingSockets.ReceiveMessagesOnConnection(_serverConn, _recvBuffer, MaxMessagesPerPoll);
+
+        /// <summary>Stalled peers dropped during a send; reported from Poll, never mid-send.</summary>
+        private readonly List<ulong> _stalledSteamIds = new List<ulong>();
+
+        /// <summary>
+        /// The owner's failure handling rewrites the peer tables, so it cannot run inside a send that
+        /// may itself be iterating them.
+        /// </summary>
+        private void ReportStalledConnections()
+        {
+            if (_stalledSteamIds.Count == 0)
+                return;
+            ulong[] ids = _stalledSteamIds.ToArray();
+            _stalledSteamIds.Clear();
+            foreach (ulong id in ids)
+                _owner.OnSteamSessionFailed(new CSteamID(id));
         }
 
         private void DrainMessages(Func<int> receive)
@@ -76,8 +102,12 @@ namespace DWMPHorde.Networking.Steam
                 if (msg.m_cbSize < 1)
                     return;
 
-                byte[] payload = new byte[msg.m_cbSize];
-                Marshal.Copy(msg.m_pData, payload, 0, msg.m_cbSize);
+                // Frame = type byte + body: copy the body once, straight out of the Steam buffer.
+                byte type = Marshal.ReadByte(msg.m_pData);
+                byte[] body = new byte[msg.m_cbSize - 1];
+                if (body.Length > 0)
+                    Marshal.Copy(IntPtr.Add(msg.m_pData, 1), body, 0, body.Length);
+                bool reliable = (msg.m_nFlags & SendReliable) != 0;
 
                 CSteamID remote = CSteamID.Nil;
                 if (_hosting)
@@ -98,7 +128,7 @@ namespace DWMPHorde.Networking.Steam
 
                 if (!remote.IsValid())
                     return;
-                _owner.OnSteamPacket(remote, payload);
+                _owner.OnSteamPacket(remote, type, body, reliable);
             }
             catch (Exception ex)
             {
@@ -170,11 +200,20 @@ namespace DWMPHorde.Networking.Steam
                 _serverConn = HSteamNetConnection.Invalid;
         }
 
-        private void UntrackConn(HSteamNetConnection conn, ulong steamId)
+        /// <summary>
+        /// Forget one connection handle. The steam id mapping is only removed when it still points at
+        /// this handle: a peer that reconnected before its old connection timed out already maps to
+        /// the new one. Returns whether the steam id's current connection was this one.
+        /// </summary>
+        private bool UntrackConn(HSteamNetConnection conn, ulong steamId)
         {
-            _connBySteamId.Remove(steamId);
+            bool current = !_connBySteamId.TryGetValue(steamId, out HSteamNetConnection mapped)
+                || mapped == conn;
+            if (current)
+                _connBySteamId.Remove(steamId);
             _steamIdByConn.Remove(conn.m_HSteamNetConnection);
             _reliableOutbox.Remove(conn.m_HSteamNetConnection);
+            return current;
         }
 
         private bool SendRaw(HSteamNetConnection conn, byte[] data, int length, bool reliable)
@@ -183,19 +222,15 @@ namespace DWMPHorde.Networking.Steam
                 return false;
 
             uint key = conn.m_HSteamNetConnection;
-            if (reliable && _reliableOutbox.TryGetValue(key, out Queue<byte[]> q) && q.Count > 0)
-            {
-                q.Enqueue(Slice(data, length));
-                return true;
-            }
+            if (reliable && _reliableOutbox.TryGetValue(key, out ReliableOutbox box) && box.Queue.Count > 0)
+                return Park(conn, box, data, length);
 
             EResult result = SendNow(conn, data, length, reliable);
             if (result == EResult.k_EResultLimitExceeded && reliable)
             {
-                if (!_reliableOutbox.TryGetValue(key, out q))
-                    _reliableOutbox[key] = q = new Queue<byte[]>();
-                q.Enqueue(Slice(data, length));
-                return true;
+                if (!_reliableOutbox.TryGetValue(key, out box))
+                    _reliableOutbox[key] = box = new ReliableOutbox();
+                return Park(conn, box, data, length);
             }
             if (result != EResult.k_EResultOK && reliable)
             {
@@ -204,6 +239,39 @@ namespace DWMPHorde.Networking.Steam
                 return false;
             }
             return result == EResult.k_EResultOK;
+        }
+
+        /// <summary>Queue a reliable send behind the backlog; drop the connection once it is stalled.</summary>
+        private bool Park(HSteamNetConnection conn, ReliableOutbox box, byte[] data, int length)
+        {
+            if (box.Bytes + length > MaxReliableOutboxBytes)
+            {
+                DropStalledConnection(conn, box.Bytes);
+                return false;
+            }
+            box.Queue.Enqueue(Slice(data, length));
+            box.Bytes += length;
+            return true;
+        }
+
+        private void DropStalledConnection(HSteamNetConnection conn, long parkedBytes)
+        {
+            ulong steamId;
+            if (!_steamIdByConn.TryGetValue(conn.m_HSteamNetConnection, out steamId))
+                steamId = conn == _serverConn ? _hostSteamId.m_SteamID : 0UL;
+            ModLog.Error(LogCat.Network,
+                "Steam SNS peer " + steamId + " stalled with " + (parkedBytes / 1024)
+                + " KB of reliable sends parked — dropping the connection");
+            try
+            {
+                SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "send backlog", false);
+            }
+            catch { /* tear */ }
+            bool current = UntrackConn(conn, steamId);
+            if (!_hosting && conn == _serverConn)
+                _serverConn = HSteamNetConnection.Invalid;
+            if (steamId != 0 && current && !_stalledSteamIds.Contains(steamId))
+                _stalledSteamIds.Add(steamId);
         }
 
         private static EResult SendNow(HSteamNetConnection conn, byte[] data, int length, bool reliable)
@@ -222,10 +290,12 @@ namespace DWMPHorde.Networking.Steam
             }
         }
 
+        /// <summary>
+        /// Always a private copy: queued reliable sends outlive the call, and the caller's buffer is
+        /// often a recycled hot buffer (or a shared packet) that gets overwritten next tick.
+        /// </summary>
         private static byte[] Slice(byte[] data, int length)
         {
-            if (data.Length == length)
-                return data;
             byte[] copy = new byte[length];
             Buffer.BlockCopy(data, 0, copy, 0, length);
             return copy;
@@ -240,29 +310,30 @@ namespace DWMPHorde.Networking.Steam
             foreach (var item in _reliableOutbox)
             {
                 var conn = new HSteamNetConnection { m_HSteamNetConnection = item.Key };
-                Queue<byte[]> queue = item.Value;
+                ReliableOutbox box = item.Value;
                 bool known = item.Key == _serverConn.m_HSteamNetConnection
                     || _steamIdByConn.ContainsKey(item.Key);
-                if (!known || queue.Count == 0)
+                if (!known || box.Queue.Count == 0)
                 {
                     (remove ?? (remove = new List<uint>())).Add(item.Key);
                     continue;
                 }
 
-                while (queue.Count > 0)
+                while (box.Queue.Count > 0)
                 {
-                    byte[] payload = queue.Peek();
+                    byte[] payload = box.Queue.Peek();
                     EResult result = SendNow(conn, payload, payload.Length, reliable: true);
                     if (result == EResult.k_EResultLimitExceeded)
                         break;
-                    queue.Dequeue();
+                    box.Queue.Dequeue();
+                    box.Bytes -= payload.Length;
                     if (result != EResult.k_EResultOK)
                     {
                         (remove ?? (remove = new List<uint>())).Add(item.Key);
                         break;
                     }
                 }
-                if (queue.Count == 0)
+                if (box.Queue.Count == 0)
                     (remove ?? (remove = new List<uint>())).Add(item.Key);
             }
 

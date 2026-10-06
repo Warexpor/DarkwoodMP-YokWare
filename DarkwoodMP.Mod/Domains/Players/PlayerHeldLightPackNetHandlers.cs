@@ -93,11 +93,10 @@ namespace DWMPHorde.Networking
                 msg.FlareActive = flareActive;
                 msg.MatchActive = matchActive;
                 msg.FlareItemType = curType ?? (matchActive ? "match" : "flare");
-                msg.FlareRadius = matchActive ? 180f : 650f;
-                msg.FlareIntensity = matchActive ? 0.85f : 1f;
-                msg.FlareColorR = 1f;
-                msg.FlareColorG = matchActive ? 0.65f : 0.5f;
-                msg.FlareColorB = matchActive ? 0.2f : 0.1f;
+                // Zero = not known here: the peer keeps the item prefab's own authored light.
+                msg.FlareRadius = 0f;
+                msg.FlareIntensity = 0f;
+                msg.FlareColorR = msg.FlareColorG = msg.FlareColorB = 0f;
 
                 Light2D itemLight = heldFlareLight != null ? heldFlareLight : heldMatchLight;
                 Flare flareComp = heldFlareComp;
@@ -106,18 +105,16 @@ namespace DWMPHorde.Networking
 
                 if (itemLight != null)
                 {
-                    // Radius: live value once lit (stable enough).
+                    // Live values. A match light is the Matchstick prefab's Light2D as authored
+                    // (nothing in vanilla animates it); a flare's Flare tween drives intensity.
                     if (itemLight.LightRadius > 0f)
                         msg.FlareRadius = itemLight.LightRadius;
 
-                    // Match stick Light2D intensity flickers every frame in SP. Streaming that
-                    // dirties FlareParams (~6 Hz force) and strobes the peer. Keep fixed cruise.
-                    if (!matchActive && itemLight.LightIntensity > 0f)
+                    if (itemLight.LightIntensity > 0f)
                         msg.FlareIntensity = itemLight.LightIntensity;
 
-                    if (!matchActive
-                        && (itemLight.LightColor.a > 0f
-                            || itemLight.LightColor.r + itemLight.LightColor.g + itemLight.LightColor.b > 0.01f))
+                    if (itemLight.LightColor.a > 0f
+                        || itemLight.LightColor.r + itemLight.LightColor.g + itemLight.LightColor.b > 0.01f)
                     {
                         msg.FlareColorR = itemLight.LightColor.r;
                         msg.FlareColorG = itemLight.LightColor.g;
@@ -159,13 +156,13 @@ namespace DWMPHorde.Networking
                 }
 
                 // Remain from aim-start burn clock when known (else rising timer).
-                if (flareActive && local.heldItem != null)
+                if (flareActive && local.heldItem != null && Sync.FlareClock.AgeOf(local.heldItem) >= 0f)
                 {
-                    float untilDark = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
-                        local.heldItem,
-                        flareComp != null ? flareComp.longevity : 3f);
-                    float total = _localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : (3f + Sync.WorldPhysicsSyncService.FlareBurnoutFadeSec);
-                    float rem = Mathf.Clamp01(untilDark / total);
+                    // Lit-on-aim clock (FlareClock): peers start their copy at this point of it.
+                    float total = flareComp != null && flareComp.longevity > 0.05f
+                        ? flareComp.longevity + Sync.FlareClock.FadeSec
+                        : (_localHeldLightLongevity > 0.01f ? _localHeldLightLongevity : 3f + Sync.FlareClock.FadeSec);
+                    float rem = Mathf.Clamp01(1f - Sync.FlareClock.AgeOf(local.heldItem) / total);
                     msg.HeldLightRemain01 = (byte)Mathf.Clamp(Mathf.RoundToInt(rem * 255f), 0, 255);
                     flags |= PlayerStateMessage.LightFlagRemain;
                 }

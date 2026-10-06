@@ -16,10 +16,13 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(UnityEngine.Object obj)
         {
-            if (ModRuntime.Network == null) return;
+            // Offline (mod loaded, no session) must stay vanilla; Network is non-null there.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Suppress during trap placement (the inventory item destruction should not trigger removal)
             if (Sync.TrapPlacementPatch.InsideTrapPlacement) return;
+            // getDroppedItem owns WOR via SendPickup / FinishWorldPickupClaim (host-auth).
+            if (WorldPickupWireGuard.IsActive) return;
 
             GameObject go = obj as GameObject;
             if (go == null) return;
@@ -64,6 +67,10 @@ namespace DWMPHorde.Patches
                 return;
 
             Vector3 p = go.transform.position;
+            // Co-op rescue: local destroy of an occupied trap frees the stuck body here
+            // (peer is freed via WorldObjectRemoved → DestroyObjectByPos).
+            if (isTrap)
+                LocalBearTrap.ReleaseIfRemoved(go, p);
             Vector3 key = new Vector3(
                 Mathf.Round(p.x * 10f) / 10f,
                 Mathf.Round(p.y * 10f) / 10f,

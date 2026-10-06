@@ -24,6 +24,13 @@ namespace DWMPHorde.Patches
 
             string preset = __instance.preset.name;
 
+            // The prologue's dreams are this player's own (PersonalPrologue): no party session.
+            if (PersonalPrologue.IsPrologueDream(preset))
+            {
+                __state = true;
+                return true;
+            }
+
             if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
             {
                 // Party-once: host must not start a preset the session already finished.
@@ -31,8 +38,21 @@ namespace DWMPHorde.Patches
                     && !LanNetworkManager.IsApplyingRemoteState)
                 {
                     ModRuntime.LegacyInfo(
-                        "[DreamSync] Block startDreaming — party already completed: " + preset);
+                        $"[DreamSync] Block startDreaming — party already completed: {preset}");
                     __state = true;
+                    // Undo the entry: the pad, the prepared flag (which kept the host's entry freeze
+                    // on for good), the movie's black screen and muted audio.
+                    try
+                    {
+                        __instance.destroyDream();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[DreamSync] blocked start pad cleanup: " + ex.Message);
+                    }
+                    __instance.dreamPrepared = false;
+                    __instance.wantToDream = false;
+                    DreamSyncManager.AbortBlockedStart();
                     return false;
                 }
 
@@ -43,7 +63,7 @@ namespace DWMPHorde.Patches
                     return true;
                 }
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net != null && net.Role == NetworkRole.Client)
                 {
                     // Fix 2: If onFinishedVideo prefix already sent the request (entry transition
@@ -62,7 +82,7 @@ namespace DWMPHorde.Patches
                     {
                         PresetName = preset,
                         RequestId = (int)(Time.realtimeSinceStartup * 1000f),
-                        LvlFlags = DreamSession.ReadLocalLvlFlags()
+                        LvlFlags = DreamSession.TakePendingRequestBits()
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     // Local empty roll already consumed pool; keep aligned with host named prepare.
                     DreamSession.MirrorPoolRemove(preset);
@@ -118,20 +138,44 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Dreams), "endDreaming")]
     public static class DreamEndPatch
     {
-        private static void Prefix(Dreams __instance)
+        internal sealed class EndState
         {
+            /// <summary>This call ran the local end path; Postfix drops the pre-dream pose.</summary>
+            public bool RanLocalEnd;
+            /// <summary>Client: the outcome loop's world events replay the host's (Finalizer ends it).</summary>
+            public bool ReplayWorld;
+        }
+
+        private static void Prefix(Dreams __instance, ref EndState __state)
+        {
+            __state = new EndState();
+
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
+
+            // Vanilla returns at once when not dreaming.
+            if (!__instance.dreaming)
+                return;
+
+            if (__instance.preset != null && PersonalPrologue.IsPrologueDream(__instance.preset.name))
+                return;
+
+            // The party's outcome, before a dead peer's rewards are downgraded below.
+            string partyOutcome = __instance.outcome ?? "";
+
+            if (ModRuntime.Network.Role == NetworkRole.Client)
+            {
+                // The outcome's world events (vanilla fireWorldEvent in this body) replay the host's.
+                __state.ReplayWorld = true;
+                DreamSyncManager.BeginOutcomeWorldReplay();
+            }
 
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
-            if (!__instance.dreaming)
-                return;
-
-            // Must run before OnLocalDreamEnded (clears IsLocalDead). Exit video already played
+            // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
-            DowngradeSuccessRewardsIfDeadInDream(__instance);
+            DowngradeSuccessRewardsIfDeadInDream(__instance, partyOutcome);
 
             // DreamPrepareChainPatch owns chain broadcasts. Both
             // transferToDream and wantToSwitchDream reach prepareDream.
@@ -140,6 +184,9 @@ namespace DWMPHorde.Patches
                 string next = FindTransferDestPreset(__instance);
                 if (!string.IsNullOrEmpty(next) && DreamSession.IsActive)
                     DreamSession.SetChainedPreset(next);
+                // The exit transition for this pocket is over: a host-ordered flag left set here
+                // made the client end pocket 2 by itself (initiateEndDreaming authority bypass).
+                DreamSyncManager.ClearHostOrderedDreamEnd();
                 ModRuntime.LegacyInfo(
                     "[DreamSync] endDreaming with chain — session stays active; ChainStart via prepare");
                 return;
@@ -149,21 +196,50 @@ namespace DWMPHorde.Patches
             if (DreamSession.IsActive)
                 DreamSession.End(outcome);
             DreamSyncManager.OnLocalDreamEnded();
+            __state.RanLocalEnd = true;
         }
 
         /// <summary>
         /// Safety: if positionCopy was corrupted to pad coords, vanilla teleport leaves
         /// the peer in the abyss. Snap to pre-dream overworld after endDreaming body runs.
+        /// The pre-dream pose is dropped afterwards: left behind it teleported the client to the
+        /// last dream start on any later disconnect and fed ClientStateBackup.
         /// </summary>
-        private static void Postfix(Dreams __instance)
+        private static void Postfix(Dreams __instance, EndState __state)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
+            if (__instance != null && __instance.preset != null && PersonalPrologue.IsPrologueDream(__instance.preset.name))
+                return; // the player's own prologue, vanilla throughout
             if (__instance != null && __instance.dreaming)
                 return; // chained transfer still dreaming
+            // Back in the overworld whichever path ran endDreaming.
+            if (__instance != null && !__instance.switchingDream)
+                FinalDreamsceneManager.OnLocalWokeUp();
+            if (LanNetworkManager.IsApplyingRemoteState)
+                return;
 
+            try
+            {
+                SnapOffPadIfStranded(__instance);
+            }
+            finally
+            {
+                // Chain keeps the pose for the final exit (switchingDream / session still live).
+                if (__state != null && __state.RanLocalEnd && (__instance == null || !__instance.switchingDream)
+                    && !DreamSession.IsActive)
+                    DreamSyncManager.ClearPreDreamState();
+            }
+        }
+
+        private static void Finalizer(EndState __state)
+        {
+            if (__state != null && __state.ReplayWorld)
+                DreamSyncManager.ClearOutcomeWorldReplay();
+        }
+
+        private static void SnapOffPadIfStranded(Dreams __instance)
+        {
             Player player = Player.Instance;
             if (player == null) return;
             Vector3 live = player._transform.position;
@@ -184,7 +260,7 @@ namespace DWMPHorde.Patches
                 if (Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.refreshPosition(dest, instant: true, force: true);
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] post-endDreaming snap off pad → " + dest);
+                    $"[DreamSync] post-endDreaming snap off pad → {dest}");
             }
             catch (System.Exception ex)
             {
@@ -197,9 +273,9 @@ namespace DWMPHorde.Patches
         /// Dead spectating peer still sees the shared exit video, but must not receive
         /// success createInvItem / journal grants. Swap to playerDeath effects (or none).
         /// </summary>
-        private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams)
+        private static void DowngradeSuccessRewardsIfDeadInDream(Dreams dreams, string partyOutcome)
         {
-            if (!FinalDreamsceneManager.IsLocalDead) return;
+            if (!FinalDreamsceneManager.WasLocalDeadThisDream) return;
             string outcome = dreams.outcome ?? "";
             if (string.IsNullOrEmpty(outcome) || outcome == "playerDeath")
                 return;
@@ -218,8 +294,27 @@ namespace DWMPHorde.Patches
                 }
             }
 
+            if (deathOc == null)
+            {
+                // A preset with no death outcome: vanilla endDreaming dereferences outcomePreset
+                // (dontLieDown) with no null check, and a null threw after the pad was gone,
+                // skipping the wake-up (no heal, inputs left locked). Wake like the party does,
+                // without its rewards.
+                var success = Traverse.Create(dreams).Field("outcomePreset").GetValue<DreamPreset.Outcome>();
+                deathOc = new DreamPreset.Outcome
+                {
+                    name = "playerDeath",
+                    transition = success?.transition,
+                    customEndTime = success != null && success.customEndTime,
+                    endTime = success != null ? success.endTime : 0,
+                    dontLieDown = success != null && success.dontLieDown
+                };
+            }
             dreams.outcome = "playerDeath";
-            Traverse.Create(dreams).Field("outcomePreset").SetValue(deathOc);
+            // Its rewards are the death outcome's, the world's events the party's: a dead host fired
+            // onEndDream_fail_oneChance while the party (and every client) had won.
+            Traverse.Create(dreams).Field("outcomePreset").SetValue(
+                DreamSyncManager.WithPartyWorldEvents(deathOc, dreams, partyOutcome));
             ModRuntime.LegacyInfo(
                 "[DreamDeath] Local dead at story end — inventory restore only (no success rewards)");
         }
@@ -267,6 +362,99 @@ namespace DWMPHorde.Patches
                     return go.name;
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Client, inside its own <c>Dreams.endDreaming</c>: the outcome's fireWorldEvent effects replay
+    /// the host's outcome (DreamSyncManager.ReplayOutcomeWorldEvent). Unpatched, a client one-shot
+    /// was blocked (the sluice door of oneChance never opened here) and a repeatable one ran as the
+    /// client's own (a second, local-only Wolfman after the church ruins dream).
+    /// </summary>
+    [HarmonyPatch(typeof(Events), nameof(Events.fireWorldEvent))]
+    public static class DreamOutcomeWorldEventPatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix(string type)
+        {
+            if (!DreamSyncManager.OutcomeWorldReplayActive)
+                return true;
+            DreamSyncManager.ReplayOutcomeWorldEvent(type);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Client, chained dream: the host's DreamChainStart loads the next pocket
+    /// (DreamSyncManager.OnDreamChain). Vanilla wantToSwitchDream at the end of the exit video
+    /// would also destroy the current pocket and prepare the next one itself: a second pad,
+    /// a local Save, a bogus start request, and, when the host's pocket loaded first, the new
+    /// pocket destroyed under the player. The client keeps only vanilla's player reset between
+    /// pockets, and only while the host's pocket has not started loading.
+    /// </summary>
+    [HarmonyPatch(typeof(Dreams), "wantToSwitchDream")]
+    public static class ClientDreamSwitchPatch
+    {
+        private static bool Prefix(Dreams __instance, ref bool __result)
+        {
+            if (!NetGuard.Connected(out var net) || net.Role != NetworkRole.Client)
+                return true;
+            if (!DreamSession.IsActive)
+                return true;
+            var outcome = Traverse.Create(__instance).Field("outcomePreset").GetValue<DreamPreset.Outcome>();
+            string dest = null;
+            if (outcome?.effects != null)
+            {
+                for (int i = 0; i < outcome.effects.Count; i++)
+                {
+                    var e = outcome.effects[i];
+                    if (e != null && e.type == DreamPreset.Outcome.Effect.Type.transferToDream && e.destPrefab != null)
+                    {
+                        dest = e.destPrefab.name;
+                        break;
+                    }
+                }
+            }
+            if (dest == null)
+                return true; // no transfer: vanilla returns false and endDreaming follows
+
+            __result = true;
+            __instance.switchingDream = true;
+            __instance.wantToDream = true;
+            if (string.Equals(DreamSyncManager.ChainPocketLoading, dest, System.StringComparison.OrdinalIgnoreCase))
+            {
+                ModRuntime.LegacyInfo("[DreamSync] Client chain switch — host pocket already loading: " + dest);
+                return false;
+            }
+            Player.Instance?.endDreaming(outcome.dontLieDown);
+            Player.Instance?.Hotbar.clear();
+            Player.Instance?.Hotbar.refresh();
+            ModRuntime.LegacyInfo("[DreamSync] Client chain switch — waiting for host pocket: " + dest);
+            return false;
+        }
+    }
+}
+
+namespace DWMPHorde.Patches
+{
+    /// <summary>
+    /// A dream chaining into its next part runs the player's wake-up (Player.endDreaming: full
+    /// health, alive). A player who died in the first part stays dead and spectating in co-op
+    /// (the death roster carries over), but its body came back alive and could be hit, while
+    /// "everyone is dead" kept counting it dead. It stays down until the dream really ends.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.endDreaming))]
+    public static class DreamChainKeepDeadPatch
+    {
+        private static bool Prefix()
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return true;
+            Dreams d = Dreams.Instance;
+            if (d == null || !d.switchingDream || !Sync.FinalDreamsceneManager.IsLocalDead)
+                return true;
+            ModRuntime.LegacyInfo("[DreamDeath] dream chains on — dead player stays down");
+            return false;
         }
     }
 }

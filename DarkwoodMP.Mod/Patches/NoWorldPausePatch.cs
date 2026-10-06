@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -8,12 +12,14 @@ namespace DWMPHorde.Patches
     /// Counted suppression for Core.pause / Core.unpause while multiplayer UI is open.
     /// Host and clients must not freeze Time.timeScale independently (asymmetric world).
     /// Map / journal / padlock / dialogue / leveling / skill menus / interactive item UI.
-    /// FreezeTracker (dreams, multiplayer freezes) still pauses intentionally.
     /// </summary>
     internal static class PauseSuppression
     {
         internal static int SuppressPause;
         internal static int SuppressUnpause;
+
+        /// <summary>True while LevelingMenu.show holds one SuppressPause until hide releases it.</summary>
+        internal static bool LevelingHold;
 
         /// <summary>True when co-op is live, not offline with a dormant network component.</summary>
         internal static bool MultiplayerActive =>
@@ -23,6 +29,7 @@ namespace DWMPHorde.Patches
         {
             SuppressPause = 0;
             SuppressUnpause = 0;
+            LevelingHold = false;
         }
 
         internal static void BeginNoPause()
@@ -62,7 +69,7 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Blocks Core.unpause during multiplayer UI; re-pauses if FreezeTracker is active.</summary>
+    /// <summary>Blocks Core.unpause during multiplayer UI.</summary>
     [HarmonyPatch(typeof(Core), "unpause")]
     internal static class CoreUnpauseMultiplayerPatch
     {
@@ -72,46 +79,78 @@ namespace DWMPHorde.Patches
                 return false;
             return true;
         }
-
-        private static void Postfix()
-        {
-            if (!PauseSuppression.MultiplayerActive)
-                return;
-            if (FreezeTracker.IsFrozen && !Core.Paused)
-                Core.pause(keepMusicAndEnviromental: true);
-        }
     }
 
     // ---- UI open/show paths: hold pause suppression for the whole menu ----
+    // Class-level stacked [HarmonyPatch] attributes merge into ONE target, so the groups resolve
+    // their targets explicitly. Every UI listed in Open suppresses the vanilla Core.pause and
+    // its counterpart in Close suppresses the matching Core.unpause (both or neither).
 
-    [HarmonyPatch(typeof(Map), "open")]
-    [HarmonyPatch(typeof(Journal), "open")]
-    [HarmonyPatch(typeof(Journal), "showNote")]
-    [HarmonyPatch(typeof(Padlock), "activate")]
-    [HarmonyPatch(typeof(DialogueWindow), "SetDialogue")]
-    [HarmonyPatch(typeof(SkillPointsMenu), "open")]
-    [HarmonyPatch(typeof(SkillSlotsMenu), "open")]
-    [HarmonyPatch(typeof(InteractiveItem), "open")]
+    [HarmonyPatch]
     internal static class UiOpenNoPausePatches
     {
+        // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
+        private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
+
+        // Prepare and the patcher both call TargetMethods; resolve (and log misses) once.
+        private static List<MethodBase> _targets; // process-scoped: immutable reflection result
+
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            _targets ??= new List<MethodBase>(ResolveTargets());
+
+        private static IEnumerable<MethodBase> ResolveTargets()
+        {
+            return PatchTargets.Resolve(
+                PatchTargets.Find(typeof(Map), "open", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Journal), "open", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Journal), "showNote", new[] { typeof(JournalNote.Note) }),
+                PatchTargets.Find(typeof(Padlock), "activate", Type.EmptyTypes),
+                // Core.pause lives in SetDialogue (the setPortrait callback), not in an "open" method.
+                PatchTargets.Find(typeof(DialogueWindow), "SetDialogue", Type.EmptyTypes),
+                PatchTargets.Find(typeof(SkillPointsMenu), "open", Type.EmptyTypes),
+                PatchTargets.Find(typeof(SkillSlotsMenu), "open", Type.EmptyTypes),
+                PatchTargets.Find(typeof(InteractiveItem), "open", Type.EmptyTypes));
+        }
+
         private static void Prefix() => PauseSuppression.BeginNoPause();
-        private static void Postfix() => PauseSuppression.EndNoPause();
+        // Finalizer (not Postfix): open/show can throw after Begin → stuck
+        // SuppressPause blocks Core.pause forever. Finalizer-only End so we do not
+        // double-decrement against LevelingMenu.show's cross-method hold.
+        private static void Finalizer() => PauseSuppression.EndNoPause();
     }
 
     // ---- UI close/hide paths: hold unpause suppression ----
 
-    [HarmonyPatch(typeof(Map), "close")]
-    [HarmonyPatch(typeof(Journal), "close")]
-    [HarmonyPatch(typeof(Journal), "hideNote")]
-    [HarmonyPatch(typeof(Padlock), "deactivate")]
-    [HarmonyPatch(typeof(DialogueWindow), "close")]
-    [HarmonyPatch(typeof(SkillPointsMenu), "close")]
-    [HarmonyPatch(typeof(SkillSlotsMenu), "close")]
-    [HarmonyPatch(typeof(InteractiveItem), "close")]
+    [HarmonyPatch]
     internal static class UiCloseNoUnpausePatches
     {
+        // An empty target list aborts PatchAll; skip the class instead (missing targets are logged).
+        private static bool Prepare() => System.Linq.Enumerable.Any(TargetMethods());
+
+        // Prepare and the patcher both call TargetMethods; resolve (and log misses) once.
+        private static List<MethodBase> _targets; // process-scoped: immutable reflection result
+
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            _targets ??= new List<MethodBase>(ResolveTargets());
+
+        private static IEnumerable<MethodBase> ResolveTargets()
+        {
+            return PatchTargets.Resolve(
+                PatchTargets.Find(typeof(Map), "close", new[] { typeof(bool) }),
+                PatchTargets.Find(typeof(Journal), "close", new[] { typeof(bool) }),
+                PatchTargets.Find(typeof(Journal), "hideNote", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Padlock), "deactivate", Type.EmptyTypes),
+                // DialogueWindow.close() only starts the tween; the Core.unpause that pairs with
+                // SetDialogue's pause runs in onTweenClose.
+                PatchTargets.Find(typeof(DialogueWindow), "onTweenClose", Type.EmptyTypes),
+                PatchTargets.Find(typeof(SkillPointsMenu), "close", Type.EmptyTypes),
+                PatchTargets.Find(typeof(SkillSlotsMenu), "close", Type.EmptyTypes),
+                PatchTargets.Find(typeof(InteractiveItem), "close", Type.EmptyTypes));
+        }
+
         private static void Prefix() => PauseSuppression.BeginNoUnpause();
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
+        // Finalizer (not Postfix): close/hide throw after Begin → stuck SuppressUnpause.
+        private static void Finalizer() => PauseSuppression.EndNoUnpause();
     }
 
     // ---- Leveling / skill menus (delayed coroutine pause; different body) ----
@@ -125,8 +164,13 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix()
         {
-            if (PauseSuppression.MultiplayerActive)
+            // One hold per show: a repeated show (or a hide that never ran the vanilla body)
+            // must not leave the counter drifting and blocking Core.pause for other menus.
+            if (PauseSuppression.MultiplayerActive && !PauseSuppression.LevelingHold)
+            {
+                PauseSuppression.LevelingHold = true;
                 PauseSuppression.SuppressPause++;
+            }
         }
     }
 
@@ -137,10 +181,15 @@ namespace DWMPHorde.Patches
         {
             PauseSuppression.BeginNoUnpause();
             // Release hold from show
-            if (PauseSuppression.MultiplayerActive && PauseSuppression.SuppressPause > 0)
-                PauseSuppression.SuppressPause--;
+            if (PauseSuppression.LevelingHold)
+            {
+                PauseSuppression.LevelingHold = false;
+                if (PauseSuppression.SuppressPause > 0)
+                    PauseSuppression.SuppressPause--;
+            }
         }
 
-        private static void Postfix() => PauseSuppression.EndNoUnpause();
+        // Finalizer (not Postfix): hide throw after BeginNoUnpause → stuck SuppressUnpause.
+        private static void Finalizer() => PauseSuppression.EndNoUnpause();
     }
 }

@@ -118,7 +118,7 @@ namespace DWMPHorde
             SetActiveSafe(_joinSteamBtn, join);
             SetActiveSafe(_backSubBtn, host || join);
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             bool online = net != null && net.Role != NetworkRole.Offline;
             SetActiveSafe(_disconnectButton, root && online);
 
@@ -203,7 +203,7 @@ namespace DWMPHorde
 
         private static void OnDisconnectClicked()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null)
                 return;
             _joinPending = false;
@@ -224,7 +224,9 @@ namespace DWMPHorde
 
         private static void RefreshSessionButtons()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            ExpireFailureLabel();
+
+            var net = ModRuntime.Network;
             bool online = net != null && net.Role != NetworkRole.Offline;
 
             if (_panelView == PanelView.Root)
@@ -247,6 +249,10 @@ namespace DWMPHorde
                 _hostingHint = false;
                 SetLabel(_hostDoorBtn, "HOST");
             }
+
+            // A HOST/JOIN failure label owns its button until it expires (see ExpireFailureLabel).
+            if (FailureLabelActive)
+                return;
 
             if (_joinPending)
                 return;

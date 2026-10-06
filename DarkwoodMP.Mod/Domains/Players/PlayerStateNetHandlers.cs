@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
                 ? playerId
                 : (state.PlayerId > 0 ? state.PlayerId : playerId);
             if (!_net.AcceptSnapshotSequence(
-                _net._lastPlayerStateSequence, sequenceSender, state.Sequence, "PlayerState"))
+                _net.LastPlayerStateSequence, sequenceSender, state.Sequence, "PlayerState"))
                 return;
 
             if (_net.Role == NetworkRole.Host)
@@ -49,9 +49,19 @@ namespace DWMPHorde.Networking
                     hostSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
                     hostSt.HasLightProtection = state.HasLightProtection;
                     hostSt.HasNightShadows = state.HasNightShadows;
+                    hostSt.InOpenWorld = state.InOpenWorld;
+                    hostSt.SeesVillager = state.SeesVillager;
+                    hostSt.Aiming = state.Aiming;
                     if (state.InBearTrap)
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
+
+                    // Relay to the other clients first: the host has no proxy for this peer while it
+                    // loads a location, but the peers that do must keep seeing it.
+                    // PlayerId is the transport peer (authoritative), never the embedded one.
+                    state.PlayerId = playerId;
+                    _net.BroadcastHot(NetMessageType.PlayerState, w => state.Serialize(w),
+                        excludePlayerId: playerId);
 
                     _net.EnsureRemoteProxy(playerId);
                     RemotePlayerProxy proxy = _net.GetProxy(playerId);
@@ -121,15 +131,7 @@ namespace DWMPHorde.Networking
                     proxy.RemoteRunning = state.Running;
                     proxy.RemoteLocomotion = (SecondPlayerAnimController.LocomotionState)state.LocomotionState;
                     proxy.ApplyNetworkState(netState);
-                    _net.PlayerHeldLightHandlers.HandleRemoteContinuousLights(state, playerId);
-
-                    // Forward this client's state to all other connected clients (3+ support)
-                    if (playerId > 0)
-                    {
-                        state.PlayerId = playerId;
-                        _net.BroadcastHot(NetMessageType.PlayerState, w => state.Serialize(w),
-                            excludePlayerId: playerId);
-                    }
+                    _net.PlayerHeldLightApplyHandlers.HandleRemoteContinuousLights(state, playerId);
 
                     // DISABLED on join path: removeAfterNightEffect() is a full-screen native
                     // morning/event sequence. A joining client's AfterNightActive=false packet
@@ -160,6 +162,10 @@ namespace DWMPHorde.Networking
                 cliSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
                 cliSt.HasLightProtection = state.HasLightProtection;
                 cliSt.HasNightShadows = state.HasNightShadows;
+                // Kept on clients too: a promoted host runs the shared clock from it.
+                cliSt.InOpenWorld = state.InOpenWorld;
+                cliSt.SeesVillager = state.SeesVillager;
+                cliSt.Aiming = state.Aiming;
                 if (state.InBearTrap)
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");
@@ -223,7 +229,7 @@ namespace DWMPHorde.Networking
                 };
 
                 proxy.ApplyNetworkState(remoteState);
-                _net.PlayerHeldLightHandlers.HandleRemoteContinuousLights(state, remotePlayerId);
+                _net.PlayerHeldLightApplyHandlers.HandleRemoteContinuousLights(state, remotePlayerId);
             }
         }
     }

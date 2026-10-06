@@ -13,8 +13,8 @@ namespace DWMPHorde.Sync
             new Vector3(Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, Mathf.Round(p.z * 10f) / 10f);
     }
 
-    // Door.open fan-out lives solely in Patches.DoorOpenSyncPatch (DoorOpen + DoorState).
-    // The old Sync.DoorOpenPatch was removed in 0.8.0 — it double-fired DoorState.
+    // Door.open fan-out lives solely in Patches.DoorOpenSyncPatch (DoorOpen + DoorState);
+    // a second Door.open patch here would double-fire DoorState.
 
     /// <summary>Harmony patch: intercepts Door.close() and broadcasts the close state to all peers.</summary>
     [HarmonyPatch(typeof(Door), "close")]
@@ -26,6 +26,9 @@ namespace DWMPHorde.Sync
                 return;
 
             if (TraverseHack.ApplyingFromNetwork)
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -46,7 +49,7 @@ namespace DWMPHorde.Sync
                 OpenerPosZ = openerPos.z,
                 BodyRotY = bodyRotY
             });
-            ModRuntime.LegacyInfo("[DoorSync] send close " + __instance.name + " at " + key + " bodyY=" + bodyRotY);
+            ModRuntime.LegacyInfo($"[DoorSync] send close {__instance.name} at {key} bodyY={bodyRotY}");
         }
     }
 
@@ -71,11 +74,14 @@ namespace DWMPHorde.Sync
             // TrapDisarmHarvestSync sends silent WorldObjectRemoved instead.
             if (TrapDisarmHarvestTracker.IsSilentDisarm)
             {
-                ModRuntime.LegacyInfo("[TrapSync] skip boom — silent disarm/harvest " + __instance.name);
+                ModRuntime.LegacyInfo($"[TrapSync] skip boom — silent disarm/harvest {__instance.name}");
                 return;
             }
 
             if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -101,8 +107,49 @@ namespace DWMPHorde.Sync
                 TrapNetId = trapId,
                 OccupantPlayerId = occupant
             });
-            ModRuntime.LegacyInfo("[TrapSync] send triggered " + __instance.name
-                + " id=" + trapId + " at " + key);
+            ModRuntime.LegacyInfo($"[TrapSync] send triggered {__instance.name} id={trapId} at {key}");
+        }
+    }
+
+    /// <summary>
+    /// Host: a trap that does not stay after triggering is removed by vanilla
+    /// (<c>Core.RemovePooledPrefab</c>, pooled, no Destroy) without <c>switchToTriggered</c>, so
+    /// <see cref="TrapSwitchPatch"/> never sees it. Broadcast it here; peers play the spring and
+    /// remove their copy (<c>ApplyTrapState</c>).
+    /// </summary>
+    [HarmonyPatch(typeof(Trigger), "OnAfterTrigger", typeof(Collider), typeof(bool))]
+    public static class TrapVanishSyncPatch
+    {
+        private static void Prefix(Trigger __instance, out Vector3 __state)
+        {
+            __state = __instance != null ? __instance.transform.position : Vector3.zero;
+        }
+
+        private static void Postfix(Trigger __instance, Vector3 __state)
+        {
+            if (__instance == null || __instance.staysAfterTriggering || __instance.multipleTrigger
+                || __instance.loadedFromSave)
+                return;
+            if (!NetGuard.ConnectedHost(out LanNetworkManager net))
+                return;
+            if (TraverseHack.ApplyingFromNetwork || TrapDisarmHarvestTracker.IsSilentDisarm)
+                return;
+            if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
+                return;
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
+            Vector3 key = WorldPos.Key(__state);
+            int trapId = TrapNetworkId.GetOrMintHost(__instance.gameObject);
+            net.SendTrapState(new TrapState
+            {
+                PosX = key.x,
+                PosY = key.y,
+                PosZ = key.z,
+                Triggered = true,
+                TrapNetId = trapId,
+                OccupantPlayerId = 0
+            });
+            ModRuntime.LegacyInfo($"[TrapSync] send sprung-and-gone {__instance.name} id={trapId} at {key}");
         }
     }
 
@@ -114,50 +161,68 @@ namespace DWMPHorde.Sync
         /// Set to true while inside progressBarCompleted, so ObjectDestroyTrapPatch
         /// can suppress fake removal messages caused by the inventory item being destroyed.
         /// </summary>
-        internal static bool InsideTrapPlacement;
+        internal static bool InsideTrapPlacement; // process-scoped: call-scoped, restored by Finalizer
 
-        private static string _pendingType;
-        private static Vector3 _pendingPos;
-        private static Quaternion _pendingRot;
-
-        private static void Prefix(Player __instance)
+        // Placement capture travels in __state (not statics) so a re-entrant progressBarCompleted
+        // cannot overwrite it; the previous InsideTrapPlacement value is restored, not zeroed.
+        private struct State
         {
+            public bool PrevInside;
+            public string Type;
+            public Vector3 Pos;
+            public Quaternion Rot;
+        }
+
+        private static void Prefix(Player __instance, out State __state)
+        {
+            __state = default;
+            __state.PrevInside = InsideTrapPlacement;
             // Only while placing. The previous condition also matched disarm and craft,
             // ObjectDestroyTrapPatch when beartraps Destroy() on successful disarm.
             InsideTrapPlacement = __instance != null && __instance.placingItem;
-            _pendingType = null;
             if (!InsideTrapPlacement) return;
             if (InvItemClass.isNull(__instance.currentItem)) return;
             ProxyItem proxy = __instance.proxyItem;
             if (proxy == null) return;
 
             // Capture the item type and placement transform before the placement completes
-            _pendingType = __instance.currentItem.type;
-            _pendingPos = proxy.transform.localPosition;
-            _pendingRot = proxy.transform.rotation;
+            __state.Type = __instance.currentItem.type;
+            __state.Pos = proxy.transform.localPosition;
+            __state.Rot = proxy.transform.rotation;
         }
 
-        private static void Postfix(Player __instance)
+        private static void Postfix(Player __instance, State __state)
         {
-            InsideTrapPlacement = false;
-
-            if (string.IsNullOrEmpty(_pendingType))
+            if (string.IsNullOrEmpty(__state.Type))
                 return;
-            if (ModRuntime.Network == null)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            // Placed on the host's own prologue pad: not the world, and not in the trap ledger.
+            if (PersonalPrologue.LocalInPrologue)
                 return;
 
-            Vector3 euler = _pendingRot.eulerAngles;
-            ModRuntime.Network.SendItemSpawn(new ItemSpawnMessage
+            Vector3 euler = __state.Rot.eulerAngles;
+            var spawn = new ItemSpawnMessage
             {
-                ItemType = _pendingType,
-                PosX = _pendingPos.x,
-                PosY = _pendingPos.y,
-                PosZ = _pendingPos.z,
+                ItemType = __state.Type,
+                PosX = __state.Pos.x,
+                PosY = __state.Pos.y,
+                PosZ = __state.Pos.z,
                 RotX = euler.x,
                 RotY = euler.y,
-                RotZ = euler.z
-            });
-            ModRuntime.LegacyInfo("[ItemSpawn] sent " + _pendingType + " at " + _pendingPos);
+                RotZ = euler.z,
+                PlacerId = (short)ModRuntime.Network.LocalPlayerId
+            };
+            ModRuntime.Network.SendItemSpawn(spawn);
+            if (ModRuntime.Network.Role == NetworkRole.Host)
+                TrapLedger.NotePlaced(spawn, WorldPhysicsSyncService.FindTrapByPos(__state.Pos));
+            ModRuntime.LegacyInfo($"[ItemSpawn] sent {__state.Type} at {__state.Pos}");
+        }
+
+        // progressBarCompleted can throw; stuck true suppresses WorldObject harvest/destroy forever.
+        private static void Finalizer(State __state)
+        {
+            InsideTrapPlacement = __state.PrevInside;
         }
     }
 
@@ -170,6 +235,9 @@ namespace DWMPHorde.Sync
             if (ModRuntime.Network == null)
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
+                return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -188,7 +256,7 @@ namespace DWMPHorde.Sync
                 LowPower = __instance.lowPower,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send turnOn at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send turnOn at {key} type={itemType}");
         }
     }
 
@@ -202,6 +270,9 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -219,7 +290,7 @@ namespace DWMPHorde.Sync
                 LowPower = false,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send turnOff at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send turnOff at {key} type={itemType}");
         }
     }
 
@@ -233,6 +304,9 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             Vector3 key = WorldPos.Key(p);
@@ -250,7 +324,7 @@ namespace DWMPHorde.Sync
                 LowPower = false,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[GeneratorSync] send powerDown at " + key + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[GeneratorSync] send powerDown at {key} type={itemType}");
 
             // Do NOT fan-out LightState IsOn=false for powerItems.
             // Vanilla powerDown/cutPower keeps lamp isOn and only drops hasPower / visuals;
@@ -263,6 +337,26 @@ namespace DWMPHorde.Sync
     // Generator turnOn/turnOff no longer emit LightState for connected lamps.
     // Vanilla only restorePower/cutPower (isOn sticky). GeneratorState is enough.
     // Per-lamp player toggles still go through Item.turnOn/turnOff → LightState.
+
+    /// <summary>
+    /// True inside Item.switchMe (the player's own toggle), which plays the switch click before
+    /// turnOn/turnOff. Power restores, scripts and the late-join bulk toggle without a click.
+    /// </summary>
+    [HarmonyPatch(typeof(Item), "switchMe")]
+    public static class ItemSwitchMeScopePatch
+    {
+        private static int _depth; // process-scoped: call-scoped, unwound by the Finalizer
+
+        internal static bool Active => _depth > 0;
+
+        private static void Prefix() => _depth++;
+
+        private static void Finalizer()
+        {
+            if (_depth > 0)
+                _depth--;
+        }
+    }
 
     /// <summary>Harmony patch: intercepts Item.turnOn (lights, switchable items) and broadcasts the state.</summary>
     [HarmonyPatch(typeof(Item), "turnOn")]
@@ -278,6 +372,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             string itemType = __instance.invItem != null ? __instance.invItem.type : "";
@@ -288,9 +385,10 @@ namespace DWMPHorde.Sync
                 PosZ = p.z,
                 IsOn = true,
                 ItemName = __instance.name,
-                ItemType = itemType
+                ItemType = itemType,
+                Switched = ItemSwitchMeScopePatch.Active
             });
-            ModRuntime.LegacyInfo("[LightSync] send turnOn " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send turnOn {__instance.name} type={itemType}");
         }
     }
 
@@ -308,6 +406,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             string itemType = __instance.invItem != null ? __instance.invItem.type : "";
@@ -318,9 +419,10 @@ namespace DWMPHorde.Sync
                 PosZ = p.z,
                 IsOn = false,
                 ItemName = __instance.name,
-                ItemType = itemType
+                ItemType = itemType,
+                Switched = ItemSwitchMeScopePatch.Active
             });
-            ModRuntime.LegacyInfo("[LightSync] send turnOff " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send turnOff {__instance.name} type={itemType}");
         }
     }
 
@@ -337,6 +439,9 @@ namespace DWMPHorde.Sync
             int forceOption = (int)__args[1];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            // The host's own prologue pad exists on its machine only: not sent, not in the bulk.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
             if (LanNetworkManager.IsApplyingRemoteState)
@@ -360,7 +465,7 @@ namespace DWMPHorde.Sync
                 UseIngredients = false,
                 OptionIndex = option
             });
-            ModRuntime.LegacyInfo("[ConstructibleSync] sent construct at " + key + " option=" + option);
+            ModRuntime.LegacyInfo($"[ConstructibleSync] sent construct at {key} option={option}");
         }
 
         internal static void RegisterConstructed(Constructible c, int forceOption)
@@ -374,7 +479,7 @@ namespace DWMPHorde.Sync
 
         internal static void RegisterConstructed(Vector3 key, int optionIndex)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             net?.LockHandlers?.RegisterConstructedSite(key, optionIndex);
         }
 
@@ -395,6 +500,9 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
+            // The host's own prologue pad exists on its machine only.
+            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+                return;
 
             Vector3 p = __instance.transform.position;
             string itemType = __instance.invItem != null ? __instance.invItem.type : "";
@@ -407,7 +515,7 @@ namespace DWMPHorde.Sync
                 ItemName = __instance.name,
                 ItemType = itemType
             });
-            ModRuntime.LegacyInfo("[LightSync] send empDisable " + __instance.name + " type=" + itemType);
+            ModRuntime.LegacyInfo($"[LightSync] send empDisable {__instance.name} type={itemType}");
         }
     }
 }

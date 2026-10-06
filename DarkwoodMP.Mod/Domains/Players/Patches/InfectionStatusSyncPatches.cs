@@ -43,8 +43,7 @@ namespace DWMPHorde.Patches
 
         internal static void BroadcastInfectionSpawn(Vector3 pos)
         {
-            var net = LanNetworkManager.Instance;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             var msg = BuildSpawnMessage(pos);
@@ -69,6 +68,8 @@ namespace DWMPHorde.Patches
             {
                 Infection infection = all[i];
                 if (infection == null || infection.disappearing) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(infection.transform)) continue;
                 if (sent >= MaxLateJoinInfectionSpawns) break;
 
                 Vector3 pos = infection.transform.position;
@@ -117,7 +118,10 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Host infection disappear (fade) — remove matching client splat by position.
+    /// Infection disappear (fade) — remove matching splat on peers by position.
+    /// Host torch/gas already sent; client flaming melee also calls disappear locally
+    /// (MeleeSensor non-Character path is not redirected) and must tell the host
+    /// via existing WorldObjectRemoved so the host world clears too.
     /// </summary>
     [HarmonyPatch(typeof(Infection), "disappear")]
     public static class InfectionDisappearPatch
@@ -127,10 +131,9 @@ namespace DWMPHorde.Patches
             if (__instance == null) return;
             if (!InfectionSyncHelpers.IsMultiplayerConnected()) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
-            if (ModRuntime.Network.Role != NetworkRole.Host) return;
 
             Vector3 pos = __instance.transform.position;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             net.SendWorldObjectRemoved(new WorldObjectRemovedMessage
@@ -141,7 +144,8 @@ namespace DWMPHorde.Patches
                 ObjectName = "infection_splat"
             });
 
-            ModRuntime.LegacyInfo($"[InfectionSync] disappear at {pos}");
+            ModRuntime.LegacyInfo($"[InfectionSync] disappear at {pos}"
+                + (net.Role == NetworkRole.Client ? " (client→host)" : ""));
         }
     }
 }

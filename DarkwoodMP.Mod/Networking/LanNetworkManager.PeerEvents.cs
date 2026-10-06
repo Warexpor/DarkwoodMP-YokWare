@@ -15,7 +15,7 @@ namespace DWMPHorde.Networking
     {
         private enum ForwardableKind { None, Direct, Player }
 
-        private static readonly Dictionary<NetMessageType, ForwardableKind> _forwardableMap = BuildForwardableMap();
+        private static readonly Dictionary<NetMessageType, ForwardableKind> _forwardableMap = BuildForwardableMap(); // process-scoped: built once from message attributes
 
         private static Dictionary<NetMessageType, ForwardableKind> BuildForwardableMap()
         {
@@ -31,20 +31,21 @@ namespace DWMPHorde.Networking
             return map;
         }
 
-        /// <summary>True while the current OnNetworkReceive is forwarding a
-        /// RemotePlayerForwardMessage's inner payload to prevent re-forwarding.</summary>
-        private bool _isForwardedMessage;
+        private static readonly HashSet<NetMessageType> _hostOnlyTypes = BuildHostOnlySet(); // process-scoped: constant type set
+
+        private static HashSet<NetMessageType> BuildHostOnlySet()
+        {
+            var set = new HashSet<NetMessageType>();
+            foreach (var field in typeof(NetMessageType).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (System.Attribute.GetCustomAttribute(field, typeof(HostOnlyAttribute), false) != null)
+                    set.Add((NetMessageType)field.GetValue(null));
+            }
+            return set;
+        }
 
         /// <summary>Get the PlayerId for a given NetPeer, or -1 if unknown.</summary>
-        private int GetPlayerId(NetPeer peer)
-        {
-            foreach (var kvp in _peers)
-            {
-                if (kvp.Value == peer)
-                    return kvp.Key;
-            }
-            return -1;
-        }
+        private int GetPlayerId(NetPeer peer) => _lanPeers.IdOf(peer);
 
         public void OnPeerConnected(NetPeer peer)
         {
@@ -52,19 +53,19 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
             {
                 playerId = _nextPlayerId++;
-                _peers[playerId] = peer;
-                // Keep _handshakeComplete set when additional peers join; that
+                _lanPeers.Set(playerId, peer);
+                // Keep _session.Link.HandshakeComplete set when additional peers join; that
                 // froze PlayerState/drag traffic for every already-ready client.
                 // Only block gameplay until the first peer completes handshake.
-                if (_handshakedPeers.Count == 0)
-                    _handshakeComplete = false;
+                if (_session.Link.Handshaked.Count == 0)
+                    _session.Link.HandshakeComplete = false;
                 StatusText = $"Player {playerId} connected";
-                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_peers.Count}, ready={_handshakedPeers.Count})");
+                ModLog.Event(LogCat.Network, $"Player {playerId} connected (peers={_lanPeers.Count}, ready={_session.Link.Handshaked.Count})");
                 CompleteHostPeerJoin(playerId);
             }
             else
             {
-                _peers[1] = peer; // Host is always player 1 for client
+                _lanPeers.Set(1, peer); // Host is always player 1 for client
                 StatusText = "Connected to host";
                 ModLog.Event(LogCat.Network, "Connected to host");
                 CompleteClientPeerJoin();
@@ -76,66 +77,18 @@ namespace DWMPHorde.Networking
             int playerId = GetPlayerId(peer);
             ModLog.Event(LogCat.Network, $"Player {playerId} disconnected: " + disconnectInfo.Reason);
 
-            // Clear drag claims from the disconnected player so their objects become free
-            var toRemove = new List<string>();
-            foreach (var kv in _dragClaims)
-            {
-                if (kv.Value == playerId)
-                    toRemove.Add(kv.Key);
-            }
-            foreach (string key in toRemove)
-                _dragClaims.Remove(key);
-
-            // Clean up drag tracking for items this player was dragging
-            foreach (string key in toRemove)
-            {
-                ReleaseRemoteDragKinematic(key);
-                RemoveRemoteDragIds(key);
-                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
-            }
+            // N-peer: clear claims locally AND fan-out DragSync STOP so remaining peers
+            // do not keep a stuck "already being moved" claim after the leaver drops.
+            if (playerId > 0)
+                PlayerInteractHandlers?.ReleaseDragClaimsForDisconnectedPlayer(
+                    playerId, broadcastStop: _role == NetworkRole.Host);
 
             if (_role == NetworkRole.Host)
             {
                 if (playerId > 0)
                 {
-                    // Free workbench / craft locks held by the leaver.
-                    Sync.WorkbenchOpenLock.HostReleaseAllForPlayer(this, playerId);
-                    _peers.Remove(playerId);
-                    _handshakedPeers.Remove(playerId);
-                    bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId)
-                        && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
-                    // Phase-2 expected leave: client disconnects after share to load offline.
-                    bool expectedJoinDetach = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId);
-
-                    _awaitingLateJoinBulk.Remove(playerId); // Dictionary.Remove
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
-                    _peersLoadingWorld.Remove(playerId);
-                    _peersCoopReconnect.Remove(playerId);
-                    if (_handshakedPeers.Count == 0)
-                        _handshakeComplete = false;
-                    WorldProxyHandlers.DestroyRemoteProxy(playerId);
-                    DestroyRemoteFlareLight(playerId);
-                    DestroyRemoteItemLight(playerId);
-                    _remotePlayers.Remove(playerId);
-                    PlayerPositionManager.RemovePlayer(playerId);
-                    _remoteOutsideLocation.Remove(playerId);
-                    Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
-                    // Don't treat transfer-link teardown / pre-PlayerState leave as night death.
-                    if (!expectedJoinDetach && !wasLoadingOnly)
-                    {
-                        if (DeathStateTracker.OnRemoteDisconnected(playerId))
-                            DeathStateTracker.TryResolveNightMorning("peer disconnect");
-                        Patches.MorningHideoutHold.Forget(playerId);
-                        Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
-                    }
-                    else
-                    {
-                        ModLog.Event(LogCat.Session,
-                            "Peer " + playerId + " detached during join pipeline (expected — offline load or pre-ready)");
-                    }
-                    StatusText = $"Player {playerId} left ({_peers.Count} remaining, ready={_handshakedPeers.Count})";
+                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: true, reasonTag: "peer disconnect");
+                    StatusText = $"Player {playerId} left ({_lanPeers.Count} remaining, ready={_session.Link.Handshaked.Count})";
                 }
             }
             else
@@ -147,7 +100,107 @@ namespace DWMPHorde.Networking
                     // Already tearing or intentional; do not nest StopNetwork.
                     return;
                 }
+                // A running migration reconnect retries from TickHostMigrationRetry.
+                if (_migrationInProgress)
+                    return;
+                // Connect-failure reasons only mean "never got in" before the handshake; after it
+                // (e.g. PeerNotFound on a host that crashed) the loss is real and migration applies.
+                if (!_session.Link.HandshakeComplete && IsConnectFailureReason(disconnectInfo.Reason))
+                {
+                    OnClientLinkFailed(disconnectInfo.Reason.ToString());
+                    return;
+                }
                 TryBeginHostMigration(disconnectInfo.Reason.ToString());
+            }
+        }
+
+
+        /// <summary>
+        /// Host-only: shared LAN/Steam disconnect cleanup. Captures outside-location
+        /// membership, destroys local proxy, pushes PeerRoster then LocationExit so
+        /// remaining peers prune ghosts (N-peer safe).
+        /// </summary>
+        private void OnHostPeerDisconnectedGameplay(int playerId, bool removeLanSlot, string reasonTag)
+        {
+            // Capture before Remove so TryLeaveUnoccupied sees remaining occupants only.
+            string leftLoc = null;
+            _session.RemoteOutsideLocation.TryGetValue(playerId, out leftLoc);
+
+            // Before the presence and key records below are cleared.
+            Sync.QuestItemHandoff.Leaving leaving = Sync.QuestItemHandoff.Capture(this, playerId);
+            Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
+            Sync.DialogMirror.HostPeerLeft(this, playerId);
+            Sync.PauseMenuSync.HostPeerLeft(playerId);
+            Sync.DialogHandInArbiter.HostPeerLeft(playerId);
+            Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
+            Sync.PeerItemPresence.ClearPlayer(playerId);
+            ClearStableClientKey(playerId);
+            ClearStickyPlayerPayloads(playerId);
+
+            if (removeLanSlot)
+                _lanPeers.Remove(playerId);
+            // Steam path already called RemovePeerSlot before this.
+
+            _session.Link.Handshaked.Remove(playerId);
+            _session.Link.Rejected.Remove(playerId);
+            // A peer that rebinds to this id later counts from a low sequence again; the old
+            // high-water marks would drop its unreliable packets until it overtook them.
+            _session.Link.LastPlayerStateSequence.Remove(playerId);
+            _session.Link.LastPhysicsStateSequence.Remove(playerId);
+            _session.Link.LastReliablePhysicsStateSequence.Remove(playerId);
+            bool wasLoadingOnly = _session.Link.LoadingWorld.Contains(playerId)
+                && !_session.Link.CoopReconnect.Contains(playerId)
+                && (!_session.Link.AwaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
+            bool expectedJoinDetach = _session.Link.LoadingWorld.Contains(playerId)
+                && !_session.Link.CoopReconnect.Contains(playerId);
+
+            _session.Link.AwaitingLateJoinBulk.Remove(playerId);
+            _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
+            _session.Link.LoadingWorld.Remove(playerId);
+            _session.Link.CoopReconnect.Remove(playerId);
+            if (_session.Link.Handshaked.Count == 0)
+                _session.Link.HandshakeComplete = false;
+
+            // Capture last known pos BEFORE RemovePlayer so LocationExit fan-out
+            // carries a real world point (zeros confused living-exit teleport path).
+            float lastX = 0f, lastY = 0f, lastZ = 0f;
+            if (PlayerPositionManager.TryGetRemote(playerId, out UnityEngine.Vector3 lastPos, out _))
+            {
+                lastX = lastPos.x; lastY = lastPos.y; lastZ = lastPos.z;
+            }
+
+            WorldProxyLifecycleHandlers.DestroyRemoteProxy(playerId);
+            DestroyRemoteFlareLight(playerId);
+            DestroyRemoteItemLight(playerId);
+            _remotePlayers.Remove(playerId);
+            PlayerPositionManager.RemovePlayer(playerId);
+            PlayerLightFxApplyHandlers?.ClearPendingPlayerLightsFor(playerId);
+            PlayerFXHandlers?.ClearPendingAnimLibrary(playerId);
+            Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
+
+            // Roster FIRST so clients mark the peer gone, then LocationExit uses the
+            // roster-miss path (DestroyRemoteProxy) instead of teleport/EnsureRemoteProxy.
+            BroadcastPeerRoster();
+            _peerRosterTimer = 0f;
+
+            // Membership + leave-unoccupied + LocationExit fan-out to remaining peers.
+            LocationEnterExitHandlers?.NotifyRemotePeerDisconnected(playerId, leftLoc, lastX, lastY, lastZ);
+            _session.RemoteOutsideLocation.Remove(playerId);
+
+            if (!expectedJoinDetach && !wasLoadingOnly)
+            {
+                Sync.QuestItemHandoff.HostPeerLeft(leaving, new UnityEngine.Vector3(lastX, lastY, lastZ));
+                if (DeathStateTracker.OnRemoteDisconnected(playerId))
+                    DeathStateTracker.TryResolveNightMorning(reasonTag);
+                Patches.MorningHideoutHold.Forget(playerId);
+                Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
+            }
+            else
+            {
+                // A joiner that detached before entering still took a night-participant id.
+                DeathStateTracker.OnRemotePeerGone(playerId);
+                ModLog.Event(LogCat.Session,
+                    "Peer " + playerId + " detached during join pipeline (expected — offline load or pre-ready)");
             }
         }
 
@@ -175,7 +228,7 @@ namespace DWMPHorde.Networking
             _currentReceivePlayerId = GetPlayerId(peer);
             if (IsConnected)
                 ClientPerfProbe.NotePacketRx(type);
-            ProcessInboundMessage(type, payload);
+            ProcessInboundMessage(type, payload, deliveryMethod);
         }
     }
 }

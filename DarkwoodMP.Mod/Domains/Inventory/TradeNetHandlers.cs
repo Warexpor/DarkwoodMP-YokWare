@@ -47,21 +47,10 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
             {
-                // Client stock is not world authority; do not forward the payload.
-                _net._suppressForwardThisMessage = true;
-
-                int senderId = _net.CurrentReceivePlayerId;
-                NpcDialogueLock.HostRenewLeaseForSender(msg.NpcName, senderId);
-                bool tradingPeer = NpcDialogueLock.GetOwner(msg.NpcName) == senderId;
-                if (tradingPeer)
-                    TradeInventorySync.Handle(msg);
-                else
-                    ModRuntime.LegacyInfo(
-                        $"[TradeSync] rejected inventory from p{senderId} for '{msg.NpcName}' (no dialog lock)");
-
-                NPC npc = TradeInventorySync.FindNpcByName(msg);
-                if (npc != null)
-                    TradeInventorySync.BroadcastNpcInventory(npc);
+                // A client's copy of the stock is never the truth (its trades come as TradeCommit).
+                _net.SuppressRelay();
+                ModRuntime.LegacyInfo(
+                    $"[TradeSync] ignored stock copy from p{_net.CurrentReceivePlayerId} for '{msg.NpcName}'");
                 return;
             }
 
@@ -125,6 +114,8 @@ namespace DWMPHorde.Networking
                 NPC npc = all[i];
                 if (npc == null || !npc.trader || npc.inventory == null) continue;
                 if (string.IsNullOrEmpty(npc.name)) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(npc.transform)) continue;
 
                 var msg = TradeInventorySync.BuildMessage(npc);
                 _net.SendBulkOrAll(NetMessageType.TradeInventorySync, w => msg.Serialize(w), targetPlayerId);
@@ -138,9 +129,9 @@ namespace DWMPHorde.Networking
         internal void HandlePeerHasItem(PeerHasItemMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-            int id = msg.PlayerId;
-            if (id <= 0 && _net.CurrentReceivePlayerId > 0)
-                id = _net.CurrentReceivePlayerId;
+            // Transport peer is the only trustworthy sender id; an embedded id could rewrite
+            // another player's item presence.
+            int id = _net.CurrentReceivePlayerId > 0 ? _net.CurrentReceivePlayerId : msg.PlayerId;
             PeerItemPresence.Apply(id, msg.ItemType, msg.Amount);
         }
     }

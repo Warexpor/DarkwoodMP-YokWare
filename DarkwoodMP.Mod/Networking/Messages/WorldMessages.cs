@@ -9,6 +9,8 @@ namespace DWMPHorde.Networking
         public bool IsOn;
         public string ItemName;
         public string ItemType;
+        /// <summary>Toggled by hand (Item.switchMe): vanilla played the switch click first.</summary>
+        public bool Switched;
 
         public void Serialize(NetWriter w)
         {
@@ -16,6 +18,7 @@ namespace DWMPHorde.Networking
             w.Put(IsOn);
             w.Put(ItemName ?? string.Empty);
             w.Put(ItemType ?? string.Empty);
+            w.Put(Switched);
         }
 
         public static LightStateMessage Deserialize(NetReader r) => new LightStateMessage
@@ -25,7 +28,8 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             IsOn = r.GetBool(),
             ItemName = r.GetString(),
-            ItemType = r.GetString()
+            ItemType = r.GetString(),
+            Switched = r.GetBool()
         };
     }
 
@@ -34,12 +38,15 @@ namespace DWMPHorde.Networking
         public string ItemType;
         public float PosX, PosY, PosZ;
         public float RotX, RotY, RotZ;
+        /// <summary>Player who placed it (host stamps client sends); 0 = not a player placement.</summary>
+        public short PlacerId;
 
         public void Serialize(NetWriter writer)
         {
             writer.Put(ItemType ?? string.Empty);
             writer.Put(PosX); writer.Put(PosY); writer.Put(PosZ);
             writer.Put(RotX); writer.Put(RotY); writer.Put(RotZ);
+            writer.Put(PlacerId);
         }
 
         public static ItemSpawnMessage Deserialize(NetReader reader) => new ItemSpawnMessage
@@ -50,7 +57,8 @@ namespace DWMPHorde.Networking
             PosZ = reader.GetFloat(),
             RotX = reader.GetFloat(),
             RotY = reader.GetFloat(),
-            RotZ = reader.GetFloat()
+            RotZ = reader.GetFloat(),
+            PlacerId = reader.GetShort()
         };
     }
 
@@ -73,23 +81,66 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public float RotY;
         public string Clip;
+        /// <summary>
+        /// Frame of <see cref="Clip"/> at the batch time (-1: the clip is chosen but not started
+        /// yet). The client only uses it when it starts the clip; a frame change alone is not a
+        /// reason to send the body.
+        /// </summary>
         public short ClipFrame;
         public bool Alive;
         public byte HealthPct;
+        /// <summary>
+        /// Name, prefab path and save id never change for one host id, so they travel only when
+        /// <see cref="HasDescriptor"/> is set (first sends of an id and the 1 s full resync).
+        /// The client caches them per id.
+        /// </summary>
+        public bool HasDescriptor;
         public string EntityName;
         public string PrefabPath;
+        /// <summary>
+        /// The body's SaveableObject.uniqueId (0: none). A creature from the shared save has the
+        /// same id on every peer, so the client finds its own copy by it, even asleep on an
+        /// inactive grid node.
+        /// </summary>
+        public int SaveId;
         /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
         public byte Flags;
+        /// <summary>
+        /// bit0=animating (the host keeps the clip moving), bit1=flier in flight, bit2=flier
+        /// diving, bit3=<see cref="PrevClip"/> follows.
+        /// </summary>
+        public byte Flags2;
+        /// <summary>
+        /// The creature's current CharacterSounds loop as a slot of its own loop fields
+        /// (0 = none); see <c>EntityLoopSync</c>. State, not an event: a late joiner or a client
+        /// walking up hears the loop the host is playing.
+        /// </summary>
+        public byte Loop;
+        /// <summary>
+        /// A clip the host started and left again since this id's last send (a turn's loop
+        /// between its start and end), with how long before the batch time it started.
+        /// </summary>
+        public string PrevClip;
+        public ushort PrevClipAgeMs;
 
         public const byte FlagSleeping = 1;
         public const byte FlagEating = 2;
         public const byte FlagDowned = 4;
         public const byte FlagFleeing = 8;
 
+        public const byte Flag2Animating = 1;
+        public const byte Flag2InFlight = 2;
+        public const byte Flag2Diving = 4;
+        public const byte Flag2PrevClip = 8;
+
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
         public bool Downed => (Flags & FlagDowned) != 0;
         public bool Fleeing => (Flags & FlagFleeing) != 0;
+        public bool Animating => (Flags2 & Flag2Animating) != 0;
+        public bool InFlight => (Flags2 & Flag2InFlight) != 0;
+        public bool Diving => (Flags2 & Flag2Diving) != 0;
+        public bool HasPrevClip => (Flags2 & Flag2PrevClip) != 0;
 
         public Character.Behaviour PackedBehaviour
         {
@@ -131,37 +182,71 @@ namespace DWMPHorde.Networking
             w.Put(ClipFrame);
             w.Put(Alive);
             w.Put(HealthPct);
-            w.Put(EntityName ?? "");
-            w.Put(PrefabPath ?? "");
             w.Put(Flags);
+            w.Put(Flags2);
+            w.Put(Loop);
+            if (HasPrevClip)
+            {
+                w.Put(PrevClip ?? "");
+                w.Put((short)PrevClipAgeMs);
+            }
+            w.Put(HasDescriptor);
+            if (HasDescriptor)
+            {
+                w.Put(EntityName ?? "");
+                w.Put(PrefabPath ?? "");
+                w.Put(SaveId);
+            }
         }
 
-        public static EntitySnapshotNet Deserialize(NetReader r) => new EntitySnapshotNet
+        public static EntitySnapshotNet Deserialize(NetReader r)
         {
-            Index = r.GetShort(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            RotY = r.GetFloat(),
-            Clip = r.GetString(),
-            ClipFrame = r.GetShort(),
-            Alive = r.GetBool(),
-            HealthPct = r.GetByte(),
-            EntityName = r.GetString(),
-            PrefabPath = r.GetString(),
-            Flags = r.GetByte()
-        };
+            var e = new EntitySnapshotNet
+            {
+                Index = r.GetShort(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotY = r.GetFloat(),
+                Clip = r.GetString(),
+                ClipFrame = r.GetShort(),
+                Alive = r.GetBool(),
+                HealthPct = r.GetByte(),
+                Flags = r.GetByte(),
+                Flags2 = r.GetByte(),
+                Loop = r.GetByte()
+            };
+            if (e.HasPrevClip)
+            {
+                e.PrevClip = r.GetString();
+                e.PrevClipAgeMs = (ushort)r.GetShort();
+            }
+            e.HasDescriptor = r.GetBool();
+            if (e.HasDescriptor)
+            {
+                e.EntityName = r.GetString();
+                e.PrefabPath = r.GetString();
+                e.SaveId = r.GetInt();
+            }
+            return e;
+        }
     }
 
     public struct EntityStateMessage
     {
         /// <summary>Monotonic per-sender sequence for the unreliable batch.</summary>
         public uint Sequence;
+        /// <summary>
+        /// Host session clock (unscaled seconds since the host's broadcast started) when the batch
+        /// was sampled. Clients interpolate on this timeline.
+        /// </summary>
+        public float HostTime;
         public EntitySnapshotNet[] Entities;
 
         public void Serialize(NetWriter w)
         {
             w.Put(Sequence);
+            w.Put(HostTime);
             int count = Entities != null ? Entities.Length : 0;
             w.Put(count);
             for (int i = 0; i < count; i++)
@@ -171,13 +256,14 @@ namespace DWMPHorde.Networking
         public static EntityStateMessage Deserialize(NetReader r)
         {
             uint sequence = r.GetUInt();
+            float hostTime = r.GetFloat();
             int count = r.GetInt();
             if (count < 0 || count > 4096)
                 throw new InvalidDataException("Entity snapshot count is out of range: " + count);
             var arr = new EntitySnapshotNet[count];
             for (int i = 0; i < count; i++)
                 arr[i] = EntitySnapshotNet.Deserialize(r);
-            return new EntityStateMessage { Sequence = sequence, Entities = arr };
+            return new EntityStateMessage { Sequence = sequence, HostTime = hostTime, Entities = arr };
         }
     }
 
@@ -195,6 +281,16 @@ namespace DWMPHorde.Networking
         /// position delta on an unreliable packet.
         /// </summary>
         public bool ScrapeActive;
+        /// <summary>
+        /// The dragger's clock at the moment of this pose (seconds, its own epoch). Observers
+        /// play the drag back on a timeline a short delay behind it, like creatures.
+        /// </summary>
+        public float SendTime;
+        /// <summary>
+        /// The pose fields hold the body's pose. Always set on a grab sample; a STOP carries the
+        /// pose the drag ended on (absent when the host releases a disconnected dragger's claim).
+        /// </summary>
+        public bool HasPose;
 
         public void Serialize(NetWriter w)
         {
@@ -205,6 +301,8 @@ namespace DWMPHorde.Networking
             w.Put(ItemType ?? "");
             w.Put(ClaimedByPlayerId);
             w.Put(ScrapeActive);
+            w.Put(SendTime);
+            w.Put(HasPose);
         }
 
         public static DragSyncMessage Deserialize(NetReader r) => new DragSyncMessage
@@ -219,29 +317,69 @@ namespace DWMPHorde.Networking
             ObjectName = r.GetString(),
             ItemType = r.GetString(),
             ClaimedByPlayerId = r.GetInt(),
-            // Old peers without this field: default false → observers stop scrape (safe).
-            ScrapeActive = r.AvailableBytes >= 1 && r.GetBool()
+            ScrapeActive = r.GetBool(),
+            SendTime = r.GetFloat(),
+            HasPose = r.GetBool()
         };
     }
 
     public struct WorldObjectRemovedMessage
     {
+        public const byte ModeRemove = 0;
+        /// <summary>Client→host: optimistic world pickup claim (non-GUID, non-trap).</summary>
+        public const byte ModeClaimRequest = 1;
+        /// <summary>Host→client: claim lost — refund optimistic grant.</summary>
+        public const byte ModeClaimDeny = 2;
+
         public float PosX, PosY, PosZ;
         public string ObjectName;
+        /// <summary>0 = remove (default), 1 = claim request, 2 = claim deny.</summary>
+        public byte Mode;
+        /// <summary>ModeRemove: player id that won the pickup (0 = unknown).</summary>
+        public int ClaimedByPlayerId;
+        public string ItemType;
+        public int Amount;
+        public float Durability;
+        public int Ammo;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(ObjectName ?? "");
+            w.Put(Mode);
+            w.Put(ClaimedByPlayerId);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+            w.Put(Durability);
+            w.Put(Ammo);
         }
 
-        public static WorldObjectRemovedMessage Deserialize(NetReader r) => new WorldObjectRemovedMessage
+        public static WorldObjectRemovedMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            ObjectName = r.GetString()
-        };
+            var msg = new WorldObjectRemovedMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                ObjectName = r.GetString(),
+                Mode = r.GetByte(),
+                ClaimedByPlayerId = r.GetInt(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt()
+            };
+            return msg;
+        }
+    }
+
+    /// <summary>Saw message kind: host absolute snapshot, or a client stock-change request.</summary>
+    public enum SawStateKind : byte
+    {
+        /// <summary>Host-authoritative absolute fuel / log / wood stock.</summary>
+        Absolute = 0,
+        /// <summary>Client request: apply these deltas (addFuel / convert) to the host's stock.</summary>
+        Delta = 1
     }
 
     public struct SawStateMessage
@@ -250,6 +388,16 @@ namespace DWMPHorde.Networking
         public float Fuel;
         public int WoodLogAmount;
         public int WoodAmount;
+        /// <summary>
+        /// Client addFuel / convert fuel change for host-auth accumulation (Delta kind only).
+        /// Always on the wire (same-DLL dual deploy).
+        /// </summary>
+        public float FuelDelta;
+        public SawStateKind Kind;
+        /// <summary>Delta kind: wood logs consumed by a client convert (&lt;= 0).</summary>
+        public int WoodLogDelta;
+        /// <summary>Delta kind: planks produced by a client convert (&gt;= 0).</summary>
+        public int WoodDelta;
 
         public void Serialize(NetWriter w)
         {
@@ -257,6 +405,10 @@ namespace DWMPHorde.Networking
             w.Put(Fuel);
             w.Put(WoodLogAmount);
             w.Put(WoodAmount);
+            w.Put(FuelDelta);
+            w.Put((byte)Kind);
+            w.Put(WoodLogDelta);
+            w.Put(WoodDelta);
         }
 
         public static SawStateMessage Deserialize(NetReader r) => new SawStateMessage
@@ -266,7 +418,11 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             Fuel = r.GetFloat(),
             WoodLogAmount = r.GetInt(),
-            WoodAmount = r.GetInt()
+            WoodAmount = r.GetInt(),
+            FuelDelta = r.GetFloat(),
+            Kind = (SawStateKind)r.GetByte(),
+            WoodLogDelta = r.GetInt(),
+            WoodDelta = r.GetInt()
         };
     }
 
@@ -373,38 +529,19 @@ namespace DWMPHorde.Networking
             {
                 PosX = r.GetFloat(),
                 PosY = r.GetFloat(),
-                PosZ = r.GetFloat()
+                PosZ = r.GetFloat(),
+                TrapNetId = r.GetInt()
             };
-            if (r.AvailableBytes >= 4)
-                msg.TrapNetId = r.GetInt();
             return msg;
         }
-    }
-
-    /// <summary>Host→all: thrown light/projectile expired (flare burnout).</summary>
-    public struct ThrowableDespawnMessage
-    {
-        public int ThrowId;
-        public float PosX, PosY, PosZ;
-
-        public void Serialize(NetWriter w)
-        {
-            w.Put(ThrowId);
-            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
-        }
-
-        public static ThrowableDespawnMessage Deserialize(NetReader r) => new ThrowableDespawnMessage
-        {
-            ThrowId = r.GetInt(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat()
-        };
     }
 
     /// <summary>Host→peer late-join: full trap table (id + pos + triggered + occupant).</summary>
     public struct TrapBulkMessage
     {
+        /// <summary>Most entries one message may carry; senders chunk above this, the reader rejects above it.</summary>
+        public const int MaxEntries = 512;
+
         public TrapBulkEntry[] Entries;
 
         public void Serialize(NetWriter w)
@@ -418,7 +555,9 @@ namespace DWMPHorde.Networking
         public static TrapBulkMessage Deserialize(NetReader r)
         {
             int n = r.GetInt();
-            if (n < 0 || n > 512) n = 0;
+            // Zeroing an oversize count used to drop the whole trap table without a trace.
+            if (n < 0 || n > MaxEntries)
+                throw new System.IO.InvalidDataException("Trap bulk entry count is out of range: " + n);
             var entries = new TrapBulkEntry[n];
             for (int i = 0; i < n; i++)
                 entries[i] = TrapBulkEntry.Deserialize(r);
@@ -482,20 +621,40 @@ namespace DWMPHorde.Networking
     {
         public float PosX, PosY, PosZ;
         public string DoorName;
+        /// <summary>Real Door.open OpenForce (thump=45000 → door_hit_run).</summary>
+        public float OpenForce;
+        /// <summary>Opener world pos for hinge force direction.</summary>
+        public float OpenerPosX, OpenerPosY, OpenerPosZ;
+        /// <summary>True when OpenForce/Opener trailer was present on the wire.</summary>
+        /// <summary>client tried a padlocked door. Host fires the story trigger and does not open.</summary>
+        public bool AttemptOnly;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(DoorName ?? "");
+            w.Put(OpenForce);
+            w.Put(OpenerPosX); w.Put(OpenerPosY); w.Put(OpenerPosZ);
+            // True = rattle a locked door, do not open it.
+            w.Put(AttemptOnly);
         }
 
-        public static DoorOpenMessage Deserialize(NetReader r) => new DoorOpenMessage
+        public static DoorOpenMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            DoorName = r.GetString()
-        };
+            var msg = new DoorOpenMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                DoorName = r.GetString(),
+                OpenForce = r.GetFloat(),
+                OpenerPosX = r.GetFloat(),
+                OpenerPosY = r.GetFloat(),
+                OpenerPosZ = r.GetFloat(),
+                AttemptOnly = r.GetBool()
+            };
+            return msg;
+        }
     }
 
     public struct ConstructibleMessage
@@ -567,18 +726,26 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         /// <summary>GameObject name for reliable lookup when several events sit nearby.</summary>
         public string EventName;
+        /// <summary>
+        /// Player who triggered the one-shot. Personal Player.Instance effects
+        /// (addOrRemoveInvItem, addRecipes, transport*) apply only for this id.
+        /// 0 = late-join bulk / unknown → world effects only.
+        /// </summary>
+        public int ActorPlayerId;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(EventName ?? "");
+            w.Put(ActorPlayerId);
         }
         public static GameEventsFiredMessage Deserialize(NetReader r) => new GameEventsFiredMessage
         {
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
-            EventName = r.GetString()
+            EventName = r.GetString(),
+            ActorPlayerId = r.GetInt()
         };
     }
 
@@ -654,6 +821,14 @@ namespace DWMPHorde.Networking
         public int Amount;
         public float Durability;
         public int Ammo;
+        /// <summary>ItemType is recipeFor when true.</summary>
+        public bool IsRecipe;
+        /// <summary>Workbench ItemUpgrade names.</summary>
+        public string[] Upgrades;
+        /// <summary>Flashlight / toggle on.</summary>
+        public bool ShouldBeActive;
+        /// <summary>The throw vanilla gives a dropped item (Rigidbody velocity); zero for a resting one.</summary>
+        public float VelX, VelY, VelZ;
 
         public void Serialize(NetWriter w)
         {
@@ -665,31 +840,80 @@ namespace DWMPHorde.Networking
             w.Put(Amount);
             w.Put(Durability);
             w.Put(Ammo);
+            w.Put(IsRecipe);
+            DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
+            w.Put(ShouldBeActive);
+            w.Put(VelX); w.Put(VelY); w.Put(VelZ);
         }
 
-        public static DroppedItemSpawnMessage Deserialize(NetReader r) => new DroppedItemSpawnMessage
+        public static DroppedItemSpawnMessage Deserialize(NetReader r)
         {
-            Guid = r.GetString(),
-            PrefabPath = r.GetString(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            RotX = r.GetFloat(),
-            RotY = r.GetFloat(),
-            RotZ = r.GetFloat(),
-            ItemType = r.GetString(),
-            Amount = r.GetInt(),
-            Durability = r.GetFloat(),
-            Ammo = r.GetInt()
-        };
+            var msg = new DroppedItemSpawnMessage
+            {
+                Guid = r.GetString(),
+                PrefabPath = r.GetString(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotX = r.GetFloat(),
+                RotY = r.GetFloat(),
+                RotZ = r.GetFloat(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt(),
+                IsRecipe = r.GetBool()
+            };
+            msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
+            msg.ShouldBeActive = r.GetBool();
+            msg.VelX = r.GetFloat();
+            msg.VelY = r.GetFloat();
+            msg.VelZ = r.GetFloat();
+            return msg;
+        }
     }
 
     public struct DroppedItemPickupMessage
     {
-        public string Guid;
+        public const byte ModeRemove = 0;
+        /// <summary>Client→host: optimistic GUID drop claim (mirror WorldObjectRemoved claim).</summary>
+        public const byte ModeClaimRequest = 1;
+        /// <summary>Host→client: claim lost — refund optimistic grant.</summary>
+        public const byte ModeClaimDeny = 2;
 
-        public void Serialize(NetWriter w) => w.Put(Guid ?? string.Empty);
-        public static DroppedItemPickupMessage Deserialize(NetReader r) => new DroppedItemPickupMessage { Guid = r.GetString() };
+        public string Guid;
+        public byte Mode;
+        public int ClaimedByPlayerId;
+        public string ItemType;
+        public int Amount;
+        public float Durability;
+        public int Ammo;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Guid ?? string.Empty);
+            w.Put(Mode);
+            w.Put(ClaimedByPlayerId);
+            w.Put(ItemType ?? "");
+            w.Put(Amount);
+            w.Put(Durability);
+            w.Put(Ammo);
+        }
+
+        public static DroppedItemPickupMessage Deserialize(NetReader r)
+        {
+            var msg = new DroppedItemPickupMessage
+            {
+                Guid = r.GetString(),
+                Mode = r.GetByte(),
+                ClaimedByPlayerId = r.GetInt(),
+                ItemType = r.GetString(),
+                Amount = r.GetInt(),
+                Durability = r.GetFloat(),
+                Ammo = r.GetInt()
+            };
+            return msg;
+        }
     }
 
     public struct DeathBagSpawnMessage
@@ -704,6 +928,15 @@ namespace DWMPHorde.Networking
         public int[] ItemAmmos;
         /// <summary>Stable ID. Empty only if the sender is broken.</summary>
         public string BagId;
+        /// <summary>Per-entry recipe flag. ItemTypes stores recipeFor when true.</summary>
+        public bool[] IsRecipe;
+        /// <summary>Per-entry workbench ItemUpgrade names.</summary>
+        public string[][] ItemUpgrades;
+        /// <summary>Per-entry shouldBeActive (flashlight on).</summary>
+        public bool[] ShouldBeActive;
+        /// <summary>Died inside a location: vanilla's map marker at the location's entrance (deathDrop_marker).</summary>
+        public bool HasMarker;
+        public float MarkerX, MarkerY, MarkerZ;
 
         public void Serialize(NetWriter w)
         {
@@ -720,6 +953,13 @@ namespace DWMPHorde.Networking
                 w.Put(ItemAmmos != null && i < ItemAmmos.Length ? ItemAmmos[i] : 0);
             }
             w.Put(BagId ?? "");
+            for (int i = 0; i < count; i++)
+                w.Put(IsRecipe != null && i < IsRecipe.Length && IsRecipe[i]);
+            DWMPHorde.Sync.InvItemUpgradeWire.WriteMany(w, ItemUpgrades, count);
+            for (int i = 0; i < count; i++)
+                w.Put(ShouldBeActive != null && i < ShouldBeActive.Length && ShouldBeActive[i]);
+            w.Put(HasMarker);
+            w.Put(MarkerX); w.Put(MarkerY); w.Put(MarkerZ);
         }
 
         public static DeathBagSpawnMessage Deserialize(NetReader r)
@@ -733,7 +973,8 @@ namespace DWMPHorde.Networking
                 ExpAmount = r.GetInt()
             };
             int count = r.GetInt();
-            if (count < 0 || count > 4096) count = 0;
+            if (count < 0 || count > 4096)
+                throw new System.IO.InvalidDataException("DeathBagSpawn item count " + count);
             msg.ItemCount = count;
             msg.ItemTypes = new string[count];
             msg.ItemAmounts = new int[count];
@@ -747,6 +988,17 @@ namespace DWMPHorde.Networking
                 msg.ItemAmmos[i] = r.GetInt();
             }
             msg.BagId = r.GetString();
+            msg.IsRecipe = new bool[count];
+            for (int i = 0; i < count; i++)
+                msg.IsRecipe[i] = r.GetBool();
+            msg.ItemUpgrades = DWMPHorde.Sync.InvItemUpgradeWire.ReadMany(r, count);
+            msg.ShouldBeActive = new bool[count];
+            for (int i = 0; i < count; i++)
+                msg.ShouldBeActive[i] = r.GetBool();
+            msg.HasMarker = r.GetBool();
+            msg.MarkerX = r.GetFloat();
+            msg.MarkerY = r.GetFloat();
+            msg.MarkerZ = r.GetFloat();
             return msg;
         }
     }
@@ -876,7 +1128,7 @@ namespace DWMPHorde.Networking
     }
 
     /// <summary>
-    /// Host→requesting client: run OutsideLocations.createLocation (spawn + transport).
+    /// Host→requesting client: run OutsideLocations.prepareLocation (spawn if needed + transport).
     /// </summary>
     public struct LocationTransportMessage
     {
@@ -915,6 +1167,7 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(Health);
             w.Put(Attached);
+            w.Put(HasMaxHealth);
             if (HasMaxHealth)
                 w.Put(MaxHealth);
         }
@@ -927,13 +1180,11 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 Health = r.GetFloat(),
-                Attached = r.GetByte()
+                Attached = r.GetByte(),
+                HasMaxHealth = r.GetBool()
             };
-            if (r.AvailableBytes >= 4)
-            {
-                msg.HasMaxHealth = true;
+            if (msg.HasMaxHealth)
                 msg.MaxHealth = r.GetFloat();
-            }
             return msg;
         }
     }
@@ -992,6 +1243,7 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(TargetType);
             w.Put(Burning);
+            w.Put(HasRemainingTime);
             if (HasRemainingTime)
                 w.Put(RemainingTime);
         }
@@ -1004,13 +1256,11 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 TargetType = r.GetByte(),
-                Burning = r.GetByte()
+                Burning = r.GetByte(),
+                HasRemainingTime = r.GetBool()
             };
-            if (r.AvailableBytes >= 4)
-            {
-                msg.HasRemainingTime = true;
+            if (msg.HasRemainingTime)
                 msg.RemainingTime = r.GetFloat();
-            }
             return msg;
         }
     }

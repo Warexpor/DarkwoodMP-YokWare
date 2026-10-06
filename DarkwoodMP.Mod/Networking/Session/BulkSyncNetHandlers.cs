@@ -13,6 +13,8 @@ namespace DWMPHorde.Networking
     internal sealed class BulkSyncNetHandlers
     {
         private readonly LanNetworkManager _net;
+        private bool _hasPendingHideoutState;
+        private HideoutStateSyncMessage _pendingHideoutState;
 
         internal BulkSyncNetHandlers(LanNetworkManager net)
         {
@@ -33,14 +35,22 @@ namespace DWMPHorde.Networking
                 NpcCount = count,
                 NpcNames = new string[count],
                 Reputations = new int[count],
-                Dead = new bool[count]
+                Dead = new bool[count],
+                WantsToTalk = new bool[count],
+                AttackedIds = new int[count],
+                DeadIds = new int[count]
             };
             for (int i = 0; i < count; i++)
             {
                 msg.NpcNames[i] = flags.npcStates[i].name;
                 msg.Reputations[i] = flags.npcStates[i].reputation;
                 msg.Dead[i] = flags.npcStates[i].dead;
+                msg.WantsToTalk[i] = flags.npcStates[i].wantsToTalk;
+                msg.AttackedIds[i] = flags.npcStates[i].attackedID;
+                msg.DeadIds[i] = flags.npcStates[i].deadID;
             }
+            // same portrait / anim trailers live ReputationSync already fans.
+            Patches.NpcAttackedIdSync.FillBulkVisualTrailers(ref msg);
             _net.SendBulkOrAll(NetMessageType.ReputationBulkSync, w => msg.Serialize(w), targetPlayerId);
         }
 
@@ -51,6 +61,7 @@ namespace DWMPHorde.Networking
             if (flags == null) return;
             if (msg.NpcNames == null) return;
 
+            int visuals = 0;
             for (int i = 0; i < msg.NpcCount && i < msg.NpcNames.Length; i++)
             {
                 string name = msg.NpcNames[i];
@@ -68,9 +79,21 @@ namespace DWMPHorde.Networking
                     flags.npcStates.Add(state);
                 }
 
-                // Dead is world and story state; apply it for all NPCs.
-                if (msg.Dead != null && i < msg.Dead.Length)
-                    state.dead = msg.Dead[i];
+                // Dead / deadID are world and story state; apply for all NPCs (remap local uid).
+                bool dead = msg.Dead != null && i < msg.Dead.Length && msg.Dead[i];
+                int deadId = msg.DeadIds != null && i < msg.DeadIds.Length ? msg.DeadIds[i] : 0;
+                Patches.NpcAttackedIdSync.ApplyDead(state, name, dead, deadId);
+
+                // wantsToTalk gates NPC.talkTo() — host truth on late-join / soft reconnect
+                // (peer SP save can keep false while host re-enabled Doctor/Wolf story talk).
+                if (msg.WantsToTalk != null && i < msg.WantsToTalk.Length)
+                    state.wantsToTalk = msg.WantsToTalk[i];
+
+                // attackedID: wolfman despawn-on-death + onlyOneInstance dedup (remap local uid).
+                if (msg.AttackedIds != null && i < msg.AttackedIds.Length)
+                    Patches.NpcAttackedIdSync.ApplyAttackedId(state, name, msg.AttackedIds[i]);
+
+                visuals += Patches.NpcAttackedIdSync.ApplyBulkVisualTrailers(msg, i, name);
 
                 // Never overwrite morning-trader standing with host bulk.
                 if (Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(name))
@@ -79,7 +102,9 @@ namespace DWMPHorde.Networking
                 if (msg.Reputations != null && i < msg.Reputations.Length)
                     state.reputation = msg.Reputations[i];
             }
-            ModLog.Event(LogCat.Session, $"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, night-traders skipped for rep)");
+            ModLog.Event(LogCat.Session,
+                $"[BulkSync] Reputation bulk applied ({msg.NpcCount} entries, " +
+                $"wantsToTalk+dead+deadID+attackedID+visuals={visuals}, night-traders skipped for rep)");
         }
 
         /// <summary>
@@ -207,24 +232,109 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client) return;
             if (msg.OvenCount <= 0 || msg.PosX == null) return;
 
+            if (!LanNetworkManager.ClientCanApplyWorldBulk())
+            {
+                _hasPendingHideoutState = true;
+                _pendingHideoutState = msg;
+                ModLog.Event(LogCat.Session, "[BulkSync] Hideout ovens queued (not in-world yet)");
+                return;
+            }
+
+            ApplyHideoutStateSync(msg);
+        }
+
+        internal void ApplyHideoutStateSync(HideoutStateSyncMessage msg)
+        {
+            if (msg.OvenCount <= 0 || msg.PosX == null) return;
+
             var machines = WorldQueryHelper.GetCachedSceneComponents<ExperienceMachine>();
+            if (machines == null || machines.Length == 0)
+            {
+                _hasPendingHideoutState = true;
+                _pendingHideoutState = msg;
+                return;
+            }
+
+            // Vanilla enable() also makes the oven the local player's home: lighting every lit oven
+            // of the world left a joiner living in whichever came last.
+            Player local = Player.Instance;
+            ExperienceMachine ownHome = local != null ? local.experienceMachine : null;
+            int applied = 0;
+            var unmatched = new System.Collections.Generic.List<int>();
             for (int i = 0; i < msg.OvenCount; i++)
             {
                 Vector3 pos = new Vector3(msg.PosX[i], msg.PosY[i], msg.PosZ[i]);
                 bool wantOn = msg.IsOn != null && i < msg.IsOn.Length && msg.IsOn[i];
+                bool matched = false;
                 for (int j = 0; j < machines.Length; j++)
                 {
                     var em = machines[j];
                     if (em == null) continue;
-                    if (Vector3.Distance(em.transform.position, pos) >= 1f) continue;
+                    if (Vector3.Distance(em.transform.position, pos) >= 1.5f) continue;
                     if (wantOn && !em.isOn)
                         em.enable();
-                    else if (!wantOn && em.isOn)
+                    else if (!wantOn && em.isOn && em != ownHome)
                         em.disable();
+                    applied++;
+                    matched = true;
                     break;
                 }
+                if (!matched)
+                    unmatched.Add(i);
             }
-            ModLog.Event(LogCat.Session, $"[BulkSync] Hideout ovens applied count={msg.OvenCount}");
+            if (local != null)
+                local.experienceMachine = ownHome;
+            if (ownHome != null && !ownHome.isOn)
+                Patches.OvenHomes.RelightOwnHomeNextFrame();
+            // Keep only the ovens not matched yet (a pad not spawned here). Keeping the whole
+            // snapshot replayed it every frame over ovens that had changed since, undoing a
+            // relit oven and broadcasting that.
+            if (applied < msg.OvenCount)
+            {
+                _hasPendingHideoutState = true;
+                _pendingHideoutState = new HideoutStateSyncMessage
+                {
+                    OvenCount = unmatched.Count,
+                    PosX = new float[unmatched.Count],
+                    PosY = new float[unmatched.Count],
+                    PosZ = new float[unmatched.Count],
+                    IsOn = new bool[unmatched.Count]
+                };
+                for (int k = 0; k < unmatched.Count; k++)
+                {
+                    int i = unmatched[k];
+                    _pendingHideoutState.PosX[k] = msg.PosX[i];
+                    _pendingHideoutState.PosY[k] = msg.PosY[i];
+                    _pendingHideoutState.PosZ[k] = msg.PosZ[i];
+                    _pendingHideoutState.IsOn[k] = msg.IsOn != null && i < msg.IsOn.Length && msg.IsOn[i];
+                }
+                if (applied > 0)
+                    ModLog.Event(LogCat.Session,
+                        $"[BulkSync] Hideout ovens partial matched={applied}/{msg.OvenCount} — keep pending");
+                return;
+            }
+            _hasPendingHideoutState = false;
+            _pendingHideoutState = default;
+            ModLog.Event(LogCat.Session,
+                $"[BulkSync] Hideout ovens applied count={msg.OvenCount} matched={applied}");
+        }
+
+        private float _nextHideoutFlush;
+
+        internal void TryFlushPendingHideoutState()
+        {
+            if (!_hasPendingHideoutState) return;
+            if (_net.Role != NetworkRole.Client) return;
+            if (Time.unscaledTime < _nextHideoutFlush) return;
+            _nextHideoutFlush = Time.unscaledTime + 1f;
+            if (!LanNetworkManager.ClientCanApplyWorldBulk()) return;
+            var pending = _pendingHideoutState;
+            _hasPendingHideoutState = false;
+            _pendingHideoutState = default;
+            // Out of the receive scope here: an oven this lights or puts out is the host's state,
+            // not this peer's own change to broadcast.
+            using (new NetworkApplyGuard())
+                ApplyHideoutStateSync(pending);
         }
 
         /// <summary>Send current workbench level to all clients.</summary>
@@ -253,14 +363,16 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            // Host local markers as player 1 + all known remote markers keyed by owner.
+            // Host local markers keyed by current LocalPlayerId (migration-safe; not hardcoded 1)
+            // + all known remote markers keyed by owner.
             var positions = new List<Vector3>(64);
             var owners = new List<int>(64);
+            int hostPid = _net.LocalPlayerId > 0 ? _net.LocalPlayerId : 1;
 
             foreach (var p in Sync.MultiplayerMapManager.LocalMarkers)
             {
                 positions.Add(p);
-                owners.Add(1); // host LocalPlayerId
+                owners.Add(hostPid);
             }
             foreach (var kvp in Sync.MultiplayerMapManager.RemoteMarkers)
             {
@@ -275,16 +387,14 @@ namespace DWMPHorde.Networking
 
             // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69.
             var discoveries = new List<string>(256);
-            MapElement[] elements = WorldQueryHelper.GetCachedSceneComponents<MapElement>();
-            if (elements != null)
+            // Vanilla's own map element lists, not a MapElement scene scan (~40 ms in the bulk).
+            List<MapElement> elements = Sync.MultiplayerMapManager.CollectMapElements();
+            for (int i = 0; i < elements.Count && discoveries.Count < 4096; i++)
             {
-                for (int i = 0; i < elements.Length && discoveries.Count < 4096; i++)
-                {
-                    MapElement el = elements[i];
-                    if (el == null || !el.isOnMap) continue;
-                    if (string.IsNullOrEmpty(el.elementName)) continue;
-                    discoveries.Add(el.elementName);
-                }
+                MapElement el = elements[i];
+                if (el == null || !el.isOnMap) continue;
+                if (string.IsNullOrEmpty(el.elementName)) continue;
+                discoveries.Add(el.elementName);
             }
 
             int mc = Mathf.Min(positions.Count, 4096);
@@ -314,20 +424,33 @@ namespace DWMPHorde.Networking
         internal void HandleMapStateSync(MapStateSyncMessage msg)
         {
             if (_net.Role != NetworkRole.Client) return;
+            // Full snapshot: replace remotes so phase-3 soft-reconnect late-join bulk
+            // cannot stack duplicate green pins on every AlreadyInWorld.
+            Sync.MultiplayerMapManager.ClearRemoteMarkers();
             for (int i = 0; i < msg.MarkerCount; i++)
             {
                 Vector3 pos = new Vector3(msg.MarkerPosX[i], msg.MarkerPosY[i], msg.MarkerPosZ[i]);
                 int pid = msg.MarkerPlayerIds != null && i < msg.MarkerPlayerIds.Length
-                    ? msg.MarkerPlayerIds[i] : 1;
+                    ? msg.MarkerPlayerIds[i] : 0;
                 if (pid <= 0 || pid == _net.LocalPlayerId) continue;
                 Sync.MultiplayerMapManager.AddRemoteMarker(pid, pos);
             }
+            // Discoveries: apply when in-world; otherwise queue (MapElements may not exist yet).
+            // OnRemoteElementDiscovered also queues when the named MapElement is missing /
+            // still OutsideLocation-bound via the old string path.
+            bool canApply = LanNetworkManager.ClientCanApplyWorldBulk();
             for (int i = 0; i < msg.DiscoveryCount; i++)
             {
                 string name = msg.DiscoveryElementNames?[i];
-                if (!string.IsNullOrEmpty(name))
+                if (string.IsNullOrEmpty(name)) continue;
+                if (!canApply)
+                    Sync.MultiplayerMapManager.QueuePendingDiscovery(name);
+                else
                     Sync.MultiplayerMapManager.OnRemoteElementDiscovered(name);
             }
+            if (!canApply && msg.DiscoveryCount > 0)
+                ModLog.Event(LogCat.Session,
+                    $"[BulkSync] Map discoveries queued count={msg.DiscoveryCount} (not in-world yet)");
         }
 
         internal void HandlePlayerSkillsSync(PlayerSkillsSyncMessage msg)

@@ -18,32 +18,21 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class WorldSaveShareService
     {
-        /// <summary>SHA1 of inflated savs+sav package bytes (matches disk fingerprint).</summary>
-        private string ComputeUncompressedPackageFingerprint()
+        /// <summary>Hard ceiling for one inflated save file (a real sav.dat is a few MB).</summary>
+        internal const int MaxInflatedFileBytes = 64 * 1024 * 1024;
+
+        /// <summary>SHA1 of the verified (inflated) savs+sav bytes; matches the disk fingerprint.</summary>
+        private static string ComputePackageFingerprint(List<VerifiedFile> files)
         {
-            // Build ordered raw blobs: savs.dat then sav.dat (same order as FingerprintFiles).
+            // Same order as CoopWorldCopyMeta.FingerprintFiles: savs.dat then sav.dat.
             byte[] savsRaw = null;
             byte[] savRaw = null;
-            for (int i = 0; i < _pendingBegin.FileCount; i++)
+            for (int i = 0; i < files.Count; i++)
             {
-                string name = _pendingBegin.FileNames != null && i < _pendingBegin.FileNames.Length
-                    ? _pendingBegin.FileNames[i] : "";
-                byte[][] chunks = _chunkBuffers[i];
-                int totalLen = 0;
-                for (int c = 0; c < chunks.Length; c++)
-                    totalLen += chunks[c].Length;
-                byte[] compressed = new byte[totalLen];
-                int off = 0;
-                for (int c = 0; c < chunks.Length; c++)
-                {
-                    Buffer.BlockCopy(chunks[c], 0, compressed, off, chunks[c].Length);
-                    off += chunks[c].Length;
-                }
-                byte[] raw = Inflate(compressed);
-                if (string.Equals(name, "savs.dat", StringComparison.OrdinalIgnoreCase))
-                    savsRaw = raw;
-                else if (string.Equals(name, "sav.dat", StringComparison.OrdinalIgnoreCase))
-                    savRaw = raw;
+                if (string.Equals(files[i].Name, "savs.dat", StringComparison.OrdinalIgnoreCase))
+                    savsRaw = files[i].Raw;
+                else if (string.Equals(files[i].Name, "sav.dat", StringComparison.OrdinalIgnoreCase))
+                    savRaw = files[i].Raw;
             }
 
             using (var sha = System.Security.Cryptography.SHA1.Create())
@@ -58,6 +47,43 @@ namespace DWMPHorde.Networking
                     sb.Append(hash[i].ToString("x2"));
                 return sb.ToString();
             }
+        }
+
+        /// <summary>
+        /// Host: every save file of the profile, read in one synchronous step (name order of
+        /// <see cref="FileNames"/>). Opened share-friendly so a reader never trips a sharing
+        /// violation against the game's own handle; throws if any present file cannot be read.
+        /// </summary>
+        private static List<KeyValuePair<string, byte[]>> ReadSaveSetSnapshot(string profDir)
+        {
+            var result = new List<KeyValuePair<string, byte[]>>(FileNames.Length);
+            foreach (string name in FileNames)
+            {
+                string path = Path.Combine(profDir, name);
+                if (!File.Exists(path))
+                {
+                    ModLog.Event(LogCat.Save, "Share skip missing file: " + path);
+                    continue;
+                }
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                {
+                    long len = fs.Length;
+                    if (len > MaxInflatedFileBytes)
+                        throw new IOException(name + " is too large to share (" + len + " bytes)");
+                    var buf = new byte[len];
+                    int off = 0;
+                    while (off < buf.Length)
+                    {
+                        int n = fs.Read(buf, off, buf.Length - off);
+                        if (n <= 0)
+                            throw new IOException("short read on " + name);
+                        off += n;
+                    }
+                    result.Add(new KeyValuePair<string, byte[]>(name, buf));
+                }
+            }
+            return result;
         }
 
         private static void HashRaw(System.Security.Cryptography.HashAlgorithm sha, byte[] data)
@@ -115,13 +141,28 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static byte[] Inflate(byte[] compressed)
+        /// <summary>
+        /// Inflate with a hard output cap: <paramref name="declaredSize"/> when the sender declared
+        /// one, else <see cref="MaxInflatedFileBytes"/>. A stream that would exceed it (a deflate
+        /// bomb or a lying header) fails without allocating past the cap.
+        /// </summary>
+        private static byte[] Inflate(byte[] compressed, int declaredSize)
         {
+            int cap = declaredSize > 0 ? Math.Min(declaredSize, MaxInflatedFileBytes) : MaxInflatedFileBytes;
             using (var input = new MemoryStream(compressed))
             using (var ds = new DeflateStream(input, CompressionMode.Decompress))
-            using (var output = new MemoryStream())
+            using (var output = new MemoryStream(declaredSize > 0 ? cap : 64 * 1024))
             {
-                ds.CopyTo(output);
+                byte[] buf = new byte[64 * 1024];
+                long total = 0;
+                int n;
+                while ((n = ds.Read(buf, 0, buf.Length)) > 0)
+                {
+                    total += n;
+                    if (total > cap)
+                        throw new InvalidDataException("inflated data exceeds " + cap + " bytes");
+                    output.Write(buf, 0, n);
+                }
                 return output.ToArray();
             }
         }

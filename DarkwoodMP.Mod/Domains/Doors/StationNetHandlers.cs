@@ -7,13 +7,23 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Saw / feeder / lure station sync handlers composed for 0.8.</summary>
-    internal sealed class StationNetHandlers
+    internal sealed partial class StationNetHandlers
     {
         private readonly LanNetworkManager _net;
 
         internal const int MaxPendingSawStates = 16;
         internal const int MaxPendingStationStates = 16;
-        private readonly List<SawStateMessage> _pendingSawStates = new List<SawStateMessage>();
+        private readonly List<PendingSawState> _pendingSawStates = new List<PendingSawState>();
+
+        /// <summary>Upper bound on planks a client may report per log consumed in one convert.</summary>
+        private const int MaxWoodPerLog = 10;
+
+        /// <summary>Deferred saw message plus the peer that sent it (0 = host).</summary>
+        private struct PendingSawState
+        {
+            public SawStateMessage Msg;
+            public int SenderId;
+        }
         private readonly List<FeederStateMessage> _pendingFeederStates = new List<FeederStateMessage>();
         private readonly List<LureStateMessage> _pendingLureStates = new List<LureStateMessage>();
 
@@ -41,10 +51,17 @@ namespace DWMPHorde.Networking
 
         internal void HandleSawState(SawStateMessage msg)
         {
-            ApplySawState(msg, queueIfMissing: true);
+            int senderId = _net.CurrentReceivePlayerId;
+            // Host owns saw stock: a client message is a request, never relayed raw. The host
+            // answers with its own absolute state (now or when the deferred apply runs).
+            if (_net.Role == NetworkRole.Host && senderId > 0)
+                _net.SuppressRelay();
+            ApplySawState(msg, senderId, queueIfMissing: true);
         }
 
-        internal void ApplySawState(SawStateMessage msg, bool queueIfMissing)
+        /// <param name="senderId">Peer that sent <paramref name="msg"/>. Passed explicitly: the
+        /// deferred flush runs from Update, where the receive id is not set.</param>
+        internal void ApplySawState(SawStateMessage msg, int senderId, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Saw saw = FindSawByPos(pos);
@@ -52,23 +69,24 @@ namespace DWMPHorde.Networking
             {
                 if (queueIfMissing)
                 {
-                    // Replace pending for same approx position
+                    // Replace a pending absolute for the same approx position; deltas accumulate.
                     for (int i = _pendingSawStates.Count - 1; i >= 0; i--)
                     {
-                        var p = _pendingSawStates[i];
-                        if (Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
-                            Mathf.Abs(p.PosY - msg.PosY) < 0.5f &&
-                            Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
+                        var p = _pendingSawStates[i].Msg;
+                        if (msg.Kind == SawStateKind.Absolute && p.Kind == SawStateKind.Absolute
+                            && Mathf.Abs(p.PosX - msg.PosX) < 0.5f
+                            && Mathf.Abs(p.PosY - msg.PosY) < 0.5f
+                            && Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
                             _pendingSawStates.RemoveAt(i);
                     }
                     if (_pendingSawStates.Count >= MaxPendingSawStates)
                         _pendingSawStates.RemoveAt(0);
-                    _pendingSawStates.Add(msg);
-                    ModRuntime.LegacyInfo("[SawSync] queued (saw not loaded) at " + pos);
+                    _pendingSawStates.Add(new PendingSawState { Msg = msg, SenderId = senderId });
+                    ModRuntime.LegacyInfo($"[SawSync] queued (saw not loaded) at {pos}");
                 }
                 else
                 {
-                    ModRuntime.LegacyInfo("[SawSync] saw not found at " + pos);
+                    ModRuntime.LegacyInfo($"[SawSync] saw not found at {pos}");
                 }
                 return;
             }
@@ -83,6 +101,14 @@ namespace DWMPHorde.Networking
                 var woodItem = inv.getItem("wood");
                 if (!InvItemClass.isNull(woodItem)) prevWood = woodItem.amount;
             }
+
+            if (_net.Role == NetworkRole.Host && senderId > 0)
+            {
+                ApplyClientSawRequest(saw, inv, msg, senderId, prevFuel, prevLogs, prevWood);
+                return;
+            }
+            if (msg.Kind != SawStateKind.Absolute)
+                return; // only the host consumes delta requests
 
             saw.fuel = Mathf.Clamp(msg.Fuel, 0f, saw.maxFuel);
 
@@ -101,6 +127,73 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo(
                 $"[SawSync] applied at {pos} fuel {prevFuel:F0}→{msg.Fuel:F0} logs={msg.WoodLogAmount} wood={msg.WoodAmount}");
+        }
+
+        /// <summary>
+        /// Host: validate a client's addFuel / convert delta against the host's own stock, apply
+        /// it, and broadcast the resulting absolute state (the sender included). A rejected
+        /// request snaps only the sender back to the host's stock.
+        /// </summary>
+        private void ApplyClientSawRequest(Saw saw, Inventory inv, SawStateMessage msg, int senderId,
+            float curFuel, int curLogs, int curWood)
+        {
+            Vector3 pos = saw.transform.position;
+            if (msg.Kind != SawStateKind.Delta)
+            {
+                ModLog.Warn(LogCat.World, "[SawSync] ignored absolute stock from p" + senderId + " at " + pos);
+                Sync.SawSyncHelpers.SendAbsoluteTo(saw, senderId);
+                return;
+            }
+
+            float fuelDelta = float.IsNaN(msg.FuelDelta) || float.IsInfinity(msg.FuelDelta) ? 0f : msg.FuelDelta;
+            int logDelta = msg.WoodLogDelta;
+            int woodDelta = msg.WoodDelta;
+
+            // Pure pour: the client spent its own fuel item; accumulate (concurrent pours add up).
+            if (logDelta == 0 && woodDelta == 0)
+            {
+                if (fuelDelta <= 0.01f)
+                {
+                    Sync.SawSyncHelpers.SendAbsoluteTo(saw, senderId);
+                    return;
+                }
+                saw.addFuel(fuelDelta);
+                Sync.SawSyncHelpers.BroadcastAbsoluteFromHost(saw, "addFuel-delta");
+                SafeSawRefresh(saw);
+                ModRuntime.LegacyInfo(
+                    $"[SawSync] host-auth addFuel +{fuelDelta:F0} {curFuel:F0}→{saw.fuel:F0} at {pos}");
+                return;
+            }
+
+            // Convert: logs → planks, paid with fuel, against the host's stock.
+            string reject = null;
+            if (inv == null)
+                reject = "no saw inventory";
+            else if (logDelta > 0 || woodDelta < 0 || fuelDelta > 0.01f)
+                reject = "stock moved the wrong way";
+            else if (curLogs + logDelta < 0)
+                reject = "not enough logs (have " + curLogs + ")";
+            else if ((long)woodDelta > (long)(-logDelta) * MaxWoodPerLog)
+                reject = "planks out of proportion to logs";
+            else if (curFuel + fuelDelta < -0.01f)
+                reject = "not enough fuel (have " + curFuel.ToString("F1") + ")";
+
+            if (reject != null)
+            {
+                ModLog.Warn(LogCat.World, "[SawSync] rejected p" + senderId + " convert fuel="
+                    + fuelDelta.ToString("F1") + " logs=" + logDelta + " wood=" + woodDelta + ": " + reject);
+                Sync.SawSyncHelpers.SendAbsoluteTo(saw, senderId);
+                return;
+            }
+
+            saw.fuel = Mathf.Clamp(curFuel + fuelDelta, 0f, saw.maxFuel);
+            InventorySyncUtil.SyncItemAmount(inv, "woodLog", curLogs + logDelta);
+            InventorySyncUtil.SyncItemAmount(inv, "wood", curWood + woodDelta);
+            SafeSawRefresh(saw);
+            AudioController.Play("saw_wood_01", saw.transform.position);
+            Sync.SawSyncHelpers.BroadcastAbsoluteFromHost(saw, "convert-delta");
+            ModRuntime.LegacyInfo(
+                $"[SawSync] host-auth convert p{senderId} logs {curLogs}→{curLogs + logDelta} wood {curWood}→{curWood + woodDelta} at {pos}");
         }
 
         private static void SafeSawRefresh(Saw saw)
@@ -141,6 +234,8 @@ namespace DWMPHorde.Networking
             {
                 Saw saw = all[i];
                 if (saw == null) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(saw.transform)) continue;
                 var msg = Sync.SawSyncHelpers.BuildMessage(saw);
                 _net.SendBulkOrAll(NetMessageType.SawState, w => msg.Serialize(w), targetPlayerId);
                 sent++;
@@ -157,13 +252,16 @@ namespace DWMPHorde.Networking
             float now = Time.unscaledTime;
             if (now < _nextPendingSawFlushTime) return;
             _nextPendingSawFlushTime = now + PendingStationFlushInterval;
-            for (int i = _pendingSawStates.Count - 1; i >= 0; i--)
+            // Runs from Update, outside dispatch: the sender comes from the pending entry, the
+            // relay flag is never touched, and oldest-first keeps queued deltas in order.
+            for (int i = 0; i < _pendingSawStates.Count;)
             {
-                var msg = _pendingSawStates[i];
-                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                if (FindSawByPos(pos) == null) continue;
+                PendingSawState pending = _pendingSawStates[i];
+                Vector3 pos = new Vector3(pending.Msg.PosX, pending.Msg.PosY, pending.Msg.PosZ);
+                if (FindSawByPos(pos) == null) { i++; continue; }
                 _pendingSawStates.RemoveAt(i);
-                ApplySawState(msg, queueIfMissing: false);
+                using (new NetworkApplyGuard())
+                    ApplySawState(pending.Msg, pending.SenderId, queueIfMissing: false);
             }
         }
 
@@ -190,7 +288,7 @@ namespace DWMPHorde.Networking
                     if (_pendingFeederStates.Count >= MaxPendingStationStates)
                         _pendingFeederStates.RemoveAt(0);
                     _pendingFeederStates.Add(msg);
-                    ModRuntime.LegacyInfo("[FeederSync] queued (feeder not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[FeederSync] queued (feeder not loaded) at {pos}");
                 }
                 return;
             }
@@ -236,7 +334,7 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < all.Length; i++)
             {
                 Feeder f = all[i];
-                if (f == null) continue;
+                if (f == null || PersonalPrologue.IsOnProloguePad(f.transform)) continue;
                 Vector3 p = f.transform.position;
                 var msg = new FeederStateMessage
                 {
@@ -303,16 +401,6 @@ namespace DWMPHorde.Networking
                     // we do not re-run eater/gore path every 1s (log spam + apply cost).
                     if (msg.Health <= 0)
                     {
-                        try
-                        {
-                            var ctrl = Singleton<Controller>.Instance;
-                            int day = ctrl != null ? ctrl.day : 0;
-                            UnityEngine.Random.InitState(day
-                                ^ ((int)Mathf.Round(pos.x) * 73856093)
-                                ^ ((int)Mathf.Round(pos.z) * 19349663)
-                                ^ lure.health);
-                        }
-                        catch { /* ignore */ }
                         lure.removeHealth(lure.health + 1, null);
                     }
                     else
@@ -363,7 +451,7 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < all.Length; i++)
             {
                 Lure lure = all[i];
-                if (lure == null) continue;
+                if (lure == null || PersonalPrologue.IsOnProloguePad(lure.transform)) continue;
                 Vector3 p = lure.transform.position;
                 var msg = new LureStateMessage
                 {

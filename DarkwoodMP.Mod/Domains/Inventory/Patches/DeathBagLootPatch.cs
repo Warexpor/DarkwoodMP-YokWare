@@ -23,8 +23,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
             Vector3 pos = __instance.transform.position;
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             string bagId = DeathBagNetworkId.GetBagId(__instance.gameObject);
             if (string.IsNullOrEmpty(bagId))
@@ -50,6 +49,41 @@ namespace DWMPHorde.Patches
                     BagId = bagId
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    /// <summary>
+    /// Client chest/body/shop close runs onCloseContainer only locally, where
+    /// one-shot GameEvents are blocked. Ask the host to replay it.
+    /// </summary>
+    [HarmonyPatch(typeof(Inventory), "hide")]
+    public static class ContainerCloseStoryPatch
+    {
+        private static void Postfix(Inventory __instance)
+        {
+            if (__instance == null) return;
+            if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive) return;
+
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Client) return;
+
+            Inventory.InvType kind = __instance.invType;
+            if (kind != Inventory.InvType.itemInv
+                && kind != Inventory.InvType.deathDrop
+                && kind != Inventory.InvType.shop
+                && !__instance.isWorkbench)
+                return;
+
+            Vector3 pos = __instance.transform.position;
+            var msg = new ContainerItemMessage
+            {
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                Action = ContainerAction.CloseContainer,
+                ItemType = ""
+            };
+            net.Send(NetMessageType.ContainerItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }

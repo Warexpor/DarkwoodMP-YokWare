@@ -32,11 +32,12 @@ namespace DWMPHorde.Networking
 
                 // Run full host examine (triggers → GameEvents). Suppress HUD so the
                 // host does not see the client's personal flavor text; client already
-                // displayed locally. Postfix broadcasts ActionState flags.
+                // displayed locally. World-only + actor stamp: bag/teleport land on
+                // the examiner, not the host. Postfix broadcasts ActionState flags.
                 ExaminableExamineSync.SuppressHostExamineHud++;
                 try
                 {
-                    best.examine();
+                    DialogHostApplyGuard.RunHostWorldFanout(() => best.examine());
                 }
                 finally
                 {
@@ -57,6 +58,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
+                bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
                 LanNetworkManager.IsApplyingRemoteState = true;
                 try
                 {
@@ -65,7 +67,7 @@ namespace DWMPHorde.Networking
                 }
                 finally
                 {
-                    LanNetworkManager.IsApplyingRemoteState = false;
+                    LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
                 }
                 ModRuntime.LegacyInfo(
                     $"[ExamineSync] client applied state {best.name} examined={msg.Examined}");

@@ -17,6 +17,12 @@ namespace DWMPHorde.Patches
     {
         private static string _lastSentLibrary;
 
+        /// <summary>
+        /// Network stop / new session: a peer that joins later has never seen the library, so the
+        /// next switch must send even when the name equals the last one sent to the old session.
+        /// </summary>
+        public static void Reset() => _lastSentLibrary = null;
+
         private static void Postfix(Player __instance)
         {
             var net = ModRuntime.Network;

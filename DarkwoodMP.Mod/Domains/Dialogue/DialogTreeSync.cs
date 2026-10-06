@@ -27,12 +27,11 @@ namespace DWMPHorde.Sync
         /// </param>
         public static void TryBroadcast(CharacterDialogue cd, NPC npc = null, bool force = false)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             // Same class as door GE / FlagSync: world-only dialog apply must fan out.
             if (!force
                 && LanNetworkManager.IsApplyingRemoteState
-                && !DialogHostApplyGuard.Active)
+                && !HostApplyGuard.Active)
                 return;
             if (cd == null || string.IsNullOrEmpty(cd.name)) return;
 
@@ -95,6 +94,10 @@ namespace DWMPHorde.Sync
                     NPC n = npcs[i];
                     if (n == null || n.characterDialogue == null) continue;
                     if (n.characterDialogue.name != name) continue;
+                    // As vanilla NPC.init: an NPC that keeps its own portrait does not take the
+                    // dialogue's. Every oven shares oven_act1 and its portrait is that oven's
+                    // lit/unlit state; taking the dialogue's gave all ovens one state.
+                    if (n.dontGetPortraitTypeFromDialogue) continue;
                     n.portraitType = (CharacterDialogue.PortraitType)portrait;
                 }
 
@@ -103,7 +106,7 @@ namespace DWMPHorde.Sync
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DialogTree] applied '" + name + "'");
+                ModRuntime.LegacyInfo($"[DialogTree] applied '{name}'");
         }
 
         /// <summary>Host late-join: send every progressed dialogue tree to one peer.</summary>
@@ -122,7 +125,10 @@ namespace DWMPHorde.Sync
                 if (cd == null || string.IsNullOrEmpty(cd.name)) continue;
                 if (!HasProgressGame(cd)) continue;
 
-                string payload = EncodeFromGame(cd, npc: null);
+                // Attach live NPC when loaded so wantsToTalk/rep ride the tree snapshot
+                // (ReputationBulk also carries wants for unloaded Doctor/Wolf houses).
+                NPC linkedNpc = FindNpcForDialogue(cd.name);
+                string payload = EncodeFromGame(cd, linkedNpc);
                 if (string.IsNullOrEmpty(payload)) continue;
 
                 var msg = new DialogTreeStateMessage { Payload = payload };
@@ -131,7 +137,9 @@ namespace DWMPHorde.Sync
                 sent++;
             }
 
-            // Non-default NPC conversation state (wantsToTalk / rep) without full tree progress.
+            // Non-default NPC conversation state (wantsToTalk / rep). ReputationBulk is the
+            // unloaded-NPC authority for wants; this covers live NPCs whose tree has no
+            // progress yet (or needs a wants refresh after setDontWantToTalk).
             if (flags.npcStates != null)
             {
                 for (int i = 0; i < flags.npcStates.Count; i++)
@@ -140,25 +148,20 @@ namespace DWMPHorde.Sync
                     if (st == null || string.IsNullOrEmpty(st.name)) continue;
                     if (st.wantsToTalk && st.reputation == 0) continue;
 
-                    // Minimal payload: empty node flags, attach NPC state only.
-                    // Use a synthetic dialogue name prefix so Apply still runs NPC state.
-                    // Prefer attaching to real dialogue if NPC is live.
                     CharacterDialogue linked = null;
                     NPC live = FindNpc(st.name);
                     if (live != null && live.characterDialogue != null)
                         linked = live.characterDialogue;
                     if (linked == null)
-                        continue; // needs a dialogue asset; reputation bulk covers rep alone
+                        continue; // needs a dialogue asset; ReputationBulk covers wants/rep
 
-                    if (!HasProgressGame(linked))
-                    {
-                        string payload = EncodeFromGame(linked, live);
-                        if (string.IsNullOrEmpty(payload)) continue;
-                        var msg = new DialogTreeStateMessage { Payload = payload };
-                        net.SendToPlayer(targetPlayerId, NetMessageType.DialogTreeState,
-                            w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-                        sent++;
-                    }
+                    // Always attach NPC state when non-default (even if tree already sent).
+                    string payload = EncodeFromGame(linked, live);
+                    if (string.IsNullOrEmpty(payload)) continue;
+                    var msg = new DialogTreeStateMessage { Payload = payload };
+                    net.SendToPlayer(targetPlayerId, NetMessageType.DialogTreeState,
+                        w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    sent++;
                 }
             }
 
@@ -209,7 +212,9 @@ namespace DWMPHorde.Sync
                 if (state != null)
                 {
                     wants = state.wantsToTalk ? '1' : '0';
-                    rep = state.reputation.ToString();
+                    // A night trader's standing is the sender's own, never handed to a peer.
+                    if (!Patches.ReputationSyncUtil.IsPerPlayerReputationNpc(npc))
+                        rep = state.reputation.ToString();
                 }
             }
 
@@ -298,8 +303,24 @@ namespace DWMPHorde.Sync
             if (wants == '1') state.wantsToTalk = true;
             else if (wants == '0') state.wantsToTalk = false;
 
-            if (rep != "-" && int.TryParse(rep, out int repValue))
+            // Night-trader standing stays this player's own (an older peer still sends it).
+            if (rep != "-" && !Patches.ReputationSyncUtil.IsPerPlayerReputationNpcName(npcName)
+                && int.TryParse(rep, out int repValue))
                 state.reputation = repValue;
+        }
+
+        private static NPC FindNpcForDialogue(string dialogueName)
+        {
+            if (string.IsNullOrEmpty(dialogueName)) return null;
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                NPC n = all[i];
+                if (n == null || n.characterDialogue == null) continue;
+                if (n.characterDialogue.name == dialogueName)
+                    return n;
+            }
+            return null;
         }
 
         private static NPC FindNpc(string name)

@@ -107,6 +107,9 @@ namespace DWMPHorde.Networking
             }
 
             ModRuntime.LegacyInfo($"[Container] HandleContainerStateRequest: responding with {count} items");
+            if (inv.invType == Inventory.InvType.itemInv || inv.invType == Inventory.InvType.deathDrop)
+                ContainerLootNetHandlers.FireRemoteContainerStoryTrigger(
+                    _net, inv, EventTrigger.Type.onOpenContainer, "", false);
 
             short entityHash = 0;
             Character ownerChar = inv.GetComponent<Character>();
@@ -128,13 +131,18 @@ namespace DWMPHorde.Networking
                 var slot = inv.slots[i];
                 if (!InvItemClass.isNull(slot.invItem))
                 {
+                    InvItemClass dit = slot.invItem;
+                    bool isRecipe = dit.isRecipe;
                     sync.Slots[idx++] = new SlotStateEntry
                     {
                         SlotIndex = (byte)i,
-                        ItemType = slot.invItem.type,
-                        Amount = slot.invItem.amount,
-                        Durability = slot.invItem.durability,
-                        Ammo = slot.invItem.ammo
+                        ItemType = isRecipe ? dit.recipeFor : dit.type,
+                        Amount = dit.amount,
+                        Durability = dit.durability,
+                        Ammo = dit.ammo,
+                        IsRecipe = isRecipe,
+                        Upgrades = Sync.InvItemUpgradeWire.CollectNames(dit),
+                        ShouldBeActive = dit.shouldBeActive
                     };
                 }
             }

@@ -9,7 +9,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>Constructible / padlock / locked / interactive bulk composed for 0.8.</summary>
-    internal sealed class LockNetHandlers
+    internal sealed partial class LockNetHandlers
     {
         private readonly LanNetworkManager _net;
 
@@ -56,11 +56,11 @@ namespace DWMPHorde.Networking
                     if (_pendingConstructibles.Count >= MaxPendingConstructibles)
                         _pendingConstructibles.RemoveAt(0);
                     _pendingConstructibles.Add(msg);
-                    ModRuntime.LegacyInfo("[ConstructibleSync] queued (not loaded yet) at " + pos);
+                    ModRuntime.LegacyInfo($"[ConstructibleSync] queued (not loaded yet) at {pos}");
                 }
                 else
                 {
-                    ModRuntime.Log?.LogWarning("[ConstructibleSync] no Constructible found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "constructible-miss", "[ConstructibleSync] no Constructible found near " + pos);
                 }
                 return;
             }
@@ -68,11 +68,11 @@ namespace DWMPHorde.Networking
             // Already built locally; do not re-fire the game event or construct twice.
             if (best.constructed)
             {
-                ModRuntime.LegacyInfo("[ConstructibleSync] already constructed " + best.name + " at " + pos);
+                ModRuntime.LegacyInfo($"[ConstructibleSync] already constructed {best.name} at {pos}");
                 return;
             }
 
-            ModRuntime.LegacyInfo("[ConstructibleSync] constructing " + best.name + " at " + pos);
+            ModRuntime.LegacyInfo($"[ConstructibleSync] constructing {best.name} at {pos}");
             // Always pass manual=false on the receiving side; the
             // constructing player already consumed ingredients locally.
             // Using manual=true would crash (ConstructionMenu.Instance.
@@ -120,6 +120,8 @@ namespace DWMPHorde.Networking
             {
                 Constructible c = all[i];
                 if (c == null || !c.constructed) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(c.transform)) continue;
                 Vector3 p = c.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(p.x * 10f) / 10f,
@@ -192,10 +194,15 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingInteractive, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[InteractiveItemSync] no InteractiveItem found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "interactive-miss", "[InteractiveItemSync] no InteractiveItem found near " + pos);
                 return;
             }
 
+            // Vanilla switchOn/Off force-fires EventTriggers (area) → GameEvents.
+            // Client local fire is blocked; host apply sits under NetworkApplyGuard and
+            // would swallow GameEventsFired unless wrapped in RunHostWorldFanout.
+            // switchOn/Off do not open the InteractiveItem UI (that is switchMe/open).
+            bool prevApply1 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -204,19 +211,19 @@ namespace DWMPHorde.Networking
                     if (best.onTrigger == null)
                         best.isOn = true;
                     else
-                        best.switchOn();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => best.switchOn());
                 }
                 else if (!msg.IsOn && best.isOn)
                 {
                     if (best.offTrigger == null)
                         best.isOn = false;
                     else
-                        best.switchOff();
+                        DialogHostApplyGuard.RunHostWorldFanout(() => best.switchOff());
                 }
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply1);
             }
         }
 
@@ -234,20 +241,47 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingPadlocks, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[PadlockSync] no Padlock found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "padlock-miss", "[PadlockSync] no Padlock found near " + pos);
                 return;
             }
 
+            bool wasLocked = best.locked;
+            bool prevApply2 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
-                // manually=false: set locked=false without UI / double triggers
+                // manually=false: set locked=false without UI / padlock Success HUD.
+                // Client combination unlock already ran unlock(true) locally (triggers
+                // blocked by GameEventsFiredPatch); host must synthesize the story
+                // triggers or onUnlockPadlock one-shots never run for anyone.
                 if (best.locked)
                     best.unlock(false);
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply2);
+            }
+
+            // Host-only: mirror Padlock.unlock(manually:true) trigger fan-out.
+            // wasLocked gates late-join bulk / echo (already unlocked → no re-fire).
+            // ProcessInboundMessage holds NetworkApplyGuard — bare sendTriggerInfo would
+            // swallow GameEventsFired unless wrapped in RunHostWorldFanout (same as
+            // InteractiveItem / examine). Auto-stamps CurrentReceivePlayerId so personal
+            // GE grants land on the unlocking peer, not host Player.Instance.
+            if (wasLocked && _net.Role == NetworkRole.Host)
+            {
+                try
+                {
+                    DialogHostApplyGuard.RunHostWorldFanout(() =>
+                    {
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onTryToOpenLocked);
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onUnlockPadlock);
+                    });
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[PadlockSync] host trigger synth: " + ex.Message);
+                }
             }
         }
 
@@ -265,10 +299,12 @@ namespace DWMPHorde.Networking
                 if (queueIfMissing)
                     QueuePendingLock(_pendingLocked, msg, MaxPendingLocks);
                 else
-                    ModRuntime.Log?.LogWarning("[LockedSync] no Locked found near " + pos);
+                    ModLog.WarnRate(LogCat.World, "locked-miss", "[LockedSync] no Locked found near " + pos);
                 return;
             }
 
+            bool wasLocked = best.locked;
+            bool prevApply3 = LanNetworkManager.GetExplicitApplyingRemoteState();
             LanNetworkManager.IsApplyingRemoteState = true;
             try
             {
@@ -277,7 +313,24 @@ namespace DWMPHorde.Networking
             }
             finally
             {
-                LanNetworkManager.IsApplyingRemoteState = false;
+                LanNetworkManager.SetExplicitApplyingRemoteState(prevApply3);
+            }
+
+            // Host: client key/lockpick path sent onActivate locally (one-shot GE blocked).
+            // Without host synth under RunHostWorldFanout, door/chest unlock story never
+            // fans (outer NetworkApplyGuard swallows GameEventsFired) and personal grants
+            // would hit host Player.Instance.
+            if (wasLocked && _net.Role == NetworkRole.Host)
+            {
+                try
+                {
+                    DialogHostApplyGuard.RunHostWorldFanout(() =>
+                        Core.sendTriggerInfo(best.gameObject, EventTrigger.Type.onActivate));
+                }
+                catch (System.Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[LockedSync] host onActivate synth: " + ex.Message);
+                }
             }
         }
 
@@ -343,6 +396,7 @@ namespace DWMPHorde.Networking
             {
                 Padlock p = pads[i];
                 if (p == null || p.locked || !p.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(p.transform)) continue;
                 Vector3 pos = p.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -354,7 +408,7 @@ namespace DWMPHorde.Networking
                 padlocks++;
             }
             if (padlocks > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Padlocks → p" + targetPlayerId + ": " + padlocks);
+                ModRuntime.LegacyInfo($"[BulkSync] Padlocks → p{targetPlayerId}: {padlocks}");
         }
 
         /// <summary>Host join bulk: unlocked Locked components.</summary>
@@ -368,6 +422,7 @@ namespace DWMPHorde.Networking
             {
                 Locked l = locks[i];
                 if (l == null || l.locked || !l.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(l.transform)) continue;
                 Vector3 pos = l.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -379,7 +434,7 @@ namespace DWMPHorde.Networking
                 locked++;
             }
             if (locked > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Lockeds → p" + targetPlayerId + ": " + locked);
+                ModRuntime.LegacyInfo($"[BulkSync] Lockeds → p{targetPlayerId}: {locked}");
         }
 
         /// <summary>Host join bulk: InteractiveItem isOn.</summary>
@@ -393,6 +448,7 @@ namespace DWMPHorde.Networking
             {
                 InteractiveItem ii = items[i];
                 if (ii == null || !ii.isOn || !ii.gameObject.scene.IsValid()) continue;
+                if (PersonalPrologue.IsOnProloguePad(ii.transform)) continue;
                 Vector3 pos = ii.transform.position;
                 Vector3 key = new Vector3(
                     Mathf.Round(pos.x * 10f) / 10f,
@@ -407,18 +463,7 @@ namespace DWMPHorde.Networking
                 interactive++;
             }
             if (interactive > 0)
-                ModRuntime.LegacyInfo("[BulkSync] Interactives → p" + targetPlayerId + ": " + interactive);
-        }
-
-        /// <summary>
-        /// Host join bulk: unlocked padlocks, doors, and interactive isOn.
-        /// Prefer staggered TickHeavyLateJoinBulk phases; kept for any direct callers.
-        /// </summary>
-        internal void SyncExistingLocksAndInteractives(int targetPlayerId)
-        {
-            SyncExistingPadlocksTo(targetPlayerId);
-            SyncExistingLockedsTo(targetPlayerId);
-            SyncExistingInteractivesTo(targetPlayerId);
+                ModRuntime.LegacyInfo($"[BulkSync] Interactives → p{targetPlayerId}: {interactive}");
         }
     }
 }

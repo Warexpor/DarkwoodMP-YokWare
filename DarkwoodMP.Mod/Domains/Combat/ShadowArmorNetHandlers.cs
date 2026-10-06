@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using DWMPHorde;
+using DWMPHorde.Logging;
+using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
@@ -10,7 +12,7 @@ namespace DWMPHorde.Networking
     /// ShadowArmor mid-fight health sync (pos-keyed absolute state).
     /// Covers damageMe (melee + light), die, and late-join damaged armor.
     /// </summary>
-    internal sealed class ShadowArmorNetHandlers
+    internal sealed partial class ShadowArmorNetHandlers
     {
         private readonly LanNetworkManager _net;
 
@@ -33,7 +35,96 @@ namespace DWMPHorde.Networking
 
         internal void HandleShadowArmorState(ShadowArmorStateMessage msg)
         {
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+            {
+                // Clients never set armor state (last writer won, a client could force a break);
+                // they ask for damage, the host applies it and broadcasts the absolute result.
+                _net.SuppressRelay();
+                if (msg.Destroyed == ShadowArmorSyncHelpers.ModeDamageRequest)
+                    HostApplyDamageRequest(msg, _net.CurrentReceivePlayerId);
+                else
+                    ModLog.WarnRate(LogCat.Combat, "shadowarmor-client-abs:" + _net.CurrentReceivePlayerId,
+                        "[ShadowArmorSync] ignored absolute armor state from client p" + _net.CurrentReceivePlayerId);
+                return;
+            }
+            // Peers apply only the host's absolute state.
+            if (msg.Destroyed == ShadowArmorSyncHelpers.ModeDamageRequest)
+                return;
             ApplyShadowArmorState(msg, queueIfMissing: true);
+        }
+
+        /// <summary>
+        /// Host: apply a client's armor damage to the host's own armor and broadcast the absolute
+        /// state (everyone, requester included). The armor breaks only when the host's own
+        /// health reaches 0.
+        /// </summary>
+        private void HostApplyDamageRequest(ShadowArmorStateMessage msg, int playerId)
+        {
+            if (!CombatAuthorityPolicy.IsFinitePosition(msg.PosX, msg.PosY, msg.PosZ)
+                || !CombatAuthorityPolicy.IsFinite(msg.Health) || msg.Health <= 0f)
+                return;
+
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            RemotePlayerProxy proxy = _net.GetProxy(playerId);
+            if (proxy == null || DeathStateTracker.IsRemoteNightDead(playerId))
+                return;
+            float maxRange = GameplayConstants.MaxPlayerRangedAttackRange;
+            if (Vector3.SqrMagnitude(proxy.transform.position - pos) > maxRange * maxRange)
+            {
+                ModLog.WarnRate(LogCat.Combat, "shadowarmor-far:" + playerId,
+                    "[ShadowArmorSync] rejected damage request from p" + playerId + " — armor out of range");
+                return;
+            }
+
+            ShadowArmor armor = FindShadowArmor(pos);
+            if (armor == null)
+                return;
+
+            int maxDmg = Config.ModConfig.MaxPeerDamage != null ? Config.ModConfig.MaxPeerDamage.Value : 200;
+            float damage = Mathf.Min(msg.Health, Mathf.Max(1, maxDmg));
+
+            float dest;
+            try { dest = ShadowArmorSyncHelpers.ReadDestHealth(armor); }
+            catch { return; }
+            if (dest <= 0f)
+                return;
+            float hp = Mathf.Max(0f, dest - damage);
+
+            ShadowArmorStateMessage state;
+            bool prevHack = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                if (hp <= 0f)
+                {
+                    state = ShadowArmorSyncHelpers.BuildMessage(armor, destroyed: true);
+                    armor.die(instant: false);
+                }
+                else
+                {
+                    Traverse.Create(armor).Field("destHealth").SetValue(hp);
+                    state = ShadowArmorSyncHelpers.BuildMessage(armor, destroyed: false);
+                    if (Singleton<UI>.Instance?.enemyHealthBar != null &&
+                        Singleton<UI>.Instance.enemyHealthBar.currentObj == armor.gameObject)
+                    {
+                        Singleton<UI>.Instance.enemyHealthBar.show(armor.gameObject, onlyRefresh: true);
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ShadowArmorSync] host damage apply: " + ex.Message);
+                return;
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prevHack);
+            }
+
+            _net.Broadcast(NetMessageType.ShadowArmorState, w => state.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo(
+                $"[ShadowArmorSync] p{playerId} dealt {damage:F1} at {pos} → {hp:F1} destroyed={hp <= 0f}");
         }
 
         internal void ApplyShadowArmorState(ShadowArmorStateMessage msg, bool queueIfMissing)
@@ -53,9 +144,14 @@ namespace DWMPHorde.Networking
                             _pending.RemoveAt(i);
                     }
                     if (_pending.Count >= MaxPendingShadowArmorStates)
+                    {
+                        ModLog.WarnRate(LogCat.Combat, "shadowarmor-pending-overflow",
+                            "[ShadowArmorSync] pending queue full (" + MaxPendingShadowArmorStates
+                            + ") — dropped oldest unmatched armor state");
                         _pending.RemoveAt(0);
+                    }
                     _pending.Add(msg);
-                    ModRuntime.LegacyInfo("[ShadowArmorSync] queued (armor not loaded) at " + pos);
+                    ModRuntime.LegacyInfo($"[ShadowArmorSync] queued (armor not loaded) at {pos}");
                 }
                 return;
             }
@@ -130,6 +226,8 @@ namespace DWMPHorde.Networking
             {
                 ShadowArmor armor = all[i];
                 if (armor == null) continue;
+                // The host's own prologue pads are not the world.
+                if (PersonalPrologue.IsOnProloguePad(armor.transform)) continue;
 
                 float maxHp = armor.maxHealth > 0f ? armor.maxHealth : armor.health;
                 if (!(maxHp > 0f && armor.health < maxHp))
@@ -145,13 +243,22 @@ namespace DWMPHorde.Networking
                 : $"[BulkSync] Sent {sent} shadow-armor state(s) to all clients");
         }
 
+        /// <summary>Wire positions are rounded to 0.1 m; a moving Character-owned armor drifts a little more.</summary>
+        private const float ArmorMatchRadius = 2.5f;
+
         /// <summary>
-        /// Prefer Item at pos (world chests); fall back to nearest ShadowArmor
-        /// (covers Character-owned armor without taking entity combat authority).
+        /// The message carries the armor's own position, so match on position only: the
+        /// nearest ShadowArmor within <see cref="ArmorMatchRadius"/>, else the armor of a
+        /// destructible Item standing there (world chests). No wider fallback: an armor
+        /// that is not here yet stays queued rather than damaging an unrelated neighbour.
         /// </summary>
         private static ShadowArmor FindShadowArmor(Vector3 pos)
         {
-            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, 25f);
+            ShadowArmor near = WorldQueryHelper.FindNearest<ShadowArmor>(pos, ArmorMatchRadius);
+            if (near != null)
+                return near;
+
+            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, ArmorMatchRadius);
             if (item != null)
             {
                 ShadowArmor onItem = item.shadowArmor;
@@ -160,11 +267,7 @@ namespace DWMPHorde.Networking
                 if (onItem != null)
                     return onItem;
             }
-
-            ShadowArmor near = WorldQueryHelper.FindNearest<ShadowArmor>(pos, 2.5f);
-            if (near != null)
-                return near;
-            return WorldQueryHelper.FindNearest<ShadowArmor>(pos, 8f);
+            return null;
         }
     }
 }

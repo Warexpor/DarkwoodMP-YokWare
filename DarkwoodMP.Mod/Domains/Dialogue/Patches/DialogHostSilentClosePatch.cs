@@ -16,7 +16,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(DialogueWindow __instance)
         {
-            if (!DialogHostApplyGuard.Active)
+            if (!DialogHostApplyGuard.DialogueApplyActive)
                 return true;
             if (__instance == null)
                 return false;
@@ -45,19 +45,12 @@ namespace DWMPHorde.Patches
             try
             {
                 var dreams = Dreams.Instance;
-                if (dreams != null && dreams.wantToDream && !string.IsNullOrEmpty(dw.dreamToStart)
-                    && !dreams.dreaming && !dreams.dreamPrepared)
+                if (dreams != null && dreams.wantToDream && !string.IsNullOrEmpty(dw.dreamToStart))
                 {
                     string preset = dw.dreamToStart;
                     dw.dreamToStart = "";
-                    if (Singleton<Controller>.Instance != null)
-                    {
-                        Singleton<Controller>.Instance.Invoke(delegate
-                        {
-                            if (Dreams.Instance != null && !Dreams.Instance.dreaming)
-                                Dreams.Instance.StartCoroutine(Dreams.Instance.prepareDream(preset));
-                        }, 0.1f, timeScaleDependent: false);
-                    }
+                    // Started now, or kept until the host can take it (DreamRetry).
+                    DreamRetry.HostDialogueDream(preset);
                 }
             }
             catch (Exception ex)
@@ -75,14 +68,25 @@ namespace DWMPHorde.Patches
             dw.tweening = false;
 
             // changePortrait sets forbidInputs + schedules black fade; clear both so the
-            // non-speaker host is not left locked/black after world-only apply.
+            // non-speaker host is not left locked/black after world-only apply. Not while the host
+            // is in a real conversation of its own: that dialogue owns the input lock.
+            bool hostTalking = false;
             try
             {
-                Core.forbidInputs = false;
-                Core.cantChangeForbidInputs = false;
-                dw.forbidInputs = false;
+                hostTalking = Player.Instance != null && Player.Instance.inDialogue
+                    && dw.opened && dw.npc != null;
             }
             catch { /* non-fatal */ }
+            if (!hostTalking)
+            {
+                try
+                {
+                    Core.forbidInputs = false;
+                    Core.cantChangeForbidInputs = false;
+                    dw.forbidInputs = false;
+                }
+                catch { /* non-fatal */ }
+            }
 
             try
             {

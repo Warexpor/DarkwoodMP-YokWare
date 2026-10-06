@@ -98,7 +98,7 @@ namespace DWMPHorde.Players
                 if (_legsAnimator.CurrentClip != null &&
                     _legsAnimator.CurrentClip.name.IndexOf("Run") >= 0)
                 {
-                    _legsAnimator.Stop();
+                    StopLegsAtNeutral();
                     _feetNeutralReached = true;
                     if (_legsAnimator != null)
                         _legsAnimator.transform.rotation = transform.rotation;
@@ -281,9 +281,42 @@ namespace DWMPHorde.Players
                 _legsRenderer.enabled = !hide;
             if (hide && _legsAnimator != null && _legsAnimator.Playing)
             {
-                _legsAnimator.Stop();
+                StopLegsAtNeutral();
                 _feetNeutralReached = true;
             }
+        }
+
+        /// <summary>
+        /// Stop the legs on their standing frame (the walk clip's FeetNeutral), not wherever the
+        /// step was: a stop mid-step (caught in a bear trap while walking, a vault, a run ending)
+        /// showed the proxy standing with one leg forward until the player walked again. Vanilla
+        /// keeps the hidden legs cycling until FeetNeutral, so they come back standing.
+        /// </summary>
+        private void StopLegsAtNeutral()
+        {
+            tk2dSpriteAnimationClip clip = _legsAnimator.CurrentClip;
+            int frame = NeutralFrame(clip);
+            if (frame < 0)
+            {
+                clip = _legsAnimator.GetClipByName(_networkReverseLegs ? "LegsWalkReverse" : "LegsWalk")
+                    ?? _legsAnimator.GetClipByName("LegsWalk");
+                frame = NeutralFrame(clip);
+            }
+            if (frame >= 0)
+                _legsAnimator.PlayFromFrame(clip, frame);
+            _legsAnimator.Stop();
+        }
+
+        private static int NeutralFrame(tk2dSpriteAnimationClip clip)
+        {
+            if (clip == null || clip.frames == null)
+                return -1;
+            for (int i = 0; i < clip.frames.Length; i++)
+            {
+                if (clip.frames[i] != null && clip.frames[i].eventInfo == "FeetNeutral")
+                    return i;
+            }
+            return -1;
         }
 
         internal void PlayLegs(string clipName)

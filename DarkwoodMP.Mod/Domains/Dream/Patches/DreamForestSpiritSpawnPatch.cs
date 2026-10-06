@@ -17,12 +17,16 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Player __instance)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+            // The host spawns the spirit and streams it; a client's own spawn (a replayed game
+            // event's runFunction) was an unsynced second spirit chasing only that client.
+            if (ModRuntime.Network.Role != NetworkRole.Host)
+                return false;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
             Transform prefer = pad != null
                 ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f)
@@ -65,12 +69,11 @@ namespace DWMPHorde.Patches
             component.isActive = true;
             Transform sticky = DreamForestSpiritAggro.TryGetStickyTarget() ?? prefer;
             if (sticky != null)
-                component.attackCharacter(sticky);
+                PlayerTargetArbiter.Commit(component, sticky, "dreamSpiritSpawn");
             else
                 component.attackPlayer();
             ModRuntime.LegacyInfo(
-                "[DreamSpirit] spawned forestSpirit_bunkerDream near " + who
-                + " stickyOwner=" + ownerId + " at " + position);
+                $"[DreamSpirit] spawned forestSpirit_bunkerDream near {who} stickyOwner={ownerId} at {position}");
             return false;
         }
     }

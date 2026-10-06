@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 
 namespace DWMPHorde.Audio
 {
@@ -148,7 +150,7 @@ namespace DWMPHorde.Audio
             // Host PhysicsState / DragSync echo: claim table covers frames where
             // touchingColliders / beingDragged briefly miss (hinge timing).
             if (ModRuntime.Network is Networking.LanNetworkManager net
-                && net._dragClaims.TryGetValue(objectName, out int claimer)
+                && net.PlayerInteractHandlers.DragClaims.TryGetValue(objectName, out int claimer)
                 && claimer == net.LocalPlayerId)
                 return true;
 
@@ -232,8 +234,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         public static void TickLocalPushScrapeStop()
         {
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             Player p = Player.Instance;
             if (p == null) return;
@@ -267,7 +268,7 @@ namespace DWMPHorde.Audio
                     if (item.beingDragged) continue;
                     if (p.dragging && p.itemBeingDragged == item) continue;
                     if (net is Networking.LanNetworkManager lnm
-                        && (lnm._dragClaims.ContainsKey(name) || lnm._remoteDragItemNames.Contains(name)))
+                        && (lnm.PlayerInteractHandlers.DragClaims.ContainsKey(name) || lnm.PlayerInteractHandlers.RemoteDragItemNames.Contains(name)))
                         continue;
 
                     stillContact = _stillContactScratch;
@@ -340,7 +341,7 @@ namespace DWMPHorde.Audio
             // Never body-push-stop a live drag claim (would sleep RB mid E-drag).
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net != null
-                && (net._dragClaims.ContainsKey(objectName) || net._remoteDragItemNames.Contains(objectName)))
+                && (net.PlayerInteractHandlers.DragClaims.ContainsKey(objectName) || net.PlayerInteractHandlers.RemoteDragItemNames.Contains(objectName)))
                 return;
             Player p = Player.Instance;
             if (p != null && p.dragging && p.itemBeingDragged != null
@@ -383,32 +384,36 @@ namespace DWMPHorde.Audio
             }
 
             if (sounds != null)
-            {
-                try
-                {
-                    var ao = Traverse.Create(sounds).Field("movingSoundAO").GetValue<AudioObject>();
-                    if (ao != null)
-                    {
-                        ao.Stop(fadeSec);
-                        Traverse.Create(sounds).Field("movingSoundAO").SetValue(null);
-                    }
-                }
-                catch
-                {
-                // Traverse failure; fall through to StopAllVariants.
-                }
-            }
+                StopNativeMovingLoop(sounds, fadeSec);
 
-            MovingObjectSoundService.StopAllVariants(objectName, soundId, fadeSec);
-
-            // Grass variant may differ from primary movingSound id.
+            // This object's loops only: both surface ids, so a loop armed on the other ground
+            // (or one whose native field was already cleared) stops too.
+            MovingObjectSoundService.StopAllVariants(objectName, soundId, fadeSec, go.transform);
+            if (sounds != null
+                && !string.IsNullOrEmpty(sounds.movingSound)
+                && !string.Equals(sounds.movingSound, soundId, System.StringComparison.OrdinalIgnoreCase))
+                MovingObjectSoundService.StopAllVariants(objectName, sounds.movingSound, fadeSec, go.transform);
             if (sounds != null
                 && !string.IsNullOrEmpty(sounds.movingSound_grass)
                 && !string.Equals(sounds.movingSound_grass, soundId, System.StringComparison.OrdinalIgnoreCase))
-            {
-                MovingObjectSoundService.StopAllVariants(objectName, sounds.movingSound_grass, fadeSec);
-            }
+                MovingObjectSoundService.StopAllVariants(objectName, sounds.movingSound_grass, fadeSec, go.transform);
         }
+
+        private static readonly AccessTools.FieldRef<ItemSounds, AudioObject> MovingSoundAO =
+            AccessTools.FieldRefAccess<ItemSounds, AudioObject>("movingSoundAO");
+
+        /// <summary>Vanilla ItemSounds.Update stop branch: fade the native moving loop and clear the field.</summary>
+        internal static void StopNativeMovingLoop(ItemSounds sounds, float fadeSec)
+        {
+            AudioObject ao = MovingSoundAO(sounds);
+            if (ao == null)
+                return;
+            ao.Stop(fadeSec);
+            MovingSoundAO(sounds) = null;
+        }
+
+        /// <summary>A drag/push target is next to the local player; never farther than this.</summary>
+        private const float LocalScrapeResolveRadius = 300f;
 
         public static void ForceStopByName(string objectName, float fadeSec = IntentionalStopFade)
         {
@@ -416,7 +421,14 @@ namespace DWMPHorde.Audio
             ArmSuppress(objectName);
             ClearRemoteScrape(objectName);
             _localPushActive.Remove(objectName);
-            GameObject go = GameObject.Find(objectName);
+            // The object the local player was touching or dragging: nearest by name around the
+            // player, never a scene-wide GameObject.Find (first same-named object anywhere,
+            // e.g. a dream-pad twin, got its velocity zeroed and its scrape killed instead).
+            Player p = Player.Instance;
+            ItemSounds near = p != null
+                ? WorldQueryHelper.FindNearestByName<ItemSounds>(p.transform.position, objectName, LocalScrapeResolveRadius)
+                : null;
+            GameObject go = near != null ? near.gameObject : null;
             if (go != null)
                 ForceStop(go, fadeSec);
             else

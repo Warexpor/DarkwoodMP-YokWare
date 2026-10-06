@@ -9,7 +9,7 @@ namespace DWMPHorde.Audio
     /// Shared multiplayer audio helpers: listen position, distance culling,
     /// clip resolution, and send-side rate limiting.
     /// </summary>
-    public static partial class LocalAudioService
+    public static class LocalAudioService
     {
         // Peer SFX cull + Unity spatial falloff (player footsteps/guns/equip, entity, MOS).
         // 500 was tight for hideout↔yard; +30% so peers stay audible a bit farther.
@@ -140,9 +140,6 @@ namespace DWMPHorde.Audio
             return IsNearListener(targetComponent.transform.position, maxDistance);
         }
 
-        /// <summary>Legacy name — distance to listen position (spectator-aware).</summary>
-        public static float DistanceToLocalPlayer(Vector3 worldPosition) => DistanceToListener(worldPosition);
-
         /// <summary>Legacy name — near listen position (spectator-aware).</summary>
         public static bool IsNearLocalPlayer(Vector3 worldPosition, float maxDistance = DefaultMaxAudioDistance)
             => IsNearListener(worldPosition, maxDistance);
@@ -169,12 +166,6 @@ namespace DWMPHorde.Audio
         public static void ResetRateLimits()
         {
             _lastForwardTime.Clear();
-        }
-
-        /// <summary>Drop resolved clip cache on session end (frees stale AudioClip refs).</summary>
-        public static void ResetClipCache()
-        {
-            _clipCache.Clear();
         }
 
         /// <summary>
@@ -243,6 +234,18 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// A player's step: the ground footstep, its wood / branch add-on and the clothes rustle
+        /// (vanilla <c>CharacterSounds.playFootHitGround</c>).
+        /// </summary>
+        public static bool IsPlayerStepSound(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            return audioID.IndexOf("foot", StringComparison.OrdinalIgnoreCase) >= 0
+                || audioID.IndexOf("walk_clothes", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
         /// Flashlight / torch / lighter toggles — network as spatial at proxy with reverb.
         /// </summary>
         public static bool IsRemotePlayerSpatialToolSound(string audioID)
@@ -271,15 +274,16 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// True for SFX that should stay non-spatial on the remote peer (UI / equip get-hide).
-        /// Flashlight/torch/lighter stay spatial via <see cref="IsRemotePlayerSpatialToolSound"/>.
+        /// Equip pull-out / put-away and bag get / hide one-shots (<c>get_item_01_player</c>, an
+        /// item's getSound / hideSound). A peer hears them on the player's stand-in like any other
+        /// player sound; this only tells the dream forward that PlayerAudio already carries them.
         /// </summary>
-        public static bool IsPrefer2dNetworkOneShot(string audioID)
+        public static bool IsEquipGetHideSound(string audioID)
         {
             if (string.IsNullOrEmpty(audioID))
                 return false;
             if (IsPlayerHitFeedbackSound(audioID))
-                return false; // hits stay spatial on the victim proxy
+                return false;
 
             // Equip put-away / pull-out one-shots (parentless in vanilla).
             if (audioID.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
@@ -290,7 +294,7 @@ namespace DWMPHorde.Audio
                 || audioID.IndexOf("_hide", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Live item fields: equip get/hide only as 2D.
+            // Live item fields: the held item's get / hide.
             if (IsCurrentItemActionSound(audioID))
             {
                 Player p = Player.Instance;
@@ -367,6 +371,121 @@ namespace DWMPHorde.Audio
             if (audioID.IndexOf("player_tired", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
             return false;
+        }
+
+        private struct Audibility
+        {
+            public bool Known;
+            public bool Spatial;
+            public float MaxDistance;
+            public bool Loop;
+        }
+
+        /// <summary>Per id: how the game itself plays it (AudioItem + its AudioObject prefab).</summary>
+        private static readonly Dictionary<string, Audibility> _audibility = new Dictionary<string, Audibility>(StringComparer.OrdinalIgnoreCase); // process-scoped: asset data cache
+
+        /// <summary>
+        /// The game's own settings for this id: whether its source is 3D and how far it carries
+        /// (<c>AudioController.GetAudioItemMaxDistance</c>: the item's override, else its AudioObject
+        /// prefab's AudioSource), and whether it loops.
+        /// </summary>
+        private static Audibility GetAudibility(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return default;
+            if (_audibility.TryGetValue(audioID, out Audibility cached))
+                return cached;
+            Audibility a = default;
+            try
+            {
+                AudioItem item = AudioController.GetAudioItem(audioID);
+                if (item == null)
+                    return default; // unknown here or audio not ready: not cached, asked again later
+                GameObject prefab = item.AudioObjectPrefab != null
+                    ? item.AudioObjectPrefab
+                    : item.category != null ? item.category.GetAudioObjectPrefab() : null;
+                AudioSource src = prefab != null ? prefab.GetComponent<AudioSource>() : null;
+                if (src == null)
+                    return default;
+                a.Known = true;
+                // Any 3D share means the source rolls off out to its max distance. The loud NPC
+                // prefab (AO_loud_NPCs_3d: dog bark, attack, defensive loop) blends by a curve,
+                // 2D at the source and 3D from ~190 out to 1500; spatialBlend reads the curve's
+                // start (0), and the old >= 0.99 test made it a 2D sound capped at 650.
+                a.Spatial = FarSpatialBlend(src) > 0f;
+                a.MaxDistance = item.overrideAudioSourceSettings ? item.audioSource_MaxDistance : src.maxDistance;
+                a.Loop = item.Loop != AudioItem.LoopMode.DoNotLoop;
+            }
+            catch
+            {
+                return default;
+            }
+            _audibility[audioID] = a;
+            return a;
+        }
+
+        /// <summary>
+        /// The source's largest spatial blend: its spatial-blend curve when it has one (Unity
+        /// evaluates it over distance / maxDistance), else the flat <c>spatialBlend</c>.
+        /// </summary>
+        private static float FarSpatialBlend(AudioSource src)
+        {
+            float blend = src.spatialBlend;
+            AnimationCurve curve = src.GetCustomCurve(AudioSourceCurveType.SpatialBlend);
+            Keyframe[] keys = curve != null ? curve.keys : null;
+            if (keys != null)
+            {
+                for (int i = 0; i < keys.Length; i++)
+                    blend = Mathf.Max(blend, keys[i].value);
+            }
+            return blend;
+        }
+
+        /// <summary>
+        /// How far from the listener this sound is worth playing: a sound with any 3D share as
+        /// far as the game lets it carry (never less than the peer range, which peer sounds are
+        /// spatialized to); a fully 2D sound has no falloff of its own, so the peer range.
+        /// </summary>
+        public static float AudibleRange(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            if (a.Known && a.Spatial)
+                return Mathf.Max(a.MaxDistance, DefaultMaxAudioDistance);
+            return DefaultMaxAudioDistance;
+        }
+
+        /// <summary>
+        /// A 3D loop: it keeps playing while the listener moves, and its own rolloff silences it
+        /// far away, as in vanilla. Culling it at start left it silent for good once the listener
+        /// walked up (a fire or generator started out of range never became audible).
+        /// </summary>
+        public static bool IsSpatialLoop(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            return a.Known && a.Spatial && a.Loop;
+        }
+
+        /// <summary>Source max distance the game would use for this id (peer range when 2D or unknown).</summary>
+        public static float SpatialMaxDistance(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            return a.Known && a.Spatial ? a.MaxDistance : DefaultMaxSpatialDistance;
+        }
+
+        /// <summary>True when the AudioItem loops (anything but DoNotLoop).</summary>
+        public static bool IsLoopingItem(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            try
+            {
+                AudioItem item = AudioController.GetAudioItem(audioID);
+                return item != null && item.Loop != AudioItem.LoopMode.DoNotLoop;
+            }
+            catch
+            {
+                return false; // audio system not ready
+            }
         }
 
         /// <summary>

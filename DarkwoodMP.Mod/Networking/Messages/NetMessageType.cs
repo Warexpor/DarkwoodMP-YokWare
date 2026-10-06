@@ -9,7 +9,7 @@ namespace DWMPHorde.Networking
         /// <summary>Player position and animation state snapshot.</summary>
         PlayerState = 2,
         /// <summary>Host publishes save/world identifiers for client to match.</summary>
-        WorldSession = 3,
+        [HostOnly] WorldSession = 3,
         /// <summary>Physics / door / trap / generator state snapshot (hot path).</summary>
         PhysicsState = 4,
         /// <summary>Item spawn event.</summary>
@@ -17,7 +17,7 @@ namespace DWMPHorde.Networking
         /// <summary>Light source on/off state.</summary>
         [Forwardable] LightState = 6,
         /// <summary>Entity snapshot for interpolation.</summary>
-        EntityState = 7,
+        [HostOnly] EntityState = 7,
         /// <summary>Player attack event targeting a specific entity.</summary>
         PlayerAttack = 8,
         /// <summary>Damage applied to the local player by the remote.</summary>
@@ -45,10 +45,9 @@ namespace DWMPHorde.Networking
         /// <summary>Trigger a save on the remote peer.</summary>
         SaveSync = 20,
         /// <summary>Host broadcasts current game time to the client.</summary>
-        TimeSync = 21,
-        /// <summary>Host broadcasts an entity sound event to the client.</summary>
-        /// <summary>Host→clients: AI CharacterSounds (growl/attack/death/idle). Broadcast from host.</summary>
-        [Forwardable] EntitySound = 22,
+        [HostOnly] TimeSync = 21,
+        /// <summary>Host→clients: a creature one-shot (voice, hit, death, footstep). Loops ride the entity snapshot.</summary>
+        [HostOnly] EntitySound = 22,
         /// <summary>Client->Host: a world object was harvested/destroyed by clicking (e.g. mushroom).</summary>
         WorldObjectRemoved = 23,
         /// <summary>Either peer: player's active light (flashlight/torch/lantern) toggled.</summary>
@@ -110,7 +109,7 @@ namespace DWMPHorde.Networking
         /// <summary>Either peer: notify all peers that a death bag has been looted (emptied).</summary>
         [Forwardable] DeathBagLooted = 95,
         /// <summary>Either peer: a dream sequence started.</summary>
-        [Forwardable] DreamStarted = 56,
+        [HostOnly] DreamStarted = 56,
         /// <summary>Either peer: a dream sequence ended.</summary>
         [ForwardablePlayer] DreamEnded = 57,
         /// <summary>Dreamer->Spectator: an item was picked up in a dream (visual sync only).</summary>
@@ -135,20 +134,17 @@ namespace DWMPHorde.Networking
         [Forwardable] MapMarker = 68,
         /// <summary>Either peer: a MapElement was discovered (isOnMap set to true).</summary>
         [Forwardable] MapElementDiscovered = 69,
-        /// <summary>Either peer: an oxygentank_empty was acquired; stash a copy in the Workbench.</summary>
-        [Forwardable] OxygenTankStash = 70,
-        /// <summary>Either peer: the compressor converted an empty tank to a full one.</summary>
-        [Forwardable] CompressorTankConvert = 71,
+        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): replaced by OxygenTankTier (157).
         /// <summary>Either peer: a player removed a map marker.</summary>
         [Forwardable] MapMarkerRemove = 72,
         /// <summary>Host->Client: bulk-sync all journal entries on connection.</summary>
-        JournalBulkSync = 73,
+        [HostOnly] JournalBulkSync = 73,
         /// <summary>Host->Client: continuous state update for a shadow (position, distanceToPlayer, alive/dead).</summary>
         ShadowStateUpdate = 74,
         /// <summary>Client->Host: request the current state of a container inventory.</summary>
         ContainerStateRequest = 75,
         /// <summary>Host->Client: full container inventory state snapshot.</summary>
-        ContainerStateSync = 76,
+        [HostOnly] ContainerStateSync = 76,
         /// <summary>Shared NPC reputation (not isNightTrader). Forwardable for client→host→peers.</summary>
         [Forwardable] ReputationSync = 77,
         /// <summary>Either peer: the local player entered an OutsideLocation (basement, bunker, etc.).</summary>
@@ -169,36 +165,36 @@ namespace DWMPHorde.Networking
         /// <summary>Client->Host: forward a dialog decision outcome from the remote player.</summary>
         DialogOutcomeSync = 90,
         /// <summary>Host->Peer: wraps a player-specific message from another client.</summary>
-        RemotePlayerForward = 89,
+        [HostOnly] RemotePlayerForward = 89,
         /// <summary>Either peer: player started/finished vaulting (Jumpable collision for that proxy only).</summary>
         [Forwardable] VaultState = 92,
         /// <summary>Host->Client: synchronise rain/fog/lightning state.</summary>
-        WeatherSync = 93,
+        [HostOnly] WeatherSync = 93,
         /// <summary>Host->Client: bulk sync all game flags on connect.</summary>
-        FlagBulkSync = 94,
+        [HostOnly] FlagBulkSync = 94,
         /// <summary>Host->Client: bulk sync all NPC reputations on connect.</summary>
-        ReputationBulkSync = 96,
+        [HostOnly] ReputationBulkSync = 96,
         /// <summary>Client->Host: request host to start a dream.</summary>
         DreamStartRequest = 97,
         /// <summary>Host->Client: current night scenario name.</summary>
         ScenarioStateSync = 98,
         /// <summary>Host->Client: hideout oven enable states.</summary>
-        HideoutStateSync = 99,
+        [HostOnly] HideoutStateSync = 99,
         /// <summary>Host->Client: current workbench level.</summary>
-        WorkbenchLevelSync = 100,
+        [HostOnly] WorkbenchLevelSync = 100,
         /// <summary>Host->Client: map markers and discoveries.</summary>
-        MapStateSync = 101,
+        [HostOnly] MapStateSync = 101,
         /// <summary>
         /// Reserved (protocol hole). Skills/XP are per-player and backed up via
         /// ClientStateBackup on save. This message is not sent; the handler is a no-op.
         /// </summary>
         PlayerSkillsSync = 102,
         /// <summary>Host→Client: begin one-shot new-world save file transfer.</summary>
-        WorldSaveBegin = 103,
+        [HostOnly] WorldSaveBegin = 103,
         /// <summary>Host→Client: one chunk of a compressed save file.</summary>
-        WorldSaveChunk = 104,
+        [HostOnly] WorldSaveChunk = 104,
         /// <summary>Host→Client: world save transfer finished; client may apply.</summary>
-        WorldSaveEnd = 105,
+        [HostOnly] WorldSaveEnd = 105,
         /// <summary>Host→Client / host-authoritative: absolute trader shop stock (join bulk, restock, post-trade).</summary>
         [Forwardable] TradeInventorySync = 106,
         /// <summary>Host→all / peer request: load a Unity scene, such as credits.</summary>
@@ -230,7 +226,7 @@ namespace DWMPHorde.Networking
         /// Host→client: simultaneous loot rejected because the slot is empty
         /// or the item type does not match. The client refunds the local take.
         /// </summary>
-        ContainerTakeDenied = 115,
+        [HostOnly] ContainerTakeDenied = 115,
         /// <summary>
         /// Either peer: feeder used, with its absolute inactive state.
         /// </summary>
@@ -251,11 +247,11 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host→peer: dream session snapshot for late-join state.
         /// </summary>
-        DreamSessionBulk = 120,
+        [HostOnly] DreamSessionBulk = 120,
         /// <summary>
         /// Host→all: next preset in a dream chain.
         /// </summary>
-        [Forwardable] DreamChainStart = 121,
+        [HostOnly] DreamChainStart = 121,
         /// <summary>
         /// Client→host: left the hideout and wants the morning freeze cleared.
         /// </summary>
@@ -263,19 +259,16 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host→all: peer roster for host-crash migration.
         /// </summary>
-        PeerRoster = 123,
+        [HostOnly] PeerRoster = 123,
         /// <summary>
         /// Host→all: graceful leave; the elected player becomes host.
         /// </summary>
-        HostHandoff = 124,
-        /// <summary>
-        /// Host→all: thrown projectile or light expired.
-        /// </summary>
-        [Forwardable] ThrowableDespawn = 125,
+        [HostOnly] HostHandoff = 124,
+        // 125 retired (ThrowableDespawn): flares burn out on each peer's own vanilla clock (FlareClock).
         /// <summary>
         /// Host→peer: trap table bulk for late join.
         /// </summary>
-        TrapBulk = 126,
+        [HostOnly] TrapBulk = 126,
         /// <summary>
         /// Client→host: NightShadows perk darkness wave. The host spawns
         /// shadows owned by the requesting peer.
@@ -289,7 +282,7 @@ namespace DWMPHorde.Networking
         /// Either peer: compressed Steam Voice samples. The host fans out
         /// unreliable voice data without forwarding it again.
         /// </summary>
-        VoiceData = 129,
+        [Forwardable] VoiceData = 129,
         /// <summary>
         /// Client→host: `CustomCursorAction.onActivate`, such as the dream-bed
         /// "Lie down" action.
@@ -322,7 +315,7 @@ namespace DWMPHorde.Networking
         /// Host→peer: late-join bulk of already-fired one-shot GameEvents
         /// (pos + name). Joiner applies via the live GameEventsFired path.
         /// </summary>
-        GameEventsBulk = 136,
+        [HostOnly] GameEventsBulk = 136,
         /// <summary>
         /// Door / Window / Item Burn absolute state (pos-keyed). Forwardable for
         /// client→host→peers fan-out when Flame (molotov) ignites world objects.
@@ -334,8 +327,133 @@ namespace DWMPHorde.Networking
         /// (CustomEvent.started, RandomEvent.startedToday/disabled, currentEvent).
         /// Does not replay ScenarioEventFired / RandomEvent.fire.
         /// </summary>
-        ScenarioStateBulk = 138,
+        [HostOnly] ScenarioStateBulk = 138,
+        /// <summary>
+        /// Host→clients: host is fully in-world (past load). Title clients may
+        /// start waiting for WorldSaveBegin / should not treat mid-load as ready.
+        /// Added in protocol 25; peers on the same protocol always know every id listed here.
+        /// </summary>
+        [HostOnly] HostWorldReady = 139,
+        /// <summary>
+        /// Client→host: chapter world share outcome (Committed / Failed / NotInWorld).
+        /// Host waits for these before tearing the network for the chapter scene load.
+        /// </summary>
+        ChapterShareAck = 140,
+        /// <summary>
+        /// Host→client: proceed with the chapter load (Proceed=true) or leave the session
+        /// with a reason (Proceed=false: share failed, or the client's world does not match).
+        /// </summary>
+        [HostOnly] ChapterLoadGo = 141,
+        /// <summary>
+        /// Host→all clients on the morning edge (Controller.startDay): every peer
+        /// that is still night-dead leaves spectator and is sent home; all peers
+        /// clear night-death bookkeeping. Idempotent.
+        /// </summary>
+        [HostOnly] NightDeathRelease = 144,
+        /// <summary>
+        /// Host→one surviving peer at Controller.startAfterNight: that peer's own
+        /// morning survival reward (night-trader reputation + saturation).
+        /// </summary>
+        [HostOnly] MorningReward = 145,
+        /// <summary>
+        /// Client→host: this peer is about to spawn an outside-location pad the host has
+        /// not assigned it a slot for yet. Host replies with <see cref="LocationPadSlotSync"/>.
+        /// </summary>
+        LocationPadSlotRequest = 142,
+        /// <summary>
+        /// Host→peers: host-owned outside-location pad slot + yaw assignments (request
+        /// reply, new-allocation broadcast, late-join snapshot). Every peer spawns a
+        /// location at the host's slot so absolute-position sync agrees across machines.
+        /// </summary>
+        [HostOnly] LocationPadSlotSync = 143,
+        /// <summary>
+        /// Host→client: gameplay settings every peer must agree on (friendly fire, loot-share
+        /// mode, double items, party multiplier). Sent after the handshake, on roster changes
+        /// and when the host changes them in the F2 menu.
+        /// </summary>
+        [HostOnly] SessionSettings = 146,
+        /// <summary>
+        /// Host→clients: a host enemy attack frame (melee sensor or projectile). Each client
+        /// re-creates it on its own copy of the enemy; only that client's own player can be
+        /// hit ("defender decides"). Added in protocol 29.
+        /// </summary>
+        [HostOnly] EnemyAttack = 147,
+        /// <summary>
+        /// Client→host: a re-created enemy attack hit this client's own player (damage already
+        /// applied there). Host shows the hit on the stand-in for the other peers. Protocol 29.
+        /// </summary>
+        EnemyHitConfirm = 148,
+        /// <summary>
+        /// Host→clients: a banshee screams at a player or stops. Sight light for everyone, the
+        /// scream, shake and overlay for the player it sees. Protocol 31.
+        /// </summary>
+        [HostOnly] BansheeAgitation = 149,
+        /// <summary>
+        /// Host→clients: the porter carried a hideout's stash to another hideout (vanilla
+        /// Location.transportAllItemsToCurrentHideout, run on the host only). Peers empty the source
+        /// containers and place the delivery package shell; its contents come from the host when
+        /// opened. Protocol 33.
+        /// </summary>
+        [HostOnly] PorterTransport = 150,
+        /// <summary>
+        /// Host→one client: run a vanilla Player story function on that client's own body (the
+        /// host saw it happen to that player, e.g. killing the night trader). Protocol 33.
+        /// </summary>
+        [HostOnly] PlayerSpecial = 151,
+        /// <summary>
+        /// Client→host: a finished trade (what this player bought and sold) for the host to check
+        /// against its own stock. Host→client with <c>Denied</c>: the stock lacked it; undo the trade.
+        /// Replaces the client's whole-stock snapshot. Protocol 33.
+        /// </summary>
+        TradeCommit = 152,
+        /// <summary>
+        /// Host→one client: the host's fingerprint of the state that client should share (desync
+        /// check, <c>Diagnostics.DesyncCheck</c>). Protocol 33.
+        /// </summary>
+        [HostOnly] DesyncDigest = 153,
+        /// <summary>Client→host: entries wanted for the digest sections that differed. Protocol 33.</summary>
+        DesyncDetailRequest = 154,
+        /// <summary>Host→client: one section's entries for a detail request. Protocol 33.</summary>
+        [HostOnly] DesyncDetail = 155,
+        /// <summary>Client→host: what the client's check found, for the host log. Protocol 33.</summary>
+        DesyncReport = 156,
+        /// <summary>
+        /// Host→clients: the best oxygen tank anyone in the party has (1 empty, 2 full); each player
+        /// is topped up to it once (<c>Sync.OxygenTankParty</c>). Protocol 35.
+        /// </summary>
+        [HostOnly] OxygenTankTier = 157,
+        /// <summary>
+        /// Host→client: story items dropped for this player while it was away were taken by others;
+        /// remove them from its bag. Client→host: done (same lists). <c>Sync.QuestItemHandoff</c>. Protocol 36.
+        /// </summary>
+        QuestHandoff = 158,
+        /// <summary>
+        /// Host→client: a dialogue board of this player's would hand over a shared journal item
+        /// another player already gave away (the sister's key, the egg); the host refused it.
+        /// <c>Sync.DialogHandInArbiter</c>. Protocol 37.
+        /// </summary>
+        [HostOnly] DialogHandInGone = 159,
+        /// <summary>
+        /// Listening in on another player's dialogue. Talking player→host: each screen and action
+        /// of its dialogue window. Host→listeners: the same, and a snapshot on joining. Listener→host:
+        /// join / leave. The host relays by hand (only to that talk's listeners). <c>Sync.DialogMirror</c>.
+        /// Protocol 38.
+        /// </summary>
+        DialogMirror = 160,
+        /// <summary>
+        /// Handing a shared journal item to an NPC is asked of the host first, so two players at two
+        /// NPCs cannot both hand it over (and both get the personal reward). Client→host: claim or
+        /// release; host→client: grant or deny. <c>Sync.DialogHandInArbiter</c>. Protocol 39.
+        /// </summary>
+        DialogHandInClaim = 161,
+        /// <summary>Client→host: the player's in-game pause menu (Esc) opened or closed. <c>Sync.PauseMenuSync</c>. Protocol 39.</summary>
+        PauseMenuState = 162,
+        /// <summary>
+        /// Host→clients: every player is in the pause menu, so the world pauses everywhere (or resumes).
+        /// <c>Sync.PauseMenuSync</c>. Protocol 39.
+        /// </summary>
+        [HostOnly] WorldPause = 163,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 138
+        _Highest = 163
     }
 }

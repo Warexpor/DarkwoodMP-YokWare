@@ -1,3 +1,4 @@
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -22,7 +23,7 @@ namespace DWMPHorde.Patches
                 if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
                 if (LanNetworkManager.IsApplyingRemoteState) return true;
 
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null) return true;
 
                 if (net.Role == NetworkRole.Host)
@@ -87,8 +88,7 @@ namespace DWMPHorde.Patches
             if (added > 0)
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] Refilled random dream pool (+" + added
-                    + ") — save had depleted presetList");
+                    $"[DreamSync] Refilled random dream pool (+{added}) — save had depleted presetList");
             }
         }
 
@@ -127,7 +127,8 @@ namespace DWMPHorde.Patches
                         {
                             // Party-once / session race; do not continue into a completed roll.
                             ModRuntime.LegacyInfo(
-                                "[DreamSync] Host random roll rejected TryBegin: " + resolved);
+                                $"[DreamSync] Host random roll rejected TryBegin: {resolved}");
+                            DreamSession.NextLevelBits = 0;
                             try
                             {
                                 if (__instance != null)
@@ -142,7 +143,7 @@ namespace DWMPHorde.Patches
                         DreamSession.UpdateActivePreset(resolved);
                     // Vanilla empty path already removed from presetList.
 
-                    var net = LanNetworkManager.Instance;
+                    var net = ModRuntime.Network;
                     if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
                     {
                         // Early resolve so clients that enter getPreset mid-prepare adopt same pick.
@@ -174,10 +175,39 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Dreams), "prepareDream")]
     public static class DreamPreparePatch
     {
-        private static bool Prefix(Dreams __instance, string presetName)
+        // prepareDream is IEnumerator; StartCoroutine(null) if Prefix returns false without __result.
+        private static bool Prefix(Dreams __instance, string presetName, ref System.Collections.IEnumerator __result)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+            // The prologue's dreams are this player's own (PersonalPrologue): vanilla, no entry freeze.
+            if (PersonalPrologue.IsPrologueDream(presetName))
+                return true;
+
+            // Client loading a world saved mid-dream (vanilla forces a Save inside prepareDream
+            // with wantToDream set): vanilla resumes that dream at load and only its startDreaming
+            // lifts the loading screen. A client never runs a dream of its own (startDreaming is
+            // held for the host's DreamStarted), so the joiner sat on the loading screen. Drop the
+            // stale resume and lift the screen as a normal load does; a live party dream reaches
+            // it through the session bulk.
+            if (ModRuntime.Network.Role == NetworkRole.Client && __instance.loadingSaveGameInDream)
+            {
+                __instance.loadingSaveGameInDream = false;
+                __instance.wantToDream = false;
+                WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+                if (wg != null)
+                    Singleton<Controller>.Instance.Invoke(wg.tweenLoading, 2.1f, timeScaleDependent: false);
+                ModRuntime.LegacyInfo("[DreamSync] Client load: dropped saved mid-dream resume of " + presetName);
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
+            // A dialogue or event dream has no entry movie: stop the host world (and take the
+            // clock) as the movie path does, also when a peer's request started it. A chain switch
+            // is already inside the dream.
+            if (ModRuntime.Network.Role == NetworkRole.Host && !__instance.dreaming && !__instance.switchingDream)
+                DreamSyncManager.HostBeginDreamEntry();
+
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
@@ -190,6 +220,7 @@ namespace DWMPHorde.Patches
                 {
                     ModRuntime.LegacyInfo(
                         "[DreamSync] Client prepareDream('') aborted — waiting host DreamStarted/bulk");
+                    __result = HarmonyCoroutineUtil.Empty();
                     return false;
                 }
                 return true;
@@ -225,6 +256,7 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[DreamSync] Host prepareDream aborted — TryBegin rejected '{name}'"
                     + $" (session {DreamSession.Current})");
+                __result = HarmonyCoroutineUtil.Empty();
                 return false;
             }
 

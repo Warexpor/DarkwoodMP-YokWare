@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
+    <!-- Matches the shipped mod (Nullable disabled); the linked sources are not annotated. -->
+    <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <RootNamespace>DarkwoodMP.PathB.Tests</RootNamespace>
@@ -21,9 +22,31 @@
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.NpcNight.cs" Link="Shipped\CoopPolicy.NpcNight.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.Session.cs" Link="Shipped\CoopPolicy.Session.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.CombatDream.cs" Link="Shipped\CoopPolicy.CombatDream.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.Targeting.cs" Link="Shipped\CoopPolicy.Targeting.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\EntityTimeline.cs" Link="Shipped\EntityTimeline.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\Dialogue\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetWriter.cs" Link="Shipped\NetWriter.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\ForwardableAttribute.cs" Link="Shipped\ForwardableAttribute.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Bootstrap\PluginInfo.cs" Link="Shipped\PluginInfo.cs" />
+    <!-- Every wire message file (WireSymmetryTests round-trips them all). The few game types they
+         touch are stood in by Stubs\GameStubs.cs. -->
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\DreamMessages.cs" Link="Shipped\DreamMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\LocationPadSlotMessages.cs" Link="Shipped\LocationPadSlotMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Domains\World\OutsidePadSlots.Logic.cs" Link="Shipped\OutsidePadSlots.Logic.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\SessionSettingsMessages.cs" Link="Shipped\SessionSettingsMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\SensorEffectMessages.cs" Link="Shipped\SensorEffectMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\CombatMessages.cs" Link="Shipped\CombatMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\PlayerMessages.cs" Link="Shipped\PlayerMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldMessages.cs" Link="Shipped\WorldMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\SyncMessages.cs" Link="Shipped\SyncMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\ContainerMessages.cs" Link="Shipped\ContainerMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\BarricadeMessages.cs" Link="Shipped\BarricadeMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\ChatMessages.cs" Link="Shipped\ChatMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldSaveShareMessages.cs" Link="Shipped\WorldSaveShareMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\VoiceDataMessage.cs" Link="Shipped\VoiceDataMessage.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Domains\Inventory\InvItemUpgradeWire.cs" Link="Shipped\InvItemUpgradeWire.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\DesyncMessages.cs" Link="Shipped\DesyncMessages.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\DesyncEntries.cs" Link="Shipped\DesyncEntries.cs" />
   </ItemGroup>
 </Project>

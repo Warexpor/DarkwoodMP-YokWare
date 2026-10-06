@@ -45,7 +45,7 @@ namespace DWMPHorde.Networking
                 return true;
 
             var survivors = new List<int>(8);
-            foreach (int id in _handshakedPeers)
+            foreach (int id in _session.Link.Handshaked)
             {
                 if (id > 0 && id != _localPlayerId)
                     survivors.Add(id);
@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
             _handoffInProgress = true;
             BroadcastPeerRoster();
 
-            if (IsSteamSession && _steamPeers.TryGetValue(elect, out CSteamID electSid))
+            if (IsSteamSession && _steamPeers.TryGetSteamId(elect, out CSteamID electSid))
                 Steam.TransferLobbyOwner(electSid);
 
             Broadcast(NetMessageType.HostHandoff, w => new HostHandoffMessage
@@ -91,6 +91,17 @@ namespace DWMPHorde.Networking
                 t += Time.unscaledDeltaTime;
                 yield return null;
             }
+
+            // Flush sav.dat while Role is still Host and the sim is live. StopNetwork
+            // below used to set Offline first, so TryHostWorldSaveCheckpointOnExit no-op'd
+            // and the next cold start of this slot missed mid-session ownership.
+            // Does NOT run on promote (survivor Save still corrupts) — old host only.
+            try { TryHostWorldSaveCheckpointOnExit(); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Graceful leave host checkpoint: " + ex.Message);
+            }
+
             // Port free for elect promote; local still in-world until StopNetwork.
             StopTransportOnly("graceful handoff port release");
             _role = NetworkRole.Offline;
@@ -103,6 +114,7 @@ namespace DWMPHorde.Networking
             }
             _handoffInProgress = false;
             // Suppression is already set; StopNetwork will not re-enter migration.
+            // Role is already Offline → TryHostWorldSaveCheckpointOnExit no-ops (intentional).
             StopNetwork();
         }
 
@@ -121,21 +133,11 @@ namespace DWMPHorde.Networking
             if (_migrationInProgress)
                 return;
 
-                // Refuse a mid-dream authority flip; tear down dream state, then disconnect.
-            if (Sync.DreamSession.IsActive || Sync.DreamSyncManager.IsDreamActive)
+            // A link that never completed its handshake is a failed connect, not a host loss:
+            // electing here would promote a client that was never part of the session.
+            if (!_session.Link.HandshakeComplete)
             {
-                ModLog.Warn(LogCat.Network,
-                    "Host migration refused mid-dream (" + reason + ") — disconnect without GRANT");
-                try
-                {
-                    Sync.DreamSyncManager.ForceLocalDreamCleanup("hostLostMidDream");
-                }
-                catch (System.Exception ex)
-                {
-                    ModLog.Warn(LogCat.Network, "Mid-dream cleanup: " + ex.Message);
-                }
-                StopNetwork();
-                StatusText = "Host lost mid-dream — disconnected";
+                OnClientLinkFailed(reason);
                 return;
             }
 
@@ -144,12 +146,12 @@ namespace DWMPHorde.Networking
             bool playable = false;
             try
             {
-                playable = !Core.mainMenu && (Player.Instance != null || Core.loadedGame || Core.coreStarted);
+                playable = !GameScreen.AtTitle && (Player.Instance != null || Core.loadedGame || Core.coreStarted);
             }
             catch { /* unity tear */ }
 
             if (!HostMigrationPolicy.ShouldAttemptMigration(
-                    enabled, _role == NetworkRole.Client, Core.mainMenu, playable, _migrationInProgress))
+                    enabled, _role == NetworkRole.Client, GameScreen.AtTitle, playable, _migrationInProgress))
             {
                 StopNetwork();
                 return;
@@ -195,6 +197,16 @@ namespace DWMPHorde.Networking
                 + (IsSteamSession ? " steam" : " lan"));
 
             int keepId = _localPlayerId;
+            // A dream in progress carries over to the new host (each peer has its own pad).
+            try
+            {
+                Sync.DreamSyncManager.OnHostMigrating(deadHost, elect,
+                    HostMigrationPolicy.IsLocalElected(keepId, elect));
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Mid-dream migration: " + ex.Message);
+            }
             CleanupDeadHostLocal(deadHost);
 
             if (HostMigrationPolicy.IsLocalElected(keepId, elect))
@@ -240,13 +252,13 @@ namespace DWMPHorde.Networking
 
         private void CleanupDeadHostLocal(int deadHost)
         {
-            WorldProxyHandlers.DestroyRemoteProxy(deadHost);
-            PlayerHeldLightHandlers.DestroyRemoteFlareLight(deadHost);
-            PlayerHeldLightHandlers.DestroyRemoteItemLight(deadHost);
+            WorldProxyLifecycleHandlers.DestroyRemoteProxy(deadHost);
+            PlayerHeldLightApplyHandlers.DestroyRemoteFlareLight(deadHost);
+            PlayerHeldLightApplyHandlers.DestroyRemoteItemLight(deadHost);
             if (_remotePlayers.ContainsKey(deadHost))
                 _remotePlayers.Remove(deadHost);
             PlayerPositionManager.RemovePlayer(deadHost);
-            _remoteOutsideLocation.Remove(deadHost);
+            _session.RemoteOutsideLocation.Remove(deadHost);
             try
             {
                 DeathStateTracker.OnRemoteDisconnected(deadHost);

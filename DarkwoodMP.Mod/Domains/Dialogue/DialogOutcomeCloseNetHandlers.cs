@@ -1,5 +1,6 @@
 using System;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -24,28 +25,32 @@ namespace DWMPHorde.Networking
         /// Prefer dream-pad NPC; also force-fire leave-door GEs and open the metal door
         /// when EventTrigger requirements block the vanilla path.
         /// </summary>
-        internal void HostFireNpcCloseDialogue(string npcName)
+        internal void HostFireNpcCloseDialogue(NpcRef npcRef)
         {
+            string npcName = npcRef.Name;
             // Still draining lookKeyhole boards; closing early would miss flags or GameEvent wiring.
-            if (_apply.IsWorldDrainActive)
+            // Also while an outcome for this NPC is still queued: closing first would fire
+            // onCloseDialogue before the outcome it depends on has been applied.
+            if (_apply.IsWorldDrainActive || _apply.HasDeferredApplyFor(npcRef))
             {
-                _apply.DeferCloseUntilDrainDone(npcName);
+                _apply.DeferCloseUntilDrainDone(npcRef);
                 ModRuntime.LegacyInfo(
-                    "[DialogOutcome] defer onCloseDialogue until world-only drain finishes NPC="
-                    + npcName);
+                    $"[DialogOutcome] defer onCloseDialogue until world-only drain finishes NPC={npcRef}");
                 return;
             }
 
-            NPC npc = FindNpcByName(npcName);
+            NPC npc = ResolveNpc(npcRef);
             if (npc == null || npc.gameObject == null)
             {
-                ModRuntime.Log?.LogWarning(
-                    "[DialogOutcome] onCloseDialogue skip — NPC '" + npcName + "' not found");
+                ModLog.WarnRate(LogCat.World, "dlg-close-npc-miss:" + npcName,
+                    "[DialogOutcome] onCloseDialogue skip — NPC '" + npcRef + "' not found");
                 return;
             }
 
             Vector3 npcPos = npc.transform.position;
-            if (DreamSyncManager.IsDreamActive)
+            // A talk in the dream closes on the pad twin only. The sender's world bit says which;
+            // without a spot (older peer) any active dream counts, as before.
+            if (npcRef.HasPos ? npcRef.Dream : DreamSyncManager.IsDreamActive)
             {
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
                 bool onPad = dreamRoot != null
@@ -54,14 +59,12 @@ namespace DWMPHorde.Networking
                 if (!onPad)
                 {
                     ModRuntime.LegacyInfo(
-                        "[DialogOutcome] skip onCloseDialogue — dream pad NPC not ready for "
-                        + npcName);
+                        $"[DialogOutcome] skip onCloseDialogue — dream pad NPC not ready for {npcName}");
                     return;
                 }
             }
             ModRuntime.LegacyInfo(
-                "[DialogOutcome] host replaying onCloseDialogue for NPC=" + npcName
-                + " at (" + npcPos.x.ToString("F0") + "," + npcPos.z.ToString("F0") + ")");
+                $"[DialogOutcome] host replaying onCloseDialogue for NPC={npcName} at ({npcPos.x.ToString("F0")},{npcPos.z.ToString("F0")})");
 
             // Pre-arm mute window before onCloseDialogue / leave-door GE so peer DoorOpen
             // applies without a second openSound (GE already played it).
@@ -95,16 +98,20 @@ namespace DWMPHorde.Networking
                     catch { /* ignore */ }
                 }
 
-                // Replay leave-door events under the dream pad when the normal
-                // close trigger did not run.
-                int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
+                // Replay leave-door events under the dream pad when the normal close trigger
+                // did not run. Only for the bunker door NPC: any other NPC closing during a
+                // dream must not re-fire the door's one-shot events or force a door open.
+                if (dialogueDoorNpc)
+                {
+                    int leaveFired = HostFireDreamLeaveDoorGameEvents(npcPos);
 
-                // If the leave-door event opened the door, skip force-open so
-                // the client hears one open sound.
-                if (leaveFired == 0)
-                    DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
-                else
-                    DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
+                    // If the leave-door event opened the door, skip force-open so
+                    // the client hears one open sound.
+                    if (leaveFired == 0)
+                        DWMPHorde.Patches.DialogueDoorAftermath.HostEnsureDialogueDoorOpen(npcPos);
+                    else
+                        DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
+                }
             }
             catch (Exception ex)
             {
@@ -159,8 +166,7 @@ namespace DWMPHorde.Networking
                     ge.fire();
                     fired++;
                     ModRuntime.LegacyInfo(
-                        "[DialogOutcome] host force-fired leave-door GE '" + n
-                        + "' wasFired=" + wasFired);
+                        $"[DialogOutcome] host force-fired leave-door GE '{n}' wasFired={wasFired}");
                 }
                 catch (Exception ex)
                 {
@@ -180,6 +186,17 @@ namespace DWMPHorde.Networking
         }
 
         internal static NPC FindNpcByName(string name, bool preferDreamPad)
+            => FindNpcByName(name, preferDreamPad, strictPad: false);
+
+        /// <summary>
+        /// <paramref name="strictPad"/>: with a dream active, return only an NPC on the dream pad
+        /// (null when the pad twin is not loaded yet) and never fall back to the overworld twin.
+        /// Callers that fire events or SetActive the result must use it (clone trap).
+        /// <paramref name="lookupOnly"/>: a reader that only wants the NPC if it is there (a state
+        /// snapshot): no miss warning, and an inactive one is not woken (a join woke the night
+        /// trader by day).
+        /// </summary>
+        internal static NPC FindNpcByName(string name, bool preferDreamPad, bool strictPad, bool lookupOnly = false)
         {
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
@@ -223,13 +240,84 @@ namespace DWMPHorde.Networking
             }
 
             // Prefer the dream pad because the overworld bunker also has door_underground.
-            NPC found = bestDream ?? bestActive ?? bestAny;
+            NPC found = strictPad && preferDreamPad ? bestDream : (bestDream ?? bestActive ?? bestAny);
+            if (lookupOnly)
+                return found;
             if (found == null)
             {
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.World, "dlg-find-npc-miss:" + name,
                     $"[DialogOutcome] FindNpc miss '{name}' (scanned {all.Length} NPCs, inactive incl.)");
             }
-            else if (!found.gameObject.activeInHierarchy)
+            else if (!found.gameObject.activeInHierarchy && (dreamRoot == null || found == bestDream))
+            {
+                // Host world-apply needs a live target for displayDialogue / EventTriggers.
+                // Never wake the overworld twin when a dream is active and only it was found.
+                try { found.gameObject.SetActive(true); }
+                catch { /* ignore */ }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The NPC a peer named on the wire: the one of that name at its spot, in its world.
+        /// NPC.name is not unique (every hideout's oven is "oven"), so with a spot the body within
+        /// <see cref="NpcDialogueLockPolicy.SameNpcRadius"/> is it. With none there, a name only one
+        /// NPC of that world carries here is still that NPC (it walked, or its location sits in
+        /// another pad slot on this machine); with several, taking one would bind another
+        /// hideout's oven, so none is taken. Without a spot (an older peer) the name lookup
+        /// decides, as before.
+        /// </summary>
+        internal static NPC ResolveNpc(NpcRef npc, bool strictPad = false)
+        {
+            if (!npc.IsValid) return null;
+            if (!npc.HasPos)
+                return strictPad
+                    ? FindNpcByName(npc.Name, npc.Dream, strictPad: true)
+                    : FindNpcByName(npc.Name);
+            string want = StripCloneSuffix(npc.Name);
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
+            Transform pad = DreamSyncManager.GetDreamLocationTransform();
+            float r2 = NpcDialogueLockPolicy.SameNpcRadius * NpcDialogueLockPolicy.SameNpcRadius;
+            NPC bestActive = null, bestAny = null, lone = null;
+            float bestActiveD = float.MaxValue, bestAnyD = float.MaxValue;
+            int count = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                NPC c = all[i];
+                if (c == null || !NpcNameMatches(c, want)) continue;
+                // The sender's world only: the pad twin and the overworld one share every name.
+                bool onPad = pad != null && c.transform.IsChildOf(pad);
+                if (onPad != npc.Dream) continue;
+                count++;
+                lone = c;
+                Vector3 p = c.transform.position;
+                float dx = p.x - npc.Pos.x;
+                float dz = p.z - npc.Pos.z;
+                float d2 = dx * dx + dz * dz;
+                if (d2 > r2) continue;
+                // Twins at one spot (the shrine alive / dead): the one that is out.
+                if (c.gameObject.activeInHierarchy && d2 < bestActiveD)
+                {
+                    bestActiveD = d2;
+                    bestActive = c;
+                }
+                if (d2 < bestAnyD)
+                {
+                    bestAnyD = d2;
+                    bestAny = c;
+                }
+            }
+
+            NPC found = bestActive ?? bestAny ?? (count == 1 ? lone : null);
+            if (found == null)
+            {
+                ModLog.WarnRate(LogCat.World, "dlg-find-npc-at-miss:" + npc.Name,
+                    $"[DialogOutcome] no NPC '{npc}' (dream={npc.Dream}) within "
+                    + NpcDialogueLockPolicy.SameNpcRadius.ToString("F0") + " of the sender's spot ("
+                    + count + " of that name here)");
+                return null;
+            }
+            if (!found.gameObject.activeInHierarchy)
             {
                 // Host world-apply needs a live target for displayDialogue / EventTriggers.
                 try { found.gameObject.SetActive(true); }

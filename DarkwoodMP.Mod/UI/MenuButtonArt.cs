@@ -23,10 +23,10 @@ namespace DWMPHorde
         /// </summary>
         private const float LetterHeightFracOfRow = 0.55f;
 
-        private static Texture2D _idle;
-        private static Texture2D _hover;
-        private static bool _loadFailed;
-        private static Mesh _quad;
+        private static Texture2D _idle; // process-scoped: loaded asset
+        private static Texture2D _hover; // process-scoped: loaded asset
+        private static bool _loadFailed; // process-scoped: loaded asset
+        private static Mesh _quad; // process-scoped: loaded asset
 
         public static bool TryAttachMultiplayerArt(GameObject buttonGo)
         {

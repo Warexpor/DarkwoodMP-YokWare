@@ -1,4 +1,5 @@
 using System;
+using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
 
@@ -104,9 +105,19 @@ namespace DWMPHorde.Sync
                         if (TryWriteBool(tr, "triggered", true)) break;
                     }
                 }
-                // Disarm while occupied: vanilla interrupt clears inBearTrap (BeartrapStop).
-                ReleaseLocalBearTrapIfNear(go.transform.position);
-                ModRuntime.LegacyInfo("[TrapApply] silent disarm (no FX) " + go.name);
+                // Client Item.disarm fired onDisarmed locally, where one-shots are blocked.
+                // Host apply used switchToTriggered and skipped that trigger.
+                if (ModRuntime.Network is LanNetworkManager trapNet && trapNet.Role == NetworkRole.Host)
+                {
+                    DialogHostApplyGuard.BeginWorldOnly();
+                    try { Core.sendTriggerInfo(go, EventTrigger.Type.onDisarmed); }
+                    catch (Exception ex)
+                    {
+                        ModRuntime.Log?.LogWarning("[TrapApply] onDisarmed: " + ex.Message);
+                    }
+                    finally { DialogHostApplyGuard.EndWorldOnly(); }
+                }
+                ModRuntime.LegacyInfo($"[TrapApply] silent disarm (no FX) {go.name}");
                 return;
             }
 
@@ -181,8 +192,7 @@ namespace DWMPHorde.Sync
                     // visual path and own the end state (destroyOnExplode).
                     string prefabName = expl.explosionPrefab != null ? expl.explosionPrefab.name : "";
                     string soundId = ResolveExplosionSoundId(expl.explodeSound ?? "", go.name, expl) ?? "";
-                    ModRuntime.LegacyInfo("[TrapApply] mushroom blast VFX (Explodes) " + go.name
-                        + " prefab=" + prefabName + " sound=" + soundId + " at " + go.transform.position);
+                    ModRuntime.LegacyInfo($"[TrapApply] mushroom blast VFX (Explodes) {go.name} prefab={prefabName} sound={soundId} at {go.transform.position}");
                     SpawnExplosionVisual(go.transform.position, go.name, prefabName, soundId);
 
                     if (trig != null && trig.alertRadius > 0f)
@@ -194,8 +204,9 @@ namespace DWMPHorde.Sync
                 if (trig != null && trig.alertRadius > 0f)
                     Character.alertInArea(go.transform.position, trig.alertRadius, dangerousSound: false, 1f);
 
-                // Visual sprite + name change (matches original game's OnAfterTrigger call via waitFramesAndRun)
-                if (trig != null)
+                // Visual sprite + name change (vanilla OnAfterTrigger runs it a frame later); a trap
+                // that does not stay after triggering is removed instead (end of this block).
+                if (trig != null && (trig.staysAfterTriggering || trig.multipleTrigger))
                     trig.switchToTriggered();
 
                 // Cancel disarm in progress
@@ -210,12 +221,31 @@ namespace DWMPHorde.Sync
                     }
                 }
 
+                // Vanilla OnAfterTrigger: drop the local player's selection of it, and the
+                // custom cursor action (a sprung mimic no longer offers "Open").
+                Player localSel = Player.Instance;
+                if (localSel != null && localSel.selectedObject != null && localSel.selectedObject == go.transform)
+                    localSel.deselectObject(force: true);
+                if (trig != null && trig.removeCustomCursorActionAfterTrigger)
+                    UnityEngine.Object.Destroy(go.GetComponent<CustomCursorAction>());
+                if (trig != null && !trig.multipleTrigger)
+                {
+                    if (trig.removeSelectableAfterTrigger)
+                        UnityEngine.Object.Destroy(go.GetComponent<Selectable>());
+                    ObjectStages stages = go.GetComponent<ObjectStages>();
+                    if (stages != null)
+                        UnityEngine.Object.Destroy(stages);
+                }
+
                 // Destroy Item only if the prefab is configured to remove it
-                // (if dontDestroyItemAfterTriggering is true, Item stays for hover/name display)
+                // (if dontDestroyItemAfterTriggering is true, Item stays for hover/name display);
+                // vanilla takes its BoxCollider with it.
                 if (trig == null || !trig.dontDestroyItemAfterTriggering)
                 {
                     if (item != null)
                         UnityEngine.Object.Destroy(item);
+                    if (trig != null && !trig.multipleTrigger)
+                        UnityEngine.Object.Destroy(go.GetComponent<BoxCollider>());
                 }
 
                 // Destroy Inventory only if configured to remove it
@@ -227,28 +257,13 @@ namespace DWMPHorde.Sync
                     if (item != null)
                         item.invItem = null;
                 }
-            }
-        }
 
-        /// <summary>
-        /// After silent disarm: free local player still flagged inBearTrap on this trap.
-        /// </summary>
-        private static void ReleaseLocalBearTrapIfNear(Vector3 trapPos)
-        {
-            Player local = Player.Instance;
-            if (local == null || !local.inBearTrap) return;
-            float dx = local.transform.position.x - trapPos.x;
-            float dz = local.transform.position.z - trapPos.z;
-            if (dx * dx + dz * dz > 100f * 100f) return;
-            try
-            {
-                local.interruptAllActions(doDropItem: false, stopBeartrap: true);
-                ModRuntime.LegacyInfo("[TrapApply] released local inBearTrap after silent disarm");
-            }
-            catch (System.Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[TrapApply] interruptAllActions failed: " + ex.Message);
-                local.inBearTrap = false;
+                if (trig != null && !trig.staysAfterTriggering && !trig.multipleTrigger)
+                {
+                    trig.active = false;
+                    trig.canDisarm = false;
+                    Core.RemovePooledPrefab(go.transform);
+                }
             }
         }
 
@@ -272,64 +287,99 @@ namespace DWMPHorde.Sync
         private static Door FindDoorByPos(Vector3 pos)
         {
             Door door = ListTracker<Door>.FindByPosition(pos);
-            if (door != null)
+            if (door != null && door.gameObject.activeInHierarchy)
                 return door;
 
             // Fallback: search all Door instances to catch doors that were
             // spawned dynamically after the tracker's Awake patch ran, or
-            // doors from world-grid chunks the host has loaded.
+            // doors from world-grid chunks the host has loaded. Active before
+            // inactive (vanilla keeps inactive twins at a live door's spot), then nearest.
             Door[] all = WorldQueryHelper.GetCachedSceneComponents<Door>();
+            Door best = null;
+            bool bestActive = false;
+            float bestD = 2f;
             for (int i = 0; i < all.Length && i < 128; i++)
             {
                 Door d = all[i];
                 if (d == null) continue;
-                if (Vector3.Distance(d.transform.position, pos) < 2f)
+                float dist = Vector3.Distance(d.transform.position, pos);
+                if (dist >= 2f) continue;
+                bool active = d.gameObject.activeInHierarchy;
+                if (best == null || (active && !bestActive) || (active == bestActive && dist < bestD))
                 {
-                    ListTracker<Door>.Add(d);
-                    return d;
+                    best = d;
+                    bestActive = active;
+                    bestD = dist;
                 }
             }
-            return null;
+            if (best != null && (bestActive || door == null))
+            {
+                ListTracker<Door>.Add(best);
+                return best;
+            }
+            return door;
         }
 
-        /// <summary>
-        /// Spawns a generator on-demand from <see cref="GeneratorState.ItemType"/>
-        /// when it doesn't exist locally (e.g. remote player turned on a generator
-        /// in an unloaded world chunk).
-        /// </summary>
-        private static Generator SpawnGenerator(GeneratorState gs)
+        private static void QueuePendingGenerator(GeneratorState gs)
         {
-            if (string.IsNullOrEmpty(gs.ItemType))
-                return null;
-
-            if (Singleton<ItemsDatabase>.Instance == null || !Singleton<ItemsDatabase>.Instance.hasItem(gs.ItemType))
-                return null;
-
-            InvItem itemDef = Singleton<ItemsDatabase>.Instance.getItem(gs.ItemType, instantiate: false);
-            if (itemDef == null || itemDef.item == null)
-                return null;
-
-            GameObject prefab = itemDef.item as GameObject;
-            if (prefab == null)
-                return null;
-
-            Vector3 pos = new Vector3(gs.PosX, gs.PosY, gs.PosZ);
-            Quaternion rot = Quaternion.identity;
-            GameObject go = Core.AddPrefab(prefab, pos, rot, null);
-            if (go == null)
-                go = UnityEngine.Object.Instantiate(prefab, pos, rot);
-
-            if (go == null) return null;
-
-            Generator gen = go.GetComponent<Generator>();
-            if (gen != null)
-                ListTracker<Generator>.Add(gen);
-
-            ModRuntime.LegacyInfo("[GeneratorSync] spawned type=" + gs.ItemType + " at " + pos);
-            return gen;
+            Vector3 p = new Vector3(gs.PosX, gs.PosY, gs.PosZ);
+            for (int i = 0; i < _s.PendingGenerators.Count; i++)
+            {
+                GeneratorState q = _s.PendingGenerators[i];
+                if ((new Vector3(q.PosX, q.PosY, q.PosZ) - p).sqrMagnitude < 4f)
+                {
+                    gs.FuelDelta += q.FuelDelta; // a client's pours add up
+                    _s.PendingGenerators[i] = gs;
+                    return;
+                }
+            }
+            if (_s.PendingGenerators.Count >= 32)
+            {
+                _s.PendingGenerators.RemoveAt(0);
+                _s.PendingGeneratorAt.RemoveAt(0);
+            }
+            _s.PendingGenerators.Add(gs);
+            _s.PendingGeneratorAt.Add(Time.unscaledTime);
         }
 
-        /// <summary>Finds a Generator by position via the tracker.</summary>
+        /// <summary>Apply generator states whose generator has appeared (its location spawned).</summary>
+        internal static void TryFlushPendingGenerators()
+        {
+            if (_s.PendingGenerators.Count == 0 || Player.Instance == null || Core.loadingGame)
+                return;
+            if (Time.unscaledTime < _s.NextPendingGeneratorFlush)
+                return;
+            _s.NextPendingGeneratorFlush = Time.unscaledTime + 1f;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                for (int i = _s.PendingGenerators.Count - 1; i >= 0; i--)
+                {
+                    GeneratorState gs = _s.PendingGenerators[i];
+                    Generator gen = FindGeneratorByPos(new Vector3(gs.PosX, gs.PosY, gs.PosZ));
+                    if (gen == null)
+                    {
+                        if (Time.unscaledTime - _s.PendingGeneratorAt[i] > 300f)
+                        {
+                            _s.PendingGenerators.RemoveAt(i);
+                            _s.PendingGeneratorAt.RemoveAt(i);
+                        }
+                        continue;
+                    }
+                    if (gs.FuelDelta > 0.01f)
+                        gen.addFuel(gs.FuelDelta);
+                    ApplyGeneratorState(gen, gs.IsOn, gs.FuelDelta > 0.01f ? gen.fuel : gs.Fuel, gs.LowPower);
+                    _s.PendingGenerators.RemoveAt(i);
+                    _s.PendingGeneratorAt.RemoveAt(i);
+                }
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prevNet);
+            }
+        }
+
         private static Generator FindGeneratorByPos(Vector3 pos)
         {
             Generator gen = ListTracker<Generator>.FindByPosition(pos);
@@ -339,7 +389,7 @@ namespace DWMPHorde.Sync
             // Fallback: search all loaded Generator instances to catch generators
             // that were spawned dynamically after the tracker's Start patch ran.
             Generator[] all = WorldQueryHelper.GetCachedSceneComponents<Generator>();
-            for (int i = 0; i < all.Length && i < 32; i++)
+            for (int i = 0; i < all.Length; i++)
             {
                 Generator g = all[i];
                 if (g == null) continue;

@@ -12,88 +12,27 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
-        public static void TickThrownLightExpiry(LanNetworkManager net)
+        /// <summary>
+        /// Every frame, all roles: advance active light fades (a peer's held match burning out)
+        /// and forget thrown flares that are gone or fully dark. Thrown flares burn out on each
+        /// peer's own vanilla clock (<see cref="FlareClock"/>); nothing is broadcast.
+        /// </summary>
+        public static void TickThrownLights()
         {
             TickThrownLightFades();
-
-            if (net == null || !net.IsConnected) return;
-            if (net.Role != NetworkRole.Host) return;
-            if (_thrownLights.Count == 0) return;
-
-            float now = Time.time;
-            for (int i = _thrownLights.Count - 1; i >= 0; i--)
+            var flares = _s.Thrown.ThrownFlares;
+            for (int i = flares.Count - 1; i >= 0; i--)
             {
-                var t = _thrownLights[i];
-                if (t.Go == null)
-                {
-                    if (t.ThrowId > 0) _thrownById.Remove(t.ThrowId);
-                    _thrownLights.RemoveAt(i);
-                    continue;
-                }
-                if (now < t.ExpireAt)
-                    continue;
-
-                Vector3 pos = t.Go.transform.position;
-                // Broadcast first so peers fade in parallel with host.
-                if (t.ThrowId > 0)
-                {
-                    net.SendThrowableDespawn(new ThrowableDespawnMessage
-                    {
-                        ThrowId = t.ThrowId,
-                        PosX = pos.x,
-                        PosY = pos.y,
-                        PosZ = pos.z
-                    });
-                    _thrownById.Remove(t.ThrowId);
-                }
-                BeginThrownLightFade(t.Go, FlareBurnoutFadeSec);
-                _thrownLights.RemoveAt(i);
-                Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableDespawn] host expired throwId=" + t.ThrowId
-                    + " type=" + t.ItemType + " pos=" + pos);
+                if (flares[i] == null || FlareClock.BurntOut(flares[i]))
+                    flares.RemoveAt(i);
             }
         }
 
-        public static void ApplyThrownDespawn(ThrowableDespawnMessage msg)
+        /// <summary>A thrown flare burning in this world (own throw or a peer's copy): a joiner gets it.</summary>
+        public static void NoteThrownFlare(GameObject go)
         {
-            GameObject go = null;
-            if (msg.ThrowId > 0 && _thrownById.TryGetValue(msg.ThrowId, out var track))
-            {
-                go = track.Go;
-                _thrownById.Remove(msg.ThrowId);
-            }
-            if (go == null)
-            {
-                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                int hitsN = OverlapNear(pos, 3f);
-                for (int i = 0; i < hitsN; i++)
-                {
-                    if (_overlap3D[i] == null) continue;
-                    GameObject root = _overlap3D[i].attachedRigidbody != null
-                        ? _overlap3D[i].attachedRigidbody.gameObject
-                        : _overlap3D[i].gameObject;
-                    string n = root.name.ToLowerInvariant();
-                    if (n.Contains("flare") || root.GetComponentInChildren<Light2D>(true) != null)
-                    {
-                        go = root;
-                        break;
-                    }
-                }
-            }
-
-            for (int i = _thrownLights.Count - 1; i >= 0; i--)
-            {
-                if (_thrownLights[i].ThrowId == msg.ThrowId || _thrownLights[i].Go == go)
-                    _thrownLights.RemoveAt(i);
-            }
-
-            if (go != null)
-            {
-                Logging.ModLog.Event(Logging.LogCat.World,
-                    "[ThrowableDespawn] peer fade throwId=" + msg.ThrowId + " go=" + go.name);
-                BeginThrownLightFade(go, FlareBurnoutFadeSec);
-            }
-            else
-                Logging.ModLog.Event(Logging.LogCat.World, "[ThrowableDespawn] no go for throwId=" + msg.ThrowId);
+            if (go != null && !_s.Thrown.ThrownFlares.Contains(go))
+                _s.Thrown.ThrownFlares.Add(go);
         }
 
         /// <summary>Vanilla waitToDie: ramp intensity to 0 over fadeSec, then kill lights/particles/lightFlare.</summary>
@@ -102,9 +41,9 @@ namespace DWMPHorde.Sync
         {
             if (go == null) return;
             // Already fading?
-            for (int i = 0; i < _thrownLightFades.Count; i++)
+            for (int i = 0; i < _s.Thrown.ThrownLightFades.Count; i++)
             {
-                if (_thrownLightFades[i].Go == go)
+                if (_s.Thrown.ThrownLightFades[i].Go == go)
                     return;
             }
 
@@ -160,7 +99,7 @@ namespace DWMPHorde.Sync
                 return;
             }
 
-            _thrownLightFades.Add(new ThrownLightFade
+            _s.Thrown.ThrownLightFades.Add(new ThrownLightFade
             {
                 Go = go,
                 EndTime = Time.time + fadeSec,
@@ -173,16 +112,16 @@ namespace DWMPHorde.Sync
 
         private static void TickThrownLightFades()
         {
-            if (_thrownLightFades.Count == 0) return;
+            if (_s.Thrown.ThrownLightFades.Count == 0) return;
             float now = Time.time;
-            for (int i = _thrownLightFades.Count - 1; i >= 0; i--)
+            for (int i = _s.Thrown.ThrownLightFades.Count - 1; i >= 0; i--)
             {
-                var f = _thrownLightFades[i];
+                var f = _s.Thrown.ThrownLightFades[i];
                 if (f.Go == null)
                 {
                     if (f.SiblingDestroy != null)
                         UnityEngine.Object.Destroy(f.SiblingDestroy);
-                    _thrownLightFades.RemoveAt(i);
+                    _s.Thrown.ThrownLightFades.RemoveAt(i);
                     continue;
                 }
                 float left = f.EndTime - now;
@@ -210,7 +149,7 @@ namespace DWMPHorde.Sync
                         ExtinguishThrownLightImmediate(f.SiblingDestroy);
                         UnityEngine.Object.Destroy(f.SiblingDestroy);
                     }
-                    _thrownLightFades.RemoveAt(i);
+                    _s.Thrown.ThrownLightFades.RemoveAt(i);
                 }
             }
         }
@@ -259,8 +198,6 @@ namespace DWMPHorde.Sync
             }
             foreach (var fl in go.GetComponentsInChildren<Flare>(true))
                 UnityEngine.Object.Destroy(fl);
-            foreach (var auth in go.GetComponentsInChildren<NetworkFlareLifetime>(true))
-                UnityEngine.Object.Destroy(auth);
             foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
             {
                 if (ps != null)
@@ -274,48 +211,34 @@ namespace DWMPHorde.Sync
         public static bool IsThrownLightFading(GameObject go)
         {
             if (go == null) return false;
-            for (int i = 0; i < _thrownLightFades.Count; i++)
+            for (int i = 0; i < _s.Thrown.ThrownLightFades.Count; i++)
             {
-                if (_thrownLightFades[i].Go == go || _thrownLightFades[i].SiblingDestroy == go)
+                if (_s.Thrown.ThrownLightFades[i].Go == go || _s.Thrown.ThrownLightFades[i].SiblingDestroy == go)
                     return true;
             }
             return false;
         }
 
-        /// <summary>Compatibility name for the fade-then-extinguish path.</summary>
-        private static void ExtinguishThrownLight(GameObject go)
-        {
-            BeginThrownLightFade(go, FlareBurnoutFadeSec);
-        }
-
-        /// <summary>Late-join: re-send still-burning thrown flares as grounded burns (no flight).</summary>
+        /// <summary>Late join: thrown flares still burning, as grounded copies at their current age.</summary>
         public static void SendActiveThrownLightsTo(LanNetworkManager net, int playerId)
         {
             if (net == null || net.Role != NetworkRole.Host || playerId <= 0)
                 return;
             int sent = 0;
-            float now = Time.time;
-            for (int i = 0; i < _thrownLights.Count; i++)
+            var flares = _s.Thrown.ThrownFlares;
+            for (int i = 0; i < flares.Count; i++)
             {
-                var t = _thrownLights[i];
-                if (t.Go == null || now >= t.ExpireAt) continue;
-                Vector3 p = t.Go.transform.position;
-                // Peer needs remaining-until-dark (= until fade start + fade).
-                float remain = Mathf.Max(0.15f, (t.ExpireAt - now) + FlareBurnoutFadeSec);
-                // Distance=0 + zero vel + no land → grounded spawn branch (F7).
+                GameObject go = flares[i];
+                if (go == null || FlareClock.BurntOut(go)) continue;
+                Vector3 p = go.transform.position;
+                // Distance=0 + zero vel + no land → grounded spawn branch.
                 var msg = new ThrowableSpawnMessage
                 {
-                    ItemType = t.ItemType ?? "flare",
+                    ItemType = FlareItemTypeOf(go),
                     PosX = p.x,
                     PosY = p.y,
                     PosZ = p.z,
-                    AimY = 0f,
-                    Distance = 0f,
-                    VelX = 0f,
-                    VelY = 0f,
-                    VelZ = 0f,
-                    ThrowId = t.ThrowId,
-                    LongevitySec = remain,
+                    FlareAge = FlareClock.AgeOf(go),
                     HasLandTarget = false
                 };
                 net.SendToPlayer(playerId, NetMessageType.ThrowableSpawn, w => msg.Serialize(w),
@@ -324,8 +247,16 @@ namespace DWMPHorde.Sync
             }
             if (sent > 0)
                 DWMPHorde.Logging.ModLog.Event(DWMPHorde.Logging.LogCat.Session,
-                    "[BulkSync] Thrown lights (grounded) → p" + playerId + ": " + sent);
+                    "[BulkSync] Thrown flares (grounded) → p" + playerId + ": " + sent);
         }
 
+        /// <summary>The item type a thrown flare object is (its Item component), "flare" by default.</summary>
+        private static string FlareItemTypeOf(GameObject go)
+        {
+            Item item = go.GetComponent<Item>();
+            if (item != null && item.invItem != null && !string.IsNullOrEmpty(item.invItem.type))
+                return item.invItem.type;
+            return "flare";
+        }
     }
 }

@@ -18,7 +18,6 @@ namespace DWMPHorde.Networking.Steam
     {
         public const string LobbyKeyMod = "yokware";
         public const string LobbyKeyProto = "proto";
-        public const string LobbyKeyConn = "conn";
         public const string LobbyKeyName = "name";
         /// <summary>Darkwood Steam AppID.</summary>
         public const uint DarkwoodAppId = 274520;
@@ -38,8 +37,22 @@ namespace DWMPHorde.Networking.Steam
         private readonly Dictionary<ulong, HSteamNetConnection> _connBySteamId =
             new Dictionary<ulong, HSteamNetConnection>();
         private readonly Dictionary<uint, ulong> _steamIdByConn = new Dictionary<uint, ulong>();
-        private readonly Dictionary<uint, Queue<byte[]>> _reliableOutbox =
-            new Dictionary<uint, Queue<byte[]>>();
+        /// <summary>Reliable sends parked after k_EResultLimitExceeded, per connection, with their byte total.</summary>
+        private sealed class ReliableOutbox
+        {
+            public readonly Queue<byte[]> Queue = new Queue<byte[]>();
+            public long Bytes;
+        }
+
+        /// <summary>
+        /// Parked reliable bytes one connection may hold. A peer that stops draining past this is
+        /// stalled: it is dropped instead of growing host memory and replaying a stale backlog.
+        /// Comfortably above a full world-share package.
+        /// </summary>
+        private const long MaxReliableOutboxBytes = 96L * 1024 * 1024;
+
+        private readonly Dictionary<uint, ReliableOutbox> _reliableOutbox =
+            new Dictionary<uint, ReliableOutbox>();
 
         private Callback<GameLobbyJoinRequested_t> _cbLobbyJoinRequested;
         private Callback<LobbyChatUpdate_t> _cbLobbyChatUpdate;
@@ -154,6 +167,51 @@ namespace DWMPHorde.Networking.Steam
                 }
             }
             catch { /* ignore */ }
+        }
+
+        /// <summary>
+        /// Chapter resume: re-open SNS listen on a lobby this host kept through the scene load
+        /// (returning clients rejoin the same lobby id). Falls back to a fresh lobby when the
+        /// kept one is gone or no longer owned by this user.
+        /// </summary>
+        public bool StartHost(CSteamID reuseLobby)
+        {
+            if (!reuseLobby.IsValid())
+                return StartHost();
+            if (!IsSteamReady(out string fail))
+            {
+                ModLog.Error(LogCat.Network, "Steam host failed: " + fail);
+                return false;
+            }
+
+            CSteamID owner = CSteamID.Nil;
+            try { owner = SteamMatchmaking.GetLobbyOwner(reuseLobby); }
+            catch { /* lobby unknown */ }
+            if (!owner.IsValid() || owner != LocalSteamId())
+            {
+                ModLog.Warn(LogCat.Network,
+                    "Steam host resume: kept lobby " + reuseLobby.m_SteamID
+                    + " is gone or not owned by this user — creating a new lobby (clients cannot rejoin the old id)");
+                try { SteamMatchmaking.LeaveLobby(reuseLobby); }
+                catch { /* tear */ }
+                return StartHost();
+            }
+
+            EnsureCallbacks();
+            ShutdownInternal(leaveLobby: false);
+            SteamRelay.WarmRelay();
+            if (!CreateListenSocket())
+                return false;
+
+            _hosting = true;
+            _active = true;
+            _hostSteamId = LocalSteamId();
+            _lobbyId = reuseLobby;
+            ApplyHostLobbyData();
+            ModLog.Event(LogCat.Network,
+                "Steam host resume: re-listening on kept lobby " + _lobbyId.m_SteamID);
+            _owner.OnSteamLobbyReady(_lobbyId, isHost: true);
+            return true;
         }
 
         public bool StartHost()
@@ -322,6 +380,7 @@ namespace DWMPHorde.Networking.Steam
             _clientTransportReady = false;
             _clientConnectStartedUtc = DateTime.MinValue;
             _reliableOutbox.Clear();
+            _stalledSteamIds.Clear();
             _pendingHostConnects.Clear();
         }
     }

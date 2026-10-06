@@ -18,7 +18,7 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class WorldSaveShareService
     {
-        private IEnumerator HostShareCoroutine(bool waitForGameSave)
+        private IEnumerator HostShareCoroutine(bool waitForGameSave, int gen)
         {
             _hostShareRunning = true;
             int target = _shareTargetPlayerId;
@@ -38,6 +38,7 @@ namespace DWMPHorde.Networking
                 {
                     waited += Time.unscaledDeltaTime;
                     yield return null;
+                    if (gen != _shareGeneration) yield break;
                 }
             }
 
@@ -51,6 +52,7 @@ namespace DWMPHorde.Networking
                 {
                     waitedProf += Time.unscaledDeltaTime;
                     yield return null;
+                    if (gen != _shareGeneration) yield break;
                     profileId = GetHostProfileId();
                 }
             }
@@ -69,7 +71,7 @@ namespace DWMPHorde.Networking
                     });
                 }
                 catch { /* ignore */ }
-                FinishHostShare(runAfter: true);
+                FinishHostShare(gen, runAfter: true);
                 yield break;
             }
 
@@ -88,7 +90,7 @@ namespace DWMPHorde.Networking
                     });
                 }
                 catch { /* ignore */ }
-                FinishHostShare(runAfter: true);
+                FinishHostShare(gen, runAfter: true);
                 yield break;
             }
 
@@ -111,7 +113,7 @@ namespace DWMPHorde.Networking
                     : "Late-join share: sav/savs inconsistent on disk — force-saving once");
                 try
                 {
-                    LanNetworkManager._isRemoteSaveInProgress = true;
+                    LanNetworkManager.RemoteSaveInProgress = true;
                     try
                     {
                         Singleton<SaveManager>.Instance.Save(
@@ -123,7 +125,7 @@ namespace DWMPHorde.Networking
                     }
                     finally
                     {
-                        LanNetworkManager._isRemoteSaveInProgress = false;
+                        LanNetworkManager.RemoteSaveInProgress = false;
                     }
                 }
                 catch (Exception ex)
@@ -139,12 +141,15 @@ namespace DWMPHorde.Networking
                         });
                     }
                     catch { /* ignore */ }
-                    FinishHostShare(runAfter: true);
+                    FinishHostShare(gen, runAfter: true);
                     yield break;
                 }
 
                 for (int i = 0; i < 3; i++)
+                {
                     yield return null;
+                    if (gen != _shareGeneration) yield break;
+                }
 
                 float waitedFiles = 0f;
                 while (waitedFiles < 5f)
@@ -153,6 +158,7 @@ namespace DWMPHorde.Networking
                         break;
                     waitedFiles += Time.unscaledDeltaTime;
                     yield return null;
+                    if (gen != _shareGeneration) yield break;
                 }
             }
             else if (hasAnyFiles)
@@ -176,55 +182,57 @@ namespace DWMPHorde.Networking
                     });
                 }
                 catch { /* ignore */ }
-                FinishHostShare(runAfter: true);
+                FinishHostShare(gen, runAfter: true);
                 yield break;
             }
 
             LogSavPairTimestamps(savPath, savsPath);
 
-            // Pack one file per frame. ReadAllBytes plus Deflate of the save file on one frame
-            // freezes the host mid-game (the hitch users call an "event"). Horde Resend
-            // only ran when the host wasn't mid-combat dual-box load.
-            var files = new List<PackedFile>();
-            foreach (string name in FileNames)
+            // Read the whole save set in ONE main-thread step. Save also runs on the main thread, so
+            // no Save (SaveSync fan-out, sleep, F3) can land between two files and hand clients a
+            // sav/savs pair from different moments. Only Deflate runs off-thread, one file per frame.
+            List<KeyValuePair<string, byte[]>> snapshot = null;
+            Exception readEx = null;
+            for (int attempt = 0; attempt < 3 && snapshot == null; attempt++)
             {
-                string path = Path.Combine(profDir, name);
-                if (!File.Exists(path))
+                if (attempt > 0)
                 {
-                    ModLog.Event(LogCat.Save, "Share skip missing file: " + path);
-                    continue;
-                }
-
-                ProgressText = "Reading " + name + "…";
-                _net.StatusText = ProgressText;
-                yield return null;
-
-                // Read and Deflate off the main thread to avoid a long main-thread hitch.
-                byte[] raw = null;
-                Exception ioEx = null;
-                bool ioDone = false;
-                string pathCapture = path;
-                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    try { raw = File.ReadAllBytes(pathCapture); }
-                    catch (Exception ex) { ioEx = ex; }
-                    finally { ioDone = true; }
-                });
-                while (!ioDone)
                     yield return null;
-
-                if (ioEx != null)
-                {
-                    ModLog.Error(LogCat.Save, "Failed reading " + name, ioEx);
-                    continue;
+                    if (gen != _shareGeneration) yield break;
                 }
+                try { snapshot = ReadSaveSetSnapshot(profDir); }
+                catch (Exception ex) { readEx = ex; }
+            }
+            if (snapshot == null)
+            {
+                ModLog.Error(LogCat.Save, "Failed reading save files for share (prof" + profileId + ")", readEx);
+                ProgressText = WorldSharePolicy.FormatShareFailure(
+                    "could not read save files: " + (readEx != null ? readEx.Message : "unknown"));
+                _net.StatusText = ProgressText;
+                try
+                {
+                    SendShare(target, NetMessageType.WorldSaveEnd, w =>
+                    {
+                        new WorldSaveEndMessage { Success = false }.Serialize(w);
+                    });
+                }
+                catch { /* ignore */ }
+                FinishHostShare(gen, runAfter: true);
+                yield break;
+            }
 
+            var files = new List<PackedFile>();
+            foreach (KeyValuePair<string, byte[]> entry in snapshot)
+            {
+                string name = entry.Key;
+                byte[] raw = entry.Value;
                 if (raw == null || raw.Length == 0)
                     continue;
 
                 ProgressText = "Compressing " + name + " (" + (raw.Length / 1024) + " KB)…";
                 _net.StatusText = ProgressText;
                 yield return null;
+                if (gen != _shareGeneration) yield break;
 
                 byte[] compressed = null;
                 Exception packEx = null;
@@ -237,7 +245,10 @@ namespace DWMPHorde.Networking
                     finally { packDone = true; }
                 });
                 while (!packDone)
+                {
                     yield return null;
+                    if (gen != _shareGeneration) yield break;
+                }
 
                 if (packEx != null)
                 {
@@ -248,6 +259,7 @@ namespace DWMPHorde.Networking
                     continue;
 
                 yield return null;
+                if (gen != _shareGeneration) yield break;
 
                 int chunkCount = (compressed.Length + ChunkSize - 1) / ChunkSize;
                 if (chunkCount < 1) chunkCount = 1;
@@ -262,7 +274,10 @@ namespace DWMPHorde.Networking
                     chunks[c] = slice;
                     // Slice large compressed buffers across frames too
                     if ((c & 31) == 31)
+                    {
                         yield return null;
+                        if (gen != _shareGeneration) yield break;
+                    }
                 }
 
                 files.Add(new PackedFile
@@ -276,6 +291,7 @@ namespace DWMPHorde.Networking
                     "Packed " + name + " raw=" + raw.Length + " compressed=" + compressed.Length
                     + " chunks=" + chunkCount);
                 yield return null;
+                if (gen != _shareGeneration) yield break;
             }
 
             if (files.Count == 0)
@@ -291,7 +307,7 @@ namespace DWMPHorde.Networking
                     });
                 }
                 catch { /* ignore */ }
-                FinishHostShare(runAfter: true);
+                FinishHostShare(gen, runAfter: true);
                 yield break;
             }
 
@@ -316,7 +332,14 @@ namespace DWMPHorde.Networking
                 UncompressedSizes = new int[files.Count],
                 CompressedSizes = new int[files.Count],
                 ChunkCounts = new int[files.Count],
-                CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId)
+                CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignId(profileId),
+                Difficulty = Core.currentProfile != null ? (int)Core.currentProfile.difficulty : 0,
+                PrologueOffered = Sync.PersonalPrologue.HostOffersPrologue(),
+                // A broadcast opens a new pass; a per-peer re-send belongs to the running one, so the
+                // other peers' acks for the broadcast stay valid.
+                SharePass = _shareTargetPlayerId > 0
+                    ? Patches.ChapterTransitionHelpers.HostSharePass
+                    : Patches.ChapterTransitionHelpers.NextHostSharePass()
             };
             int totalChunks = 0;
             for (int i = 0; i < files.Count; i++)
@@ -333,6 +356,8 @@ namespace DWMPHorde.Networking
                 + " profile slot " + profileId
                 + ": " + files.Count + " files, " + totalChunks + " chunks, ch" + chapter + " day" + day);
 
+            if (target <= 0)
+                _broadcastRecipients = new HashSet<int>(_net.EnumeratePeerIds());
             SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
 
             int sent = 0;
@@ -365,6 +390,7 @@ namespace DWMPHorde.Networking
                     {
                         frameBudget = 0;
                         yield return null;
+                        if (gen != _shareGeneration) yield break;
                     }
                 }
             }
@@ -373,11 +399,20 @@ namespace DWMPHorde.Networking
             {
                 new WorldSaveEndMessage { Success = true }.Serialize(w);
             });
+            if (begin.PrologueOffered)
+            {
+                // A recipient new to the world plays the prologue offline before it comes back. Only
+                // one that got the whole world: a download cut short brings nobody to wait for.
+                IEnumerable<int> recipients = target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients;
+                foreach (int id in recipients)
+                    if (_net.HasPeer(id) && _net.TryGetStableClientKeyForPlayer(id, out string key))
+                        Sync.PersonalPrologue.HostNoteShared(key);
+            }
 
             ProgressText = "World shared → client profile " + profileId;
             _net.StatusText = ProgressText;
             ModLog.Event(LogCat.Save, "World save share complete (" + sent + " chunks → slot " + profileId + ")");
-            FinishHostShare(runAfter: true);
+            FinishHostShare(gen, runAfter: true);
         }
 
         private void SendShare(int targetPlayerId, NetMessageType type, System.Action<NetWriter> write)
@@ -386,22 +421,58 @@ namespace DWMPHorde.Networking
             {
                 _net.SendToPlayer(targetPlayerId, type, write, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }
+            else if (_broadcastRecipients != null)
+            {
+                // Begin already went to a fixed set; a peer that joined since would get chunks
+                // with no Begin. Send only to the peers that did get it (a departed one is a no-op).
+                foreach (int id in _broadcastRecipients)
+                    _net.SendToPlayer(id, type, write, LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
             else
             {
                 _net.SendToAll(type, write, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }
         }
 
-        private void FinishHostShare(bool runAfter)
+        private void FinishHostShare(int gen, bool runAfter)
         {
+            // A share from a torn-down session must not clear the running flag or fire callbacks
+            // that now belong to the next session's share.
+            if (gen != _shareGeneration)
+                return;
             _hostShareRunning = false;
             _shareTargetPlayerId = -1;
-            if (!runAfter) return;
-            Action after = _afterHostShare;
+            _broadcastRecipients = null;
+            _hostShareCoroutine = null;
+            Action after = runAfter ? _afterHostShare : null;
             _afterHostShare = null;
-            if (after == null) return;
-            try { after(); }
-            catch (Exception ex) { ModLog.Error(LogCat.Save, "afterHostShare failed", ex); }
+            if (after != null && _rerunBroadcast && gen == _shareGeneration)
+            {
+                // The chapter callback (host commit wait) belongs after the re-run that sends the
+                // fresh files; starting it now would wait on acks for a package being superseded,
+                // and the re-run's own callback would then be dropped by the running-wait guard.
+                _rerunAfter += after;
+                after = null;
+            }
+            if (after != null)
+            {
+                try { after(); }
+                catch (Exception ex) { ModLog.Error(LogCat.Save, "afterHostShare failed", ex); }
+            }
+
+            // A broadcast was requested mid-share: send to everyone now with fresh files.
+            if (_rerunBroadcast && gen == _shareGeneration && !_hostShareRunning)
+            {
+                bool wait = _rerunWaitForSave;
+                Action rerunAfter = _rerunAfter;
+                _rerunBroadcast = false;
+                _rerunWaitForSave = false;
+                _rerunAfter = null;
+                ModLog.Event(LogCat.Save, "World share finished — re-running broadcast queued during it");
+                // Acks counted for the share that just ended do not vouch for the files sent now.
+                Patches.ChapterTransitionHelpers.HostShareRestarted();
+                ScheduleHostShare(wait, rerunAfter, targetPlayerId: -1);
+            }
         }
     }
 }

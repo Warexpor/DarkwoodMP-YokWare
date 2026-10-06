@@ -21,6 +21,8 @@ namespace DWMPHorde.Patches
         private static void Postfix(DialogueWindow __instance, NPC __state)
         {
             if (__state == null) return;
+            // A listener's view changed nothing of the tree.
+            if (DialogMirror.Closing) return;
             // Exit-dialogue early return leaves npc set — not a finished conversation.
             if (__instance != null && __instance.npc != null) return;
 

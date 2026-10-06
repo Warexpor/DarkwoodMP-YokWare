@@ -29,7 +29,7 @@ namespace DWMPHorde.Patches
             if (Sync.FinalDreamsceneManager.IsActive)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             DeathDrop deathDrop = FindDeathDropAt(destPos);
@@ -52,15 +52,23 @@ namespace DWMPHorde.Patches
             var amounts = new List<int>();
             var durabilities = new List<float>();
             var ammos = new List<int>();
+            var recipes = new List<bool>();
+            var upgrades = new List<string[]>();
+            var actives = new List<bool>();
 
             foreach (InvSlot slot in bagInv.slots)
             {
                 if (!InvItemClass.isNull(slot.invItem))
                 {
-                    types.Add(slot.invItem.type);
+                    // recipes share type "recipe" — wire craftable + IsRecipe.
+                    bool isRecipe = slot.invItem.isRecipe;
+                    types.Add(isRecipe ? slot.invItem.recipeFor : slot.invItem.type);
                     amounts.Add(slot.invItem.amount);
                     durabilities.Add(slot.invItem.durability);
                     ammos.Add(slot.invItem.ammo);
+                    recipes.Add(isRecipe);
+                    upgrades.Add(Sync.InvItemUpgradeWire.CollectNames(slot.invItem));
+                    actives.Add(slot.invItem.shouldBeActive);
                 }
             }
 
@@ -81,7 +89,14 @@ namespace DWMPHorde.Patches
                 ItemAmounts = amounts.ToArray(),
                 ItemDurabilities = durabilities.ToArray(),
                 ItemAmmos = ammos.ToArray(),
-                BagId = bagId
+                BagId = bagId,
+                IsRecipe = recipes.ToArray(),
+                ItemUpgrades = upgrades.ToArray(),
+                ShouldBeActive = actives.ToArray(),
+                HasMarker = deathDrop.additionalMapMarker != null,
+                MarkerX = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.x : 0f,
+                MarkerY = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.y : 0f,
+                MarkerZ = deathDrop.additionalMapMarker != null ? deathDrop.additionalMapMarker.transform.position.z : 0f
             };
 
             net.Broadcast(NetMessageType.DeathBagSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

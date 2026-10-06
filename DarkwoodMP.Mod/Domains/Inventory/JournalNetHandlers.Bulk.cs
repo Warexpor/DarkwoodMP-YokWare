@@ -115,12 +115,24 @@ namespace DWMPHorde.Networking
                 }
             }
 
+            if (msg.LocationTypes != null && journal.locationsDict != null)
+            {
+                for (int i = 0; i < msg.LocationTypes.Length; i++)
+                {
+                    string type = msg.LocationTypes[i];
+                    if (string.IsNullOrEmpty(type) || journal.locationsDict.ContainsKey(type))
+                        continue;
+                    journal.locationsDict.Add(type, type);
+                }
+            }
+
             // Late join: remove world pickups already claimed by the host journal.
             _needsJournalWorldCleanup = true;
             TryJournalWorldCleanup();
             ModRuntime.LegacyInfo(
                 $"[BulkSync] Journal applied notes={msg.NoteTypes?.Length ?? 0} keys={msg.KeyTypes?.Length ?? 0} " +
-                $"quest={msg.QuestItemTypes?.Length ?? 0} entries={msg.JournalEntryTypes?.Length ?? 0}");
+                $"quest={msg.QuestItemTypes?.Length ?? 0} entries={msg.JournalEntryTypes?.Length ?? 0} " +
+                $"locs={msg.LocationTypes?.Length ?? 0}");
         }
 
         /// <summary>
@@ -196,8 +208,6 @@ namespace DWMPHorde.Networking
             _needsJournalWorldCleanup = false;
         }
 
-        internal void SendJournalBulkSync() => SendJournalBulkSyncTo(-1);
-
         internal void SendJournalBulkSyncTo(int targetPlayerId)
         {
             Journal journal = Singleton<UI>.Instance?.journal;
@@ -207,29 +217,45 @@ namespace DWMPHorde.Networking
 
             var msg = new JournalBulkSyncMessage();
 
-            var notes = journal.notesDict.Keys;
-            msg.NoteTypes = new string[notes.Count];
-            int idx = 0;
-            foreach (var key in notes)
-                msg.NoteTypes[idx++] = key;
+            // The world's pages only: a dream's (vanilla inDream) go when that dream ends, and the
+            // joiner is not in it (the host's prologue pages became its world pages).
+            var notes = new List<string>(journal.notesDict.Count);
+            foreach (var kv in journal.notesDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    notes.Add(kv.Key);
+            msg.NoteTypes = notes.ToArray();
 
-            var keys = journal.keysDict.Keys;
-            msg.KeyTypes = new string[keys.Count];
-            idx = 0;
-            foreach (var key in keys)
-                msg.KeyTypes[idx++] = key;
+            var keys = new List<string>(journal.keysDict.Count);
+            foreach (var kv in journal.keysDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    keys.Add(kv.Key);
+            msg.KeyTypes = keys.ToArray();
 
-            var questItems = journal.itemsDict.Keys;
-            msg.QuestItemTypes = new string[questItems.Count];
-            idx = 0;
-            foreach (var key in questItems)
-                msg.QuestItemTypes[idx++] = key;
+            var questItems = new List<string>(journal.itemsDict.Count);
+            foreach (var kv in journal.itemsDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    questItems.Add(kv.Key);
+            msg.QuestItemTypes = questItems.ToArray();
 
-            var journalEntries = journal.journalEntriesDict.Keys;
-            msg.JournalEntryTypes = new string[journalEntries.Count];
-            idx = 0;
-            foreach (var key in journalEntries)
-                msg.JournalEntryTypes[idx++] = key;
+            var journalEntries = new List<string>(journal.journalEntriesDict.Count);
+            foreach (var kv in journal.journalEntriesDict)
+                if (kv.Value == null || !kv.Value.inDream)
+                    journalEntries.Add(kv.Key);
+            msg.JournalEntryTypes = journalEntries.ToArray();
+            int idx;
+
+            if (journal.locationsDict != null)
+            {
+                var locs = journal.locationsDict.Keys;
+                msg.LocationTypes = new string[locs.Count];
+                idx = 0;
+                foreach (var key in locs)
+                    msg.LocationTypes[idx++] = key;
+            }
+            else
+            {
+                msg.LocationTypes = System.Array.Empty<string>();
+            }
 
             _net.SendBulkOrAll(NetMessageType.JournalBulkSync, w => msg.Serialize(w), targetPlayerId);
         }
@@ -250,7 +276,9 @@ namespace DWMPHorde.Networking
 
         internal void HandleVaultState(VaultStateMessage msg)
         {
-            int playerId = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
+            int playerId = _net.Role == NetworkRole.Host
+                ? _net.CurrentReceivePlayerId
+                : (msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId);
             if (playerId <= 0)
                 return;
 

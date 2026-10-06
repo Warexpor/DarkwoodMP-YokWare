@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Steamworks;
+using DWMPHorde.Networking.Steam;
 using DWMPHorde.Sync;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -21,7 +23,13 @@ namespace DWMPHorde.Networking
             else
                 data.PlayerId = 0;
 
+            // SteamID64 is the preferred stable host disk key across PlayerId reshuffles.
+            data.SteamId = TryResolveLocalSteamIdString();
+            // LAN / non-Steam: install-scoped key (Steam+SecondDarkwood dual-box path).
+            data.StableClientKey = GetOrCreateLanClientKey();
+
             data.Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            data.Chapter = Singleton<WorldGenerator>.Instance != null ? Singleton<WorldGenerator>.Instance.chapterID : 0;
             data.CampaignId = CoopWorldCopyMeta.GetOrCreateCampaignIdForCurrentProfile();
             data.ContentFingerprint = CoopWorldCopyMeta.TryGetCurrentContentFingerprint();
 
@@ -30,10 +38,26 @@ namespace DWMPHorde.Networking
             Vector3 pos = ResolveOverworldBackupPosition(player);
             data.PosX = pos.x; data.PosY = pos.y; data.PosZ = pos.z;
 
-            data.Health = player.health;
+            // On the dream pad the live bag, health, effects and clock are the dream's. Vanilla
+            // keeps the real ones aside and puts them back at wake-up (Dreams.*Copy, then a full
+            // heal in Player.endDreaming): a quit or drop mid-dream saved the dream kit as the
+            // player's own, and the next join restored it.
+            Dreams dreams = Dreams.Instance;
+            bool inDream = dreams != null && dreams.dreaming && !player.firstPlay;
+
+            data.Health = inDream ? player.maxHealth : player.health;
+            if (player.experienceMachine != null)
+            {
+                Vector3 home = player.experienceMachine.transform.position;
+                data.HasHomeOven = true;
+                data.HomeOvenX = home.x;
+                data.HomeOvenY = home.y;
+                data.HomeOvenZ = home.z;
+            }
             data.Stamina = player.stamina;
             data.Experience = player.experience;
             data.CurrentLevel = player.currentLevel;
+            data.DreamLvlFlags = Sync.DreamSession.ReadLocalLvlFlags();
             data.HealthUpgrades = player.healthUpgrades;
             data.StaminaUpgrades = player.staminaUpgrades;
             data.HotbarUpgrades = player.hotbarUpgrades;
@@ -60,6 +84,7 @@ namespace DWMPHorde.Networking
             if (player.skills != null)
             {
                 data.SkillPoints = player.skills.SkillPoints;
+                data.CanActivateSkill = player.skills.canActivateSkill;
                 if (player.skills.skills != null)
                 {
                     data.Skills = new List<SkillEntry>();
@@ -87,39 +112,125 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            if (player.Inventory?.slots != null)
+            List<InvSlot> invSlots = inDream ? dreams.inventorySlotsCopy : player.Inventory?.slots;
+            if (invSlots != null)
             {
                 data.InventoryItems = new List<ItemEntry>();
-                for (int i = 0; i < player.Inventory.slots.Count; i++)
+                for (int i = 0; i < invSlots.Count; i++)
                 {
-                    var slot = player.Inventory.slots[i];
+                    var slot = invSlots[i];
                     if (slot != null && !InvItemClass.isNull(slot.invItem))
                         data.InventoryItems.Add(MakeItemEntry(slot.invItem, i));
                 }
             }
 
-            if (player.Hotbar?.slots != null)
+            List<InvSlot> hotSlots = inDream ? dreams.hotbarSlotsCopy : player.Hotbar?.slots;
+            if (hotSlots != null)
             {
                 data.HotbarItems = new List<ItemEntry>();
-                for (int i = 0; i < player.Hotbar.slots.Count; i++)
+                for (int i = 0; i < hotSlots.Count; i++)
                 {
-                    var slot = player.Hotbar.slots[i];
+                    var slot = hotSlots[i];
                     if (slot != null && !InvItemClass.isNull(slot.invItem))
                         data.HotbarItems.Add(MakeItemEntry(slot.invItem, i));
                 }
+                // Prefer live selected flag; getSelectedSlotId returns 0 when none.
+                // Vanilla selects slot 0 at wake-up.
+                data.HotbarSelectedSlot = inDream ? 0 : player.Hotbar.getSelectedSlotId();
             }
+
+            data.ActiveEffects = inDream ? CollectSavedEffects(dreams.effectsCopy) : CollectActiveEffects(player);
+            data.LocalMapMarkers = CollectLocalMapMarkers();
 
             var controller = Singleton<Controller>.Instance;
             if (controller != null)
             {
                 data.Day = controller.day;
-                data.GameTimeMinutes = controller.CurrentTime;
+                data.GameTimeMinutes = inDream ? (int)dreams.timeCopy : controller.CurrentTime;
             }
 
-        // Persist morning-trader reputation per player rather than in host-shared bulk.
+            // Persist morning-trader reputation per player rather than in host-shared bulk.
             data.NightTraderReputations = CollectNightTraderReputations();
+            data.PlayerFlags = CollectPlayerFlags();
+            data.CraftedItems = CollectCraftedItems(player);
 
             return data;
+        }
+
+        private static List<CraftedEntry> CollectCraftedItems(Player player)
+        {
+            var list = new List<CraftedEntry>();
+            if (player?.craftedItems == null) return list;
+            for (int i = 0; i < player.craftedItems.Count; i++)
+            {
+                StringAndInt entry = player.craftedItems[i];
+                if (entry == null || string.IsNullOrEmpty(entry._string)) continue;
+                // Skip zero counts (getCraftedItem may insert zeros).
+                if (entry._int <= 0) continue;
+                list.Add(new CraftedEntry { Type = entry._string, Count = entry._int });
+            }
+            return list;
+        }
+
+        private static List<EffectEntry> CollectSavedEffects(CharacterEffects.SaveState saved)
+        {
+            var list = new List<EffectEntry>();
+            if (saved?.effects == null) return list;
+            for (int i = 0; i < saved.effects.Count; i++)
+            {
+                CharacterEffects.SaveState.SavedEffect fx = saved.effects[i];
+                if (fx == null) continue;
+                if (fx.type == CharacterEffectType.damage || fx.type == CharacterEffectType.timeFreeze)
+                    continue;
+                list.Add(new EffectEntry
+                {
+                    Type = (int)fx.type,
+                    Duration = fx.duration,
+                    Modifier = fx.modifier,
+                    Interval = fx.interval,
+                    TimeElapsed = fx.timeElapsed
+                });
+            }
+            return list;
+        }
+
+        private static List<EffectEntry> CollectActiveEffects(Player player)
+        {
+            var list = new List<EffectEntry>();
+            if (player?.effects?.activeEffects == null) return list;
+            for (int i = 0; i < player.effects.activeEffects.Count; i++)
+            {
+                CharacterEffect fx = player.effects.activeEffects[i];
+                if (fx == null) continue;
+                // Instant damage pulse — re-activate would getHit again on restore.
+                if (fx.type == CharacterEffectType.damage)
+                    continue;
+                // timeFreeze toggles Controller.DoUpdateTime globally — host TimeSync owns the clock.
+                if (fx.type == CharacterEffectType.timeFreeze)
+                    continue;
+                list.Add(new EffectEntry
+                {
+                    Type = (int)fx.type,
+                    Duration = fx.duration,
+                    Modifier = fx.modifier,
+                    Interval = fx.interval,
+                    TimeElapsed = fx.timeElapsed
+                });
+            }
+            return list;
+        }
+
+        private static List<MarkerEntry> CollectLocalMapMarkers()
+        {
+            var list = new List<MarkerEntry>();
+            var markers = Sync.MultiplayerMapManager.LocalMarkers;
+            if (markers == null || markers.Count == 0) return list;
+            for (int i = 0; i < markers.Count; i++)
+            {
+                Vector3 p = markers[i];
+                list.Add(new MarkerEntry { X = p.x, Y = p.y, Z = p.z });
+            }
+            return list;
         }
 
         private static List<NpcRepEntry> CollectNightTraderReputations()
@@ -139,22 +250,79 @@ namespace DWMPHorde.Networking
             return list;
         }
 
+
+        /// <summary>Every persisted per-player flag with its value (unset counts as false / 0).</summary>
+        private static List<FlagEntry> CollectPlayerFlags()
+        {
+            var flags = Singleton<Flags>.Instance;
+            if (flags?.flagsDict == null) return null;
+            string[] names = PerPlayerFlagPolicy.PersistedFlags;
+            var list = new List<FlagEntry>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+            {
+                flags.flagsDict.TryGetValue(names[i], out Flags.Flag f);
+                list.Add(new FlagEntry
+                {
+                    Name = names[i],
+                    IsTrue = f != null && f.isTrue,
+                    Amount = f != null ? f.amount : 0
+                });
+            }
+            return list;
+        }
+
+        /// <summary>SteamID64 string for this box when Steamworks is ready; else null.</summary>
+        internal static string TryResolveLocalSteamIdString()
+        {
+            try
+            {
+                var sid = SteamCoopTransport.LocalSteamId();
+                if (sid.IsValid() && sid.m_SteamID != 0)
+                    return sid.m_SteamID.ToString();
+            }
+            catch { /* Steam not ready / non-Steam box */ }
+            return null;
+        }
+
         private static ItemEntry MakeItemEntry(InvItemClass item, int slot)
         {
+            // Mirror vanilla InvItemClass.SaveState (see decompile InvItemClass.SaveState
+            // ctor). Firearm magazine lives in amount when hasAmmo; createItem maps
+            // Amount → ammo. Also persist shouldBeActive / timeDeactivated / upgrades
+            // — durability alone is not enough for flashlight on/off or workbench
+            // ItemUpgrade damage/durability modifiers (melee/armor).
+            bool hasAmmo = item.baseClass != null && item.baseClass.hasAmmo;
+            List<string> upgrades = null;
+            if (item.upgrades != null && item.upgrades.Count > 0)
+            {
+                upgrades = new List<string>(item.upgrades.Count);
+                for (int u = 0; u < item.upgrades.Count; u++)
+                {
+                    ItemUpgrade up = item.upgrades[u];
+                    if (up != null && !string.IsNullOrEmpty(up.name))
+                        upgrades.Add(up.name);
+                }
+                if (upgrades.Count == 0)
+                    upgrades = null;
+            }
             return new ItemEntry
             {
                 Slot = slot,
                 Type = item.type,
                 Durability = item.durability,
-                Amount = item.amount,
+                Amount = hasAmmo ? item.ammo : item.amount,
                 IsRecipe = item.isRecipe,
-                RecipeFor = item.recipeFor
+                RecipeFor = item.recipeFor,
+                ShouldBeActive = item.shouldBeActive,
+                Upgrades = upgrades,
+                TimeDeactivated = item.timeDeactivated
             };
         }
 
         public static string SerializeToJson(ClientStateBackupData data)
         {
-            return JsonConvert.SerializeObject(data, Formatting.Indented);
+            // Compact: this string is also the wire payload, and indentation roughly doubled it.
+            return JsonConvert.SerializeObject(data, Formatting.None);
         }
 
         public static ClientStateBackupData DeserializeFromJson(string json)
@@ -200,6 +368,13 @@ namespace DWMPHorde.Networking
 
             if (!IsDreamPadCoordinate(live))
                 return live;
+
+            // Inside a cellar / bunker / house pad (every pad slot is past the pad bound): the world
+            // point vanilla keeps for the return trip, so a rejoin lands where the player went in.
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol != null && ol.playerInOutsideLocation
+                && ol.positionCopy.sqrMagnitude > 0.01f && !IsDreamPadCoordinate(ol.positionCopy))
+                return ol.positionCopy;
 
             // Overworld flags but body still on pad (corrupted positionCopy / mid-end).
             if (Dreams.Instance != null)

@@ -98,7 +98,11 @@ namespace DWMPHorde.Networking
             // Visual transitions via public API (startRain / stopRain / fog)
             if (msg.Raining != wasRaining)
             {
-                if (msg.Raining)
+                // Inside a location pad the rain stays out of sight until return (and inside
+                // an underground one vanilla startRain would not start it at all).
+                if (msg.Raining && Patches.PadWeather.LocalInPad())
+                    Patches.PadWeather.StartHidden(rain);
+                else if (msg.Raining)
                     rain.Raining = true;
                 else
                     rain.Raining = false;
@@ -127,6 +131,7 @@ namespace DWMPHorde.Networking
                 && Player.Instance != null
                 && Player.Instance.whereAmI != null
                 && !Player.Instance.whereAmI.inUndergroundLocation
+                && !Patches.PadWeather.LocalInPad()
                 && Singleton<CamMain>.Instance != null
                 && Singleton<CamMain>.Instance.lightning != null)
             {
@@ -139,9 +144,6 @@ namespace DWMPHorde.Networking
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[WeatherSync] rain={msg.Raining} fog={msg.FogIsActive} today={msg.RainToday}");
         }
-
-        /// <summary>Host→all clients: current day/time/after-night (periodic).</summary>
-        internal void SendTimeSync() => SendTimeSyncTo(-1);
 
         /// <summary>
         /// Host→one peer (targetPlayerId &gt; 0) or all (≤ 0).
@@ -157,8 +159,13 @@ namespace DWMPHorde.Networking
             {
                 CurrentTime = ctrl != null ? ctrl.CurrentTime : 0,
                 Day = ctrl != null ? ctrl.day : 1,
-                IsAfterNight = ctrl != null && ctrl.isAfterNight
+                IsAfterNight = ctrl != null && ctrl.isAfterNight,
+                VillagersAway = Sync.NightVillage.Away
             };
+            Dreams dreams = Dreams.Instance;
+            msg.OverworldTime = Sync.PersonalPrologue.HostWorldTime(
+                dreams != null && dreams.dreaming ? (int)dreams.timeCopy : msg.CurrentTime);
+            msg.PrologueHold = (byte)Mathf.Clamp(Sync.PersonalPrologue.HoldCount, 0, 255);
             // Reliable: after-night transitions must not be dropped (client wrongly
             // reporting AfterNightActive=false can clear host morning freeze).
             if (targetPlayerId > 0)
@@ -180,6 +187,7 @@ namespace DWMPHorde.Networking
 
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null) return;
+            Sync.PersonalPrologue.ClientNoteHold(msg.PrologueHold);
 
             int prevDay = ctrl.day;
             float prevTime = ctrl.CurrentTime;
@@ -194,7 +202,10 @@ namespace DWMPHorde.Networking
                 ctrl.isAfterNight = true;
                 try
                 {
-                    if (Player.Instance != null && Player.Instance.effects != null)
+                    // Vanilla's end-of-night effect is for the player at home; one out in the
+                    // forest or inside a location at dawn gets no morning, only the flag.
+                    if (Player.Instance != null && Player.Instance.effects != null
+                        && Patches.MorningHideoutHold.LocalPositionInside())
                         ctrl.addAfterNightEffect();
                 }
                 catch (System.Exception ex)
@@ -220,13 +231,27 @@ namespace DWMPHorde.Networking
                     CleanupClientMorningTrader();
             }
 
-            ctrl.CurrentTime = msg.CurrentTime;
+            bool dreamClock = Core.EnteringDream
+                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
+                || Sync.DreamSyncManager.IsDreamActive;
+
+            int appliedTime = dreamClock ? msg.CurrentTime : msg.OverworldTime;
+            ctrl.CurrentTime = appliedTime;
             ctrl.day = msg.Day;
+            Sync.NightVillage.SetAway(msg.VillagersAway);
 
             // Host startDay full-heals + skill recharge is world-authority-side only.
             // Client must still get personal morning benefits when day rolls.
+
             if (msg.Day > prevDay)
                 ApplyClientPersonalNewDay(prevDay, msg.Day);
+            // One night passed (not a join catching up several days).
+            if (msg.Day == prevDay + 1)
+                ApplyClientSurvivedNight(ctrl, prevDay);
+
+            if (!dreamClock)
+                PlayClientNightCues(ctrl, (int)prevTime, appliedTime);
+
 
             // Clear soft invuln from suppressed startBeforeDay if still set.
             if (Player.Instance != null && Player.Instance.invulnerable
@@ -250,26 +275,23 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            float delta = msg.CurrentTime - prevTime;
+            float delta = appliedTime - prevTime;
             bool dayChange = msg.Day != prevDay;
             bool afterNightFlip = msg.IsAfterNight != wasAfterNight;
             // Dream start sets Controller.CurrentTime = preset.time (often +hundreds).
             // Use ASCII "->" so log files never glue "1→1" into "11" / "417→800" into "417800".
-            bool dreamClock = Core.EnteringDream
-                || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared || Dreams.Instance.switchingDream))
-                || Sync.DreamSyncManager.IsDreamActive;
             if (dayChange || afterNightFlip || Mathf.Abs(delta) >= 2f)
             {
                 string tag = dreamClock ? "[TimeSync/dream] " : "[TimeSync] ";
                 ModLog.Event(LogCat.Session,
                     tag + "client clock day " + prevDay + "->" + msg.Day
-                    + " time " + prevTime.ToString("F0") + "->" + msg.CurrentTime.ToString("F0")
+                    + " time " + prevTime.ToString("F0") + "->" + appliedTime.ToString("F0")
                     + " (d=" + delta.ToString("F1") + ")"
                     + " afterNight " + wasAfterNight + "->" + msg.IsAfterNight);
             }
             else if (ModRuntime.VerboseLogging)
             {
-                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={msg.CurrentTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
+                ModRuntime.LegacyInfo($"[TimeSync] synced day={msg.Day} time={appliedTime} isAfterNight={msg.IsAfterNight} (no day-chain)");
             }
 
             // TimeSync can stomp day-ambient after startDreaming set preset.ambientColor.
@@ -278,6 +300,29 @@ namespace DWMPHorde.Networking
                 try { ctrl.updateAmbientLight(); }
                 catch { /* non-fatal */ }
             }
+        }
+
+        /// <summary>
+        /// The personal cues of vanilla <c>refreshTime</c>, which never runs on a client: "night is
+        /// coming" for a player not at home, "light the oven" for one at home with the ward out,
+        /// and the end-of-night sound. Vanilla fires on the exact minute; TimeSync can step over it.
+        /// </summary>
+        private static void PlayClientNightCues(Controller ctrl, int prevTime, int newTime)
+        {
+            Player p = Player.Instance;
+            if (p == null || p.whereAmI == null)
+                return;
+            Location big = p.whereAmI.bigLocation;
+            if (ctrl.isHardNight
+                && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, (int)ctrl.nightTime - 130)
+                && (big == null || !big.playerBase))
+                p.displayMessage(Language.Get("Playermsg_nightComing", "UI"));
+            if (ctrl.isHardNight
+                && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, (int)ctrl.nightTime - 20)
+                && big != null && big.playerBase && big.shadowWard != null && !big.shadowWard.activeInHierarchy)
+                p.displayMessage(Language.Get("Playermsg_nightMustLightOven", "UI"));
+            if (CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, 1360))
+                AudioController.Play("endOfNight_pre");
         }
 
         /// <summary>
@@ -303,6 +348,24 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogWarning("[DayNight] client personal new day failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Vanilla <c>startBeforeDay</c> (suppressed on a client) sets <c>player_survivedNight</c> on a
+        /// hard night for the player who lived to dawn; one that died skipped past it. The flag is
+        /// this player's own (the trader greets by it), so the client sets it here for itself.
+        /// </summary>
+        internal static void ApplyClientSurvivedNight(Controller ctrl, int nightDay)
+        {
+            if (ctrl == null || !ctrl.isHardNight)
+                return;
+            if (!PerPlayerFlagPolicy.SurvivedNight(nightDay, DeathStateTracker.LocalNightDeathDay))
+                return;
+            Flags flags = Singleton<Flags>.Instance;
+            if (flags == null)
+                return;
+            flags.setFlag("player_survivedNight", activeModifier: true);
+            ModRuntime.LegacyInfo($"[DayNight] client survived night {nightDay} (player_survivedNight)");
         }
 
         /// <summary>

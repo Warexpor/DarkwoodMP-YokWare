@@ -1,0 +1,319 @@
+using System.Linq;
+using DWMPHorde.Networking;
+using DWMPHorde.Sync;
+using DWMPHorde.Players;
+using HarmonyLib;
+using LiteNetLib;
+using UnityEngine;
+
+namespace DWMPHorde.Patches
+{
+    internal static class DroppedItemSyncHelpers
+    {
+        /// <summary>The last drop this machine announced, and a running count (to tell a drop happened).</summary>
+        internal static string LastSentDropGuid; // process-scoped: last value only, read right after a drop
+        internal static int SentDrops; // process-scoped: monotonic counter
+
+        /// <summary>
+        /// Take back one of this machine's own drops that should not exist (its source was refused):
+        /// gone here and, through the pickup claim, for everyone; nothing reaches the bag.
+        /// </summary>
+        internal static void RetractOwnDrop(string guid)
+        {
+            DroppedItemIdentifier ident = DroppedItemIdentifier.FindById(guid);
+            if (ident == null)
+                return;
+            Inventory bag = ident.GetComponent<Inventory>();
+            InvItemClass it = bag != null && bag.slots != null && bag.slots.Count > 0
+                ? bag.slots[0].invItem
+                : null;
+            string type = !InvItemClass.isNull(it) ? (it.isRecipe ? it.recipeFor : it.type) : "";
+            int amount = !InvItemClass.isNull(it) ? it.amount : 0;
+            int pre = string.IsNullOrEmpty(type) ? -1 : ContainerSyncHelpers.CountPlayerItem(type, !InvItemClass.isNull(it) && it.isRecipe);
+            Object.Destroy(ident.gameObject);
+            FinishGuidPickupClaim(guid, type, amount, !InvItemClass.isNull(it) ? it.durability : -1f,
+                !InvItemClass.isNull(it) ? it.ammo : 0, pre, !InvItemClass.isNull(it) && it.isRecipe ? it.recipeFor : null);
+        }
+
+        internal static void SendDrop(Transform spawned, InvItemClass item, string prefabPath)
+        {
+            if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
+            if (!NetGuard.Connected(out var net)) { ModRuntime.LegacyInfo("[SendDrop] net not connected"); return; }
+            if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
+            // The host's own prologue: the drop lies on its pad (under ItemContainer, not the pad
+            // root). No GUID, so neither the live spawn nor the late-join drop bulk carries it.
+            if (PersonalPrologue.LocalInPrologue) return;
+
+            string guid = System.Guid.NewGuid().ToString("N");
+            ModRuntime.LegacyInfo($"[SendDrop] adding identifier guid={guid} to {spawned.name}");
+
+            var ident = spawned.gameObject.AddComponent<DroppedItemIdentifier>();
+            ident.Id = guid;
+            DroppedItemIdentifier.Register(ident);
+            LastSentDropGuid = guid;
+            SentDrops++;
+
+            Vector3 pos = spawned.position;
+            Vector3 euler = spawned.eulerAngles;
+            // Vanilla throws the drop forward; peers give their copy the same push so it comes
+            // to rest where the dropper's does (pickups are matched by position).
+            Rigidbody rb = spawned.GetComponent<Rigidbody>();
+            Vector3 vel = rb != null ? rb.velocity : Vector3.zero;
+
+            int amt = item.amount;
+            float dur = item.durability;
+            int ammo = 0;
+            if (item.baseClass != null && item.baseClass.hasAmmo)
+                ammo = item.ammo;
+            // recipes share type "recipe" — wire craftable + IsRecipe (trade/container parity).
+            bool isRecipe = item.isRecipe;
+            string wireType = isRecipe ? item.recipeFor : item.type;
+
+            net.SendDroppedItemSpawn(new DroppedItemSpawnMessage
+            {
+                Guid = guid,
+                PrefabPath = prefabPath,
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                RotX = euler.x,
+                RotY = euler.y,
+                RotZ = euler.z,
+                ItemType = wireType,
+                Amount = amt,
+                Durability = dur,
+                Ammo = ammo,
+                IsRecipe = isRecipe,
+                Upgrades = Sync.InvItemUpgradeWire.CollectNames(item),
+                ShouldBeActive = item.shouldBeActive,
+                VelX = vel.x,
+                VelY = vel.y,
+                VelZ = vel.z
+            });
+        }
+
+        internal static void SendPickup(Item worldItem)
+        {
+            ModRuntime.LegacyInfo("[SendPickup] called for " + (worldItem != null ? worldItem.name : "null"));
+
+            if (!NetGuard.Connected(out var net)) return;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+
+            // GUID drops use FinishGuidPickupClaim (host-auth) from Postfix.
+            var ident = worldItem != null ? worldItem.GetComponent<DroppedItemIdentifier>() : null;
+            if (ident != null && !string.IsNullOrEmpty(ident.Id))
+                return;
+
+            // Trap rescue / non-claim world remove: broadcast WorldObjectRemoved.
+            // Non-trap world uniques use FinishWorldPickupClaim (host-auth) instead.
+            if (worldItem != null)
+            {
+                ResolveWorldPickupClaim(worldItem, out Vector3 pos, out string sendName, out bool isTrap);
+                if (!isTrap)
+                    return; // caller should use FinishWorldPickupClaim
+
+                net.SendWorldObjectRemoved(new WorldObjectRemovedMessage
+                {
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    ObjectName = sendName,
+                    Mode = WorldObjectRemovedMessage.ModeRemove
+                });
+                ModRuntime.LegacyInfo($"[SendPickup] sent WorldObjectRemoved for {sendName} at {pos} (trap rescue)");
+            }
+        }
+
+        /// <summary>
+        /// After a successful GUID drop pickup: host-auth claim (mirror FinishWorldPickupClaim).
+        /// Host TryConsume + fan Remove; client optimistic + ClaimRequest (deny refunds).
+        /// </summary>
+        internal static void FinishGuidPickupClaim(
+            string guid, string itemType, int amount, float durability, int ammo, int preCount,
+            string recipeFor = null)
+        {
+            if (!NetGuard.Connected(out var net)) return;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (string.IsNullOrEmpty(guid)) return;
+
+            // Lost to an inbound claim/remove that already consumed on this machine.
+            if (!WorldObjectSendNetHandlers.TryConsumeDropGuid(guid))
+            {
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "guid local consume lost", recipeFor, durability, ammo);
+                return;
+            }
+
+            if (net.Role == NetworkRole.Host)
+            {
+                var remove = new DroppedItemPickupMessage
+                {
+                    Guid = guid,
+                    Mode = DroppedItemPickupMessage.ModeRemove,
+                    ClaimedByPlayerId = net.LocalPlayerId,
+                    ItemType = itemType ?? "",
+                    Amount = amount,
+                    Durability = durability,
+                    Ammo = ammo
+                };
+                net.SendDroppedItemPickup(remove);
+                ModRuntime.LegacyInfo($"[GuidPickup] host claimed guid={guid} type={itemType}");
+                return;
+            }
+
+            WorldPickupClaimPending.RecordGuid(guid, itemType, amount, preCount, recipeFor, durability, ammo);
+            var claim = new DroppedItemPickupMessage
+            {
+                Guid = guid,
+                Mode = DroppedItemPickupMessage.ModeClaimRequest,
+                ClaimedByPlayerId = net.LocalPlayerId,
+                ItemType = itemType ?? "",
+                Amount = amount,
+                Durability = durability,
+                Ammo = ammo
+            };
+            // Client→host only (Forwardable would fan ClaimRequest — host owns grant).
+            net.Send(NetMessageType.DroppedItemPickup, w => claim.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo($"[GuidPickup] client ClaimRequest guid={guid} type={itemType} x{amount}");
+        }
+
+        /// <summary>
+        /// After a successful non-GUID world pickup: host-auth claim.
+        /// Host TryConsume + fan Remove; client optimistic + ClaimRequest (deny refunds).
+        /// </summary>
+        internal static void FinishWorldPickupClaim(
+            Vector3 pos, string sendName, string itemType, int amount, float durability, int ammo, int preCount,
+            string recipeFor = null)
+        {
+            if (!NetGuard.Connected(out var net)) return;
+            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (string.IsNullOrEmpty(sendName)) return;
+
+            // Lost to an inbound claim/remove that already consumed on this machine.
+            if (!WorldPhysicsSyncService.TryConsumeWorldPickup(pos.x, pos.y, pos.z, sendName))
+            {
+                WorldPickupClaimPending.Refund(itemType, amount, preCount, "local consume lost", recipeFor, durability, ammo);
+                return;
+            }
+
+            if (net.Role == NetworkRole.Host)
+            {
+                net.SendWorldObjectRemoved(new WorldObjectRemovedMessage
+                {
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    ObjectName = sendName,
+                    Mode = WorldObjectRemovedMessage.ModeRemove,
+                    ClaimedByPlayerId = net.LocalPlayerId,
+                    ItemType = itemType ?? "",
+                    Amount = amount,
+                    Durability = durability,
+                    Ammo = ammo
+                });
+                ModRuntime.LegacyInfo($"[WorldPickup] host claimed {sendName} at {pos}");
+                return;
+            }
+
+            // Client: keep optimistic grant; host decides. Pending enables deny refund.
+            WorldPickupClaimPending.Record(pos.x, pos.y, pos.z, sendName, itemType, amount, preCount, recipeFor, durability, ammo);
+            var claim = new WorldObjectRemovedMessage
+            {
+                PosX = pos.x,
+                PosY = pos.y,
+                PosZ = pos.z,
+                ObjectName = sendName,
+                Mode = WorldObjectRemovedMessage.ModeClaimRequest,
+                ClaimedByPlayerId = net.LocalPlayerId,
+                ItemType = itemType ?? "",
+                Amount = amount,
+                Durability = durability,
+                Ammo = ammo
+            };
+            net.Send(NetMessageType.WorldObjectRemoved, w => claim.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo($"[WorldPickup] client ClaimRequest {sendName} at {pos} type={itemType} x{amount}");
+        }
+
+        /// <summary>
+        /// Slot InvItemClass meta before getDroppedItem transfer empties it.
+        /// (Item.invItem is the InvItem template MonoBehaviour — not the instance.)
+        /// </summary>
+        internal static void CaptureWorldPickupItemMeta(Item worldItem,
+            out string itemType, out int amount, out float durability, out int ammo)
+            => CaptureWorldPickupItemMeta(worldItem, out itemType, out amount, out durability,
+                out ammo, out _);
+
+        /// <param name="recipeFor">
+        /// Recipe taught when the item is a recipe (its live <c>type</c> is "recipe"); empty otherwise.
+        /// </param>
+        internal static void CaptureWorldPickupItemMeta(Item worldItem,
+            out string itemType, out int amount, out float durability, out int ammo,
+            out string recipeFor)
+        {
+            itemType = "";
+            amount = 0;
+            durability = 0f;
+            ammo = 0;
+            recipeFor = "";
+            if (worldItem == null) return;
+
+            Inventory bag = worldItem.GetComponent<Inventory>();
+            if (bag == null || bag.slots == null || bag.slots.Count == 0)
+                return;
+            InvItemClass inv = bag.slots[0].invItem;
+            if (InvItemClass.isNull(inv))
+                return;
+            itemType = inv.type ?? "";
+            if (inv.isRecipe && !string.IsNullOrEmpty(inv.recipeFor))
+                recipeFor = inv.recipeFor;
+            amount = inv.amount > 0 ? inv.amount : 1;
+            durability = inv.durability;
+            if (inv.baseClass != null && inv.baseClass.hasAmmo)
+                ammo = inv.ammo;
+        }
+
+        /// <summary>Pose + wire name for non-GUID world pickup claim / WorldObjectRemoved.</summary>
+        internal static void ResolveWorldPickupClaim(Item worldItem, out Vector3 pos, out string sendName, out bool isTrap)
+        {
+            pos = worldItem.transform.position;
+            sendName = worldItem.name;
+            GameObject go = worldItem.gameObject;
+            // Object flags only: display names ("Teddy bear") made ordinary items look like traps.
+            isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go);
+
+            // Sprung beartrap isDroppedItem keeps slot type "junk" / "Scrap metal".
+            // Always send the trap GO name so peer DestroyObjectByPos frees + matches
+            // the trap — never a junk remove that used to eat the trap without a free.
+            if (!isTrap)
+            {
+                Item asItem = worldItem.GetComponent<Item>();
+                if (asItem != null && asItem.invItem != null
+                    && !string.IsNullOrEmpty(asItem.invItem.type))
+                    sendName = asItem.invItem.type;
+                else
+                {
+                    Inventory inv = worldItem.GetComponent<Inventory>();
+                    if (inv != null && inv.slots != null && inv.slots.Count > 0
+                        && !InvItemClass.isNull(inv.slots[0].invItem)
+                        && !string.IsNullOrEmpty(inv.slots[0].invItem.type))
+                        sendName = inv.slots[0].invItem.type;
+                }
+            }
+            else if (string.IsNullOrEmpty(sendName) || sendName.IndexOf("scrap", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // refreshName may have rewritten Item.name to the loot display string.
+                sendName = go.name;
+            }
+        }
+
+        internal static InvItemClass GetItemFromSpawned(Transform t)
+        {
+            Inventory inv = t.GetComponent<Inventory>();
+            if (inv == null || inv.slots == null || inv.slots.Count == 0) return null;
+            InvItemClass item = inv.slots[0].invItem;
+            if (InvItemClass.isNull(item)) return null;
+            return item;
+        }
+    }
+}

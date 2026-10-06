@@ -1,13 +1,58 @@
 namespace DWMPHorde
 {
+    /// <summary>
+    /// The village empties at night. Villagers are away from the "night is coming" warning
+    /// (two hours before night) until morning. The change happens at once while nobody is in
+    /// the village, and with players inside only while none of them sees a villager.
+    /// </summary>
+    public static class VillageNightPolicy
+    {
+        public const int NightComingLeadMinutes = 130;
+
+        public static bool IsNearNight(int time, int nightTime, int dayTime)
+            => time >= nightTime - NightComingLeadMinutes || time < dayTime;
+
+        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees)
+            => currentlyAway != wantAway && (!occupied || !anyoneSees);
+    }
 
     /// <summary>
     /// One active speaker per NPC slot. Different NPCs may be held in parallel
-    /// (Dictionary of slots); same NPC is serialized.
+    /// (one slot per NPC: name, world and spot); same NPC is serialized.
     /// </summary>
     public static class NpcDialogueLockPolicy
     {
         public const float DefaultLeaseSeconds = 90f;
+
+        /// <summary>
+        /// NPC.name is not unique: the vanilla data has 10 NPCs named oven, 24 doctor, 8 musician,
+        /// 7 wolfman, 4 shrine_village, 4 talkingTree. Two of one name in different places are
+        /// thousands of units apart (each hideout's oven, each location's doctor); the closest
+        /// distinct ones in one location are the train-wreck doctor variants (~150 apart, never
+        /// out together), and twins at one spot (the shrine alive / dead) are one talker. Within
+        /// this radius on the ground plane it is the same NPC; it also covers one that walked
+        /// (the wolfman, a following doctor) between two peers' views.
+        /// </summary>
+        public const float SameNpcRadius = 300f;
+
+        /// <summary>
+        /// Same talker: same name (case-insensitive, as NPC lookups match) and, when both sides
+        /// know where it stands, within <see cref="SameNpcRadius"/>. Without a position (an older
+        /// peer) the name alone decides.
+        /// </summary>
+        public static bool IsSameNpc(string nameA, bool hasPosA, float ax, float az,
+            string nameB, bool hasPosB, float bx, float bz)
+        {
+            if (string.IsNullOrEmpty(nameA) || string.IsNullOrEmpty(nameB))
+                return false;
+            if (!string.Equals(nameA, nameB, System.StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!hasPosA || !hasPosB)
+                return true;
+            float dx = ax - bx;
+            float dz = az - bz;
+            return dx * dx + dz * dz <= SameNpcRadius * SameNpcRadius;
+        }
 
         /// <summary>
         /// Per-NPC slot: free if unheld (owner &lt; 0), expired, or same owner renewing.
@@ -34,70 +79,6 @@ namespace DWMPHorde
             if (now >= heldExpireAt) return false;
             return heldOwnerId == ownerId;
         }
-
-        /// <summary>
-        /// Legacy single-slot helper (tests / docs). Different NPCs do not block each other;
-        /// same NPC uses <see cref="CanAcquireNpcSlot"/>.
-        /// </summary>
-        public static bool CanAcquire(
-            string lockedNpc,
-            int lockedOwnerId,
-            float lockExpireAt,
-            string requestNpc,
-            int requestOwnerId,
-            float now)
-        {
-            if (string.IsNullOrEmpty(requestNpc)) return false;
-            // No hold, or different NPC (parallel talks OK).
-            if (string.IsNullOrEmpty(lockedNpc)
-                || !string.Equals(lockedNpc, requestNpc, System.StringComparison.Ordinal))
-                return true;
-            return CanAcquireNpcSlot(lockedOwnerId, lockExpireAt, requestOwnerId, now);
-        }
-
-        public static bool IsHeldBy(
-            string lockedNpc,
-            int lockedOwnerId,
-            float lockExpireAt,
-            string npcName,
-            int ownerId,
-            float now)
-        {
-            if (string.IsNullOrEmpty(lockedNpc) || string.IsNullOrEmpty(npcName)) return false;
-            if (!string.Equals(lockedNpc, npcName, System.StringComparison.Ordinal)) return false;
-            return IsNpcSlotHeldBy(lockedOwnerId, lockExpireAt, ownerId, now);
-        }
-
-        /// <summary>
-        /// Multi-NPC map simulation: holding one NPC must not overwrite another
-        /// NPC's lock.
-        /// </summary>
-        public static bool SimulateMultiNpcAcquire(
-            System.Collections.Generic.Dictionary<string, int> owners,
-            System.Collections.Generic.Dictionary<string, float> expires,
-            string requestNpc,
-            int requestOwnerId,
-            float now)
-        {
-            if (owners == null || expires == null || string.IsNullOrEmpty(requestNpc))
-                return false;
-
-            int heldOwner = -1;
-            float heldExpire = 0f;
-            if (owners.TryGetValue(requestNpc, out int o)
-                && expires.TryGetValue(requestNpc, out float e))
-            {
-                heldOwner = o;
-                heldExpire = e;
-            }
-
-            if (!CanAcquireNpcSlot(heldOwner, heldExpire, requestOwnerId, now))
-                return false;
-
-            owners[requestNpc] = requestOwnerId;
-            expires[requestNpc] = now + DefaultLeaseSeconds;
-            return true;
-        }
     }
 
     /// <summary>
@@ -112,9 +93,10 @@ namespace DWMPHorde
             => mpConnected && localNightDeath && !allDeadAtNight;
 
         /// <summary>
-        /// After a remote disconnect during night death: only advance morning when the
-        /// host is night-dead and every relevant player is accounted for as dead.
-        /// An alive leaver with no remotes left must not trigger skipDay.
+        /// After a remote disconnect during night death: advance morning when the host is
+        /// night-dead and every remaining player is accounted for as dead. With no remotes
+        /// left the host is a lone dead player, so it resolves like vanilla solo death
+        /// whether or not the leaver was alive; otherwise it would spectate nobody forever.
         /// </summary>
         public static bool ShouldResolveMorningOnDisconnect(
             bool localNightDead,
@@ -124,7 +106,7 @@ namespace DWMPHorde
         {
             if (!localNightDead) return false;
             if (remainingRemoteCount <= 0)
-                return leaverWasNightDead;
+                return true;
             return remainingRemoteDeadCount >= remainingRemoteCount;
         }
 
