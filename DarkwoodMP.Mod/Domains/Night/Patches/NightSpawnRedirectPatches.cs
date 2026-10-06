@@ -83,6 +83,8 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network?.Role != NetworkRole.Host) return;
             if (NightSpawnGetFreeSpotPatch.InsideNightSpawn) return;
+            // The redneck ambush already picked a player out on the road.
+            if (HostRedneckPartyPatch.Placing) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
 
             if (Player.Instance == null) return;

@@ -427,7 +427,13 @@ namespace DWMPHorde.Networking
         /// remove them from its bag. Client→host: done (same lists). <c>Sync.QuestItemHandoff</c>. Protocol 36.
         /// </summary>
         QuestHandoff = 158,
+        /// <summary>
+        /// Host→client: a dialogue board of this player's would hand over a shared journal item
+        /// another player already gave away (the sister's key, the egg); the host refused it.
+        /// <c>Sync.DialogHandInArbiter</c>. Protocol 37.
+        /// </summary>
+        [HostOnly] DialogHandInGone = 159,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 158
+        _Highest = 159
     }
 }

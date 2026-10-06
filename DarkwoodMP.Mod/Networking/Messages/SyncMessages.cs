@@ -447,7 +447,7 @@ namespace DWMPHorde.Networking
         {
             int n = r.GetInt();
             if (n < 0 || n > 256)
-                n = 0;
+                throw new System.IO.InvalidDataException("QuestHandoff item count " + n);
             var msg = new QuestHandoffMessage { Types = new string[n], Amounts = new int[n] };
             for (int i = 0; i < n; i++)
             {
@@ -456,6 +456,23 @@ namespace DWMPHorde.Networking
             }
             return msg;
         }
+    }
+
+    public struct DialogHandInGoneMessage
+    {
+        /// <summary>The NPC the refused hand-in was for (NPC.name).</summary>
+        public string NpcName;
+        /// <summary>The journal item someone else already handed over.</summary>
+        public string ItemType;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(NpcName ?? "");
+            w.Put(ItemType ?? "");
+        }
+
+        public static DialogHandInGoneMessage Deserialize(NetReader r)
+            => new DialogHandInGoneMessage { NpcName = r.GetString(), ItemType = r.GetString() };
     }
 
     public struct PlayerSpecialMessage

@@ -235,8 +235,6 @@ namespace DWMPHorde
                 case TypeFireWorldEvent:
                 case TypeStartDream:
                 case TypeEndDream:
-                case TypeTransportOutside:
-                case TypeReturnToWorld:
                 case TypeModifyReputation:
                 case TypeMarkOnMap:
                 case TypeEnableDialogue:
@@ -247,6 +245,13 @@ namespace DWMPHorde
                     return false;
             }
         }
+
+        /// <summary>
+        /// A trip (the Wolf's lift to the Doctor's house and back) carries the speaker, as a door into
+        /// a location does: the speaking client runs it, the host replaying the board does not.
+        /// </summary>
+        public static bool IsSpeakerTripOutcomeType(string outcomeType)
+            => outcomeType == TypeTransportOutside || outcomeType == TypeReturnToWorld;
 
         /// <summary>
         /// <c>NPC.name</c> of every vanilla NPC whose Character has <c>isNightTrader</c> set

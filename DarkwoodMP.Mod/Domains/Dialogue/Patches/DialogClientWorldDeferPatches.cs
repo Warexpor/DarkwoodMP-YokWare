@@ -49,27 +49,64 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Dialogue transport outcomes must not start location load on client.</summary>
-    [HarmonyPatch(typeof(OutsideLocations), "prepareLocation")]
-    public static class DialogDeferPrepareLocationPatch
+    /// <summary>
+    /// A dialogue trip (the Wolf's lift to the Doctor's house and back: transportToOutsideLoc /
+    /// returnToWorld) carries the speaker, as a door into a location does. The speaking client runs
+    /// it itself; the host replaying that client's board must not go. It used to be the other way
+    /// round: the client's trip was deferred to the host, whose replay then took the host there.
+    /// </summary>
+    internal static class DialogPeerTrip
     {
-        private static bool Prefix()
+        private static int _depth;
+
+        internal static bool Active => _depth > 0;
+
+        internal static void Begin() => _depth++;
+
+        internal static void End()
         {
-            if (!DialogClientWorldDefer.Active)
-                return true;
+            if (_depth > 0)
+                _depth--;
+        }
+
+        internal static void Reset() => _depth = 0;
+
+        /// <summary>The board vanilla is about to display moves its speaker.</summary>
+        internal static bool BoardMovesSpeaker(DialogueWindow dw)
+        {
+            CharacterDialogue.Dialogue d = dw != null ? dw.currentDialogue : null;
+            if (d == null || d.boards == null)
+                return false;
+            int next;
+            try { next = Traverse.Create(dw).Field("currentBoard").GetValue<int>() + 1; }
+            catch { return false; }
+            if (next < 0 || next >= d.boards.Count || d.boards[next] == null || d.boards[next].outcomes == null)
+                return false;
+            foreach (CharacterDialogue.Dialogue.Board.Outcome o in d.boards[next].outcomes)
+            {
+                if (o == null)
+                    continue;
+                if (o.type == CharacterDialogue.Dialogue.Board.Outcome.Type.returnToWorld
+                    || (o.type == CharacterDialogue.Dialogue.Board.Outcome.Type.transportToOutsideLoc
+                        && !string.IsNullOrEmpty(o.Value)))
+                    return true;
+            }
             return false;
         }
     }
 
-    [HarmonyPatch(typeof(OutsideLocations), "returnToWorld")]
-    public static class DialogDeferReturnToWorldPatch
+    [HarmonyPatch(typeof(OutsideLocations), "prepareLocation")]
+    public static class DialogPeerTripPrepareLocationPatch
     {
-        private static bool Prefix()
-        {
-            if (!DialogClientWorldDefer.Active)
-                return true;
-            return false;
-        }
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix() => !DialogPeerTrip.Active;
+    }
+
+    [HarmonyPatch(typeof(OutsideLocations), "returnToWorld")]
+    public static class DialogPeerTripReturnToWorldPatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix() => !DialogPeerTrip.Active;
     }
 
     [HarmonyPatch(typeof(Map), "showElement", typeof(string))]
