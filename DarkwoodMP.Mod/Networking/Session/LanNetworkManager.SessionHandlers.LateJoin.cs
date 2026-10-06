@@ -82,6 +82,7 @@ namespace DWMPHorde.Networking
             // Light / already-capped / no full-scene bag thrash.
             LateJoinStep(playerId, "journal", () => JournalHandlers.SendJournalBulkSyncTo(playerId));
             LateJoinStep(playerId, "flags", () => FlagHandlers.SendFlagBulkSyncTo(playerId));
+            LateJoinStep(playerId, "oxygenTank", () => DWMPHorde.Sync.OxygenTankParty.SendTierTo(this, playerId));
             LateJoinStep(playerId, "dialogTrees", () => DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId));
             LateJoinStep(playerId, "reputation", () => BulkSyncHandlers.SendReputationBulkSyncTo(playerId));
             LateJoinStep(playerId, "hideoutState", () => BulkSyncHandlers.SendHideoutStateSyncTo(playerId));

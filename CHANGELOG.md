@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.134**. The current Horde wire protocol is **34** (bumped in 0.8.134:
-`OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
+**0.8.135**. The current Horde wire protocol is **35** (bumped in 0.8.135:
+new `OxygenTankTier` (157).
+34 held for 0.8.134, bumped there: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
 33 held for 0.8.133, bumped there:
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
 `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
@@ -22,6 +23,29 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.135 — Oxygen tank for every player
+
+On top of 0.8.134. **Protocol 34 → 35.** Product **0.8.134 → 0.8.135**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Changed
+
+- **Every player gets the oxygen tank (reverses the 0.8.134 removal).** Vanilla has one tank: an
+  empty one (the Elephants' talk or their body, the mask family's shed body), filled at the hideout 5
+  compressor, which fills only its user's. A full tank in the bag is what lets a player dive (the
+  mi17 hole, the burned cottage pond, the village cellar passages). With one tank in the party,
+  everyone else was stuck at the water whenever its holder was away or offline. Now the host keeps
+  the best tank anyone in the party has held this session (empty, then full) and sends it to every
+  peer (new host-only message `OxygenTankTier`, 157, also part of the late-join bulk). Each machine
+  tops its own bag up to it once: a missing tank is added, empty ones are filled. A backup restore
+  that replaces a joiner's bag re-checks it. Nothing is added while the player is dead, dreaming
+  or in their prologue; that waits until they are back. A tank dropped or stashed later is not
+  handed out again. The old sync's wrong item names (`oxygentank_*`) are gone; this one uses the
+  game's `oxygenTank_empty` / `oxygenTank_full`.
+  (`Domains/Inventory/OxygenTankParty.cs`, `PeerItemPresence.AnyRemoteHas`.)
 
 ---
 

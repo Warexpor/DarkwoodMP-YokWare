@@ -227,6 +227,7 @@ namespace DWMPHorde.Networking
             // spirit wards.
             Sync.NightVillage.Tick(this);
             Sync.PeerItemPresence.Tick(this);
+            Sync.OxygenTankParty.Tick(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
             Sync.DesyncCheck.Tick(this);
