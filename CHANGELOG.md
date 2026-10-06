@@ -68,6 +68,21 @@ On top of 0.8.137. **Protocol 37 → 38.** Product **0.8.137 → 0.8.138**. Buil
   silent close of that replay sets vanilla's "don't save on exit", which vanilla only clears after
   a save. A player's own talk now starts with it cleared.
 
+### Docs
+
+- **New [DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md)**, linked from the README: one place for
+  the co-op design philosophy, the techniques used to adapt single-player systems, who owns what
+  (shared, personal, duplicated or scaled), the rules for every gameplay area, what players cannot
+  do, and the open and parked items. It names one open gap found while writing it: vanilla's
+  in-game Esc pause menu still sets the game speed to zero on that machine in a session (every
+  other menu's pause is suppressed).
+- `MaxPeerDamage`'s description (config file and `CONFIG.md`) said there is no per-peer rate
+  limit; the host has had one since the combat-authority pass (20 hits/s, burst 40; 1000 damage/s,
+  burst 3000). Corrected.
+- Stale "host migration during a dream is deferred" lines in the README and `COOP_COVERAGE.md`
+  now say done in code, not playtested. The new doc is added to the "docs do not restate the
+  version" test.
+
 ---
 
 ## 0.8.137 — Story choices one player at a time, trips and ambushes for every player

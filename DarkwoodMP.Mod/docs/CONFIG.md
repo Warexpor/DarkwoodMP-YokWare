@@ -46,7 +46,7 @@ test, so every bound key must be listed here.
 | `LootShareMode` | `ScaleWithPlayers` | `Off` or `ScaleWithPlayers` (1 + remote peers). Scales hideout fuels (mushrooms, odd meat, eggs and similar); not wood, nails or regular dog meat. |
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
-| `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum (anti-grief). There is no per-message rate limit, so multi-hit weapons apply every pellet. |
+| `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (20 hits/s with a burst of 40, 1000 damage/s with a burst of 3000): bursts such as shotgun pellets apply in full, sustained spam is rejected. |
 
 ## Voice
 

@@ -15,6 +15,10 @@ Path B is the supported load path. Earlier Path A and Ironbark material is not
 part of the shipped mod. See [CHANGELOG.md](CHANGELOG.md) for history and
 known gaps.
 
+**How co-op works:** the design philosophy, what is shared, personal or scaled
+for the party, the rules for every gameplay area and what players can and cannot
+do are in [DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md).
+
 ---
 
 ## Wire
@@ -194,7 +198,7 @@ Known deferred or runtime-dependent areas include:
   both players may share a bench; msg **119** stays reserved)
 - some dream, spectator, and dialogue presentation edge cases (parked as
   presentation-only in `COOP_COVERAGE.md` — not world-authority gaps)
-- host migration during a dream
+- host migration during a dream: done in code, not playtested
 
 Late-join `GameEventsBulk` / `ScenarioStateBulk`, EventTriggers FOV parity,
 worldgen RNG host-auth, and Examinable `onExamine` host triggers are no longer

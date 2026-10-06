@@ -1,7 +1,9 @@
 # Architecture
 
 How the Path B mod is put together, and the rules a change has to follow. For
-what each domain covers at runtime, see [COOP_COVERAGE.md](COOP_COVERAGE.md).
+what each domain covers at runtime, see [COOP_COVERAGE.md](COOP_COVERAGE.md). For
+the co-op design rules themselves (who owns what, and how each gameplay area
+behaves), see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
 
 ---
 
