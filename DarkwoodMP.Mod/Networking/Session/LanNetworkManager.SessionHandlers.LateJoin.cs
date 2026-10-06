@@ -458,7 +458,7 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return false;
                 if (Core.loadingGame)
                     return false;

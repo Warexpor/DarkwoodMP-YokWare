@@ -41,7 +41,7 @@ namespace DWMPHorde.Patches
             // Title / main menu — no distance culling at all.
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return true;
             }
             catch

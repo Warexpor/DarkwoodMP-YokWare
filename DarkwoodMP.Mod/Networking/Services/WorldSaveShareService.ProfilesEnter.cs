@@ -35,7 +35,7 @@ namespace DWMPHorde.Networking
                     "TryBeginEnterWorld blocked — " + ProgressText);
                 return false;
             }
-            if (!allowInGame && !Core.mainMenu)
+            if (!allowInGame && !GameScreen.AtTitle)
             {
                 ModLog.Warn(LogCat.Save, "TryBeginEnterWorld ignored — not on main menu");
                 return false;
@@ -97,7 +97,7 @@ namespace DWMPHorde.Networking
 
             // Prefer vanilla Continue path (Yokyy): UI.initLoadGame with currentProfile set.
             UI ui = Singleton<UI>.Instance;
-            if (ui != null && Core.mainMenu)
+            if (ui != null && GameScreen.AtTitle)
             {
                 try
                 {

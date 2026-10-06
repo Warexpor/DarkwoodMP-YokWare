@@ -145,7 +145,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Client)
                 return;
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
                 return;
             if (ClientStateBackup.ChapterReloadWipePending)
             {
@@ -175,7 +175,7 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host)
                 return;
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame)
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
                 return;
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;

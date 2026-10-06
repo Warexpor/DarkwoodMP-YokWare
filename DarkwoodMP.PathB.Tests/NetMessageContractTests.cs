@@ -60,11 +60,13 @@ public class NetMessageContractTests
         Assert.True(Enum.TryParse("PlayerSpecial", out NetMessageType playerSpecial),
             "NetMessageType.PlayerSpecial (151) is missing");
         Assert.Equal(151, (byte)playerSpecial);
-        // 152 (TradeCommit) is the highest id.
         Assert.True(Enum.TryParse("TradeCommit", out NetMessageType tradeCommit),
             "NetMessageType.TradeCommit (152) is missing");
         Assert.Equal(152, (byte)tradeCommit);
-        Assert.Equal(160, (byte)NetMessageType._Highest);
+        Assert.Equal(161, (byte)NetMessageType.DialogHandInClaim);
+        Assert.Equal(162, (byte)NetMessageType.PauseMenuState);
+        Assert.Equal(163, (byte)NetMessageType.WorldPause);
+        Assert.Equal(163, (byte)NetMessageType._Highest);
     }
 
     [Fact]

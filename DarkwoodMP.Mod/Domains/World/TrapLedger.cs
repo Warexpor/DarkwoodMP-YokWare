@@ -30,7 +30,7 @@ namespace DWMPHorde.Sync
 
         internal static bool Active
             => ModRuntime.Network != null && ModRuntime.Network.IsConnected
-               && ModRuntime.Network.Role == NetworkRole.Host && !Core.loadingGame && !Core.mainMenu;
+               && ModRuntime.Network.Role == NetworkRole.Host && !Core.loadingGame && !GameScreen.AtTitle;
 
         private static long Key(Vector3 p)
             => ((long)Mathf.RoundToInt(p.x * 10f) << 32) ^ (uint)Mathf.RoundToInt(p.z * 10f);

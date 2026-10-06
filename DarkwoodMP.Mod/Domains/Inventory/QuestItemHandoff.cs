@@ -132,7 +132,7 @@ namespace DWMPHorde.Sync
             if (now < _nextTick)
                 return;
             _nextTick = now + 1f;
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame || !Core.coreStarted)
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame || !Core.coreStarted)
                 return;
             for (int i = _leavers.Count - 1; i >= 0; i--)
             {

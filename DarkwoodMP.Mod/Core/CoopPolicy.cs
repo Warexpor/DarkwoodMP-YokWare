@@ -61,6 +61,18 @@ namespace DWMPHorde
     }
 
     /// <summary>
+    /// Vanilla's pause menu (Esc) stops the game. In co-op one player's menu must not stop the
+    /// others' world: the menu pauses nothing until every player in the session has it open, and
+    /// then the whole world pauses. A peer counts as in the menu only on its own report, so a peer
+    /// still connecting or loading keeps the world running.
+    /// </summary>
+    public static class CoopPausePolicy
+    {
+        public static bool WorldPaused(bool hostInMenu, int peers, int peersInMenu)
+            => hostInMenu && peersInMenu >= peers;
+    }
+
+    /// <summary>
     /// Party haveItem: same polarity as vanilla EventTriggerRequirement.
     /// activeModifier false means the party must NOT be holding the item.
     /// </summary>

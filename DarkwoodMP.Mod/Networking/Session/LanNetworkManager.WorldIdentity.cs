@@ -68,7 +68,7 @@ namespace DWMPHorde.Networking
         {
             reason = null;
             hostChapter = 0;
-            if (Core.mainMenu || Core.currentProfile == null)
+            if (GameScreen.AtTitle || Core.currentProfile == null)
                 return PeerWorldVerdict.Match; // host has no world of its own to compare against
 
             GetLocalWorldIdentity(mint: true, out string hostCampaign, out hostChapter);

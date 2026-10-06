@@ -146,12 +146,12 @@ namespace DWMPHorde.Networking
             bool playable = false;
             try
             {
-                playable = !Core.mainMenu && (Player.Instance != null || Core.loadedGame || Core.coreStarted);
+                playable = !GameScreen.AtTitle && (Player.Instance != null || Core.loadedGame || Core.coreStarted);
             }
             catch { /* unity tear */ }
 
             if (!HostMigrationPolicy.ShouldAttemptMigration(
-                    enabled, _role == NetworkRole.Client, Core.mainMenu, playable, _migrationInProgress))
+                    enabled, _role == NetworkRole.Client, GameScreen.AtTitle, playable, _migrationInProgress))
             {
                 StopNetwork();
                 return;

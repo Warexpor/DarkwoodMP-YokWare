@@ -49,7 +49,7 @@ namespace DWMPHorde
 
             if (_joinPending || net.Role != NetworkRole.Client || net.IsHandshakeComplete)
                 return;
-            if (!Core.mainMenu || Core.loadingGame)
+            if (!GameScreen.AtTitle || Core.loadingGame)
                 return;
 
             _joinViaSteam = net.IsSteamSession;

@@ -377,7 +377,7 @@ namespace DWMPHorde.Patches
             }
             try
             {
-                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     PersonalFlavorHud.BeginBypass();
                     try { Player.Instance.displayMessage(message); }
@@ -403,7 +403,7 @@ namespace DWMPHorde.Patches
                 if (!ChapterShareExpected || _clientAwaitingGo) return;
 
                 // Title clients take the normal download / slot pick / ENTER WORLD flow; no timeout applies.
-                if (Core.mainMenu || Player.Instance == null) return;
+                if (GameScreen.AtTitle || Player.Instance == null) return;
 
                 var shareNet = ModRuntime.Network;
                 bool busy = shareNet != null && shareNet.WorldSaveShare != null && shareNet.WorldSaveShare.IsBusy;

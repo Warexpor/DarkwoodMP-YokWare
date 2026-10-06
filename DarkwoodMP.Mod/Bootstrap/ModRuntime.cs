@@ -300,6 +300,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(LocalBearTrap.Reset);
             NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(MenuShield.Reset);
+            NetworkResetRegistry.Register(PauseMenuSync.Reset);
             NetworkResetRegistry.Register(DesyncCheck.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);
             NetworkResetRegistry.Register(WorkbenchUndo.Reset);

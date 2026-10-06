@@ -357,7 +357,7 @@ namespace DWMPHorde
         private bool TryGetRestoreSelfGate(out string reason)
         {
             reason = null;
-            if (Core.mainMenu || Core.loadingGame || Player.Instance == null)
+            if (GameScreen.AtTitle || Core.loadingGame || Player.Instance == null)
             {
                 reason = "Need to be in-chapter (not title). Auto-restore runs on join.";
                 return false;

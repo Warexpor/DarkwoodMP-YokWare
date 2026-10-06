@@ -314,12 +314,15 @@ code, not yet playtested).
 - **Menus do not pause the world.** In single player the map, journal, padlocks,
   dialogue, skill menus, the level-up menu and interactive items pause the game. In
   co-op the world keeps running for everyone. To make up for it, a player in the
-  level-up menu or in a dialogue (or trading) is invulnerable and ignored by
-  creatures until they close it.
+  level-up menu, a dialogue (or trading) or the pause menu is invulnerable and
+  ignored by creatures until they close it.
+- **The pause menu (Esc) pauses only when everyone is in it.** Opening it does not
+  stop the world for the others; the player in it is protected the same way as in a
+  dialogue. When every player in the session has it open, the whole world pauses on
+  every machine. The first player to close it resumes. A player still joining or
+  loading keeps the world running.
 - **There is no sleeping or time skip.** The game has no such mechanic (the code for
   it is dead), so there is nothing to vote on.
-- **The Esc pause menu is not handled yet.** See
-  [section 20](#20-known-gaps-and-parked-items).
 
 ---
 
@@ -528,9 +531,11 @@ Items are unique. When two players race for the same thing, the host decides:
   a three-player party out.
 - **A shared story item can be handed over only once.** Chapter 1's big choices
   are who gets an item: the sister's key to the Wolf or the Musician, the egg to the
-  Wolf or Piotrek. If one player already handed it over, a second player at the
+  Wolf or Piotrek. A client's talk asks the host before it goes on to the hand-in,
+  and the host holds the item for the first player who asks. A second player at the
   other NPC hears "Someone already handed that over." and is sent back to the main
-  options.
+  options, so only one player gets the story outcome and the personal reward (the
+  Wolf's pistol for the egg).
 - **Quest items in a bag** (car parts, violin, hat, musician's card) belong to
   whoever carries them and are handed in by them. They stay in the world if their
   carrier leaves ([section 4](#4-sessions-hosting-joining-saving-leaving)).
@@ -751,8 +756,9 @@ Other party-relevant rules that are not settings:
 
 - Creature health, damage and numbers are not scaled with party size (apart from
   the dream chompers).
-- Players in the level-up menu or a dialogue are protected because the world no
-  longer pauses for them.
+- Players in the level-up menu, a dialogue or the pause menu are protected because
+  the world no longer pauses for them (it pauses only when everyone is in the pause
+  menu).
 - Nightmare and Hard last lives end the run only on a full party wipe
   ([section 7](#7-death-spectating-and-difficulty)).
 - The oxygen tank is given to everyone ([section 10](#10-items-containers-trade-and-crafting)).
@@ -764,8 +770,9 @@ Other party-relevant rules that are not settings:
 By design:
 
 - **A client cannot save or load.** Only the host saves the shared world.
-- **Nobody can pause the world** from the in-game menus listed in
-  [section 5](#5-time-pause-and-the-clock).
+- **One player cannot pause the world.** The in-game menus, the pause menu included,
+  pause it only when every player is in the pause menu
+  ([section 5](#5-time-pause-and-the-clock)).
 - **Nobody can sleep or skip time** (the game has no such mechanic).
 - **A client cannot change balance settings.** Friendly fire, loot sharing and the
   party multiplier come from the host.
@@ -781,20 +788,13 @@ By design:
 
 ## 20. Known gaps and parked items
 
-Open in code:
-
-- **The Esc pause menu.** Vanilla's in-game pause menu (Esc) sets the game speed
-  to zero on that machine. The mod suppresses the pause for the map, journal,
-  dialogue and other menus, but not for this one, so a host opening it may freeze
-  the world for everyone, and a client opening it freezes its own view while the
-  world goes on. Not yet decided or fixed.
-
 Explicitly parked or left as is:
 
 - A client whose chapter load failed has to rejoin by hand.
-- If two players hand the same item to two NPCs within one network round trip, a
-  client's personal reward (the Wolf's pistol for the egg) can be granted to both.
-  The story outcome is still only the first one.
+- A dream waiting to start (a level-up or dialogue dream the host could not take at
+  once) waits while the host has the pause menu open.
+- World sounds keep playing behind the pause menu until the whole world pauses, the
+  same as behind the map or the journal.
 - A host that leaves is not covered by the quest-item drop (the session ends with it,
   or the host role moves).
 - The listen-in dialogue view does not show trading, the cooking menu or journal

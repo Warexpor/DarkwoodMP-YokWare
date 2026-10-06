@@ -10,6 +10,16 @@ namespace DarkwoodMP.PathB.Tests;
 public class CoopPolicyTests
 {
     [Fact]
+    public void PausePolicy_WorldPausesOnlyWhenEveryPlayerIsInTheMenu()
+    {
+        Assert.True(CoopPausePolicy.WorldPaused(hostInMenu: true, peers: 0, peersInMenu: 0));
+        Assert.True(CoopPausePolicy.WorldPaused(hostInMenu: true, peers: 2, peersInMenu: 2));
+        Assert.False(CoopPausePolicy.WorldPaused(hostInMenu: true, peers: 2, peersInMenu: 1));
+        Assert.False(CoopPausePolicy.WorldPaused(hostInMenu: false, peers: 2, peersInMenu: 2));
+        Assert.False(CoopPausePolicy.WorldPaused(hostInMenu: false, peers: 0, peersInMenu: 0));
+    }
+
+    [Fact]
     public void TimePolicy_ClientConnected_SuppressesClock()
     {
         // Also gates Controller.useTimeSkip on connected clients (beds / wait-until-evening).

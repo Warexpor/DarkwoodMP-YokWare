@@ -3,8 +3,8 @@ using DWMPHorde.Networking;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Vanilla pauses the game while the player levels up at the oven or talks (trading
-    /// included): nothing can reach the player in a menu. Co-op keeps the world running for
+    /// Vanilla pauses the game while the player levels up at the oven, talks (trading
+    /// included) or has the pause menu open: nothing can reach the player in a menu. Co-op keeps the world running for
     /// the others (NoWorldPausePatch), so a player in one of those menus was chased and hit
     /// while unable to act. While this player is in one, creatures ignore it (vanilla
     /// <c>ignoreMe</c>, which reaches the host through PlayerEffectSync) and nothing hurts it
@@ -31,7 +31,7 @@ namespace DWMPHorde.Sync
                 p.ignoreMe = true;
                 p.invulnerable = true;
                 _on = true;
-                ModRuntime.LegacyInfo("[MenuShield] on (level-up / dialogue)");
+                ModRuntime.LegacyInfo("[MenuShield] on (level-up / dialogue / pause menu)");
                 return;
             }
             Release(p);
@@ -40,6 +40,9 @@ namespace DWMPHorde.Sync
         private static bool InMenu(Player p)
         {
             if (p.inLevelingMenu)
+                return true;
+            // The pause menu no longer stops the world (PauseMenuSync).
+            if (GameScreen.InPauseMenu)
                 return true;
             // The host applying a peer's dialogue opens the window for a moment without
             // the host talking.

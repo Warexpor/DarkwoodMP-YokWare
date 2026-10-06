@@ -128,7 +128,7 @@ namespace DWMPHorde
                 return;
             }
 
-            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
+            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && GameScreen.AtTitle)
             {
                 var lan = net;
                 if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
@@ -286,7 +286,7 @@ namespace DWMPHorde
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client || !net.IsHandshakeComplete)
                 return;
-            if (!Core.mainMenu)
+            if (!GameScreen.AtTitle)
             {
                 // In-world: the next title visit gets a fresh wait window, not a stale one.
                 _handshakeAt = 0f;
@@ -429,9 +429,9 @@ namespace DWMPHorde
             }
             else if (net.IsHandshakeComplete)
             {
-                if (!net.ClientSeesHostWorldReady && Core.mainMenu)
+                if (!net.ClientSeesHostWorldReady && GameScreen.AtTitle)
                     SetJoinProgress("WAIT HOST…");
-                else if (net.ClientSeesHostWorldReady && Core.mainMenu)
+                else if (net.ClientSeesHostWorldReady && GameScreen.AtTitle)
                     SetJoinProgress("HOST READY");
                 else
                     SetJoinProgress("CONNECTED");
@@ -450,7 +450,7 @@ namespace DWMPHorde
                 return;
             try
             {
-                if (!Core.mainMenu)
+                if (!GameScreen.AtTitle)
                     return;
             }
             catch { return; }

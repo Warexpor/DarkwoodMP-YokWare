@@ -72,7 +72,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (Core.mainMenu || Core.loadingGame || Player.Instance == null)
+            if (GameScreen.AtTitle || Core.loadingGame || Player.Instance == null)
             {
                 ModLog.Event(LogCat.Save,
                     "SaveSync ignored — not in playable world (menu/loading/no player)");
@@ -196,7 +196,7 @@ namespace DWMPHorde.Networking
                     yield break;
                 if (_receivedHostClientBackup)
                     yield break;
-                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                     t += Time.unscaledDeltaTime;
                 yield return null;
             }
