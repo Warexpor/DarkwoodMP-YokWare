@@ -188,8 +188,9 @@ and join a different host; host migration followed by a reconnect.
   Host `InSightOfPlayer` sight considers any session avatar
   (`HostPlayerIdentity.AnyInSight`). Dual-box runtime pending.
 - Dream objects and dream cleanup are scoped to the active dream location.
-- Host migration elects the lowest positive surviving `PlayerId`; dream
-  migration remains deferred.
+- Host migration elects the lowest positive surviving `PlayerId`; a migration
+  during a dream carries the dream over (done in code, not playtested; see the
+  deferred list below).
 - **UniqueItemSpawner (TeddyBear):** host-only `spawn` (clients Prefix-skip).
   Observation: host `ContainerItem` PlaceItem when peers are connected at
   spawn time; otherwise client open → `ContainerStateRequest` /

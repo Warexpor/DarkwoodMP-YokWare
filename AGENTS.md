@@ -62,9 +62,10 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.8.x** (current **0.8.132**). **0.7.81** is the last pre-rewrite ship. Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.8.x** (current version: README table / `PluginInfo`). **0.7.81** is the last pre-rewrite ship. Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
 - **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
-- **Protocol:** 32 (keep both installs same DLL)
+- **Protocol:** see README table / `PluginInfo.ProtocolVersion` (keep both installs same DLL)
+- **How the co-op rules fit together** (philosophy, shared vs personal, per-area rules, limits): `DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md`. Update it when a rule in it changes.
 - **Game engine:** **Unity 2021.3.30f1** (`b4360d7cdac4`) — verified from Steam
   `Darkwood.exe` / `Darkwood_Data/globalgamemanagers` (both boxes). Not Unity 5.
   → `Object.FindObjectsOfType<T>(includeInactive: true)` is valid; prefer it for
