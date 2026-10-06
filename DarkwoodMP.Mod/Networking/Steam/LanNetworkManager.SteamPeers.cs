@@ -14,25 +14,24 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class LanNetworkManager
     {
-        internal void OnSteamPacket(CSteamID remote, byte[] payload)
+        internal void OnSteamPacket(CSteamID remote, byte typeByte, byte[] body, bool reliable)
         {
-            if (_backend != ConnectionBackend.Steam || payload == null || payload.Length == 0)
+            if (_backend != ConnectionBackend.Steam || body == null)
                 return;
 
             // Host: first packet from unknown steam user → register peer (like OnPeerConnected).
-            if (_role == NetworkRole.Host && !_steamIdToPlayer.ContainsKey(remote.m_SteamID))
+            if (_role == NetworkRole.Host && !_steamPeers.IsKnown(remote.m_SteamID))
             {
                 if (!TryHostAcceptSteamPeer(remote))
                     return;
             }
 
-            if (!_steamIdToPlayer.TryGetValue(remote.m_SteamID, out int playerId))
+            if (!_steamPeers.TryGetPlayerId(remote.m_SteamID, out int playerId))
             {
                 // Client: first packet from the host may arrive before the map; bind the host.
                 if (_role == NetworkRole.Client && Steam.HostSteamId.IsValid() && remote == Steam.HostSteamId)
                 {
-                    _steamPeers[1] = remote;
-                    _steamIdToPlayer[remote.m_SteamID] = 1;
+                    _steamPeers.Set(1, remote);
                     playerId = 1;
                 }
                 else
@@ -41,7 +40,8 @@ namespace DWMPHorde.Networking
                 }
             }
 
-            DispatchSteamPayload(remote, playerId, payload);
+            DispatchSteamPayload(remote, playerId, (NetMessageType)typeByte, body,
+                reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
         }
 
         private bool TryHostAcceptSteamPeer(CSteamID remote)
@@ -58,9 +58,12 @@ namespace DWMPHorde.Networking
 
             bool allowDreamJoin = Config.ModConfig.AllowJoinDuringDream != null
                 && Config.ModConfig.AllowJoinDuringDream.Value;
-            if (!allowDreamJoin
+            // A migration survivor is not a new player: it is still on the dream pad.
+            bool survivor = IsMigrationSurvivorAddress(remote.m_SteamID.ToString());
+            if (!allowDreamJoin && !survivor
                 && (Sync.DreamSession.ShouldRejectNewConnections
-                    || Sync.DreamSyncManager.IsDreamActive))
+                    || Sync.DreamSyncManager.IsDreamActive
+                    || Sync.DreamSyncManager.IsHostDreamEntryPending))
             {
                 ModLog.Warn(LogCat.Network, "Steam reject " + remote.m_SteamID + " — dream join blocked");
                 Steam.CloseSession(remote);
@@ -69,21 +72,29 @@ namespace DWMPHorde.Networking
 
             Steam.AcceptSession(remote);
             int playerId = _nextPlayerId++;
-            _steamPeers[playerId] = remote;
-            _steamIdToPlayer[remote.m_SteamID] = playerId;
+            _steamPeers.Set(playerId, remote);
 
-            if (_handshakedPeers.Count == 0)
-                _handshakeComplete = false;
+            if (_session.Link.Handshaked.Count == 0)
+                _session.Link.HandshakeComplete = false;
             StatusText = $"Steam player {playerId} connected";
             ModLog.Event(LogCat.Network,
                 $"Steam player {playerId} connected sid={remote.m_SteamID} (peers={_steamPeers.Count})");
+
+            if (HostRequiresPassword())
+            {
+                // Password mode: only the host Handshake goes out now (the client answers it with
+                // the key). WorldSession and the join bulk follow once the password is verified
+                // (SessionHandlers), and a peer that never proves it is dropped after a grace.
+                _steamPeers.MarkUnauthenticated(playerId, UnityEngine.Time.unscaledTime);
+                SendHostHandshake(playerId);
+                return true;
+            }
 
             CompleteHostPeerJoin(playerId);
             return true;
         }
 
-        /// <summary>Shared host post-connect (Handshake + WorldSession) for LAN and Steam.</summary>
-        private void CompleteHostPeerJoin(int playerId)
+        private void SendHostHandshake(int playerId)
         {
             SendToPlayer(playerId, NetMessageType.Handshake, w =>
             {
@@ -94,6 +105,13 @@ namespace DWMPHorde.Networking
                     HostPlayerId = (short)_localPlayerId
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>Shared host post-connect (Handshake + WorldSession) for LAN and Steam.</summary>
+        private void CompleteHostPeerJoin(int playerId, bool sendHandshake = true)
+        {
+            if (sendHandshake)
+                SendHostHandshake(playerId);
 
             WorldSessionMessage session = _worldSync.BuildHostSession();
             SendToPlayer(playerId, NetMessageType.WorldSession, w => session.Serialize(w),
@@ -102,12 +120,16 @@ namespace DWMPHorde.Networking
             if (HostHasShareableWorld())
             {
                 ModLog.Event(LogCat.Session,
-                    "Peer " + playerId + " connected while host in-world — "
-                    + "deferring gameplay bulk until after world share");
+                    "Peer " + playerId + " connected while host fully in-world — "
+                    + "deferring gameplay bulk until after handshake / world share");
             }
             else
             {
-                SendLateJoinGameplayBulk(playerId);
+                // Title / mid-load joiners: do NOT dump sticky bulk yet — wait for
+                // HostWorldReady + handshake AlreadyInWorld / share pipeline.
+                ModLog.Event(LogCat.Session,
+                    "Peer " + playerId + " connected while host not fully in-world — "
+                    + "holding late-join bulk until host ready or phase-3 reconnect");
             }
 
             Connected?.Invoke();
@@ -116,11 +138,14 @@ namespace DWMPHorde.Networking
         /// <summary>Shared client post-connect (outbound Handshake) for LAN and Steam.</summary>
         private void CompleteClientPeerJoin()
         {
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
 
             bool alreadyInWorld = ClientReportsAlreadyInWorld() || _migrationInProgress;
             short preferredId = _localPlayerId > 0 ? (short)_localPlayerId : (short)0;
+            string lanKey = ClientStateBackup.GetOrCreateLanClientKey() ?? string.Empty;
+            // Identity of the world we actually have loaded; the host verifies AlreadyInWorld against it.
+            GetLocalWorldIdentity(mint: false, out string worldCampaignId, out int worldChapterId);
             Broadcast(NetMessageType.Handshake, w =>
             {
                 new HandshakeMessage
@@ -128,6 +153,10 @@ namespace DWMPHorde.Networking
                     ProtocolVersion = PluginInfo.ProtocolVersion,
                     PlayerId = preferredId,
                     AlreadyInWorld = alreadyInWorld,
+                    StableClientKey = lanKey,
+                    CampaignId = worldCampaignId,
+                    ChapterId = worldChapterId,
+                    ConnectionKey = IsSteamSession ? Config.ModConfig.GetConnectionKey() : string.Empty,
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
 
@@ -136,24 +165,23 @@ namespace DWMPHorde.Networking
                     "Join pipeline phase 3: co-op reconnect (AlreadyInWorld) — host should skip share");
 
             SyncCurrentLightState();
+            SyncCurrentAnimLibrary();
             Connected?.Invoke();
         }
 
-        private void DispatchSteamPayload(CSteamID remote, int playerId, byte[] payload)
+        private void DispatchSteamPayload(CSteamID remote, int playerId, NetMessageType type, byte[] body,
+            DeliveryMethod deliveryMethod)
         {
-            if (payload == null || payload.Length < 1)
+            // Steam has no connection-request key like LiteNetLib: until a peer's Handshake proved the
+            // host password, nothing it sends is processed (it could otherwise drive host handlers).
+            if (_role == NetworkRole.Host && HostRequiresPassword()
+                && type != NetMessageType.Handshake && !_steamPeers.IsPasswordOk(remote.m_SteamID))
+            {
+                if (NetLogThrottle.ShouldLog("steam-unauth:" + remote.m_SteamID, 10f, out int dropped))
+                    ModLog.Warn(LogCat.Network,
+                        "Dropping " + type + " from unauthenticated Steam peer p" + playerId
+                        + " (password not yet verified)" + NetLogThrottle.SuppressedSuffix(dropped));
                 return;
-
-            var type = (NetMessageType)payload[0];
-            byte[] body;
-            if (payload.Length == 1)
-            {
-                body = new byte[0];
-            }
-            else
-            {
-                body = new byte[payload.Length - 1];
-                Buffer.BlockCopy(payload, 1, body, 0, body.Length);
             }
 
             _currentReceivePeer = null;
@@ -163,7 +191,7 @@ namespace DWMPHorde.Networking
                 ClientPerfProbe.NotePacketRx(type);
             try
             {
-                ProcessInboundMessage(type, body);
+                ProcessInboundMessage(type, body, deliveryMethod);
             }
             finally
             {
@@ -176,53 +204,18 @@ namespace DWMPHorde.Networking
             // Reuse LAN disconnect cleanup by synthesizing the host branch.
             ModLog.Event(LogCat.Network, $"Steam player {playerId} disconnected: " + reason);
 
-            var toRemove = new List<string>();
-            foreach (var kv in _dragClaims)
-            {
-                if (kv.Value == playerId)
-                    toRemove.Add(kv.Key);
-            }
-            foreach (string key in toRemove)
-            {
-                _dragClaims.Remove(key);
-                ReleaseRemoteDragKinematic(key);
-                RemoveRemoteDragIds(key);
-                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
-            }
+            // Same N-peer claim release as LAN OnPeerDisconnected.
+            if (playerId > 0)
+                PlayerInteractHandlers?.ReleaseDragClaimsForDisconnectedPlayer(
+                    playerId, broadcastStop: _role == NetworkRole.Host);
 
             if (_role == NetworkRole.Host)
             {
                 if (playerId > 0)
                 {
-                    Sync.WorkbenchOpenLock.HostReleaseAllForPlayer(this, playerId);
+                    // Remove Steam slot first so roster build excludes the leaver.
                     RemovePeerSlot(playerId);
-                    _handshakedPeers.Remove(playerId);
-                    bool wasLoadingOnly = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId)
-                        && (!_awaitingLateJoinBulk.TryGetValue(playerId, out float seen) || seen <= 0f);
-                    bool expectedJoinDetach = _peersLoadingWorld.Contains(playerId)
-                        && !_peersCoopReconnect.Contains(playerId);
-
-                    _awaitingLateJoinBulk.Remove(playerId);
-                    _pendingHeavyLateJoinBulk.Remove(playerId);
-                    _peersLoadingWorld.Remove(playerId);
-                    _peersCoopReconnect.Remove(playerId);
-                    if (_handshakedPeers.Count == 0)
-                        _handshakeComplete = false;
-                    WorldProxyHandlers.DestroyRemoteProxy(playerId);
-                    DestroyRemoteFlareLight(playerId);
-                    DestroyRemoteItemLight(playerId);
-                    _remotePlayers.Remove(playerId);
-                    PlayerPositionManager.RemovePlayer(playerId);
-                    _remoteOutsideLocation.Remove(playerId);
-                    Sync.FinalDreamsceneManager.OnRemoteDisconnected(playerId);
-                    if (!expectedJoinDetach && !wasLoadingOnly)
-                    {
-                        if (DeathStateTracker.OnRemoteDisconnected(playerId))
-                            DeathStateTracker.TryResolveNightMorning("steam peer disconnect");
-                        Patches.MorningHideoutHold.Forget(playerId);
-                        Patches.MorningHideoutHold.TryEndIfHideoutEmpty();
-                    }
+                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: false, reasonTag: "steam peer disconnect");
                     StatusText = $"Steam player {playerId} left ({_steamPeers.Count} remaining)";
                 }
             }
@@ -246,24 +239,12 @@ namespace DWMPHorde.Networking
         {
             if (_steam != null && _steam.IsActive)
                 _steam.Shutdown(leaveLobby);
-            // Do not clear peer maps here when called from ClearAllPeerSlots;
-            // always wipe steam routing so a later LAN session cannot leak Steam ids.
-            // Host-grant reconnect rebuilds maps after ConnectP2PDirect / promote.
+            // Always wipe Steam routing so a later LAN session cannot leak Steam ids.
+            // Host-grant reconnect rebuilds the map after ConnectP2PDirect / promote.
             _steamPeers.Clear();
-            _steamIdToPlayer.Clear();
             _currentReceiveSteamId = CSteamID.Nil;
             if (_backend == ConnectionBackend.Steam)
                 _backend = ConnectionBackend.None;
-        }
-
-        private bool SendSteamToPlayer(int playerId, byte[] data, DeliveryMethod method)
-            => SendSteamToPlayer(playerId, data, data != null ? data.Length : 0, method);
-
-        private bool SendSteamToPlayer(int playerId, byte[] data, int length, DeliveryMethod method)
-        {
-            if (!_steamPeers.TryGetValue(playerId, out CSteamID sid))
-                return false;
-            return Steam.Send(sid, data, length, method);
         }
 
         private void DisconnectCurrentReceivePeer()
@@ -276,42 +257,27 @@ namespace DWMPHorde.Networking
             if (_currentReceiveSteamId.IsValid())
             {
                 Steam.CloseSession(_currentReceiveSteamId);
-                if (_steamIdToPlayer.TryGetValue(_currentReceiveSteamId.m_SteamID, out int pid))
+                if (_steamPeers.TryGetPlayerId(_currentReceiveSteamId.m_SteamID, out int pid))
                     HandleSteamPeerDisconnected(pid, "protocol mismatch");
             }
         }
 
-        private int TryRebindPreferredSteamPlayerId(int provisionalId, int preferredId, CSteamID steamId)
+        private int TryRebindPreferredSteamPlayerId(int provisionalId, int preferredId, CSteamID steamId,
+            bool reservedForResume)
         {
             if (preferredId <= 0 || preferredId == provisionalId || !steamId.IsValid())
                 return provisionalId;
             if (preferredId == _localPlayerId)
                 return provisionalId;
-            if (_steamPeers.ContainsKey(preferredId))
+            if (_steamPeers.Contains(preferredId))
+                return provisionalId;
+            if (!reservedForResume
+                && !TryConsumeMigrationReservation(preferredId, steamId.m_SteamID.ToString()))
                 return provisionalId;
 
-            _steamPeers.Remove(provisionalId);
-            _steamPeers[preferredId] = steamId;
-            _steamIdToPlayer[steamId.m_SteamID] = preferredId;
-            if (_handshakedPeers.Remove(provisionalId))
-                _handshakedPeers.Add(preferredId);
-            if (_awaitingLateJoinBulk.TryGetValue(provisionalId, out float t))
-            {
-                _awaitingLateJoinBulk.Remove(provisionalId);
-                _awaitingLateJoinBulk[preferredId] = t;
-            }
-            if (_pendingHeavyLateJoinBulk.TryGetValue(provisionalId, out int heavyPhase))
-            {
-                _pendingHeavyLateJoinBulk.Remove(provisionalId);
-                _pendingHeavyLateJoinBulk[preferredId] = heavyPhase;
-            }
-            if (_peersLoadingWorld.Remove(provisionalId))
-                _peersLoadingWorld.Add(preferredId);
-            if (_peersCoopReconnect.Remove(provisionalId))
-                _peersCoopReconnect.Add(preferredId);
-
-            if (preferredId >= _nextPlayerId)
-                _nextPlayerId = preferredId + 1;
+            if (!_steamPeers.Rebind(provisionalId, preferredId))
+                return provisionalId;
+            RebindPlayerIdState(provisionalId, preferredId);
 
             ModLog.Event(LogCat.Network,
                 "Steam rebind peer id " + provisionalId + " → preferred " + preferredId);

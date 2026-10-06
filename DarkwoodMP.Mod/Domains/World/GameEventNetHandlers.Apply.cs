@@ -11,13 +11,15 @@ namespace DWMPHorde.Networking
     /// <summary>GameEventsFired + late-join GameEventsBulk handlers composed for 0.8.</summary>
     internal sealed partial class GameEventNetHandlers
     {
-
         /// <returns>True when the event is resolved (fired, already fired, or intentionally skipped).</returns>
         private bool ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
         {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+
             // Post-teardown dream GEs (e.g. fov_trigger_* after LocationExit) must not apply.
-            if (!string.IsNullOrEmpty(msg.EventName)
-                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
+            // A dream GE is one at the dream pad, not one with "dream_" in its name: overworld
+            // events after a dream (the church entrance, the hideout aftermath) were dropped.
+            if (DreamSyncManager.IsAtDreamPad(pos)
                 && !DreamSyncManager.IsDreamActive
                 && (Dreams.Instance == null || !Dreams.Instance.dreaming))
             {
@@ -26,18 +28,26 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Ending camera pan is personal to peers already in the epilogue.
+            // A living player outside must not start EpilogueOutcomes because
+            // someone else finished the crawl.
+            if (string.Equals(msg.EventName, EpilogueNetHandlers.EpilogueCameraPanEvent,
+                    StringComparison.Ordinal)
+                && !EpilogueNetHandlers.IsLocalInEpilogue())
+            {
+                ModRuntime.LegacyInfo(
+                    "[Epilogue] drop camera pan GE — local peer not in epilogue");
+                return true;
+            }
+
             GameEvents best = null;
 
             // Resolve dream events only under the active pad. A name-only
             // fallback can select the overworld bunker copy, so queue events
             // until the pad is loaded and finishedLoading is true.
-            // Unnamed pad effects are also identified by their pad coordinates.
-            bool dreamNamed = !string.IsNullOrEmpty(msg.EventName)
-                && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            // Dream events are the ones at the dream pad's slot; before the pad
+            // exists here, any pad-slot position counts (outside locations share them).
             bool padCoords = ClientStateBackup.IsDreamPadCoordinate(pos);
-            bool isDreamEnter = dreamNamed
-                && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
             bool dreamSceneFx = padCoords && !string.IsNullOrEmpty(msg.EventName)
                 && (msg.EventName.IndexOf("def_glow", System.StringComparison.OrdinalIgnoreCase) >= 0
                     || msg.EventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0
@@ -54,9 +64,9 @@ namespace DWMPHorde.Networking
                 && (dreamRoot == null
                     || dreamLoc == null || !dreamLoc.finishedLoading
                     || Dreams.Instance == null || !Dreams.Instance.dreaming);
-            if ((dreamNamed || dreamSceneFx || (padCoords && DreamSyncManager.IsDreamActive))
-                && padNotReady
-                && (isDreamEnter || dreamNamed || dreamSceneFx || padCoords))
+            bool onDreamPad = DreamSyncManager.IsDreamActive
+                && (dreamRoot != null ? DreamSyncManager.IsAtDreamPad(pos) : padCoords);
+            if ((onDreamPad || dreamSceneFx) && padNotReady)
             {
                 if (queueIfMissing)
                 {
@@ -81,21 +91,22 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
-            // Dream bunker dialogue events sit at location origin far from door body;
-            // use wide name search first, then position.
-            float nameR = DreamSyncManager.IsDreamActive ? 80f : 8f;
-            float posR = DreamSyncManager.IsDreamActive ? 12f : 2.5f;
+            // Named events: SoftMatch only. A prior FindNearestByName (exact, no Clone
+            // strip) often missed, then nameless FindNearest stole a nearby already-fired
+            // GE and returned "success" — setActive / renderer / remove never ran on the
+            // peer. SoftMatch strips (Clone), prefers the dream pad, and prefers unfired.
+            // Only the pad's own events are held to the pad: an overworld or outside-location
+            // event fired during a dream (the cellar's dream start, oneChance's dream end) never
+            // resolved under the pad root.
+            float softMax = (onDreamPad || padCoords) ? 250f : 8f;
             if (!string.IsNullOrEmpty(msg.EventName))
-                best = WorldQueryHelper.FindNearestByName<GameEvents>(pos, msg.EventName, nameR);
-            if (best == null)
-                best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
-
-            // Soft name matching handles Clone and suffix drift, with a strict
-            // distance cap to avoid selecting an overworld copy.
-            if (best == null && !string.IsNullOrEmpty(msg.EventName))
             {
-                best = SoftMatchGameEvents(msg.EventName, pos, dreamRoot,
-                    DreamSyncManager.IsDreamActive ? 250f : nameR);
+                best = SoftMatchGameEvents(msg.EventName, pos, onDreamPad ? dreamRoot : null, softMax);
+            }
+            else
+            {
+                float posR = onDreamPad ? 12f : 2.5f;
+                best = WorldQueryHelper.FindNearest<GameEvents>(pos, posR);
             }
 
             if (best == null)
@@ -108,8 +119,7 @@ namespace DWMPHorde.Networking
                     && !padNotReady)
                 {
                     ModRuntime.LegacyInfo(
-                        "[GameEventsSync] drop missing ephemeral FX '" + msg.EventName
-                        + "' (no client GE — not queued)");
+                        $"[GameEventsSync] drop missing ephemeral FX '{msg.EventName}' (no client GE — not queued)");
                     return true;
                 }
 
@@ -118,7 +128,7 @@ namespace DWMPHorde.Networking
                     QueuePendingGameEvent(msg);
                     return false;
                 }
-                ModRuntime.Log?.LogWarning(
+                ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
                     $"[GameEventsSync] no GameEvents near {pos} name='{msg.EventName}'");
                 return false;
             }
@@ -127,6 +137,21 @@ namespace DWMPHorde.Networking
             // Without it GameEventsFiredPatch blocks client one-shots and fire() is a no-op.
             // Vanilla fired+!multipleFire guard prevents double-fire if client already ran it.
             bool wasFired = best.fired;
+            // A one-shot move the host just ran again for this player (PerPlayerTransportOneShots):
+            // the copy here latched on the first player's replay.
+            if (wasFired && !best.multipleFire && msg.ActorPlayerId > 0 && msg.ActorPlayerId == _net.LocalPlayerId
+                && PerPlayerTransportOneShots.Qualifies(best))
+            {
+                // Unless this player had it here already (a joiner fires the hideout's lesson
+                // offline on waking, before the host sees its stand-in walk in).
+                if (PerPlayerTransportOneShots.LocalServed(best.GetInstanceID()))
+                {
+                    ModRuntime.LegacyInfo($"[GameEventsSync] '{best.name}' already had here — not replayed");
+                    return true;
+                }
+                best.fired = false;
+                wasFired = false;
+            }
             if (wasFired && !best.multipleFire)
             {
                 ModRuntime.LegacyInfo(
@@ -138,9 +163,41 @@ namespace DWMPHorde.Networking
             bool leaveDoor = geName.IndexOf("onLeaveDoor", System.StringComparison.OrdinalIgnoreCase) >= 0
                 || geName.IndexOf("DoorDialogue", System.StringComparison.OrdinalIgnoreCase) >= 0;
 
-            using (new NetworkApplyGuard())
+            // Location/proximity flavor (displayMessage + HelpMessage) is personal.
+            // fire() only StartCoroutines delayed GameEvent actions — do NOT set a
+            // process-wide HUD blacklist here (blanks local examine/help). Delayed
+            // text checks the event owner when MoveNext runs
+            // (PersonalFlavorHud + GameEventFireFlavorSourcePatch).
+            // Personal Player.Instance effects (bag / recipes / transport) only for
+            // the stamped actor; late-join bulk uses ActorPlayerId=0 → world only.
+            bool runPersonal = GameEventPersonalPolicy.ShouldRunPersonalEffectsOnApply(
+                msg.ActorPlayerId, _net.LocalPlayerId);
+            bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
+            if (!runPersonal)
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            // dontRunIfInactive starts the steps on the GameEvents object itself; this peer's copy
+            // can be inactive (culled, far away) where the host's was not, and the start then
+            // failed with the event latched as fired. The host ran them: run them here too.
+            bool prevDontRun = best.dontRunIfInactive;
+            if (prevDontRun && !best.gameObject.activeInHierarchy)
+                best.dontRunIfInactive = false;
+            // Who the event belongs to, for story steps that act around that player's body.
+            bool pushedActor = msg.ActorPlayerId > 0;
+            if (pushedActor)
+                GeFireActorContext.Push(msg.ActorPlayerId);
+            try
             {
-                best.fire();
+                using (new NetworkApplyGuard())
+                {
+                    best.fire();
+                }
+            }
+            finally
+            {
+                if (pushedActor)
+                    GeFireActorContext.Pop();
+                best.dontRunIfInactive = prevDontRun;
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
             }
             if (!best.fired && !best.multipleFire)
             {
@@ -150,6 +207,21 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[GameEventsSync] applied '{best.name}' wasFired={wasFired} firedNow={best.fired} at {best.transform.position}");
+
+            // Keep the destroyOnFire identity here too (host does it at fire time) so a client
+            // promoted to host can still send these shells to late joiners.
+            if (best.destroyOnFire)
+            {
+                Vector3 bp = best.transform.position;
+                RecordDestroyedOnFireGameEvent(new GameEventsFiredMessage
+                {
+                    PosX = Mathf.Round(bp.x * 10f) / 10f,
+                    PosY = Mathf.Round(bp.y * 10f) / 10f,
+                    PosZ = Mathf.Round(bp.z * 10f) / 10f,
+                    EventName = geName,
+                    ActorPlayerId = 0
+                }, DreamSyncManager.IsOnDreamPad(best.transform));
+            }
 
             // After GE (which owns openSound): mute late DoorOpen / skip ForceOpen.
             if (!leaveDoor)
@@ -201,6 +273,9 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Soft GE resolve: exact/normalized name index first, full IndexOf walk only on miss.
         /// Index rebuilds when the WorldQueryHelper GameEvents cache array identity changes.
+        /// When <paramref name="dreamRoot"/> is set, only pad children (or within 250 of the
+        /// pad) are eligible — never the overworld bunker twin. Prefer an unfired copy so an
+        /// already-latched twin cannot swallow setActive / renderer / remove.
         /// </summary>
         private GameEvents SoftMatchGameEvents(
             string want, Vector3 pos, Transform dreamRoot, float softMax)
@@ -211,25 +286,45 @@ namespace DWMPHorde.Networking
             string wantNorm = NormalizeGeName(want);
             GameEvents best = null;
             float bestD = float.MaxValue;
+            bool bestLatched = false;
+            float softMaxSq = softMax * softMax;
+            float rootMaxSq = 250f * 250f;
 
             void Consider(GameEvents ge)
             {
-                if (ge == null) return;
+                if (ge == null || ge.transform == null) return;
                 if (dreamRoot != null)
                 {
-                    float rootMax = 250f;
-                    float rootMaxSq = rootMax * rootMax;
                     if (!ge.transform.IsChildOf(dreamRoot)
                         && (ge.transform.position - dreamRoot.position).sqrMagnitude > rootMaxSq)
                         return;
                 }
                 float dSq = (ge.transform.position - pos).sqrMagnitude;
-                float softMaxSq = softMax * softMax;
                 if (dSq > softMaxSq) return;
+
+                // One-shot already latched — keep searching for an unfired twin first.
+                bool latched = ge.fired && !ge.multipleFire;
+                if (best == null)
+                {
+                    best = ge;
+                    bestD = dSq;
+                    bestLatched = latched;
+                    return;
+                }
+                if (bestLatched && !latched)
+                {
+                    best = ge;
+                    bestD = dSq;
+                    bestLatched = false;
+                    return;
+                }
+                if (!bestLatched && latched)
+                    return;
                 if (dSq < bestD)
                 {
-                    bestD = dSq;
                     best = ge;
+                    bestD = dSq;
+                    bestLatched = latched;
                 }
             }
 
@@ -245,13 +340,15 @@ namespace DWMPHorde.Networking
             // Rare: Clone/suffix drift that NormalizeGeName did not collapse.
             // The object name must contain the full wanted name. A shorter name
             // that merely sits inside the wanted name is a different event.
+            string wantForContains = wantNorm.Length > 0 ? wantNorm : want;
             for (int i = 0; i < all.Length; i++)
             {
                 GameEvents ge = all[i];
                 if (ge == null) continue;
-                string n = ge.name ?? "";
-                if (!n.Equals(want, System.StringComparison.OrdinalIgnoreCase)
-                    && n.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) < 0)
+                string n = NormalizeGeName(ge.name);
+                if (n.Length == 0) continue;
+                if (!n.Equals(wantForContains, System.StringComparison.OrdinalIgnoreCase)
+                    && n.IndexOf(wantForContains, System.StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 Consider(ge);
             }
@@ -279,17 +376,22 @@ namespace DWMPHorde.Networking
         /// <summary>Drop queued dream GEs so they cannot re-fire after pad teardown.</summary>
         internal void ClearPendingDreamGameEvents()
         {
+            DropDreamPadDestroyedRecords();
             if (_pendingGameEvents.Count == 0) return;
+            // The pad is still standing here (vanilla destroys it 4 s after the dream): drop only
+            // what was queued for its slot. Without it, any pad slot.
+            bool padKnown = DreamSyncManager.GetLoadedDreamPad() != null;
             int removed = 0;
             for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
             {
                 var msg = _pendingGameEvents[i];
                 string n = msg.EventName ?? "";
-                bool dreamName = n.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0;
                 bool ephemeral = IsEphemeralDreamFxEvent(n);
-                bool padPos = ClientStateBackup.IsDreamPadCoordinate(
-                    new Vector3(msg.PosX, msg.PosY, msg.PosZ));
-                if (dreamName || ephemeral || padPos)
+                Vector3 msgPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                bool padPos = padKnown
+                    ? DreamSyncManager.IsAtDreamPad(msgPos)
+                    : ClientStateBackup.IsDreamPadCoordinate(msgPos);
+                if (ephemeral || padPos)
                 {
                     int key = msg.EventName != null ? msg.EventName.GetHashCode() : 0;
                     key ^= (int)(msg.PosX * 10f) ^ ((int)(msg.PosZ * 10f) << 10);
@@ -319,6 +421,12 @@ namespace DWMPHorde.Networking
         /// <summary>After remote dream pad spawn, apply queued entry events.</summary>
         internal void TryFlushPendingGameEventsAfterDreamLoad()
         {
+            // Pad spawn after dream-start Invalidate can leave a 3s TTL GameEvents scan
+            // without pad children; SoftMatch would miss leave-door / setActive shells.
+            WorldQueryHelper.InvalidateSceneScanCache<GameEvents>();
+            WorldQueryHelper.InvalidateSceneScanCache<UniqueObject>();
+            _geSoftIndexSource = null;
+            _geSoftByNormName.Clear();
             _nextPendingGameEventsFlushTime = 0f;
             TryFlushPendingGameEvents();
         }
@@ -340,10 +448,9 @@ namespace DWMPHorde.Networking
                 if (!_pendingGameEventQueuedAt.ContainsKey(key))
                     _pendingGameEventQueuedAt[key] = now;
 
-                bool dreamish = (!string.IsNullOrEmpty(msg.EventName)
-                        && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    || ClientStateBackup.IsDreamPadCoordinate(
-                        new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                // Pad-slot events (a dream's onEnterLocation, its FX) wait for the pad to load.
+                bool dreamish = ClientStateBackup.IsDreamPadCoordinate(
+                    new Vector3(msg.PosX, msg.PosY, msg.PosZ));
                 float maxAge = dreamish ? PendingDreamGameEventsMaxAge : PendingGameEventsMaxAge;
                 if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
@@ -353,10 +460,7 @@ namespace DWMPHorde.Networking
                 }
 
                 // Dream onEnterLocation / pad FX: keep queued until pad finished.
-                bool dreamEnter = !string.IsNullOrEmpty(msg.EventName)
-                    && msg.EventName.IndexOf("dream_", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    && msg.EventName.IndexOf("onEnterLocation", System.StringComparison.OrdinalIgnoreCase) >= 0;
-                if (dreamEnter || dreamish)
+                if (dreamish)
                 {
                     Location dLoc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
                     if (DreamSyncManager.IsDreamActive
@@ -366,7 +470,20 @@ namespace DWMPHorde.Networking
                 }
 
                 // Always go through Apply (soft name search); pre-find skipped def_glow.
-                if (ApplyGameEventsFired(msg, queueIfMissing: false))
+                // A throwing event is dropped instead of aborting the flush (and retried
+                // forever behind everything after it).
+                bool resolved;
+                try
+                {
+                    resolved = ApplyGameEventsFired(msg, queueIfMissing: false);
+                }
+                catch (Exception ex)
+                {
+                    ModLog.WarnRate(LogCat.Session, "ge-flush-item-throw",
+                        "[GameEventsSync] pending GE '" + msg.EventName + "' apply threw: " + ex.Message);
+                    resolved = true;
+                }
+                if (resolved)
                 {
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);

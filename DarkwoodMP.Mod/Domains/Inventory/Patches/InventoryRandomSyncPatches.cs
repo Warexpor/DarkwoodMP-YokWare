@@ -65,7 +65,7 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(InventoryRandom __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
@@ -74,30 +74,45 @@ namespace DWMPHorde.Patches
             Inventory inv = __instance != null
                 ? __instance.GetComponent<Inventory>()
                 : null;
-            if (inv == null || inv.slots == null)
-                return;
+            // Empty world chests: open-state request is enough. Trader new-day
+            // clear+reroll must push even when the roll yields nothing so peers
+            // that cleared locally stay aligned (and any stale fill is wiped).
+            bool isNpc = __instance != null && __instance.GetComponent<NPC>() != null;
+            ContainerStateFanout.Broadcast(net, inv, evenIfEmpty: isNpc);
+        }
+    }
 
+    /// <summary>Host: push one container's whole contents to every peer (ContainerStateSync).</summary>
+    internal static class ContainerStateFanout
+    {
+        internal static void Broadcast(LanNetworkManager net, Inventory inv, bool evenIfEmpty)
+        {
+            if (net == null || inv == null || inv.slots == null)
+                return;
+            // The host's own prologue containers (its private pads) are not the world's.
+            if (PersonalPrologue.IsOnProloguePad(inv.transform))
+                return;
             var slots = new List<SlotStateEntry>();
             for (int i = 0; i < inv.slots.Count; i++)
             {
                 InvSlot s = inv.slots[i];
                 if (InvItemClass.isNull(s.invItem))
                     continue;
+                InvItemClass it = s.invItem;
+                bool isRecipe = it.isRecipe;
                 slots.Add(new SlotStateEntry
                 {
                     SlotIndex = (byte)i,
-                    ItemType = s.invItem.type,
-                    Amount = s.invItem.amount,
-                    Durability = s.invItem.durability,
-                    Ammo = s.invItem.ammo
+                    ItemType = isRecipe ? it.recipeFor : it.type,
+                    Amount = it.amount,
+                    Durability = it.durability,
+                    Ammo = it.ammo,
+                    IsRecipe = isRecipe,
+                    Upgrades = Sync.InvItemUpgradeWire.CollectNames(it),
+                    ShouldBeActive = it.shouldBeActive
                 });
             }
-
-            // Empty world chests: open-state request is enough. Trader new-day
-            // clear+reroll must push even when the roll yields nothing so peers
-            // that cleared locally stay aligned (and any stale fill is wiped).
-            bool isNpc = __instance.GetComponent<NPC>() != null;
-            if (slots.Count == 0 && !isNpc)
+            if (slots.Count == 0 && !evenIfEmpty)
                 return;
 
             Vector3 pos = inv.transform.position;
@@ -108,9 +123,7 @@ namespace DWMPHorde.Patches
 
             if (ModRuntime.VerboseLogging)
                 ModLog.Event(LogCat.Container,
-                    "[InventoryRandom] host fan-out ContainerStateSync slots="
-                    + slots.Count + " at " + pos
-                    + (isNpc ? " (NPC)" : ""));
+                    "[ContainerFanout] host ContainerStateSync slots=" + slots.Count + " at " + pos);
 
             var sync = new ContainerStateSyncMessage
             {

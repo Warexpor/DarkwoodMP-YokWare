@@ -22,10 +22,15 @@ namespace DWMPHorde.Networking
     {
         public const float SendInterval = 0.033f;
 
-        public static LanNetworkManager Instance { get; private set; }
-
         private NetManager _net;
-        private readonly Dictionary<int, NetPeer> _peers = new Dictionary<int, NetPeer>();
+        /// <summary>
+        /// Per-session peer bookkeeping. StopNetwork replaces it; a transport stop (migration, soft
+        /// reconnect) replaces its <see cref="SessionState.Link"/>.
+        /// </summary>
+        private SessionState _session = new SessionState();
+
+        /// <summary>LAN (LiteNetLib) peers by player id.</summary>
+        private readonly LanPeerTable _lanPeers = new LanPeerTable();
         private NetworkRole _role = NetworkRole.Offline;
         private readonly Dictionary<int, RemotePlayerProxy> _remoteProxies = new Dictionary<int, RemotePlayerProxy>();
 
@@ -34,38 +39,22 @@ namespace DWMPHorde.Networking
 
         internal WorldSyncService WorldSync => _worldSync;
 
-        internal int PhysicsRecvLogCounter
-        {
-            get => _physicsRecvLogCounter;
-            set => _physicsRecvLogCounter = value;
-        }
-
-        internal Dictionary<short, ShadowCreature> ShadowTracked => _shadowTracked;
-        internal short NextShadowId
-        {
-            get => _nextShadowId;
-            set => _nextShadowId = value;
-        }
         private WorldSaveShareService _worldSaveShare;
         private float _sendTimer;
         private uint _nextPlayerStateSequence;
-        internal readonly Dictionary<int, uint> _lastPlayerStateSequence = new Dictionary<int, uint>();
-        internal Dictionary<int, uint> LastPhysicsStateSequence => _lastPhysicsStateSequence;
-        internal readonly Dictionary<int, uint> _lastPhysicsStateSequence = new Dictionary<int, uint>();
-        internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _lastReliablePhysicsStateSequence;
-        internal readonly Dictionary<int, uint> _lastReliablePhysicsStateSequence = new Dictionary<int, uint>();
-        private float _proxyAggroTimer;
+        internal Dictionary<int, uint> LastPhysicsStateSequence => _session.Link.LastPhysicsStateSequence;
+        internal Dictionary<int, uint> LastReliablePhysicsStateSequence => _session.Link.LastReliablePhysicsStateSequence;
+        private float _proxyMaintenanceTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
-        internal bool _wasDragging;
-        internal string _lastDraggedItemName;
+        private bool _wasDragging;
+        private string _lastDraggedItemName;
 
         internal bool WasDragging { get => _wasDragging; set => _wasDragging = value; }
         internal string LastDraggedItemName { get => _lastDraggedItemName; set => _lastDraggedItemName = value; }
-        internal Dictionary<int, uint> LastPlayerStateSequence => _lastPlayerStateSequence;
+        internal Dictionary<int, uint> LastPlayerStateSequence => _session.Link.LastPlayerStateSequence;
         internal Dictionary<string, Vector3> LastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
         internal Dictionary<string, float> DragEndedAt => PlayerInteractHandlers.DragEndedAt;
-        internal static HashSet<string> ConsumedDropGuids => _consumedDropGuids;
         /// <summary>Local E-drag scrape intent (player walking). False → reliable quiet stop for peers.</summary>
         private bool _dragScrapeActive;
         private float _dragScrapeQuietSince = -1f;
@@ -73,17 +62,11 @@ namespace DWMPHorde.Networking
         private const float DragScrapeStopSpeed = 1f;
         private const float DragScrapeStopGrace = 0.05f;
 
-        /// <summary>
-        /// Local side is ready to exchange gameplay traffic.
-        /// Host: true once at least one peer has completed handshake (never cleared when more peers join).
-        /// Client: true after receiving host handshake.
-        /// </summary>
-        private bool _handshakeComplete;
 
         internal bool HandshakeComplete
         {
-            get => _handshakeComplete;
-            set => _handshakeComplete = value;
+            get => _session.Link.HandshakeComplete;
+            set => _session.Link.HandshakeComplete = value;
         }
 
         internal bool AcceptSnapshotSequence(
@@ -105,8 +88,7 @@ namespace DWMPHorde.Networking
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo(
-                        "[" + snapshotKind + "] stale snapshot rejected sender="
-                        + senderId + " seq=" + sequence + " last=" + last);
+                        $"[{snapshotKind}] stale snapshot rejected sender={senderId} seq={sequence} last={last}");
                 return false;
             }
 
@@ -118,8 +100,8 @@ namespace DWMPHorde.Networking
         /// Per-peer handshake tracking on the host. Prevents a newly joining peer from
         /// freezing gameplay traffic for peers that are already ready.
         /// </summary>
-        internal HashSet<int> HandshakedPeers => _handshakedPeers;
-        internal readonly HashSet<int> _handshakedPeers = new HashSet<int>();
+        internal HashSet<int> HandshakedPeers => _session.Link.Handshaked;
+
 
         private int _nextPlayerId = 2;
         private int _localPlayerId = 1; // Host is always player 1
@@ -149,21 +131,10 @@ namespace DWMPHorde.Networking
         }
         /// <summary>PlayerLightState arrived before proxy existed (phase-3 / early handshake).</summary>
         internal Dictionary<int, PlayerLightStateMessage> PendingPlayerLights =>
-            PlayerLightFxHandlers.PendingPlayerLights;
+            PlayerLightFxApplyHandlers.PendingPlayerLights;
 
-        private int _nextThrowId = 1;
 
-        /// <summary>
-        /// Peers awaiting late-join bulk. Value = realtime of first in-world PlayerState
-        /// (0 = share done, not seen in-world yet). Bulk after ClientBulkSettleSeconds.
-        /// </summary>
-        private readonly Dictionary<int, float> _awaitingLateJoinBulk = new Dictionary<int, float>();
 
-        /// <summary>
-        /// Heavy sticky-world bulk after the light dump (FindObjects scans). Value = next phase index.
-        /// One phase per peer per frame so host join frame does not freeze.
-        /// </summary>
-        private readonly Dictionary<int, int> _pendingHeavyLateJoinBulk = new Dictionary<int, int>();
         private const int HeavyLateJoinPhaseCount = 12; // weather through fired GameEvents bulk
 
         /// <summary>Title-join: wait after first PlayerState before bulk (avoids half-loaded apply).</summary>
@@ -171,29 +142,14 @@ namespace DWMPHorde.Networking
         /// <summary>Phase-3 reconnect: client finished offline load, so use a short settle.</summary>
         private const float CoopReconnectBulkSettleSeconds = 1.5f;
 
-        /// <summary>
-        /// Host: peers mid world-download or LoadScene. Gameplay traffic is held
-        /// while the client loads a save and may stop polling network events.
-        /// Cleared on first in-world PlayerState or disconnect.
-        /// </summary>
-        private readonly HashSet<int> _peersLoadingWorld = new HashSet<int>();
-
-        /// <summary>
-        /// Host: peers that reconnected with AlreadyInWorld during phase 3.
-        /// These peers use a shorter late-join bulk settle.
-        /// </summary>
-        private readonly HashSet<int> _peersCoopReconnect = new HashSet<int>();
-
-        /// <summary>
-        /// Host: last observed HostHasShareableWorld for rising-edge auto-share to title clients.
-        /// </summary>
-        private bool _hostWasShareableForWaitingClients;
 
 
-        /// <summary>Remote peer OutsideLocation membership (location sync / late-join).</summary>
-        private readonly Dictionary<int, string> _remoteOutsideLocation = new Dictionary<int, string>();
 
-        internal Dictionary<int, string> RemoteOutsideLocation => _remoteOutsideLocation;
+
+
+
+
+        internal Dictionary<int, string> RemoteOutsideLocation => _session.RemoteOutsideLocation;
 
 
         public NetworkRole Role => _role;
@@ -216,7 +172,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Handshaked peer IDs used for session and night-death accounting.</summary>
-        public IEnumerable<int> GetHandshakedPeerIds() => _handshakedPeers;
+        public IEnumerable<int> GetHandshakedPeerIds() => _session.Link.Handshaked;
 
         /// <summary>
         /// True while applying inbound/remote state. ORs <see cref="NetworkApplyGuard.IsActive"/>
@@ -229,7 +185,7 @@ namespace DWMPHorde.Networking
             internal set => _explicitApplyingRemoteState = value;
         }
 
-        private static bool _explicitApplyingRemoteState;
+        private static bool _explicitApplyingRemoteState; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         internal static bool GetExplicitApplyingRemoteState() => _explicitApplyingRemoteState;
 
@@ -255,19 +211,22 @@ namespace DWMPHorde.Networking
 
         /// <summary>True if this player id completed handshake with us.</summary>
         internal bool IsHandshakedPeer(int playerId)
-            => playerId > 0 && _handshakedPeers.Contains(playerId);
+            => playerId > 0 && _session.Link.Handshaked.Contains(playerId);
 
         internal void RecordPendingContainerRemove(Vector3 pos, int slotIdx) =>
-            ContainerHandlers.RecordPendingContainerRemove(pos, slotIdx);
+            ContainerPendingHandlers.RecordPendingContainerRemove(pos, slotIdx);
 
-        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount) =>
-            ContainerHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount);
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount,
+            bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0) =>
+            ContainerPendingHandlers.RecordPendingTakePreCount(pos, slotIdx, preCount, isRecipe, itemType, durability, ammo);
 
         internal void ClearPendingTakePreCount(Vector3 pos, int slotIdx) =>
-            ContainerHandlers.ClearPendingTakePreCount(pos, slotIdx);
+            ContainerPendingHandlers.ClearPendingTakePreCount(pos, slotIdx);
+
+        internal void AddPendingTakeShareExtra(Vector3 pos, int slotIdx, int extra) =>
+            ContainerPendingHandlers.AddPendingTakeShareExtra(pos, slotIdx, extra);
 
         /// <summary>Thin forward: drag claim maps live on <see cref="PlayerInteractNetHandlers"/>.</summary>
-        internal Dictionary<string, int> _dragClaims => PlayerInteractHandlers.DragClaims;
 
         internal bool IsDragClaimedByOther(string objectName, int localPlayerId) =>
             PlayerInteractHandlers.IsDragClaimedByOther(objectName, localPlayerId);
@@ -276,57 +235,53 @@ namespace DWMPHorde.Networking
         /// Suppresses Postfix re-broadcast to prevent loops (unlike the broader
         /// IsApplyingRemoteState which also blocks legitimate HandleMeleeWorldHit
         /// feedback).</summary>
-        internal static bool _processingBarricadeEvent;
+        internal static bool ProcessingBarricadeEvent; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         // body-push/drag sounds now use native ItemSounds via Rigidbody velocity
         /// <summary>Thin forward: remote drag ids live on <see cref="PlayerInteractNetHandlers"/>.</summary>
-        internal HashSet<int> _remoteDragItemIds => PlayerInteractHandlers.RemoteDragItemIds;
-        internal HashSet<string> _remoteDragItemNames => PlayerInteractHandlers.RemoteDragItemNames;
-        internal Dictionary<string, Vector3> _lastDragSyncPos => PlayerInteractHandlers.LastDragSyncPos;
-        internal Dictionary<string, float> _dragEndedAt => PlayerInteractHandlers.DragEndedAt;
         internal const float DragStopStaleGraceConst = PlayerInteractNetHandlers.DragStopStaleGraceConst;
 
         /// <summary>True while performing a save triggered by the remote peer.</summary>
-        internal static bool _isRemoteSaveInProgress;
+        internal static bool RemoteSaveInProgress; // reset-in: ResetStaticSessionFlags
 
         /// <summary>
         /// Host: set when a take or place loses a race, so the payload is not
         /// forwarded.
         /// </summary>
-        internal bool _suppressForwardThisMessage;
+        private bool _suppressForwardThisMessage;
+
+        /// <summary>
+        /// Inside an inbound handler: do not relay this message to the other clients (the handler
+        /// rejected it, or fans out its own corrected copy). Cleared before the next message.
+        /// </summary>
+        internal void SuppressRelay() => _suppressForwardThisMessage = true;
 
 
         public event Action Connected;
-        public event Action Disconnected;
 
         /// <summary>One-shot host→client new-world save transfer.</summary>
         public WorldSaveShareService WorldSaveShare => _worldSaveShare;
 
         /// <summary>True when local side has finished protocol handshake with at least one peer.</summary>
-        public bool IsHandshakeComplete => _handshakeComplete;
+        public bool IsHandshakeComplete => _session.Link.HandshakeComplete;
 
         private void Awake()
         {
-            Instance = this;
+            ModRuntime.AttachNetwork(this);
+            _steamPeers = new SteamPeerTable(() => Steam, SteamPasswordGateActive);
             _worldSync = new WorldSyncService();
             _worldSaveShare = new WorldSaveShareService(this);
             CombatDeathBagHandlers = new CombatDeathBagNetHandlers(this);
             CombatAttackHandlers = new CombatAttackNetHandlers(this);
             CombatDeathStateHandlers = new CombatDeathStateNetHandlers(this);
-            CombatHandlers = new CombatNetHandlers(
-                CombatDeathBagHandlers, CombatAttackHandlers, CombatDeathStateHandlers);
             DreamHandlers = new DreamNetHandlers(this);
             EpilogueHandlers = new EpilogueNetHandlers(this);
             ContainerPendingHandlers = new ContainerPendingNetHandlers(this);
             ContainerDeathDropHandlers = new ContainerDeathDropNetHandlers(this);
             ContainerLootHandlers = new ContainerLootNetHandlers(this, ContainerPendingHandlers);
-            ContainerHandlers = new ContainerNetHandlers(
-                ContainerLootHandlers, ContainerDeathDropHandlers, ContainerPendingHandlers);
             DialogOutcomeApplyHandlers = new DialogOutcomeApplyNetHandlers(this);
             DialogOutcomeCloseHandlers = new DialogOutcomeCloseNetHandlers(DialogOutcomeApplyHandlers);
             DialogOutcomeApplyHandlers.BindClose(DialogOutcomeCloseHandlers);
-            DialogOutcomeHandlers = new DialogOutcomeNetHandlers(
-                DialogOutcomeApplyHandlers, DialogOutcomeCloseHandlers);
             DialogNpcLockHandlers = new DialogNpcLockNetHandlers(this);
             MapHandlers = new MapNetHandlers(this);
             ExaminableHandlers = new ExaminableNetHandlers(this);
@@ -344,8 +299,6 @@ namespace DWMPHorde.Networking
             PlayerStateHandlers = new PlayerStateNetHandlers(this);
             PlayerHeldLightPackHandlers = new PlayerHeldLightPackNetHandlers(this);
             PlayerHeldLightApplyHandlers = new PlayerHeldLightApplyNetHandlers(this);
-            PlayerHeldLightHandlers = new PlayerHeldLightNetHandlers(
-                PlayerHeldLightPackHandlers, PlayerHeldLightApplyHandlers);
             PlayerPresenceHandlers = new PlayerPresenceNetHandlers(this);
             PlayerInteractHandlers = new PlayerInteractNetHandlers(this);
             PlayerFXHandlers = new PlayerFXNetHandlers(this);
@@ -355,8 +308,6 @@ namespace DWMPHorde.Networking
             GameEventHandlers = new GameEventNetHandlers(this);
             LocationEnterExitHandlers = new LocationEnterExitNetHandlers(this);
             LocationEntityTrapHandlers = new LocationEntityTrapNetHandlers(this);
-            LocationHandlers = new LocationNetHandlers(
-                LocationEnterExitHandlers, LocationEntityTrapHandlers);
             WorldObjectSendHandlers = new WorldObjectSendNetHandlers(this);
             WorldSendHandlers = new WorldSendNetHandlers(this);
             WorldPhysicsHandlers = new WorldPhysicsNetHandlers(this);
@@ -364,19 +315,14 @@ namespace DWMPHorde.Networking
             WorldLateJoinHandlers = new WorldLateJoinNetHandlers(this);
             WorldProxyLifecycleHandlers = new WorldProxyLifecycleNetHandlers(this);
             WorldProxyEffectHandlers = new WorldProxyEffectNetHandlers(this);
-            WorldProxyHandlers = new WorldProxyNetHandlers(
-                WorldProxyLifecycleHandlers, WorldProxyEffectHandlers);
             WorldFxHandlers = new WorldFxNetHandlers(this);
             PlayerLightFxApplyHandlers = new PlayerLightFxApplyNetHandlers(this);
             PlayerLightFxAmbientHandlers = new PlayerLightFxAmbientNetHandlers();
-            PlayerLightFxHandlers = new PlayerLightFxNetHandlers(PlayerLightFxApplyHandlers);
             CombatFxImpactHandlers = new CombatFxImpactNetHandlers(this);
             CombatFxGasBurnHandlers = new CombatFxGasBurnNetHandlers(this);
-            CombatFxHandlers = new CombatFxNetHandlers(
-                CombatFxImpactHandlers, CombatFxGasBurnHandlers);
             SaveHandlers = new SaveNetHandlers(this);
             BulkSyncHandlers = new BulkSyncNetHandlers(this);
-            Sync.DreamAudioPlayer.Initialize();
+            RegisterInboundHandlers();
         }
     }
 }

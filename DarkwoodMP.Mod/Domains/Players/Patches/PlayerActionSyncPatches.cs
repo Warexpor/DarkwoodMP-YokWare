@@ -18,6 +18,9 @@ namespace DWMPHorde.Patches
         /// <summary>Last sent event-path fingerprint (edge TX logs + dedupe optional).</summary>
         private static string _lastTxSig;
 
+        /// <summary>Session end: the first light TX of the next session always logs.</summary>
+        internal static void ResetTxSignature() => _lastTxSig = null;
+
         internal static PlayerLightStateMessage BuildLightState(Player __instance)
         {
             var msg = new PlayerLightStateMessage { LightOn = false };
@@ -237,6 +240,38 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
 
             LightStateHelper.SendLightState(__instance, "onActivateItem");
+        }
+    }
+
+    /// <summary>
+    /// Vanilla tears the held torch flame down here directly when the player lies down (sleep,
+    /// dream, respawn), dives or fakes death: those paths set fists without an item switch, so
+    /// the peers' copy of the flame stayed lit. Send the light state whenever it happens.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.removeItemEmitters))]
+    public static class PlayerLightEmittersRemovedPatch
+    {
+        private static void Postfix(Player __instance)
+        {
+            if (__instance == null || __instance != Player.Instance) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            LightStateHelper.SendLightState(__instance, "removeItemEmitters");
+        }
+    }
+
+    /// <summary><c>fakeDeathAni</c> sets fists only after removing the emitters: send again then.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.fakeDeathAni))]
+    public static class PlayerLightFakeDeathPatch
+    {
+        private static void Postfix(Player __instance)
+        {
+            if (__instance == null || __instance != Player.Instance) return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            if (TraverseHack.ApplyingFromNetwork) return;
+
+            LightStateHelper.SendLightState(__instance, "fakeDeathAni");
         }
     }
 

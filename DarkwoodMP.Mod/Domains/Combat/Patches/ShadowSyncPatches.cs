@@ -47,11 +47,24 @@ namespace DWMPHorde.Patches
     {
         private static void Postfix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
 
-            net.SendShadowEvent(new ShadowEventMessage());
+            net.SendShadowEvent(new ShadowEventMessage { OwnerId = (short)net.LocalPlayerId });
+        }
+    }
+
+    /// <summary>Host: the shadow wave ended (vanilla Player.endShadows): clients end theirs.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.endShadows))]
+    public static class HostShadowEndSyncPatch
+    {
+        private static void Postfix()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+                return;
+            net.SendShadowEvent(new ShadowEventMessage { End = true });
         }
     }
 
@@ -59,20 +72,16 @@ namespace DWMPHorde.Patches
     /// Host: intercept shadow prefab spawning — assign id, owner, sync to clients.
     /// No multi-proxy fan-out (NightShadows is a per-owner curse).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class ShadowCaptureOnSpawnPatch
     {
-        private static void Postfix(GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, string prefab)
         {
-            string prefab = (string)__args[0];
-
             if (__result == null) return;
             if (prefab != "characters/fakechars/shadow" && prefab != "characters/fakechars/shadow_immortal")
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
             if (!net.IsConnected)
                 return;
@@ -82,7 +91,7 @@ namespace DWMPHorde.Patches
             var info = __result.GetComponent<ShadowSyncInfo>();
             if (info == null)
                 info = __result.AddComponent<ShadowSyncInfo>();
-            info.ShadowId = net.GetNextShadowId();
+            info.ShadowId = net.Shadows.MintId();
             info.ShadowType = (byte)(prefab == "characters/fakechars/shadow_immortal" ? 1 : 0);
             info.OwnerPlayerId = ownerId;
 
@@ -97,21 +106,29 @@ namespace DWMPHorde.Patches
                     {
                         scProxy.distanceToPlayer = Vector3.Distance(
                             __result.transform.position, proxy.transform.position);
-                        scProxy.speed = 0f;
-                        scProxy.speedAggressive = 0f;
                     }
 
                     if (__result.GetComponent<ProxyShadowController>() == null)
                     {
                         var ctrl = __result.AddComponent<ProxyShadowController>();
                         ctrl.TargetProxy = proxy.transform;
+                        if (scProxy != null)
+                        {
+                            // Vanilla Update must not cruise toward the host. The
+                            // controller still needs the prefab speeds to close.
+                            ctrl.CruiseSpeed = scProxy.speed;
+                            ctrl.AggroSpeed = scProxy.speedAggressive;
+                            ctrl.SpeedsOverridden = true;
+                            scProxy.speed = 0f;
+                            scProxy.speedAggressive = 0f;
+                        }
                     }
                 }
             }
 
             var sc = __result.GetComponent<ShadowCreature>();
             if (sc != null)
-                net.RegisterShadow(info.ShadowId, sc);
+                net.Shadows.Register(info.ShadowId, sc);
 
             Vector3 pos = __result.transform.position;
             float rotY = __result.transform.rotation.eulerAngles.y;
@@ -133,19 +150,18 @@ namespace DWMPHorde.Patches
     /// Host: when a shadow dies, mark it dead in the tracker (the next broadcast
     /// will skip it and then remove it from the dictionary).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(ShadowCreature), "die")]
     public static class HostShadowDiePatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Prefix(ShadowCreature __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role != NetworkRole.Host)
+            if (!NetGuard.Host(out var net))
                 return;
 
             var info = __instance.GetComponent<ShadowSyncInfo>();
             if (info != null)
-                net.UnregisterShadow(info.ShadowId);
+                net.WorldSendHandlers.UnregisterShadow(info.ShadowId);
         }
     }
 }

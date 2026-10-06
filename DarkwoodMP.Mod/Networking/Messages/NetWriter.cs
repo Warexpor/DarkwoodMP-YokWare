@@ -18,6 +18,21 @@ namespace DWMPHorde.Networking
         public void Put(bool value) => _inner.Put(value);
         public void Put(string value) => _inner.Put(value ?? string.Empty);
 
+        /// <summary>Largest blob / long string a reader will accept (see <see cref="NetReader"/>).</summary>
+        public const int MaxBlobBytes = 256 * 1024;
+
+        /// <summary>
+        /// String that may exceed LiteNetLib's 65535-byte <c>Put(string)</c> limit (that overload writes a
+        /// ushort length and silently corrupts the packet past it). Written as an int-prefixed UTF-8 blob.
+        /// </summary>
+        public void PutLongString(string value)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty);
+            if (bytes.Length > MaxBlobBytes)
+                throw new InvalidDataException("Long string is " + bytes.Length + " bytes (max " + MaxBlobBytes + ").");
+            Put(bytes);
+        }
+
         /// <summary>Length-prefixed blob (explicit sized arrays).</summary>
         public void Put(byte[] value)
         {
@@ -48,6 +63,16 @@ namespace DWMPHorde.Networking
             _inner.Put(value, 0, value.Length);
         }
 
+        /// <summary>Raw slice of an already-serialized body (no length prefix) — chunked snapshot split.</summary>
+        public void PutRaw(byte[] value, int offset, int length)
+        {
+            if (value == null || length <= 0) return;
+            _inner.Put(value, offset, length);
+        }
+
+        /// <summary>Bytes written since the last <see cref="Reset"/>.</summary>
+        public int Length => _inner.Length;
+
         public void Reset() => _inner.Reset();
         public byte[] CopyData() => _inner.CopyData();
 
@@ -75,7 +100,7 @@ namespace DWMPHorde.Networking
     public sealed class NetReader
     {
         private readonly LiteNetLib.Utils.NetDataReader _inner;
-        private const int MaxBlobBytes = 256 * 1024;
+        private const int MaxBlobBytes = NetWriter.MaxBlobBytes;
 
         public NetReader(byte[] data)
         {
@@ -101,6 +126,13 @@ namespace DWMPHorde.Networking
                 throw new InvalidDataException("Malformed or truncated string.", ex);
             }
         }
+        /// <summary>Counterpart of <see cref="NetWriter.PutLongString"/>.</summary>
+        public string GetLongString()
+        {
+            byte[] bytes = GetBytes();
+            return bytes.Length == 0 ? string.Empty : System.Text.Encoding.UTF8.GetString(bytes);
+        }
+
         /// <summary>Remaining unread bytes (for optional trailing fields).</summary>
         public int AvailableBytes => _inner.AvailableBytes;
         public byte[] GetBytes()

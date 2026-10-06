@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
-    internal static class MultiplayerMapManager
+    internal static partial class MultiplayerMapManager
     {
         // World-position lists for persistence across map open/close cycles
         public static readonly List<Vector3> LocalMarkers = new List<Vector3>();
@@ -117,12 +117,35 @@ namespace DWMPHorde.Sync
             return -1;
         }
 
+        /// <summary>
+        /// Drop remote marker lists + spawned GOs (keeps LocalMarkers). Used by MapStateSync
+        /// snapshot apply so soft-reconnect late-join bulk cannot duplicate green pins.
+        /// </summary>
+        public static void ClearRemoteMarkers()
+        {
+            foreach (var kvp in _remoteMarkerObjects)
+            {
+                foreach (var go in kvp.Value)
+                    if (go != null) Object.Destroy(go);
+            }
+            _remoteMarkerObjects.Clear();
+            RemoteMarkers.Clear();
+        }
+
         public static void AddRemoteMarker(int playerId, Vector3 worldPos)
         {
+            if (playerId <= 0) return;
             if (!RemoteMarkers.TryGetValue(playerId, out var markers))
             {
                 markers = new List<Vector3>();
                 RemoteMarkers[playerId] = markers;
+            }
+            // Live retransmit / double-apply belt (MapStateSync also clears first).
+            const float dedupeSqr = 0.25f * 0.25f;
+            for (int i = 0; i < markers.Count; i++)
+            {
+                if ((markers[i] - worldPos).sqrMagnitude <= dedupeSqr)
+                    return;
             }
             markers.Add(worldPos);
 
@@ -187,12 +210,50 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Cold-rejoin: rehydrate personal blue pins from ClientStateBackup after
+        /// NetworkReset cleared LocalMarkers. Dedupes and re-broadcasts so peers
+        /// see the pins again (MapStateSync only fans host→client remotes).
+        /// </summary>
+        public static int RestoreLocalMarkersFromBackup(System.Collections.Generic.List<Vector3> positions)
+        {
+            if (positions == null || positions.Count == 0) return 0;
+            const float dedupeSqr = 0.25f;
+            int added = 0;
+            for (int i = 0; i < positions.Count; i++)
+            {
+                Vector3 pos = positions[i];
+                bool exists = false;
+                for (int j = 0; j < LocalMarkers.Count; j++)
+                {
+                    if ((LocalMarkers[j] - pos).sqrMagnitude <= dedupeSqr)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (exists) continue;
+                LocalMarkers.Add(pos);
+                SendMarkerMessage(pos);
+                added++;
+            }
+            return added;
+        }
+
         public static void Reset()
         {
             ClearMarkerObjects();
-            LocalMarkers.Clear();
+            // The registry runs this on every StopNetwork, including the one StartHost / a re-host
+            // does first, and the role is still the pre-stop one here. A host's (or offline
+            // player's) blue pins are theirs and belong to the world they keep, so only a client
+            // drops them (a client's are per host world and come back from ClientStateBackup).
+            var net = ModRuntime.Network;
+            bool wasClient = net != null && net.Role == NetworkRole.Client;
+            if (wasClient)
+                LocalMarkers.Clear();
             RemoteMarkers.Clear();
             _remoteMarkerObjects.Clear();
+            ClearPendingDiscoveries();
             if (_clickPlane != null)
             {
                 Object.Destroy(_clickPlane);
@@ -331,32 +392,32 @@ namespace DWMPHorde.Sync
                 return;
             if (element.isWorldChunk || element.isDeathDrop)
                 return;
+            // A pin on an item (the Navigator skill's meat marker) is that player's own and does
+            // not exist on other machines; broadcasting it left each peer rescanning for 5 minutes.
+            if (element.GetComponent<Item>() != null)
+                return;
             // Applying a remote discovery must not re-broadcast (loop).
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
-            var msg = new MapElementDiscoveredMessage { ElementName = element.elementName };
+            Vector3 at = element.transform.position;
+            var msg = new MapElementDiscoveredMessage { ElementName = element.elementName, HasPos = true, PosX = at.x, PosZ = at.z };
             net.Broadcast(NetMessageType.MapElementDiscovered, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[MapDiscovery] discovered '{element.elementName}' — broadcast to remote");
         }
 
-        public static void OnRemoteElementDiscovered(string elementName)
+        public static void OnRemoteElementDiscovered(string elementName, Vector3? at = null)
         {
             if (string.IsNullOrEmpty(elementName)) return;
-            Map map = Map.Instance;
-            if (map == null) return;
-
-            map.showElement(elementName);
-            ModRuntime.LegacyInfo($"[MapDiscovery] remote discovered '{elementName}' — showing locally");
+            if (!TryApplyRemoteDiscovery(elementName, at))
+                QueuePendingDiscovery(elementName, at);
         }
 
         private static void SendMarkerMessage(Vector3 worldPos)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             var msg = new MapMarkerMessage
             {
@@ -371,8 +432,7 @@ namespace DWMPHorde.Sync
 
         private static void SendMarkerRemoveMessage(Vector3 worldPos)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
 
             var msg = new MapMarkerRemoveMessage
             {
@@ -415,18 +475,25 @@ namespace DWMPHorde.Sync
         [HarmonyPostfix, HarmonyPatch("open")]
         internal static void OnOpen(Map __instance)
         {
+            // Shared markers / click plane are co-op only; offline the vanilla map is untouched.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             MultiplayerMapManager.OnMapOpen(__instance);
         }
 
         [HarmonyPostfix, HarmonyPatch("close")]
         internal static void OnClose()
         {
+            // Not gated: close is idempotent cleanup, so a click plane / markers made while connected
+            // are removed even if the session ended while the map was open.
             MultiplayerMapManager.OnMapClose();
         }
 
         [HarmonyPostfix, HarmonyPatch("Update")]
         internal static void OnUpdate(Map __instance)
         {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
             MultiplayerMapManager.OnMapUpdate(__instance);
         }
     }

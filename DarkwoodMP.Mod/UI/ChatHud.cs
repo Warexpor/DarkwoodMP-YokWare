@@ -12,17 +12,24 @@ namespace DWMPHorde
     /// Yokyy-style in-game chat. Ctrl+C opens; Enter/KeypadEnter sends; Esc closes.
     /// Send and close must work from both Update (raw input) and OnGUI (IMGUI events);
     /// IMGUI alone often swallows KeyDown so Enter appeared dead.
+    /// While the input is open <see cref="UiInputLock"/> holds vanilla gameplay input
+    /// (movement, hotbar keys, walkie TX) so typing does not drive the character.
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
     {
-        /// <summary>Chat is disabled by default; enable it for co-op chat.</summary>
-        public static bool Enabled = false;
+        /// <summary>Config <c>[Network] ChatEnabled</c> (default on).</summary>
+        public static bool Enabled => ModConfig.ChatEnabled != null && ModConfig.ChatEnabled.Value;
 
         private const string InputControlName = "YokWareChat";
+        private const string LockOwner = "chat";
         private const float AntiSpamSec = 0.25f;
+        /// <summary>History lines fade out of the corner after this long (all shown while typing).</summary>
+        private const float LineVisibleSec = 14f;
+        private const int MaxVisibleLines = 8;
 
         private static ChatHud _instance;
         private readonly List<string> _lines = new List<string>(32);
+        private readonly List<float> _lineTimes = new List<float>(32);
         private bool _inputOpen;
         private string _draft = "";
         private float _lastLocalSend;
@@ -30,6 +37,23 @@ namespace DWMPHorde
         private int _lastSendFrame = -1;
 
         public static bool IsInputOpen => Enabled && _instance != null && _instance._inputOpen;
+
+        /// <summary>
+        /// Session end: drop history, close the input and release the input lock so a
+        /// half-typed draft or old lines never leak into the next session.
+        /// </summary>
+        public static void Reset()
+        {
+            if (_instance != null)
+            {
+                _instance._lines.Clear();
+                _instance._lineTimes.Clear();
+                _instance._inputOpen = false;
+                _instance._draft = "";
+                _instance._focusPending = false;
+            }
+            UiInputLock.Set(LockOwner, false);
+        }
 
         public static void EnsureExists()
         {
@@ -59,14 +83,30 @@ namespace DWMPHorde
 
         private void Update()
         {
-            if (!Enabled) return;
-
-            // Open/close toggle; either Ctrl key works.
-            if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
-                && Input.GetKeyDown(KeyCode.C))
+            if (!Enabled)
             {
-                ToggleInput(!_inputOpen);
+                if (_inputOpen)
+                    ToggleInput(false);
+                return;
             }
+
+            // Scene change / title: nothing to type into.
+            if (_inputOpen && (Core.mainMenu || Core.loadingGame || Player.Instance == null))
+                ToggleInput(false);
+
+            // Open with Ctrl+C (either Ctrl). While open, Ctrl+C is the text-field copy shortcut.
+            if (!_inputOpen
+                && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                && Input.GetKeyDown(KeyCode.C)
+                && !Core.mainMenu && !Core.loadingGame && Player.Instance != null
+                && UiInputLock.CanOpenOverlay)
+            {
+                ToggleInput(true);
+            }
+
+            // Hold the vanilla input gate every frame while typing (dialogue/cutscene code
+            // clears Core.forbidInputs on its own schedule).
+            UiInputLock.Set(LockOwner, _inputOpen);
 
             // Raw input fallback: IMGUI Event.current KeyDown is unreliable while TextField focused.
             if (!_inputOpen)
@@ -90,7 +130,10 @@ namespace DWMPHorde
             {
                 _draft = "";
                 _focusPending = false;
+                // Release now (not next Update) so the Esc/Enter frame is stamped for the Esc swallow.
+                GUIUtility.keyboardControl = 0;
             }
+            UiInputLock.Set(LockOwner, open);
         }
 
         private void OnGUI()
@@ -102,9 +145,12 @@ namespace DWMPHorde
 
             if (_lines.Count > 0)
             {
+                float now = Time.unscaledTime;
                 float y = 8f;
-                for (int i = Mathf.Max(0, _lines.Count - 8); i < _lines.Count; i++)
+                for (int i = Mathf.Max(0, _lines.Count - MaxVisibleLines); i < _lines.Count; i++)
                 {
+                    if (!_inputOpen && now - _lineTimes[i] > LineVisibleSec)
+                        continue;
                     GUI.Label(new Rect(8f, y, Screen.width * 0.55f, 18f), _lines[i]);
                     y += 18f;
                 }
@@ -172,7 +218,7 @@ namespace DWMPHorde
                 return;
             _lastLocalSend = Time.unscaledTime;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline)
             {
                 AddLine("[System] Not in a session.");
@@ -204,27 +250,39 @@ namespace DWMPHorde
         private void AddLine(string line)
         {
             _lines.Add(line);
+            _lineTimes.Add(Time.unscaledTime);
             while (_lines.Count > 40)
+            {
                 _lines.RemoveAt(0);
+                _lineTimes.RemoveAt(0);
+            }
         }
 
         private static void TrySpeechBubble(int senderId, string message)
         {
             try
             {
-                var net = ModRuntime.Network;
-                if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
+                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                try
                 {
-                    Player.Instance.displayMessage(message);
-                    return;
-                }
+                    var net = ModRuntime.Network;
+                    if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
+                    {
+                        Player.Instance.displayMessage(message);
+                        return;
+                    }
 
-                // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
-                if (net is LanNetworkManager lnm)
+                    // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
+                    if (net is LanNetworkManager lnm)
+                    {
+                        RemotePlayerProxy proxy = lnm.GetProxy(senderId);
+                        if (proxy != null && proxy.transform != null)
+                            Core.displayMessage(message, proxy.transform, 1f, false);
+                    }
+                }
+                finally
                 {
-                    RemotePlayerProxy proxy = lnm.GetProxy(senderId);
-                    if (proxy != null && proxy.transform != null)
-                        Core.displayMessage(message, proxy.transform, 1f, false);
+                    DWMPHorde.Patches.PersonalFlavorHud.EndBypass();
                 }
             }
             catch

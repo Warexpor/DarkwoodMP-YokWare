@@ -26,8 +26,29 @@ namespace DWMPHorde.Networking
 
         private readonly Dictionary<string, HashSet<int>> _pendingContainerRemoves =
             new Dictionary<string, HashSet<int>>();
-        private readonly Dictionary<string, int> _pendingTakePreCounts =
-            new Dictionary<string, int>();
+        /// <summary>What an optimistic client take granted, for a precise deny refund.</summary>
+        internal struct PendingTake
+        {
+            public int PreCount;
+            public bool IsRecipe;
+            public string ItemType;
+            /// <summary>&lt; 0 when unknown.</summary>
+            public float Durability;
+            public int Ammo;
+            /// <summary>Loot-share extra the take put in the bag on top of the stack (refunded with it).</summary>
+            public int ShareExtra;
+            /// <summary>Time.realtimeSinceStartup when the take was sent.</summary>
+            public float RecordedAt;
+        }
+
+        private readonly Dictionary<string, PendingTake> _pendingTakePreCounts =
+            new Dictionary<string, PendingTake>();
+        private readonly List<string> _preCountScratch = new List<string>();
+
+        /// <summary>A take whose deny could still be in flight keeps its record through a state sync.</summary>
+        private const float PendingTakeInFlightSeconds = 5f;
+        /// <summary>Unanswered take records are dropped after this long.</summary>
+        private const float PendingTakeMaxAgeSeconds = 60f;
 
         internal ContainerPendingNetHandlers(LanNetworkManager net)
         {
@@ -56,13 +77,68 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Drops the pending local-remove mark for one slot. A host deny means the host still
+        /// holds (or never lost) that slot, so the snapshot that follows must show it.
+        /// </summary>
+        internal void ClearPendingContainerRemove(Vector3 pos, int slotIdx)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}";
+            if (!_pendingContainerRemoves.TryGetValue(key, out var set))
+                return;
+            set.Remove(slotIdx);
+            if (set.Count == 0)
+                _pendingContainerRemoves.Remove(key);
+        }
+
+        /// <summary>
         /// Records the player inventory count of an item type before a container take
         /// was sent. Used by HandleContainerTakeDenied for a precise refund.
         /// </summary>
-        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount)
+        internal void RecordPendingTakePreCount(Vector3 pos, int slotIdx, int preCount,
+            bool isRecipe = false, string itemType = null, float durability = -1f, int ammo = 0)
         {
             string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
-            _pendingTakePreCounts[key] = preCount;
+            float now = Time.realtimeSinceStartup;
+            PrunePendingTakes(null, now, PendingTakeMaxAgeSeconds);
+            _pendingTakePreCounts[key] = new PendingTake
+            {
+                PreCount = preCount,
+                IsRecipe = isRecipe,
+                ItemType = itemType,
+                Durability = durability,
+                Ammo = ammo,
+                RecordedAt = now
+            };
+        }
+
+        /// <summary>The loot share added <paramref name="extra"/> on top of this take (ItemDoublePickupPatch).</summary>
+        internal void AddPendingTakeShareExtra(Vector3 pos, int slotIdx, int extra)
+        {
+            string key = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}_{slotIdx}";
+            if (extra <= 0 || !_pendingTakePreCounts.TryGetValue(key, out PendingTake take))
+                return;
+            take.ShareExtra += extra;
+            _pendingTakePreCounts[key] = take;
+        }
+
+        /// <summary>
+        /// Drops take records at least <paramref name="minAge"/> old; with a container key prefix
+        /// only that container's slots are considered.
+        /// </summary>
+        private void PrunePendingTakes(string containerPrefix, float now, float minAge)
+        {
+            if (_pendingTakePreCounts.Count == 0) return;
+            _preCountScratch.Clear();
+            foreach (var kv in _pendingTakePreCounts)
+            {
+                if (containerPrefix != null && !kv.Key.StartsWith(containerPrefix, StringComparison.Ordinal))
+                    continue;
+                if (now - kv.Value.RecordedAt >= minAge)
+                    _preCountScratch.Add(kv.Key);
+            }
+            for (int i = 0; i < _preCountScratch.Count; i++)
+                _pendingTakePreCounts.Remove(_preCountScratch[i]);
+            _preCountScratch.Clear();
         }
 
         /// <summary>Removes a pending take pre-count entry after it's consumed or stale.</summary>
@@ -73,11 +149,14 @@ namespace DWMPHorde.Networking
         }
 
 
-        /// <summary>Consume a pending take pre-count (same semantics as the former inline dict access).</summary>
-        internal void ConsumePendingTakePreCount(string preKey, out int preTakeCount)
+        /// <summary>Consume the pending take for a denied claim; false when none was recorded.</summary>
+        internal bool ConsumePendingTake(string preKey, out PendingTake take)
         {
-            _pendingTakePreCounts.TryGetValue(preKey, out preTakeCount);
+            bool found = _pendingTakePreCounts.TryGetValue(preKey, out take);
             _pendingTakePreCounts.Remove(preKey);
+            if (!found)
+                take = new PendingTake { PreCount = -1, Durability = -1f };
+            return found;
         }
 
         /// <summary>
@@ -111,6 +190,18 @@ namespace DWMPHorde.Networking
             }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Hot path: client just opened this container — avoid FindInventoryByPos scan.
+            if (inv == null && Player.Instance != null)
+            {
+                Inventory opened = Player.Instance.openedItemInventory2 ?? Player.Instance.openedItemInventory;
+                if (opened != null)
+                {
+                    float odx = opened.transform.position.x - pos.x;
+                    float odz = opened.transform.position.z - pos.z;
+                    if (odx * odx + odz * odz < 2.5f * 2.5f)
+                        inv = opened;
+                }
+            }
             if (inv == null)
             {
                 inv = WorldQueryHelper.FindInventoryByPos(pos);
@@ -156,13 +247,16 @@ namespace DWMPHorde.Networking
                     continue;
                 }
 
-                inv.slots[entry.SlotIndex].createItem(entry.ItemType, entry.Amount,
-                    entry.Durability > 0f ? entry.Durability : 1f);
-                if (entry.Ammo > 0)
+                // Durability on the wire is absolute (vanilla InvItemClass.durability).
+                // createItem's float arg is a 0..1 multiplier — always pass 1f then assign.
+                InvItemClass created = inv.slots[entry.SlotIndex].createItem(
+                    entry.ItemType, entry.Amount, 1f,
+                    InvItem.ModifierQuality.none, entry.IsRecipe);
+                if (!InvItemClass.isNull(created))
                 {
-                    var item = inv.slots[entry.SlotIndex].invItem;
-                    if (!InvItemClass.isNull(item))
-                        item.ammo = entry.Ammo;
+                    Sync.InvItemTransferApply.ApplyMeta(
+                        created, entry.Durability, entry.Ammo, entry.ShouldBeActive);
+                    Sync.InvItemUpgradeWire.Apply(created, entry.Upgrades);
                 }
             }
 
@@ -173,9 +267,10 @@ namespace DWMPHorde.Networking
             if (pendingSlots != null)
                 _pendingContainerRemoves.Remove(containerKey);
 
-            // Clear pending take pre-counts because the state sync is now
-            // authoritative.
-            _pendingTakePreCounts.Clear();
+            // Drop this container's settled take records only. Other containers' takes, and a
+            // take here whose deny may still be in flight, keep theirs so the refund stays exact.
+            PrunePendingTakes(containerKey + "_", Time.realtimeSinceStartup, PendingTakeInFlightSeconds);
+            Sync.DesyncCheck.NoteContainerSynced(inv);
 
             // Do not play open_drawer here. Local Item.openInventory already
             // played it, and state sync is silent.

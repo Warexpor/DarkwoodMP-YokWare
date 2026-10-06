@@ -35,6 +35,12 @@ namespace DWMPHorde.Patches
             if (!DeathStateTracker.LocalNightDeath)
                 return true;
 
+            if (DeathStateTracker.PartyWipeDeclared)
+            {
+                ModRuntime.LegacyInfo("[Death] Party wipe — host suppressing skipDay (no morning)");
+                return false;
+            }
+
             if (DeathStateTracker.AllDeadAtNight)
             {
                 ModRuntime.LegacyInfo("[Death] All dead at night — host allowing skipDay");
@@ -46,7 +52,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        private static void EnterNightDeathSpectator()
+        internal static void EnterNightDeathSpectator()
         {
             if (DeathStateTracker.PreventSpectator)
             {
@@ -62,7 +68,7 @@ namespace DWMPHorde.Patches
             Player player = Player.Instance;
             if (player == null) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Prefer living remotes, stable order by PlayerId (3+ cycling via F4).
@@ -96,17 +102,35 @@ namespace DWMPHorde.Patches
     /// Suppresses SaveManager.Save() during night-time first-death,
     /// so the death state isn't persisted until both players die.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class NightDeathSavePatch
     {
+        /// <summary>
+        /// True while a connected peer's Save must not persist (first night death, party wipe,
+        /// night-dead client). <see cref="SaveSyncPatch"/> reads the same answer: a Prefix
+        /// returning false does not stop that Postfix, and without this it fanned a SaveSync
+        /// out to every peer so they persisted the first death anyway.
+        /// </summary>
+        internal static bool IsHeld()
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return false;
+            if (!DeathStateTracker.LocalNightDeath)
+                return false;
+            if (ModRuntime.Network.Role != NetworkRole.Host)
+                return true;
+            return DeathStateTracker.PartyWipeDeclared || !DeathStateTracker.AllDeadAtNight;
+        }
+
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix()
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
-            // Night-dead clients skip Save; day clients allowed (SaveSync coordinates fan-out).
-            // ClientCoopSaveAllowLogPatch is a no-op gate (logging only).
+            // Night-dead clients skip Save. Other connected-client Saves are blocked by
+            // ClientConnectedWorldSaveBlockPatch (host owns Flags); host-coordinated
+            // SaveSync still writes when RemoteSaveInProgress.
             if (ModRuntime.Network.Role != NetworkRole.Host)
             {
                 if (DeathStateTracker.LocalNightDeath)
@@ -119,6 +143,12 @@ namespace DWMPHorde.Patches
 
             if (!DeathStateTracker.LocalNightDeath)
                 return true;
+
+            if (DeathStateTracker.PartyWipeDeclared)
+            {
+                ModRuntime.LegacyInfo("[Death] Party wipe — host suppressing Save");
+                return false;
+            }
 
             if (DeathStateTracker.AllDeadAtNight)
             {
@@ -136,16 +166,16 @@ namespace DWMPHorde.Patches
     /// notify the remote that morning should advance. If only the remote died,
     /// mark the state and trigger bag spawn.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Player), "onDeath")]
     public static class NightDeathOnDeathPatch
     {
+        [HarmonyPriority(Priority.Last)]
         private static void Postfix(Player __instance)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Only the host decides when to end the night — clients with wrong

@@ -1,5 +1,8 @@
-using System.Collections.Generic;
+using System;
+using System.Reflection;
+using DWMPHorde;
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using HarmonyLib;
 using PathologicalGames;
 using UnityEngine;
@@ -17,6 +20,12 @@ namespace DWMPHorde.Patches
         /// <summary>Set before Start() by the spawning code.</summary>
         public Transform TargetProxy { get; set; }
 
+        /// <summary>Prefab cruise speed captured before vanilla motion is zeroed.</summary>
+        public float CruiseSpeed;
+        /// <summary>Prefab aggro speed captured before vanilla motion is zeroed.</summary>
+        public float AggroSpeed;
+        public bool SpeedsOverridden;
+
         private Transform _proxyT;
         private ShadowCreature _shadow;
         private tk2dSpriteAnimator _anim;
@@ -32,22 +41,75 @@ namespace DWMPHorde.Patches
 
             _shadow = GetComponent<ShadowCreature>();
             _anim = GetComponent<tk2dSpriteAnimator>();
-            _curAngle = Random.Range(0f, 360f);
+            _curAngle = UnityEngine.Random.Range(0f, 360f);
 
             if (_shadow != null)
             {
                 _shadow.dead = false;
-                _speed = _shadow.speed;
+                _speed = SpeedsOverridden ? CruiseSpeed : _shadow.speed;
+                // Vanilla Start hooked Player.Instance.onPlayerDeathDelegate → die.
+                // Proxy-owned waves must not die when the host dies while their owner lives.
+                UnhookHostPlayerDeath();
             }
 
             if (_anim != null && _anim.GetClipByName("Float") != null)
                 _anim.Play("Float");
         }
 
+        private void UnhookHostPlayerDeath()
+        {
+            Player host = Player.Instance;
+            if (host == null || _shadow == null)
+                return;
+            MethodInfo die = AccessTools.Method(typeof(ShadowCreature), "die");
+            if (die == null)
+                return;
+            try
+            {
+                var del = (playerDelegate)Delegate.CreateDelegate(typeof(playerDelegate), _shadow, die);
+                host.onPlayerDeathDelegate = (playerDelegate)Delegate.Remove(host.onPlayerDeathDelegate, del);
+            }
+            catch (Exception ex)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.Log?.LogWarning("[ProxyShadow] unhook host death: " + ex.Message);
+            }
+        }
+
         private void Update()
         {
-            if (_proxyT == null || _shadow == null || _shadow.dead || _isDying)
+            if (_shadow == null || _shadow.dead || _isDying)
                 return;
+
+            // The owner's proxy is gone (peer disconnected / left the world): nothing left to
+            // orbit. Without this the shadow froze in place for the rest of the night.
+            if (_proxyT == null)
+            {
+                StartDying();
+                return;
+            }
+
+            var owner = _proxyT.GetComponent<RemotePlayerProxy>();
+            if (owner != null)
+            {
+                CharBase ownerCb = owner.CachedCharBase;
+                if ((ownerCb != null && !ownerCb.alive)
+                    || DeathStateTracker.IsRemoteNightDead(owner.PlayerId))
+                {
+                    StartDying();
+                    return;
+                }
+            }
+
+            var info = GetComponent<ShadowSyncInfo>();
+            if (info != null && info.ShadowType == 1)
+            {
+                if (owner != null && owner.RemoteHasShadowWard)
+                {
+                    StartDying();
+                    return;
+                }
+            }
 
             if (Core.isDay())
             {
@@ -60,7 +122,7 @@ namespace DWMPHorde.Patches
 
             _aggroTimer += Time.deltaTime;
             if (_aggroTimer >= _shadow.timeToSwitchToAggressive)
-                _speed = _shadow.speedAggressive;
+                _speed = SpeedsOverridden ? AggroSpeed : _shadow.speedAggressive;
 
             _curAngle += 30f * Time.deltaTime;
             if (_curAngle > 360f) _curAngle -= 360f;
@@ -82,6 +144,12 @@ namespace DWMPHorde.Patches
             if (_proxyT == null) return;
 
             if (Core.isInLight(_proxyT.position, mustBeWalkable: true))
+                return;
+            // Vanilla ShadowCreature also spares a player who is lit (Player.isInLight: a light
+            // area or a shadow-protecting item); the client reports it on PlayerState.
+            var lightOwner = _proxyT.GetComponent<RemotePlayerProxy>();
+            if (lightOwner != null && ModRuntime.Network != null
+                && ModRuntime.Network.IsRemotePlayerHasLightProtection(lightOwner.PlayerId))
                 return;
 
             if (!PoolManager.Pools.TryGetValue("Sensors", out var pool)) return;
@@ -118,12 +186,12 @@ namespace DWMPHorde.Patches
             if (_anim != null && _anim.GetClipByName("Death1") != null)
                 _anim.Play("Death1");
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Host)
             {
                 var info = GetComponent<ShadowSyncInfo>();
                 if (info != null)
-                    net.UnregisterShadow(info.ShadowId);
+                    net.WorldSendHandlers.UnregisterShadow(info.ShadowId);
             }
 
             Destroy(this, 2f);
@@ -136,10 +204,10 @@ namespace DWMPHorde.Patches
     /// which would teleport them to the host player's position (uses Player.Instance).
     /// The controller handles its own positioning and appearance.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(ShadowCreature), "appear")]
     public static class ProxyShadowAppearBlock
     {
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(ShadowCreature __instance)
         {
             if (__instance.GetComponent<ProxyShadowController>() != null)

@@ -16,6 +16,18 @@ namespace DWMPHorde.Networking
         public int[] ChunkCounts;
         /// <summary>Stable campaign ID in the optional trailer; keys client backups.</summary>
         public string CampaignId;
+        /// <summary>
+        /// Host share pass this package belongs to. A chapter ack echoes it so a Committed ack for a
+        /// package the host has since re-sent (broadcast re-run) cannot vouch for the new files.
+        /// </summary>
+        public int SharePass;
+        /// <summary>Host profile difficulty (vanilla <c>GameProfile.Difficulty</c>: lives on hard, permadeath on nightmare).</summary>
+        public int Difficulty;
+        /// <summary>
+        /// Chapter 1 of a game that did not skip the prologue: a player new to this world plays its
+        /// own prologue before joining (<c>PersonalPrologue</c>). Protocol 33.
+        /// </summary>
+        public bool PrologueOffered;
 
         public void Serialize(NetWriter w)
         {
@@ -31,6 +43,9 @@ namespace DWMPHorde.Networking
                 w.Put(ChunkCounts != null && i < ChunkCounts.Length ? ChunkCounts[i] : 0);
             }
             w.Put(CampaignId ?? "");
+            w.Put(SharePass);
+            w.Put(Difficulty);
+            w.Put(PrologueOffered);
         }
 
         public static WorldSaveBeginMessage Deserialize(NetReader r)
@@ -56,7 +71,10 @@ namespace DWMPHorde.Networking
                 msg.CompressedSizes[i] = r.GetInt();
                 msg.ChunkCounts[i] = r.GetInt();
             }
-            msg.CampaignId = r.AvailableBytes > 0 ? r.GetString() : null;
+            msg.CampaignId = r.GetString();
+            msg.SharePass = r.GetInt();
+            msg.Difficulty = r.GetInt();
+            msg.PrologueOffered = r.GetBool();
             return msg;
         }
     }
@@ -109,6 +127,33 @@ namespace DWMPHorde.Networking
         public static WorldRequestMessage Deserialize(NetReader r) => new WorldRequestMessage
         {
             RequesterId = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Host→clients: host finished entering the chapter world (Ready=true),
+    /// or left fully-in-world (Ready=false). Clients on title wait for Ready=true
+    /// (or WorldSaveBegin) before treating the host as ready to share.
+    /// Soft-reconnect (AlreadyInWorld) ignores both edges.
+    /// </summary>
+    public struct HostWorldReadyMessage
+    {
+        public bool Ready;
+        public int ChapterId;
+        public int DayIndex;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Ready);
+            w.Put(ChapterId);
+            w.Put(DayIndex);
+        }
+
+        public static HostWorldReadyMessage Deserialize(NetReader r) => new HostWorldReadyMessage
+        {
+            Ready = r.GetBool(),
+            ChapterId = r.GetInt(),
+            DayIndex = r.GetInt()
         };
     }
 }

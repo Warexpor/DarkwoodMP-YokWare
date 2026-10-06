@@ -23,4 +23,15 @@ Path B vs Path A is a load-path choice, not a ranking of people.
 ## Contributing
 
 Pull requests welcome under **GPLv3**. The supported product line is Path B
-`0.8.x`, currently **0.8.31**, with Horde protocol **25**.
+`0.8.x`; the current version and Horde protocol are in the README.
+
+Before opening a pull request against `dev`:
+
+- Read [DarkwoodMP.Mod/docs/ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md):
+  it lists the rules for new messages, handlers, patches and session state.
+- Build the mod against your local game install and run
+  `dotnet test DarkwoodMP.PathB.Tests -c Release` (CI runs the same tests).
+- A wire change bumps `ProtocolVersion` in `Bootstrap/PluginInfo.cs`; a release
+  bumps `Version` there (the csproj and AssemblyInfo read it) and adds a
+  CHANGELOG entry, and the README table follows.
+- Say in the pull request what was checked in the game and what was not.

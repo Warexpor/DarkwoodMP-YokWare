@@ -1,3 +1,4 @@
+using System;
 using DWMPHorde.Config;
 using System.Collections.Generic;
 using DWMPHorde.Players;
@@ -11,7 +12,6 @@ namespace DWMPHorde.Patches
     /// Does not multiply wood/nail, regular meat, uniques, player-placed, or DroppedItemIdentifier drops.
     /// Scale: <see cref="CoopBalance.GetPartyMultiplier"/> (ScaleWithPlayers only).
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch]
     public static class ItemDoublePickupPatch
     {
@@ -73,6 +73,7 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo($"[ItemDouble] {msg}");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(ItemsDatabase), "Awake")]
         [HarmonyPostfix]
         private static void DumpItemTypes()
@@ -96,11 +97,12 @@ namespace DWMPHorde.Patches
             Log("=== End dump ===");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(Inventory), "addItemTypeToPlayer")]
         [HarmonyPrefix]
         private static void OnAddItemTypeToPlayer_DoDouble(string type, ref int amount)
         {
-            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
+            if (SessionSettings.LootShareMode == Config.LootShareMode.Off) return;
             // Only double the exact item being disarmed; never a different pickup
             // that happens to arrive while a disarm is in flight (global-bool bug).
             if (!LootPolicy.ShouldDoubleDisarm(_disarmType, type))
@@ -111,6 +113,7 @@ namespace DWMPHorde.Patches
             amount *= mult;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(Item), "disarm")]
         [HarmonyPrefix]
         private static void OnDisarm(Item __instance)
@@ -130,6 +133,7 @@ namespace DWMPHorde.Patches
             _disarmType = __instance.invItem.type;
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(Item), "disarm")]
         [HarmonyPostfix]
         private static void OnDisarmPostfix()
@@ -138,6 +142,18 @@ namespace DWMPHorde.Patches
             // armed type when it doubled. If it is still set here, disarm took a path
             // that never doubled (for example, an item went into an open inventory); drop the
             // stale type so the next unrelated pickup of the same type is not falsely doubled.
+            // Clear also lives in Finalizer (Harmony skips Postfix on throw).
+            _disarmType = null;
+        }
+
+        // Finalizer (not Postfix alone): Item.disarm throw after Prefix armed
+        // _disarmType leaves loot-share double sticky → next addItemTypeToPlayer of
+        // that type falsely party-multiplies (LootPolicy.ShouldDoubleDisarm).
+        [HarmonyPriority(Priority.Last)]
+        [HarmonyPatch(typeof(Item), "disarm")]
+        [HarmonyFinalizer]
+        private static void OnDisarmFinalizer()
+        {
             _disarmType = null;
         }
 
@@ -158,7 +174,7 @@ namespace DWMPHorde.Patches
         private static bool TryArmShare(InvSlot slot, string path, out PendingShare share)
         {
             share = default;
-            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off)
+            if (SessionSettings.LootShareMode == Config.LootShareMode.Off)
                 return false;
             if (InvItemClass.isNull(slot?.invItem))
             {
@@ -230,9 +246,14 @@ namespace DWMPHorde.Patches
             if (!_pendingShares.TryGetValue(slot, out PendingShare share))
                 return;
             _pendingShares.Remove(slot);
+            int extra = share.Active ? share.BaseAmount * (GetItemMultiplier() - 1) : 0;
             ApplyPendingShare(ref share, path);
+            // A take the host denies (another player won the race) refunds the extra with it.
+            if (extra > 0 && slot?.inventory != null && ModRuntime.Network is Networking.LanNetworkManager net)
+                net.AddPendingTakeShareExtra(slot.inventory.transform.position, slot.inventory.slots.IndexOf(slot), extra);
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
         [HarmonyPrefix]
         private static void OnTransferAllToPlayerPrefix(InvSlot __instance)
@@ -241,6 +262,7 @@ namespace DWMPHorde.Patches
             ArmShareForSlot(__instance, "OnTransferAllToPlayer");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
         [HarmonyPostfix]
         private static void OnTransferAllToPlayerPostfix(InvSlot __instance, bool __result)
@@ -251,6 +273,18 @@ namespace DWMPHorde.Patches
             ApplyPendingShareForSlot(__instance, "OnTransferAllToPlayerPostfix");
         }
 
+        [HarmonyPriority(Priority.Last)]
+        [HarmonyPatch(typeof(InvSlot), "transferItemAllToPlayer")]
+        [HarmonyFinalizer]
+        private static void OnTransferAllToPlayerFinalizer(InvSlot __instance, Exception __exception)
+        {
+            // Throw mid-transfer: drop armed share (do not grant). Failed __result
+            // intentionally keeps pending for the next Prefix overwrite — not here.
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
+        }
+
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
         [HarmonyPrefix]
         private static void OnGrabItemPrefix(InvSlot __instance)
@@ -259,21 +293,39 @@ namespace DWMPHorde.Patches
             ArmShareForSlot(__instance, "OnGrabItem");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "grabItem")]
         [HarmonyPostfix]
-        private static void OnGrabItemPostfix(InvSlot __instance)
+        private static void OnGrabItemPostfix(InvSlot __instance, bool __runOriginal)
         {
+            // Vanilla grabItem early-outs (item menu / leveling menu / journal note open) without
+            // moving anything; only a real grab empties the slot onto the cursor. No grab, no share.
+            if (!__runOriginal || !InvItemClass.isNull(__instance.invItem))
+            {
+                _pendingShares.Remove(__instance);
+                return;
+            }
             // Cursor holds the real stack; add personal extras into player inv.
             ApplyPendingShareForSlot(__instance, "OnGrabItemPostfix");
         }
 
+        [HarmonyPriority(Priority.Last)]
+        [HarmonyPatch(typeof(InvSlot), "grabItem")]
+        [HarmonyFinalizer]
+        private static void OnGrabItemFinalizer(InvSlot __instance, Exception __exception)
+        {
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
+        }
+
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
         [HarmonyPrefix]
         private static void OnTransferToPlayerPrefix(InvSlot __instance)
         {
             // Single unit take: base amount is 1 (not full stack).
             _pendingShares.Remove(__instance);
-            if (Config.ModConfig.GetLootShareMode() == Config.LootShareMode.Off) return;
+            if (SessionSettings.LootShareMode == Config.LootShareMode.Off) return;
             if (InvItemClass.isNull(__instance.invItem)) return;
             if (!IsExpItemClass(__instance.invItem)) return;
             if (IsPlayerPlacedSlot(__instance)) return;
@@ -294,6 +346,7 @@ namespace DWMPHorde.Patches
             Log($"OnTransferToPlayerPrefix: will add personal extra of '{share.Type}' x1");
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
         [HarmonyPostfix]
         private static void OnTransferToPlayerPostfix(InvSlot __instance)
@@ -302,6 +355,16 @@ namespace DWMPHorde.Patches
             ApplyPendingShareForSlot(__instance, "OnTransferToPlayerPostfix");
         }
 
+        [HarmonyPriority(Priority.Last)]
+        [HarmonyPatch(typeof(InvSlot), "transferItemToPlayer")]
+        [HarmonyFinalizer]
+        private static void OnTransferToPlayerFinalizer(InvSlot __instance, Exception __exception)
+        {
+            if (__exception == null) return;
+            _pendingShares.Remove(__instance);
+        }
+
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "placeItem")]
         [HarmonyPostfix]
         private static void OnPlaceItem(InvSlot __instance)
@@ -312,6 +375,7 @@ namespace DWMPHorde.Patches
                 MarkContainerSlotPlayerPlaced(__instance.inventory.transform.position, idx);
         }
 
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(InvSlot), "controllerPlaceItem")]
         [HarmonyPostfix]
         private static void OnControllerPlaceItem(InvSlot __instance)

@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
 
@@ -13,17 +14,34 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>
+        /// Actions a client may originate (CutsceneSyncPatches: DreamTransition.skip and the
+        /// pre-dream entry transition). Cutscene begin/end and prologue start/end are host-only.
+        /// </summary>
+        internal static bool IsClientRequestAction(byte action) =>
+            action == CutsceneSyncMessage.ActionSkipTransition
+            || action == CutsceneSyncMessage.ActionDreamEntryTransition;
+
         internal void HandleCutsceneSync(CutsceneSyncMessage msg)
         {
+            // A client must not start or end host-owned cutscenes: drop it and stop the
+            // Forwardable relay so other clients never see it.
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
+                && !IsClientRequestAction(msg.Action))
+            {
+                _net.SuppressRelay();
+                ModLog.Warn(LogCat.Session,
+                    "[Cutscene] dropped host-only action " + msg.Action + " from p" + _net.CurrentReceivePlayerId);
+                return;
+            }
+
             // Host already applied locally; only apply on non-originators.
             // When host receives client skip, rebroadcast is Forwardable — host should skip too.
             switch (msg.Action)
             {
                 case CutsceneSyncMessage.ActionBegin:
-                    if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId <= 0)
-                        return; // shouldn't happen; begin is host-originated
                     if (_net.Role == NetworkRole.Host)
-                        return; // host already running
+                        return; // begin is host-originated; host already running
                     DWMPHorde.Patches.CutsceneSyncHelpers.ApplyBegin(msg);
                     break;
 
@@ -48,16 +66,10 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Sync.DreamSyncManager.OnPeerDreamEntryTransition();
                     break;
 
-                case CutsceneSyncMessage.ActionPrologueStart:
+                case CutsceneSyncMessage.ActionDreamEntryCancel:
                     if (_net.Role == NetworkRole.Host)
                         return;
-                    PrologueSync.ApplyStart();
-                    break;
-
-                case CutsceneSyncMessage.ActionPrologueEnd:
-                    if (_net.Role == NetworkRole.Host)
-                        return;
-                    PrologueSync.ApplyEnd();
+                    DWMPHorde.Sync.DreamSyncManager.CancelRefusedEntry();
                     break;
             }
         }

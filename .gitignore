@@ -68,13 +68,15 @@ secrets.*
 appsettings.*.local.json
 
 # Local-only workspace (not part of the public ship tree)
-/AGENTS.md
 /docs/
 /research/
 /scripts/*
 !/scripts/check-dualbox-perf.sh
 !/scripts/fetch-melonloader-refs.sh
 !/scripts/build-loaders.sh
+!/scripts/pack-release.sh
+!/scripts/pack-release.ps1
+!/scripts/unity-yaml.py
 /tools/
 /libs/
 

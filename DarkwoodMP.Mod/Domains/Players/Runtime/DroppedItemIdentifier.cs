@@ -22,8 +22,26 @@ namespace DWMPHorde.Players
                 _all[ident.Id] = ident;
         }
 
-        /// <summary>Drop dictionary on network stop (objects may already be destroyed).</summary>
-        public static void ClearRegistry() => _all.Clear();
+        /// <summary>
+        /// Network stop: prune entries whose object is gone. Live drops (including culled /
+        /// inactive ones) stay registered — they are still real objects in the local world, and a
+        /// re-host / late-join bulk or a Remove for them must still find them.
+        /// </summary>
+        public static void ClearRegistry()
+        {
+            List<string> dead = null;
+            foreach (var kv in _all)
+            {
+                if (kv.Value == null)
+                {
+                    if (dead == null) dead = new List<string>();
+                    dead.Add(kv.Key);
+                }
+            }
+            if (dead == null) return;
+            for (int i = 0; i < dead.Count; i++)
+                _all.Remove(dead[i]);
+        }
 
         /// <summary>Snapshot of live networked drops (for late-join bulk sync).</summary>
         public static void CopyAll(System.Collections.Generic.List<DroppedItemIdentifier> into)
@@ -42,7 +60,9 @@ namespace DWMPHorde.Players
             Register(this);
         }
 
-        private void OnDisable()
+        // OnDestroy, not OnDisable: Cullable hides far drops with SetActive(false), and a culled
+        // drop must stay findable for late-join bulk sync and for a Remove aimed at it.
+        private void OnDestroy()
         {
             if (!string.IsNullOrEmpty(Id) && _all.TryGetValue(Id, out var di) && di == this)
                 _all.Remove(Id);

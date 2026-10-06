@@ -11,10 +11,14 @@ namespace DWMPHorde.Sync
     {
         public int NetId;
 
-        private static int _nextHostId = 1;
+        private static int _nextHostId = 1; // process-scoped: not rewound, ids stamped on traps survive a re-host (see ResetSession)
+        /// <summary>Each host epoch mints from its own 2^24 block (a promoted host starts a new one).</summary>
+        private const int EpochShift = 24;
+        /// <summary>Ids at or above this are treated as junk wire values (see NoteSeenId).</summary>
+        private const int MaxSaneId = 1 << 30;
         private static readonly Dictionary<int, GameObject> ById = new Dictionary<int, GameObject>(64);
         private static readonly List<PendingTrapApply> Pending = new List<PendingTrapApply>(16);
-        private static readonly List<int> _deadKeys = new List<int>(8);
+        private static readonly List<int> _deadKeys = new List<int>(8); // process-scoped: scratch
         private const int MaxPending = 64;
 
         /// <summary>Pending trap applies waiting for scene objects (CoopPerfProbe).</summary>
@@ -29,11 +33,50 @@ namespace DWMPHorde.Sync
             public float QueuedAt;
         }
 
+        /// <summary>
+        /// Session boundary. The id counter is deliberately NOT rewound: trap components
+        /// (and the ids on them) survive a re-host / host promotion, so restarting at 1
+        /// would mint ids that collide with traps that already carry them.
+        /// </summary>
         public static void ResetSession()
         {
-            _nextHostId = 1;
             ById.Clear();
             Pending.Clear();
+            _nextPendingFlushTime = 0f;
+        }
+
+        /// <summary>
+        /// Call right after host promotion (after the world reset). The promoted host only saw the
+        /// ids of traps it had loaded; other peers can hold higher ids from the old host for traps
+        /// it never saw. Re-register every id already stamped in the scene, then move minting into
+        /// a fresh epoch block above anything the previous host could have handed out.
+        /// </summary>
+        public static void OnPromotedToHost()
+        {
+            TrapNetworkId[] stamped = null;
+            try
+            {
+                WorldQueryHelper.InvalidateSceneScanCache<TrapNetworkId>();
+                stamped = WorldQueryHelper.GetCachedSceneComponents<TrapNetworkId>();
+            }
+            catch { /* scene not ready: fall back to the ids already noted */ }
+            if (stamped != null)
+            {
+                for (int i = 0; i < stamped.Length; i++)
+                {
+                    TrapNetworkId t = stamped[i];
+                    if (t == null || t.NetId <= 0) continue;
+                    NoteSeenId(t.NetId);
+                    if (!ById.TryGetValue(t.NetId, out var cur) || cur == null)
+                        ById[t.NetId] = t.gameObject;
+                }
+            }
+
+            long highest = (long)_nextHostId - 1;
+            long nextBlock = ((highest >> EpochShift) + 1) << EpochShift;
+            if (nextBlock < MaxSaneId)
+                _nextHostId = (int)nextBlock;
+            ModRuntime.LegacyInfo($"[TrapId] promoted host mints from {_nextHostId}");
         }
 
         public static int GetId(GameObject go)
@@ -44,19 +87,30 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// True for a trap the other player should see spring, break, or disappear.
-        /// Name lists miss prefabs that only set <see cref="Trigger.isBearTrap"/> or chain/mutated flags.
+        /// True for a trap the other player should see spring, break, or disappear: a one-shot
+        /// <see cref="Trigger"/> that hurts whoever sets it off. Read from the authored setup only
+        /// (fields vanilla never changes at runtime), so a sprung trap still counts.
+        /// From the vanilla data: bear/chain/mutated traps carry their flag; broken glass,
+        /// the bio1 splat mushrooms and the mimic corpses (sprung by trying to open them,
+        /// <c>triggerOnDisarmAttempt</c>) carry none. Left out: repeating hazards
+        /// (<c>multipleTrigger</c>: fart pillow, fire, gasoline, worms, infection splats; nothing
+        /// one-shot to sync, their sound plays per step), triggers that affect nobody (fish,
+        /// curtains, epilogue floor sensors), scripted triggers that fire GameEvents, dormant
+        /// triggers on explosives (barrels, gas bottles) and self-expiring spawns (night worm,
+        /// centipede worms).
         /// </summary>
         public static bool IsWorldTrap(GameObject go)
         {
             if (go == null) return false;
             Trigger trig = go.GetComponent<Trigger>();
-            if (trig != null && (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap))
+            if (trig == null) return false;
+            if (trig.isBearTrap || trig.isChainTrap || trig.isMutatedTrap)
                 return true;
-            string name = go.name != null ? go.name.ToLowerInvariant() : "";
-            if (name.Contains("trap") || name.Contains("snap") || name.Contains("mushroom"))
-                return true;
-            return name.Contains("brokenglass") || name.Contains("broken_glass");
+            if (trig.multipleTrigger || (!trig.affectsPlayer && !trig.affectsCharacters))
+                return false;
+            return go.GetComponent<EventTriggers>() == null && go.GetComponent<GameEvents>() == null
+                && go.GetComponent<Explodes>() == null
+                && go.GetComponent<WaitAndDie>() == null && go.GetComponent<PlayAndDie>() == null;
         }
 
         /// <summary>Vanilla only sets inBearTrap on isBearTrap. Name fragments were grabbing the wrong prop.</summary>
@@ -67,9 +121,19 @@ namespace DWMPHorde.Sync
             return trig != null && trig.isBearTrap;
         }
 
+        /// <summary>Keep the host mint counter above every id this peer has seen on a trap.</summary>
+        private static void NoteSeenId(int netId)
+        {
+            // Ignore absurd wire values: a counter near int.MaxValue would wrap back into live ids.
+            if (netId <= 0 || netId >= 1 << 30) return;
+            if (netId >= _nextHostId)
+                _nextHostId = netId + 1;
+        }
+
         public static void Ensure(GameObject go, int netId)
         {
             if (go == null || netId <= 0) return;
+            NoteSeenId(netId);
             var c = go.GetComponent<TrapNetworkId>();
             if (c == null)
                 c = go.AddComponent<TrapNetworkId>();
@@ -86,11 +150,23 @@ namespace DWMPHorde.Sync
             int existing = GetId(go);
             if (existing > 0)
             {
+                NoteSeenId(existing);
                 ById[existing] = go;
                 return existing;
             }
-            int id = _nextHostId++;
-            if (_nextHostId <= 0) _nextHostId = 1;
+            // Skip ids another live trap already holds (never mint a duplicate).
+            int id = 0;
+            for (int attempts = 0; attempts < 1024; attempts++)
+            {
+                int candidate = _nextHostId;
+                _nextHostId = candidate >= MaxSaneId - 1 ? 1 : candidate + 1;
+                if (candidate <= 0) continue;
+                if (ById.TryGetValue(candidate, out var holder) && holder != null && holder != go)
+                    continue;
+                id = candidate;
+                break;
+            }
+            if (id <= 0) return 0;
             Ensure(go, id);
             return id;
         }
@@ -109,39 +185,10 @@ namespace DWMPHorde.Sync
             if (go == null) return;
             int id = GetId(go);
             if (id > 0)
-                ById[id] = go;
-        }
-
-        /// <summary>
-        /// Resolve which trap a trapped player occupies: nearest Trigger with trap name near player.
-        /// Host stamps NetId when missing.
-        /// </summary>
-        public static int ResolveOccupyingTrapId(Vector3 playerPos, bool hostMint)
-        {
-            GameObject best = null;
-            float bestSq = 2.5f * 2.5f;
-            int hitN = Physics.OverlapSphereNonAlloc(playerPos, 2.5f, WorldQueryHelper.SharedOverlapBuf);
-            for (int i = 0; i < hitN; i++)
             {
-                if (WorldQueryHelper.SharedOverlapBuf[i] == null) continue;
-                GameObject root = WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody != null
-                    ? WorldQueryHelper.SharedOverlapBuf[i].attachedRigidbody.gameObject
-                    : WorldQueryHelper.SharedOverlapBuf[i].gameObject;
-                if (root == null) continue;
-                if (!TrapNetworkId.IsOccupancyTrap(root))
-                    continue;
-                float sq = (root.transform.position - playerPos).sqrMagnitude;
-                if (sq < bestSq)
-                {
-                    bestSq = sq;
-                    best = root;
-                }
+                NoteSeenId(id);
+                ById[id] = go;
             }
-
-            if (best == null) return 0;
-            if (hostMint || GetId(best) > 0)
-                return hostMint ? GetOrMintHost(best) : GetId(best);
-            return GetId(best);
         }
 
         public static void QueuePending(int netId, Vector3 pos, bool triggered, bool silentDisarm = false)

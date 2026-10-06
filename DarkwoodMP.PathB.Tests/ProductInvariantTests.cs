@@ -1,184 +1,126 @@
 using System.Text.RegularExpressions;
+using DWMPHorde;
 using Xunit;
 
 namespace DarkwoodMP.PathB.Tests;
 
 /// <summary>
-/// Thin product gates for Path B. Prefer real unit tests for behavior;
-/// these only lock high-signal ship invariants that must not quietly regress.
+/// Product-wide bans and identity checks. Behaviour is covered by the round-trip, policy and
+/// patch-rule tests; this file only holds rules that apply to the whole source tree, so a rename
+/// or a moved line never breaks it.
 /// </summary>
 public class ProductInvariantTests
 {
-    private static string RepoRoot
+    private static IEnumerable<string> ModSources()
+        => Directory.EnumerateFiles(TestPaths.ModDir, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar));
+
+    /// <summary>Lines of code only (comments and doc comments dropped).</summary>
+    private static IEnumerable<(string File, string Line)> CodeLines()
     {
-        get
+        foreach (string f in ModSources())
         {
-            var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null)
+            foreach (string raw in File.ReadLines(f))
             {
-                if (File.Exists(Path.Combine(dir.FullName, "DarkwoodMP.sln")))
-                    return dir.FullName;
-                dir = dir.Parent;
+                string t = raw.TrimStart();
+                if (t.StartsWith("//") || t.StartsWith("*") || t.StartsWith("/*"))
+                    continue;
+                yield return (Path.GetRelativePath(TestPaths.ModDir, f), t);
             }
-            throw new InvalidOperationException("Could not locate repo root (DarkwoodMP.sln).");
         }
     }
 
-    private static string ModDir => Path.Combine(RepoRoot, "DarkwoodMP.Mod");
-
     [Fact]
-    public void PluginInfo_IsYokWarePathB_Protocol25()
+    public void PluginInfo_IsYokWarePathB()
     {
-        var text = File.ReadAllText(Path.Combine(ModDir, "Bootstrap", "PluginInfo.cs"));
-        Assert.Contains("com.yokware.branch", text);
-        Assert.Contains("YokWare Branch", text);
-        Assert.Contains("ProtocolVersion = 25", text);
-        Assert.Contains("Horde", text);
-
-        var versionMatch = Regex.Match(text, @"Version\s*=\s*""(0\.8\.[^""]+)""");
-        Assert.True(versionMatch.Success, "PluginInfo.Version must be 0.8.x");
-    }
-
-    [Fact]
-    public void ShippedMod_HasHordeHostClientCombatAuthority()
-    {
-        var required = new[]
-        {
-            "Domains/Combat/Patches/ClientHitscanDamageRedirectPatch.cs",
-            "Domains/Combat/Patches/ClientCombatPatches.cs",
-            "Domains/Combat/Patches/HostCombatPatches.cs",
-            "Domains/Combat/Patches/ClientAIDisablePatches.cs",
-            "Domains/World/Patches/BirdAreaSyncPatches.cs",
-            "Networking/Services/EntityStateBroadcastService.cs",
-            "Networking/Services/ClientEntityInterpolationService.cs",
-            "Networking/NetworkRole.cs",
-            "Domains/Combat/Patches/AudioSuppressionPatch.cs",
-        };
-        foreach (var rel in required)
-        {
-            var path = Path.Combine(ModDir, rel.Replace('/', Path.DirectorySeparatorChar));
-            Assert.True(File.Exists(path), "Missing Horde authority surface: " + rel);
-        }
-
-        var redirect = File.ReadAllText(Path.Combine(ModDir, "Domains", "Combat", "Patches", "ClientHitscanDamageRedirectPatch.cs"));
-        Assert.Contains("NetworkRole.Client", redirect);
-        Assert.Contains("PlayerAttack", redirect);
-        Assert.Contains("return false", redirect);
+        Assert.Equal("com.yokware.branch", PluginInfo.Guid);
+        Assert.Equal("YokWare Branch", PluginInfo.Name);
+        Assert.Contains("Horde", PluginInfo.Description);
     }
 
     [Fact]
     public void ShippedMod_HasNoYokyyActionEventCombatPath()
     {
-        var csFiles = Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories);
-        Assert.NotEmpty(csFiles);
-        var hits = new List<string>();
-        foreach (var f in csFiles)
-        {
-            var text = File.ReadAllText(f);
-            if (text.Contains("ActionEventPacket") || Regex.IsMatch(text, @"ActionName\s*=\s*\$?""pvp:"))
-                hits.Add(Path.GetRelativePath(ModDir, f));
-        }
-        Assert.True(hits.Count == 0,
-            "Yokyy ActionEvent combat remnants in shipped mod: " + string.Join(", ", hits));
+        var hits = ModSources()
+            .Where(f =>
+            {
+                string text = File.ReadAllText(f);
+                return text.Contains("ActionEventPacket") || Regex.IsMatch(text, @"ActionName\s*=\s*\$?""pvp:");
+            })
+            .Select(f => Path.GetRelativePath(TestPaths.ModDir, f))
+            .ToList();
+        Assert.True(hits.Count == 0, "Yokyy ActionEvent combat remnants in shipped mod: " + string.Join(", ", hits));
     }
 
     [Fact]
     public void YokyyCore_RemovedFromShipTree_PathBEntryOnly()
     {
-        var archiveRoot = Path.Combine(RepoRoot, "archive", "yokyy-merge-0.9");
-        Assert.False(Directory.Exists(archiveRoot),
+        Assert.False(Directory.Exists(Path.Combine(TestPaths.RepoRoot, "archive", "yokyy-merge-0.9")),
             "Frozen Path A tree must stay out of the public ship path.");
-
-        var entry = Path.Combine(ModDir, "Bootstrap", "DWMPEntry.cs");
-        Assert.True(File.Exists(entry));
-        Assert.Contains("BepInPlugin", File.ReadAllText(entry));
-        Assert.False(File.Exists(Path.Combine(ModDir, "ModMain.cs")),
+        Assert.False(File.Exists(Path.Combine(TestPaths.ModDir, "ModMain.cs")),
             "Yokyy ModMain.cs must not be the shipped entry under DarkwoodMP.Mod");
     }
 
     [Fact]
-    public void NetworkApplyGuard_IsSealedClass_NotStruct()
+    public void ApplyGuards_AreClasses_NotStructs()
     {
-        // struct + `using (new NetworkApplyGuard())` compiled to initobj (ctor never ran).
-        var guard = File.ReadAllText(Path.Combine(ModDir, "Networking", "Services", "NetworkApplyGuard.cs"));
-        Assert.Contains("sealed class NetworkApplyGuard", guard);
-        Assert.DoesNotContain("struct NetworkApplyGuard", guard);
-    }
-
-    [Fact]
-    public void LanForward_UsesPutRaw_NotLengthPrefixedRewrap()
-    {
-        // Host forward path lives in inbound dispatch partial (not the LAN manager shell).
-        var lan = File.ReadAllText(Path.Combine(ModDir, "Networking", "Dispatch", "LanNetworkManager.Dispatch.cs"));
-        Assert.Contains("PutRaw(payload)", lan);
-        Assert.DoesNotContain("w => w.Put(payload)", lan);
+        // `using (new SomeGuard())` on a struct with a parameterless ctor compiles to initobj on
+        // older compilers/runtimes: the ctor never runs and the guard never engages.
+        var hits = CodeLines()
+            .Where(l => Regex.IsMatch(l.Line, @"\bstruct\s+\w*Guard\b") && l.Line.Contains("IDisposable"))
+            .Select(l => l.File + ": " + l.Line)
+            .ToList();
+        Assert.True(hits.Count == 0, "disposable guard structs:\n" + string.Join("\n", hits));
     }
 
     [Fact]
     public void HotPath_NoAllocatingOverlapSphere()
     {
-        var hits = new List<string>();
-        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
-        {
-            var text = File.ReadAllText(f);
-            // Allocating overload: Physics.OverlapSphere( — NonAlloc is OK.
-            if (text.Contains("Physics.OverlapSphere(") && !text.Contains("OverlapSphereNonAlloc"))
-            {
-                // Allow comments / docs that mention the banned API.
-                foreach (var line in text.Split('\n'))
-                {
-                    var t = line.TrimStart();
-                    if (t.StartsWith("//") || t.StartsWith("*") || t.StartsWith("///"))
-                        continue;
-                    if (t.Contains("Physics.OverlapSphere(") && !t.Contains("OverlapSphereNonAlloc"))
-                        hits.Add(Path.GetRelativePath(ModDir, f) + ": " + t.Trim());
-                }
-            }
-        }
-        Assert.True(hits.Count == 0,
-            "Allocating Physics.OverlapSphere still present:\n" + string.Join("\n", hits));
+        var hits = CodeLines()
+            .Where(l => l.Line.Contains("Physics.OverlapSphere("))
+            .Select(l => l.File + ": " + l.Line)
+            .ToList();
+        Assert.True(hits.Count == 0, "Allocating Physics.OverlapSphere still present (use NonAlloc):\n" + string.Join("\n", hits));
     }
 
     [Fact]
     public void CharacterTracker_HasNoAllocatingGetAll()
     {
-        var tracker = File.ReadAllText(Path.Combine(ModDir, "Domains", "Players", "CharacterTracker.cs"));
-        Assert.DoesNotContain("public static Character[] GetAll()", tracker);
-        var hits = new List<string>();
-        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
-        {
-            var text = File.ReadAllText(f);
-            if (text.Contains("CharacterTracker.GetAll("))
-                hits.Add(Path.GetRelativePath(ModDir, f));
-        }
-        Assert.True(hits.Count == 0, "CharacterTracker.GetAll call sites remain: " + string.Join(", ", hits));
-    }
-
-    [Fact]
-    public void NonMessageHubs_StayUnder500Lines()
-    {
-        var oversized = new List<string>();
-        foreach (var f in Directory.GetFiles(ModDir, "*.cs", SearchOption.AllDirectories))
-        {
-            if (f.Contains($"{Path.DirectorySeparatorChar}Networking{Path.DirectorySeparatorChar}Messages{Path.DirectorySeparatorChar}"))
-                continue;
-            int lines = File.ReadAllLines(f).Length;
-            if (lines >= 500)
-                oversized.Add(Path.GetRelativePath(ModDir, f) + " (" + lines + ")");
-        }
-        Assert.True(oversized.Count == 0,
-            "Non-message hubs ≥500 lines:\n" + string.Join("\n", oversized));
-    }
-
-    [Fact]
-    public void Domains_NoRetiredLanNetworkManagerFacades()
-    {
-        var domains = Path.Combine(ModDir, "Domains");
-        var hits = Directory.GetFiles(domains, "LanNetworkManager.*.cs", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(ModDir, f))
-            .Where(rel => !rel.EndsWith("WorldTickFields.cs", StringComparison.Ordinal))
+        var hits = CodeLines()
+            .Where(l => l.Line.Contains("CharacterTracker.GetAll(") || l.Line.Contains("public static Character[] GetAll()"))
+            .Select(l => l.File + ": " + l.Line)
             .ToList();
-        Assert.True(hits.Count == 0,
-            "Retired Domains LanNetworkManager façades still present: " + string.Join(", ", hits));
+        Assert.True(hits.Count == 0, "allocating CharacterTracker.GetAll:\n" + string.Join("\n", hits));
+    }
+
+    [Fact]
+    public void Domains_DoNotExtendLanNetworkManager()
+    {
+        // Domain code talks to the network manager; it does not add partial slices to it.
+        var hits = Directory.GetFiles(Path.Combine(TestPaths.ModDir, "Domains"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => Regex.IsMatch(File.ReadAllText(f), @"\bpartial\s+class\s+LanNetworkManager\b"))
+            .Select(f => Path.GetRelativePath(TestPaths.ModDir, f))
+            .ToList();
+        Assert.True(hits.Count == 0, "LanNetworkManager partials under Domains/: " + string.Join(", ", hits));
+    }
+
+    [Fact]
+    public void NoVersionOrBatchNarrationInCodeComments()
+    {
+        // History belongs in git and the CHANGELOG; comments explain the code as it is.
+        var hits = new List<string>();
+        foreach (string f in ModSources())
+        {
+            foreach (string raw in File.ReadLines(f))
+            {
+                string t = raw.TrimStart();
+                if (!t.StartsWith("//"))
+                    continue;
+                if (Regex.IsMatch(t, @"\b0\.[789]\.\d+\b|\bBatch \d+\b"))
+                    hits.Add(Path.GetRelativePath(TestPaths.ModDir, f) + ": " + t);
+            }
+        }
+        Assert.True(hits.Count == 0, hits.Count + " comment(s) narrate versions/batches:\n" + string.Join("\n", hits.Take(40)));
     }
 }

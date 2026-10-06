@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -18,20 +19,19 @@ namespace DWMPHorde.Networking
             return "Hit" + UnityEngine.Random.Range(1, n + 1);
         }
 
-        private static void ApplyEntityPresentation(Character c, short entityId, string clip, short clipFrame, bool alive)
+        /// <summary>
+        /// Show a host clip on a living (or downed) body; a dead one is shown by
+        /// <see cref="EnsureDeathAnimation"/>. <paramref name="elapsed"/>: host seconds since the
+        /// moment <paramref name="clipFrame"/> was sampled; <paramref name="animating"/>: the
+        /// host keeps this clip moving (vanilla replays a finished once clip every frame).
+        /// </summary>
+        private static void ApplyEntityPresentation(Character c, short entityId, string clip, short clipFrame,
+            float elapsed, bool animating)
         {
             if (c == null) return;
 
             tk2dSpriteAnimator body = ResolveBodyAnimator(c);
-
-            if (!alive)
-            {
-                // Always ensure death presentation (covers pending-match path + late packets).
-                EnsureDeathAnimation(c, entityId, clip, clipFrame);
-                return;
-            }
-
-            ApplyClipToAnimator(body, entityId, clip, clipFrame, alive: true, trackDeath: false);
+            ApplyClipToAnimator(body, entityId, clip, clipFrame, elapsed, animating);
 
             // Dogs and NPCs link animator.legs to legsAnimator; body Play drives both.
             // Dual-Play(bodyClip) on legs freezes walk cycles (floaty roam until aggro).
@@ -42,7 +42,7 @@ namespace DWMPHorde.Networking
                 bool linked = false;
                 try { linked = body != null && body.legs == legs; } catch { /* no .legs */ }
                 if (!linked)
-                    ApplyClipToAnimator(legs, entityId, clip, clipFrame, alive: true, trackDeath: false);
+                    ApplyClipToAnimator(legs, entityId, clip, clipFrame, elapsed, animating);
             }
         }
 
@@ -60,20 +60,48 @@ namespace DWMPHorde.Networking
             return body;
         }
 
+        private const byte ClipKindReaction = 1;
+        private const byte ClipKindDeath = 2;
+        /// <summary>Clip name → reaction / death bits: asked per body per snapshot and per frame, worked out once per name.</summary>
+        private static readonly Dictionary<string, byte> _clipKinds = new Dictionary<string, byte>(64); // reset-in: Reset
+
+        private static byte ClipKind(string clip)
+        {
+            if (string.IsNullOrEmpty(clip)) return 0;
+            if (_clipKinds.TryGetValue(clip, out byte kind))
+                return kind;
+            kind = 0;
+            if (clip.StartsWith("Hit", System.StringComparison.OrdinalIgnoreCase)
+                || clip.StartsWith("Attack", System.StringComparison.OrdinalIgnoreCase)
+                || clip.IndexOf("React", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || clip.IndexOf("Stun", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || clip.IndexOf("Flinch", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                kind |= ClipKindReaction;
+            // PreDeath_Start / _Loop / _Hit are the downed phase, not a death.
+            if ((clip.IndexOf("Death", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    && !clip.StartsWith("PreDeath", System.StringComparison.OrdinalIgnoreCase))
+                || clip.Equals("Cut_half", System.StringComparison.OrdinalIgnoreCase)
+                || clip.Equals("BeartrapDeath", System.StringComparison.OrdinalIgnoreCase))
+                kind |= ClipKindDeath;
+            if (_clipKinds.Count >= 512)
+                _clipKinds.Clear();
+            _clipKinds[clip] = kind;
+            return kind;
+        }
+
         /// <summary>
         /// True if clip name is a real death / cut-in-half presentation (not idle/walk).
         /// </summary>
-        private static bool IsDeathClipName(string clip)
-        {
-            if (string.IsNullOrEmpty(clip)) return false;
-            if (clip.IndexOf("Death", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (clip.Equals("Cut_half", System.StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (clip.Equals("BeartrapDeath", System.StringComparison.OrdinalIgnoreCase))
-                return true;
-            return false;
-        }
+        private static bool IsDeathClipName(string clip) => (ClipKind(clip) & ClipKindDeath) != 0;
+
+        private static readonly AccessTools.FieldRef<Character, string> DeathAnimRef =
+            AccessTools.FieldRefAccess<Character, string>("deathAnim");
+        private static readonly System.Action<Character> GetDeathAnims =
+            AccessTools.MethodDelegate<System.Action<Character>>(AccessTools.Method(typeof(Character), "getDeathAnims"));
+        private static readonly System.Action<Character> DestroyComponents =
+            AccessTools.MethodDelegate<System.Action<Character>>(AccessTools.Method(typeof(Character), "destroyComponents"));
+        private static readonly System.Action<Character> DestroyComponents2 =
+            AccessTools.MethodDelegate<System.Action<Character>>(AccessTools.Method(typeof(Character), "destroyComponents2"));
 
         private static string ResolveDeathClipName(Character c, tk2dSpriteAnimator anim, string hostClip)
         {
@@ -84,11 +112,11 @@ namespace DWMPHorde.Networking
 
             try
             {
-                string deathAnim = Traverse.Create(c).Field("deathAnim").GetValue<string>();
+                string deathAnim = DeathAnimRef(c);
                 if (string.IsNullOrEmpty(deathAnim))
                 {
-                    Traverse.Create(c).Method("getDeathAnims").GetValue();
-                    deathAnim = Traverse.Create(c).Field("deathAnim").GetValue<string>();
+                    GetDeathAnims(c);
+                    deathAnim = DeathAnimRef(c);
                 }
                 if (!string.IsNullOrEmpty(deathAnim) && anim.GetClipByName(deathAnim) != null)
                     return deathAnim;
@@ -108,8 +136,13 @@ namespace DWMPHorde.Networking
         /// Start the death presentation once. Client AI-skip blocks processAnims which
         /// is what vanilla uses to Play(deathAnim). Host clip is often already empty
         /// by the time Alive=false arrives (animator destroyed post-death on host).
+        /// <paramref name="watched"/>: this client showed the body alive (or down), so the death
+        /// plays, from the host's frame when the host was in it. Otherwise the body is an old
+        /// corpse to this client (late join, back into view, a save corpse) and lies on the
+        /// clip's last frame, as vanilla Character.init puts a dead body down.
         /// </summary>
-        private static void EnsureDeathAnimation(Character c, short entityId, string hostClip, short hostFrame)
+        private static void EnsureDeathAnimation(Character c, short entityId, string hostClip, short hostFrame,
+            bool watched, float elapsed)
         {
             if (c == null) return;
             if (_deathAnimationPlayed.Contains(entityId)) return;
@@ -121,7 +154,8 @@ namespace DWMPHorde.Networking
                 body.enabled = true;
 
             string deathClip = ResolveDeathClipName(c, body, hostClip);
-            if (string.IsNullOrEmpty(deathClip))
+            tk2dSpriteAnimationClip def = !string.IsNullOrEmpty(deathClip) ? body.GetClipByName(deathClip) : null;
+            if (def == null || def.frames == null || def.frames.Length == 0)
             {
                 EntitySyncLog.Event(() =>
                     "[ClientDeathAnim] MISSING for " + c.name + "(id=" + entityId
@@ -131,58 +165,78 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            body.Play(deathClip);
-            // Mid-death join: snap to host frame. Fresh kill: play from start.
-            if (IsDeathClipName(hostClip) && hostFrame > 0 && body.CurrentClip != null)
+            if (watched)
             {
-                int maxFrame = body.CurrentClip.frames.Length - 1;
-                if (maxFrame >= 0)
-                    body.SetFrame(Mathf.Clamp(hostFrame, 0, maxFrame), false);
+                bool hostInIt = string.Equals(hostClip, deathClip, System.StringComparison.Ordinal);
+                PlayAligned(body, def, hostInIt ? hostFrame : (short)0, hostInIt ? elapsed : 0f, hostLoops: false);
+            }
+            else
+            {
+                body.PlayFromFrame(def, def.frames.Length - 1);
             }
 
             _deathAnimationPlayed.Add(entityId);
             EntitySyncLog.Event(() =>
-                "[ClientDeathAnim] Play(" + deathClip + ") on " + c.name + "(id=" + entityId
-                + ") hostClip=" + (hostClip ?? "") + " frame=" + hostFrame);
+                "[ClientDeathAnim] " + (watched ? "Play(" : "lie on last frame of (") + deathClip + ") on " + c.name
+                + "(id=" + entityId + ") hostClip=" + (hostClip ?? "") + " frame=" + hostFrame);
+        }
+
+        /// <summary>
+        /// Start <paramref name="clip"/> where the host has it: <paramref name="hostFrame"/> (-1:
+        /// the start) moved on by <paramref name="elapsed"/> host seconds at the clip's fps.
+        /// A looping clip wraps; a once clip the host keeps replaying (<paramref name="hostLoops"/>)
+        /// wraps too; any other once clip stops on its last frame. Always restarts the clip (tk2d
+        /// Play does nothing for the clip already playing; an attack after the same attack must
+        /// show). Random-frame clips are left to tk2d.
+        /// </summary>
+        private static void PlayAligned(tk2dSpriteAnimator anim, tk2dSpriteAnimationClip clip, short hostFrame,
+            float elapsed, bool hostLoops)
+        {
+            int n = clip.frames != null ? clip.frames.Length : 0;
+            if (n == 0 || clip.fps <= 0f
+                || clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Single
+                || clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.RandomFrame
+                || clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.RandomLoop)
+            {
+                anim.Play(clip);
+                return;
+            }
+            float frame = (hostFrame > 0 ? Mathf.Min(hostFrame, n - 1) : 0) + Mathf.Max(elapsed, 0f) * clip.fps;
+            if (clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Once)
+            {
+                if (hostLoops)
+                    frame %= n;
+                else if (frame > n - 1)
+                    frame = n - 1;
+            }
+            // Same offset as vanilla PlayFromFrame, so the frame index does not round down.
+            anim.PlayFrom(clip, (frame + 0.001f) / clip.fps);
         }
 
         private static void ApplyClipToAnimator(
-            tk2dSpriteAnimator anim, short entityId, string clip, short clipFrame, bool alive, bool trackDeath)
+            tk2dSpriteAnimator anim, short entityId, string clip, short clipFrame, float elapsed, bool animating)
         {
             if (anim == null) return;
-
-            // Dead entities are handled exclusively by EnsureDeathAnimation.
-            if (!alive)
-                return;
 
             if (!string.IsNullOrEmpty(clip))
             {
                 tk2dSpriteAnimationClip clipDef = anim.GetClipByName(clip);
-                bool clipChanged = anim.CurrentClip == null || anim.CurrentClip.name != clip;
-                bool looping = clipDef != null && IsLoopingWrap(clipDef.wrapMode);
-                // Replay a loop that stopped after the object woke. One-shots
-                // (hit, attack) stay on the last frame until the host changes clip.
-                if (clipDef != null && (clipChanged || (!anim.Playing && looping)))
+                if (clipDef == null)
+                    return;
+                // By clip object, not name: an animation library swap (animationLibraryOverride)
+                // keeps the names and changes every clip.
+                tk2dSpriteAnimationClip current = anim.CurrentClip;
+                if (!ReferenceEquals(current, clipDef))
                 {
-                    string prev = anim.CurrentClip != null ? anim.CurrentClip.name : "";
-                    bool wasPlaying = anim.Playing;
                     if (!anim.enabled)
                         anim.enabled = true;
-                    anim.Play(clip);
-
-                    // Align only at clip boundaries (start of attack/hitreact).
-                    if (clipChanged && clipFrame >= 0 && anim.CurrentClip != null)
+                    PlayAligned(anim, clipDef, clipFrame, elapsed, animating);
+                    if (EntitySyncLog.On)
                     {
-                        int maxFrame = anim.CurrentClip.frames.Length - 1;
-                        if (maxFrame >= 0)
-                            anim.SetFrame(Mathf.Clamp(clipFrame, 0, maxFrame), false);
-                    }
-
-                    if (clipChanged)
-                    {
+                        string prev = current != null ? current.name : "";
                         EntitySyncLog.Anim(entityId.ToString(),
                             "[ClientAnim] id=" + entityId + " clip " + prev + " → " + clip
-                            + " frame=" + clipFrame + " wasPlaying=" + wasPlaying, 0.35f);
+                            + " frame=" + clipFrame + " +" + elapsed.ToString("F2") + "s anim=" + (animating ? 1 : 0), 0.35f);
                         // Hit / attack / react clip names are high-signal for reaction debug.
                         if (IsReactionClipName(clip))
                             EntitySyncLog.Reaction(entityId.ToString(),
@@ -190,8 +244,11 @@ namespace DWMPHorde.Networking
                                 + " frame=" + clipFrame, 0.25f);
                     }
                 }
-                // Alive, same clip, and already playing: leave natural playback
-                // running.
+                else if (!anim.Playing && animating && (ClipKind(clip) & (ClipKindReaction | ClipKindDeath)) == 0)
+                {
+                    // Same clip, finished, and the host keeps it going: vanilla's Play restart.
+                    anim.Play(clipDef);
+                }
             }
             else if (!anim.Playing)
             {
@@ -221,10 +278,160 @@ namespace DWMPHorde.Networking
                 if (!string.IsNullOrEmpty(idleClip) && anim.GetClipByName(idleClip) != null)
                 {
                     anim.Play(idleClip);
-                    EntitySyncLog.Anim(entityId.ToString(),
-                        "[ClientAnim] id=" + entityId + " empty host clip → idle=" + idleClip, 2f);
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Anim(entityId.ToString(),
+                            "[ClientAnim] id=" + entityId + " empty host clip → idle=" + idleClip, 2f);
                 }
             }
+        }
+
+        /// <summary>
+        /// Per frame: a once clip that finished here while the host keeps it going (Walk, Run,
+        /// Idle, DefensiveLoop are once clips vanilla processAnims restarts with its every-frame
+        /// Play) starts again, as tk2d Play restarts it there. A clip that ends and holds on the
+        /// host (aim, a reaction, death) stays on its last frame.
+        /// </summary>
+        private static void ReplayFinishedClip(Character c, EntityInterpState state, float renderTime)
+        {
+            // Living, or down (PreDeath_Loop runs on the host's every-frame Play too).
+            if (!state.downed && (!state.alive || !c.alive))
+                return;
+            tk2dSpriteAnimator body = ResolveBodyAnimator(c);
+            if (body == null || !body.enabled || body.Playing)
+                return;
+            tk2dSpriteAnimationClip current = body.CurrentClip;
+            if (current == null)
+                return;
+            if (!state.Timeline.LatestAt(renderTime, out TimelineSample s) || !s.Animating
+                || !string.Equals(s.Clip, current.name, System.StringComparison.Ordinal))
+                return;
+            if ((ClipKind(current.name) & (ClipKindReaction | ClipKindDeath)) != 0)
+                return;
+            body.Play(current);
+        }
+
+        /// <summary>
+        /// The presentation half of vanilla Character.Update, which a creature copy skips with
+        /// the rest of its AI: legs under the body, the shadow's rotation and ground spot, and a
+        /// flier's altitude (processAnims), scale, in-flight fade and sky shadow. Run after the
+        /// shown pose is written, so they follow the body this frame.
+        /// </summary>
+        private static void PresentCharacterFrame(Character c, Rigidbody rb, float dt)
+        {
+            // Vanilla Update's own gate (a corpse is inactive).
+            if (!c.isActive || c.dummy)
+                return;
+            Transform tr = c.transform;
+            Vector3 bodyPos = rb != null ? rb.position : tr.position;
+
+            tk2dSpriteAnimator legs = c.legsAnimator;
+            if (legs != null)
+                legs.transform.position = Core.getYPos(bodyPos, PosType.characterLegs, randomize: false) + c.posSeed;
+
+            Transform shadow = c.shadow;
+            if (shadow != null)
+            {
+                if (!c.rotateShadow)
+                    shadow.eulerAngles = new Vector3(90f, 0f, 0f);
+                Vector3 ground = tr.position + new Vector3(c.shadowOffset.x, 0f, c.shadowOffset.z);
+                shadow.position = Core.getYPos(ground, c.dying || !c.alive ? PosType.low1 : PosType.characterShadow,
+                    randomize: false) + c.posSeed;
+            }
+
+            Flier flier = c.flier;
+            if (flier == null)
+                return;
+            // processAnims (living bodies): climb to 13, or dive to between 5 and 10.
+            if (c.alive && flier.inFlight)
+            {
+                flier.altitude = flier.diving
+                    ? Mathf.Clamp(flier.altitude - 30f * dt, 5f, 10f)
+                    : Mathf.Clamp(flier.altitude + 10f * dt, 0f, 13f);
+            }
+            float alt = flier.altitude;
+            tk2dBaseSprite sprite = c.sprite;
+            if (sprite != null)
+            {
+                float k = 2f + alt / 10f;
+                sprite.scale = new Vector3(k, k, k);
+                if (flier.disappearWhenInFlight && alt > 11f)
+                {
+                    Color col = sprite.color;
+                    sprite.color = new Color(col.r, col.g, col.b, col.a - 0.5f * dt);
+                }
+            }
+            if (shadow != null)
+            {
+                shadow.position = bodyPos + new Vector3(alt * 2f, 5f, -alt * 2f);
+                tk2dBaseSprite shadowSprite = shadow.GetComponent<tk2dBaseSprite>();
+                if (shadowSprite != null)
+                    shadowSprite.color = new Color(1f, 1f, 1f, 1f - alt / 10f);
+            }
+        }
+
+        /// <summary>
+        /// A creature copy's clip finished (Character.OnAniFinish, gated on copies). Vanilla's
+        /// handler is mostly AI the host runs and sends (recover after an attack, run away, end
+        /// a turn, summon, despawn on Hide, pause on Aim); only its presentation runs here: the
+        /// defensive loop's random speed and the body laid down when its death clip ends
+        /// (components dropped, corpse set up without vanilla's NPC save).
+        /// </summary>
+        internal static void OnCopyClipFinished(Character c)
+        {
+            tk2dSpriteAnimator anim = c.animator;
+            tk2dSpriteAnimationClip clip = anim != null ? anim.CurrentClip : null;
+            if (clip == null)
+                return;
+            string name = clip.name;
+
+            if (name == "DefensiveLoop" && c.randomizeDefensiveAnimFPS)
+            {
+                clip.fps = Random.Range(18, 30);
+                return;
+            }
+            if (name == "Cut_half")
+            {
+                if (c.dying)
+                {
+                    c.cutInHalf = true;
+                    DestroyComponents2(c);
+                }
+                c.cuttingInHalf = false;
+                return;
+            }
+            // Alive, or down with health left (pre-death): not a finished kill.
+            if (c.alive || (c.hasPreDeath && c.Health > 0f))
+                return;
+            string deathAnim = DeathAnimRef(c);
+            bool deathClip = (!string.IsNullOrEmpty(deathAnim) && (name == deathAnim || name == deathAnim + "_Water"))
+                || name == "Death_doctor" || IsDeathClipName(name);
+            if (!deathClip)
+                return;
+            DestroyComponents(c);
+            DestroyComponents2(c);
+            FinalizeClientCorpse(c);
+        }
+
+        /// <summary>
+        /// Vanilla setDeathCollider for a creature copy: lootable corpse Item, death drop
+        /// inventory, lying collider and ground height, inactive. Its NPC dead flag and save are
+        /// the host's.
+        /// </summary>
+        internal static void FinalizeClientCorpse(Character c)
+        {
+            if (c == null) return;
+            if (c.GetComponent<Item>() == null)
+            {
+                Item item = c.gameObject.AddComponent<Item>();
+                item.name = c.name.ToLower() + "_corpse";
+                if (c.searched)
+                    item.searched = true;
+            }
+            if (c.inventory != null)
+                c.inventory.invType = Inventory.InvType.deathDrop;
+            ApplyDeathPose(c);
+            c.isActive = false;
+            ClearPendingCorpse(c);
         }
 
         private static bool IsLoopingWrap(tk2dSpriteAnimationClip.WrapMode wrapMode)
@@ -239,7 +446,8 @@ namespace DWMPHorde.Networking
         /// Show the host's kill without running vanilla die/die2.
         /// Those fire death triggers, night-spawner bookkeeping, and the trader ending.
         /// </summary>
-        public static void PresentHostDeath(Character c, short entityId, string hostClip, short hostFrame)
+        public static void PresentHostDeath(Character c, short entityId, string hostClip, short hostFrame,
+            bool watched = true, float elapsed = 0f)
         {
             if (c == null) return;
             if (Player.Instance != null && c.gameObject == Player.Instance.gameObject)
@@ -278,8 +486,7 @@ namespace DWMPHorde.Networking
             NoteClientDeathForCorpse(c);
             if (!already)
             {
-                EnsureDeathAnimation(c, entityId, hostClip, hostFrame);
-                NoteLocalDeathPresentation(c, entityId);
+                EnsureDeathAnimation(c, entityId, hostClip, hostFrame, watched, elapsed);
                 EntitySyncLog.Event(() =>
                     "[ClientDeath] present " + c.name + "(id=" + entityId
                     + ") clip=" + (hostClip ?? ""));
@@ -387,16 +594,7 @@ namespace DWMPHorde.Networking
             UnityEngine.Object.Destroy(corpse);
         }
 
-        private static bool IsReactionClipName(string clip)
-        {
-            if (string.IsNullOrEmpty(clip)) return false;
-            if (clip.StartsWith("Hit", System.StringComparison.OrdinalIgnoreCase)) return true;
-            if (clip.StartsWith("Attack", System.StringComparison.OrdinalIgnoreCase)) return true;
-            if (clip.IndexOf("React", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (clip.IndexOf("Stun", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (clip.IndexOf("Flinch", System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            return false;
-        }
+        private static bool IsReactionClipName(string clip) => (ClipKind(clip) & ClipKindReaction) != 0;
 
         public static void ApplyHostDespawn(short entityId)
         {
@@ -406,6 +604,12 @@ namespace DWMPHorde.Networking
             // Host removeMe destroyed the object. A local corpse shell is not a
             // reason to keep a ghost the host no longer has.
 
+            // Full untrack immediately: ClearId alone left the dying Character in
+            // _characters so FindByPositionAndName could claim it for a new nearby
+            // same-name spawn (crow/rabbit) while Destroy is still deferred.
+            if (c != null)
+                CharacterTracker.Remove(c);
+
             _states.Remove(entityId);
             _displayPositions.Remove(entityId);
             _displayRotations.Remove(entityId);
@@ -414,11 +618,24 @@ namespace DWMPHorde.Networking
             _everHostSyncedIds.Remove(entityId);
             _audioStoppedIds.Remove(entityId);
             _deathAnimationPlayed.Remove(entityId);
-            _localHitEchoIgnoreUntil.Remove(entityId);
+            _localHitsAwaitingEcho.Remove(entityId);
             _localDeathSoundPlayed.Remove(entityId);
+            _recentlyDespawnedUntil[entityId] = Time.unscaledTime + DespawnSnapshotIgnoreSec;
+            // A recycled id is a different body; the host re-sends its descriptor.
+            ForgetSaveIdOwner(entityId);
+            _descriptors.Remove(entityId);
+
+            // Drop pending match rows for this host id (would otherwise claim a twin).
+            for (int i = _pendingMatches.Count - 1; i >= 0; i--)
+            {
+                if (_pendingMatches[i].HostId == entityId)
+                    _pendingMatches.RemoveAt(i);
+            }
 
             if (c != null && c.gameObject != null)
             {
+                // Its loop is pooled: stop it before the body goes, as vanilla removeMe does.
+                Audio.EntityLoopSync.Stop(c);
                 EntitySyncLog.Event(() =>
                     "[ClientDespawn] id=" + entityId + " " + c.name);
                 Object.Destroy(c.gameObject);
@@ -427,25 +644,16 @@ namespace DWMPHorde.Networking
 
         private static void EnsureEntityAwake(Character c)
         {
-            if (c == null) return;
+            if (c == null || NightVillage.IsHidden(c.gameObject)) return;
 
             GameObject go = c.gameObject;
             bool isCorpse = !c.alive || c.GetComponent<Item>() != null;
             // Fast path: already fully live; skip repeated GetComponent calls.
             // Corpses keep isActive=false after TickClientCorpseSetup; do not force-revive.
-            if (go.activeSelf && c.enabled && (isCorpse || c.isActive))
-            {
-                tk2dBaseSprite sp = c.sprite;
-                if (sp != null)
-                {
-                    Color col = sp.color;
-                    if (col.a > 0f)
-                        return;
-                    sp.color = new Color(col.r, col.g, col.b, 1f);
-                    return;
-                }
-                // No sprite reference yet; fall through once to wire animation and renderer.
-            }
+            // A shown body's alpha is its own: a flier that vanishes in flight fades it to 0
+            // (vanilla Character.Update), and setting it back each snapshot flashed the bird.
+            if (go.activeSelf && c.enabled && (isCorpse || c.isActive) && c.sprite != null)
+                return;
 
             if (!go.activeSelf)
                 go.SetActive(true);
@@ -467,13 +675,15 @@ namespace DWMPHorde.Networking
                 if (r != null && !r.enabled)
                     r.enabled = true;
 
+                // A body woken from an inactive node shows, unless it is a flier gone in flight.
                 Color col = sprite.color;
-                if (col.a <= 0f)
+                bool goneInFlight = c.flier != null && c.flier.disappearWhenInFlight && c.flier.inFlight;
+                if (col.a <= 0f && !goneInFlight)
                     sprite.color = new Color(col.r, col.g, col.b, 1f);
             }
 
-            // Rigidbody left non-kinematic so the client player can push entities via physics.
-            // Host snapshots drive position via Rigidbody.MovePosition, which respects collisions.
+            // Rigidbody left non-kinematic so the client player collides with entities via physics.
+            // Host snapshots drive the pose every frame (WriteShownPose: transform + body).
         }
 
     }

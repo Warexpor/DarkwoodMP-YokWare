@@ -1,6 +1,6 @@
 namespace DWMPHorde.Networking
 {
-    /// <summary>Steam Voice compressed blob over Horde wire (optional; older peers ignore).</summary>
+    /// <summary>Steam Voice compressed blob over the Horde wire (sent only when voice is enabled).</summary>
     public struct VoiceDataMessage
     {
         public const byte FlagWalkie = 1;

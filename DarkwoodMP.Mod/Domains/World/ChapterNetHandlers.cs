@@ -16,6 +16,16 @@ namespace DWMPHorde.Networking
         {
             DWMPHorde.Patches.ChapterTransitionHelpers.HandleChapterTransition(msg);
         }
+
+        internal void HandleChapterShareAck(ChapterShareAckMessage msg)
+        {
+            DWMPHorde.Patches.ChapterTransitionHelpers.HandleChapterShareAck(msg);
+        }
+
+        internal void HandleChapterLoadGo(ChapterLoadGoMessage msg)
+        {
+            DWMPHorde.Patches.ChapterTransitionHelpers.HandleChapterLoadGo(msg);
+        }
     
     }
 }

@@ -12,11 +12,11 @@ namespace DWMPHorde.Patches
     {
         internal static bool ProxyIsFar(Character c)
         {
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null || !PlayerPositionManager.HasRemotePlayer)
                 return true;
             float range = (float)c.farViewDistance * c.aniSightRangeModifier;
-            Sniffer sniffer = c.GetComponent<Sniffer>();
+            CanSeeComponentCache.Get(c, out Sniffer sniffer, out Collider _);
             if (sniffer != null && sniffer.radius > range)
                 range = sniffer.radius;
             float threshold = range + 50f;
@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
 
         internal static Transform NearestLiving(Vector3 from)
         {
-            return HostAttackPlayerNearestPatch.FindNearestPlayerTransform(from);
+            return PlayerTargetArbiter.NearestValid(from);
         }
 
         internal static GameObject NearestLivingGo(Vector3 from)
@@ -73,13 +73,32 @@ namespace DWMPHorde.Patches
             if (dest == null)
                 return false;
 
-            Player player = Player.Instance;
-            if (player != null && player.isInSight(dest, canBeFarAway, radius))
-                return true;
+            return NearestViewer(dest, canBeFarAway, radius) != null;
+        }
 
-            var net = LanNetworkManager.Instance;
-            if (net == null || player == null)
-                return false;
+        /// <summary>
+        /// The living player body nearest to <paramref name="dest"/> among those that see it (vanilla
+        /// <c>Player.isInSight</c> from each body's pose), or null. A corpse (a dead host waiting
+        /// for morning, a night-dead peer) sees nothing.
+        /// </summary>
+        internal static Transform NearestViewer(Transform dest, bool canBeFarAway, int radius = 0)
+        {
+            if (dest == null)
+                return null;
+            Player player = Player.Instance;
+            if (player == null)
+                return null;
+            Transform best = null;
+            float bestD = float.MaxValue;
+            if (player.alive && !DeathStateTracker.LocalNightDeath && player.isInSight(dest, canBeFarAway, radius))
+            {
+                best = player._transform;
+                bestD = (player._transform.position - dest.position).sqrMagnitude;
+            }
+
+            var net = ModRuntime.Network;
+            if (net == null)
+                return best;
 
             Transform saved = player._transform;
             try
@@ -88,16 +107,48 @@ namespace DWMPHorde.Patches
                 {
                     if (proxy == null)
                         continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                        continue;
+                    float d = (proxy.transform.position - dest.position).sqrMagnitude;
+                    if (d >= bestD)
+                        continue;
                     player._transform = proxy.transform;
                     if (player.isInSight(dest, canBeFarAway, radius))
-                        return true;
+                    {
+                        best = proxy.transform;
+                        bestD = d;
+                    }
                 }
             }
             finally
             {
                 player._transform = saved;
             }
-            return false;
+            return best;
+        }
+
+        /// <summary>
+        /// Vanilla <c>Player.isInSight</c> from one body's pose: the host's own, or a stand-in's by
+        /// pointing the host's <c>_transform</c> at it for the call (as <see cref="NearestViewer"/>).
+        /// </summary>
+        internal static bool BodySees(Transform body, bool isHost, Transform dest, bool canBeFarAway, int radius = 0)
+        {
+            Player player = Player.Instance;
+            if (player == null || body == null || dest == null)
+                return false;
+            if (isHost)
+                return player.isInSight(dest, canBeFarAway, radius);
+            Transform saved = player._transform;
+            try
+            {
+                player._transform = body;
+                return player.isInSight(dest, canBeFarAway, radius);
+            }
+            finally
+            {
+                player._transform = saved;
+            }
         }
 
         /// <summary>
@@ -109,7 +160,7 @@ namespace DWMPHorde.Patches
             if (Player.Instance != null && !Player.Instance.isInside)
                 return false;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return Player.Instance != null && Player.Instance.isInside;
 
@@ -127,10 +178,4 @@ namespace DWMPHorde.Patches
             return true;
         }
     }
-
-    /// <summary>
-    /// Augments Character.canSeeEnemy on the host so NPCs react to both
-    /// the host player and the remote proxy for detection, targeting,
-    /// and fear/ward effects.
-    /// </summary>
 }

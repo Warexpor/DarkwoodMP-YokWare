@@ -44,15 +44,36 @@ namespace DWMPHorde.Networking
                 isDead ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
         }
 
+        /// <summary>
+        /// Host: forget a shadow. A final dead update goes out first so clients play Death1 and drop
+        /// the lookup.
+        /// </summary>
+        internal void UnregisterShadow(short id)
+        {
+            if (!_net.Shadows.TryRemove(id, out ShadowCreature sc) || sc == null)
+                return;
+            Vector3 p = sc.transform.position;
+            SendShadowStateUpdate(new ShadowStateUpdateMessage
+            {
+                ShadowId = id,
+                PosX = p.x,
+                PosY = p.y,
+                PosZ = p.z,
+                RotY = sc.transform.rotation.eulerAngles.y,
+                DistanceToPlayer = sc.distanceToPlayer,
+                Flags = 2 // dead
+            });
+        }
+
         internal void BroadcastShadowStates()
         {
             if (_net.Role != NetworkRole.Host) return;
             if (!_net.IsConnected) return;
-            if (_net.ShadowTracked.Count == 0) return;
+            if (_net.Shadows.Tracked.Count == 0) return;
 
             // Clean dead/null shadows (send death first), broadcast living ones.
             List<short> deadIds = null;
-            foreach (var kvp in _net.ShadowTracked)
+            foreach (var kvp in _net.Shadows.Tracked)
             {
                 if (kvp.Value == null || kvp.Value.dead)
                 {
@@ -92,7 +113,7 @@ namespace DWMPHorde.Networking
             if (deadIds != null)
             {
                 for (int i = 0; i < deadIds.Count; i++)
-                    _net.ShadowTracked.Remove(deadIds[i]);
+                    _net.Shadows.Tracked.Remove(deadIds[i]);
             }
         }
 
@@ -102,13 +123,13 @@ namespace DWMPHorde.Networking
         internal void SendShadowsTo(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host) return;
-            if (_net.ShadowTracked.Count == 0) return;
+            if (_net.Shadows.Tracked.Count == 0) return;
 
             _net.SendBulkOrAll(NetMessageType.ShadowEvent,
-                w => new ShadowEventMessage().Serialize(w), targetPlayerId);
+                w => new ShadowEventMessage { OwnerId = 0 }.Serialize(w), targetPlayerId);
 
             int sent = 0;
-            foreach (var kvp in _net.ShadowTracked)
+            foreach (var kvp in _net.Shadows.Tracked)
             {
                 ShadowCreature sc = kvp.Value;
                 if (sc == null || sc.dead) continue;
@@ -142,10 +163,10 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.ScenarioSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendScenarioEventFired(int nightId, int eventIndex)
+        internal void SendScenarioEventFired(int nightId, int eventIndex, string anchors)
         {
             if (!_net.IsConnected) return;
-            var msg = new ScenarioEventFiredMessage { NightId = nightId, EventIndex = eventIndex };
+            var msg = new ScenarioEventFiredMessage { NightId = nightId, EventIndex = eventIndex, Anchors = anchors };
             _net.Broadcast(NetMessageType.ScenarioEventFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -163,10 +184,10 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.LiquidStopBurning, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendPlayerBurning(bool isBurning, float burnTime = 0)
+        internal void SendPlayerBurning(bool isBurning, float burnTime = 0, bool special = false)
         {
             if (!_net.IsConnected) return;
-            var msg = new PlayerBurningMessage { IsBurning = isBurning, BurnTime = burnTime };
+            var msg = new PlayerBurningMessage { IsBurning = isBurning, BurnTime = burnTime, Special = special };
             _net.Broadcast(NetMessageType.PlayerBurning, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -194,14 +215,14 @@ namespace DWMPHorde.Networking
         internal void SendPadlockUnlock(PadlockUnlockMessage msg)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.PadlockUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal void SendLockedUnlock(LockedUnlockMessage msg)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.LockedUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -212,7 +233,7 @@ namespace DWMPHorde.Networking
             // HostFireNpcCloseDialogue runs under DialogHostApplyGuard and MUST fan out
             // Leave-door GEs must not return early after logging "fired"; the client door
             // otherwise remains stuck.
-            if (LanNetworkManager.IsApplyingRemoteState && !DialogHostApplyGuard.Active) return;
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.GameEventsFired, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -248,7 +269,8 @@ namespace DWMPHorde.Networking
             // (3x WorldObjectRemoved would cause peer scan thrash and NRE). One wire send per key.
             if (!Sync.WorldPhysicsSyncService.TryClaimOutboundObjectRemove(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
                 return;
-            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
+            // One-shot removal (claims, trap disarm): a lost Unreliable packet leaves the object alive on a peer.
+            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         internal void SendPlayerLightState(PlayerLightStateMessage msg, DeliveryMethod method = DeliveryMethod.Unreliable)
@@ -316,10 +338,10 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendPlayerAudio(PlayerAudioMessage msg)
+        internal void SendPlayerAudio(PlayerAudioMessage msg, bool ownOutcome = false)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (!ownOutcome && LanNetworkManager.IsApplyingRemoteState) return;
             // One-shots and stop signals must not drop under lossy LAN.
             _net.Broadcast(NetMessageType.PlayerAudio, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
@@ -365,6 +387,22 @@ namespace DWMPHorde.Networking
             if (LanNetworkManager.IsApplyingRemoteState) return;
             // Reliable: weapon sprite library must not drop (one-shot equip event)
             _net.Broadcast(NetMessageType.PlayerAnimLibrary, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>
+        /// Sticky: re-broadcast the local torso library (late join / proxy create race).
+        /// Mirrors <see cref="SyncCurrentLightState"/>.
+        /// </summary>
+        internal void SyncCurrentAnimLibrary()
+        {
+            if (!_net.IsConnected) return;
+            Player local = Player.Instance;
+            if (local == null || local.torsoAnimator == null || local.torsoAnimator.Library == null)
+                return;
+            string libName = local.torsoAnimator.Library.name;
+            if (string.IsNullOrEmpty(libName)) return;
+            SendPlayerAnimLibrary(new PlayerAnimLibraryMessage { LibraryName = libName });
+            ModRuntime.Log?.LogDebug("[AnimLib] SyncCurrent library: " + libName);
         }
 
         internal void SendBulletImpact(BulletImpactMessage msg)

@@ -7,19 +7,24 @@ namespace DWMPHorde.Patches
 {
     internal static class ExplosionSpawnFlagTracker
     {
-        public static bool IsInsideSpawnObjects;
-        /// <summary>True when spawnObjects() is running for a host-synced ThrownItem (duplicate of client throw).</summary>
-        public static bool IsHostSynced;
+        public static bool IsInsideSpawnObjects; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>The Explodes instance whose onActivate() is currently executing. Set in Prefix, used by AddPrefab Postfix to filter out explosionPrefab.</summary>
-        public static Explodes CurrentExplodes;
+        public static Explodes CurrentExplodes; // process-scoped: call-scoped, unwound by its Finalizer/finally
         /// <summary>Re-entrancy counter: increments on Prefix, decrements on Postfix.
         /// Prevents nested explosions from clearing flags prematurely.</summary>
-        public static int ActivationDepth;
+        public static int ActivationDepth; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
         // After local Explodes already ran spawnObjects (local stomp or SpawnExplosionVisual),
         // host may still send ExplosionSpawnObject for the same secondaries; debounce those.
         private static float _localExplodeFxUntil;
         private static Vector3 _localExplodeFxPos;
+
+        /// <summary>Session end: drop the local-explosion debounce window.</summary>
+        public static void Reset()
+        {
+            _localExplodeFxUntil = 0f;
+            _localExplodeFxPos = Vector3.zero;
+        }
 
         public static void NoteLocalExplodeFx(Vector3 pos)
         {
@@ -35,14 +40,14 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Prefix/Postfix on Explodes.onActivate() to set IsInsideSpawnObjects before
+    /// Prefix/Finalizer on Explodes.onActivate() to set IsInsideSpawnObjects before
     /// spawnObjects() runs, so ExplosionObjectSpawnSyncPatch can intercept the
     /// Core.AddPrefab calls.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Explodes), "onActivate", new System.Type[0])]
     public static class ExplosionOnActivatePrefix
     {
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
         private static void Prefix(Explodes __instance)
         {
@@ -50,96 +55,78 @@ namespace DWMPHorde.Patches
 
             var net = ModRuntime.Network;
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[FX] entered role=" + (net?.Role.ToString() ?? "null") + " obj=" + __instance?.name + " hasThrown=" + (__instance.GetComponent<ThrownItem>() != null));
+                ModRuntime.LegacyInfo($"[FX] entered role={(net?.Role.ToString() ?? "null")} obj={(__instance?.name)} hasThrown={(__instance.GetComponent<ThrownItem>() != null)}");
 
             ExplosionSpawnFlagTracker.CurrentExplodes = __instance;
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
-            ExplosionSpawnFlagTracker.IsHostSynced = false;
 
             if (net == null || net.Role == NetworkRole.Offline) return;
-
-            if (net.Role == NetworkRole.Host)
-            {
-                ThrownItem ti = __instance.GetComponent<ThrownItem>();
-                if (ti != null && ti.objectThatSpawnedMe != null)
-                {
-                    bool isProxySpawned = false;
-                    foreach (var proxy in net.GetAllProxies())
-                    {
-                        if (proxy != null && ti.objectThatSpawnedMe == proxy.transform)
-                        {
-                            isProxySpawned = true;
-                            break;
-                        }
-                    }
-                    if (isProxySpawned)
-                    {
-                        ExplosionSpawnFlagTracker.IsHostSynced = true;
-                        if (ModRuntime.VerboseLogging)
-                            ModRuntime.LegacyInfo("[FX] IsHostSynced=true");
-                    }
-                }
-            }
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = true;
         }
 
-        [HarmonyPostfix]
-        private static void Postfix()
+        // Finalizer (not Postfix): onActivate can throw after Prefix bumped
+        // ActivationDepth / IsInsideSpawnObjects; Postfix would leave depth sticky
+        // and host would keep treating AddPrefab as explosion secondaries forever.
+        [HarmonyPriority(Priority.Last)]
+        [HarmonyFinalizer]
+        private static void Finalizer()
         {
-            ExplosionSpawnFlagTracker.ActivationDepth--;
             if (ExplosionSpawnFlagTracker.ActivationDepth > 0)
-                return; // Still inside a nested explosion — outer Postfix will clear
+                ExplosionSpawnFlagTracker.ActivationDepth--;
+            if (ExplosionSpawnFlagTracker.ActivationDepth > 0)
+                return; // Still inside a nested explosion — outer Finalizer will clear
 
             ExplosionSpawnFlagTracker.IsInsideSpawnObjects = false;
-            ExplosionSpawnFlagTracker.IsHostSynced = false;
             ExplosionSpawnFlagTracker.CurrentExplodes = null;
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
+    /// <summary>
+    /// Client: a barrel, mushroom or bomb set off here (shot, ignited, stepped on) explodes for
+    /// real on the host, which <see cref="ExplosionTriggerPatch"/> asks for. Running vanilla's
+    /// blast here too hit every enemy twice (the client's hits went to the host as attacks on top
+    /// of the host's own blast) and the client's own player twice (locally and by the host's
+    /// DamagePlayer). The client keeps the look and sound only; the host deals the damage, the
+    /// effects and the world hits. Also for a blast replayed from the host (a story event):
+    /// the host's own blast already hit everyone, clients included (DamagePlayer).
+    /// </summary>
     [HarmonyPatch(typeof(Explodes), "explode")]
     public static class ExplosionDamageSkipPatch
     {
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix()
+        private static bool Prefix(Explodes __instance)
         {
             var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Client) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
-            if (Sync.WorldPhysicsSyncService._suppressBroadcast) return;
-            TraverseHack.IsInsideLocalExplosion = true;
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix()
-        {
-            // Always clear. Even if Prefix skipped, false is the safe idle state.
-            TraverseHack.IsInsideLocalExplosion = false;
+            if (net == null || net.Role != NetworkRole.Client || !net.IsConnected) return true;
+            if (__instance == null || __instance.effect == null) return true; // vanilla: logs, returns
+            if (!string.IsNullOrEmpty(__instance.explodeSound))
+                AudioController.Play(__instance.explodeSound, __instance.transform.position);
+            if (__instance.destroyOnExplode)
+                __instance.gameObject.DestroyMe();
+            return false;
         }
     }
 
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(Object), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabObjectPatch"/> (one detour for all features).</remarks>
     public static class ExplosionObjectSpawnSyncPatch
     {
-        private static void Postfix(ref GameObject __result, object[] __args)
+        internal static void OnAddPrefab(GameObject __result, Object prefab, Vector3 position, Quaternion quaternion)
         {
-            UnityEngine.Object prefab = (UnityEngine.Object)__args[0];
-            Vector3 position = (Vector3)__args[1];
-            Quaternion quaternion = (Quaternion)__args[2];
-
             bool flag = ExplosionSpawnFlagTracker.IsInsideSpawnObjects;
             var log = ModRuntime.Log;
             if (flag && ModRuntime.VerboseLogging)
                 log?.LogInfo("[FX] ENTERED flag=true prefab=" + (prefab?.name ?? "null") + " role=" + (ModRuntime.Network?.Role.ToString() ?? "null"));
 
             if (!flag) return;
-            var net = ModRuntime.Network;
-            if (net == null || net.Role != NetworkRole.Host) return;
+            if (!NetGuard.Host(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (__result == null || prefab == null) return;
 
-            if (ExplosionSpawnFlagTracker.IsHostSynced) return;
+            // A peer's throw included: every peer's copy of a throw is muted
+            // (MuteThrownCombat drops its secondaries), so only this send puts its fire and debris
+            // on the clients, the thrower too.
 
             if (ExplosionSpawnFlagTracker.CurrentExplodes != null)
             {

@@ -19,17 +19,17 @@ namespace DWMPHorde
             if (net.Role != NetworkRole.Offline)
             {
                 ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
+                ShowTransientFailure(_hostLanBtn, "ALREADY ONLINE", "HOST LAN");
                 return;
             }
 
-            int port = ModConfig.ConnectPort != null ? ModConfig.ConnectPort.Value : PluginInfo.DefaultPort;
-            if (port < 1 || port > 65535)
-                port = PluginInfo.DefaultPort;
+            int port = ModConfig.GetConnectPort();
 
             net.StartHost(port);
             if (net.Role != NetworkRole.Host)
             {
                 ModLog.Event(LogCat.Session, "Host failed: " + (net.StatusText ?? "bind error"));
+                ShowTransientFailure(_hostLanBtn, FailureLabel(net.StatusText, "HOST FAILED"), "HOST LAN");
                 return;
             }
 
@@ -54,6 +54,7 @@ namespace DWMPHorde
             if (net.Role != NetworkRole.Offline)
             {
                 ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
+                ShowTransientFailure(_hostSteamBtn, "ALREADY ONLINE", "HOST STEAM");
                 return;
             }
 
@@ -61,6 +62,7 @@ namespace DWMPHorde
             if (net.Role != NetworkRole.Host)
             {
                 ModLog.Event(LogCat.Session, "Steam host failed: " + (net.StatusText ?? "steam error"));
+                ShowTransientFailure(_hostSteamBtn, FailureLabel(net.StatusText, "HOST FAILED"), "HOST STEAM");
                 return;
             }
 
@@ -72,6 +74,13 @@ namespace DWMPHorde
             ClosePanel();
             if (_menu != null)
                 _menu.displayProfilesMenu();
+        }
+
+        /// <summary>Test pilot: one press of JOIN LAN (connect, request, enter world as it progresses).</summary>
+        internal static void PilotJoinLan()
+        {
+            _joinViaSteam = false;
+            BeginOrContinueJoin(steam: false);
         }
 
         private static void OnJoinLanClicked()
@@ -95,7 +104,7 @@ namespace DWMPHorde
             if (net == null || _joinPending)
                 return;
 
-            var lanReady = net as LanNetworkManager;
+            var lanReady = net;
             if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
             {
                 SetJoinProgress("CHOOSE SLOT");
@@ -119,22 +128,32 @@ namespace DWMPHorde
                 return;
             }
 
-            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && Core.mainMenu)
+            if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && GameScreen.AtTitle)
             {
-                var lan = net as LanNetworkManager;
+                var lan = net;
                 if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
                 {
                     SetJoinProgress("DOWNLOADING…");
                     return;
                 }
-                if (lan != null && lan.RequestHostWorld("join-button"))
+                if (lan != null && !lan.ClientSeesHostWorldReady)
+                {
+                    SetJoinProgress("WAIT HOST…");
+                    ModLog.Event(LogCat.Session,
+                        "JOIN while connected — host not fully in-world yet; waiting (no download).");
+                    // Still nudge host in case they are ready but signal was missed.
+                    lan.RequestHostWorld("join-button-wait-host");
+                }
+                else if (lan != null && lan.RequestHostWorld("join-button"))
                 {
                     SetJoinProgress("REQUESTING WORLD…");
                     ModLog.Event(LogCat.Session, "JOIN while connected — WorldRequest sent to host.");
                 }
                 else
                 {
-                    SetJoinProgress("WAITING…");
+                    SetJoinProgress(lan != null && lan.ClientSeesHostWorldReady
+                        ? "WAITING…"
+                        : "WAIT HOST…");
                     ModLog.Event(LogCat.Session,
                         "JOIN while connected — request rate-limited or share already in progress.");
                 }
@@ -144,6 +163,7 @@ namespace DWMPHorde
             if (net.Role != NetworkRole.Offline)
             {
                 ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
+                ShowTransientFailure(ActiveJoinButton, "ALREADY ONLINE", steam ? "JOIN STEAM" : "JOIN LAN");
                 return;
             }
 
@@ -154,17 +174,20 @@ namespace DWMPHorde
                 if (string.IsNullOrEmpty(lobby))
                 {
                     ModLog.Event(LogCat.Session, "JOIN STEAM: set lobby id in SETTINGS (or accept a Steam invite).");
+                    ShowTransientFailure(_joinSteamBtn, "SET LOBBY ID", "JOIN STEAM");
                     MultiplayerMenu.ShowSettings();
                     return;
                 }
 
                 net.ConnectSteam(lobby);
-                _joinPending = true;
-                _joinStartedAt = Time.realtimeSinceStartup;
-                _handshakeAt = 0f;
-                _loggedWaitingWorld = false;
-                _worldRequest10sSent = false;
-                _worldRequest25sSent = false;
+                if (net.Role == NetworkRole.Offline)
+                {
+                    // Bad lobby id / Steam not ready: nothing is connecting, so no join timer.
+                    ModLog.Event(LogCat.Session, "JOIN STEAM failed: " + (net.StatusText ?? "steam error"));
+                    ShowTransientFailure(_joinSteamBtn, FailureLabel(net.StatusText, "JOIN FAILED"), "JOIN STEAM");
+                    return;
+                }
+                BeginJoinTimer();
                 SetJoinProgress("STEAM…");
                 ModLog.Event(LogCat.Session, "Connecting Steam lobby " + lobby + " …");
                 return;
@@ -175,17 +198,10 @@ namespace DWMPHorde
             if (string.IsNullOrEmpty(ip))
                 ip = "127.0.0.1";
 
-            int port = ModConfig.ConnectPort != null ? ModConfig.ConnectPort.Value : PluginInfo.DefaultPort;
-            if (port < 1 || port > 65535)
-                port = PluginInfo.DefaultPort;
+            int port = ModConfig.GetConnectPort();
 
             net.ConnectToHost(ip, port);
-            _joinPending = true;
-            _joinStartedAt = Time.realtimeSinceStartup;
-            _handshakeAt = 0f;
-            _loggedWaitingWorld = false;
-            _worldRequest10sSent = false;
-            _worldRequest25sSent = false;
+            BeginJoinTimer();
             SetJoinProgress("CONNECTING…");
             ModLog.Event(LogCat.Session, "Connecting to " + ip + ":" + port + " …");
         }
@@ -230,7 +246,7 @@ namespace DWMPHorde
                     _worldRequest10sSent = false;
                     _worldRequest25sSent = false;
                     ModLog.Event(LogCat.Session,
-                        "Connected to host — waiting for world share / auto-load…");
+                        "Connected to host — waiting for host fully in-world, then world share / auto-load…");
                 }
                 UpdateJoinLabelFromShare(net);
                 RefreshSessionButtons();
@@ -267,16 +283,32 @@ namespace DWMPHorde
 
         private static void PollPostHandshakeWorldWait()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client || !net.IsHandshakeComplete)
                 return;
-            if (!Core.mainMenu)
+            if (!GameScreen.AtTitle)
+            {
+                // In-world: the next title visit gets a fresh wait window, not a stale one.
+                _handshakeAt = 0f;
+                _loggedWaitingWorld = false;
+                _worldRequest10sSent = false;
+                _worldRequest25sSent = false;
                 return;
+            }
 
             UpdateJoinLabelFromShare(net);
 
             if (_handshakeAt <= 0f)
+            {
+                // Invite / launch-lobby joins never ran PollJoinState: anchor the wait here.
+                _handshakeAt = Time.realtimeSinceStartup;
+                _loggedWaitingWorld = false;
+                _worldRequest10sSent = false;
+                _worldRequest25sSent = false;
+                ModLog.Event(LogCat.Session,
+                    "Connected to host — waiting for host fully in-world, then world share / auto-load…");
                 return;
+            }
 
             if (net.WorldSaveShare != null
                 && (net.WorldSaveShare.IsAwaitingSlotPick
@@ -290,22 +322,30 @@ namespace DWMPHorde
             if (!_loggedWaitingWorld && waited > 8f && !receiving)
             {
                 _loggedWaitingWorld = true;
+                bool hostReady = net.ClientSeesHostWorldReady;
                 ModLog.Warn(LogCat.Session,
                     "Still on title 8s after handshake with no world download. "
-                    + "Host must be IN the chapter (not title). Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
+                    + (hostReady
+                        ? "Host announced ready — waiting for world package. "
+                        : "Host not fully in-world yet (loading / title). ")
+                    + "Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
             }
 
             if (!receiving && waited >= 10f && !_worldRequest10sSent)
             {
                 _worldRequest10sSent = true;
                 if (net.RequestHostWorld("title-wait-10s"))
-                    SetJoinProgress("REQUESTING WORLD…");
+                    SetJoinProgress(net.ClientSeesHostWorldReady
+                        ? "REQUESTING WORLD…"
+                        : "WAIT HOST…");
             }
             else if (!receiving && waited >= 25f && !_worldRequest25sSent)
             {
                 _worldRequest25sSent = true;
                 if (net.RequestHostWorld("title-wait-25s"))
-                    SetJoinProgress("REQUESTING WORLD…");
+                    SetJoinProgress(net.ClientSeesHostWorldReady
+                        ? "REQUESTING WORLD…"
+                        : "WAIT HOST…");
             }
         }
 
@@ -389,7 +429,12 @@ namespace DWMPHorde
             }
             else if (net.IsHandshakeComplete)
             {
-                SetJoinProgress("CONNECTED");
+                if (!net.ClientSeesHostWorldReady && GameScreen.AtTitle)
+                    SetJoinProgress("WAIT HOST…");
+                else if (net.ClientSeesHostWorldReady && GameScreen.AtTitle)
+                    SetJoinProgress("HOST READY");
+                else
+                    SetJoinProgress("CONNECTED");
             }
         }
 
@@ -405,7 +450,7 @@ namespace DWMPHorde
                 return;
             try
             {
-                if (!Core.mainMenu)
+                if (!GameScreen.AtTitle)
                     return;
             }
             catch { return; }

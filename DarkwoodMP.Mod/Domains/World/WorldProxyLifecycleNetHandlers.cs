@@ -27,7 +27,7 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                if (Core.mainMenu || Core.loadingGame)
+                if (GameScreen.AtTitle || Core.loadingGame)
                     return false;
                 Player p = Player.Instance;
                 if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)
@@ -61,22 +61,38 @@ namespace DWMPHorde.Networking
                 proxy.PlayerId = playerId;
                 _net.RemoteProxies[playerId] = proxy;
                 proxy.OnFootstep += (pId, running) => _net.WorldProxyEffectHandlers.HandleProxyFootstep(pId, running);
-                PlayerLightFxNetHandlers.RemoveClonedEmitters(proxy.transform);
+                PlayerLightFxAmbientNetHandlers.RemoveClonedEmitters(proxy.transform);
                 // Do not snap to the local Player; that stacks bodies on join until the first
                 // PlayerState. Spawn parks far below; ApplyNetworkState moves on first packet.
                 ModRuntime.LegacyInfo($"[Proxy] Created proxy for player {playerId}");
 
-                if (_net.PlayerLightFxHandlers.PendingPlayerLights.TryGetValue(playerId, out PlayerLightStateMessage pendingLight))
+                // A rebuilt proxy (fake-null replace, migration) keeps its RemotePlayerState: forget
+                // what the old body showed and show the last known light on the new one.
+                PlayerLightStateMessage pendingLight = default;
+                bool havePending = _net.PlayerLightFxApplyHandlers.PendingPlayerLights.TryGetValue(playerId, out pendingLight);
+                if (_net.RemotePlayers.TryGetValue(playerId, out RemotePlayerState lightState) && lightState != null)
                 {
-                    _net.PlayerLightFxHandlers.PendingPlayerLights.Remove(playerId);
+                    lightState.ForgetAppliedLight();
+                    if (!havePending && lightState.LastLight.HasValue)
+                    {
+                        pendingLight = lightState.LastLight.Value;
+                        havePending = true;
+                    }
+                }
+                if (havePending)
+                {
+                    _net.PlayerLightFxApplyHandlers.PendingPlayerLights.Remove(playerId);
                     // Re-enter apply with a temporary receive id so GetProxy path works.
                     int prevRecv = _net.CurrentReceivePlayerId;
                     _net.AssignCurrentReceivePlayerId(playerId);
-                    try { _net.PlayerLightFxHandlers.HandlePlayerLightState(pendingLight); }
+                    try { _net.PlayerLightFxApplyHandlers.HandlePlayerLightState(pendingLight); }
                     finally { _net.AssignCurrentReceivePlayerId(prevRecv); }
                     ModLog.Event(LogCat.World,
                         $"[Light] applied pending state for p{playerId} after proxy create");
                 }
+
+                // Anim library may have arrived before the proxy existed (equip race / late join).
+                _net.PlayerFXHandlers?.FlushPendingAnimLibrary(playerId);
             }
         }
 
@@ -158,6 +174,18 @@ namespace DWMPHorde.Networking
             if (!_net.RemoteProxies.TryGetValue(playerId, out var proxy))
                 return;
 
+            // Before Destroy: vanilla stopAttacking so chase/superTarget do not hold a
+            // destroyed Transform (N-peer leave mid-chase → null chase / (0,0,0) wander).
+            try
+            {
+                if (proxy != null)
+                    ClearAiTargetsOnProxy(proxy.transform);
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "ClearAiTargetsOnProxy p" + playerId + ": " + ex.Message);
+            }
+
             _net.RemoteProxies.Remove(playerId);
             try
             {
@@ -172,7 +200,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// After local dream pad load: place each remote proxy at last PlayerState (or spawn).
+        /// After local dream pad load: place remotes who are actually in the shared dream
+        /// (<see cref="Sync.DreamSyncManager.IsRemoteInDream"/>). Dreams are party-once /
+        /// shared-session but peers enter individually — stamping every RemoteProxy yanked
+        /// overworld peers onto the dream pad and polluted RemoteOutsideLocation.
         /// </summary>
         internal void ResyncDreamProxiesAfterLocalLoad(string locationName)
         {
@@ -180,17 +211,21 @@ namespace DWMPHorde.Networking
             try
             {
                 var ol = Singleton<OutsideLocations>.Instance;
-                Location loc = LocationNetHandlers.ResolveOutsideLocation(ol, Sync.DreamSyncManager.CanonicalDreamLocationName(locationName));
+                string canon = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
+                Location loc = LocationEnterExitNetHandlers.ResolveOutsideLocation(ol, canon);
                 if (loc == null && Dreams.Instance != null)
                     loc = Dreams.Instance.dreamLocation;
                 if (loc == null) return;
 
-                loc.enter(force: true);
+                LocationEnterExitNetHandlers.EnsureEntered(loc);
                 foreach (var kvp in new List<KeyValuePair<int, RemotePlayerProxy>>(_net.RemoteProxies))
                 {
                     if (kvp.Key == _net.LocalPlayerId) continue;
-                    _net.RemoteOutsideLocation[kvp.Key] = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
-                    _net.LocationHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
+                    // N-peer: only participants. IsRemoteInDream covers entry-deadline window.
+                    if (!Sync.DreamSyncManager.IsRemoteInDream(kvp.Key))
+                        continue;
+                    _net.RemoteOutsideLocation[kvp.Key] = canon;
+                    _net.LocationEnterExitHandlers.PlaceRemoteProxyInOutsideLocation(kvp.Key, loc, preferLastKnown: true);
                 }
             }
             catch (System.Exception ex)
@@ -199,163 +234,36 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private static int _aggroLogCounter;
-        private static float _lastAggroLogTime;
+
+        private static void ClearAiTargetsOnProxy(UnityEngine.Transform proxyT)
+        {
+            if (proxyT == null) return;
+            Character[] all;
+            int nAll = CharacterTracker.CopyAll(out all);
+            for (int ci = 0; ci < nAll; ci++)
+            {
+                Character c = all[ci];
+                if (c == null) continue;
+                if (c.target == proxyT || c.superTarget == proxyT)
+                    c.stopAttacking(proxyT);
+            }
+        }
+
+        private static int _maintenanceTicks; // process-scoped: cleanup cadence counter
 
         /// <summary>
-        /// Host tick: make hostile Characters notice remote proxies (FOV/smell/nearView).
+        /// Host tick (every 0.5 s): periodic cleanup of the melee-hit dedup table. This used to also
+        /// "aggro" every hostile creature that could see a stand-in up close onto that stand-in,
+        /// whatever it was already chasing (a dog after the host was pulled onto a client within
+        /// its near view every half second). Creatures now notice stand-ins in their own sight check
+        /// and pick between players through <see cref="PlayerTargetArbiter"/>.
         /// </summary>
-        internal void ProxyAggroCheck()
+        internal void ProxyMaintenanceTick()
         {
             if (_net.RemoteProxies.Count == 0)
                 return;
-
-            Character[] all;
-            int nAll = CharacterTracker.CopyAll(out all);
-            if (nAll == 0)
-                return;
-
-            foreach (var kvp in _net.RemoteProxies)
-            {
-                RemotePlayerProxy proxy = kvp.Value;
-                if (proxy == null) continue;
-                Transform proxyT = proxy.transform;
-
-                // Night-dead peer: not a combat target — skip whole proxy (not per-character).
-                CharBase proxyCb = proxy.CachedCharBase;
-                if (proxyCb != null && !proxyCb.alive)
-                    continue;
-                if (DeathStateTracker.IsRemoteNightDead(kvp.Key))
-                    continue;
-
-                int aggroed = 0;
-                int skippedFar = 0;
-                int skippedAlreadyTargeting = 0;
-                int skippedFleeFauna = 0;
-                bool proxyHasEotF = proxy.RemoteHasEnemyOfTheForest;
-                Vector3 proxyPos = proxyT.position;
-
-                for (int ci = 0; ci < nAll; ci++)
-                {
-                    Character c = all[ci];
-                    if (c == null || !c.alive || c.dummy)
-                        continue;
-
-                    if (c.target == proxyT)
-                    {
-                        skippedAlreadyTargeting++;
-                        continue;
-                    }
-
-                    // Flee-only fauna (rabbits, ravens, etc.): never ProxyAggro.
-                    // Forcing runAway(proxy) every 0.5s made them ping-pong / "chase" both players.
-                    // Vanilla AI already reacts to the local Player body.
-                    if (c.aggressiveness == Aggressiveness.flee
-                        || c.aggressiveness == Aggressiveness.fleeAndDespawn)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    bool attacksPlayer = c.attacksFaction(Faction.player);
-
-                    // Neutral wildlife: only EotF + animalAggressive combat edge (must also attack).
-                    if (c.aggressiveness == Aggressiveness.neutral)
-                    {
-                        if (!proxyHasEotF || c.faction != Faction.animalAggressive || !attacksPlayer)
-                        {
-                            skippedFar++;
-                            continue;
-                        }
-                    }
-
-                    // Strict: only true predators get attackCharacter(proxy).
-                    // runsAwayFromFaction-only animals used to fall through → runAway(proxy) chase feel.
-                    if (!attacksPlayer)
-                    {
-                        skippedFleeFauna++;
-                        continue;
-                    }
-
-                    Vector3 cPos = c.transform.position;
-                    float dx = cPos.x - proxyPos.x;
-                    float dz = cPos.z - proxyPos.z;
-                    float distSq = dx * dx + dz * dz;
-
-                    // Sniffer: within smell radius → aggro (was inverted: skipped when close).
-                    Sniffer entitySniffer = c.GetComponent<Sniffer>();
-                    float sniffRadius = entitySniffer != null ? entitySniffer.radius : 0f;
-                    bool inSniff = entitySniffer != null && distSq < sniffRadius * sniffRadius;
-
-                    float nearRange = (float)c.nearViewDistance * c.aniSightRangeModifier;
-                    // Commit only at nearView (vanilla). Smell alone must not instant-attack from afar.
-                    if (nearRange <= 0f || distSq > nearRange * nearRange)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    // Match HostCanSeeEnemyPatch: FOV + raycast (or smell without LOS at near).
-                    Vector3 toProxy = proxyPos - cPos;
-                    bool inFOV = Vector3.Angle(toProxy, c.transform.up) <= (float)c.fieldOfViewRange;
-                    if (!inFOV && !inSniff)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    bool detected = false;
-                    if (inSniff && !inFOV)
-                    {
-                        detected = true;
-                    }
-                    else
-                    {
-                        float distToProxy = Mathf.Sqrt(distSq);
-                        Collider myCollider = c.GetComponent<Collider>();
-                        if (Physics.Raycast(cPos, toProxy, out var hit, distToProxy,
-                                GameplayConstants.HitscanLayerMask))
-                        {
-                            if (hit.collider != null && (myCollider == null || hit.collider != myCollider))
-                            {
-                                RemotePlayerProxy hitProxy = hit.collider.GetComponentInParent<RemotePlayerProxy>();
-                                if (hitProxy != null && hitProxy == proxy)
-                                    detected = true;
-                            }
-                        }
-                    }
-
-                    if (!detected)
-                    {
-                        skippedFar++;
-                        continue;
-                    }
-
-                    if (c.sleeping)
-                        c.wakeup();
-
-                    c.attackCharacter(proxyT);
-                    aggroed++;
-                }
-
-                if ((aggroed > 0 || skippedFleeFauna > 0 || ++_aggroLogCounter % 10 == 0)
-                    && ModRuntime.VerboseLogging)
-                {
-                    float now = Time.time;
-                    if (now - _lastAggroLogTime >= 5f)
-                    {
-                        _lastAggroLogTime = now;
-                        ModRuntime.LegacyInfo(
-                            $"[Proxy] player {kvp.Key}: checked {nAll} chars, aggroed={aggroed}, "
-                            + $"far={skippedFar}, alreadyTargeting={skippedAlreadyTargeting}, "
-                            + $"fleeSkip={skippedFleeFauna}");
-                    }
-                }
-
-                // Periodic cleanup of melee-hit dedup dictionary to prevent unbounded growth
-                if (++_aggroLogCounter % 5 == 0)
-                    MeleeSensorDeduplicatePatch.CleanupStaleEntries();
-            }
+            if (++_maintenanceTicks % 5 == 0)
+                MeleeSensorDeduplicatePatch.CleanupStaleEntries();
         }
     }
 }

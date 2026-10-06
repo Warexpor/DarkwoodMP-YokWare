@@ -27,12 +27,11 @@ namespace DWMPHorde.Patches
             internal GameObject HeldItem;
         }
 
-        private static readonly Dictionary<int, ThrowCapture> _captures = new Dictionary<int, ThrowCapture>(4);
-
-        public static void Reset() => _captures.Clear();
-
-        private static bool Prefix(Player __instance)
+        // The capture travels in __state (not a static map): a nested throw cannot overwrite it
+        // and an exception between Prefix and Postfix cannot leave a stale entry behind.
+        private static bool Prefix(Player __instance, out ThrowCapture __state)
         {
+            __state = null;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
             if (ModRuntime.Network.Role == NetworkRole.Offline) return true;
             if (TraverseHack.ApplyingFromNetwork) return true;
@@ -52,16 +51,15 @@ namespace DWMPHorde.Patches
                 return true;
             }
 
-            _captures[__instance.GetInstanceID()] = capture;
+            __state = capture;
             return true;
         }
 
-        private static void Postfix(Player __instance)
+        private static void Postfix(Player __instance, ThrowCapture __state)
         {
-            int playerId = __instance.GetInstanceID();
-            if (!_captures.TryGetValue(playerId, out ThrowCapture capture))
+            ThrowCapture capture = __state;
+            if (capture == null)
                 return;
-            _captures.Remove(playerId);
 
             if (string.IsNullOrEmpty(capture.ItemType)) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
@@ -119,28 +117,30 @@ namespace DWMPHorde.Patches
                 Vector3 rebuilt = initV > 0f ? dir * initV : dir * distance * 2.5f;
                 vx = rebuilt.x; vy = rebuilt.y; vz = rebuilt.z;
             }
-            int throwId = 0;
-            float longevity = 0f;
             bool isFlare = !string.IsNullOrEmpty(capture.ItemType)
                 && capture.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (ModRuntime.Network is LanNetworkManager lan)
-                throwId = lan.MintThrowId();
-            if (isFlare)
+            // A flare burns from when it was lit in the hand (vanilla Flare.Start on aim): peers
+            // start their copy that far into vanilla's clock.
+            float flareAge = isFlare ? Sync.FlareClock.AgeOf(capture.HeldItem) : -1f;
+            // Vanilla throwItem put the thrown weapon itself (wear, upgrades) in the thrown object's
+            // slot when it can be picked back up; peers' copies carry the same weapon.
+            bool recoverable = false;
+            float recDurability = 0f;
+            string[] recUpgrades = null;
+            Inventory thrownInv = capture.HeldItem != null ? capture.HeldItem.GetComponent<Inventory>() : null;
+            InvItemClass thrownItem = thrownInv != null && thrownInv.slots != null && thrownInv.slots.Count > 0
+                ? thrownInv.slots[0].invItem : null;
+            if (!InvItemClass.isNull(thrownItem) && thrownItem.baseClass != null && thrownItem.baseClass.recoverableAfterThrown)
             {
-                // Remaining until fully dark from aim-start clock (F4), not a fresh longevity+2.
-                float lonFallback = 3f;
-                if (capture.HeldItem != null)
-                {
-                    Flare fl = capture.HeldItem.GetComponent<Flare>()
-                        ?? capture.HeldItem.GetComponentInChildren<Flare>(true);
-                    if (fl != null && fl.longevity > 0.05f)
-                        lonFallback = fl.longevity;
-                }
-                longevity = Sync.WorldPhysicsSyncService.GetFlareRemainingUntilDark(
-                    capture.HeldItem, lonFallback);
+                recoverable = true;
+                recDurability = thrownItem.durability;
+                recUpgrades = Sync.InvItemUpgradeWire.CollectNames(thrownItem);
             }
             ModRuntime.Network.SendThrowableSpawn(new ThrowableSpawnMessage
             {
+                Recoverable = recoverable,
+                Durability = recDurability,
+                Upgrades = recUpgrades,
                 ItemType = capture.ItemType,
                 PosX = pos.x,
                 PosY = pos.y,
@@ -150,28 +150,21 @@ namespace DWMPHorde.Patches
                 VelX = vx,
                 VelY = vy,
                 VelZ = vz,
-                ThrowId = throwId,
-                LongevitySec = longevity,
+                FlareAge = flareAge,
                 LandX = landX,
                 LandY = landY,
                 LandZ = landZ,
                 HasLandTarget = hasLand
             });
 
-            // Host must track own throw — never receives own ThrowableSpawn (F3).
-            // ClaimFlareLifetime so vanilla waitToDie yields to host expire track (V4).
-            if (isFlare && throwId > 0 && capture.HeldItem != null
-                && ModRuntime.Network.Role == NetworkRole.Host)
-            {
-                Sync.WorldPhysicsSyncService.RegisterLocalThrownLight(
-                    throwId, capture.HeldItem, longevity, capture.ItemType);
-            }
-            else if (isFlare && capture.HeldItem != null
-                     && ModRuntime.Network.Role == NetworkRole.Client)
-            {
-                // Client thrower: keep aim-start waitToDie (correct clock). Host owns combat copy.
-                // Do not Claim here — local vanilla die matches aim burn.
-            }
+            // The thrower's own flare keeps vanilla's clock from the aim. Listed for joiners (and for
+            // this peer if it is promoted to host); peers list the copies they spawn.
+            // Not one thrown on the host's own prologue pad (its spawn is not sent either).
+            if (isFlare && capture.HeldItem != null && !Sync.PersonalPrologue.LocalInPrologue)
+                Sync.WorldPhysicsSyncService.NoteThrownFlare(capture.HeldItem);
+
+            // Before the mute below strips the copy's secondaries.
+            Sync.WorldPhysicsSyncService.LogThrowableFactsOnce(capture.HeldItem, capture.ItemType);
 
             // Client thrower: local projectile is FX-only. Host spawns the combat copy
             // via ThrowableSpawn so damage is not applied twice (local explode + host sim).
@@ -179,13 +172,12 @@ namespace DWMPHorde.Patches
             {
                 Sync.WorldPhysicsSyncService.MuteThrownCombat(capture.HeldItem);
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ThrowableSync] muted client throw combat for " + capture.ItemType);
+                    ModRuntime.LegacyInfo($"[ThrowableSync] muted client throw combat for {capture.ItemType}");
             }
 
             // Always log throws (esp. flares) — playtests had silent host TX.
             ModLog.Event(LogCat.World, "[ThrowableSync] sent " + capture.ItemType
-                + " throwId=" + throwId
-                + " life=" + longevity.ToString("F2")
+                + " flareAge=" + flareAge.ToString("F1")
                 + " dist=" + distance.ToString("F0")
                 + " vel=" + Mathf.Sqrt(vx * vx + vy * vy + vz * vz).ToString("F0")
                 + " land=" + (hasLand ? "y" : "n")
@@ -205,36 +197,36 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Explodes), "onActivate", new System.Type[0])]
     public static class ExplosionTriggerPatch
     {
-        private static void Postfix(Explodes __instance)
+        private static readonly AccessTools.FieldRef<Explodes, bool> Activated =
+            AccessTools.FieldRefAccess<Explodes, bool>("activated");
+
+        // Vanilla onActivate does nothing once activated (every extra pellet, a later ignite):
+        // only the real activation is sent, or each one replayed a boom on every peer.
+        private static void Prefix(Explodes __instance, out bool __state)
         {
+            __state = __instance != null && Activated(__instance);
+        }
+
+        private static void Postfix(Explodes __instance, bool __state)
+        {
+            if (__state || __instance == null || !Activated(__instance)) return;
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (Sync.WorldPhysicsSyncService._suppressBroadcast) return;
 
-            // Suppress explosion trigger for host-synced ThrownItems (SpawnThrownItem).
-            // The host's spawned ThrownItem explosion is a local side-effect; the
-            // authoritative explosion comes from the client's own ThrownItem via its
-            // ExplosionTriggerMessage. Without this suppression, the host's spawned
-            // ThrownItem sends a duplicate explosion trigger to the client, causing
-            // confusing double-FX at potentially different positions.
+            // A player's molotov / gas bomb: every peer flies its own copy and that copy blows up
+            // where it lands (look and sound there, like vanilla). The host's copy alone deals the
+            // damage and lays the fire, and its secondaries go out on their own. Sending this
+            // blast too played it twice on every peer (the copy's boom, then the message's boom
+            // and a second explosion prefab), and a thrower's copy that landed before the host's
+            // set the host's copy off mid-air, where its puddles were never sent.
             ThrownItem ti = __instance.GetComponent<ThrownItem>();
-            if (ti != null && ti.objectThatSpawnedMe != null)
+            if (Sync.WorldPhysicsSyncService.IsPlayerThrowCopy(ti))
             {
-                bool isProxySpawned = false;
-                foreach (var proxy in net.GetAllProxies())
-                {
-                    if (proxy != null && ti.objectThatSpawnedMe == proxy.transform)
-                    {
-                        isProxySpawned = true;
-                        break;
-                    }
-                }
-                if (isProxySpawned)
-                {
-                    ModRuntime.LegacyInfo("[ExplosionSync] skip host-synced ThrownItem explosion at " + __instance.transform.position);
-                    return;
-                }
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo($"[ExplosionSync] player throw lands on every peer's copy, not sent: {__instance.name} at {__instance.transform.position}");
+                return;
             }
 
             bool flaming = false;
@@ -261,7 +253,9 @@ namespace DWMPHorde.Patches
             Vector3 pos = __instance.transform.position;
             // Local activation already ran spawnObjects — debounce host ExplosionSpawnObject
             // so the stomper does not get a second set of secondary debris.
-            ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
+            // (A muted throw copy spawned none: it must still get the host's.)
+            if (__instance.spawnObject != null && __instance.objectAmount > 0)
+                ExplosionSpawnFlagTracker.NoteLocalExplodeFx(pos);
 
             net.SendExplosionTrigger(new ExplosionTriggerMessage
             {
@@ -274,41 +268,7 @@ namespace DWMPHorde.Patches
                 SoundId = soundId
             });
 
-            ModRuntime.LegacyInfo("[ExplosionSync] sent explosion at " + pos
-                + " name=" + __instance.name + " sound=" + soundId + " prefab=" + prefabName
-                + " flaming=" + flaming);
-        }
-    }
-
-    /// <summary>
-    /// Flare.Start runs at aim (heldItem spawn). Record burn clock so throw packets carry
-    /// remaining life, not a fresh longevity+2 (vanilla waitToDie from Start).
-    /// Continuous held light is streamed via PlayerState only when heldItem is live.
-    /// </summary>
-    [HarmonyPatch(typeof(Flare), "Start")]
-    public static class FlareStartPatch
-    {
-        private static void Postfix(Flare __instance)
-        {
-            if (__instance == null) return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
-
-            Player p = Player.Instance;
-            if (p == null || p.heldItem == null) return;
-            // Only local player's aimed/held flare — not remote SpawnThrownItem prefabs.
-            bool isHeld = __instance.gameObject == p.heldItem
-                || __instance.transform.IsChildOf(p.heldItem.transform);
-            if (!isHeld) return;
-
-            float lon = __instance.longevity > 0.05f ? __instance.longevity : 3f;
-            Sync.WorldPhysicsSyncService.NoteFlareBurnStart(__instance.gameObject, lon);
-            // Also key the root held GO so GetFlareRemainingUntilDark(heldItem) works.
-            if (__instance.gameObject != p.heldItem)
-                Sync.WorldPhysicsSyncService.NoteFlareBurnStart(p.heldItem, lon);
-
-            ModLog.Event(LogCat.World, "[LightSync] Flare.Start burn clock longevity=" + lon.ToString("F2")
-                + " go=" + __instance.gameObject.name);
+            ModRuntime.LegacyInfo($"[ExplosionSync] sent explosion at {pos} name={__instance.name} sound={soundId} prefab={prefabName} flaming={flaming}");
         }
     }
 

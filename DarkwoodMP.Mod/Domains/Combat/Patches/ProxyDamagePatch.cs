@@ -33,9 +33,17 @@ namespace DWMPHorde.Patches
             bool showRedScreen = __args.Length > 6 && (bool)__args[6];
 
             RemotePlayerProxy proxy = __instance.GetComponent<RemotePlayerProxy>();
-            if (proxy == null) return true;
+            var net = ModRuntime.Network;
+            if (proxy == null)
+            {
+                // The local player in someone else's fire, friendly fire off.
+                if (net != null && net.IsConnected && FlameOriginContext.Hitting >= 0
+                    && Player.Instance != null && __instance.gameObject == Player.Instance.gameObject
+                    && FlameOriginContext.SparedByFriendlyFire(net.LocalPlayerId))
+                    return false;
+                return true;
+            }
 
-            var net = ModRuntime.Network as LanNetworkManager;
             if (net == null || net.Role == NetworkRole.Offline) return true;
 
             // Night-dead peer: no further damage (proxy may still exist for corpse pose).
@@ -43,6 +51,11 @@ namespace DWMPHorde.Patches
                 return false;
             CharBase proxyCb = proxy.CachedCharBase;
             if (proxyCb != null && !proxyCb.alive)
+                return false;
+
+            // Host enemy throw landing on this stand-in: that player's own client re-creates
+            // the throw and decides the direct hit (EnemyAttack). Its blast stays host-decided.
+            if (net.Role == NetworkRole.Host && DefenderAttackContext.IsHostThrownDirectHit)
                 return false;
 
             // Player-sourced vs AI/env:
@@ -59,8 +72,11 @@ namespace DWMPHorde.Patches
             bool isProxyAttacker = attackerTransform != null
                 && attackerTransform.GetComponentInParent<RemotePlayerProxy>() != null;
             bool isPlayerSourced = byPlayer || isPlayerProjectile || isPlayerRoot || isProxyAttacker;
+            // Fire contact claims byPlayer for every flame: decide by who started that fire.
+            if (FlameOriginContext.Hitting >= 0)
+                isPlayerSourced = FlameOriginContext.Hitting > 0 && FlameOriginContext.Hitting != proxy.PlayerId;
 
-            if (isPlayerSourced && !Config.ModConfig.FriendlyFireEnabled.Value)
+            if (isPlayerSourced && !SessionSettings.FriendlyFireEnabled)
             {
                 EntitySyncLog.Damage(
                     "[ProxyDmg] FF off — block " + damage + " on proxy p" + proxy.PlayerId);
@@ -77,7 +93,7 @@ namespace DWMPHorde.Patches
                 : proxy.transform.position;
             int dmg = Mathf.Max(1, Mathf.RoundToInt(damage));
             int attackerId = ProxyCombatRelay.ResolveAttackerPlayerId(attackerTransform, net.LocalPlayerId);
-            ProxyCombatRelay.TryMarkGetHitRelay(attackerId, proxy.PlayerId);
+            ProxyCombatRelay.MarkGetHitRelay(attackerId, proxy.PlayerId);
 
             if (net.Role == NetworkRole.Host)
             {

@@ -25,188 +25,333 @@ namespace DWMPHorde.Networking
 
         internal void HandleEntitySound(EntitySoundMessage msg)
         {
-            // Host already plays live AI audio; only remote peers apply.
-            // (Keep host out even if a packet is mis-routed / Forwardable echo.)
+            // The host plays its creatures' sounds itself.
             if (_net.Role == NetworkRole.Host) return;
+            if (string.IsNullOrEmpty(msg.SoundId)) return;
 
             Character c = CharacterTracker.FindByStableId(msg.HostId);
-            if (c == null || c.sounds == null)
+            CharacterSounds s = c != null ? c.sounds : null;
+            if (s == null)
             {
                 EntitySyncLog.Reaction("snd:miss",
-                    "[EntitySound] no char/sounds id=" + msg.HostId
-                    + " type=" + msg.SoundType, 2f);
+                    "[EntitySound] no char/sounds id=" + msg.HostId + " kind=" + msg.Kind, 2f);
                 return;
             }
-
-            // Match entity visual interest + send cull (not the shorter DefaultMaxAudioDistance).
-            Vector3 cpos = c.transform != null ? c.transform.position : Vector3.zero;
-            if (!ClientEntityInterpolationService.IsInClientInterest(cpos))
+            // Outside interest the copy is not driven: it stands where it was last seen.
+            if (!ClientEntityInterpolationService.IsInClientInterest(c.transform.position))
             {
                 EntitySyncLog.Reaction("snd:far",
-                    "[EntitySound] cull interest id=" + msg.HostId
-                    + " type=" + msg.SoundType, 3f);
+                    "[EntitySound] outside interest id=" + msg.HostId + " sound=" + msg.SoundId, 2f);
                 return;
             }
 
-            EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundType,
-                "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
-                + " type=" + msg.SoundType
-                + (string.IsNullOrEmpty(msg.LoopName) ? "" : " loop=" + msg.LoopName), 0.35f);
+            if (msg.Kind == EntitySoundKind.Death)
+            {
+                ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
+                EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundId,
+                    "[EntitySound] death line id=" + msg.HostId + " " + (c.name ?? "") + " id=" + msg.SoundId, 0.35f);
+                return;
+            }
+            if (msg.Kind == EntitySoundKind.GetHit
+                && ClientEntityInterpolationService.ConsumeLocalHitEcho(msg.HostId, msg.AttackerId))
+            {
+                EntitySyncLog.Reaction("snd:echo",
+                    "[EntitySound] GetHit already shown locally id=" + msg.HostId, 0.5f);
+                return;
+            }
 
-            // Prevent CharacterSounds → AudioController patches from re-forwarding.
-            TraverseHack.ApplyingFromNetwork = true;
+            // The host already applied vanilla's guards (underwater, underground); play as its call did.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            bool prevInside = TraverseHack.InsideCharacterSounds;
+            TraverseHack.SetExplicitFlag(true);
             TraverseHack.InsideCharacterSounds = true;
+            AudioObject played = null;
             try
             {
-                // Replay vanilla CharacterSounds API (decompile: play*, playIdleLoop, destroySounds).
-                // Component may be disabled on host-synced entities; method calls still play one-shots.
-                switch (msg.SoundType)
+                // Reverb on the copy comes from CharBase.isInside, which only checkGround refreshes.
+                c.checkGround();
+                switch (msg.Kind)
                 {
-                    case EntitySoundType.Growl:
-                        c.sounds.playGrowl();
+                    case EntitySoundKind.Play:
+                        played = s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
-                    case EntitySoundType.Curious:
-                        if (!string.IsNullOrEmpty(c.sounds.curious))
-                            c.sounds.playSingleInstance(c.sounds.curious);
+                    case EntitySoundKind.Single:
+                        if (s.playedAO != null && s.playedAO.IsPlaying() && s.playedAO.transform.parent == s.transform)
+                            s.playedAO.Stop();
+                        played = s.playedAO = AudioController.Play(msg.SoundId, s.transform);
                         break;
-                    case EntitySoundType.Aggressive:
-                        if (!string.IsNullOrEmpty(c.sounds.aggressive))
-                            c.sounds.playSingleInstance(c.sounds.aggressive);
+                    case EntitySoundKind.Attached:
+                        played = AudioController.Play(msg.SoundId, s.transform, Mathf.Clamp01(msg.Volume));
                         break;
-                    case EntitySoundType.Defensive:
-                        if (!string.IsNullOrEmpty(c.sounds.defensive))
-                            c.sounds.playSingleInstance(c.sounds.defensive);
-                        break;
-                    case EntitySoundType.Idle:
-                        // Empty LoopName = destroySounds stop (host idle stop / despawn).
-                        if (string.IsNullOrEmpty(msg.LoopName))
-                            c.sounds.destroySounds();
-                        else
-                            // forceReplace=true so idle→aggressive loop swaps like host.
-                            c.sounds.playIdleLoop(msg.LoopName, true);
-                        break;
-                    case EntitySoundType.Escaping:
-                        c.sounds.playEscapingLoop();
-                        break;
-                    case EntitySoundType.EscapingStart:
-                        if (!string.IsNullOrEmpty(c.sounds.escapingStart))
-                            c.sounds.playSingleInstance(c.sounds.escapingStart);
-                        break;
-                    case EntitySoundType.EscapingStart2:
-                        if (!string.IsNullOrEmpty(c.sounds.escapingStart2))
-                            c.sounds.play(c.sounds.escapingStart2);
-                        break;
-                    case EntitySoundType.Attack1:
-                        if (!string.IsNullOrEmpty(c.sounds.attack1))
-                            c.sounds.play(c.sounds.attack1);
-                        break;
-                    case EntitySoundType.Attack2:
-                        if (!string.IsNullOrEmpty(c.sounds.attack2))
-                            c.sounds.play(c.sounds.attack2);
-                        break;
-                    case EntitySoundType.Death:
-                        // Same path as Alive->dead snap; play at most one death SFX.
-                        ClientEntityInterpolationService.NoteLocalDeathPresentation(c, msg.HostId);
-                        break;
-                    case EntitySoundType.GetHit:
-                        // Attacker already played the local hit presentation; skip the echo.
-                        if (ClientEntityInterpolationService.ShouldIgnoreGetHitEcho(msg.HostId))
-                        {
-                            EntitySyncLog.Reaction("snd:echo",
-                                "[EntitySound] GetHit echo skipped id=" + msg.HostId, 0.5f);
-                            break;
-                        }
-                        c.sounds.playGetHitByAxe1();
+                    case EntitySoundKind.GetHit:
+                        played = AudioController.Play(msg.SoundId, s.transform);
                         break;
                     default:
-                        ModRuntime.Log?.LogWarning($"[EntitySound] Unhandled EntitySoundType: {msg.SoundType}");
-                        break;
+                        EntitySyncLog.Reaction("snd:kind", "[EntitySound] unknown kind " + msg.Kind, 5f);
+                        return;
                 }
             }
             finally
             {
-                TraverseHack.InsideCharacterSounds = false;
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.InsideCharacterSounds = prevInside;
+                TraverseHack.SetExplicitFlag(prevNet);
+            }
+            LogApplied(msg, c, s, played);
+        }
+
+        /// <summary>
+        /// Applied is not played: AudioController.Play returns null for a distance cull
+        /// (AudioSuppressionLogic logs those), MinTimeBetweenPlayCalls, a missing item or clip.
+        /// </summary>
+        private static void LogApplied(EntitySoundMessage msg, Character c, CharacterSounds s, AudioObject played)
+        {
+            if (!EntitySyncLog.On)
+                return;
+            EntitySyncLog.Reaction(msg.HostId + ":" + msg.SoundId,
+                () => "[EntitySound] apply id=" + msg.HostId + " " + (c.name ?? "")
+                    + " kind=" + msg.Kind + " id=" + msg.SoundId
+                    + (played != null ? " played" : " NOT played")
+                    + " d=" + LocalAudioService.DistanceToListenerXz(s.transform.position).ToString("F0")
+                    + " range=" + LocalAudioService.AudibleRange(msg.SoundId).ToString("F0"), 0.35f);
+        }
+
+        /// <summary>
+        /// A banshee screams at a player or stops: its sight light on every peer; the scream on
+        /// the victim's own body, the shake and the overlay only for the victim (vanilla
+        /// bansheeAgitated / onBansheeSeePlayer / onBansheeOutOfSightOfPlayer, Character.cs).
+        /// </summary>
+        internal void HandleBansheeAgitation(BansheeAgitationMessage msg)
+        {
+            if (_net.Role == NetworkRole.Host) return;
+            Character banshee = CharacterTracker.FindByStableId(msg.HostId);
+            BansheeVictims.SetSightLight(banshee, msg.Agitated);
+            if (msg.VictimId != _net.LocalPlayerId)
+                return;
+            Player p = Player.Instance;
+            if (p == null || p._transform == null)
+                return;
+
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            try
+            {
+                if (msg.Agitated)
+                {
+                    if (p.bansheeAgitatedSoundAO == null)
+                        p.bansheeAgitatedSoundAO = AudioController.Play("banshee_agitated_player", p._transform);
+                    if (banshee == null)
+                        return;
+                    float dist = Mathf.Max(1f, Core.trueDistance(banshee.transform, p._transform));
+                    Singleton<CamMain>.Instance.shake(0.5f, 1200f / dist);
+                    if (msg.Overlay)
+                    {
+                        Singleton<UI>.Instance.initBansheeOverlay();
+                        Core.tweenAlpha(Singleton<UI>.Instance.bansheeOverlay.gameObject,
+                            Mathf.Clamp(70f / dist, 0f, 0.5f), 0.5f, timeScaleDependent: true);
+                    }
+                }
+                else
+                {
+                    if (p.bansheeAgitatedSoundAO != null)
+                    {
+                        p.bansheeAgitatedSoundAO.Stop(1f);
+                        p.bansheeAgitatedSoundAO = null;
+                    }
+                    Singleton<UI>.Instance.initBansheeOverlay();
+                    Core.tweenAlpha(Singleton<UI>.Instance.bansheeOverlay.gameObject, 0f, 0.5f, timeScaleDependent: true);
+                    Singleton<UI>.Instance.wantToRemoveBansheeOverlay();
+                }
+            }
+            finally
+            {
+                TraverseHack.SetExplicitFlag(prevNet);
             }
         }
 
         internal void HandleWorldObjectRemoved(WorldObjectRemovedMessage msg)
         {
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            ModRuntime.LegacyInfo("[ObjectRemove] received destroy request for \"" + msg.ObjectName + "\" at " + pos);
-            Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
+            if (msg.Mode == WorldObjectRemovedMessage.ModeClaimRequest)
+            {
+                HandleWorldPickupClaimRequest(msg);
+                return;
+            }
+            if (msg.Mode == WorldObjectRemovedMessage.ModeClaimDeny)
+            {
+                HandleWorldPickupClaimDeny(msg);
+                return;
+            }
 
-            // Forward client-originated removal to other clients (3+ support)
-            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
-                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w));
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            ModRuntime.LegacyInfo($"[ObjectRemove] received destroy request for \"{msg.ObjectName}\" at {pos}");
+            // Mark consumed before destroy so a same-frame local getDroppedItem Prefix loses.
+            Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+            // The host's grant Remove also reaches the claimer, whose own pickup already
+            // destroyed its copy: searching again could only hit some other object.
+            bool ownGrant = _net.Role == NetworkRole.Client
+                && msg.ClaimedByPlayerId > 0 && msg.ClaimedByPlayerId == _net.LocalPlayerId;
+            if (!ownGrant)
+                Sync.WorldPhysicsSyncService.DestroyObjectByPos(pos, msg.ObjectName);
+
+            // Optimistic client lost the host-auth race: refund once via pending.
+            if (_net.Role == NetworkRole.Client
+                && msg.ClaimedByPlayerId != _net.LocalPlayerId)
+            {
+                Patches.WorldPickupClaimPending.TryRefundIfPending(
+                    msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName, "remove claimedBy=" + msg.ClaimedByPlayerId);
+            }
+            else
+            {
+                Patches.WorldPickupClaimPending.Clear(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+            }
+
+            // Forward client-originated removal to other clients (3+ support).
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0
+                && msg.Mode == WorldObjectRemovedMessage.ModeRemove)
+                _net.SendToAllExcept(_net.CurrentReceivePlayerId, NetMessageType.WorldObjectRemoved, w => msg.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>
+        /// Host: first ClaimRequest wins — consume, destroy local, fan Remove with ClaimedBy.
+        /// Loser gets ClaimDeny (optimistic grant refund on client).
+        /// </summary>
+        private void HandleWorldPickupClaimRequest(WorldObjectRemovedMessage msg)
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            int claimer = _net.CurrentReceivePlayerId;
+            if (claimer <= 0)
+                return;
+            ProcessPickupClaim(msg, claimer, mayHold: true);
+        }
+
+        /// <summary>
+        /// Claims for a location the host has not spawned yet (the claimer entered it moments ago):
+        /// the item is not here to take yet, but it will be. Denied, the client gave the item back
+        /// and its own copy was already gone: the item vanished for it.
+        /// </summary>
+        private readonly System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>> _heldClaims =
+            new System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>>();
+        private float _nextHeldClaimRetry;
+        private const float HoldClaimSec = 20f;
+
+        internal void ClearHeldClaims() => _heldClaims.Clear();
+
+        internal void TickHeldClaims()
+        {
+            if (_heldClaims.Count == 0 || _net.Role != NetworkRole.Host || Time.unscaledTime < _nextHeldClaimRetry)
+                return;
+            _nextHeldClaimRetry = Time.unscaledTime + 1f;
+            var batch = new System.Collections.Generic.List<KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>>(_heldClaims);
+            _heldClaims.Clear();
+            for (int i = 0; i < batch.Count; i++)
+            {
+                bool expired = Time.unscaledTime - batch[i].Value.Value > HoldClaimSec;
+                if (!ProcessPickupClaim(batch[i].Key, batch[i].Value.Key, mayHold: !expired, heldSince: batch[i].Value.Value))
+                    continue;
+            }
+        }
+
+        private bool ClaimerLocationPending(int claimer)
+        {
+            var ol = Singleton<OutsideLocations>.Instance;
+            return ol != null && ol.spawnedLocations != null
+                && _net.RemoteOutsideLocation.TryGetValue(claimer, out string loc)
+                && !string.IsNullOrEmpty(loc)
+                && !ol.spawnedLocations.ContainsKey(Core.getTrueLocationName(loc));
+        }
+
+        /// <returns>False when the claim was put on hold.</returns>
+        private bool ProcessPickupClaim(WorldObjectRemovedMessage msg, int claimer, bool mayHold, float heldSince = -1f)
+        {
+            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // First claim wins, and only for an object the host actually has: a claim for a
+            // pickup the host never had (or already lost) is denied instead of granted.
+            bool first = Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+            bool granted = first && Sync.WorldPhysicsSyncService.TryDestroyClaimedWorldPickup(pos, msg.ObjectName);
+            if (first && !granted)
+            {
+                // Not taken by anyone: leave it takeable (a failed claim used to mark it gone).
+                Sync.WorldPhysicsSyncService.UnconsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
+                if (mayHold && ClaimerLocationPending(claimer))
+                {
+                    _heldClaims.Add(new KeyValuePair<WorldObjectRemovedMessage, KeyValuePair<int, float>>(
+                        msg, new KeyValuePair<int, float>(claimer, heldSince >= 0f ? heldSince : Time.unscaledTime)));
+                    ModLog.Event(LogCat.World, "[WorldPickup] hold p" + claimer + " " + msg.ObjectName + " — location still spawning here");
+                    return false;
+                }
+            }
+            if (!granted)
+            {
+                var deny = new WorldObjectRemovedMessage
+                {
+                    PosX = msg.PosX,
+                    PosY = msg.PosY,
+                    PosZ = msg.PosZ,
+                    ObjectName = msg.ObjectName,
+                    Mode = WorldObjectRemovedMessage.ModeClaimDeny,
+                    ClaimedByPlayerId = 0,
+                    ItemType = msg.ItemType ?? "",
+                    Amount = msg.Amount,
+                    Durability = msg.Durability,
+                    Ammo = msg.Ammo
+                };
+                _net.SendToPlayer(claimer, NetMessageType.WorldObjectRemoved, w => deny.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                ModLog.Event(LogCat.World,
+                    "[WorldPickup] deny p" + claimer + " " + msg.ObjectName + " at " + pos);
+                return true;
+            }
+
+            var remove = new WorldObjectRemovedMessage
+            {
+                PosX = msg.PosX,
+                PosY = msg.PosY,
+                PosZ = msg.PosZ,
+                ObjectName = msg.ObjectName,
+                Mode = WorldObjectRemovedMessage.ModeRemove,
+                ClaimedByPlayerId = claimer,
+                ItemType = msg.ItemType ?? "",
+                Amount = msg.Amount,
+                Durability = msg.Durability,
+                Ammo = msg.Ammo
+            };
+            // Broadcast includes claimer (GO already gone — destroy is idempotent).
+            _net.Broadcast(NetMessageType.WorldObjectRemoved, w => remove.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            ModLog.Event(LogCat.World,
+                "[WorldPickup] grant p" + claimer + " " + msg.ObjectName + " at " + pos);
+            return true;
+        }
+
+        private void HandleWorldPickupClaimDeny(WorldObjectRemovedMessage msg)
+        {
+            if (_net.Role != NetworkRole.Client)
+                return;
+            if (Patches.WorldPickupClaimPending.TryTake(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName,
+                out string type, out int amt, out int pre, out string recipeFor, out float dur, out int ammo))
+            {
+                Patches.WorldPickupClaimPending.Refund(type, amt, pre, "claim deny", recipeFor, dur, ammo);
+                return;
+            }
+            // No pending entry: the host-won Remove (ClaimedBy=host) already refunded this claim.
+            // A blind refund here removed the amount a second time and ate the client's own stock.
+            ModLog.Event(LogCat.World,
+                "[WorldPickup] deny for " + msg.ObjectName + " had no pending claim (already refunded)");
+        }
 
         internal void HandlePlayerAudio(PlayerAudioMessage msg)
         {
-            if (msg.IsStopSignal)
-            {
-                // Local pusher/dragger still owns native ItemSounds; host quiet or stop echo
-                // must not kill our scrape mid-push (same double-scrape family).
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName))
-                {
-                    DWMPHorde.Audio.MovingObjectSoundService.StopImmediate(msg.ObjectName);
-                    return;
-                }
-                // Remote quiet stop uses SoftStop without suppression so motion can re-arm instantly.
-                DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
-                Sync.WorldPhysicsSyncService.TryStopBodyPushSound(msg.ObjectName);
-                return;
-            }
-
             if (string.IsNullOrEmpty(msg.SoundId)) return;
 
-            if (!msg.StickToSender && msg.Volume <= 0.001f)
-            {
-                AudioController.Stop(msg.SoundId, 0.2f);
+            // A silent play is not a stop: stopping the id here killed every instance of that
+            // sound on this peer, including its own unrelated ones.
+            if (msg.Volume <= 0.001f)
                 return;
-            }
 
             // Defensive: never play world ambients that slipped past send-side filter.
             if (msg.StickToSender && LocalAudioService.IsWorldAmbientLocalOnly(msg.SoundId))
                 return;
-
-            // Body-push / scrape with ObjectName: single-owner path.
-            if (!string.IsNullOrEmpty(msg.ObjectName))
-            {
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(msg.ObjectName))
-                    return;
-                // Local free-body pusher hears native ItemSounds only; never arm MOS or PlayerAudio.
-                if (DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalOwnedScrape(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentClientPhysicsSent(msg.ObjectName)
-                    || DWMPHorde.Audio.ItemMovingSoundHelper.HasRecentPushAuthority(msg.ObjectName))
-                    return;
-                // Already playing via PhysicsState→MOS: ignore redundant start (T2).
-                if (DWMPHorde.Audio.MovingObjectSoundService.IsPlaying(msg.ObjectName))
-                    return;
-
-                Vector3 bodyPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                if (!float.IsNaN(msg.PosX)
-                    && !LocalAudioService.IsNearListenerPeerBand(bodyPos, LocalAudioService.DefaultMaxAudioDistance))
-                    return;
-
-                GameObject go = GameObject.Find(msg.ObjectName);
-                if (go != null)
-                {
-                    ItemSounds sounds = go.GetComponent<ItemSounds>();
-                    if (sounds != null)
-                    {
-                        DWMPHorde.Audio.MovingObjectSoundService.NoteMoving(go, msg.ObjectName, sounds);
-                        return;
-                    }
-                    // Fallback when ItemSounds missing: MOS EnsurePlaying by SoundId.
-                    float vol = Mathf.Clamp01(msg.Volume);
-                    DWMPHorde.Audio.MovingObjectSoundService.EnsurePlaying(go, msg.ObjectName, msg.SoundId, vol);
-                    return;
-                }
-                // Object not found locally; fall through to a positional one-shot.
-            }
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             bool hasPos = !float.IsNaN(msg.PosX);
@@ -214,106 +359,78 @@ namespace DWMPHorde.Networking
             int playerId = _net.CurrentReceivePlayerId;
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
 
-            bool isHitFeedback = LocalAudioService.IsPlayerHitFeedbackSound(msg.SoundId);
-            // Equip get/hide stay 2D. Flashlight/torch: spatial at proxy + keep reverb.
-            bool prefer2d = LocalAudioService.IsPrefer2dNetworkOneShot(msg.SoundId);
-            bool spatialTool = LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
+            // Player-origin rules (sender's body, per-peer hear gate) apply only to the sender's
+            // own player sounds. A world/enemy sound the host forwards (StickToSender false)
+            // stays where it happened: a door's "door_hit_metal" or a lamp "activate" was being
+            // moved onto the host's body.
+            bool fromPlayer = msg.StickToSender;
+            bool spatialTool = fromPlayer && LocalAudioService.IsRemotePlayerSpatialToolSound(msg.SoundId);
+            bool step = fromPlayer && LocalAudioService.IsPlayerStepSound(msg.SoundId);
 
-            // Hit SFX: always prefer the victim proxy (who was hit), not the local player.
-            // Never call getHit, red-screen, or BloodOverlay here; this path is audio only.
-            if (isHitFeedback && proxy != null)
-                pos = proxy.transform.position;
-            else if (!hasPos || spatialTool)
-            {
-                // Flashlight: always use proxy position even if packet has local coords.
-                if (proxy != null)
-                    pos = proxy.transform.position;
-                else if (!hasPos)
-                    return;
-            }
-
-            if (playerId > 0)
-            {
-                if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, LocalAudioService.DefaultMaxAudioDistance))
-                    return;
-            }
-            else if (!LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.DefaultMaxAudioDistance))
+            // Every sound of the sender's own goes on the sender's stand-in, as the game plays a
+            // sound on a body: parented to it, so AudioController gives it the indoor reverb
+            // (CharBase.isInside) and the wall muffle toward this listener. Vanilla plays many of
+            // them for their owner only (parentless 2D: equip get / hide, hits; or on the owner's
+            // own body, where 2D and 3D sound the same); played 2D here, the bag's
+            // get_item_01_player sounded like this listener's own bag, dry.
+            Transform standIn = fromPlayer && proxy != null ? proxy.transform : null;
+            if (standIn != null)
+                pos = standIn.position;
+            else if (!hasPos)
                 return;
 
-            TraverseHack.ApplyingFromNetwork = true;
+            // The sticky per-peer gate tracks that peer's body; world sounds from the same sender
+            // are all over the map and would flip it, so they use the stateless band.
+            float range = LocalAudioService.AudibleRange(msg.SoundId);
+            if (fromPlayer && playerId > 0)
+            {
+                if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, range))
+                    return;
+            }
+            else if (!LocalAudioService.IsNearListenerPeerBand(pos, range))
+                return;
+
+            // Explicit flag saved and restored: an outer apply scope must survive this replay.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             try
             {
-                Transform parent = null;
-                if (!prefer2d && proxy != null && msg.StickToSender)
-                    parent = proxy.transform;
+                // The stand-in has no CharacterSounds tick: refresh its indoor ground before Play,
+                // or the sound arrives with isInside=false and skips the AudioReverbFilter.
+                if (standIn != null)
+                    WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
+                AudioObject audioObj = AudioController.Play(msg.SoundId, pos, standIn, Mathf.Clamp01(msg.Volume));
 
-                AudioObject audioObj;
-                if (prefer2d)
+                if (audioObj != null && audioObj.primaryAudioSource != null)
                 {
-                    audioObj = AudioController.Play(msg.SoundId);
-                    if (audioObj != null && audioObj.primaryAudioSource != null
-                        && msg.Volume > 0f && msg.Volume < 0.999f)
-                        audioObj.volume = Mathf.Clamp01(msg.Volume);
-                }
-                else
-                {
-                    // Parent to proxy so vanilla indoor reverb (isInside) applies in bunker.
-                    audioObj = AudioController.Play(msg.SoundId, pos, parent, Mathf.Clamp01(msg.Volume));
-                }
-
-                if (audioObj != null)
-                {
-                    if (prefer2d)
+                    // 3D at the stand-in; the reverb / lowpass AudioController added stay.
+                    if (step)
                     {
-                        // UI/equip: strip world filters; fully 2D.
-                        var reverb = audioObj.GetComponent<AudioReverbFilter>();
-                        if (reverb != null) UnityEngine.Object.Destroy(reverb);
-                        var lowPass = audioObj.GetComponent<AudioLowPassFilter>();
-                        if (lowPass != null) UnityEngine.Object.Destroy(lowPass);
-                        if (audioObj.primaryAudioSource != null)
-                        {
-                            audioObj.primaryAudioSource.spatialBlend = 0f;
-                            audioObj.primaryAudioSource.reverbZoneMix = 0f;
-                        }
+                        // A torso-clip step (window-jump landing, dodge): the same falloff as
+                        // the stand-in's own leg steps.
+                        WorldProxyEffectNetHandlers.ForceSpatialProxyOneShot(audioObj, msg.SoundId);
                     }
-                    else if (audioObj.primaryAudioSource != null)
+                    else if (spatialTool)
                     {
-                        // Spatial remote SFX (flashlight, hits, etc.): 3D at proxy.
-                        // Keep reverb/lowpass from AudioController (bunker wetness).
+                        // Flashlight/torch: Log + full peer range. Tiny minDistance buried
+                        // the soft click tail under attenuation while the attack still
+                        // read; keep near-field at DefaultMinSpatialDistance.
                         audioObj.primaryAudioSource.spatialBlend = 1f;
-
-                        if (isHitFeedback)
-                        {
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                            audioObj.primaryAudioSource.minDistance = 8f;
-                            audioObj.primaryAudioSource.maxDistance = 80f;
-                        }
-                        else if (spatialTool)
-                        {
-                            // Flashlight/torch: Log + full peer range. Tiny minDistance buried
-                            // the soft click tail under attenuation while the attack still
-                            // read; keep near-field at DefaultMinSpatialDistance.
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
-                            audioObj.primaryAudioSource.minDistance =
-                                LocalAudioService.DefaultMinSpatialDistance;
-                            audioObj.primaryAudioSource.maxDistance =
-                                LocalAudioService.DefaultMaxSpatialDistance;
-                        }
-                        else
-                        {
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                            AudioItem item = AudioController.GetAudioItem(msg.SoundId);
-                            float itemMin = (item != null && item.overrideAudioSourceSettings)
-                                ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
-                            float itemMax = (item != null && item.overrideAudioSourceSettings)
-                                ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
-                            audioObj.primaryAudioSource.minDistance = Mathf.Max(itemMin, LocalAudioService.DefaultMinSpatialDistance);
-                            audioObj.primaryAudioSource.maxDistance = Mathf.Max(itemMax, 100f);
-                        }
+                        audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
+                        audioObj.primaryAudioSource.minDistance =
+                            LocalAudioService.DefaultMinSpatialDistance;
+                        audioObj.primaryAudioSource.maxDistance =
+                            LocalAudioService.DefaultMaxSpatialDistance;
+                    }
+                    else
+                    {
+                        // Hits, equip, bag, vault and the rest: the game's own range for the id,
+                        // the same range the hear gate above used.
+                        WorldProxyEffectNetHandlers.ApplyStandInRolloff(audioObj, msg.SoundId);
                     }
                 }
             }
-            finally { TraverseHack.ApplyingFromNetwork = false; }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
         }
 
     }

@@ -17,6 +17,7 @@ namespace DWMPHorde.Patches
     {
         private static string _cached;
         private static bool _logged;
+        private static bool _swapRecoveryDone; // process-scoped: once per process, before any profile read
 
         private static void Postfix(ref string __result)
         {
@@ -24,6 +25,14 @@ namespace DWMPHorde.Patches
                 return;
 
             string resolved = Resolve(__result);
+            // First access after patching (before the game reads any profile): finish save swaps a
+            // crash interrupted. Runs once, on the effective root, before anything else uses it.
+            if (!_swapRecoveryDone)
+            {
+                _swapRecoveryDone = true;
+                Networking.WorldSaveShareService.RecoverInterruptedSlotSwaps(resolved);
+                Networking.WorldSaveGuards.EnsureQuitHook();
+            }
             if (resolved == __result)
                 return;
 

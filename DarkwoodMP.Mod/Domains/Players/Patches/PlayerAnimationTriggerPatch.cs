@@ -15,6 +15,10 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(tk2dSpriteAnimator), "Play", typeof(string))]
     public static class PlayerAnimationTriggerPatch
     {
+        /// <summary>The local player's legs animator, looked up once per Player body.</summary>
+        private static Player _legsOwner; // process-scoped: cache keyed by the Player it was read from
+        private static tk2dSpriteAnimator _legsAnim; // process-scoped: cache keyed by _legsOwner
+
         private static void Prefix(tk2dSpriteAnimator __instance, string name)
         {
             if (string.IsNullOrEmpty(name)) return;
@@ -26,13 +30,21 @@ namespace DWMPHorde.Patches
             Player local = Player.Instance;
             if (local == null) return;
 
-            // Only intercept the local player's own animators
-            tk2dSpriteAnimator torsoAnim = local.torsoAnimator;
-            Transform legsT = local.transform.Find("PlayerLegs");
-            tk2dSpriteAnimator legsAnim = legsT != null ? legsT.GetComponent<tk2dSpriteAnimator>() : null;
-
-            bool isTorso = __instance == torsoAnim;
-            bool isLegs = legsAnim != null && __instance == legsAnim;
+            // Only intercept the local player's own animators. Every creature's processAnims
+            // calls Play(string) every frame on the host: compare references first, the legs
+            // animator is found once per Player (not a Find + GetComponent per call).
+            bool isTorso = __instance == local.torsoAnimator;
+            bool isLegs = false;
+            if (!isTorso)
+            {
+                if (!ReferenceEquals(_legsOwner, local))
+                {
+                    _legsOwner = local;
+                    Transform legsT = local.transform.Find("PlayerLegs");
+                    _legsAnim = legsT != null ? legsT.GetComponent<tk2dSpriteAnimator>() : null;
+                }
+                isLegs = _legsAnim != null && __instance == _legsAnim;
+            }
             if (!isTorso && !isLegs) return;
 
             // Skip if the animator is already actively playing the requested clip.

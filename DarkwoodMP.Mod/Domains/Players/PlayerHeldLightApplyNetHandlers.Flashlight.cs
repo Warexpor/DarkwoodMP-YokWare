@@ -30,6 +30,7 @@ namespace DWMPHorde.Networking
                 var created = flashGo.AddComponent<Light2D>();
                 if (created.LightMaterial == null)
                     created.LightMaterial = Resources.Load("RadialLight") as Material;
+                PlayerLightFxAmbientNetHandlers.PutOnLightLayer(flashGo);
                 created.LightRadius = 400f;
                 created.LightIntensity = 1f;
                 created.LightColor = new Color(0.3f, 0.3f, 0.3f, 0f);

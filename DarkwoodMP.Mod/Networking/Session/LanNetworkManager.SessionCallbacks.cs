@@ -39,9 +39,15 @@ namespace DWMPHorde.Networking
                 // Match Steam gate: IsDreamActive covers entry transition before DreamSession.Active.
                 bool allowDreamJoin = ModConfig.AllowJoinDuringDream != null
                     && ModConfig.AllowJoinDuringDream.Value;
-                if (!allowDreamJoin
+                // A migration survivor is not a new player: it is still on the dream pad.
+                System.Net.IPAddress reqIp = request.RemoteEndPoint != null ? request.RemoteEndPoint.Address : null;
+                if (reqIp != null && reqIp.IsIPv4MappedToIPv6)
+                    reqIp = reqIp.MapToIPv4();
+                bool survivor = reqIp != null && IsMigrationSurvivorAddress(reqIp.ToString());
+                if (!allowDreamJoin && !survivor
                     && (DreamSession.ShouldRejectNewConnections
-                        || DreamSyncManager.IsDreamActive))
+                        || DreamSyncManager.IsDreamActive
+                        || DreamSyncManager.IsHostDreamEntryPending))
                 {
                     ModLog.Event(LogCat.Network, "Rejecting connection — dream session active");
                     request.Reject();
@@ -49,8 +55,8 @@ namespace DWMPHorde.Networking
                 }
 
                 int maxPlayers = ModConfig.MaxPlayers != null ? ModConfig.MaxPlayers.Value : 8;
-                // Host counts as 1; _peers are clients
-                if (_peers.Count + 1 >= maxPlayers)
+                // Host counts as 1; the peer table holds the clients.
+                if (_lanPeers.Count + 1 >= maxPlayers)
                 {
                     ModLog.Event(LogCat.Network, $"Rejecting connection — max players ({maxPlayers}) reached");
                     request.Reject();
@@ -58,7 +64,7 @@ namespace DWMPHorde.Networking
                 }
 
                 request.AcceptIfKey(ModConfig.GetConnectionKey());
-                ModLog.Event(LogCat.Network, $"Connection accepted (will be peer #{_peers.Count + 1})");
+                ModLog.Event(LogCat.Network, $"Connection accepted (will be peer #{_lanPeers.Count + 1})");
             }
             else
             {
@@ -66,21 +72,25 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Clear host session maps that are not covered by NetworkResetRegistry.</summary>
+        /// <summary>
+        /// Network stop: a fresh <see cref="SessionState"/> (peer bookkeeping, presence caches, stable
+        /// keys, world-ready flags) and the handler pending queues that NetworkResetRegistry does not own.
+        /// </summary>
         internal void ResetSessionNetworkState()
         {
-            _shadowTracked.Clear();
-            _nextShadowId = 0;
+            _session = new SessionState();
+            // Location heartbeat edge state is per session: kept, a world-map player's first tick
+            // after a chapter / session change sent a stale LocationExit that snapped its proxy.
+            _previousInOutsideLocation = false;
+            _previousLocationName = "";
+            _locationSyncCounter = 0;
+            Shadows.Reset();
             NightHandlers?.ClearShadowLookups();
-            ContainerHandlers?.ClearPendingContainerState();
+            ContainerPendingHandlers?.ClearPendingContainerState();
+            ContainerLootHandlers?.ClearPendingHideoutUpgrades();
             FlagHandlers?.ClearPendingFlags();
             JournalHandlers?.ClearPendingJournal();
-            _awaitingLateJoinBulk.Clear();
-            _pendingHeavyLateJoinBulk.Clear();
-            _peersLoadingWorld.Clear();
-            _peersCoopReconnect.Clear();
             SaveHandlers?.Reset();
-            _hostWasShareableForWaitingClients = false;
             TradeHandlers?.ClearPendingTradeInventories();
             LockHandlers?.ClearConstructibleState();
             StationHandlers?.ClearPendingStations();
@@ -88,13 +98,11 @@ namespace DWMPHorde.Networking
             ShadowArmorHandlers?.ClearPending();
             WorldBurnHandlers?.ClearPending();
             StationSyncHelpers.Reset();
-            WorkbenchOpenLock.Reset();
             BarricadeHandlers?.ClearPendingBarricades();
             NightHandlers?.ClearPendingScenario();
             GameEventHandlers?.ClearPendingGameEvents();
             LockHandlers?.ClearPendingLocks();
-            CombatFxHandlers?.ClearMeleeHitDebounce();
-            _remoteOutsideLocation.Clear();
+            CombatFxImpactHandlers?.ClearMeleeHitDebounce();
         }
     }
 }

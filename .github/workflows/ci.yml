@@ -3,9 +3,10 @@ name: ci
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, dev]
+  workflow_dispatch:
 
 jobs:
   path-b-tests:
@@ -13,10 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The test project targets net8.0 (see DarkwoodMP.PathB.Tests.csproj): pin the 8 SDK.
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 8.0.x
 
       - name: Path B tests
         run: dotnet test DarkwoodMP.PathB.Tests/DarkwoodMP.PathB.Tests.csproj -c Release --verbosity minimal

@@ -1,6 +1,8 @@
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using Steamworks;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -18,12 +20,19 @@ namespace DWMPHorde.Sync
         private static bool _wasHost;
         private static int _port;
         private static string _hostAddress;
-        private static bool _hooked;
+        private static bool _hooked; // process-scoped: hook-installed flag
+        private static bool _steam;
+        private static ulong _steamLobbyId;
+        private static Dictionary<string, int> _hostRoster;
 
         public static bool IsPending => _pending;
         public static bool WasHost => _wasHost;
         public static int Port => _port;
         public static string HostAddress => _hostAddress ?? "";
+        /// <summary>True when the captured session ran over Steam (lobby resume, not LAN address/port).</summary>
+        public static bool WasSteam => _steam;
+        /// <summary>Steam host: stay in the lobby through the scene load so clients can rejoin its id.</summary>
+        public static bool KeepSteamLobbyOnStop => _pending && _wasHost && _steam;
 
         public static void Reset()
         {
@@ -31,12 +40,20 @@ namespace DWMPHorde.Sync
             _wasHost = false;
             _port = PluginInfo.DefaultPort;
             _hostAddress = "127.0.0.1";
+            _steam = false;
+            _steamLobbyId = 0;
+            _hostRoster = null;
         }
 
-        /// <summary>Call before StopNetwork during chapter transition or join offline load.</summary>
+        /// <summary>
+        /// Call before StopNetwork during chapter transition or join offline load.
+        /// A host must have a live link (nothing to rehost otherwise). A client whose transfer link
+        /// already dropped (slot picker, failed link) still arms the phase-3 reconnect: it resumes
+        /// from the configured connect address / port, or from the last Steam lobby it joined.
+        /// </summary>
         public static void CaptureForResume(LanNetworkManager net)
         {
-            if (net == null || !net.IsConnected)
+            if (net == null || (net.Role == NetworkRole.Host && !net.IsConnected))
             {
                 _pending = false;
                 return;
@@ -49,18 +66,40 @@ namespace DWMPHorde.Sync
             }
 
             _wasHost = net.Role == NetworkRole.Host;
-            _port = ModConfig.ConnectPort != null ? ModConfig.ConnectPort.Value : PluginInfo.DefaultPort;
-            if (_port < 1 || _port > 65535)
-                _port = PluginInfo.DefaultPort;
+            _port = ModConfig.GetConnectPort();
             _hostAddress = ModConfig.ConnectAddress != null
                 ? (ModConfig.ConnectAddress.Value ?? "127.0.0.1").Trim()
                 : "127.0.0.1";
             if (string.IsNullOrEmpty(_hostAddress))
                 _hostAddress = "127.0.0.1";
+
+            // A dropped client link has already lost its backend; the last Steam lobby id survives.
+            ulong lastClientLobby = _wasHost ? 0UL : net.LastClientSteamLobbyId;
+            _steam = net.IsSteamSession || lastClientLobby != 0;
+            _steamLobbyId = 0;
+            if (_steam)
+            {
+                // Steam has no address/port: resume through the lobby (host keeps it open, clients rejoin its id).
+                ulong.TryParse(net.SteamLobbyIdText, out _steamLobbyId);
+                if (_steamLobbyId == 0)
+                    _steamLobbyId = lastClientLobby;
+                if (_steamLobbyId == 0)
+                {
+                    ModLog.Error(LogCat.Session,
+                        "[ChapterResume] Steam session has no lobby id — cannot resume after the chapter load");
+                    _pending = false;
+                    return;
+                }
+            }
+
+            // Host: remember each client's PlayerId by stable key (peers disconnect before the
+            // rehost) so ids stay the same across the chapter instead of arrival order.
+            _hostRoster = _wasHost ? net.SnapshotStableKeyRoster() : null;
             _pending = true;
 
             ModLog.Event(LogCat.Session,
-                $"[ChapterResume] captured wasHost={_wasHost} port={_port} addr={_hostAddress}");
+                $"[ChapterResume] captured wasHost={_wasHost} backend={(_steam ? "steam lobby=" + _steamLobbyId : "lan")} "
+                + $"port={_port} addr={_hostAddress} roster={(_hostRoster != null ? _hostRoster.Count : 0)}");
         }
 
         public static void EnsureSceneHook()
@@ -73,6 +112,15 @@ namespace DWMPHorde.Sync
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             if (!_pending) return;
+            // Back at the title ("Darkwood", Core.returnToMainMenu) instead of the chapter: the
+            // transition was abandoned. Kept armed, the resume fired on a later, unrelated chapter
+            // load (a single-player save) and reconnected or rehosted by itself.
+            if (string.Equals(scene.name, "Darkwood", System.StringComparison.OrdinalIgnoreCase))
+            {
+                ModLog.Event(LogCat.Session, "[ChapterResume] returned to the title — resume dropped");
+                Reset();
+                return;
+            }
             if (scene.name != null
                 && scene.name.StartsWith("chapter", System.StringComparison.OrdinalIgnoreCase))
             {
@@ -90,7 +138,7 @@ namespace DWMPHorde.Sync
         {
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return false;
                 if (Core.loadingGame)
                     return false;
@@ -123,9 +171,26 @@ namespace DWMPHorde.Sync
             {
                 if (_wasHost)
                 {
-                    ModLog.Event(LogCat.Session, $"[ChapterResume] auto rehost on port {_port}");
-                    net.StartHost(_port);
-                    net.StatusText = "Chapter rehost — waiting for peers on " + _port;
+                    if (_steam)
+                    {
+                        ModLog.Event(LogCat.Session, $"[ChapterResume] auto rehost via Steam (kept lobby {_steamLobbyId})");
+                        net.StartHostSteam(_steamLobbyId);
+                        net.StatusText = "Chapter rehost — waiting for peers in Steam lobby " + _steamLobbyId;
+                    }
+                    else
+                    {
+                        ModLog.Event(LogCat.Session, $"[ChapterResume] auto rehost on port {_port}");
+                        net.StartHost(_port);
+                        net.StatusText = "Chapter rehost — waiting for peers on " + _port;
+                    }
+                    net.ReservePlayerIdsForResume(_hostRoster);
+                }
+                else if (_steam)
+                {
+                    ModLog.Event(LogCat.Session,
+                        $"[ChapterResume] auto reconnect via Steam lobby {_steamLobbyId} (playable={IsLocalPlayableForCoopReconnect()})");
+                    net.ConnectSteamLobby(new CSteamID(_steamLobbyId));
+                    net.StatusText = "Chapter reconnect to Steam lobby " + _steamLobbyId;
                 }
                 else
                 {
@@ -185,6 +250,22 @@ namespace DWMPHorde.Sync
 
             if (ChapterSessionResume.IsLocalPlayableForCoopReconnect())
             {
+                // A player new to this world plays its own prologue here, still offline; the
+                // session resumes once it wakes in the hideout (PersonalPrologue).
+                if (PersonalPrologue.FreshCharacter && !PersonalPrologue.JoinerActive && !PersonalPrologue.JoinerArrived)
+                {
+                    if (!PersonalPrologue.ReadyToBegin())
+                        return;
+                    if (PersonalPrologue.PlaysPrologue)
+                    {
+                        PersonalPrologue.BeginJoiner();
+                        return;
+                    }
+                    PersonalPrologue.ArriveFresh();
+                }
+                if (PersonalPrologue.JoinerActive && !PersonalPrologue.TickJoiner())
+                    return;
+
                 // Join offline load can leave a fat WorldGrid active set (Player.log ~500k objects).
                 // Force a cull pass around the player before co-op traffic starts.
                 try
@@ -227,7 +308,7 @@ namespace DWMPHorde.Sync
             // SaveManager.Load NRE leaves loadingGame=true forever (see Player.log
             // "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"). Unstick so phase-3 can run
             // or user can quit; world may still be broken — host must re-share consistent pair.
-            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !Core.mainMenu)
+            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !GameScreen.AtTitle)
             {
                 ModLog.Warn(LogCat.Session,
                     "[ChapterResume] loadingGame stuck 45s after scene (likely failed sav/savs load) — clearing flag");

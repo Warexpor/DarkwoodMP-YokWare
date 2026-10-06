@@ -52,21 +52,16 @@ namespace DWMPHorde.Networking
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
             Transform sourceT = proxy != null ? proxy.transform : null;
             bool visualOnly = (_net.Role == NetworkRole.Client);
-            // Host mints throw id if peer omitted it (older path).
-            if (_net.Role == NetworkRole.Host && msg.ThrowId <= 0)
-                msg.ThrowId = _net.MintThrowId();
-            if (_net.Role == NetworkRole.Host && msg.LongevitySec <= 0f
-                && !string.IsNullOrEmpty(msg.ItemType)
-                && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                msg.LongevitySec = 5f; // Flare.longevity(~3) + fade
 
-            // V1: kill held continuous light/FX before projectile spawns (no double glow).
+            // The held flare became this projectile: drop the held copy (no double glow), and
+            // ignore the held-flare flag on PlayerState packets sent before the throw that arrive
+            // after it (unreliable stream vs this reliable event).
             bool isFlare = !string.IsNullOrEmpty(msg.ItemType)
                 && msg.ItemType.IndexOf("flare", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (isFlare && playerId > 0)
+            if (isFlare && playerId > 0 && _net.RemotePlayers.TryGetValue(playerId, out var rs))
             {
-                if (_net.RemotePlayers.TryGetValue(playerId, out var rs)
-                    && (rs.FlareLight != null || rs.FlareFx != null))
+                rs.HeldFlareThrownAt = Time.unscaledTime;
+                if (rs.FlareLight != null || rs.FlareFx != null)
                 {
                     ModLog.Event(LogCat.World, $"[LightSync] throw mutex cleared held p{playerId}");
                     _net.DestroyRemoteFlareLight(playerId);
@@ -150,10 +145,11 @@ namespace DWMPHorde.Networking
                     door = WorldQueryHelper.FindDoorByPosLoose(pos, 3f);
                 if (door == null)
                 {
-                    ModRuntime.LegacyInfo("[MeleeWorldHit] door not found at " + pos);
+                    ModRuntime.LegacyInfo($"[MeleeWorldHit] door not found at {pos}");
                     return;
                 }
-                door.getHit(damage, attackerT, !suppressed, false);
+                PlayerWorldHitScope.Run(playerId, () =>
+                    door.getHit(damage, attackerT, !suppressed, false));
                 return;
             }
 
@@ -164,20 +160,24 @@ namespace DWMPHorde.Networking
                     window = WorldQueryHelper.FindWindowByPosLoose(pos, 3f);
                 if (window == null)
                 {
-                    ModRuntime.LegacyInfo("[MeleeWorldHit] window not found at " + pos);
+                    ModRuntime.LegacyInfo($"[MeleeWorldHit] window not found at {pos}");
                     return;
                 }
-                window.getHit(damage, attackerT, !suppressed);
+                PlayerWorldHitScope.Run(playerId, () =>
+                    window.getHit(damage, attackerT, !suppressed));
                 return;
             }
 
             if (msg.TargetType == 2)
             {
                 // Client hit Y often differs from the host because of body-push or location layers;
-                // match on XZ with a wider radius before giving up.
-                if (TryHitDestructibleItemAt(pos, 25f, damage, attackerT))
+                // match on XZ only, at the item's own spot (25 m used to hit the nearest other crate).
+                bool hit = false;
+                PlayerWorldHitScope.Run(playerId, () =>
+                    hit = TryHitDestructibleItemAt(pos, BarricadeNetHandlers.ItemMatchRadius, damage, attackerT));
+                if (hit)
                     return;
-                ModRuntime.LegacyInfo("[MeleeWorldHit] destructible item not found at " + pos);
+                ModRuntime.LegacyInfo($"[MeleeWorldHit] destructible item not found at {pos}");
             }
         }
 
@@ -185,9 +185,13 @@ namespace DWMPHorde.Networking
         {
             Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius);
             if (best == null) return false;
-            best.getHit(damage, attackerT, true);
+            DialogHostApplyGuard.RunHostWorldFanout(() =>
+                best.getHit(damage, attackerT, true));
             return true;
         }
+
+        /// <summary>XZ distance under which an incoming puddle is one already lying here.</summary>
+        private const float SameLiquidRadius = 0.5f;
 
         internal void HandleExplosionSpawnObject(ExplosionSpawnObjectMessage msg)
         {
@@ -197,7 +201,7 @@ namespace DWMPHorde.Networking
             // skip host-echoed secondaries so the stomper/remote doesn't double debris.
             if (ExplosionSpawnFlagTracker.ShouldSkipExplosionSpawnObject(pos))
             {
-                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local FX recent) " + msg.PrefabName + " at " + pos);
+                ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip (local FX recent) {msg.PrefabName} at {pos}");
                 return;
             }
             // SpawnObject often arrives before ExplosionTrigger (same-frame host onActivate).
@@ -213,7 +217,7 @@ namespace DWMPHorde.Networking
             }
             if (localExpl != null && localExpl.spawnObject != null)
             {
-                ModRuntime.LegacyInfo("[ExplosionSpawnRecv] skip (local Explodes owns secondaries) " + msg.PrefabName + " at " + pos);
+                ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip (local Explodes owns secondaries) {msg.PrefabName} at {pos}");
                 return;
             }
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
@@ -231,14 +235,23 @@ namespace DWMPHorde.Networking
                     if (prefab != null)
                     {
                         foundPath = path;
-                        ModRuntime.LegacyInfo("[ExplosionSpawnRecv] found prefab at " + path);
+                        ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] found prefab at {path}");
                         break;
                     }
+                }
+                // A puddle already lying on this spot (a joiner's world-placed one, or one sent
+                // with the join's gas state twice): the same puddle, not a second one.
+                GameObject prefabGo = prefab as GameObject;
+                if (prefabGo != null && prefabGo.GetComponent<Liquid>() != null
+                    && Sync.WorldPhysicsSyncService.HasFlammableLiquidAt(pos, msg.PrefabName, SameLiquidRadius))
+                {
+                    ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] skip {msg.PrefabName} at {pos}: same puddle already here");
+                    return;
                 }
                 if (prefab != null)
                 {
                     Core.AddPrefab(prefab, pos, rot, null, false);
-                    ModRuntime.LegacyInfo("[ExplosionSpawnRecv] spawned " + msg.PrefabName + " at " + pos + " rot=" + rot.eulerAngles + " (loaded from " + foundPath + ")");
+                    ModRuntime.LegacyInfo($"[ExplosionSpawnRecv] spawned {msg.PrefabName} at {pos} rot={rot.eulerAngles} (loaded from {foundPath})");
                 }
                 else
                 {

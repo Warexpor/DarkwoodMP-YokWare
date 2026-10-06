@@ -22,8 +22,7 @@ namespace DWMPHorde.Patches
             if (Player.Instance != null && __instance != Player.Instance)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return;
 
             Controller ctrl = Singleton<Controller>.Instance;

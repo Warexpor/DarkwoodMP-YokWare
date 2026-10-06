@@ -24,7 +24,7 @@ namespace DWMPHorde.Networking
         /// Reliable stop still uses <see cref="NotifyBodyPushStopped"/>.</summary>
         internal void NotifyBodyPushStarted(GameObject go)
         {
-            if (LanNetworkManager.Instance == null || go == null) return;
+            if (ModRuntime.Network == null || go == null) return;
             // After ForceStop, ignore late residual restarts (5.2).
             if (DWMPHorde.Audio.ItemMovingSoundHelper.IsScrapeSuppressed(go.name))
                 return;
@@ -47,7 +47,7 @@ namespace DWMPHorde.Networking
         /// already fade via PhysicsState quiet / DragSync STOP.</summary>
         internal void NotifyBodyPushStopped(string objectName)
         {
-            if (LanNetworkManager.Instance == null) return;
+            if (ModRuntime.Network == null) return;
             if (string.IsNullOrEmpty(objectName)) return;
 
             DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(objectName);
@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.ItemType))
             {
-                ModRuntime.LegacyInfo("[DragSync] no ItemType to spawn \"" + msg.ObjectName + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] no ItemType to spawn \"{msg.ObjectName}\"");
                 return null;
             }
 
@@ -72,21 +72,21 @@ namespace DWMPHorde.Networking
 
             if (!Singleton<ItemsDatabase>.Instance.hasItem(msg.ItemType))
             {
-                ModRuntime.LegacyInfo("[DragSync] ItemsDatabase has no item type \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] ItemsDatabase has no item type \"{msg.ItemType}\"");
                 return null;
             }
 
             InvItem itemDef = Singleton<ItemsDatabase>.Instance.getItem(msg.ItemType, instantiate: false);
             if (itemDef == null || itemDef.item == null)
             {
-                ModRuntime.LegacyInfo("[DragSync] no prefab for \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] no prefab for \"{msg.ItemType}\"");
                 return null;
             }
 
             GameObject prefab = itemDef.item as GameObject;
             if (prefab == null)
             {
-                ModRuntime.LegacyInfo("[DragSync] prefab is not a GameObject for \"" + msg.ItemType + "\"");
+                ModRuntime.LegacyInfo($"[DragSync] prefab is not a GameObject for \"{msg.ItemType}\"");
                 return null;
             }
 
@@ -139,7 +139,7 @@ namespace DWMPHorde.Networking
                     if (!string.IsNullOrEmpty(objectName) && !go.name.Equals(objectName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    ModRuntime.LegacyInfo("[DragSync] destroying proxy-spawned " + go.name);
+                    ModRuntime.LegacyInfo($"[DragSync] destroying proxy-spawned {go.name}");
                     UnityEngine.Object.Destroy(go);
                 }
                 toRemove.Add(id);
@@ -147,6 +147,57 @@ namespace DWMPHorde.Networking
 
             foreach (int id in toRemove)
                 _spawnedDragProxyItems.Remove(id);
+        }
+
+        /// <summary>
+        /// Peer disconnect: drop that player's drag claims locally and (host) fan out
+        /// reliable DragSync STOP so N-peer observers do not keep a stuck claim.
+        /// </summary>
+        /// <param name="broadcastStop">Host should broadcast; clients only clear local maps.</param>
+        internal void ReleaseDragClaimsForDisconnectedPlayer(int playerId, bool broadcastStop)
+        {
+            if (playerId <= 0) return;
+
+            var toRemove = new List<string>();
+            foreach (var kv in DragClaims)
+            {
+                if (kv.Value == playerId)
+                    toRemove.Add(kv.Key);
+            }
+            if (toRemove.Count == 0) return;
+
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                string key = toRemove[i];
+                DragClaims.Remove(key);
+                LastDragSyncPos.Remove(key);
+                DragEndedAt[key] = Time.unscaledTime;
+                // The dragger never sends its STOP: free the proxy copy spawned for its drag.
+                CleanupSpawnedDragProxy(key);
+                RemoteDragTimeline.DropByName(key);
+                ReleaseRemoteDragKinematic(key);
+                RemoveRemoteDragIds(key);
+                DWMPHorde.Audio.ItemMovingSoundHelper.ForceStopByName(key);
+                Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(key);
+
+                if (!broadcastStop || !_net.IsConnected)
+                    continue;
+
+                var dragMsg = new DragSyncMessage
+                {
+                    IsDragging = false,
+                    ObjectName = key,
+                    ClaimedByPlayerId = playerId
+                };
+                _net.BroadcastHot(NetMessageType.DragSync, w => dragMsg.Serialize(w),
+                    DeliveryMethod.ReliableOrdered);
+                if (_net.Role == NetworkRole.Host)
+                    NotifyBodyPushStopped(key);
+            }
+
+            ModLog.Event(LogCat.Network,
+                "Released " + toRemove.Count + " drag claim(s) for disconnected p" + playerId
+                + (broadcastStop ? " (broadcast STOP)" : " (local only)"));
         }
 
         /// <summary>Remove all remote-drag tracking for items matching the given name.
@@ -157,9 +208,9 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(objectName)) return;
 
             // Clean the name-based set (cross-peer check)
-            _net._remoteDragItemNames.Remove(objectName);
+            _net.PlayerInteractHandlers.RemoteDragItemNames.Remove(objectName);
 
-            if (_net._remoteDragItemIds.Count == 0) return;
+            if (_net.PlayerInteractHandlers.RemoteDragItemIds.Count == 0) return;
 
             // Clean InstanceID-based set (local PhysicsState skip)
             List<int> toRemove = new List<int>();
@@ -168,24 +219,25 @@ namespace DWMPHorde.Networking
                 if (candidate == null) continue;
                 if (!candidate.gameObject.name.Equals(objectName, StringComparison.OrdinalIgnoreCase)) continue;
                 int id = candidate.GetInstanceID();
-                if (_net._remoteDragItemIds.Contains(id))
+                if (_net.PlayerInteractHandlers.RemoteDragItemIds.Contains(id))
                     toRemove.Add(id);
             }
             foreach (int id in toRemove)
-                _net._remoteDragItemIds.Remove(id);
+                _net.PlayerInteractHandlers.RemoteDragItemIds.Remove(id);
         }
 
         /// <summary>Release isKinematic on items matching the given name.
-        /// Called when a remote drag ends so local physics can affect them again.</summary>
+        /// Called when a remote drag ends so local physics can affect them again. Every observer
+        /// holds a remotely dragged copy kinematic (<see cref="RemoteDragTimeline"/>), the host too.</summary>
         internal void ReleaseRemoteDragKinematic(string objectName)
         {
-            if (string.IsNullOrEmpty(objectName) || ModRuntime.Network == null || ModRuntime.Network.Role == NetworkRole.Host)
+            if (string.IsNullOrEmpty(objectName) || ModRuntime.Network == null)
                 return;
             foreach (Item candidate in WorldQueryHelper.GetCachedSceneComponents<Item>())
             {
                 if (candidate == null) continue;
                 if (!candidate.gameObject.name.Equals(objectName, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!_net._remoteDragItemIds.Contains(candidate.GetInstanceID()))
+                if (!_net.PlayerInteractHandlers.RemoteDragItemIds.Contains(candidate.GetInstanceID()))
                     continue;
                 Rigidbody rb = candidate.GetComponent<Rigidbody>();
                 if (rb != null && rb.isKinematic)
@@ -204,12 +256,15 @@ namespace DWMPHorde.Networking
             //      so subsequent DragSync messages find the item quickly without
             //      falling to OverlapSphere (which skips beingDragged) or the
             //      expensive FindObjectsOfType<Item>() global scan.
+            // Same name is not the same object: two wardrobes dragged by two players. Only the one
+            // at the reported spot (the conflict rule's radius) is it, or the peer's drag moved ours.
             if (Player.Instance != null && Player.Instance.itemBeingDragged != null &&
                 !string.IsNullOrEmpty(name) &&
-                Player.Instance.itemBeingDragged.gameObject.name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                Player.Instance.itemBeingDragged.gameObject.name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                && Core.trueDistance(Player.Instance.itemBeingDragged.transform.position, nearPos) <= SameDraggedBodyRadius)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] early-return hit for " + name + " (itemBeingDragged)");
+                    ModRuntime.LegacyInfo($"[DragSync] early-return hit for {name} (itemBeingDragged)");
                 return Player.Instance.itemBeingDragged;
             }
 
@@ -239,7 +294,7 @@ namespace DWMPHorde.Networking
             if (best != null)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] found " + best.gameObject.name + " near pos (" + bestDist.ToString("F1") + " u)");
+                    ModRuntime.LegacyInfo($"[DragSync] found {best.gameObject.name} near pos ({bestDist.ToString("F1")} u)");
                 return best;
             }
 
@@ -267,7 +322,7 @@ namespace DWMPHorde.Networking
                 if (bestGlobal != null)
                 {
                     if (ModRuntime.VerboseLogging)
-                        ModRuntime.LegacyInfo("[DragSync] found " + bestGlobal.gameObject.name + " via global scan (" + bestGlobalDist.ToString("F1") + " u)");
+                        ModRuntime.LegacyInfo($"[DragSync] found {bestGlobal.gameObject.name} via global scan ({bestGlobalDist.ToString("F1")} u)");
                     return bestGlobal;
                 }
             }

@@ -15,7 +15,7 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(string pool, string prefab, Vector3 position, Quaternion quaternion)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (pool != "FX") return;
@@ -23,6 +23,8 @@ namespace DWMPHorde.Patches
 
             // Skip if inside Bullet.onCollide — BulletFXSyncPatch handles projectile weapons
             if (TraverseHack.IsInsidePlayerBulletCollision) return;
+            // Enemy bullet (host original or client copy): every peer shows its own impact.
+            if (DefenderAttackContext.InsideProjectileCollide > 0) return;
 
             Player player = Player.Instance;
             if (player == null) return;
@@ -43,17 +45,19 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPriority(Priority.Last)]
-    [HarmonyPatch(typeof(Core), "AddPrefab", typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool))]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class HitscanBloodPatch
     {
         private static float _lastBloodForwardTime = -1f;
         private static Vector3 _lastBloodForwardPos;
         private static string _lastBloodForwardPrefab;
 
-        private static void Prefix(string prefab, Vector3 position, Quaternion quaternion)
+        /// <summary>Session end: forget the last forwarded splat (dedupe window).</summary>
+        internal static void Reset()
         {
-            TryForwardBlood(prefab, position, quaternion);
+            _lastBloodForwardTime = -1f;
+            _lastBloodForwardPos = Vector3.zero;
+            _lastBloodForwardPrefab = null;
         }
 
         /// <summary>
@@ -62,7 +66,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static void TryForwardBlood(string prefab, Vector3 position, Quaternion quaternion)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             if (string.IsNullOrEmpty(prefab)) return;
@@ -139,8 +143,7 @@ namespace DWMPHorde.Patches
             if (__instance.isNightTrader) return;
             if (!byPlayer && attackerTransform == null) return;
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
             // Mirror vanilla Character.getHit blood spawn for the wire (local already spawned).
@@ -167,7 +170,7 @@ namespace DWMPHorde.Patches
     {
         private static void Prefix(Bullet __instance, Collider collider, Vector3 hitPoint)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
 
             if (__instance.objectThatSpawnedMe != null) return;

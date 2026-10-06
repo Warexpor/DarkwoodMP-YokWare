@@ -14,7 +14,7 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class ClientWorldMeleeRedirectHelper
     {
-        // B5: local combat FX already played on redirect; suppress apply-side hit FX briefly.
+        // local combat FX already played on redirect; suppress apply-side hit FX briefly.
         private static readonly Dictionary<string, float> _fxSuppressUntil = new Dictionary<string, float>(16);
         // Local open-door swing already applied — skip network BarricadeEvent re-force.
         private static readonly Dictionary<string, float> _swingSuppressUntil = new Dictionary<string, float>(16);
@@ -84,11 +84,14 @@ namespace DWMPHorde.Patches
             return attacker == Player.Instance.transform;
         }
 
-        internal static void SendHit(byte targetType, Vector3 pos, int damage)
+        /// <param name="playedLocalFx">False when the striker played no hit FX (a predicted
+        /// break: vanilla plays only the break FX, which arrive with the host's result).</param>
+        internal static void SendHit(byte targetType, Vector3 pos, int damage, bool playedLocalFx = true)
         {
-            RegisterLocalFx(targetType, pos);
+            if (playedLocalFx)
+                RegisterLocalFx(targetType, pos);
             Vector3 atkPos = Player.Instance.transform.position;
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             net?.SendMeleeWorldHit(new MeleeWorldHitMessage
             {
                 TargetType = targetType,
@@ -163,14 +166,29 @@ namespace DWMPHorde.Patches
             if (!ClientWorldMeleeRedirectHelper.ShouldRedirect(attacker))
                 return true;
 
-            ClientWorldMeleeRedirectHelper.SendHit(0, __instance.transform.position, damage);
-            // Play local hit effects since getHit will be skipped
-            AudioController.Play("woodenObject_hit", __instance.transform);
-            Core.AddPrefab("particles/door_hit_melee", __instance.transform.position, __instance.transform.rotation, null);
+            // Play local hit effects since getHit will be skipped. A metal door only clangs
+            // (vanilla: door_hit_metal, no damage, no splinters). A hit that breaks the board or
+            // the door plays no hit FX in vanilla, only the break FX — those come with the host's
+            // BarricadeEvent, so a predicted break plays nothing here and leaves the apply unmuted.
+            bool canDamageMetal = __args.Length > 3 && (bool)__args[3];
+            bool metalUnhurt = __instance.type == Door.Type.metal && !canDamageMetal;
+            bool predictedBreak = !metalUnhurt
+                && (__instance.barricadeHealth > 0
+                    ? __instance.barricadeHealth - damage <= 0
+                    : __instance.health - damage <= 0);
+            ClientWorldMeleeRedirectHelper.SendHit(0, __instance.transform.position, damage,
+                playedLocalFx: !predictedBreak);
+            if (metalUnhurt)
+                AudioController.Play("door_hit_metal", __instance.transform);
+            else if (!predictedBreak)
+            {
+                AudioController.Play("woodenObject_hit", __instance.transform);
+                Core.AddPrefab("particles/door_hit_melee", __instance.transform.position, __instance.transform.rotation, null);
+            }
             if (Core.trueDistance(__instance.transform.position, Player.Instance._transform.position) < 250f)
                 Singleton<CamMain>.Instance.shake(0.3f, 5f);
-            if (__instance.barricaded)
-                Singleton<UI>.Instance.enemyHealthBar.show(__instance.gameObject);
+            // Vanilla shows the bar for any player hit; the host's state refreshes it.
+            Singleton<UI>.Instance.enemyHealthBar.show(__instance.gameObject);
             // Open door swing: host still owns HP; client needs local force or the door never moves.
             ClientWorldMeleeRedirectHelper.ApplyOpenDoorSwingPredictive(__instance, attacker);
             return false;

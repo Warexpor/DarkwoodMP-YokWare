@@ -1,5 +1,6 @@
 using DWMPHorde;
 using DWMPHorde.Config;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -14,20 +15,84 @@ using UnityEngine;
 /// </summary>
 namespace DWMPHorde.Patches
 {
+    /// <summary>
+    /// Marks the window of the local player's vanilla Player.spawnBullet. The hitscan Raycast
+    /// postfix below is global (Physics.Raycast, 5-arg overload, hitscan mask) and the host's own
+    /// predator proxy-aggro scan uses the same overload+mask, so it only acts inside this scope.
+    /// If the detour did not fire during the call (the JIT can inline the Raycast call site, so
+    /// the detour silently never runs), cast the shot ray here so proxy FF / blood still work.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), "spawnBullet", typeof(float))]
+    internal static class HitscanSpawnBulletScopePatch
+    {
+        /// <summary>Main-thread nesting depth of spawnBullet (plain static: read on every raycast).</summary>
+        internal static int Depth; // process-scoped: call-scoped, unwound by Finalizer
+        /// <summary>The Raycast detour saw a hitscan-mask ray during the current spawnBullet.</summary>
+        internal static bool SawHitscanRaycast; // process-scoped: call-scoped, cleared per call
+        private static bool _fallbackLogged; // process-scoped: one log line per process
+        private const float FallbackRange = 1200f;
+
+        private static void Prefix()
+        {
+            if (Depth++ == 0)
+                SawHitscanRaycast = false;
+        }
+
+        // Finalizer (not Postfix): spawnBullet can throw and must not leave the scope open.
+        private static void Finalizer(Player __instance, System.Exception __exception)
+        {
+            if (Depth > 0) Depth--;
+            if (Depth != 0) return;
+            bool saw = SawHitscanRaycast;
+            SawHitscanRaycast = false;
+            if (saw || __exception != null) return;
+            TryFallbackShot(__instance);
+        }
+
+        private static void TryFallbackShot(Player player)
+        {
+            if (player == null || player != Player.Instance) return;
+            if (!NetGuard.Connected(out var net)) return;
+            if (InvItemClass.isNull(player.currentItem) || player.currentItem.baseClass == null) return;
+            // Projectile weapons hit through FastProjectile / Bullet.onCollide, not a ray.
+            if (player.currentItem.baseClass.item != null) return;
+
+            if (!_fallbackLogged)
+            {
+                _fallbackLogged = true;
+                ModLog.Warn(LogCat.Combat, "Hitscan Raycast detour did not fire inside spawnBullet"
+                    + " (inlined call site?): casting the shot ray from the scope patch instead.");
+            }
+
+            Transform t = player.transform;
+            if (Physics.Raycast(t.position, t.up, out RaycastHit hit, FallbackRange, GameplayConstants.HitscanLayerMask))
+                HitscanImpactSyncPatch.HandleHit(hit);
+        }
+    }
+
     // Parked: do not retarget global Physics.Raycast to spawnBullet — that would fan out
-    // to every raycast in the game. Proxy hitscan FF stays in this Postfix on the hitscan mask.
+    // to every raycast in the game. Proxy hitscan FF stays in this Postfix on the hitscan mask,
+    // gated on HitscanSpawnBulletScopePatch.Depth so only the local player's shot counts and
+    // every other raycast in the game pays a single int compare.
     [HarmonyPatch]
     public static class HitscanImpactSyncPatch
     {
         static System.Reflection.MethodBase TargetMethod() =>
             AccessTools.Method(typeof(Physics), "Raycast", new[] { typeof(Vector3), typeof(Vector3), typeof(RaycastHit).MakeByRefType(), typeof(float), typeof(int) });
+
         private static void Postfix(bool __result, RaycastHit hitInfo, int layerMask)
         {
-            if (!__result) return;
+            if (HitscanSpawnBulletScopePatch.Depth == 0) return;
             if (layerMask != GameplayConstants.HitscanLayerMask) return;
+            HitscanSpawnBulletScopePatch.SawHitscanRaycast = true;
+            if (!__result) return;
+            HandleHit(hitInfo);
+        }
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || net.Role == NetworkRole.Offline) return;
+        /// <summary>Proxy-hit handling for one local hitscan ray (detour or scope fallback).</summary>
+        internal static void HandleHit(RaycastHit hitInfo)
+        {
+            if (!NetGuard.Connected(out var net)) return;
             if (TraverseHack.ApplyingFromNetwork) return;
             // Projectile sweep (incl. stalled pellets) uses the same layer mask —
             // damage for those is Bullet.onCollide → ProxyDamagePatch, never HitscanFF.
@@ -55,7 +120,7 @@ namespace DWMPHorde.Patches
                 // Vanilla spawnBullet hitscan only damages Character components.
                 // Remote proxies are CharBase-only (no Character), so getHit never runs
                 // and ProxyDamagePatch never fires. Send FF damage here instead.
-                if (!Config.ModConfig.FriendlyFireEnabled.Value)
+                if (!SessionSettings.FriendlyFireEnabled)
                     return;
 
                 CharBase proxyCB = proxy.CachedCharBase;
@@ -105,13 +170,14 @@ namespace DWMPHorde.Patches
 
                 float yRot = player.transform.eulerAngles.y;
                 string bloodPrefab = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
-                TraverseHack.ApplyingFromNetwork = true;
+                bool prevNet = TraverseHack.GetExplicitFlag();
+                TraverseHack.SetExplicitFlag(true);
                 try
                 {
                     Core.AddPrefab(bloodPrefab, hitPoint,
                         Quaternion.Euler(90f, yRot + Random.Range(-20f, 20f), 0f), null);
                 }
-                finally { TraverseHack.ApplyingFromNetwork = false; }
+                finally { TraverseHack.SetExplicitFlag(prevNet); }
 
                 // Play spatialized bullet impact sound at the hit point so the
                 // shooter hears the direction the proxy was hit from.

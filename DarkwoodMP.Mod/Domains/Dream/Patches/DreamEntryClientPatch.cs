@@ -24,7 +24,7 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Host)
                 return true;
 
@@ -43,6 +43,12 @@ namespace DWMPHorde.Patches
             // -- Client entry transition: intercept, send request to host --
 
             string dreamName = __instance.dreamToTransitionTo ?? "";
+            // Vanilla clears it once the dream is prepared. Left set, every later level-up dream
+            // (3, 5, 6, 7 roll at random) asked the host for the level-2 bunker dream again,
+            // which the party had finished: rejected, and that level's dream was gone.
+            __instance.dreamToTransitionTo = "";
+            byte levelBits = DreamSession.TakePendingRequestBits();
+            DreamRetry.NoteRequest(dreamName, levelBits);
 
             // Mark not playing so re-entry is blocked (vanilla would do this inside the method)
             __instance.isPlaying = false;
@@ -56,7 +62,8 @@ namespace DWMPHorde.Patches
             {
                 PresetName = dreamName,
                 RequestId = (int)(Time.realtimeSinceStartup * 1000f),
-                LvlFlags = DreamSession.ReadLocalLvlFlags()
+                // The level slot(s) this player's own level-up wants a dream for.
+                LvlFlags = levelBits
             };
             net.Send(NetMessageType.DreamStartRequest,
                 w => msg.Serialize(w),
@@ -64,8 +71,9 @@ namespace DWMPHorde.Patches
 
             if (!string.IsNullOrEmpty(dreamName))
             {
+                // Do not burn the local pool until the host accepts (DreamStarted).
+                // A reject would otherwise skip a dream the host can still roll.
                 DreamSession.SetPendingHostPreset(dreamName);
-                DreamSession.MirrorPoolRemove(dreamName);
             }
 
             DreamSyncManager.FreezeWorld();

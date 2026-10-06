@@ -9,36 +9,38 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Ensures sleeping entities wake up when the remote proxy triggers
-    /// attackCharacter, since the proxy is not a real Player and vanilla
-    /// attackCharacter skips wake-up for non-Player targets.
+    /// Every <c>attackCharacter</c> on the host with remote players is recorded by
+    /// <see cref="PlayerTargetArbiter"/> (switch timing and the <c>[TargetSwitch]</c> trace, tagged
+    /// with the mod path that ran it, or "attackCharacter" for vanilla's own callers). Vanilla's
+    /// body runs unchanged for a stand-in as for the host: it used to refuse a stand-in to any
+    /// creature not hostile to players (a deer hit by a client never turned on him, by the host it
+    /// did) and woke a sleeping creature and chased the stand-in at once where vanilla only wakes it.
     /// </summary>
     [HarmonyPatch(typeof(Character), "attackCharacter", new[] { typeof(Transform) })]
     public static class HostAttackCharacterPatch
     {
-        private static bool Prefix(Character __instance, object[] __args)
+        internal struct State
         {
-            Transform destTransform = (Transform)__args[0];
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return true;
-            if (destTransform == null)
-                return false;
-            if (destTransform.GetComponent<RemotePlayerProxy>() == null)
-                return true;
+            public bool On;
+            public Transform Before;
+        }
 
-            // Rabbits/ravens/non-predators must never chase a remote proxy.
-            if (__instance.aggressiveness == Aggressiveness.flee
-                || __instance.aggressiveness == Aggressiveness.fleeAndDespawn
-                || !__instance.attacksFaction(Faction.player))
-                return false;
+        private static void Prefix(Character __instance, ref State __state)
+        {
+            __state = default;
+            if (__instance == null || !HostPlayerIdentity.HostWithRemotes())
+                return;
+            __state.On = true;
+            __state.Before = __instance.target;
+        }
 
-            if (__instance.sleeping && !__instance.wakeUpOnlyManually)
+        private static void Postfix(Character __instance, State __state)
+        {
+            if (__state.On && __instance != null)
             {
-                __instance.wakeup();
-                __instance.sleeping = false;
+                PlayerTargetArbiter.ObserveAttack(__instance, __state.Before);
+                NamedNpcScalePatch.OnAttack(__instance);
             }
-
-            return true;
         }
     }
 
@@ -47,7 +49,6 @@ namespace DWMPHorde.Patches
     /// method (old Prefix return false) froze lure/activities/retarget while the client
     /// was still next to the NPC. Stash only the host-only cull flags so the rest runs.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(Character), "checkStuff")]
     public static class HostCheckStuffPatch
     {
@@ -66,6 +67,7 @@ namespace DWMPHorde.Patches
 
         public static void Reset() => _stash.Clear();
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(Character __instance)
         {
             if (!HostPlayerIdentity.HostWithRemotes())
@@ -115,7 +117,12 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix(Character __instance)
+        // Finalizer (not Postfix): if checkStuff throws after Prefix mutated
+        // temporarySpawned / wantToDespawn / forestSpirit, Postfix never runs and
+        // those flags stay permanently wrong (never-despawn / spirit idle). Same class
+        // as NightSpawnFlagPatch / HostGridOccupancy Finalizer clears.
+        [HarmonyPriority(Priority.Last)]
+        private static void Finalizer(Character __instance)
         {
             if (__instance == null)
                 return;
@@ -146,7 +153,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             foreach (var proxy in net.GetAllProxies())
@@ -178,6 +185,10 @@ namespace DWMPHorde.Patches
 
             if (ProxyDistanceHelper.ProxyIsFar(__instance))
                 return true;
+
+            // Vanilla: a creature that summons after escaping never re-checks the chase.
+            if (__instance.summonsAfterEscaping)
+                return false;
 
             if (__instance.wantToDespawn)
             {
@@ -215,39 +226,22 @@ namespace DWMPHorde.Patches
                 return;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return;
-            if (__instance.dummy || !__instance.alive)
+            if (__instance.dummy || !__instance.alive || !__instance.isActive)
                 return;
 
             RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null)
                 return;
 
-            // Replicate vanilla Player collision behavior from Character.onCollideWith,
-            // adapted for the proxy (which has CharBase but no Player component).
-            // Vanilla flow:
-            //   1. Sleeping → wakeup + return (don't react)
-            //   2. Banshee  → initiateBansheeAttack + return
-            //   3. Invisible/ignoreMe → skip
-            //   4. Aggressiveness.neutral/follower → ignore
-            //   5. Aggressiveness.flee/fleeAndDespawn → runAway
-            //   6. attackOnSight/defensive/stalker → chase
-
-            // Track contact like a Player collision
+            // Vanilla Character.onCollideWith's Player branch, in its order, for the proxy
+            // (CharBase, no Player component): track the contact; a banshee attacks; a sleeper
+            // that wakes on its own wakes and does nothing else; otherwise, unless the player is
+            // invisible or the creature dies on contact, reactToCharacter(null, player, false).
+            // reactToCharacter owns every aggressiveness: neutral/follower/NPC ignore the bump, a
+            // fleeing creature tryToRunAway()s (from its target, or straight back with none; no
+            // despawn), the rest turn on that player (HostRetaliateOnAttackerPatch).
             if (!__instance.touchingColliders.Contains(_collider))
                 __instance.touchingColliders.Add(_collider);
-
-            if (__instance.sleeping)
-            {
-                if (!__instance.wakeUpOnlyManually)
-                {
-                    __instance.wakeup();
-                }
-                return; // Sleeping entities wake up but don't react further
-            }
-
-            CharBase proxyCB = proxy.CachedCharBase;
-            if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
-                return;
 
             if (__instance.banshee)
             {
@@ -255,65 +249,23 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            switch (__instance.aggressiveness)
+            if (__instance.sleeping && !__instance.wakeUpOnlyManually)
             {
-                case Aggressiveness.neutral:
-                case Aggressiveness.follower:
-                    return;
-
-                case Aggressiveness.flee:
-                case Aggressiveness.fleeAndDespawn:
-                    // Vanilla onCollideWith(Player) calls runAway. Proxy has no Player,
-                    // restore flee-on-bump so client can scare rabbits/crows.
-                    __instance.runAway(proxy.transform.position);
-                    if (__instance.aggressiveness == Aggressiveness.fleeAndDespawn)
-                        __instance.wantToDespawn = true;
-                    return;
-
-                default:
-                    if (!__instance.attacksFaction(Faction.player))
-                        return;
-                    __instance.attackCharacter(proxy.transform);
-                    break;
+                __instance.wakeup();
+                return;
             }
+
+            CharBase proxyCB = proxy.CachedCharBase;
+            if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
+                return;
+            if (__instance.dieOnContactWithTarget)
+                return;
+            ReactToCharacter(__instance, null, proxy.transform, false);
         }
-    }
 
-    /// <summary>
-    /// When an NPC starts chasing the remote proxy, registers it in the
-    /// host player's charactersAttackingMe list so the host's UI/audio
-    /// combat indicators trigger correctly.
-    /// </summary>
-    [HarmonyPatch(typeof(Character), "setBehaviour")]
-    public static class HostSetBehaviourPatch
-    {
-        private static void Postfix(Character __instance, Character.Behaviour targetBehaviour)
-        {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host) return;
-            if (!PlayerPositionManager.HasRemotePlayer) return;
-            if (targetBehaviour != Character.Behaviour.chasingTarget) return;
-            if (__instance.target == null) return;
-            if (__instance.target == Player.Instance?.transform) return;
-            if (__instance.target.GetComponent<RemotePlayerProxy>() == null) return;
-
-            Player player = Player.Instance;
-            if (player == null) return;
-
-            bool alreadyAdded = false;
-            for (int i = 0; i < player.charactersAttackingMe.Count; i++)
-            {
-                if (player.charactersAttackingMe[i] == __instance)
-                {
-                    alreadyAdded = true;
-                    break;
-                }
-            }
-            if (!alreadyAdded)
-            {
-                player.charactersAttackingMe.Add(__instance);
-                player.checkInCombatChars();
-            }
-        }
+        private static readonly System.Action<Character, Character, Transform, bool> ReactToCharacter =
+            AccessTools.MethodDelegate<System.Action<Character, Character, Transform, bool>>(
+                AccessTools.Method(typeof(Character), "reactToCharacter"));
     }
 
     /// <summary>
@@ -324,7 +276,6 @@ namespace DWMPHorde.Patches
     /// Uses nameHash + Time debounce instead of MeleeSensor.GetInstanceID() to avoid
     /// Unity object-pooling reuse issues. Based on ClientCombatPatches pattern.
     /// </summary>
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(MeleeSensor), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class MeleeSensorDeduplicatePatch
     {
@@ -334,8 +285,9 @@ namespace DWMPHorde.Patches
         // This avoids pooling issues with GetInstanceID().
         private const float HIT_DEBOUNCE = 0.2f;
         internal static readonly Dictionary<long, float> _lastCharHitTime = new Dictionary<long, float>();
-        private static readonly List<long> _staleHitKeys = new List<long>(8);
+        private static readonly List<long> _staleHitKeys = new List<long>(8); // process-scoped: scratch buffer, cleared before each use
 
+        [HarmonyPriority(Priority.Last)]
         private static bool Prefix(MeleeSensor __instance, object[] __args)
         {
             Collider _collider = (Collider)__args[0];

@@ -49,6 +49,8 @@ namespace DWMPHorde.Networking
 
         internal void ClearDragSessionState()
         {
+            // Release played-back copies while their remote-drag ids are still recorded.
+            RemoteDragTimeline.Reset();
             DragClaims.Clear();
             LastDragSyncPos.Clear();
             DragEndedAt.Clear();
@@ -66,34 +68,45 @@ namespace DWMPHorde.Networking
             return false;
         }
 
+        /// <summary>A peer's drag this close to the local player's dragged body is that body.</summary>
+        private const float SameDraggedBodyRadius = 60f;
+
         internal void HandleDragSync(DragSyncMessage msg)
         {
+            // Host: the transport peer is the only trustworthy claimer id; an embedded id could
+            // claim, steal or release another player's drag.
+            if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0)
+                msg.ClaimedByPlayerId = _net.CurrentReceivePlayerId;
+
             Vector3 targetPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Vector3 targetRot = new Vector3(msg.RotX, msg.RotY, msg.RotZ);
 
             // Late Unreliable IsDragging after reliable STOP re-claimed the object and
             // left host blocked ("already being moved"). Drop stale grab packets.
             if (msg.IsDragging && !string.IsNullOrEmpty(msg.ObjectName)
-                && _net._dragEndedAt.TryGetValue(msg.ObjectName, out float endedAt)
+                && _net.PlayerInteractHandlers.DragEndedAt.TryGetValue(msg.ObjectName, out float endedAt)
                 && (Time.unscaledTime - endedAt) < LanNetworkManager.DragStopStaleGraceConst)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[DragSync] ignore stale IsDragging for " + msg.ObjectName
-                        + " (stop " + (Time.unscaledTime - endedAt).ToString("F2") + "s ago)");
+                    ModRuntime.LegacyInfo($"[DragSync] ignore stale IsDragging for {msg.ObjectName} (stop {(Time.unscaledTime - endedAt).ToString("F2")}s ago)");
                 return;
             }
 
             // Claim only while actively dragging (end packets release, not re-claim).
             if (msg.IsDragging && msg.ClaimedByPlayerId >= 0 && !string.IsNullOrEmpty(msg.ObjectName))
             {
-                _net._dragClaims[msg.ObjectName] = msg.ClaimedByPlayerId;
-                _net._dragEndedAt.Remove(msg.ObjectName);
+                _net.PlayerInteractHandlers.DragClaims[msg.ObjectName] = msg.ClaimedByPlayerId;
+                _net.PlayerInteractHandlers.DragEndedAt.Remove(msg.ObjectName);
             }
 
+            // Names repeat (every "chair" in a hideout): the same object only when the peer's
+            // grab is where the local player's dragged body is, or two players dragging two
+            // identical chairs force-stopped each other.
             bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
                 Player.Instance.itemBeingDragged != null &&
                 string.Equals(Player.Instance.itemBeingDragged.gameObject.name, msg.ObjectName,
-                    System.StringComparison.Ordinal);
+                    System.StringComparison.Ordinal)
+                && Core.trueDistance(Player.Instance.itemBeingDragged.transform.position, targetPos) <= SameDraggedBodyRadius;
 
             // For the local DragSync echo, native ItemSounds already owns scrape,
             // applying MOS here doubles the sound for the dragging client.
@@ -106,17 +119,17 @@ namespace DWMPHorde.Networking
             if (locallyDraggingThis && msg.IsDragging
                 && msg.ClaimedByPlayerId >= 0 && msg.ClaimedByPlayerId != _net.LocalPlayerId)
             {
-                ModRuntime.LegacyInfo("[DragSync] remote player " + msg.ClaimedByPlayerId + " claimed " + msg.ObjectName + " — force-stopping local drag");
+                ModRuntime.LegacyInfo($"[DragSync] remote player {msg.ClaimedByPlayerId} claimed {msg.ObjectName} — force-stopping local drag");
                 Player.Instance.itemBeingDragged.stopDragging(force: true);
-                _net._wasDragging = false;
-                _net._lastDraggedItemName = null;
+                _net.WasDragging = false;
+                _net.LastDraggedItemName = null;
             }
 
             if (!msg.IsDragging)
             {
                 bool ownStop = msg.ClaimedByPlayerId == _net.LocalPlayerId
                     || locallyDraggingThis
-                    || (_net._dragClaims.TryGetValue(msg.ObjectName ?? "", out int stopClaim)
+                    || (_net.PlayerInteractHandlers.DragClaims.TryGetValue(msg.ObjectName ?? "", out int stopClaim)
                         && stopClaim == _net.LocalPlayerId)
                     || DWMPHorde.Audio.ItemMovingSoundHelper.IsLocalPushOrDragOwner(msg.ObjectName);
 
@@ -135,14 +148,21 @@ namespace DWMPHorde.Networking
                     // after claim clear cannot re-arm scrape on observers.
                     if (_net.Role == NetworkRole.Host && !string.IsNullOrEmpty(msg.ObjectName))
                         NotifyBodyPushStopped(msg.ObjectName);
-                    ModRuntime.LegacyInfo("[DragSync] STOP IsDragging=false for " + msg.ObjectName + " — ForceStopByName issued");
+                    ModRuntime.LegacyInfo($"[DragSync] STOP IsDragging=false for {msg.ObjectName} — ForceStopByName issued");
                 }
 
-                _net._lastDragSyncPos.Remove(msg.ObjectName);
+                _net.PlayerInteractHandlers.LastDragSyncPos.Remove(msg.ObjectName);
                 CleanupSpawnedDragProxy(msg.ObjectName);
-                // Release while the instance ids are still recorded, then drop them.
-                ReleaseRemoteDragKinematic(msg.ObjectName);
-                RemoveRemoteDragIds(msg.ObjectName);
+                // The copy played back from this dragger runs on to the pose the drag ended on
+                // (the STOP carries it) and turns physical when its timeline gets there; it keeps
+                // its remote-drag id until then so PhysicsState does not move it meanwhile.
+                // Without a pose or a playing copy: release now, while the instance ids are
+                // still recorded, then drop them.
+                if (!RemoteDragTimeline.End(msg))
+                {
+                    ReleaseRemoteDragKinematic(msg.ObjectName);
+                    RemoveRemoteDragIds(msg.ObjectName);
+                }
                 // Host free-body hold from client PhysicsState must also drop on drag end
                 // or the object stays kinematic / untouchable for the host.
                 if (!string.IsNullOrEmpty(msg.ObjectName))
@@ -150,13 +170,14 @@ namespace DWMPHorde.Networking
                 // Always clear claim on stop (late unreliables cannot re-block; see grace above).
                 if (!string.IsNullOrEmpty(msg.ObjectName))
                 {
-                    _net._dragClaims.Remove(msg.ObjectName);
-                    _net._dragEndedAt[msg.ObjectName] = Time.unscaledTime;
+                    _net.PlayerInteractHandlers.DragClaims.Remove(msg.ObjectName);
+                    _net.PlayerInteractHandlers.DragEndedAt[msg.ObjectName] = Time.unscaledTime;
                 }
                 return;
             }
 
-            Item item = FindDraggedItemLocally(msg.ObjectName, targetPos);
+            Item item = RemoteDragTimeline.TrackedItem(msg.ObjectName, msg.ClaimedByPlayerId)
+                ?? FindDraggedItemLocally(msg.ObjectName, targetPos);
             if (item == null)
             {
                 // Item does not exist on this side. Spawn it on demand so we
@@ -164,16 +185,17 @@ namespace DWMPHorde.Networking
                 item = SpawnDraggedItem(msg);
                 if (item == null)
                 {
-                    ModRuntime.LegacyInfo("[DragSync] cannot spawn \"" + msg.ObjectName + "\" type=" + msg.ItemType);
+                    ModRuntime.LegacyInfo($"[DragSync] cannot spawn \"{msg.ObjectName}\" type={msg.ItemType}");
                     return;
                 }
                 _spawnedDragProxyItems.Add(item.GetInstanceID());
-                ModRuntime.LegacyInfo("[DragSync] spawned " + item.name + " for remote drag");
+                ModRuntime.LegacyInfo($"[DragSync] spawned {item.name} for remote drag");
             }
             else if (item.beingDragged || (Player.Instance != null && Player.Instance.dragging && Player.Instance.itemBeingDragged == item))
             {
                 // Skip remote drag-updates for an object the local player is also
                 // dragging. This prevents tug-of-war jitter between both sides.
+                RemoteDragTimeline.Drop(item);
                 Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
                 // Release kinematic so local HingeJoint can drive position.
                 if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
@@ -185,8 +207,8 @@ namespace DWMPHorde.Networking
                 // Tag so TryBuildWorldSnapshot skips this item. This prevents
                 // PhysicsState (0.3 Hz) from fighting DragSync (30 Hz) even
                 // when BOTH peers are dragging the same item (double grab).
-                _net._remoteDragItemIds.Add(item.GetInstanceID());
-                _net._remoteDragItemNames.Add(item.gameObject.name);
+                _net.PlayerInteractHandlers.RemoteDragItemIds.Add(item.GetInstanceID());
+                _net.PlayerInteractHandlers.RemoteDragItemNames.Add(item.gameObject.name);
                 return;
             }
 
@@ -196,26 +218,23 @@ namespace DWMPHorde.Networking
             Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
             // Tag so TryBuildWorldSnapshot skips this item. This prevents
             // PhysicsState (0.3 Hz) from fighting DragSync (30 Hz).
-            _net._remoteDragItemIds.Add(item.GetInstanceID());
-            _net._remoteDragItemNames.Add(item.gameObject.name);
+            _net.PlayerInteractHandlers.RemoteDragItemIds.Add(item.GetInstanceID());
+            _net.PlayerInteractHandlers.RemoteDragItemNames.Add(item.gameObject.name);
+
+            // The dragger's machine owns the body while it drags: every observer (host too)
+            // holds its copy kinematic and plays the dragger's poses back on a timeline
+            // (RemoteDragTimeline, posed each LateUpdate) — not a teleport per packet, and no
+            // local collision turning or shoving it between packets.
+            RemoteDragTimeline.AddSample(item, msg);
 
             Rigidbody targetRb = item.GetComponent<Rigidbody>();
             if (targetRb != null)
             {
-                targetRb.position = targetPos;
-                targetRb.rotation = Quaternion.Euler(targetRot);
-                targetRb.velocity = Vector3.zero;
-                targetRb.angularVelocity = Vector3.zero;
-                // Lock to host position between DragSync frames. This prevents proxy
-                // collisions on the client from pushing the item away.
-                if (ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
-                    targetRb.isKinematic = true;
-
                 // Scrape: sender sets ScrapeActive from *player walk intent* (body-push style).
                 // When false (reliable), stop fade now. Do not wait for posDelta quiet or
                 // Unreliable packet loss. First grab packet may still have ScrapeActive false.
                 ItemSounds dragSounds = item.GetComponent<ItemSounds>();
-                bool hasPrev = _net._lastDragSyncPos.TryGetValue(msg.ObjectName, out Vector3 prevPos);
+                bool hasPrev = _net.PlayerInteractHandlers.LastDragSyncPos.TryGetValue(msg.ObjectName, out Vector3 prevPos);
                 float dist = hasPrev ? Vector3.Distance(prevPos, targetPos) : 0f;
                 const float dragMoveStart = 0.02f;
                 const float dragRearmWhileFading = 0.08f;
@@ -238,18 +257,11 @@ namespace DWMPHorde.Networking
                     // ScrapeActive but the object barely moved (turning in place). Soft fade.
                     DWMPHorde.Audio.MovingObjectSoundService.NoteStationary(msg.ObjectName);
                 }
-                _net._lastDragSyncPos[msg.ObjectName] = targetPos;
-            }
-            else
-            {
-                // Fallback: no Rigidbody; set the transform directly.
-                item.transform.position = targetPos;
-                item.transform.rotation = Quaternion.Euler(targetRot);
-                ModRuntime.Log?.LogWarning("[DragSync] " + msg.ObjectName + " has no Rigidbody — used transform fallback");
+                _net.PlayerInteractHandlers.LastDragSyncPos[msg.ObjectName] = targetPos;
             }
 
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DragSync] " + item.name + " -> " + targetPos);
+                ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos} yaw={targetRot.y:F1} t={msg.SendTime:F3}");
         }
     }
 }

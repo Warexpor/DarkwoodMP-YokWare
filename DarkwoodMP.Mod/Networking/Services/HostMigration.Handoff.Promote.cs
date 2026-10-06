@@ -25,6 +25,10 @@ namespace DWMPHorde.Networking
                 _backend = ConnectionBackend.Steam;
 
             _role = NetworkRole.Host;
+            // Survivor's world was a client copy: no automatic save may ever write it (leave
+            // checkpoint, SaveSync). Cleared with the session in ResetMigrationState.
+            _isPromotedHost = true;
+            ArmMigrationReservations(keepId);
             _localPlayerId = keepId;
             _hostPlayerId = keepId;
             _nextPlayerId = Math.Max(2, keepId + 1);
@@ -35,8 +39,21 @@ namespace DWMPHorde.Networking
                     _nextPlayerId = pid + 1;
             }
 
+            // The new host owns the session settings: drop the old host's applied values so this
+            // install's own config (and the roster-derived party size) applies, and announce them
+            // to the survivors on the next roster tick / handshake.
+            SessionSettings.ResetToLocal();
+            _sessionSettingsBroadcastOnce = false;
+
             // Reclaim sim: release client host-sync freeze so AI/entities run under us.
             ReclaimSimulationAuthorityAfterPromote();
+
+            // Mid-dream: the survivors stay in the dream and rejoin; the session is ours now.
+            try { Sync.DreamSyncManager.OnPromotedToHost(_migrationReservedIds.Keys); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Promote mid-dream: " + ex.Message);
+            }
 
             if (steam)
             {
@@ -44,7 +61,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             int port = _sessionPort > 0 ? _sessionPort : PluginInfo.DefaultPort;
             if (!_net.Start(port))
             {
@@ -64,16 +81,18 @@ namespace DWMPHorde.Networking
                 if (!bound)
                 {
                     ModLog.Error(LogCat.Network, "Host migration promote failed to bind port " + port);
-                    _role = NetworkRole.Offline;
                     _migrationInProgress = false;
+                    // Full teardown (reset registry, share service, unstarted socket, proxies). The
+                    // promoted flag keeps StopNetwork from writing a leave checkpoint.
+                    StopNetwork();
                     StatusText = "Host grant failed (port busy)";
                     return;
                 }
             }
 
             NoteSessionPort(port);
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
             _migrationInProgress = false;
             StatusText = "HOST GRANTED — port " + port + " (p" + keepId + ")";
             ModLog.Event(LogCat.Network,
@@ -82,8 +101,10 @@ namespace DWMPHorde.Networking
 
             // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
             // survivor was a co-op client with a partially synced world; writing sav.dat corrupted
-            // their slot. New host persists via manual F3 when the sim is trustworthy.
-            // TryHostMigrationSaveCheckpoint(); // disabled; host-leave client Save
+            // their slot. Old host already flushed via graceful-leave checkpoint; survivor
+            // persists via manual F3 when the sim is trustworthy.
+            // TryHostMigrationSaveCheckpoint(); // disabled; corrupts survivor sav
+            NotifyPromotedHostSaveReminder();
 
             BroadcastPeerRoster();
             // Time authority is us now; push the clock to reconnecting peers as they join.
@@ -104,9 +125,8 @@ namespace DWMPHorde.Networking
             if (!Steam.BeginHostingAfterMigration())
             {
                 ModLog.Error(LogCat.Network, "Steam host grant promote failed");
-                _role = NetworkRole.Offline;
-                _backend = ConnectionBackend.None;
                 _migrationInProgress = false;
+                StopNetwork();
                 StatusText = "Host grant failed (Steam)";
                 return;
             }
@@ -114,15 +134,41 @@ namespace DWMPHorde.Networking
             Steam.ArmMigrationAllowlist(allow, 60);
             _backend = ConnectionBackend.Steam;
             NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
-            _handshakeComplete = false;
-            _handshakedPeers.Clear();
+            _session.Link.HandshakeComplete = false;
+            _session.Link.Handshaked.Clear();
             _migrationInProgress = false;
             StatusText = "HOST GRANTED — Steam (p" + keepId + ")";
             ModLog.Event(LogCat.Network,
                 "HOST GRANTED (Steam): local p" + keepId + " | reason=" + reason);
+            NotifyPromotedHostSaveReminder();
 
             BroadcastPeerRoster();
             try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+        }
+
+
+        /// <summary>
+        /// Safer than auto-Save on promote: remind the survivor to F3 when the sim is
+        /// trustworthy. Does not write sav.dat (that corrupted co-op client slots).
+        /// </summary>
+        private void NotifyPromotedHostSaveReminder()
+        {
+            const string tip = "You are host now — press F3 to save when ready (auto-save on promote is disabled)";
+            try
+            {
+                StatusText = tip;
+                ModLog.Event(LogCat.Save, tip);
+                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
+                {
+                    DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                    try { Player.Instance.displayMessage(tip); }
+                    finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "Promote F3 reminder: " + ex.Message);
+            }
         }
 
         private void ConnectSteamPreservingId(string steamIdRaw, int electHostId)
@@ -148,16 +194,15 @@ namespace DWMPHorde.Networking
             if (!Steam.ConnectP2PDirect(hostSid))
             {
                 ModLog.Error(LogCat.Network, "Steam migration ConnectP2P failed");
-                _backend = ConnectionBackend.None;
-                _role = NetworkRole.Offline;
-                // Leave _migrationInProgress so TickHostMigrationRetry can try again.
+                // Stay a migrating Client on the Steam backend: TickHostMigrationRetry only runs
+                // for Role==Client, so dropping to Offline here stranded the session with no retry
+                // and no teardown. It retries up to MigrationMaxRetries, then StopNetwork.
                 StatusText = "Migrating — Steam connect failed, retrying…";
                 return;
             }
 
             int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            _steamPeers[hostKey] = hostSid;
-            _steamIdToPlayer[sid] = hostKey;
+            _steamPeers.Set(hostKey, hostSid);
             NoteSessionPort(SteamCoopTransport.MigrationVirtualPort);
             StatusText = "Migrating → Steam " + sid + " as p" + keepId;
             ModLog.Event(LogCat.Network,
@@ -173,7 +218,8 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                // Release MovePosition/kinematic drive before clearing maps.
+                // Release the pose drive (interpolation, kinematic) before clearing maps.
+                ClientEntityInterpolationService.ReleaseAllDrivenBodies();
                 ClientEntityInterpolationService.ReleaseAuthorityForPromote();
             }
             catch (Exception ex)
@@ -183,7 +229,8 @@ namespace DWMPHorde.Networking
 
             try
             {
-                Sync.WorldPhysicsSyncService.Reset();
+                Sync.WorldPhysicsSyncService.ResetForPromote();
+                Sync.TrapNetworkId.OnPromotedToHost();
             }
             catch (Exception ex)
             {
@@ -209,9 +256,9 @@ namespace DWMPHorde.Networking
             foreach (int id in proxyIds)
             {
                 if (id == _localPlayerId) continue;
-                WorldProxyHandlers.DestroyRemoteProxy(id);
-                PlayerHeldLightHandlers.DestroyRemoteFlareLight(id);
-                PlayerHeldLightHandlers.DestroyRemoteItemLight(id);
+                WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
+                PlayerHeldLightApplyHandlers.DestroyRemoteFlareLight(id);
+                PlayerHeldLightApplyHandlers.DestroyRemoteItemLight(id);
                 _remotePlayers.Remove(id);
             }
 
@@ -241,12 +288,12 @@ namespace DWMPHorde.Networking
             _role = NetworkRole.Client;
             _localPlayerId = keepId;
             _hostPlayerId = electHostId > 0 ? electHostId : _hostPlayerId;
-            _net = new NetManager(this) { UnconnectedMessagesEnabled = false, DisconnectTimeout = 30000 };
+            _net = CreateNetManager();
             _net.Start();
             string key = Config.ModConfig.GetConnectionKey();
             NetPeer peer = _net.Connect(address, port, key);
             int hostKey = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            _peers[hostKey] = peer;
+            _lanPeers.Set(hostKey, peer);
             NoteSessionPort(port);
             StatusText = "Migrating → " + address + ":" + port + " as p" + keepId;
             ModLog.Event(LogCat.Network,
@@ -254,44 +301,29 @@ namespace DWMPHorde.Networking
                 + " electHost=" + hostKey);
         }
 
-        private int TryRebindPreferredPlayerId(int provisionalId, int preferredId, NetPeer peer)
+        private int TryRebindPreferredPlayerId(int provisionalId, int preferredId, NetPeer peer,
+            bool reservedForResume)
         {
             if (preferredId <= 0 || preferredId == provisionalId || peer == null)
                 return provisionalId;
             if (preferredId == _localPlayerId)
                 return provisionalId;
-            if (_peers.ContainsKey(preferredId))
+            if (_lanPeers.Contains(preferredId))
+                return provisionalId;
+            if (!reservedForResume && !TryConsumeMigrationReservation(preferredId, LanAddressOf(peer)))
                 return provisionalId;
 
-            _peers.Remove(provisionalId);
-            _peers[preferredId] = peer;
-            if (_handshakedPeers.Remove(provisionalId))
-                _handshakedPeers.Add(preferredId);
-            if (_awaitingLateJoinBulk.TryGetValue(provisionalId, out float t))
-            {
-                _awaitingLateJoinBulk.Remove(provisionalId);
-                _awaitingLateJoinBulk[preferredId] = t;
-            }
-            if (_pendingHeavyLateJoinBulk.TryGetValue(provisionalId, out int heavyPhase))
-            {
-                _pendingHeavyLateJoinBulk.Remove(provisionalId);
-                _pendingHeavyLateJoinBulk[preferredId] = heavyPhase;
-            }
-            if (_peersLoadingWorld.Remove(provisionalId))
-                _peersLoadingWorld.Add(preferredId);
-            if (_peersCoopReconnect.Remove(provisionalId))
-                _peersCoopReconnect.Add(preferredId);
-
-            if (preferredId >= _nextPlayerId)
-                _nextPlayerId = preferredId + 1;
+            if (!_lanPeers.Rebind(provisionalId, preferredId))
+                return provisionalId;
+            RebindPlayerIdState(provisionalId, preferredId);
 
             ModLog.Event(LogCat.Network,
                 "Rebind peer id " + provisionalId + " → preferred " + preferredId);
             return preferredId;
         }
 
-        private static string _cachedLanIPv4;
-        private static float _cachedLanIPv4At = -999f;
+        private static string _cachedLanIPv4; // process-scoped: short TTL LAN address cache
+        private static float _cachedLanIPv4At = -999f; // process-scoped: short TTL LAN address cache
         private const float LanIPv4CacheSec = 60f;
 
         /// <summary>

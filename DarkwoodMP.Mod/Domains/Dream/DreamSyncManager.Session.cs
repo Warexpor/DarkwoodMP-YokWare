@@ -13,8 +13,10 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
-        public static void BeginStoryEndDefer()
+        public static void BeginStoryEndDefer(string preset, string outcome)
         {
+            _storyEndDeferPreset = preset;
+            _storyEndDeferOutcome = outcome;
             _storyEndDeferPending = true;
             _storyEndDeferDeadline = Time.realtimeSinceStartup + StoryEndDeferTimeoutSec;
             var ctrl = Singleton<Controller>.Instance;
@@ -30,6 +32,8 @@ namespace DWMPHorde.Sync
         {
             _storyEndDeferPending = false;
             _storyEndDeferDeadline = 0f;
+            _storyEndDeferPreset = null;
+            _storyEndDeferOutcome = null;
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl != null && _storyEndWatchdog != null)
             {
@@ -55,7 +59,12 @@ namespace DWMPHorde.Sync
         public static void ForceLocalDreamCleanup(string reason)
         {
             ClearStoryEndDefer();
-            ModRuntime.LegacyInfo("[DreamSync] ForceLocalDreamCleanup: " + reason);
+            CancelPendingEntries();
+            // A rejected / failed start leaves the host-resolved pick the client stored when it sent
+            // DreamStartRequest; getPreset("") would keep returning it for the next random dream.
+            if (DreamSession.IsFailureCleanup(reason))
+                DreamSession.ClearPendingHostPreset();
+            ModRuntime.LegacyInfo($"[DreamSync] ForceLocalDreamCleanup: {reason}");
             ClearRemoteDreamRoster();
             FadeOutDreamTransition();
             _earlyEntryTransitionPlayed = false;
@@ -76,9 +85,18 @@ namespace DWMPHorde.Sync
             catch { /* ignore */ }
 
             if (DreamSession.IsActive)
-                DreamSession.End(reason);
+            {
+                // Rejection / timeout / disconnect is not a clear. MarkCompleted
+                // would party-lock the preset while the host may still be inside.
+                if (DreamSession.IsFailureCleanup(reason))
+                    DreamSession.AbortStarting(reason);
+                else
+                    DreamSession.End(reason);
+            }
             if (Dreams.Instance != null && Dreams.Instance.dreaming)
-                ApplyRemoteDreamCleanup(reason);
+            {
+                ApplyRemoteDreamCleanup(DreamSession.IsFailureCleanup(reason) ? "" : reason);
+            }
             else
             {
                 try
@@ -91,12 +109,25 @@ namespace DWMPHorde.Sync
                 }
                 catch { /* ignore */ }
                 UnfreezeWorld(restoreTime: false);
+                // No dream came of this entry: the movie's audio fade and paused world sounds stay
+                // unless undone here.
+                try
+                {
+                    Singleton<Controller>.Instance?.fadeAudio(fadeOut: false, 1f, musicToo: true);
+                    Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
+                }
+                catch { /* ignore */ }
                 FinalDreamsceneManager.OnDreamEnded();
                 ClearRemoteDreamRoster();
+                ClearPreDreamState();
                 WorldQueryHelper.InvalidateCommonSceneScanCaches();
             }
+            FinalDreamsceneManager.OnLocalWokeUp();
+            ReleaseDreamInputLocks();
+            _entryTransitionSeen = false;
             _localDreamActive = false;
             _localDreamPreset = null;
+            _hostOrderedDreamEnd = false;
         }
 
         /// <summary>
@@ -115,23 +146,44 @@ namespace DWMPHorde.Sync
         /// falls back to local/remote flags for solo or mid-transition.
         /// </summary>
         public static bool IsDreamActive =>
-            DreamSession.IsActive || _localDreamActive || _remoteDreamActive.Values.Any(v => v)
+            DreamSession.IsActive || _localDreamActive || AnyRemoteDreamActive()
             || _earlyEntryTransitionPlayed;
 
+        /// <summary>Hot path (per-frame resolvers): struct enumerator, no LINQ allocation.</summary>
+        private static bool AnyRemoteDreamActive()
+        {
+            foreach (var kvp in _remoteDreamActive)
+            {
+                if (kvp.Value)
+                    return true;
+            }
+            return false;
+        }
+
         public static bool IsLocalDreamActive => _localDreamActive;
+
+        /// <summary>True while this peer is already in the dream-entry video.</summary>
+        public static bool HasPendingEntryTransition =>
+            _earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying;
 
         /// <summary>True when that remote peer is inside the shared dream.</summary>
         private static readonly System.Collections.Generic.HashSet<int> _dreamEntryConfirmed =
             new System.Collections.Generic.HashSet<int>();
+        private static readonly System.Collections.Generic.Dictionary<int, float> _peerEntryDeadline =
+            new System.Collections.Generic.Dictionary<int, float>();
         private static float _dreamEntryDeadline;
 
         public static bool IsRemoteInDream(int playerId)
         {
             if (playerId <= 0 || !_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
                 return false;
-            if (UnityEngine.Time.unscaledTime < _dreamEntryDeadline)
+            if (_dreamEntryConfirmed.Contains(playerId))
                 return true;
-            return _dreamEntryConfirmed.Contains(playerId);
+            // Per peer: a joiner noted after the original 10s window still counts
+            // until they confirm or their own grace ends.
+            if (_peerEntryDeadline.TryGetValue(playerId, out float peerDeadline))
+                return UnityEngine.Time.unscaledTime < peerDeadline;
+            return UnityEngine.Time.unscaledTime < _dreamEntryDeadline;
         }
 
         public static void NoteRemoteInDream(int playerId)
@@ -139,6 +191,8 @@ namespace DWMPHorde.Sync
             if (playerId <= 0)
                 return;
             _remoteDreamActive[playerId] = true;
+            if (!_dreamEntryConfirmed.Contains(playerId))
+                _peerEntryDeadline[playerId] = UnityEngine.Time.unscaledTime + 25f;
             if (_dreamEntryDeadline <= 0f)
                 _dreamEntryDeadline = UnityEngine.Time.unscaledTime + 10f;
         }
@@ -155,6 +209,7 @@ namespace DWMPHorde.Sync
         {
             _remoteDreamActive.Clear();
             _dreamEntryConfirmed.Clear();
+            _peerEntryDeadline.Clear();
             _dreamEntryDeadline = 0f;
         }
 
@@ -165,6 +220,7 @@ namespace DWMPHorde.Sync
             if (_remoteDreamActive.ContainsKey(playerId))
                 _remoteDreamActive[playerId] = false;
             _dreamEntryConfirmed.Remove(playerId);
+            _peerEntryDeadline.Remove(playerId);
         }
 
         /// <summary>Returns the dream Location's transform during an active dream, or null.</summary>
@@ -175,6 +231,39 @@ namespace DWMPHorde.Sync
                 return Dreams.Instance.dreamLocation.transform;
             return null;
         }
+
+        /// <summary>
+        /// The loaded dream pad, dream or not: vanilla keeps <c>Dreams.dreamLocation</c> after the
+        /// dream ends and destroys the pad 4 s later (Dreams.destroyDream), the window in which
+        /// its events can still tick.
+        /// </summary>
+        public static Transform GetLoadedDreamPad()
+        {
+            Location pad = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+            return pad != null ? pad.transform : null;
+        }
+
+        /// <summary>A scene object of the loaded dream pad (not the overworld twin of the same name).</summary>
+        public static bool IsOnDreamPad(Transform t)
+        {
+            Transform pad = GetLoadedDreamPad();
+            return pad != null && t != null && (t == pad || t.IsChildOf(pad));
+        }
+
+        /// <summary>
+        /// Outside-location pad slots (vanilla OutsideLocations.locationPositions) sit 25000 apart:
+        /// a position within half of that from the loaded dream pad is on that pad. Other slots
+        /// hold ordinary outside locations (a cellar, a bunker) whose events are not the dream's.
+        /// </summary>
+        public static bool IsAtDreamPad(Vector3 pos)
+        {
+            Transform pad = GetLoadedDreamPad();
+            if (pad == null) return false;
+            Vector3 d = pos - pad.position;
+            return Mathf.Abs(d.x) < DreamPadHalfSlot && Mathf.Abs(d.z) < DreamPadHalfSlot;
+        }
+
+        private const float DreamPadHalfSlot = 12500f;
 
         /// <summary>Party-once: preset already finished by the shared session.</summary>
         public static bool IsDreamCompleted(int playerId, string presetName)
@@ -188,6 +277,34 @@ namespace DWMPHorde.Sync
             return DreamSession.IsPresetCompleted(presetName);
         }
 
+        /// <summary>Host chain keeps ResolveActivePresetName on the live pocket.</summary>
+        public static void NoteLocalDreamPreset(string presetName)
+        {
+            if (!string.IsNullOrEmpty(presetName))
+                _localDreamPreset = presetName;
+        }
+
+        /// <summary>A peer that is dead in the overworld (night death or a pending day respawn).</summary>
+        internal static bool IsPeerDeadOutsideDream(LanNetworkManager net, int playerId)
+        {
+            if (playerId <= 0)
+                return false;
+            if (DeathStateTracker.IsRemoteNightDead(playerId))
+                return true;
+            var proxy = net.GetProxy(playerId);
+            CharBase cb = proxy != null ? proxy.CachedCharBase : null;
+            return cb != null && !cb.alive;
+        }
+
+        /// <summary>This player is dead in the overworld and sits a dream out.</summary>
+        internal static bool IsLocalDeadOutsideDream()
+        {
+            if (DeathStateTracker.LocalNightDeath)
+                return true;
+            Player p = Player.Instance;
+            return p != null && !p.alive && (Dreams.Instance == null || !Dreams.Instance.dreaming);
+        }
+
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
@@ -195,6 +312,7 @@ namespace DWMPHorde.Sync
             _localDreamActive = true;
             _localDreamPreset = presetName;
 
+            CloseOpenUiForDreamEntry();
             WorldQueryHelper.InvalidateCommonSceneScanCaches();
             FreezeWorld();
 
@@ -204,7 +322,7 @@ namespace DWMPHorde.Sync
 
             // Teleport the remote proxy (other player's character) to the dream
             // position so both players see each other immediately.
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 Vector3 proxyPos = Player.Instance != null
@@ -226,18 +344,26 @@ namespace DWMPHorde.Sync
                 // and confirm with DreamEntered after scene load.
                 if (net.Role == NetworkRole.Host)
                 {
+                    // A dead player (night death waiting for morning, or a day death before its
+                    // respawn) sits the dream out: it cannot act on the pad, never reports a dream
+                    // death (so "everyone is dead" never came), and vanilla endDreaming revives
+                    // whoever was in it. The peer itself refuses the entry too (OnRemoteDreamStarted).
                     foreach (int id in net.GetHandshakedPeerIds())
                     {
-                        if (id > 0 && id != net.LocalPlayerId)
+                        if (id > 0 && id != net.LocalPlayerId && !IsPeerDeadOutsideDream(net, id))
                             NoteRemoteInDream(id);
                     }
                     foreach (var dreamProxy in net.GetAllProxies())
                     {
-                        if (dreamProxy != null)
+                        if (dreamProxy != null && !IsPeerDeadOutsideDream(net, dreamProxy.PlayerId))
                             NoteRemoteInDream(dreamProxy.PlayerId);
                     }
+                    // The host is in it: the level slot(s) it is for are had.
+                    DreamSession.ApplyLvlFlags(DreamSession.LevelBits);
                     var started = DreamStartedMessage.Build(
                         presetName, locationPosition.x, locationPosition.y, locationPosition.z);
+                    started.EntryTransition = _entryTransitionSeen;
+                    _entryTransitionSeen = false;
                     net.Broadcast(NetMessageType.DreamStarted,
                         w => started.Serialize(w),
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -332,7 +458,7 @@ namespace DWMPHorde.Sync
 
             FinalDreamsceneManager.OnDreamEnded();
             ClearRemoteDreamRoster();
-            (ModRuntime.Network as LanNetworkManager)?.GameEventHandlers?.ClearPendingDreamGameEvents();
+            ModRuntime.Network?.GameEventHandlers?.ClearPendingDreamGameEvents();
 
             _localDreamActive = false;
             bool hostOrdered = _hostOrderedDreamEnd;
@@ -340,7 +466,7 @@ namespace DWMPHorde.Sync
 
             string outcomeName = (Dreams.Instance != null) ? (Dreams.Instance.outcome ?? "") : "";
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 // Host already fan-out at initiateEndDreaming; host-ordered clients never send.
@@ -375,71 +501,6 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo($"[DreamSync] Local dream ended: {endedPreset}, outcome={outcomeName}");
 
             _localDreamPreset = null;
-        }
-
-        /// <summary>
-        /// Host story exit: notify peers at initiateEndDreaming so they play the same
-        /// outcome video in parallel (DreamEnded used to arrive only after the video).
-        /// </summary>
-        public static void NotifyPeersStoryEndBeginning(string presetName, string outcomeName)
-        {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
-                return;
-            if (_dreamEndBroadcastSent)
-                return;
-            if (string.IsNullOrEmpty(outcomeName) || outcomeName == "playerDeath")
-                return;
-            if (DreamSession.IsRejectedOutcome(outcomeName))
-                return;
-
-            _dreamEndBroadcastSent = true;
-            if (DreamSession.IsActive)
-                DreamSession.End(outcomeName);
-
-            string resolved = !string.IsNullOrEmpty(presetName)
-                ? presetName
-                : ResolveActivePresetName();
-            var ended = DreamEndedMessage.Build(resolved ?? "", outcomeName);
-            net.Broadcast(NetMessageType.DreamEnded,
-                w => ended.Serialize(w),
-                LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo(
-                "[DreamSync] Host broadcast DreamEnded at initiateEndDreaming outcome="
-                + outcomeName);
-        }
-
-        /// <summary>
-        /// Client: the host ordered a story exit. Play the vanilla outcome transition, then endDreaming.
-        /// </summary>
-        public static bool TryBeginHostOrderedStoryEnd(string outcomeName)
-        {
-            if (string.IsNullOrEmpty(outcomeName) || outcomeName == "playerDeath")
-                return false;
-            if (DreamSession.IsRejectedOutcome(outcomeName))
-                return false;
-            var dreams = Dreams.Instance;
-            if (dreams == null || !dreams.dreaming)
-                return false;
-
-            ClearStoryEndDefer();
-            _hostOrderedDreamEnd = true;
-            dreams.outcome = outcomeName;
-            ModRuntime.LegacyInfo(
-                "[DreamSync] Host-ordered story end — playing exit transition outcome="
-                + outcomeName);
-            try
-            {
-                dreams.initiateEndDreaming();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _hostOrderedDreamEnd = false;
-                ModRuntime.Log?.LogWarning(
-                    "[DreamSync] Host-ordered initiateEndDreaming failed: " + ex.Message);
-                return false;
-            }
         }
 
     }

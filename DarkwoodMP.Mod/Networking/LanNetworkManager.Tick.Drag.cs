@@ -16,6 +16,8 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class LanNetworkManager
     {
+        /// <summary>The body of the local drag in progress (its pose rides on the STOP).</summary>
+        private Item _lastDraggedItem;
 
         /// <summary>
         /// Intentional E-drag release, in the same frame as vanilla
@@ -25,24 +27,30 @@ namespace DWMPHorde.Networking
         /// Reliable DragSync stop + local ForceStop; host also emits body-push stop signal so
         /// residual PhysicsState cannot re-arm MOS after claim clears.
         /// </summary>
-        public void NotifyLocalDragEnded(string objectName)
+        /// <param name="endedItem">The body let go of: its pose rides on the STOP so observers
+        /// play their copy out to where it really ended (null: no pose, observers release where
+        /// they are).</param>
+        public void NotifyLocalDragEnded(string objectName, Item endedItem = null)
         {
             if (!_wasDragging && string.IsNullOrEmpty(objectName) && string.IsNullOrEmpty(_lastDraggedItemName))
                 return;
 
             string endedName = !string.IsNullOrEmpty(objectName) ? objectName : (_lastDraggedItemName ?? "");
+            if (endedItem == null)
+                endedItem = _lastDraggedItem;
+            _lastDraggedItem = null;
             _wasDragging = false;
             _lastDraggedItemName = null;
             _dragScrapeActive = false;
             _dragScrapeQuietSince = -1f;
 
             if (!string.IsNullOrEmpty(endedName)
-                && _dragClaims.TryGetValue(endedName, out int cid)
+                && PlayerInteractHandlers.DragClaims.TryGetValue(endedName, out int cid)
                 && cid == _localPlayerId)
-                _dragClaims.Remove(endedName);
+                PlayerInteractHandlers.DragClaims.Remove(endedName);
 
             if (!string.IsNullOrEmpty(endedName))
-                _dragEndedAt[endedName] = Time.unscaledTime;
+                PlayerInteractHandlers.DragEndedAt[endedName] = Time.unscaledTime;
 
             if (!IsConnected)
             {
@@ -57,6 +65,21 @@ namespace DWMPHorde.Networking
                 ObjectName = endedName,
                 ClaimedByPlayerId = _localPlayerId
             };
+            if (endedItem != null && endedItem.gameObject != null
+                && string.Equals(endedItem.gameObject.name, endedName, StringComparison.Ordinal))
+            {
+                Transform endT = endedItem.transform;
+                Vector3 endPos = endT.position;
+                Vector3 endEuler = endT.rotation.eulerAngles;
+                dragMsg.PosX = endPos.x;
+                dragMsg.PosY = endPos.y;
+                dragMsg.PosZ = endPos.z;
+                dragMsg.RotX = endEuler.x;
+                dragMsg.RotY = endEuler.y;
+                dragMsg.RotZ = endEuler.z;
+                dragMsg.SendTime = RemoteDragTimeline.StampFor(endedItem.GetComponent<Rigidbody>());
+                dragMsg.HasPose = true;
+            }
             BroadcastHot(NetMessageType.DragSync, w => dragMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
 
             if (!string.IsNullOrEmpty(endedName))
@@ -65,8 +88,8 @@ namespace DWMPHorde.Networking
                 // Release the host rigidbody hold after our own drag so peers
                 // can interact with it.
                 Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(endedName);
-                // Host: dual-path intentional stop (PlayerAudio IsStopSignal) so residual
-                // PhysicsState after claim release cannot keep scrape armed on peers.
+                // Host: clear this peer's push tracking too, so residual PhysicsState after the
+                // claim release cannot keep a scrape armed here (peers stop on DragSync STOP).
                 if (_role == NetworkRole.Host)
                     NotifyBodyPushStopped(endedName);
             }
@@ -74,14 +97,16 @@ namespace DWMPHorde.Networking
 
         private void LateUpdate()
         {
-            if (!IsConnected || !_handshakeComplete) return;
+            if (!IsConnected || !_session.Link.HandshakeComplete) return;
 
-            bool perf = IsConnected && _handshakeComplete
+            bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             if (perf) ClientPerfProbe.LateBegin();
 
             // Both sides: interpolate world physics objects
             Sync.WorldPhysicsSyncService.UpdateObjectInterpolation();
+            // Both sides: other players' E-drags, posed after vanilla Update moved anything.
+            RemoteDragTimeline.Tick();
             if (perf) ClientPerfProbe.MarkObjInterp();
 
             // Client only: interpolate remote entity positions for smooth movement

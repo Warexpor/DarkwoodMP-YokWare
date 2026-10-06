@@ -106,6 +106,7 @@ namespace DWMPHorde.Players
 
         private void OnDestroy()
         {
+            DWMPHorde.Patches.EventTriggersProxyOccupancy.ForgetPlayer(PlayerId);
             foreach (tk2dSpriteAnimator anim in GetComponentsInChildren<tk2dSpriteAnimator>(true))
             {
                 if (anim.name.IndexOf("leg", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -138,7 +139,7 @@ namespace DWMPHorde.Players
             var net = ModRuntime.Network as Networking.LanNetworkManager;
             if (net == null || net.Role == Networking.NetworkRole.Offline) return;
             if (bullet.objectThatSpawnedMe != null) return; // Skip enemy bullets
-            if (!Config.ModConfig.FriendlyFireEnabled.Value) return; // FF disabled
+            if (!SessionSettings.FriendlyFireEnabled) return; // FF disabled
 
             // Prefer live weapon modded damage when local player owns the shot;
             // bullet.damage is set at spawn and may omit upgrade modifiers.
@@ -187,7 +188,7 @@ namespace DWMPHorde.Players
                 }, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }
 
-            ModRuntime.LegacyInfo("[ProxyCollisionEnter] bullet hit proxy, relayed " + dmg + " damage");
+            ModRuntime.LegacyInfo($"[ProxyCollisionEnter] bullet hit proxy, relayed {dmg} damage");
 
             // Physically destroy the bullet so it doesn't persist
             if (collision.gameObject != null)
@@ -195,7 +196,7 @@ namespace DWMPHorde.Players
         }
 
         // Throttled log counter to avoid spamming the log file
-        private static int _pushCollideCount;
+        private static int _pushCollideCount; // process-scoped: log throttle
 
         private void OnCollisionStay(Collision collision)
         {

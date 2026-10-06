@@ -7,8 +7,8 @@ namespace DWMPHorde.Patches
 {
     public static class InventorySafety
     {
-        private static readonly List<Player> _playerBuffer = new List<Player>();
-        private static readonly List<Inventory> _invBuffer = new List<Inventory>();
+        private static readonly List<Player> _playerBuffer = new List<Player>(); // process-scoped: scratch buffer, cleared before each use
+        private static readonly List<Inventory> _invBuffer = new List<Inventory>(); // process-scoped: scratch buffer, cleared before each use
 
         public static void HealSlot(InvItemClass item)
         {
@@ -49,6 +49,8 @@ namespace DWMPHorde.Patches
         private static void Postfix(InvItemClass __instance, ref InvSlot __result)
         {
             if (__result != null || __instance == null) return;
+            // Co-op only: singleplayer keeps vanilla's null slot.
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
 
             InventorySafety.HealSlot(__instance);
             __result = Traverse.Create(__instance).Field("_slot").GetValue<InvSlot>();

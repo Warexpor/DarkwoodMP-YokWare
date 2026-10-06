@@ -7,9 +7,9 @@ namespace DWMPHorde.Sync
 {
     /// <summary>
     /// Scene spatial lookups for net apply handlers.
-    /// OverlapSphere first; use a short-TTL scene cache only when needed
-    /// (never FindObjectsOfTypeAll). Lures may have no collider, so uncached
-    /// scene scans are avoided on the client.
+    /// OverlapSphere first; on a miss, the type's scene registry (no scan) or, for
+    /// types without one, a short-TTL scene cache (never FindObjectsOfTypeAll).
+    /// Lures may have no collider, so uncached scene scans are avoided on the client.
     /// </summary>
     internal static class WorldQueryHelper
     {
@@ -98,8 +98,9 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Shared short-TTL scene scan for soft-match / bulk paths that cannot use
-        /// OverlapSphere alone. Prefer <see cref="FindNearest{T}"/> when possible.
+        /// Every scene T (inactive included) for soft-match / bulk paths that cannot use
+        /// OverlapSphere alone: the type's registry when it has one (<see cref="SceneRegistries"/>),
+        /// else a short-TTL scene scan. Prefer <see cref="FindNearest{T}"/> when possible.
         /// </summary>
         public static T[] GetCachedSceneComponents<T>() where T : Component
             => SceneScanCache<T>.Get();
@@ -148,14 +149,21 @@ namespace DWMPHorde.Sync
             WorldPhysicsSyncService.InvalidateDreamPropColliderCache();
         }
 
-        /// <summary>Per-T scene array, refreshed at most every <see cref="SceneScanTtl"/> seconds.</summary>
+        /// <summary>
+        /// Per-T scene array. Types with a <see cref="SceneRegistry{T}"/> read it once the world is
+        /// seeded (same objects, inactive included, no scan; invalidating them is a no-op since the
+        /// registry is live). Other types, and every type before the seed, scan at most every
+        /// <see cref="SceneScanTtl"/> seconds.
+        /// </summary>
         private static class SceneScanCache<T> where T : Component
         {
-            private static T[] _items = Array.Empty<T>();
-            private static float _at = -999f;
+            private static T[] _items = Array.Empty<T>(); // process-scoped: short-TTL scene cache, dropped by InvalidateCommonSceneScanCaches on stop
+            private static float _at = -999f; // process-scoped: short-TTL scene cache, dropped by InvalidateCommonSceneScanCaches on stop
 
             public static T[] Get()
             {
+                if (SceneRegistries.Covers<T>())
+                    return SceneRegistry<T>.Snapshot();
                 float now = Time.unscaledTime;
                 if (_items.Length == 0 && _at < 0f || now - _at >= SceneScanTtl)
                 {
@@ -175,16 +183,23 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>Find an Inventory by position (OverlapSphere + fallback scan + DeathDrop).</summary>
+        /// <summary>
+        /// Find an Inventory by position. OverlapSphere first and return immediately on hit
+        /// — the old path always ran SceneScanCache&lt;Inventory&gt; (FindObjectsOfType ~45ms)
+        /// even after overlap succeeded, hitching every container/corpse open.
+        /// </summary>
         public static Inventory FindInventoryByPos(Vector3 pos, float maxDist = 2.5f)
         {
-            int n = Physics.OverlapSphereNonAlloc(pos, 1f, OverlapBuf);
+            float overlapR = Mathf.Max(maxDist, 1.5f);
+            int n = Physics.OverlapSphereNonAlloc(pos, overlapR, OverlapBuf);
             Inventory overlapBest = null;
             float overlapBestD = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 if (OverlapBuf[i] == null) continue;
                 Inventory inv = OverlapBuf[i].GetComponentInParent<Inventory>();
+                if (inv == null)
+                    inv = OverlapBuf[i].GetComponentInChildren<Inventory>();
                 if (inv == null || (inv.invType != Inventory.InvType.itemInv && inv.invType != Inventory.InvType.deathDrop))
                     continue;
                 float d = Vector3.Distance(inv.transform.position, pos);
@@ -194,13 +209,12 @@ namespace DWMPHorde.Sync
                     overlapBest = inv;
                 }
             }
+            if (overlapBest != null && overlapBestD <= maxDist)
+                return overlapBest;
+
+            // Cache miss / no collider: short-TTL scene scan (rate-limited by SceneScanCache).
             Inventory best = null;
             float bestDist = maxDist;
-            if (overlapBest != null && overlapBestD < maxDist)
-            {
-                best = overlapBest;
-                bestDist = overlapBestD;
-            }
             Inventory[] all = SceneScanCache<Inventory>.Get();
             for (int i = 0; i < all.Length; i++)
             {
@@ -221,8 +235,6 @@ namespace DWMPHorde.Sync
                 return best;
             }
 
-            // Final fallback: search DeathDrop objects by position (they may not have
-            // a physics collider and the inventory type may be set after initialization)
             DeathDrop[] bags = GetCachedSceneComponents<DeathDrop>();
             DeathDrop closestBag = null;
             float closestBagDist = 3f;
@@ -246,22 +258,56 @@ namespace DWMPHorde.Sync
                 }
             }
 
-            ModRuntime.LegacyInfo($"[Container] FindInventoryByPos: no inventory at {pos} (1m overlap + {maxDist}m scan + DeathDrop fallback)");
+            ModRuntime.LegacyInfo($"[Container] FindInventoryByPos: no inventory at {pos} (overlap {overlapR:F1}m + scan + DeathDrop)");
             return null;
+        }
+
+        /// <summary>
+        /// An inactive door / window with an active one of the same type at its spot. Vanilla
+        /// scenes keep such twins (border_main_cottageTrailer_01: two DoorSmall1 and two Window_2x1
+        /// at one position, one inactive); peers key state by position, so a twin's stale state
+        /// would land on the live one. Senders skip it. A lone inactive one (its location switched
+        /// off) is not a twin and still counts.
+        /// </summary>
+        public static bool IsInactiveTwin<T>(T c) where T : Component
+            => c != null && !c.gameObject.activeInHierarchy && IsInactiveTwin(c, GetCachedSceneComponents<T>());
+
+        /// <summary><see cref="IsInactiveTwin{T}(T)"/> against a list already in hand (no scene scan).</summary>
+        public static bool IsInactiveTwin<T>(T c, IList<T> all) where T : Component
+        {
+            if (c == null || all == null || c.gameObject.activeInHierarchy)
+                return false;
+            Vector3 p = c.transform.position;
+            for (int i = 0; i < all.Count; i++)
+            {
+                T o = all[i];
+                if (o == null || o == c || !o.gameObject.activeInHierarchy)
+                    continue;
+                if ((o.transform.position - p).sqrMagnitude < 0.25f)
+                    return true;
+            }
+            return false;
         }
 
         public static Door FindDoorByPos(Vector3 pos) => FindDoorByPosLoose(pos, 2f);
 
         public static Door FindDoorByPosLoose(Vector3 pos, float radius)
         {
-            // Tracker first (tight), then looser match, then physics overlap (B7).
+            // Tracker first (tight), then looser match, then physics overlap. The tracker also
+            // lists inactive doors (vanilla keeps inactive twins at a live door's spot): an
+            // inactive hit is only the answer when no tier finds an active door.
+            Door inactiveHit = null;
             Door d = ListTracker<Door>.FindByPosition(pos, 0.5f);
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = d;
             d = ListTracker<Door>.FindByPosition(pos, Mathf.Min(1.5f, radius));
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = inactiveHit ?? d;
             d = ListTracker<Door>.FindByPosition(pos, radius);
-            if (d != null) return d;
+            if (d != null && d.gameObject.activeInHierarchy) return d;
+            inactiveHit = inactiveHit ?? d;
 
+            // Physics only reports colliders of active objects.
             int n = Physics.OverlapSphereNonAlloc(pos, radius, OverlapBuf);
             Door best = null;
             float bestD = float.MaxValue;
@@ -279,7 +325,7 @@ namespace DWMPHorde.Sync
                     best = door;
                 }
             }
-            return best;
+            return best ?? inactiveHit;
         }
 
         public static Window FindWindowByPos(Vector3 pos) => FindWindowByPosLoose(pos, 2f);

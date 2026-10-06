@@ -18,20 +18,30 @@ namespace DWMPHorde.Patches
             Last[playerId] = now;
             return true;
         }
+
+        /// <summary>Session boundary: realtime stamps of departed peers must not throttle new ones.</summary>
+        public static void Reset() => Last.Clear();
     }
 
     /// <summary>
-    /// Decompile left the darknessCounter &gt; 0.4 branch empty. Restore spawn trigger
-    /// for the NightShadows perk (host runs full tryToSpawnShadow; client requests host wave).
+    /// Vanilla <c>Player.updateVars</c> leaves the darknessCounter &gt; 0.4 branch empty and
+    /// nothing else calls <c>tryToSpawnShadow</c>, so a single player never gets the perk
+    /// wave. The per-owner perk wave is therefore a co-op-only addition: it runs only while
+    /// connected (host runs full tryToSpawnShadow; client requests a host wave) and
+    /// single-player / an unconnected host keep vanilla behaviour.
     /// </summary>
     [HarmonyPatch(typeof(Player), "updateVars")]
     public static class NightShadowsThresholdPatch
     {
         private static float _lastLocalWaveRealtime;
 
+        public static void Reset() => _lastLocalWaveRealtime = 0f;
+
         private static void Postfix(Player __instance)
         {
             if (__instance == null || __instance.skills == null || !__instance.skills.NightShadows)
+                return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (Core.isDay()) return;
             if (Singleton<Controller>.Instance == null || !Singleton<Controller>.Instance.isHardNight)
@@ -62,8 +72,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Player __instance)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
             if (net.Role != NetworkRole.Client)
                 return true;
@@ -106,8 +115,7 @@ namespace DWMPHorde.Patches
             if (info == null || info.OwnerPlayerId <= 0)
                 return true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
 
             // Remote-owned shadow must not slap the host local player

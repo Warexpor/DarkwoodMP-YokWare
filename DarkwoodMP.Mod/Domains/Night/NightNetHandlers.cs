@@ -33,13 +33,12 @@ namespace DWMPHorde.Networking
             _pendingScenarioEvent = default;
             _hasPendingScenarioStateBulk = false;
             _pendingScenarioStateBulk = default;
-            Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-            Patches.ScenarioPendingEventState.PendingScenario = null;
         }
 
         internal void ClearShadowLookups()
         {
             _clientShadowLookups?.Clear();
+            _clientDeadShadowIds.Clear();
         }
 
         internal void HandleShadowEvent(ShadowEventMessage msg)
@@ -51,10 +50,25 @@ namespace DWMPHorde.Networking
             // Do not call Player.tryToSpawnShadow(); it spawns shadows at the wrong local
             // positions.  The host sends individual ShadowSpawnMessages with exact positions.
             var cs = Singleton<CharacterSpawner>.Instance;
-            if (cs != null)
+            if (cs == null)
+                return;
+            if (msg.End)
             {
-                cs.shadowsRemove = false;
+                // Vanilla Player.endShadows. The wave's shadows die on the host (their counter
+                // is the host's), so without this a client kept spawnedShadows set for the rest of
+                // the session, and with it a natural-light lantern that could never be lit again.
+                cs.shadowsRemove = true;
+                cs.spawnedShadows = false;
                 cs.shadowsPaused = false;
+                ModRuntime.LegacyInfo("[ShadowSync] client: shadow wave ended");
+                return;
+            }
+            cs.shadowsRemove = false;
+            cs.shadowsPaused = false;
+            // spawnedShadows is the cursed player's own state (vanilla: it keeps their natural
+            // lights off). Another player's wave only needs its shadows shown here.
+            if (msg.OwnerId == _net.LocalPlayerId)
+            {
                 cs.spawnedShadows = true;
                 cs.spawnedShadowsAmount = 8;
             }
@@ -131,7 +145,7 @@ namespace DWMPHorde.Networking
                 cs.spawnedShadowsAmount = 8;
             }
 
-            _net.SendShadowEvent(new ShadowEventMessage());
+            _net.SendShadowEvent(new ShadowEventMessage { OwnerId = (short)ownerPlayerId });
 
             int owner = ownerPlayerId;
             Vector3 center = origin;
@@ -174,6 +188,16 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client) return;
             if (Player.Instance == null) return;
 
+            // A real spawn announces a live shadow, even under an id the host recycled
+            // after the previous one with that id died.
+            _clientDeadShadowIds.Remove(msg.ShadowId);
+            SpawnClientShadow(msg);
+        }
+
+        private void SpawnClientShadow(ShadowSpawnMessage msg)
+        {
+            if (Player.Instance == null) return;
+
             var spawner = Singleton<CharacterSpawner>.Instance;
             if (spawner == null) return;
 
@@ -202,6 +226,9 @@ namespace DWMPHorde.Networking
             {
                 sc.distanceToPlayer = msg.DistanceToPlayer;
                 sc.dead = (msg.Flags & 2) != 0;
+                // Spawned already dead (late spawn message): nothing will ever remove it otherwise.
+                if (sc.dead)
+                    UnityEngine.Object.Destroy(go, 1.5f);
             }
 
             // Start the Float animation (blocked Start/appear won't trigger it)
@@ -217,6 +244,12 @@ namespace DWMPHorde.Networking
 
         private Dictionary<short, ShadowCreature> _clientShadowLookups;
 
+        /// <summary>
+        /// Shadows the host reported dead. StateUpdate is Unreliable, so a late "alive" update
+        /// for one of these would otherwise find no lookup entry and respawn the dead shadow.
+        /// </summary>
+        private readonly HashSet<short> _clientDeadShadowIds = new HashSet<short>();
+
         internal void HandleShadowStateUpdate(ShadowStateUpdateMessage msg)
         {
             if (_net.Role != NetworkRole.Client) return;
@@ -224,6 +257,10 @@ namespace DWMPHorde.Networking
 
             if (_clientShadowLookups.TryGetValue(msg.ShadowId, out var sc) && sc != null)
             {
+                // Already dying here: a reordered alive update must not drag it around or revive it.
+                if (sc.dead && (msg.Flags & 2) == 0)
+                    return;
+
                 // Update position
                 sc.transform.position = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
                 sc.transform.rotation = Quaternion.Euler(90f, msg.RotY, 0f);
@@ -233,18 +270,38 @@ namespace DWMPHorde.Networking
                 if (dead && !sc.dead)
                 {
                     sc.dead = true;
+                    float destroyAfter = 1.5f;
                     var anim = sc.GetComponent<tk2dSpriteAnimator>();
-                    if (anim != null && anim.GetClipByName("Death1") != null)
-                        anim.Play("Death1");
+                    var clip = anim != null ? anim.GetClipByName("Death1") : null;
+                    if (clip != null)
+                    {
+                        anim.Play(clip);
+                        if (clip.fps > 0f && clip.frames != null && clip.frames.Length > 0)
+                            destroyAfter = clip.frames.Length / clip.fps + 0.1f;
+                    }
+                    // Vanilla removes the puppet from its "WantToDie" animation event via die(), but
+                    // on a client Start (which wires that listener) and die (host-owned counters) are
+                    // skipped: the presentation copy is removed here once the death clip has played.
+                    UnityEngine.Object.Destroy(sc.gameObject, destroyAfter);
                 }
 
                 if (dead)
                 {
                     _clientShadowLookups.Remove(msg.ShadowId);
+                    _clientDeadShadowIds.Add(msg.ShadowId);
                 }
             }
             else
             {
+                // A dead shadow stays dead: never respawn it from a late or reordered update.
+                if ((msg.Flags & 2) != 0)
+                {
+                    _clientDeadShadowIds.Add(msg.ShadowId);
+                    return;
+                }
+                if (_clientDeadShadowIds.Contains(msg.ShadowId))
+                    return;
+
                 // Shadow not yet created; treat this as a spawn if ShadowSpawnMessage was missed.
                 var spawnMsg = new ShadowSpawnMessage
                 {
@@ -257,7 +314,7 @@ namespace DWMPHorde.Networking
                     DistanceToPlayer = msg.DistanceToPlayer,
                     Flags = msg.Flags
                 };
-                HandleShadowSpawn(spawnMsg);
+                SpawnClientShadow(spawnMsg);
             }
         }
     }

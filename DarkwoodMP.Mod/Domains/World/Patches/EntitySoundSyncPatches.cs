@@ -3,271 +3,334 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using UnityEngine;
+using DWMPHorde.Harmony;
 
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Host AI <see cref="CharacterSounds"/> → clients (vanilla API surface from decompile):
-    /// playGrowl, playSingleInstance (curious/aggressive/defensive/escapingStart),
-    /// playIdleLoop, destroySounds, playEscapingLoop, play(attack1/2/death/escapingStart2),
-    /// playGetHitByAxe1.
-    ///
-    /// Client entity AI is frozen, so peers never fire these locally — host must Broadcast.
-    /// Prefix sets <see cref="TraverseHack.InsideCharacterSounds"/> so PlayerAudio
-    /// AudioController hooks do not double-forward the same clip as a generic SFX.
+    /// Host creature sounds → clients. The host runs every creature's AI, so each
+    /// <see cref="CharacterSounds"/> one-shot it plays (play, playSingleInstance, playGrowl,
+    /// playGetHitByAxe1, the death line) and each AudioController play parented to a creature
+    /// (footsteps, shots, sniffs) goes out as <see cref="EntitySoundMessage"/> with its audio id,
+    /// whatever triggered it: the host's AI, an animation event, or a client's hit the host is
+    /// applying. Loops are state in the entity snapshot (<see cref="EntityLoopSync"/>).
+    /// A client plays these on its copy of the creature; its own copy's CharacterSounds calls
+    /// are blocked (its AI is frozen, the host's AI owns the creature's voice).
+    /// <see cref="TraverseHack.InsideCharacterSounds"/> marks the CharacterSounds scope so the
+    /// AudioController forward inside it is not sent a second time as an attached sound.
     /// </summary>
     internal static class EntitySoundSyncHelper
     {
-        /// <summary>True while host <see cref="CharacterSounds.playEscapingLoop"/> runs (suppress nested Idle).</summary>
-        internal static bool InsideEscapingLoop;
+        /// <summary>True while host <see cref="CharacterSounds.playFootHitGround"/> runs: its plays go unreliable.</summary>
+        internal static bool InsideFootstep; // process-scoped: call-scoped, unwound by its Finalizer
 
-        private static float EntitySoundRange =>
-            ClientEntityInterpolationService.ClientInterestDistance;
+        /// <summary>
+        /// The creature whose host <c>Character.die2</c> is running: only its <c>play(death)</c>
+        /// there is the death line. The same clip also plays outside it (redneck_kuba_01_damage is
+        /// Redneck's death and its Hit1/Hit2 pain grunt; banshee_attack_03 is both attack1 and death).
+        /// </summary>
+        internal static Character Die2Of; // process-scoped: call-scoped, unwound by its Finalizer
 
-        internal static void Broadcast(CharacterSounds sounds, EntitySoundType type)
+        /// <summary>Death only for the dying creature's death clip inside its die2.</summary>
+        internal static EntitySoundKind KindFor(CharacterSounds s, string sound, EntitySoundKind otherwise)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!ModRuntime.Network.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
-            if (sounds == null) return;
-            Character c = sounds.character as Character;
-            if (c == null) return;
-            if (!CharacterTracker.TryGetStableId(c, out short hostId)) return;
-
-            if (!LocalAudioService.IsNearAnyListener(c.transform.position, EntitySoundRange))
-                return;
-
-            var msg = new EntitySoundMessage { HostId = hostId, SoundType = type };
-            LanNetworkManager.Instance?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            return s != null && Die2Of != null && s.character == Die2Of && sound == s.death
+                ? EntitySoundKind.Death
+                : otherwise;
         }
 
-        internal static void BroadcastIdleLoop(CharacterSounds sounds, string loopName)
+        /// <summary>Vanilla CharacterSounds guards (underwaterCanPlay, isUnderground) for a one-shot.</summary>
+        internal static bool VanillaWouldPlay(CharacterSounds s, bool canPlayWhenUnderground = false)
         {
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            if (!ModRuntime.Network.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
-            if (sounds == null) return;
-            // Nested playIdleLoop from playEscapingLoop — Escaping message owns the loop.
-            if (InsideEscapingLoop)
-                return;
-            Character c = sounds.character as Character;
-            if (c == null) return;
-            if (!CharacterTracker.TryGetStableId(c, out short hostId)) return;
-
-            bool isStop = string.IsNullOrEmpty(loopName);
-            if (!isStop && !LocalAudioService.IsNearAnyListener(c.transform.position, EntitySoundRange))
-                return;
-
-            var msg = new EntitySoundMessage { HostId = hostId, SoundType = EntitySoundType.Idle, LoopName = loopName ?? "" };
-            LanNetworkManager.Instance?.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-        }
-
-        internal static void BroadcastIdleStop(CharacterSounds sounds)
-        {
-            BroadcastIdleLoop(sounds, "");
-        }
-
-        /// <summary>Match vanilla idleLoop → idleLoopAggressive when chasing.</summary>
-        internal static string ResolveIdleLoopName(CharacterSounds sounds, string loopName)
-        {
-            if (sounds == null || string.IsNullOrEmpty(loopName))
-                return loopName ?? "";
-            if (loopName == sounds.idleLoop && !string.IsNullOrEmpty(sounds.idleLoopAggressive))
-            {
-                Character ch = sounds.character as Character;
-                if (ch != null && ch.behaviour == Character.Behaviour.chasingTarget)
-                    return sounds.idleLoopAggressive;
-            }
-            return loopName;
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "playIdleLoop", new[] { typeof(string), typeof(bool) })]
-    public static class HostIdleLoopPatch
-    {
-        [HarmonyPrefix]
-        private static void Prefix() { TraverseHack.InsideCharacterSounds = true; }
-
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance, object[] __args)
-        {
-            string loopName = (string)__args[0];
-            TraverseHack.InsideCharacterSounds = false;
-            string resolved = EntitySoundSyncHelper.ResolveIdleLoopName(__instance, loopName);
-            EntitySoundSyncHelper.BroadcastIdleLoop(__instance, resolved);
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "destroySounds")]
-    public static class HostDestroySoundsPatch
-    {
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance)
-        {
-            EntitySoundSyncHelper.BroadcastIdleStop(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "playGrowl")]
-    public static class HostGrowlSoundPatch
-    {
-        [HarmonyPrefix]
-        private static void Prefix() { TraverseHack.InsideCharacterSounds = true; }
-
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance)
-        {
-            TraverseHack.InsideCharacterSounds = false;
-            EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Growl);
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "playEscapingLoop")]
-    public static class HostEscapingSoundPatch
-    {
-        [HarmonyPrefix]
-        private static void Prefix()
-        {
-            TraverseHack.InsideCharacterSounds = true;
-            EntitySoundSyncHelper.InsideEscapingLoop = true;
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance)
-        {
-            EntitySoundSyncHelper.InsideEscapingLoop = false;
-            TraverseHack.InsideCharacterSounds = false;
-            EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Escaping);
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "playSingleInstance", new[] { typeof(string) })]
-    public static class HostSingleInstanceSoundPatch
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(CharacterSounds __instance, object[] __args)
-        {
-            // Client: host-synced entities — suppress local anim/AI one-shots; EntitySound owns them.
-            if (ShouldSuppressClientLocal(__instance, (string)__args[0]))
+            if (s == null || s.character == null)
                 return false;
-            TraverseHack.InsideCharacterSounds = true;
+            Underwater uw = s.underwater;
+            if (uw != null && uw.isUnderwater && !uw.playCharacterSoundsWhenUnderwater)
+                return false;
+            return canPlayWhenUnderground || !s.character.isUnderground;
+        }
+
+        internal static void Send(CharacterSounds s, EntitySoundKind kind, string soundId, float volume = 1f)
+        {
+            if (s == null || s.isPlayer || string.IsNullOrEmpty(soundId))
+                return;
+            Send(s.character as Character, kind, soundId, volume);
+        }
+
+        /// <returns>False when the creature has no host id (caller may fall back to a positional forward).</returns>
+        internal static bool Send(Character c, EntitySoundKind kind, string soundId, float volume = 1f)
+        {
+            if (!NetGuard.ConnectedHost(out LanNetworkManager net))
+                return false;
+            if (c == null || string.IsNullOrEmpty(soundId))
+                return false;
+            if (!CharacterTracker.TryGetStableId(c, out short hostId) || hostId == 0)
+                return false;
+            // Within this sound's own carry of some player (a spectator listens at the one it follows),
+            // and within client interest: a copy past it is not driven and drops the sound.
+            float range = Mathf.Min(LocalAudioService.AudibleRange(soundId),
+                ClientEntityInterpolationService.ClientInterestDistance);
+            if (!LocalAudioService.IsNearAnyListener(c.transform.position, range))
+                return true;
+
+            var msg = new EntitySoundMessage
+            {
+                HostId = hostId,
+                Kind = kind,
+                SoundId = soundId,
+                Volume = volume,
+                // A hit the host applies from a client's attack: that client already showed it.
+                AttackerId = kind == EntitySoundKind.GetHit && LanNetworkManager.IsApplyingRemoteState
+                    ? net.CurrentReceivePlayerId
+                    : -1
+            };
+            // A late footstep is worse than a lost one; voices, hits and deaths must arrive.
+            DeliveryMethod delivery = InsideFootstep ? DeliveryMethod.Unreliable : DeliveryMethod.ReliableOrdered;
+            net.Broadcast(NetMessageType.EntitySound, w => msg.Serialize(w), delivery);
             return true;
         }
 
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance, object[] __args)
-        {
-            string sound = (string)__args[0];
-            TraverseHack.InsideCharacterSounds = false;
-            if (string.IsNullOrEmpty(sound)) return;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-
-            if (sound == __instance.curious)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Curious);
-            else if (sound == __instance.aggressive)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Aggressive);
-            else if (sound == __instance.defensive)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Defensive);
-            else if (!string.IsNullOrEmpty(__instance.escapingStart) && sound == __instance.escapingStart)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.EscapingStart);
-        }
-
-        internal static bool ShouldSuppressClientLocal(CharacterSounds sounds, string sound)
+        /// <summary>Client: a host-synced copy's own CharacterSounds call (frozen AI, anim event) is not played.</summary>
+        internal static bool ShouldSuppressClientLocal(CharacterSounds sounds)
         {
             if (sounds == null || sounds.isPlayer) return false;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return false;
-            if (ModRuntime.Network.Role != NetworkRole.Client) return false;
-            if (TraverseHack.ApplyingFromNetwork || TraverseHack.InsideCharacterSounds) return false;
+            if (!NetGuard.Connected(out var net) || net.Role != NetworkRole.Client) return false;
+            if (TraverseHack.InsideCharacterSounds) return false;
             Character c = sounds.character as Character;
             return c != null && ClientEntityInterpolationService.IsHostSynced(c);
         }
+
+        internal static bool IsHost => NetGuard.ConnectedHost(out _);
     }
 
-    [HarmonyPatch(typeof(CharacterSounds), "play", new[] { typeof(string), typeof(bool) })]
-    public static class HostCharacterPlaySoundPatch
+    /// <summary>
+    /// Client: a host-synced copy's loop is the host's (<see cref="EntityLoopSync"/>). Its own
+    /// playIdleLoop / destroySounds (WorldGrid enableComponents, OnEnable, Underwater, game
+    /// events) would start the wrong loop or kill the right one. Host: the scope keeps the
+    /// loop's AudioController play from being forwarded as a one-shot.
+    /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch]
+    public static class ClientCreatureLoopGuardPatch
     {
-        [HarmonyPrefix]
-        private static bool Prefix(CharacterSounds __instance, object[] __args)
+        private static System.Collections.Generic.IEnumerable<System.Reflection.MethodBase> TargetMethods()
         {
-            if (HostSingleInstanceSoundPatch.ShouldSuppressClientLocal(__instance, (string)__args[0]))
+            yield return AccessTools.Method(typeof(CharacterSounds), "playIdleLoop", new[] { typeof(string), typeof(bool) });
+            yield return AccessTools.Method(typeof(CharacterSounds), "playEscapingLoop");
+            yield return AccessTools.Method(typeof(CharacterSounds), "destroySounds");
+        }
+
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = TraverseHack.InsideCharacterSounds;
+            if (!EntityLoopSync.Applying && EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
                 return false;
             TraverseHack.InsideCharacterSounds = true;
             return true;
         }
 
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance, object[] __args)
+        private static void Finalizer(bool __state)
         {
-            string sound = (string)__args[0];
-            TraverseHack.InsideCharacterSounds = false;
-            if (string.IsNullOrEmpty(sound) || __instance == null) return;
-            if (__instance.isPlayer) return;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-
-            if (!string.IsNullOrEmpty(__instance.attack1) && sound == __instance.attack1)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Attack1);
-            else if (!string.IsNullOrEmpty(__instance.attack2) && sound == __instance.attack2)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Attack2);
-            else if (!string.IsNullOrEmpty(__instance.death) && sound == __instance.death)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.Death);
-            else if (!string.IsNullOrEmpty(__instance.escapingStart2) && sound == __instance.escapingStart2)
-                EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.EscapingStart2);
-        }
-    }
-
-    [HarmonyPatch(typeof(CharacterSounds), "playGetHitByAxe1")]
-    public static class HostGetHitSoundPatch
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(CharacterSounds __instance)
-        {
-            if (HostSingleInstanceSoundPatch.ShouldSuppressClientLocal(__instance, __instance != null ? __instance.getHitByAxe : null))
-                return false;
-            TraverseHack.InsideCharacterSounds = true;
-            return true;
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix(CharacterSounds __instance)
-        {
-            TraverseHack.InsideCharacterSounds = false;
-            if (__instance == null || __instance.isPlayer) return;
-            if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
-                return;
-            EntitySoundSyncHelper.Broadcast(__instance, EntitySoundType.GetHit);
+            TraverseHack.InsideCharacterSounds = __state;
         }
     }
 
     /// <summary>
-    /// Client host-synced: die2 must be soundless — EntitySound Death is sole authority
-    /// (prevents die2 + EntitySound + BeartrapDeath anim DeathSound triple).
+    /// Every machine: the loop vanilla playIdleLoop chose (<see cref="EntityLoopSync"/>). The host
+    /// sends that choice, not its own AudioObject, which its distance cull may have refused.
+    /// playEscapingLoop goes through playIdleLoop.
     /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playIdleLoop", new[] { typeof(string), typeof(bool) })]
+    public static class CreatureLoopIntentPatch
+    {
+        private static void Postfix(CharacterSounds __instance, string loopName, bool __runOriginal)
+        {
+            if (__runOriginal && __instance != null && !__instance.isPlayer)
+                EntityLoopSync.NoteVanillaPlayIdleLoop(__instance, loopName);
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "destroySounds")]
+    public static class CreatureLoopIntentClearPatch
+    {
+        private static void Postfix(CharacterSounds __instance, bool __runOriginal)
+        {
+            if (__runOriginal && __instance != null && !__instance.isPlayer)
+                EntityLoopSync.NoteVanillaDestroySounds(__instance);
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "play", new[] { typeof(string), typeof(bool) })]
+    public static class HostCharacterPlaySoundPatch
+    {
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = TraverseHack.InsideCharacterSounds;
+            if (EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
+                return false;
+            TraverseHack.InsideCharacterSounds = true;
+            return true;
+        }
+
+        private static void Postfix(CharacterSounds __instance, string sound, bool canPlayWhenUnderground, bool __runOriginal)
+        {
+            if (!__runOriginal || !EntitySoundSyncHelper.IsHost)
+                return;
+            if (!EntitySoundSyncHelper.VanillaWouldPlay(__instance, canPlayWhenUnderground))
+                return;
+            EntitySoundSyncHelper.Send(__instance, EntitySoundSyncHelper.KindFor(__instance, sound, EntitySoundKind.Play), sound);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            TraverseHack.InsideCharacterSounds = __state;
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playSingleInstance", new[] { typeof(string) })]
+    public static class HostSingleInstanceSoundPatch
+    {
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = TraverseHack.InsideCharacterSounds;
+            if (EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
+                return false;
+            TraverseHack.InsideCharacterSounds = true;
+            return true;
+        }
+
+        private static void Postfix(CharacterSounds __instance, string sound, bool __runOriginal)
+        {
+            if (!__runOriginal || !EntitySoundSyncHelper.IsHost)
+                return;
+            if (!EntitySoundSyncHelper.VanillaWouldPlay(__instance))
+                return;
+            EntitySoundSyncHelper.Send(__instance, EntitySoundSyncHelper.KindFor(__instance, sound, EntitySoundKind.Single), sound);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            TraverseHack.InsideCharacterSounds = __state;
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playGrowl")]
+    public static class HostGrowlSoundPatch
+    {
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = TraverseHack.InsideCharacterSounds;
+            if (EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
+                return false;
+            TraverseHack.InsideCharacterSounds = true;
+            return true;
+        }
+
+        private static void Postfix(CharacterSounds __instance, bool __runOriginal)
+        {
+            if (!__runOriginal || !EntitySoundSyncHelper.IsHost)
+                return;
+            if (!EntitySoundSyncHelper.VanillaWouldPlay(__instance))
+                return;
+            // playGrowl is playSingleInstance(growl) in all but name.
+            EntitySoundSyncHelper.Send(__instance, EntitySoundKind.Single, __instance.growl);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            TraverseHack.InsideCharacterSounds = __state;
+        }
+    }
+
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playGetHitByAxe1")]
+    public static class HostGetHitSoundPatch
+    {
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = TraverseHack.InsideCharacterSounds;
+            if (EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
+                return false;
+            TraverseHack.InsideCharacterSounds = true;
+            return true;
+        }
+
+        private static void Postfix(CharacterSounds __instance, bool __runOriginal)
+        {
+            if (!__runOriginal || !EntitySoundSyncHelper.IsHost || __instance == null)
+                return;
+            EntitySoundSyncHelper.Send(__instance, EntitySoundKind.GetHit, __instance.getHitByAxe);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            TraverseHack.InsideCharacterSounds = __state;
+        }
+    }
+
+    /// <summary>
+    /// Footsteps: the client's copy plays none of its own (frozen AI, replayed clips); the
+    /// host's go out attached to the creature, unreliable.
+    /// </summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(CharacterSounds), "playFootHitGround", new[] { typeof(float) })]
+    public static class ClientFootHitSuppressPatch
+    {
+        private static bool Prefix(CharacterSounds __instance, out bool __state)
+        {
+            __state = EntitySoundSyncHelper.InsideFootstep;
+            if (EntitySoundSyncHelper.ShouldSuppressClientLocal(__instance))
+                return false;
+            EntitySoundSyncHelper.InsideFootstep = true;
+            return true;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            EntitySoundSyncHelper.InsideFootstep = __state;
+        }
+    }
+
+    /// <summary>Host: marks the creature whose die2 runs, so its death line goes out as Death.</summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(Character), "die2")]
+    public static class HostDie2DeathLineScopePatch
+    {
+        private static void Prefix(Character __instance, out Character __state)
+        {
+            __state = EntitySoundSyncHelper.Die2Of;
+            if (EntitySoundSyncHelper.IsHost)
+                EntitySoundSyncHelper.Die2Of = __instance;
+        }
+
+        private static void Finalizer(Character __state)
+        {
+            EntitySoundSyncHelper.Die2Of = __state;
+        }
+    }
+
+    /// <summary>
+    /// Client host-synced: die2 is presentation only and soundless; the host's Death sound is
+    /// the one death line (vanilla die2 plays it, and BeartrapDeath's anim adds another).
+    /// </summary>
+    [OptionalPatch]
     [HarmonyPatch(typeof(Character), "die2")]
     public static class ClientDie2SoundlessPatch
     {
         private static void Prefix(Character __instance, ref bool soundless)
         {
             if (soundless) return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            if (ModRuntime.Network.Role != NetworkRole.Client) return;
+            if (!NetGuard.Connected(out var net) || net.Role != NetworkRole.Client) return;
             if (__instance == null) return;
             if (Player.Instance != null && __instance.gameObject == Player.Instance.gameObject) return;
             if (ClientEntityInterpolationService.IsHostSynced(__instance))
                 soundless = true;
-        }
-    }
-
-    /// <summary>Client host-synced: foot SFX come from host PlayerAudio enemy path.</summary>
-    [HarmonyPatch(typeof(CharacterSounds), "playFootHitGround", new[] { typeof(float) })]
-    public static class ClientFootHitSuppressPatch
-    {
-        private static bool Prefix(CharacterSounds __instance)
-        {
-            return !HostSingleInstanceSoundPatch.ShouldSuppressClientLocal(__instance, "foot");
         }
     }
 }

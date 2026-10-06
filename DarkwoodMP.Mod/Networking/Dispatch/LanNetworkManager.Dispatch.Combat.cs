@@ -11,85 +11,34 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
-        /// <summary>Inbound dispatch slice: Combat.</summary>
-        private bool TryDispatchCombat(NetMessageType type, byte[] payload)
+        /// <summary>Inbound handlers: Combat.</summary>
+        private void RegisterCombatHandlers()
         {
-            switch (type)
-            {
-                        case NetMessageType.PlayerAttack:
-                            CombatHandlers.HandlePlayerAttack(PlayerAttackMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DamagePlayer:
-                            CombatHandlers.HandleDamagePlayer(DamagePlayerMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.PlayerDied:
-                            CombatHandlers.HandlePlayerDied(PlayerDiedMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DeathBagSpawn:
-                            CombatHandlers.HandleDeathBagSpawn(DeathBagSpawnMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.DeathBagLooted:
-                            CombatHandlers.HandleDeathBagLooted(DeathBagLootedMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.NightDeathState:
-                            CombatHandlers.HandleNightDeathState(NightDeathStateMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.FriendlyFire:
-                            CombatHandlers.HandleFriendlyFire(FriendlyFireMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ThrowableSpawn:
-                            CombatFxHandlers.HandleThrowableSpawn(ThrowableSpawnMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ExplosionTrigger:
-                            CombatFxHandlers.HandleExplosionTrigger(ExplosionTriggerMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.GasTrailSpawn:
-                            CombatFxHandlers.HandleGasTrailSpawn(GasTrailSpawnMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.GasIgnite:
-                            CombatFxHandlers.HandleGasIgnite(GasIgniteMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ShadowEvent:
-                            NightHandlers.HandleShadowEvent(
-                                ShadowEventMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ShadowSpawn:
-                            NightHandlers.HandleShadowSpawn(
-                                ShadowSpawnMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.NightShadowSpawnRequest:
-                            NightHandlers.HandleNightShadowSpawnRequest(
-                                NightShadowSpawnRequestMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.EntityBurning:
-                            CombatFxHandlers.HandleEntityBurning(EntityBurningMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.LiquidStopBurning:
-                            CombatFxHandlers.HandleLiquidStopBurning(LiquidStopBurningMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ExplosionSpawnObject:
-                            CombatFxHandlers.HandleExplosionSpawnObject(ExplosionSpawnObjectMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.PlayerBurning:
-                            CombatFxHandlers.HandlePlayerBurning(PlayerBurningMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.MeleeWorldHit:
-                            CombatFxHandlers.HandleMeleeWorldHit(MeleeWorldHitMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ShadowArmorState:
-                            ShadowArmorHandlers.HandleShadowArmorState(
-                                ShadowArmorStateMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ShadowStateUpdate:
-                            NightHandlers.HandleShadowStateUpdate(
-                                ShadowStateUpdateMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                        case NetMessageType.ThrowableDespawn:
-                            WorldObjectSendHandlers.HandleThrowableDespawn(ThrowableDespawnMessage.Deserialize(new NetReader(payload)));
-                            return true;
-                default:
-                    return false;
-            }
+            On(NetMessageType.PlayerAttack, PlayerAttackMessage.Deserialize, m => CombatAttackHandlers.HandlePlayerAttack(m));
+            On(NetMessageType.DamagePlayer, DamagePlayerMessage.Deserialize, m => CombatAttackHandlers.HandleDamagePlayer(m));
+            On(NetMessageType.EnemyAttack, EnemyAttackMessage.Deserialize, m => EnemyAttackNetHandlers.HandleEnemyAttack(m));
+            On(NetMessageType.EnemyHitConfirm, EnemyHitConfirmMessage.Deserialize, m => EnemyAttackNetHandlers.HandleEnemyHitConfirm(m));
+            On(NetMessageType.PlayerDied, PlayerDiedMessage.Deserialize, m => CombatDeathStateHandlers.HandlePlayerDied(m));
+            On(NetMessageType.DeathBagSpawn, DeathBagSpawnMessage.Deserialize, m => CombatDeathBagHandlers.HandleDeathBagSpawn(m));
+            On(NetMessageType.DeathBagLooted, DeathBagLootedMessage.Deserialize, m => CombatDeathBagHandlers.HandleDeathBagLooted(m));
+            On(NetMessageType.NightDeathState, NightDeathStateMessage.Deserialize, m => CombatDeathStateHandlers.HandleNightDeathState(m));
+            On(NetMessageType.NightDeathRelease, NightDeathReleaseMessage.Deserialize, m => CombatDeathStateHandlers.HandleNightDeathRelease(m));
+            On(NetMessageType.MorningReward, MorningRewardMessage.Deserialize, m => CombatDeathStateHandlers.HandleMorningReward(m));
+            On(NetMessageType.FriendlyFire, FriendlyFireMessage.Deserialize, m => CombatAttackHandlers.HandleFriendlyFire(m));
+            On(NetMessageType.ThrowableSpawn, ThrowableSpawnMessage.Deserialize, m => CombatFxImpactHandlers.HandleThrowableSpawn(m));
+            On(NetMessageType.ExplosionTrigger, ExplosionTriggerMessage.Deserialize, m => CombatFxImpactHandlers.HandleExplosionTrigger(m));
+            On(NetMessageType.GasTrailSpawn, GasTrailSpawnMessage.Deserialize, m => CombatFxGasBurnHandlers.HandleGasTrailSpawn(m));
+            On(NetMessageType.GasIgnite, GasIgniteMessage.Deserialize, m => CombatFxGasBurnHandlers.HandleGasIgnite(m));
+            On(NetMessageType.ShadowEvent, ShadowEventMessage.Deserialize, m => NightHandlers.HandleShadowEvent(m));
+            On(NetMessageType.ShadowSpawn, ShadowSpawnMessage.Deserialize, m => NightHandlers.HandleShadowSpawn(m));
+            On(NetMessageType.NightShadowSpawnRequest, NightShadowSpawnRequestMessage.Deserialize, m => NightHandlers.HandleNightShadowSpawnRequest(m));
+            On(NetMessageType.EntityBurning, EntityBurningMessage.Deserialize, m => CombatFxGasBurnHandlers.HandleEntityBurning(m));
+            On(NetMessageType.LiquidStopBurning, LiquidStopBurningMessage.Deserialize, m => CombatFxGasBurnHandlers.HandleLiquidStopBurning(m));
+            On(NetMessageType.ExplosionSpawnObject, ExplosionSpawnObjectMessage.Deserialize, m => CombatFxImpactHandlers.HandleExplosionSpawnObject(m));
+            On(NetMessageType.PlayerBurning, PlayerBurningMessage.Deserialize, m => CombatFxGasBurnHandlers.HandlePlayerBurning(m));
+            On(NetMessageType.MeleeWorldHit, MeleeWorldHitMessage.Deserialize, m => CombatFxImpactHandlers.HandleMeleeWorldHit(m));
+            On(NetMessageType.ShadowArmorState, ShadowArmorStateMessage.Deserialize, m => ShadowArmorHandlers.HandleShadowArmorState(m));
+            On(NetMessageType.ShadowStateUpdate, ShadowStateUpdateMessage.Deserialize, m => NightHandlers.HandleShadowStateUpdate(m));
         }
     }
 }

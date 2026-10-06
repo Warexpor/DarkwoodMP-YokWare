@@ -18,22 +18,16 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, bool> _lastSentBoolFlags = new Dictionary<string, bool>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, bool> _pendingBoolFlags = new Dictionary<string, bool>();
-        private static readonly List<string> _flushKeys = new List<string>(16);
+        private static readonly List<string> _flushKeys = new List<string>(16); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>
-        /// Spatial / per-peer location flags stay local on each peer. Syncing them made
-        /// host and client thrash (playtest: player_inFirstHideout true/false every second
-        /// → client stutter + hideout logic churn). Story flags still sync.
+        /// Per-player flags (<see cref="PerPlayerFlagPolicy"/>) stay local on each peer. Syncing
+        /// the spatial ones made host and client thrash (playtest: player_inFirstHideout
+        /// true/false every second → client stutter + hideout logic churn); syncing the experience
+        /// ones handed one player's tutorial popups and night outcome to everyone. Story flags
+        /// still sync.
         /// </summary>
-        internal static bool IsLocalOnlyEphemeralFlag(string flagName)
-        {
-            if (string.IsNullOrEmpty(flagName))
-                return false;
-            // Vanilla hideout / location bookkeeping (not dialog story choices).
-            if (flagName.StartsWith("player_in", System.StringComparison.OrdinalIgnoreCase))
-                return true;
-            return false;
-        }
+        internal static bool IsLocalOnlyFlag(string flagName) => PerPlayerFlagPolicy.IsPerPlayer(flagName);
 
         public static void Reset()
         {
@@ -46,8 +40,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingBoolFlags.Count == 0) return;
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
@@ -66,7 +59,7 @@ namespace DWMPHorde.Patches
                     continue;
                 _pendingBoolFlags.Remove(name);
 
-                if (IsLocalOnlyEphemeralFlag(name))
+                if (IsLocalOnlyFlag(name))
                     continue;
 
                 // Skip if we already successfully sent this value
@@ -93,16 +86,16 @@ namespace DWMPHorde.Patches
             // NetworkApplyGuard. As with the door GameEvent exception, still fan out story flags
             // so the speaking client unlocks the next dialogue options.
             if (LanNetworkManager.IsApplyingRemoteState
-                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                && !DWMPHorde.Sync.HostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             // Host broadcasts; clients send changes to the host.
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
                 return;
 
-            // Never network spatial/location flags (local-only on each peer).
-            if (IsLocalOnlyEphemeralFlag(flagName))
+            // Never network per-player flags (local-only on each peer).
+            if (IsLocalOnlyFlag(flagName))
                 return;
 
             // Already successfully sent this value
@@ -125,7 +118,7 @@ namespace DWMPHorde.Patches
 
         private static void TrySend(LanNetworkManager net, string flagName, bool newValue, float now)
         {
-            if (IsLocalOnlyEphemeralFlag(flagName))
+            if (IsLocalOnlyFlag(flagName))
                 return;
 
             var msg = new FlagSyncMessage { Name = flagName, IsInt = false, BoolValue = newValue, IntValue = 0 };
@@ -148,7 +141,7 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, int> _lastSentIntFlags = new Dictionary<string, int>();
         private static readonly Dictionary<string, float> _lastSendTime = new Dictionary<string, float>();
         private static readonly Dictionary<string, int> _pendingIntFlags = new Dictionary<string, int>();
-        private static readonly List<string> _flushKeys = new List<string>(16);
+        private static readonly List<string> _flushKeys = new List<string>(16); // process-scoped: scratch buffer, cleared before each use
 
         public static void Reset()
         {
@@ -160,8 +153,7 @@ namespace DWMPHorde.Patches
         public static void TickFlush()
         {
             if (_pendingIntFlags.Count == 0) return;
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected) return;
+            if (!NetGuard.Connected(out var net)) return;
             if (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client) return;
 
             float now = UnityEngine.Time.time;
@@ -179,6 +171,9 @@ namespace DWMPHorde.Patches
                 if (!_pendingIntFlags.TryGetValue(name, out int value))
                     continue;
                 _pendingIntFlags.Remove(name);
+
+                if (FlagSyncBoolPatch.IsLocalOnlyFlag(name))
+                    continue;
 
                 if (_lastSentIntFlags.TryGetValue(name, out int last) && last == value)
                     continue;
@@ -200,11 +195,14 @@ namespace DWMPHorde.Patches
 
             // See FlagSyncBoolPatch. DialogOutcome world-only must still FlagSync.
             if (LanNetworkManager.IsApplyingRemoteState
-                && !DWMPHorde.Sync.DialogHostApplyGuard.Active)
+                && !DWMPHorde.Sync.HostApplyGuard.Active)
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
+                return;
+
+            if (FlagSyncBoolPatch.IsLocalOnlyFlag(flagName))
                 return;
 
             if (_lastSentIntFlags.TryGetValue(flagName, out int lastValue) && lastValue == newValue)

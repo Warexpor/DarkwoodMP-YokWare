@@ -26,6 +26,8 @@ namespace DWMPHorde.Config
         public static ModSetting<int> PreferredCoopCopySlot { get; private set; }
         /// <summary>Display name in chat (Yokyy product port).</summary>
         public static ModSetting<string> PlayerName { get; private set; }
+        /// <summary>Master switch for the Ctrl+C co-op chat HUD (see <see cref="ChatHud"/>).</summary>
+        public static ModSetting<bool> ChatEnabled { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
         public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
         public static ModSetting<string> LootShareModeSetting { get; private set; }
@@ -42,9 +44,15 @@ namespace DWMPHorde.Config
         /// </summary>
         public static ModSetting<bool> VerboseEntitySync { get; private set; }
         /// <summary>
-        /// Force free OS pointer (no Confined/ClipCursor). Required for dual-box Wayland + Wine.
+        /// Force free OS pointer (no Confined/ClipCursor). Off by default (vanilla confine);
+        /// Linux dual-box testers (Wayland + Wine) set it true in their cfg.
         /// </summary>
         public static ModSetting<bool> FreeCursorForDualBox { get; private set; }
+        /// <summary>Co-op frame-cost probe ([Perf] lines) outside Dev/Trace presets. Off by default.</summary>
+        public static ModSetting<bool> PerfProbe { get; private set; }
+        /// <summary>Host↔client world fingerprint compare; differences logged as DESYNC lines.</summary>
+        public static ModSetting<bool> DesyncCheck { get; private set; }
+        public static ModSetting<int> DesyncCheckIntervalSec { get; private set; }
         public static ModSetting<int> MaxPlayers { get; private set; }
         public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
         public static ModSetting<int> MaxPeerDamage { get; private set; }
@@ -58,8 +66,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoicePttKey { get; private set; }
         public static ModSetting<float> VoiceVolume { get; private set; }
         public static ModSetting<float> VoiceGain { get; private set; }
-        public static ModSetting<float> VoiceRangeFull { get; private set; }
-        public static ModSetting<float> VoiceRangeMax { get; private set; }
+        public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
+        public static ModSetting<float> VoiceMaxDistance { get; private set; }
         public static ModSetting<string> WalkieItemName { get; private set; }
 
         /// <summary>
@@ -83,6 +91,32 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> LogRedactPaths { get; private set; }
         public static ModSetting<bool> LogRedactIPs { get; private set; }
         public static ModSetting<bool> LogIncludeStacks { get; private set; }
+
+        public const int MinPort = 1;
+        public const int MaxPort = 65535;
+
+        private static int _lastWarnedPort = int.MinValue;
+
+        /// <summary>
+        /// Configured default port, clamped to a bindable UDP range. A hand-edited cfg with
+        /// 0 / 99999 would otherwise reach LiteNetLib as-is; warn once per bad value.
+        /// </summary>
+        public static int GetConnectPort()
+        {
+            int raw = ConnectPort != null ? ConnectPort.Value : PluginInfo.DefaultPort;
+            if (raw >= MinPort && raw <= MaxPort)
+                return raw;
+
+            int clamped = raw < MinPort ? MinPort : MaxPort;
+            if (raw != _lastWarnedPort)
+            {
+                _lastWarnedPort = raw;
+                ModLog.Warn(LogCat.Core,
+                    "ConnectPort " + raw + " is outside " + MinPort + "-" + MaxPort + " — using " + clamped
+                    + ". Fix [Network] ConnectPort in the config file.");
+            }
+            return clamped;
+        }
 
         public static LootShareMode GetLootShareMode()
         {
@@ -121,7 +155,8 @@ namespace DWMPHorde.Config
         public static void Bind(ModConfigStore config)
         {
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
-            ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort, "Default UDP port for LAN connections.");
+            ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort,
+                "Default UDP port for LAN connections (1-65535; out-of-range values are clamped with a warning).");
             HostPassword = config.Bind("Network", "HostPassword", "",
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match. Also used as Steam lobby conn key.");
             SteamLobbyId = config.Bind("Network", "SteamLobbyId", "",
@@ -136,7 +171,10 @@ namespace DWMPHorde.Config
                 "Last local profile slot (1-5) used for a permanent co-op world copy. 0 = none. "
                 + "Join picker highlights this; empty slots are still preferred when free.");
             PlayerName = config.Bind("Network", "PlayerName", "Player",
-                "Name shown in co-op chat (Ctrl+C).");
+                "Name shown in co-op chat (Ctrl+C) and speech bubbles.");
+            ChatEnabled = config.Bind("Network", "ChatEnabled", true,
+                "Co-op text chat: Ctrl+C opens the input, Enter sends, Esc closes. "
+                + "Gameplay input is locked while typing. Restart after change.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
@@ -149,7 +187,7 @@ namespace DWMPHorde.Config
             NamedNpcAllowlist = config.Bind("Gameplay", "NamedNpcAllowlist", "ChomperBlack",
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
-                "Host clamps peer-reported attack/FF damage to this max (anti-grief). No per-message rate limit — multi-hit weapons need every pellet to apply.");
+                "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
@@ -162,20 +200,21 @@ namespace DWMPHorde.Config
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
                 "Gain applied after Steam DecompressVoice.");
-            VoiceRangeFull = config.Bind("Voice", "VoiceRangeFull", 8f,
-                "Distance (m) at which proximity voice is full volume.");
-            VoiceRangeMax = config.Bind("Voice", "VoiceRangeMax", 28f,
-                "Distance (m) beyond which proximity voice is silent.");
+            // Game units, like every other range here (a body is about 40 across).
+            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
+                "Distance (game units) within which proximity voice is at full volume.");
+            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
+                "Distance (game units) beyond which proximity voice is silent (same as other peer sounds).");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
-            // Entity spawner moved to standalone plugin YokWare.EntitySpawner (F5).
+            // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
-            // Support = join/session/combat Events + [Perf] Core without Legacy flood.
-            // Dev = LegacyInfo dumps. Trace = VerboseLogging gates (not LegacyInfo).
+            // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).
+            // Dev = LegacyInfo dumps. Trace = max capture (LegacyInfo + VerboseLogging gates).
             LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
-                "Public=quiet. Support=session/join/combat + [Perf] (default). Dev=LegacyInfo dumps. Trace=high-freq Verbose gates. Stutter triage: Dev or Support+[Perf]. Restart after change.");
+                "Public=quiet. Support=session/join/combat (default; [Perf] needs Debug.PerfProbe). Dev=LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose). Dual-box bug packs: Trace on both. Restart after change.");
             LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
-                "Error | Warn | Event | Info | Trace. LegacyInfo only runs when LogPreset=Dev (not Trace).");
+                "Error | Warn | Event | Info | Trace. LegacyInfo runs on LogPreset=Dev or Trace.");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
                 "Optional Event categories on top of preset (comma): Core,Network,Session,Combat,Entity,Physics,Container,World,AI,Dream,Death,Audio,UI,Save.");
             LogTraceCategories = config.Bind("Logging", "LogTraceCategories", "none",
@@ -185,8 +224,9 @@ namespace DWMPHorde.Config
             // Local dual-box default: full lines in BepInEx/LogOutput.log (set true for public pastebins).
             LogRedactPaths = config.Bind("Logging", "LogRedactPaths", false,
                 "Strip absolute paths to filenames in log lines (safer pastebins).");
-            LogRedactIPs = config.Bind("Logging", "LogRedactIPs", false,
-                "Mask IPv4 in logs (Public always; leave true when sharing Support logs).");
+            LogRedactIPs = config.Bind("Logging", "LogRedactIPs", true,
+                "Mask IPv4 in log lines. On by default so shared logs do not leak addresses; "
+                + "set false to see full IPs while debugging your own LAN.");
             LogIncludeStacks = config.Bind("Logging", "LogIncludeStacks", true,
                 "Include full exception stacks on Error (also on for Dev/Trace).");
 
@@ -194,25 +234,45 @@ namespace DWMPHorde.Config
                 "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
                 "Transition light sync logs. Leave false unless debugging lights.");
-            VerboseEntitySync = config.Bind("Debug", "VerboseEntitySync", true,
+            VerboseEntitySync = config.Bind("Debug", "VerboseEntitySync", false,
                 "Deep entity sync logs (anim/interp/reaction/damage/spawn). Rate-limited Trace + "
-                + "lifecycle Events. Default true for dual-box diagnosis — set false for quiet play. "
+                + "lifecycle Events. Off by default; set true for dual-box diagnosis. "
                 + "Also enables Entity/Combat/AI Trace under Support without full Trace preset.");
-            FreeCursorForDualBox = config.Bind("Debug", "FreeCursorForDualBox", true,
-                "Force Cursor.lockState=None (skip vanilla Confined). Needed for dual-box on "
-                + "Hyprland/Wayland and especially Wine/Proton SecondDarkwood — Confined ClipCursor "
-                + "traps the mouse and blur-release can freeze the Wine window. Set false only for "
-                + "single-window vanilla confine behavior.");
+            FreeCursorForDualBox = config.Bind("Debug", "FreeCursorForDualBox", false,
+                "Force Cursor.lockState=None (skip vanilla Confined). Off by default (vanilla confine). "
+                + "Linux dual-box testers (Hyprland/Wayland, Wine/Proton SecondDarkwood) set this true: "
+                + "Confined ClipCursor traps the mouse and blur-release can freeze the Wine window.");
+            PerfProbe = config.Bind("Debug", "PerfProbe", false,
+                "Co-op frame-cost probe: per-frame timing + [Perf] line every 2 s while connected. "
+                + "Always on under LogPreset=Dev/Trace; set true to capture it under Support/Public.");
+            DesyncCheck = config.Bind("Debug", "DesyncCheck", true,
+                "Host sends each client a fingerprint of the world state they should share; the client "
+                + "compares it with its own and logs any difference that lasts two checks as a DESYNC "
+                + "line (both logs). Needs the host's setting on; a client with it off ignores digests.");
+            DesyncCheckIntervalSec = config.Bind("Debug", "DesyncCheckIntervalSec", 15,
+                "Seconds between desync checks (clamped 5..300).");
 
-            config.Save();
+            // A read-only or locked cfg must not abort startup: every setting is already bound
+            // with its in-memory value, the file is only a convenience.
+            try
+            {
+                config.Save();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("Config save failed (" + config.ConfigFilePath + "): " + ex.Message);
+            }
         }
 
         /// <summary>True when VerboseLightSync is enabled (safe if unbound).</summary>
         public static bool IsVerboseLightSync =>
             VerboseLightSync != null && VerboseLightSync.Value;
 
-        /// <summary>True when VerboseEntitySync is enabled (safe if unbound — defaults on).</summary>
+        /// <summary>True when the PerfProbe flag is enabled (safe if unbound — defaults off).</summary>
+        public static bool IsPerfProbe => PerfProbe != null && PerfProbe.Value;
+
+        /// <summary>True when VerboseEntitySync is enabled (safe if unbound — defaults off).</summary>
         public static bool IsVerboseEntitySync =>
-            VerboseEntitySync == null || VerboseEntitySync.Value;
+            VerboseEntitySync != null && VerboseEntitySync.Value;
     }
 }

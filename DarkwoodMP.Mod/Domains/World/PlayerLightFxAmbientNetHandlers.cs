@@ -103,17 +103,24 @@ namespace DWMPHorde.Networking
                     ambientT = light.transform;
                 }
 
+                // The lantern is vanilla's own light dot widened (Player.modifyLightDot): it sits
+                // where the dot sits on the player, on the dot's layer, and looks exactly like the
+                // local player's dot, only bigger. The message colour is not the dot's (the sender
+                // packs white, or its flashlight's colour while one is held).
+                Light2D dot = LocalLightDot();
                 ambientT.gameObject.SetActive(true);
-                ambientT.localPosition = Vector3.zero;
-                ambientT.localRotation = Quaternion.identity;
+                ambientT.localPosition = dot != null ? dot.transform.localPosition : Vector3.zero;
+                ambientT.localRotation = dot != null ? dot.transform.localRotation : Quaternion.identity;
+                PutOnLightLayer(light.gameObject);
 
                 float radius = msg.LightRadius > 0f ? msg.LightRadius : 450f;
                 light.LightRadius = radius;
-                light.LightIntensity = msg.LightIntensity > 0f ? msg.LightIntensity : 1f;
-                if (msg.LightColorR + msg.LightColorG + msg.LightColorB > 0.01f)
-                    light.LightColor = new Color(msg.LightColorR, msg.LightColorG, msg.LightColorB, 0f);
-                else
-                    light.LightColor = new Color(1f, 0.85f, 0.45f, 0f);
+                if (dot != null)
+                {
+                    light.LightColor = dot.LightColor;
+                    light.LightIntensity = dot.LightIntensity;
+                    light.ShadowLayer = dot.ShadowLayer;
+                }
                 light.LightConeAngle = 360f;
                 // Render + AI graph for area light, but this is NOT Player.Instance.lightDot.
                 light.lightsPlayer = true;
@@ -124,7 +131,7 @@ namespace DWMPHorde.Networking
                     ctrl.logicLights.Add(light);
 
                 ModLog.Event(LogCat.World,
-                    $"[Light] remote lantern ON p{playerId} r={radius:F0} go={light.gameObject.name}");
+                    $"[Light] remote lantern ON p{playerId} r={radius:F0} go={light.gameObject.name} layer={light.gameObject.layer}");
             }
             else if (ambientT != null)
             {
@@ -135,14 +142,25 @@ namespace DWMPHorde.Networking
                     light.LightRadius = 0.001f;
                     light.lightsPlayer = false;
                     light.updateGraph = false;
+                    // Light2D.Start lists a fresh light itself; with the add above it can be there twice.
                     var ctrl = Singleton<Controller>.Instance;
                     if (ctrl != null)
-                        ctrl.logicLights.Remove(light);
+                        ctrl.logicLights.RemoveAll(l => l == light);
                 }
                 // Destroy instead of hide to avoid a leftover duplicate mesh next time.
                 UnityEngine.Object.Destroy(ambientT.gameObject);
                 ModLog.Event(LogCat.World, $"[Light] remote lantern OFF p{playerId}");
             }
+        }
+
+        private static Light2D LocalLightDot()
+        {
+            if (Player.Instance == null)
+                return null;
+            if (Player.Instance.lightDot != null)
+                return Player.Instance.lightDot;
+            Transform t = FindChildIncludingInactive(Player.Instance.transform, "PlayerLightDot");
+            return t != null ? t.GetComponent<Light2D>() : null;
         }
 
         /// <summary>Factory radial only; never Instantiate(PlayerLightDot).</summary>
@@ -173,7 +191,32 @@ namespace DWMPHorde.Networking
             created.transform.localPosition = Vector3.zero;
             created.transform.localRotation = Quaternion.identity;
             created.transform.localScale = Vector3.one;
+            PutOnLightLayer(created.gameObject);
             return created;
+        }
+
+        /// <summary>
+        /// A light made in code must sit on the layer the light camera draws. CamMain.setPlayColors
+        /// gives LightCam the culling mask 256: layer 8, "Light". Every vanilla light is a prefab
+        /// already on it; <c>new GameObject</c> / <c>Light2D.Create</c> land on Default, so the mesh
+        /// is never drawn into the light buffer and the light shows nowhere. Copies the layer and
+        /// sorting of the local player's light dot (the lantern is that dot widened in vanilla).
+        /// </summary>
+        internal static void PutOnLightLayer(GameObject go)
+        {
+            if (go == null) return;
+            Light2D dot = LocalLightDot();
+            int layer = dot != null ? dot.gameObject.layer : LayerMask.NameToLayer("Light");
+            if (layer < 0) return;
+            if (go.layer != layer)
+                go.layer = layer;
+            MeshRenderer src = dot != null ? dot.GetComponent<MeshRenderer>() : null;
+            MeshRenderer dst = go.GetComponent<MeshRenderer>();
+            if (src != null && dst != null)
+            {
+                dst.sortingLayerID = src.sortingLayerID;
+                dst.sortingOrder = src.sortingOrder;
+            }
         }
 
         internal static void EnsureRadialMaterial(Light2D light)

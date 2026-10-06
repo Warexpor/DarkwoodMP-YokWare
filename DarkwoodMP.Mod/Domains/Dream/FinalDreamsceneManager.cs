@@ -20,8 +20,16 @@ namespace DWMPHorde.Sync
         private static readonly HashSet<int> _deadPlayerIds = new HashSet<int>();
         private static readonly HashSet<int> _connectedPlayerIds = new HashSet<int>();
 
+        /// <summary>
+        /// The local player died in this dream. Unlike <see cref="IsLocalDead"/> it survives the
+        /// DreamEnded receipt (which runs before the exit video and endDreaming), so the reward
+        /// downgrade and the spectate exit at wake-up still see it.
+        /// </summary>
+        private static bool _localDiedThisDream;
+
         public static bool IsActive => _isActive;
         public static bool IsLocalDead => _localDeadInDream;
+        public static bool WasLocalDeadThisDream => _localDiedThisDream || _localDeadInDream;
 
         /// <summary>
         /// One-shot: allow initiateEndDreaming(playerDeath) through the death Prefix
@@ -36,7 +44,7 @@ namespace DWMPHorde.Sync
             {
                 if (!_isActive || !_localDeadInDream)
                     return false;
-                var net = ModRuntime.Network as LanNetworkManager;
+                var net = ModRuntime.Network;
                 if (net == null)
                     return true;
                 foreach (int id in net.GetHandshakedPeerIds())
@@ -45,7 +53,7 @@ namespace DWMPHorde.Sync
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(id))
                         continue;
-                    if (!_deadPlayerIds.Contains(id))
+                    if (!_deadPlayerIds.Contains(id) && !DeathStateTracker.IsRemoteNightDead(id))
                         return false;
                 }
                 foreach (var proxy in net.GetAllProxies())
@@ -54,7 +62,15 @@ namespace DWMPHorde.Sync
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
                         continue;
-                    if (!_deadPlayerIds.Contains(proxy.PlayerId))
+                    if (!_deadPlayerIds.Contains(proxy.PlayerId) && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                        return false;
+                }
+                // Noted in the dream but not connected (yet): a survivor rejoining a promoted host.
+                foreach (int id in DreamSyncManager.RemoteDreamParticipantIds())
+                {
+                    if (id <= 0 || id == net.LocalPlayerId)
+                        continue;
+                    if (DreamSyncManager.IsRemoteInDream(id) && !_deadPlayerIds.Contains(id))
                         return false;
                 }
                 return true;
@@ -75,8 +91,10 @@ namespace DWMPHorde.Sync
         {
             _isActive = true;
             _localDeadInDream = false;
+            _localDiedThisDream = false;
             _ending = false;
             _deadPlayerIds.Clear();
+            ClearPeerDeadInDreamFlags();
             RefreshConnectedPlayers();
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Dream started — death tracking active ({_connectedPlayerIds.Count} remotes connected)");
@@ -84,15 +102,54 @@ namespace DWMPHorde.Sync
 
         public static void OnDreamEnded()
         {
+            // Before the _isActive gate: an all-dead teardown already cleared _isActive, and the
+            // dialogue door / spirit state of that dream must not carry into the next one.
+            ClearPeerDeadInDreamFlags();
+            DWMPHorde.Patches.DialogueDoorAftermath.Reset();
+            DreamForestSpiritAggro.Reset();
             if (!_isActive) return;
             _isActive = false;
             _localDeadInDream = false;
             _ending = false;
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
+            ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
+        }
+
+        /// <summary>
+        /// Next pocket in the same session. Door/spirit presentation resets.
+        /// Death and spectator state stay so a dead peer is not marked alive.
+        /// </summary>
+        public static void OnDreamChained()
+        {
             DWMPHorde.Patches.DialogueDoorAftermath.Reset();
             DreamForestSpiritAggro.Reset();
-            ModRuntime.LegacyInfo("[FinalDreamscene] Dream ended — state reset");
+            ModRuntime.LegacyInfo("[FinalDreamscene] Dream chained — death roster kept");
+        }
+
+        /// <summary>
+        /// RemotePlayerState.IsDeadInDream is set on a peer's FinalDreamsceneDeath but only the
+        /// peer's own DreamEnded cleared it, and a peer who died never sends one. Clear it for
+        /// every peer at session start/end so a later dream's story end is not rejected as
+        /// "dead_in_dream".
+        /// </summary>
+        private static void ClearPeerDeadInDreamFlags()
+        {
+            var net = ModRuntime.Network;
+            if (net == null) return;
+            var ids = new HashSet<int>(_connectedPlayerIds);
+            foreach (int id in net.GetHandshakedPeerIds())
+                ids.Add(id);
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy != null)
+                    ids.Add(proxy.PlayerId);
+            }
+            foreach (int id in ids)
+            {
+                if (id > 0 && net.TryGetRemoteState(id, out var st) && st != null)
+                    st.IsDeadInDream = false;
+            }
         }
 
         /// <summary>
@@ -102,7 +159,7 @@ namespace DWMPHorde.Sync
         public static void RefreshConnectedPlayers()
         {
             _connectedPlayerIds.Clear();
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
             foreach (var proxy in net.GetAllProxies())
             {
@@ -149,10 +206,11 @@ namespace DWMPHorde.Sync
             }
 
             _localDeadInDream = true;
+            _localDiedThisDream = true;
 
             ModRuntime.LegacyInfo("[FinalDreamscene] Local player died in dream");
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected)
             {
                 net.Broadcast(NetMessageType.FinalDreamsceneDeath,
@@ -164,6 +222,31 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("after local death");
+        }
+
+        /// <summary>
+        /// Promoted host, once the survivors had their chance to rejoin: an all-dead check that
+        /// could not run at promote (no peer was connected yet, so a dead local player alone
+        /// would have read as everyone dead).
+        /// </summary>
+        public static void CheckAllDeadAfterPromote()
+        {
+            if (!_isActive || _ending)
+                return;
+            RefreshConnectedPlayers();
+            if (AllDead)
+                TryHostEndAllDead("after host migration");
+        }
+
+        /// <summary>Client back on a (new) host while dead in the dream: tell it again.</summary>
+        public static void ResendLocalDeath()
+        {
+            var net = ModRuntime.Network;
+            if (!_localDeadInDream || net == null || !net.IsConnected)
+                return;
+            net.Broadcast(NetMessageType.FinalDreamsceneDeath,
+                w => new FinalDreamsceneDeathMessage { IsDead = true }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
         }
 
         public static void OnRemoteDeathInDream(int playerId)
@@ -193,7 +276,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static void TryHostEndAllDead(string reason)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.IsConnected && net.Role != NetworkRole.Host)
             {
                 ModRuntime.LegacyInfo(
@@ -204,11 +287,32 @@ namespace DWMPHorde.Sync
             EndDreamForBoth();
         }
 
+        /// <summary>
+        /// The local player is back in the overworld (endDreaming ran, or a hard cleanup). A player
+        /// who died in the dream leaves spectate here, without the spectate position restore (that
+        /// pose is on the dream pad), and gets its body back.
+        /// </summary>
+        public static void OnLocalWokeUp()
+        {
+            bool died = _localDiedThisDream || _localDeadInDream;
+            _localDiedThisDream = false;
+            if (!died)
+                return;
+            var spec = SpectatorModeController.Instance;
+            if (spec != null && spec.IsSpectating)
+                spec.ExitWithoutPositionRestore();
+            if (Player.Instance != null)
+                Player.Instance.switchVisibilty(true);
+            ModRuntime.LegacyInfo("[FinalDreamscene] Woke up after dying in the dream — spectate left");
+        }
+
         public static void OnDisconnected()
         {
             _isActive = false;
             _localDeadInDream = false;
+            _localDiedThisDream = false;
             _ending = false;
+            AllowDeathEndPass = false;
             _deadPlayerIds.Clear();
             _connectedPlayerIds.Clear();
         }
@@ -222,30 +326,33 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
-            // Peer left while the session was active but the spectate manager was not armed;
-            // still tear down.
+            // Last peer gone while the local player is alive: the host plays the dream out solo.
+            // Ending here forced outcome "playerDeath", which MarkCompleted-ed and burned the
+            // preset for a player who never died. Solo death/story end then use the vanilla path
+            // (HasRemoteParticipants() == false). A dead local player with no one left is the
+            // genuine all-dead case and ends below.
             if ((!_isActive || _ending) && _connectedPlayerIds.Count == 0 && DreamSession.IsActive)
             {
-                var netEarly = ModRuntime.Network as LanNetworkManager;
-                if (netEarly != null && netEarly.Role == NetworkRole.Host)
-                {
-                    ModRuntime.LegacyInfo(
-                        "[FinalDreamscene] Last peer left mid-session — ending dream");
-                    EndDreamForBoth();
-                }
+                ModRuntime.LegacyInfo(
+                    "[FinalDreamscene] Last peer left mid-session — dream continues solo");
                 return;
             }
 
             if (!_isActive || _ending) return;
 
-            // Last peer gone: end shared dream whether local is dead or still alive.
             if (_connectedPlayerIds.Count == 0)
             {
-                ModRuntime.LegacyInfo(
-                    "[FinalDreamscene] No remotes left — ending shared dream"
-                    + (_localDeadInDream ? " (local was dead)" : " (local still alive)"));
-                if (DreamSession.IsActive || _isActive)
-                    EndDreamForBoth();
+                if (_localDeadInDream)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[FinalDreamscene] No remotes left and local is dead — ending shared dream");
+                    TryHostEndAllDead("last peer left, local dead");
+                }
+                else
+                {
+                    ModRuntime.LegacyInfo(
+                        "[FinalDreamscene] No remotes left — local alive, dream continues solo");
+                }
                 return;
             }
 
@@ -255,7 +362,7 @@ namespace DWMPHorde.Sync
 
         private static void EnterDreamSpectator()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             // Stable order by PlayerId; prefer living proxies (3+ cycle).
@@ -280,7 +387,7 @@ namespace DWMPHorde.Sync
             if (_ending) return;
             _ending = true;
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
 
             var player = Player.Instance;
             if (player != null)

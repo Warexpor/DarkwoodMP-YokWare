@@ -54,15 +54,26 @@ namespace DWMPHorde.Spectator
             _spectateTargetIndex = 0;
         }
 
-        /// <summary>Exit spectator mode and restore the local player to active state.</summary>
-        public void ExitAndRespawn()
+        /// <summary>
+        /// Exit spectator mode and restore the local player to active state.
+        /// <paramref name="restorePosition"/> false: keep the body where it is (caller
+        /// sends it home, as vanilla <c>onDeath</c> does) but still restore the
+        /// invisible / ignoreMe flags saved on entry.
+        /// </summary>
+        public void ExitAndRespawn(bool restorePosition = true)
         {
             if (_spectateTargetIndex < 0) return;
 
             var player = Player.Instance;
             if (player != null)
             {
-                RestorePlayerPosition(player);
+                if (restorePosition)
+                    RestorePlayerPosition(player);
+                else
+                {
+                    player.invisible = _savedPlayerInvisible;
+                    player.ignoreMe = _savedPlayerIgnoreMe;
+                }
                 player.switchVisibilty(true);
                 ShowLocalExtraVision(player);
                 if (player.immobilised)
@@ -93,8 +104,10 @@ namespace DWMPHorde.Spectator
             _followTarget = null;
             _spectateTargetIndex = -1;
 
+            // Local flags only: leaving spectate must not wipe the other peers' death
+            // bookkeeping. Set PreventSpectator after the reset (the reset clears it).
+            DeathStateTracker.ResetLocal();
             DeathStateTracker.PreventSpectator = true;
-            DeathStateTracker.Reset();
 
             ModRuntime.LegacyInfo("[Spectate] ExitAndRespawn — player restored");
         }
@@ -136,8 +149,10 @@ namespace DWMPHorde.Spectator
             if (Singleton<UI>.Instance != null)
                 Singleton<UI>.Instance.showVisibleUI();
 
+            // Local flags only: leaving spectate must not wipe the other peers' death
+            // bookkeeping. Set PreventSpectator after the reset (the reset clears it).
+            DeathStateTracker.ResetLocal();
             DeathStateTracker.PreventSpectator = true;
-            DeathStateTracker.Reset();
 
             ModRuntime.LegacyInfo("[Spectate] ExitWithoutPositionRestore");
         }
@@ -161,18 +176,24 @@ namespace DWMPHorde.Spectator
                         return;
                     if (holdDeathSpectate)
                     {
-                        // Hold: wait for all-dead / host morning / dream end resolve.
+                        // Nobody left to follow: the host hands a night death to the morning
+                        // resolve (it resolves only once every remaining peer is dead too).
+                        // Otherwise hold for all-dead / host morning / dream end.
+                        TryHandOffNoTargetToMorning();
                         return;
                     }
                     ForceExit();
                     return;
                 }
                 // If current target died, switch to next living proxy when possible.
-                var cb = _followTarget.GetComponentInParent<CharBase>();
+                var cb = FollowTargetCharBase();
                 if (cb != null && !cb.alive
                     && (DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead))
                 {
                     if (TryRetargetLivingProxy())
+                        return;
+                    TryHandOffNoTargetToMorning();
+                    if (!IsSpectating)
                         return;
                 }
                 SyncProxyVision();
@@ -183,8 +204,10 @@ namespace DWMPHorde.Spectator
             if (!Input.GetKeyDown(KeyCode.F4))
                 return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!CanUseSpectateKey())
+                return;
+
+            if (!NetGuard.Connected(out var net))
                 return;
 
             // Prefer alive proxies, ordered by player ID for a stable F4 cycle.
@@ -224,6 +247,66 @@ namespace DWMPHorde.Spectator
                 }
                 SwitchToTarget(targets[_spectateTargetIndex].transform);
             }
+        }
+
+        private Transform _cachedCharBaseTarget;
+        private CharBase _cachedCharBase;
+
+        /// <summary>CharBase of the follow target, looked up once per target.</summary>
+        private CharBase FollowTargetCharBase()
+        {
+            if (_cachedCharBaseTarget != _followTarget)
+            {
+                _cachedCharBaseTarget = _followTarget;
+                _cachedCharBase = _followTarget != null ? _followTarget.GetComponentInParent<CharBase>() : null;
+            }
+            return _cachedCharBase;
+        }
+
+        private float _nextNoTargetResolveAt;
+
+        /// <summary>
+        /// Host, night-dead, no living proxy to follow: ask the all-dead morning resolve
+        /// (throttled). A client waits for the host's release / AllDeadTrigger instead.
+        /// </summary>
+        private void TryHandOffNoTargetToMorning()
+        {
+            if (!DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsLocalDead)
+                return;
+            if (!NetGuard.Host(out var net))
+                return;
+            if (Time.unscaledTime < _nextNoTargetResolveAt)
+                return;
+            _nextNoTargetResolveAt = Time.unscaledTime + 1f;
+            DeathStateTracker.TryResolveNightMorning("spectator: no living target");
+        }
+
+        /// <summary>
+        /// F4 is a menu-less hotkey, so it needs the same state guards as the F3 manual-save
+        /// window plus the states where moving the body under a peer would corrupt a
+        /// transition: dialogue, dream entry/switch, cutscene.
+        /// </summary>
+        private static bool CanUseSpectateKey()
+        {
+            if (Core.mainMenu || Core.loadingGame || Core.forbidInputs || Core.EnteringDream)
+                return false;
+            // F4 typed into chat / the F2 menu must not start spectating.
+            if (UiInputLock.IsHeld)
+                return false;
+
+            Player player = Player.Instance;
+            if (player == null || player.inDialogue)
+                return false;
+
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null && ctrl.playingCutscene)
+                return false;
+
+            Dreams dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && (dreams.switchingDream || dreams.wantToDream || dreams.dreamPrepared))
+                return false;
+
+            return true;
         }
 
         private void SyncProxyVision()

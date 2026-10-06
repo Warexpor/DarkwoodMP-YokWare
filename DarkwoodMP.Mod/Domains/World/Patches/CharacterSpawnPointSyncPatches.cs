@@ -1,3 +1,5 @@
+using System.Collections;
+using DWMPHorde.Harmony;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using HarmonyLib;
@@ -56,7 +58,8 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(CharacterSpawnPoint), "waitToSpawnCharacter")]
     public static class CharacterSpawnPointWaitToSpawnPatch
     {
-        private static bool Prefix(CharacterSpawnPoint __instance)
+        // waitToSpawnCharacter is IEnumerator; StartCoroutine(null) without __result.
+        private static bool Prefix(CharacterSpawnPoint __instance, ref IEnumerator __result)
         {
             if (!CharacterSpawnPointAuth.IsClientConnected())
                 return true;
@@ -67,6 +70,7 @@ namespace DWMPHorde.Patches
                     "[CharacterSpawnPoint] client skipped waitToSpawnCharacter on "
                     + (__instance != null ? __instance.name : "?"));
             }
+            __result = HarmonyCoroutineUtil.Empty();
             return false;
         }
     }

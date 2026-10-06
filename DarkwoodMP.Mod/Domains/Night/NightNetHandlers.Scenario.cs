@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde;
+using DWMPHorde.Logging;
 using DWMPHorde.Config;
 using DWMPHorde.Patches;
 using DWMPHorde.Players;
@@ -38,7 +39,8 @@ namespace DWMPHorde.Networking
             NightScenario scenario = ns.getScenario(msg.ScenarioName);
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioSync] unknown scenario '{msg.ScenarioName}'");
+                ModLog.WarnRate(LogCat.World, "scenario-sync-unknown",
+                    $"[ScenarioSync] unknown scenario '{msg.ScenarioName}'");
                 return;
             }
 
@@ -67,7 +69,8 @@ namespace DWMPHorde.Networking
             NightScenario scenario = ns.getScenario(msg.ScenarioName);
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioStateBulk] unknown scenario '{msg.ScenarioName}'");
+                ModLog.WarnRate(LogCat.World, "scenario-bulk-unknown",
+                    $"[ScenarioStateBulk] unknown scenario '{msg.ScenarioName}'");
                 return;
             }
 
@@ -181,19 +184,22 @@ namespace DWMPHorde.Networking
 
             if (scenario == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] unknown nightId {msg.NightId}");
+                ModLog.WarnRate(LogCat.World, "scenario-event-night",
+                    $"[ScenarioEventFired] unknown nightId {msg.NightId}");
                 return;
             }
 
             if (msg.EventIndex >= scenario.customEventAndInts.Count)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] index {msg.EventIndex} out of range (count={scenario.customEventAndInts.Count})");
+                ModLog.WarnRate(LogCat.World, "scenario-event-index",
+                    $"[ScenarioEventFired] index {msg.EventIndex} out of range (count={scenario.customEventAndInts.Count})");
                 return;
             }
 
             if (scenario.customEventAndInts[msg.EventIndex].customEvent == null)
             {
-                ModRuntime.Log?.LogWarning($"[ScenarioEventFired] null CustomEvent at index {msg.EventIndex}");
+                ModLog.WarnRate(LogCat.World, "scenario-event-null",
+                    $"[ScenarioEventFired] null CustomEvent at index {msg.EventIndex}");
                 return;
             }
 
@@ -204,101 +210,42 @@ namespace DWMPHorde.Networking
             ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in nightId {msg.NightId}");
 
             CustomEvent ce = scenario.customEventAndInts[msg.EventIndex].customEvent;
-            bool outside = Player.Instance == null || Player.Instance.whereAmI == null
-                || Player.Instance.whereAmI.bigLocation == null;
-            if (ce != null && ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent)
-            {
-                if (outside)
-                {
-                    Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-                    Patches.ScenarioPendingEventState.PendingScenario = null;
-                    return;
-                }
+            bool locationEvent = ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent;
+            // A location event plays only where the host played it: the location this client
+            // stands in. Elsewhere its scene (and the host's creatures) is somewhere else.
+            bool here = locationEvent && Patches.NightEventAnchor.LocalIn(msg.Anchors);
+            if (here)
                 Patches.ClientRandomEventGate.Arm(20f);
-                try
+            try
+            {
+                using (new NetworkApplyGuard())
                 {
-                    using (new NetworkApplyGuard())
+                    ce.lastTimeCheckedIfWantToFire = Singleton<Controller>.Instance.CurrentTimeAndDay;
+                    if (here || !locationEvent)
+                        // RandomEvent.fire stays blocked on clients outside a host replay: this is
+                        // the night's bookkeeping (current event, its start, categories).
                         ce.fire(force: true);
+                    else
+                        Patches.NightEventAnchor.MarkStarted(ce);
                 }
-                catch (System.Exception ex)
-                {
-                    ModRuntime.Log?.LogWarning("[ScenarioEventFired] location event replay failed: " + ex.Message);
-                }
-                Patches.ScenarioPendingEventState.PendingEventIndex = -1;
-                Patches.ScenarioPendingEventState.PendingScenario = null;
-                return;
             }
-
-            Patches.ScenarioPendingEventState.PendingEventIndex = msg.EventIndex;
-            Patches.ScenarioPendingEventState.PendingScenario = scenario;
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ScenarioEventFired] event apply failed: " + ex.Message);
+            }
         }
 
         /// <summary>
-        /// Client slept: the host may adopt the post-sleep clock, then send
-        /// TimeSync to all peers. This does not run the full day chain.
+        /// A client woke up (vanilla <c>Player.onEndSleep</c>: lying down for a respawn, a dream, the
+        /// prologue). Waking never moves the clock in vanilla (it has no sleep-to-skip; the unused
+        /// TimeSkip item is dead code). The host used to adopt the client's day and time here, so a
+        /// lagging or stale client clock could jump everyone forward past the day's events. It now
+        /// only re-sends its own clock so the waking client snaps to it.
         /// </summary>
         internal void HandleSleepEndRequest(SleepEndRequestMessage msg)
         {
             if (_net.Role != NetworkRole.Host) return;
-
-            Controller ctrl = Singleton<Controller>.Instance;
-            if (ctrl == null) return;
-
-            bool forward = msg.Day > ctrl.day
-                || (msg.Day == ctrl.day && msg.CurrentTime > ctrl.CurrentTime)
-                || (msg.Day == ctrl.day && msg.CurrentTime == ctrl.CurrentTime
-                    && msg.IsAfterNight != ctrl.isAfterNight);
-
-            if (!forward)
-            {
-                ModRuntime.LegacyInfo(
-                    $"[SleepSync] ignore non-forward sleep day={msg.Day} time={msg.CurrentTime} " +
-                    $"(host day={ctrl.day} time={ctrl.CurrentTime})");
-                // Still rebroadcast host clock so client snaps.
-                _net.SendTimeSyncTo(-1);
-                return;
-            }
-
-            ctrl.day = msg.Day;
-            ctrl.CurrentTime = msg.CurrentTime;
-
-            // Mirror the after-night flag only; do not run startAfterNight or
-            // endAfterNight world chains.
-            if (msg.IsAfterNight && !ctrl.isAfterNight)
-            {
-                ctrl.isAfterNight = true;
-                try
-                {
-                    if (Player.Instance != null && Player.Instance.effects != null)
-                        ctrl.addAfterNightEffect();
-                }
-                catch (System.Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[SleepSync] addAfterNightEffect: " + ex.Message);
-                }
-            }
-            else if (!msg.IsAfterNight && ctrl.isAfterNight)
-            {
-                ctrl.isAfterNight = false;
-                try { ctrl.removeAfterNightEffect(); }
-                catch (System.Exception ex)
-                {
-                    if (ModRuntime.VerboseLogging)
-                        ModRuntime.Log?.LogWarning("[SleepSync] removeAfterNightEffect: " + ex.Message);
-                }
-            }
-
-            try { ctrl.refreshTimeNoLogic(); }
-            catch (System.Exception ex)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.Log?.LogWarning("[SleepSync] refreshTimeNoLogic: " + ex.Message);
-            }
-
-            ModRuntime.LegacyInfo(
-                $"[SleepSync] host adopted client sleep day={msg.Day} time={msg.CurrentTime} afterNight={msg.IsAfterNight}");
-            _net.SendTimeSyncTo(-1);
+            _net.SendTimeSyncTo(_net.CurrentReceivePlayerId > 0 ? _net.CurrentReceivePlayerId : -1);
         }
 
         /// <summary>

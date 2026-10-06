@@ -1,4 +1,7 @@
+using System.Collections;
 using System.Collections.Generic;
+using DWMPHorde;
+using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using HarmonyLib;
@@ -20,16 +23,17 @@ namespace DWMPHorde.Patches
 
     // ─── Forest Spirit redirect ────────────────────────────────────────
 
-    [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
     public static class ForestSpiritRedirectPatch
     {
-        private static bool Prefix(CharacterSpawner __instance)
+        // spawnForestSpirit is IEnumerator; return false without __result → StartCoroutine(null).
+        [HarmonyPriority(Priority.Last)]
+        private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
         {
             if (!ShouldRedirect())
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return true;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -50,6 +54,7 @@ namespace DWMPHorde.Patches
             Core.AddPooledPrefab("FX", "ForestSpirit_fastSpawnEff", destPosition, Quaternion.identity);
             __instance.StartCoroutine(DelayedSpawnForestSpirit(destPosition));
 
+            __result = HarmonyCoroutineUtil.Empty();
             return false;
         }
 
@@ -64,8 +69,8 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network?.Role != NetworkRole.Host) return false;
             if (!PlayerPositionManager.HasRemotePlayer) return false;
             if (Player.Instance == null) return false;
-            if (LanNetworkManager.Instance == null) return false;
-            return NightSpawnFarProxies.Fill(LanNetworkManager.Instance, Player.Instance.transform.position).Count > 0;
+            if (ModRuntime.Network == null) return false;
+            return NightSpawnFarProxies.Fill(ModRuntime.Network, Player.Instance.transform.position).Count > 0;
         }
     }
 
@@ -78,6 +83,8 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network?.Role != NetworkRole.Host) return;
             if (NightSpawnGetFreeSpotPatch.InsideNightSpawn) return;
+            // The redneck ambush already picked a player out on the road.
+            if (HostRedneckPartyPatch.Placing) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
 
             if (Player.Instance == null) return;
@@ -85,7 +92,7 @@ namespace DWMPHorde.Patches
             GameObject destGO = (GameObject)__args[0];
             if (destGO != Player.Instance.gameObject) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -106,6 +113,8 @@ namespace DWMPHorde.Patches
         private static void Postfix(Character __result)
         {
             if (__result == null || !__result.temporarySpawned) return;
+            // Night monsters at the hideout keep the hideout's waypoints (vanilla).
+            if (NightSpawnGetFreeSpotPatch.InsideNightSpawn) return;
             if (ModRuntime.Network?.Role != NetworkRole.Host) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
             if (__result.waypoints != null)
@@ -115,13 +124,14 @@ namespace DWMPHorde.Patches
 
     // ─── NightWorm redirect (post-spawn reposition) ───────────────────
 
-    [HarmonyPriority(Priority.Last)]
-    [HarmonyPatch(typeof(Core), "AddPrefab", new[] { typeof(string), typeof(Vector3), typeof(Quaternion), typeof(GameObject), typeof(bool) })]
+    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
     public static class NightWormPostSpawnPatch
     {
-        private static void Postfix(GameObject __result, string prefab)
+        internal static void OnAddPrefab(GameObject __result, string prefab)
         {
             if (__result == null || prefab != "characters/fakechars/NightWorms_01")
+                return;
+            if (HardNightPartySpawn.Placing)
                 return;
             if (ModRuntime.Network?.Role != NetworkRole.Host)
                 return;
@@ -130,7 +140,7 @@ namespace DWMPHorde.Patches
 
             if (Player.Instance == null) return;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null) return;
 
             var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
@@ -144,6 +154,103 @@ namespace DWMPHorde.Patches
             __result.transform.position = newPos;
 
             ModRuntime.LegacyInfo($"[NightWormRedirect] moved worm to proxy area ({newPos.x:F0},{newPos.z:F0})");
+        }
+    }
+
+    /// <summary>
+    /// Hard-night worm: vanilla gates on the host body only. Pick one living
+    /// player without shadow ward (host or proxy) and attack that body.
+    /// </summary>
+    public static class HardNightPartySpawn
+    {
+        public static bool Placing { get; private set; }
+
+        private struct Body
+        {
+            public Vector3 Pos;
+            public Transform Attack;
+        }
+
+        public static IEnumerator WormLoop(CharacterSpawner spawner)
+        {
+            var wait = new WaitForSeconds(5f);
+            while (spawner != null)
+            {
+                yield return wait;
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl == null || !ctrl.isHardNight || Core.isDay())
+                    continue;
+                if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
+                    continue;
+                if (!TryPickUnwardedBody(out Body body))
+                    continue;
+
+                Vector3 position = Core.randomPosAround(body.Pos, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
+                GameObject go;
+                Placing = true;
+                try
+                {
+                    go = Core.AddPrefab(
+                        "characters/fakechars/NightWorms_01",
+                        position,
+                        Quaternion.Euler(90f, Random.Range(0, 360), 0f),
+                        null);
+                }
+                finally
+                {
+                    Placing = false;
+                }
+
+                if (go == null) continue;
+                Character component = go.GetComponent<Character>();
+                if (component != null && body.Attack != null)
+                    PlayerTargetArbiter.Commit(component, body.Attack, "nightWorms");
+                if (spawner.nocturnalCharacters != null)
+                    spawner.nocturnalCharacters.Add(go);
+            }
+        }
+
+        private static bool TryPickUnwardedBody(out Body picked)
+        {
+            picked = default;
+            var choices = new List<Body>();
+
+            Player host = Player.Instance;
+            if (host != null && HostEligible(host))
+            {
+                Transform t = host._transform != null ? host._transform : host.transform;
+                choices.Add(new Body { Pos = t.position, Attack = t });
+            }
+
+            var net = ModRuntime.Network;
+            if (net != null)
+            {
+                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || proxy.RemoteHasShadowWard) continue;
+                    if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId)) continue;
+                    // Vanilla's worm comes for the player anywhere, inside a location too; only
+                    // a peer still loading has no body to hunt.
+                    if (!net.IsPeerReadyForGameplay(proxy.PlayerId)) continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if (cb != null && !cb.alive) continue;
+                    choices.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
+                }
+            }
+
+            if (choices.Count == 0) return false;
+            picked = choices[Random.Range(0, choices.Count)];
+            return true;
+        }
+
+        private static bool HostEligible(Player host)
+        {
+            if (host.ignoreNightSickness) return false;
+            if (DeathStateTracker.LocalNightDeath) return false;
+            if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
+                return false;
+            CharBase cb = host.GetComponent<CharBase>();
+            return cb == null || cb.alive;
         }
     }
 }

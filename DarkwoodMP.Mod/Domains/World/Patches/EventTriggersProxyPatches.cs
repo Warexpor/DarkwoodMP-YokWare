@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -19,6 +21,12 @@ namespace DWMPHorde.Patches
     ///      client, client body on host).
     /// One-shots stay host-auth: GameEventsFiredPatch Prefix blocks client one-shot
     /// fire(); host broadcasts; client Apply under NetworkApplyGuard.
+    ///
+    /// Occupancy: vanilla <c>entered</c>/<c>exited</c> assumes one body.
+    /// The prior proxy guard (<c>entered != 0 &amp;&amp; isComponentAtPos</c>) treated a
+    /// second peer as a multi-collider of the first — skipped <c>entered++</c> entirely,
+    /// so the first body leaving fired exit while the second was still inside.
+    /// Per-proxy id set + "fire only when volume was empty" fixes N-peer latching.
     /// </summary>
     internal static class EventTriggersAuth
     {
@@ -49,6 +57,150 @@ namespace DWMPHorde.Patches
             return etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
                 || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
+
+        /// <summary>
+        /// A one-shot in this volume has not fired yet. The first body may have
+        /// entered before requirements were met (no key). A later peer must retry.
+        /// </summary>
+        internal static bool HasPendingOneShot(EventTriggers triggers)
+        {
+            if (triggers == null || triggers.eventTriggers == null) return false;
+            for (int i = 0; i < triggers.eventTriggers.Count; i++)
+            {
+                EventTrigger t = triggers.eventTriggers[i];
+                // Area triggers only: a pending use or death one-shot in the same set made every
+                // entering player re-fire the volume's repeatable area effects.
+                if (t == null || t.disabled || t.multipleFire || t.type != EventTrigger.Type.area) continue;
+                if (!t.fired) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Client running its own copy of an area trigger for another player's stand-in. The
+        /// event is that player's: its personal steps (a transport, a teleport, a dive) stay off
+        /// this machine's body, as the host's copy does under RunHostWorldFanoutForPlayer. The
+        /// event coroutine carries both into its delayed steps (EventCoroutineScope).
+        /// </summary>
+        internal static void RunClientCopyForPeer(int playerId, System.Action body)
+        {
+            bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
+            GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            GeFireActorContext.Push(playerId);
+            try
+            {
+                body();
+            }
+            finally
+            {
+                GeFireActorContext.Pop();
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Per-EventTriggers set of proxy player ids currently counted inside the volume.
+    /// Local Player.Instance still uses vanilla entered/exited; proxies use this set so
+    /// multi-collider on the same proxy does not double-count, while a second peer does.
+    /// </summary>
+    internal static class EventTriggersProxyOccupancy
+    {
+        private static readonly Dictionary<int, HashSet<int>> _proxyIdsByEt =
+            new Dictionary<int, HashSet<int>>(64);
+        private static readonly Dictionary<int, EventTriggers> _etByKey =
+            new Dictionary<int, EventTriggers>(64);
+        private static readonly List<int> _scratchKeys = new List<int>(16); // process-scoped: scratch, cleared before each use
+
+        internal static void Reset()
+        {
+            _proxyIdsByEt.Clear();
+            _etByKey.Clear();
+        }
+
+        /// <summary>
+        /// Vanilla <c>OnDisable</c> zeroes entered/exited; Unity sends no exit for bodies still
+        /// inside, and on re-enable it sends a fresh enter. Drop the proxy ids with it, or the
+        /// re-enter is swallowed as "already counted" and the stale id defers every exit.
+        /// </summary>
+        internal static void Forget(EventTriggers et)
+        {
+            if (et == null) return;
+            int key = et.GetInstanceID();
+            _proxyIdsByEt.Remove(key);
+            _etByKey.Remove(key);
+        }
+
+        /// <summary>
+        /// A proxy was destroyed (peer left, died out of the world, re-created): Unity sends no
+        /// exit for it. Count it out of every volume it was in, firing the area exit when it was
+        /// the last body, as if it had walked out.
+        /// </summary>
+        internal static void ForgetPlayer(int playerId)
+        {
+            if (playerId <= 0 || _proxyIdsByEt.Count == 0) return;
+            _scratchKeys.Clear();
+            foreach (KeyValuePair<int, HashSet<int>> kv in _proxyIdsByEt)
+            {
+                if (kv.Value.Contains(playerId))
+                    _scratchKeys.Add(kv.Key);
+            }
+            for (int i = 0; i < _scratchKeys.Count; i++)
+            {
+                int key = _scratchKeys[i];
+                _etByKey.TryGetValue(key, out EventTriggers et);
+                if (et == null)
+                {
+                    _proxyIdsByEt.Remove(key);
+                    _etByKey.Remove(key);
+                    continue;
+                }
+                if (TryRemove(et, playerId)
+                    && EventTriggersAuth.IsMultiplayerConnected()
+                    && et.isActiveAndEnabled
+                    && EventTriggersAuth.CanFireTriggers(et))
+                    EventTriggersProxyExitPatch.CountExit(et, playerId);
+            }
+            _scratchKeys.Clear();
+        }
+
+        /// <returns>True when this proxy was not yet counted (first collider enter).</returns>
+        internal static bool TryAdd(EventTriggers et, int playerId)
+        {
+            if (et == null || playerId <= 0) return false;
+            int key = et.GetInstanceID();
+            if (!_proxyIdsByEt.TryGetValue(key, out HashSet<int> set))
+            {
+                set = new HashSet<int>();
+                _proxyIdsByEt[key] = set;
+                _etByKey[key] = et;
+            }
+            return set.Add(playerId);
+        }
+
+        /// <returns>True when this proxy was counted and is now removed.</returns>
+        internal static bool TryRemove(EventTriggers et, int playerId)
+        {
+            if (et == null || playerId <= 0) return false;
+            int key = et.GetInstanceID();
+            if (!_proxyIdsByEt.TryGetValue(key, out HashSet<int> set))
+                return false;
+            if (!set.Remove(playerId))
+                return false;
+            if (set.Count == 0)
+            {
+                _proxyIdsByEt.Remove(key);
+                _etByKey.Remove(key);
+            }
+            return true;
+        }
+
+        /// <summary>True when any proxy id is still counted inside this volume.</summary>
+        internal static bool HasAny(EventTriggers et)
+        {
+            if (et == null) return false;
+            return _proxyIdsByEt.TryGetValue(et.GetInstanceID(), out HashSet<int> set) && set.Count > 0;
+        }
     }
 
     /// <summary>
@@ -59,7 +211,14 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(EventTriggers), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class EventTriggersProxyEnterPatch
     {
-        private static void Postfix(EventTriggers __instance, Collider other)
+        private static void Prefix(EventTriggers __instance, Collider other, out int __state)
+        {
+            // Snapshot entered so Postfix can detect vanilla skipping local increment
+            // when a proxy already occupies the volume (N-peer occupancy parity).
+            __state = __instance != null ? __instance.entered : 0;
+        }
+
+        private static void Postfix(EventTriggers __instance, Collider other, int __state)
         {
             if (!EventTriggersAuth.IsMultiplayerConnected()) return;
             if (__instance == null || other == null) return;
@@ -69,10 +228,28 @@ namespace DWMPHorde.Patches
                 return;
 
             // Local Player.Instance enter — host clears proxy threat preference.
+            // When a proxy already bumped entered, vanilla skips entered++ (condition
+            // entered==0 || !isAtPos fails). Count the local body so exit stays paired.
             if (other.GetComponentInParent<Player>() != null)
             {
                 if (EventTriggersAuth.IsHost())
                     ThreatTriggerContext.NoteHostEnter();
+                bool occupied = __state > __instance.exited;
+                if (__instance.entered == __state
+                    && Player.Instance != null
+                    && other.gameObject == Player.Instance.gameObject)
+                {
+                    int mask = 1 << __instance.gameObject.layer;
+                    if (Helpers.isComponentAtPos(Player.Instance._transform.position, mask, __instance))
+                        __instance.entered++;
+                }
+                // Vanilla fires only for the first body into an empty volume. A stand-in already
+                // inside kept the host from a one-shot each player gets once (the hideout's lesson
+                // after the prologue, when the joiner was home first).
+                var net = ModRuntime.Network;
+                if (occupied && net != null && Player.Instance != null && other.gameObject == Player.Instance.gameObject
+                    && PerPlayerTransportOneShots.HasReopenable(__instance, net.LocalPlayerId))
+                    __instance.fireEventTrigger(EventTrigger.Type.area);
                 return;
             }
 
@@ -82,19 +259,44 @@ namespace DWMPHorde.Patches
             if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
                 return;
 
-            // Mirror vanilla multi-collider guard: only first "logical" enter counts.
-            Vector3 pos = proxy.transform.position;
-            int mask = 1 << __instance.gameObject.layer;
-            if (__instance.entered != 0 && Helpers.isComponentAtPos(pos, mask, __instance))
+            // Multi-collider on the SAME proxy — do not re-count / re-fire.
+            if (!EventTriggersProxyOccupancy.TryAdd(__instance, proxy.PlayerId))
                 return;
 
             if (EventTriggersAuth.IsHost())
                 ThreatTriggerContext.NoteProxyEnter(proxy, __instance.transform.position);
 
-            __instance.fireEventTrigger(EventTrigger.Type.area);
+            bool volumeWasEmpty = __instance.entered <= __instance.exited;
             __instance.entered++;
-            ModRuntime.LegacyInfo(
-                $"[EventTriggers] proxy enter area p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}");
+            // First body into an empty volume fires. A later peer still fires when a
+            // one-shot never latched (first body failed requirements). Already-fired
+            // one-shots and multipleFire ambients are not blasted again.
+            if (volumeWasEmpty || EventTriggersAuth.HasPendingOneShot(__instance)
+                || PerPlayerTransportOneShots.HasReopenable(__instance, proxy.PlayerId))
+            {
+                // Host: stamp proxy as GE actor and suppress host Player.Instance
+                // personal grants/teleports. Client: still fire multipleFire locally, as that
+                // player's event (a repeatable border transport moved this client's own body);
+                // one-shots are blocked by GameEventsFiredPatch until host apply.
+                if (EventTriggersAuth.IsHost())
+                {
+                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(proxy.PlayerId, () =>
+                        __instance.fireEventTrigger(EventTrigger.Type.area));
+                }
+                else
+                {
+                    EventTriggersAuth.RunClientCopyForPeer(proxy.PlayerId, () =>
+                        __instance.fireEventTrigger(EventTrigger.Type.area));
+                }
+                ModRuntime.LegacyInfo(
+                    $"[EventTriggers] proxy enter area p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}"
+                    + (volumeWasEmpty ? "" : " retry"));
+            }
+            else
+            {
+                ModRuntime.LegacyInfo(
+                    $"[EventTriggers] proxy occupy (no re-fire) p{proxy.PlayerId} on {__instance.name} entered={__instance.entered}");
+            }
         }
     }
 
@@ -123,14 +325,47 @@ namespace DWMPHorde.Patches
             if (Helpers.isComponentAtPos(pos, mask, __instance))
                 return;
 
-            __instance.exited++;
-            if (__instance.exited >= __instance.entered)
+            if (!EventTriggersProxyOccupancy.TryRemove(__instance, proxy.PlayerId))
+                return;
+
+            CountExit(__instance, proxy.PlayerId);
+        }
+
+        internal static void CountExit(EventTriggers et, int playerId)
+        {
+            et.exited++;
+            if (et.exited >= et.entered)
             {
-                __instance.fireEventTriggerExit(EventTrigger.Type.area);
+                // Belt: if another proxy is still in the occupancy set, counters
+                // drifted vs the set (local Postfix enter++ / multi-collider). Defer exit
+                // fire so delayed one-shots do not latch while a peer body remains inside.
+                if (EventTriggersProxyOccupancy.HasAny(et))
+                {
+                    ModRuntime.LegacyInfo(
+                        $"[EventTriggers] proxy exit deferred (peers remain) p{playerId} on {et.name} exited={et.exited}");
+                    return;
+                }
+                // Flavor HUD gated at delayed GameEvent.fire MoveNext (proximity), not here.
+                if (EventTriggersAuth.IsHost())
+                {
+                    DialogHostApplyGuard.RunHostWorldFanoutForPlayer(playerId, () =>
+                        et.fireEventTriggerExit(EventTrigger.Type.area));
+                }
+                else
+                {
+                    EventTriggersAuth.RunClientCopyForPeer(playerId, () =>
+                        et.fireEventTriggerExit(EventTrigger.Type.area));
+                }
                 ModRuntime.LegacyInfo(
-                    $"[EventTriggers] proxy exit area p{proxy.PlayerId} on {__instance.name} exited={__instance.exited}");
+                    $"[EventTriggers] proxy exit area p{playerId} on {et.name} exited={et.exited}");
             }
         }
+    }
+
+    [HarmonyPatch(typeof(EventTriggers), "OnDisable")]
+    public static class EventTriggersProxyDisablePatch
+    {
+        private static void Postfix(EventTriggers __instance) => EventTriggersProxyOccupancy.Forget(__instance);
     }
 
     /// <summary>
@@ -151,9 +386,61 @@ namespace DWMPHorde.Patches
 
             // Decompile: radius 0 → isInSight(transform); else isInSight(transform, false, radius).
             int radius = (int)__instance.inSightOfPlayerRadius;
-            __result = HostPlayerIdentity.AnyInSight(
-                __instance.transform, canBeFarAway: false, radius);
+            Transform viewer = HostPlayerIdentity.NearestViewer(__instance.transform, canBeFarAway: false, radius);
+            __result = viewer != null;
+            SightViewers.Note(__instance, viewer);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Host: who saw a sight-triggered object last. Its onInSight events are that player's: a
+    /// client spotting it while the host was across the map got the event's personal steps
+    /// (a dialogue, an item, a move) landing on the host.
+    /// </summary>
+    internal static class SightViewers
+    {
+        private static readonly Dictionary<int, int> _viewerByTriggers = new Dictionary<int, int>(); // reset-in: Reset
+
+        internal static void Reset() => _viewerByTriggers.Clear();
+
+        internal static void Note(EventTriggers et, Transform viewer)
+        {
+            int id = 0;
+            RemotePlayerProxy proxy = viewer != null ? viewer.GetComponentInParent<RemotePlayerProxy>() : null;
+            if (proxy != null)
+                id = proxy.PlayerId;
+            if (id > 0)
+                _viewerByTriggers[et.GetInstanceID()] = id;
+            else
+                _viewerByTriggers.Remove(et.GetInstanceID());
+        }
+
+        internal static int ViewerOf(EventTriggers et)
+            => et != null && _viewerByTriggers.TryGetValue(et.GetInstanceID(), out int id) ? id : 0;
+    }
+
+    [HarmonyPatch(typeof(EventTriggers), nameof(EventTriggers.fireEventTrigger))]
+    public static class SightTriggerActorPatch
+    {
+        private static void Prefix(EventTriggers __instance, EventTrigger.Type TriggerType, out bool __state)
+        {
+            __state = false;
+            if (TriggerType != EventTrigger.Type.onInSightOfPlayer || GeFireActorContext.Depth > 0)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            int viewer = SightViewers.ViewerOf(__instance);
+            if (viewer <= 0)
+                return;
+            GeFireActorContext.Push(viewer);
+            __state = true;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state)
+                GeFireActorContext.Pop();
         }
     }
 }

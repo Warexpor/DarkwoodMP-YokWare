@@ -23,6 +23,15 @@ namespace DWMPHorde.Networking
         /// <summary>Peer took the nightShadows degrade perk (streamed on PlayerState trailer).</summary>
         public bool HasNightShadows;
 
+        /// <summary>Peer is in the open world (PlayerState trailer): the shared clock runs for it.</summary>
+        public bool InOpenWorld;
+
+        /// <summary>Peer sees a villager in the village (PlayerState trailer): villagers stay put.</summary>
+        public bool SeesVillager;
+
+        /// <summary>Peer is aiming (PlayerState trailer): its walking steps are quiet and alert nobody.</summary>
+        public bool Aiming;
+
         // Dreams
         public bool IsDeadInDream;
 
@@ -32,6 +41,8 @@ namespace DWMPHorde.Networking
         public GameObject FlareFx;
         /// <summary>Last streamed flare item type (for FX prefab resolution).</summary>
         public string FlareItemType;
+        /// <summary>unscaledTime this player last threw a flare (held-flare re-ON guard).</summary>
+        public float HeldFlareThrownAt = -1f;
         public GameObject ItemLight;
 
         /// <summary>Last applied event-path PlayerLightState fingerprint (skip no-ops / re-spawns).</summary>
@@ -42,6 +53,20 @@ namespace DWMPHorde.Networking
         public bool AppliedItemLight;
         public bool AppliedAmbient;
         public float AppliedLightRadius;
+        /// <summary>Last PlayerLightState received, re-applied when the proxy is rebuilt.</summary>
+        public PlayerLightStateMessage? LastLight;
+
+        /// <summary>A new proxy body shows nothing yet: the next light state must apply.</summary>
+        public void ForgetAppliedLight()
+        {
+            AppliedLightItemType = null;
+            AppliedLightOn = false;
+            AppliedFlash = false;
+            AppliedEmitter = false;
+            AppliedItemLight = false;
+            AppliedAmbient = false;
+            AppliedLightRadius = 0f;
+        }
 
         // Drag tracking: InstanceIDs of items being dragged by this remote player.
         // Used by PhysicsState to skip these items (prevents drag from fighting physics sync).

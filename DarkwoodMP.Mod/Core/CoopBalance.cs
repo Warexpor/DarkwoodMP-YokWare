@@ -15,7 +15,7 @@ namespace DWMPHorde
         /// Hideout furnace fuels — type keys from EN_Items.bytes (*_name).
         /// Also scaled: any vanilla prefab with isExpItem (ItemDoublePickupPatch).
         /// </summary>
-        public static readonly HashSet<string> UpgradeItemTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        public static readonly HashSet<string> UpgradeItemTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) // process-scoped: static item table
         {
             "exp_mushroom",              // Odd-looking mushroom
             "exp_nightMushroom",         // Odd-looking, glowing mushroom
@@ -35,32 +35,40 @@ namespace DWMPHorde
             "exp_bio3_nightMushroom_01"
         };
 
-        /// <summary>Was wood/nail; empty — barricade mats stay 1×.</summary>
-        public static readonly HashSet<string> DefenseMatTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        private static string _cachedAllowlistRaw;
-        private static HashSet<string> _cachedNpcAllowlist;
+        private static string _cachedAllowlistRaw; // process-scoped: config cache keyed by the raw value
+        private static HashSet<string> _cachedNpcAllowlist; // process-scoped: config cache keyed by the raw value
 
         /// <summary>
         /// Party loot/NPC multiplier. Offline or Off → 1;
-        /// ScaleWithPlayers → 1 + remote peer count (host + N clients = 1+N).
+        /// ScaleWithPlayers → party size (host + every other peer). Party size comes from the
+        /// peer roster the host gossips, so it is the same number on the host and on every
+        /// client (a client's own transport only sees the host). A host-announced multiplier
+        /// (<see cref="SessionSettings.PartyMultiplier"/>) wins when present.
         /// </summary>
         public static int GetPartyMultiplier()
         {
-            var mode = ModConfig.GetLootShareMode();
-            if (mode == LootShareMode.Off)
+            if (SessionSettings.LootShareMode == LootShareMode.Off)
                 return 1;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return 1;
 
-            return 1 + net.ConnectedPlayerCount;
+            int announced = SessionSettings.PartyMultiplier;
+            if (announced > 0)
+                return announced;
+
+            return GetPartySize(net);
         }
 
-        public static bool IsDefenseMatType(string type)
+        /// <summary>Host plus all remote peers, identical on every side once the roster has been gossiped.</summary>
+        public static int GetPartySize(LanNetworkManager net)
         {
-            return !string.IsNullOrEmpty(type) && DefenseMatTypes.Contains(type);
+            if (net == null)
+                return 1;
+            int roster = net.PeerRosterCount;
+            if (roster > 0)
+                return roster;
+            return 1 + net.ConnectedPlayerCount;
         }
 
         public static bool IsUpgradeItemType(string type)

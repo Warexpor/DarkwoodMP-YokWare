@@ -71,8 +71,26 @@ namespace DWMPHorde.Networking.Steam
                 case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
                     ModLog.Warn(LogCat.Network,
                         "Steam SNS peer lost " + steamId.m_SteamID + ": " + cb.m_info.m_szEndDebug);
-                    UntrackConn(cb.m_hConn, steamId.m_SteamID);
-                    _owner.OnSteamSessionFailed(steamId);
+                    bool wasCurrentConn = UntrackConn(cb.m_hConn, steamId.m_SteamID);
+                    // A connection in a closed/problem state still owns its handle until we close it.
+                    // UntrackConn runs first, so the owner's CloseSession can no longer find it —
+                    // closing here is the only place the handle is released (leaked one per peer loss).
+                    try
+                    {
+                        SteamNetworkingSockets.CloseConnection(
+                            cb.m_hConn, CloseReasonGeneric, "peer lost", false);
+                    }
+                    catch { /* tear */ }
+                    if (_pendingHostConnects.TryGetValue(steamId.m_SteamID, out PendingHostConnect parked)
+                        && parked.Conn == cb.m_hConn)
+                        _pendingHostConnects.Remove(steamId.m_SteamID);
+                    // A stale handle closing (the peer already reconnected on a new one, e.g. the old
+                    // connection only now timed out) must not tear down the live player.
+                    if (wasCurrentConn)
+                        _owner.OnSteamSessionFailed(steamId);
+                    else
+                        ModLog.Event(LogCat.Network,
+                            "Steam SNS stale connection for " + steamId.m_SteamID + " closed — peer is on a newer one");
                     break;
             }
         }

@@ -17,8 +17,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Controller __instance, bool byKillingTrader)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return true;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return true;
@@ -29,6 +28,9 @@ namespace DWMPHorde.Patches
             {
                 if (__instance != null && __instance.isAfterNight)
                 {
+                    // This player's morning is over (vanilla fades the end-of-night effect on
+                    // leaving); the shared one ends on the host when the hideout is empty.
+                    __instance.removeAfterNightEffect();
                     net.Send(NetMessageType.AfterNightEndRequest,
                         w => new AfterNightEndRequestMessage().Serialize(w),
                         DeliveryMethod.ReliableOrdered);
@@ -40,11 +42,12 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix(Controller __instance)
+        private static void Postfix(Controller __instance, bool byKillingTrader)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
+            // Also when a peer's leave request ended it (that runs under the apply guard).
+            HostAwayMorning.OnEnded(byKillingTrader);
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
 
@@ -66,14 +69,13 @@ namespace DWMPHorde.Patches
 
         internal static void FlushHostTime(string reason)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return;
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return;
             net.SendTimeSyncTo(-1);
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo("[DayNight] host " + reason + " → TimeSync");
+                ModRuntime.LegacyInfo($"[DayNight] host {reason} → TimeSync");
         }
     }
 
@@ -105,7 +107,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix()
         {
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client)
                 return true;
 
@@ -114,6 +116,39 @@ namespace DWMPHorde.Patches
                 Player.Instance.invulnerable = true;
             ModRuntime.LegacyInfo("[DayNight] client startBeforeDay suppressed (soft invuln only)");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// <c>player_survivedNight</c> is the host's own (the trader greets by it). Vanilla sets it in
+    /// <c>startBeforeDay</c>, which a player who died that night never reaches: its
+    /// <c>skipDay</c> jumps past the minute. The shared clock reaches it while the host is down
+    /// until morning, so a host that died keeps the flag as it was. Clients set their own at
+    /// their dawn (<c>WorldWeatherTimeNetHandlers</c>).
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), "startBeforeDay")]
+    public static class HostSurvivedNightPatch
+    {
+        private const string Flag = "player_survivedNight";
+
+        private static void Prefix(out bool __state)
+        {
+            Flags flags = Singleton<Flags>.Instance;
+            __state = flags != null && flags.isFlagTrue(Flag);
+        }
+
+        private static void Postfix(Controller __instance, bool __state)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host || __instance == null)
+                return;
+            if (PerPlayerFlagPolicy.SurvivedNight(__instance.day, DeathStateTracker.LocalNightDeathDay))
+                return;
+            Flags flags = Singleton<Flags>.Instance;
+            if (flags == null || flags.isFlagTrue(Flag) == __state)
+                return;
+            flags.setFlag(Flag, __state);
+            ModRuntime.LegacyInfo("[DayNight] host died this night — " + Flag + " left " + __state);
         }
     }
 
@@ -175,7 +210,7 @@ namespace DWMPHorde.Patches
             if (HostStillInside())
                 return true;
 
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             if (net == null)
                 return false;
 
@@ -196,8 +231,10 @@ namespace DWMPHorde.Patches
         /// </summary>
         public static void TryEndIfHideoutEmpty()
         {
-            var net = LanNetworkManager.Instance;
-            if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
+            // Role only, not IsConnected: the disconnect cleanup calls this after the leaver is
+            // already out of the roster, and when it was the last peer the host is no longer
+            // "connected" — the morning would then never end for a host already outside.
+            if (!NetGuard.Host(out var net))
                 return;
             Controller ctrl = Singleton<Controller>.Instance;
             if (ctrl == null || !ctrl.isAfterNight)
@@ -236,7 +273,7 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        public static bool HostPositionInside()
+        public static bool LocalPositionInside()
         {
             Player host = Player.Instance;
             if (host == null)
@@ -250,7 +287,7 @@ namespace DWMPHorde.Patches
             Player host = Player.Instance;
             if (host == null)
                 return false;
-            var net = LanNetworkManager.Instance;
+            var net = ModRuntime.Network;
             int hostId = net != null ? net.LocalPlayerId : 0;
             Vector3 pos = host._transform != null ? host._transform.position : host.transform.position;
             return CountsAsInside(hostId, pos, host.alive);
@@ -278,8 +315,7 @@ namespace DWMPHorde.Patches
     {
         private static bool Prefix(Location __instance, Collider _collider)
         {
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+            if (!NetGuard.ConnectedHost(out var net))
                 return true;
             if (__instance == null || __instance.isSubLocation || !__instance.playerBase)
                 return true;
@@ -293,7 +329,7 @@ namespace DWMPHorde.Patches
             if (!MorningHideoutHold.SomeoneStillInside())
                 return true;
 
-            if (!MorningHideoutHold.HostPositionInside())
+            if (!MorningHideoutHold.LocalPositionInside())
                 MorningHideoutHold.NoteLeft(net.LocalPlayerId, confirmedOutside: true);
             ModRuntime.LegacyInfo("[DayNight] hideout still occupied — morning stays");
             return false;

@@ -1,7 +1,24 @@
 using DWMPHorde.Sync;
+using UnityEngine;
 
 namespace DWMPHorde.Networking
 {
+    internal static class DreamWire
+    {
+        internal const int MaxPresets = 256;
+
+        internal static string[] ReadPresets(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0 || n > MaxPresets)
+                throw new System.IO.InvalidDataException("completed preset count " + n);
+            var presets = new string[n];
+            for (int i = 0; i < n; i++)
+                presets[i] = r.GetString();
+            return presets;
+        }
+    }
+
     public struct DreamStartedMessage
     {
         public string PresetName;
@@ -10,6 +27,11 @@ namespace DWMPHorde.Networking
         public int SessionId;
         public byte LvlFlags;
         public string[] CompletedPresets;
+        /// <summary>
+        /// The entry played the startTransition video (skill / sleep dreams). A dialogue or
+        /// game-event start has only a black fade; peers then skip the video too.
+        /// </summary>
+        public bool EntryTransition;
 
         public void Serialize(NetWriter w)
         {
@@ -21,6 +43,7 @@ namespace DWMPHorde.Networking
             w.Put(done.Length);
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
+            w.Put(EntryTransition);
         }
 
         public static DreamStartedMessage Deserialize(NetReader r)
@@ -33,16 +56,10 @@ namespace DWMPHorde.Networking
                 LocPosZ = r.GetFloat(),
                 CompletedPresets = System.Array.Empty<string>()
             };
-            if (r.AvailableBytes >= 9)
-            {
-                msg.SessionId = r.GetInt();
-                msg.LvlFlags = r.GetByte();
-                int n = r.GetInt();
-                if (n < 0 || n > 256) n = 0;
-                msg.CompletedPresets = new string[n];
-                for (int i = 0; i < n; i++)
-                    msg.CompletedPresets[i] = r.GetString();
-            }
+            msg.SessionId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
+            msg.EntryTransition = r.GetBool();
             return msg;
         }
 
@@ -53,7 +70,7 @@ namespace DWMPHorde.Networking
             LocPosY = y,
             LocPosZ = z,
             SessionId = DreamSession.SessionId,
-            LvlFlags = DreamSession.ReadLocalLvlFlags(),
+            LvlFlags = DreamSession.LevelBits,
             CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
@@ -86,16 +103,9 @@ namespace DWMPHorde.Networking
                 OutcomeName = r.GetString(),
                 CompletedPresets = System.Array.Empty<string>()
             };
-            if (r.AvailableBytes >= 9)
-            {
-                msg.SessionId = r.GetInt();
-                msg.LvlFlags = r.GetByte();
-                int n = r.GetInt();
-                if (n < 0 || n > 256) n = 0;
-                msg.CompletedPresets = new string[n];
-                for (int i = 0; i < n; i++)
-                    msg.CompletedPresets[i] = r.GetString();
-            }
+            msg.SessionId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
             return msg;
         }
 
@@ -104,7 +114,7 @@ namespace DWMPHorde.Networking
             PresetName = preset ?? "",
             OutcomeName = outcome ?? "",
             SessionId = DreamSession.SessionId,
-            LvlFlags = DreamSession.ReadLocalLvlFlags(),
+            LvlFlags = DreamSession.LevelBits,
             CompletedPresets = DreamSession.GetCompletedPresets()
         };
     }
@@ -126,10 +136,8 @@ namespace DWMPHorde.Networking
         public static DreamStartRequestMessage Deserialize(NetReader r)
         {
             var msg = new DreamStartRequestMessage { PresetName = r.GetString() };
-            if (r.AvailableBytes >= 4)
-                msg.RequestId = r.GetInt();
-            if (r.AvailableBytes >= 1)
-                msg.LvlFlags = r.GetByte();
+            msg.RequestId = r.GetInt();
+            msg.LvlFlags = r.GetByte();
             return msg;
         }
     }
@@ -141,6 +149,9 @@ namespace DWMPHorde.Networking
         public bool SessionActive;
         public string ActivePreset;
         public int SessionId;
+        /// <summary>live pad position so a joiner can enter the dream.</summary>
+        public bool HasPadPosition;
+        public float PadX, PadY, PadZ;
 
         public void Serialize(NetWriter w)
         {
@@ -152,6 +163,13 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
             w.Put(SessionId);
+            w.Put(HasPadPosition);
+            if (HasPadPosition)
+            {
+                w.Put(PadX);
+                w.Put(PadY);
+                w.Put(PadZ);
+            }
         }
 
         public static DreamSessionBulkMessage Deserialize(NetReader r)
@@ -161,28 +179,42 @@ namespace DWMPHorde.Networking
                 LvlFlags = r.GetByte(),
                 SessionActive = r.GetBool(),
                 ActivePreset = r.GetString(),
-                CompletedPresets = System.Array.Empty<string>(),
-                SessionId = 0
             };
-            int n = r.GetInt();
-            if (n < 0 || n > 256) n = 0;
-            msg.CompletedPresets = new string[n];
-            for (int i = 0; i < n; i++)
-                msg.CompletedPresets[i] = r.GetString();
-            // Older payloads may omit the trailing session ID.
-            if (r.AvailableBytes >= 4)
-                msg.SessionId = r.GetInt();
+            msg.CompletedPresets = DreamWire.ReadPresets(r);
+            msg.SessionId = r.GetInt();
+            msg.HasPadPosition = r.GetBool();
+            if (msg.HasPadPosition)
+            {
+                msg.PadX = r.GetFloat();
+                msg.PadY = r.GetFloat();
+                msg.PadZ = r.GetFloat();
+            }
             return msg;
         }
 
-        public static DreamSessionBulkMessage FromLocal() => new DreamSessionBulkMessage
+        public static DreamSessionBulkMessage FromLocal()
         {
-            LvlFlags = DreamSession.ReadLocalLvlFlags(),
-            SessionActive = DreamSession.IsActive,
-            ActivePreset = DreamSession.PresetName ?? "",
-            CompletedPresets = DreamSession.GetCompletedPresets(),
-            SessionId = DreamSession.SessionId
-        };
+            var msg = new DreamSessionBulkMessage
+            {
+                LvlFlags = DreamSession.LevelBits,
+                SessionActive = DreamSession.IsActive,
+                ActivePreset = DreamSession.PresetName ?? "",
+                CompletedPresets = DreamSession.GetCompletedPresets(),
+                SessionId = DreamSession.SessionId
+            };
+            var loc = Dreams.Instance != null ? Dreams.Instance.dreamLocation : null;
+            // Only a live dream. prepareDream's early roll bulk must not ship a
+            // leftover pad and pull peers in before DreamStarted.
+            if (msg.SessionActive && Dreams.Instance != null && Dreams.Instance.dreaming && loc != null)
+            {
+                Vector3 p = loc.transform.position;
+                msg.HasPadPosition = true;
+                msg.PadX = p.x;
+                msg.PadY = p.y;
+                msg.PadZ = p.z;
+            }
+            return msg;
+        }
     }
 
     public struct DreamChainStartMessage
@@ -199,7 +231,7 @@ namespace DWMPHorde.Networking
         public static DreamChainStartMessage Deserialize(NetReader r) => new DreamChainStartMessage
         {
             NextPresetName = r.GetString(),
-            SessionId = r.AvailableBytes >= 4 ? r.GetInt() : 0
+            SessionId = r.GetInt()
         };
     }
 
@@ -262,17 +294,71 @@ namespace DWMPHorde.Networking
     {
         public bool IsDead;
         public bool AllDeadTrigger;
+        /// <summary>
+        /// Host→clients: the whole party is down and every night death was a
+        /// permadeath-eligible one (nightmare, or hard with lives spent). Every
+        /// peer runs the real permadeath outcome instead of a morning respawn.
+        /// </summary>
+        public bool PartyWipe;
 
         public void Serialize(NetWriter w)
         {
             w.Put(IsDead);
             w.Put(AllDeadTrigger);
+            w.Put(PartyWipe);
         }
 
         public static NightDeathStateMessage Deserialize(NetReader r) => new NightDeathStateMessage
         {
             IsDead = r.GetBool(),
-            AllDeadTrigger = r.GetBool()
+            AllDeadTrigger = r.GetBool(),
+            PartyWipe = r.GetBool()
+        };
+    }
+
+    /// <summary>
+    /// Host→all clients on the morning edge. Peers that are still night-dead are
+    /// released (spectator off, sent home); everyone drops night-death bookkeeping.
+    /// </summary>
+    public struct NightDeathReleaseMessage
+    {
+        public int Day;
+
+        public void Serialize(NetWriter w) { w.Put(Day); }
+        public static NightDeathReleaseMessage Deserialize(NetReader r) => new NightDeathReleaseMessage
+        {
+            Day = r.GetInt()
+        };
+    }
+
+    /// <summary>
+    /// Host→one surviving peer: its own copy of the vanilla startAfterNight reward.
+    /// Trader standing is per-player in this mod, so each peer applies it locally.
+    /// </summary>
+    public struct MorningRewardMessage
+    {
+        public int Day;
+        public string TraderName;
+        public int Reputation;
+        public float Saturation;
+        public bool ShowTraderHelp;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Day);
+            w.Put(TraderName);
+            w.Put(Reputation);
+            w.Put(Saturation);
+            w.Put(ShowTraderHelp);
+        }
+
+        public static MorningRewardMessage Deserialize(NetReader r) => new MorningRewardMessage
+        {
+            Day = r.GetInt(),
+            TraderName = r.GetString(),
+            Reputation = r.GetInt(),
+            Saturation = r.GetFloat(),
+            ShowTraderHelp = r.GetBool()
         };
     }
 
@@ -306,25 +392,115 @@ namespace DWMPHorde.Networking
         public bool LoadChapterSave;
         /// <summary>Host wrote empty chapter save / clients should expect world share first when true.</summary>
         public bool ExpectWorldShare;
+        /// <summary>
+        /// Host is collecting <see cref="ChapterShareAckMessage"/> and will answer with
+        /// <see cref="ChapterLoadGoMessage"/>; the client must wait for that go before it
+        /// drops the link. False for a single-peer world resync (client loads on its own).
+        /// Optional trailing byte.
+        /// </summary>
+        public bool AckRequired;
+        /// <summary>
+        /// The party starts the chapter over (permadeath "start over"): the chapter save resets
+        /// every character, so every character snapshot is discarded. Protocol 33.
+        /// </summary>
+        public bool StartOver;
 
         public void Serialize(NetWriter w)
         {
             w.Put(ChapterId);
             w.Put(LoadChapterSave);
             w.Put(ExpectWorldShare);
+            w.Put(AckRequired);
+            w.Put(StartOver);
         }
 
         public static ChapterTransitionMessage Deserialize(NetReader r) => new ChapterTransitionMessage
         {
             ChapterId = r.GetInt(),
             LoadChapterSave = r.GetBool(),
-            ExpectWorldShare = r.GetBool()
+            ExpectWorldShare = r.GetBool(),
+            AckRequired = r.GetBool(),
+            StartOver = r.GetBool()
+        };
+    }
+
+    /// <summary>Client→host: outcome of a chapter world share (see <see cref="Status"/>).</summary>
+    public struct ChapterShareAckMessage
+    {
+        /// <summary>
+        /// World package received, verified and inflated in memory; ready to commit. The client's
+        /// save slot is untouched until the host's go (see <see cref="ChapterLoadGoMessage"/>).
+        /// </summary>
+        public const byte StatusCommitted = 0;
+        /// <summary>Package missing, corrupt, or could not be written. Host may re-share.</summary>
+        public const byte StatusFailed = 1;
+        /// <summary>Client is on the title screen; it does not take part in the transition.</summary>
+        public const byte StatusNotInWorld = 2;
+        /// <summary>
+        /// Progress heartbeat while the package is still arriving. Carries no verdict; the host only
+        /// uses it to push this peer's confirmation deadline out so a slow link is not refused.
+        /// </summary>
+        public const byte StatusReceiving = 3;
+
+        public int ChapterId;
+        public byte Status;
+        public string Reason;
+        /// <summary>
+        /// The <see cref="WorldSaveBeginMessage.SharePass"/> this verdict is about. The host ignores a
+        /// Committed / Failed ack from an older pass (0 = not carried; NotInWorld needs none).
+        /// </summary>
+        public int SharePass;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ChapterId);
+            w.Put(Status);
+            w.Put(Reason ?? string.Empty);
+            w.Put(SharePass);
+        }
+
+        public static ChapterShareAckMessage Deserialize(NetReader r)
+        {
+            var msg = new ChapterShareAckMessage
+            {
+                ChapterId = r.GetInt(),
+                Status = r.GetByte(),
+                Reason = r.GetString()
+            };
+            msg.SharePass = r.GetInt();
+            return msg;
+        }
+    }
+
+    /// <summary>
+    /// Host→client: all acks are in (Proceed=true → load the chapter now), or the client
+    /// must leave without loading (Proceed=false, <see cref="Reason"/> is player-visible).
+    /// </summary>
+    public struct ChapterLoadGoMessage
+    {
+        public int ChapterId;
+        public bool Proceed;
+        public string Reason;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(ChapterId);
+            w.Put(Proceed);
+            w.Put(Reason ?? string.Empty);
+        }
+
+        public static ChapterLoadGoMessage Deserialize(NetReader r) => new ChapterLoadGoMessage
+        {
+            ChapterId = r.GetInt(),
+            Proceed = r.GetBool(),
+            Reason = r.GetString()
         };
     }
 
     /// <summary>
     /// Host-authoritative cutscene control.
-    /// Action: 0 = begin, 1 = end, 2 = skip transition, 3 = dream entry video (pre-prepare).
+    /// Action: 0 = begin, 1 = end, 2 = skip transition, 3 = dream entry video (pre-prepare),
+    /// 4/5 = prologue start/end, 6 = dream entry cancelled (start request refused).
     /// </summary>
     public struct CutsceneSyncMessage
     {
@@ -333,9 +509,9 @@ namespace DWMPHorde.Networking
         public const byte ActionSkipTransition = 2;
         /// <summary>Peer started Dreams.startTransition (video before prepareDream).</summary>
         public const byte ActionDreamEntryTransition = 3;
-        /// <summary>New-game opening movie (WorldGenerator firstPlay), not a CutsceneManager.</summary>
-        public const byte ActionPrologueStart = 4;
-        public const byte ActionPrologueEnd = 5;
+        // 4 and 5 (shared opening movie start / end) retired: each player plays its own prologue.
+        /// <summary>Host: the start request behind the last entry movie was refused; stop waiting for it.</summary>
+        public const byte ActionDreamEntryCancel = 6;
 
         public byte Action;
         public float PosX, PosY, PosZ;

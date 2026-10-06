@@ -15,7 +15,7 @@ namespace DWMPHorde.Sync
         private const int MaxPendingLights = 64;
 
         /// <summary>Pending light applies (CoopPerfProbe).</summary>
-        public static int PendingLightCount => _pendingLights.Count;
+        public static int PendingLightCount => _s.PendingLights.Count;
 
         /// <summary>
         /// Applies a received light on/off state change from a remote peer.
@@ -28,9 +28,7 @@ namespace DWMPHorde.Sync
             ApplyLightStateCore(ls, fromPeer, queueIfMissing: true);
         }
 
-        private static float _nextPendingLightFlushTime;
         private const float PendingLightFlushInterval = 3f;
-        private static float _pendingLightQueuedAt = -1f;
 
         /// <summary>
         /// Retry queued LightState after location/grid load.
@@ -38,47 +36,48 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void TryFlushPendingLights()
         {
-            if (_pendingLights.Count == 0)
+            TryFlushPendingGenerators();
+            if (_s.PendingLights.Count == 0)
             {
-                _pendingLightQueuedAt = -1f;
+                _s.PendingLightQueuedAt = -1f;
                 return;
             }
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame) return;
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame) return;
 
             float now = Time.unscaledTime;
             // Immediate flush when just entered a dream (caller may invoke right after load).
             bool dreamPad = Dreams.Instance != null && Dreams.Instance.dreaming;
-            if (!dreamPad && now < _nextPendingLightFlushTime) return;
-            _nextPendingLightFlushTime = now + (dreamPad ? 0.25f : PendingLightFlushInterval);
+            if (!dreamPad && now < _s.NextPendingLightFlushTime) return;
+            _s.NextPendingLightFlushTime = now + (dreamPad ? 0.25f : PendingLightFlushInterval);
 
-            if (_pendingLightQueuedAt < 0f)
-                _pendingLightQueuedAt = now;
-            if (now - _pendingLightQueuedAt > 30f)
+            if (_s.PendingLightQueuedAt < 0f)
+                _s.PendingLightQueuedAt = now;
+            if (now - _s.PendingLightQueuedAt > 30f)
             {
                 ModLog.Event(LogCat.World,
-                    "[LightApply] dropping " + _pendingLights.Count
+                    "[LightApply] dropping " + _s.PendingLights.Count
                     + " pending light(s) after timeout (not in loaded grid)");
-                _pendingLights.Clear();
-                _pendingLightQueuedAt = -1f;
+                _s.PendingLights.Clear();
+                _s.PendingLightQueuedAt = -1f;
                 return;
             }
 
-            for (int i = _pendingLights.Count - 1; i >= 0; i--)
+            for (int i = _s.PendingLights.Count - 1; i >= 0; i--)
             {
-                LightStateMessage ls = _pendingLights[i];
+                LightStateMessage ls = _s.PendingLights[i];
                 Vector3 p = new Vector3(ls.PosX, ls.PosY, ls.PosZ);
                 // Far map lights may be unloaded; retry when the player returns.
                 // Keep all while dreaming (bunker pad is far from forest listen pos).
                 if (!dreamPad && !Networking.ClientEntityInterpolationService.IsInClientInterest(p))
                 {
-                    _pendingLights.RemoveAt(i);
+                    _s.PendingLights.RemoveAt(i);
                     continue;
                 }
                 if (ApplyLightStateCore(ls, "pending", queueIfMissing: false))
-                    _pendingLights.RemoveAt(i);
+                    _s.PendingLights.RemoveAt(i);
             }
-            if (_pendingLights.Count == 0)
-                _pendingLightQueuedAt = -1f;
+            if (_s.PendingLights.Count == 0)
+                _s.PendingLightQueuedAt = -1f;
         }
 
         /// <returns>True if applied or already matching; false if still missing.</returns>
@@ -103,12 +102,12 @@ namespace DWMPHorde.Sync
                     && Networking.ClientEntityInterpolationService.IsInClientInterest(pos))
                 {
                     QueuePendingLight(ls);
-                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
+                    ModRuntime.LegacyInfo($"[LightApply] {ls.ItemName} not found at {pos} — queued");
                 }
                 else if (queueIfMissing && !clientSide)
                 {
                     QueuePendingLight(ls);
-                    ModRuntime.LegacyInfo("[LightApply] " + ls.ItemName + " not found at " + pos + " — queued");
+                    ModRuntime.LegacyInfo($"[LightApply] {ls.ItemName} not found at {pos} — queued");
                 }
                 return false;
             }
@@ -117,36 +116,30 @@ namespace DWMPHorde.Sync
             if (ls.IsOn == item.isOn)
                 return true;
 
-            ModRuntime.LegacyInfo("[LightApply] " + item.name + " isOn=" + ls.IsOn + " from " + fromPeer);
+            ModRuntime.LegacyInfo($"[LightApply] {item.name} isOn={ls.IsOn} from {fromPeer}");
 
-            // Vanilla player path is Item.switchMe(): playSwitch() then turnOn/turnOff.
-            // Remote state only had turnOn/turnOff. Many lamps put the click
-            // in switchSound only.
-            // (startSound/endSound empty), so peers saw the light change with no SFX.
-            TraverseHack.ApplyingFromNetwork = true;
+            // Same sounds as the sender: Item.switchMe plays the switch click, then turnOn /
+            // turnOff play the item's own start / loop / stop (replay-owned, never forwarded).
+            // Explicit flag saved and restored: an outer apply scope must survive this replay.
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
             try
             {
-                ItemSounds sounds = item.GetComponent<ItemSounds>();
-                if (sounds != null)
-                    sounds.playSwitch();
+                if (ls.Switched)
+                {
+                    ItemSounds sounds = item.GetComponent<ItemSounds>();
+                    if (sounds != null)
+                        sounds.playSwitch();
+                }
 
                 if (ls.IsOn)
-                    item.turnOn();
+                    DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
                 else
-                    item.turnOff();
-
-                // turnOff only calls playStop when hasPower. Unpowered lamps still need
-                // the end one-shot if switchSound was empty and endSound is set.
-                if (!ls.IsOn && sounds != null && !item.hasPower
-                    && !string.IsNullOrEmpty(sounds.endSound)
-                    && string.IsNullOrEmpty(sounds.switchSound))
-                {
-                    AudioController.Play(sounds.endSound, item.transform, sounds.volumeModifier);
-                }
+                    DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
             }
             finally
             {
-                TraverseHack.ApplyingFromNetwork = false;
+                TraverseHack.SetExplicitFlag(prevNet);
             }
             return true;
         }
@@ -156,20 +149,20 @@ namespace DWMPHorde.Sync
             // Dedupe by name and rounded position, keeping the latest isOn value.
             string key = (ls.ItemName ?? "") + "@"
                 + Mathf.Round(ls.PosX) + "," + Mathf.Round(ls.PosY) + "," + Mathf.Round(ls.PosZ);
-            for (int i = 0; i < _pendingLights.Count; i++)
+            for (int i = 0; i < _s.PendingLights.Count; i++)
             {
-                var p = _pendingLights[i];
+                var p = _s.PendingLights[i];
                 string pk = (p.ItemName ?? "") + "@"
                     + Mathf.Round(p.PosX) + "," + Mathf.Round(p.PosY) + "," + Mathf.Round(p.PosZ);
                 if (pk == key)
                 {
-                    _pendingLights[i] = ls;
+                    _s.PendingLights[i] = ls;
                     return;
                 }
             }
-            if (_pendingLights.Count >= MaxPendingLights)
-                _pendingLights.RemoveAt(0);
-            _pendingLights.Add(ls);
+            if (_s.PendingLights.Count >= MaxPendingLights)
+                _s.PendingLights.RemoveAt(0);
+            _s.PendingLights.Add(ls);
         }
 
         /// <summary>
@@ -260,73 +253,58 @@ namespace DWMPHorde.Sync
             return string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType);
         }
 
-        /// <summary>Called from HandlePlayerAudio's IsStopSignal handler when the
-        /// host broadcasts NotifyBodyPushStopped. Clears tracking tables; actual
+        /// <summary>Called by NotifyBodyPushStopped on this peer. Clears tracking tables; actual
         /// audio stop is handled by SoftStopNetwork / ForceStopByName.</summary>
         public static void TryStopBodyPushSound(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return;
-            _bodyPushSoundActive.Remove(objectName);
-            if (_pushNameToGid.TryGetValue(objectName, out int __gid))
+            _s.BodyPushSoundActive.Remove(objectName);
+            if (_s.PushNameToGid.TryGetValue(objectName, out int __gid))
             {
-                _lastPushSoundTime.Remove(__gid);
-                _pushStationaryCount.Remove(__gid);
-                _pushSoundFade.Remove(__gid);
-                _pushSoundSource.Remove(__gid);
-                _bodyPushSoundTimer.Remove(__gid);
-                _pushGidToName.Remove(__gid);
-                _pushNameToGid.Remove(objectName);
+                _s.LastPushSoundTime.Remove(__gid);
+                _s.PushStationaryCount.Remove(__gid);
+                _s.PushSoundFade.Remove(__gid);
+                _s.PushSoundSource.Remove(__gid);
+                _s.BodyPushSoundTimer.Remove(__gid);
+                _s.PushGidToName.Remove(__gid);
+                _s.PushNameToGid.Remove(objectName);
             }
         }
 
         /// <summary>Resets all cached state, tracked objects, and interpolation tables (used on scene change or disconnect).</summary>
-        public static void Reset()
+        public static void Reset() => ResetCore(keepThrownLights: false);
+
+        /// <summary>
+        /// Host promotion (HostMigration promote handoff): same reset, but the thrown-light tables
+        /// survive. Reset() cleared them, so a flare already burning in the world was no longer
+        /// tracked by the new host and never faded or expired.
+        /// </summary>
+        public static void ResetForPromote() => ResetCore(keepThrownLights: true);
+
+        private static void ResetCore(bool keepThrownLights)
         {
-            _lastPos.Clear();
-            _lastMoveTime.Clear();
-            _lastDoorOpen.Clear();
-            _lastTrapTriggered.Clear();
-            _knownTraps.Clear();
-            _trapResultCache.Clear();
-            _thrownLights.Clear();
-            _thrownById.Clear();
-            _flareBurnStarts.Clear();
-            _thrownLightFades.Clear();
-            TrapNetworkId.ResetSession();
-            _lastGeneratorOn.Clear();
-            _scanCenters.Clear();
-            _scannedObjectIds.Clear();
-            _objectInterp.Clear();
-            _lastResolvedByName.Clear();
-            _lastFullRbScanTime = -999f;
-            // Release all client-kinematic rigidbodies on reset
-            foreach (var kv in _clientKinematic)
+            // Hand back every rigidbody this client froze for interpolation before forgetting it.
+            foreach (var kv in _s.ClientKinematic)
             {
                 var (rBody, _, objName) = kv.Value;
                 if (rBody != null)
                     rBody.isKinematic = false;
                 LanNetworkManager.NotifyBodyPushStopped(objName);
             }
-            _clientKinematic.Clear();
-            _bodyPushSoundTimer.Clear();
-            _bodyPushSoundActive.Clear();
-            _pushSoundAO.Clear();
-            _pushSoundSource.Clear();
-            _pushSoundFade.Clear();
-            _lastPushSoundTime.Clear();
-            _pushStationaryCount.Clear();
-            _pushNameToGid.Clear();
-            _pushGidToName.Clear();
-            _clientKinematicGate.Clear();
-            _lastGeneratorFuel.Clear();
-            _lastClientUpdateTime.Clear();
-            _nextSnapshotSequence = 0;
-            _destroyDebounce.Clear();
-            _pendingLights.Clear();
+
+            // One object holds the whole session; a promotion keeps the flares already burning.
+            _s = new SessionState(keepThrownLights ? _s.Thrown : new ThrownLightState());
+
+            TrapNetworkId.ResetSession();
             MovingObjectSoundService.Reset();
             ListTracker<Door>.Clear();
             ListTracker<Generator>.Clear();
-            CharacterTracker.Clear();
+            // Promotion runs only this reset (no network stop follows), so the tracker must be
+            // rescanned there: an empty tracker left the new host broadcasting no NPCs.
+            if (keepThrownLights)
+                CharacterTracker.ResetForNetworkStop();
+            else
+                CharacterTracker.Clear();
         }
 
         /// <summary>
@@ -337,7 +315,7 @@ namespace DWMPHorde.Sync
         {
             state.Reliable = true;
             if (state.Sequence == 0)
-                state.Sequence = ++_nextSnapshotSequence;
+                state.Sequence = ++_s.NextSnapshotSequence;
             return state;
         }
 

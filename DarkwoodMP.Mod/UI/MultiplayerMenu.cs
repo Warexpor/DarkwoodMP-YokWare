@@ -15,6 +15,21 @@ namespace DWMPHorde
         private string _portText = PluginInfo.DefaultPort.ToString();
         private string _passwordText = "";
         private string _steamLobbyText = "";
+        private string _nameText = "";
+        // A field is written back to the config only after the user edited it (never every
+        // IMGUI pass: the network writes SteamLobbyId itself and each Save hits the disk).
+        private bool _dirtyAddress;
+        private bool _dirtyPort;
+        private bool _dirtyPassword;
+        private bool _dirtyLobby;
+        private bool _dirtyName;
+        private string _lastFocusedControl = "";
+        private const string CtlAddress = "dwmp_addr";
+        private const string CtlPort = "dwmp_port";
+        private const string CtlPassword = "dwmp_pass";
+        private const string CtlLobby = "dwmp_lobby";
+        private const string CtlName = "dwmp_name";
+        private const string LockOwner = "f2";
         private string _hostNextStepHint = "";
         private string _restoreSelfStatus = "";
         private float _restoreSelfStatusUntil;
@@ -31,9 +46,13 @@ namespace DWMPHorde
         public static void ToggleVisible()
         {
             if (_instance == null) return;
-            _instance._visible = !_instance._visible;
             if (_instance._visible)
-                _instance.PullFieldsFromConfig();
+            {
+                _instance.Close();
+                return;
+            }
+            _instance._visible = true;
+            _instance.PullFieldsFromConfig();
         }
 
         /// <summary>Toggle IMGUI settings (IP/port/password) for main-menu SETTINGS open/close.</summary>
@@ -42,14 +61,20 @@ namespace DWMPHorde
             if (_instance == null) return;
             if (_instance._visible)
             {
-                _instance.WriteFieldsToConfig();
-                _instance._visible = false;
+                _instance.Close();
                 return;
             }
             _instance._visible = true;
             _instance.PullFieldsFromConfig();
         }
 
+        private void Close()
+        {
+            WriteFieldsToConfig();
+            _visible = false;
+        }
+
+        /// <summary>Commit any edited fields (HOST/JOIN buttons call this before reading the config).</summary>
         public static void PushFieldsToConfig()
         {
             if (_instance == null) return;
@@ -87,30 +112,55 @@ namespace DWMPHorde
             if (ModConfig.ConnectAddress != null)
                 _connectAddress = ModConfig.ConnectAddress.Value ?? "127.0.0.1";
             if (ModConfig.ConnectPort != null)
-                _portText = ModConfig.ConnectPort.Value.ToString();
+                _portText = ModConfig.GetConnectPort().ToString();
             if (ModConfig.HostPassword != null)
                 _passwordText = ModConfig.HostPassword.Value ?? "";
-            if (ModConfig.SteamLobbyId != null)
-                _steamLobbyText = ModConfig.SteamLobbyId.Value ?? "";
-            if (Network != null && Network.IsSteamSession && !string.IsNullOrEmpty(Network.SteamLobbyIdText))
-                _steamLobbyText = Network.SteamLobbyIdText;
+            if (ModConfig.PlayerName != null)
+                _nameText = ModConfig.PlayerName.Value ?? "Player";
+            _steamLobbyText = ResolveLobbyText();
+            _dirtyAddress = _dirtyPort = _dirtyPassword = _dirtyLobby = _dirtyName = false;
         }
 
+        /// <summary>Live lobby id while hosting/joining via Steam, else the configured one.</summary>
+        private string ResolveLobbyText()
+        {
+            if (Network != null && Network.IsSteamSession && !string.IsNullOrEmpty(Network.SteamLobbyIdText))
+                return Network.SteamLobbyIdText;
+            return ModConfig.SteamLobbyId != null ? (ModConfig.SteamLobbyId.Value ?? "") : "";
+        }
+
+        /// <summary>
+        /// Write back only the fields the user edited. Port is clamped to 1-65535 (invalid text
+        /// reverts to the configured port).
+        /// </summary>
         private void WriteFieldsToConfig()
         {
-            if (ModConfig.ConnectAddress != null && _connectAddress != null)
+            if (_dirtyAddress && ModConfig.ConnectAddress != null && _connectAddress != null)
                 ModConfig.ConnectAddress.Value = _connectAddress.Trim();
-            if (ModConfig.ConnectPort != null && int.TryParse(_portText, out int p))
-                ModConfig.ConnectPort.Value = p;
-            if (ModConfig.HostPassword != null && _passwordText != null)
+            if (_dirtyPort && ModConfig.ConnectPort != null)
+            {
+                if (int.TryParse(_portText, out int p))
+                    ModConfig.ConnectPort.Value = Mathf.Clamp(p, ModConfig.MinPort, ModConfig.MaxPort);
+                _portText = ModConfig.GetConnectPort().ToString();
+            }
+            if (_dirtyPassword && ModConfig.HostPassword != null && _passwordText != null)
                 ModConfig.HostPassword.Value = _passwordText;
-            if (ModConfig.SteamLobbyId != null && _steamLobbyText != null)
+            if (_dirtyLobby && ModConfig.SteamLobbyId != null && _steamLobbyText != null)
                 ModConfig.SteamLobbyId.Value = _steamLobbyText.Trim();
+            if (_dirtyName && ModConfig.PlayerName != null && _nameText != null)
+                ModConfig.PlayerName.Value = _nameText.Trim();
+            _dirtyAddress = _dirtyPort = _dirtyPassword = _dirtyLobby = _dirtyName = false;
         }
 
         private void Update()
         {
             MainMenuMultiplayerInject.OnUpdate();
+
+            // In-game only: the title screen has no gameplay input to hold back.
+            bool lockInput = _visible && !Core.mainMenu;
+            UiInputLock.Set(LockOwner, lockInput);
+            if (lockInput && Input.GetKeyDown(KeyCode.Escape))
+                Close();
         }
 
         private void ResetWindowRect()
@@ -140,7 +190,7 @@ namespace DWMPHorde
                 _windowRect.width / scaleGui,
                 _windowRect.height / scaleGui);
 
-            scaledRect = GUI.Window(987654, scaledRect, DrawWindow, PluginInfo.Name + " v" + PluginInfo.DisplayVersion);
+            scaledRect = GUI.Window(987654, scaledRect, DrawWindow, PluginInfo.DisplayVersion);
 
             _windowRect = new Rect(
                 scaledRect.x * scaleGui,
@@ -163,28 +213,42 @@ namespace DWMPHorde
                 "Join: host must be in-chapter → world share → pick slot → ENTER WORLD.",
                 GUILayout.ExpandWidth(true));
 
+            // Focus left a field: that is the commit point for the text it held.
+            string focused = GUI.GetNameOfFocusedControl();
+            if (focused != _lastFocusedControl)
+            {
+                _lastFocusedControl = focused;
+                WriteFieldsToConfig();
+            }
+            // Pick up a lobby id the network wrote (host created a lobby) unless the user is editing it.
+            if (!_dirtyLobby && focused != CtlLobby)
+                _steamLobbyText = ResolveLobbyText();
+
             GUILayout.Space(8f);
             GUILayout.Label("Host IP:", GUILayout.ExpandWidth(true));
-            _connectAddress = GUILayout.TextField(_connectAddress, GUILayout.ExpandWidth(true));
+            _connectAddress = Field(CtlAddress, _connectAddress, ref _dirtyAddress);
 
             GUILayout.Space(4f);
-            GUILayout.Label("Port:", GUILayout.ExpandWidth(true));
-            _portText = GUILayout.TextField(_portText, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Port (1-65535):", GUILayout.ExpandWidth(true));
+            _portText = Field(CtlPort, _portText, ref _dirtyPort);
 
             GUILayout.Space(4f);
             GUILayout.Label("Password (optional):", GUILayout.ExpandWidth(true));
-            _passwordText = GUILayout.TextField(_passwordText ?? "", GUILayout.ExpandWidth(true));
+            _passwordText = Field(CtlPassword, _passwordText ?? "", ref _dirtyPassword);
 
             GUILayout.Space(4f);
             GUILayout.Label("Steam lobby id:", GUILayout.ExpandWidth(true));
-            _steamLobbyText = GUILayout.TextField(_steamLobbyText ?? "", GUILayout.ExpandWidth(true));
+            _steamLobbyText = Field(CtlLobby, _steamLobbyText ?? "", ref _dirtyLobby);
 
             GUILayout.Space(4f);
             GUILayout.Label("Chat name:", GUILayout.ExpandWidth(true));
-            if (ModConfig.PlayerName != null)
-                ModConfig.PlayerName.Value = GUILayout.TextField(ModConfig.PlayerName.Value ?? "Player", GUILayout.ExpandWidth(true));
+            _nameText = Field(CtlName, _nameText ?? "Player", ref _dirtyName);
 
-            WriteFieldsToConfig();
+            bool anyDirty = _dirtyAddress || _dirtyPort || _dirtyPassword || _dirtyLobby || _dirtyName;
+            GUI.enabled = anyDirty;
+            if (GUILayout.Button(anyDirty ? "Apply" : "Saved", GUILayout.Height(24f)))
+                WriteFieldsToConfig();
+            GUI.enabled = true;
 
             GUILayout.Space(10f);
             if (GUILayout.Button(_advancedOpen ? "Advanced ▾" : "Advanced ▸", GUILayout.Height(26f)))
@@ -230,12 +294,21 @@ namespace DWMPHorde
 
             GUILayout.Space(10f);
             GUILayout.Label(
-                "v" + PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion
+                PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion
                 + "  |  F2=settings F3=save  |  " + PluginInfo.Guid + ".cfg",
                 GUILayout.ExpandWidth(true));
 
             GUILayout.EndScrollView();
             GUI.DragWindow(new Rect(0f, 0f, 10000f, 24f));
+        }
+
+        private static string Field(string controlName, string value, ref bool dirty)
+        {
+            GUI.SetNextControlName(controlName);
+            string edited = GUILayout.TextField(value, GUILayout.ExpandWidth(true));
+            if (!string.Equals(edited, value))
+                dirty = true;
+            return edited;
         }
 
         /// <summary>
@@ -284,13 +357,13 @@ namespace DWMPHorde
         private bool TryGetRestoreSelfGate(out string reason)
         {
             reason = null;
-            if (Core.mainMenu || Core.loadingGame || Player.Instance == null)
+            if (GameScreen.AtTitle || Core.loadingGame || Player.Instance == null)
             {
                 reason = "Need to be in-chapter (not title). Auto-restore runs on join.";
                 return false;
             }
 
-            var net = ModRuntime.Network as LanNetworkManager;
+            var net = ModRuntime.Network;
             if (net != null && net.Role == NetworkRole.Host)
             {
                 reason = "Host uses sav.dat — restore self is client-only (would overwrite host).";
@@ -346,14 +419,10 @@ namespace DWMPHorde
             float beforeHp = Player.Instance.health;
             int beforeLvl = Player.Instance.currentLevel;
 
-            ClientStateBackup.RestoreFromBackup(data);
-
-            // Campaign/empty guards inside RestoreFromBackup log + no-op.
-            if (!ClientStateBackup.MatchesCurrentCampaign(data)
-                || !ClientStateBackup.HasMeaningfulProgress(data))
+            if (!ClientStateBackup.RestoreFromBackup(data))
             {
                 SetRestoreSelfStatus(WrongSaveWarning.Format(
-                    "campaign mismatch or empty backup — restore refused"));
+                    "campaign mismatch, empty, or stale backup — restore refused"));
                 return;
             }
 

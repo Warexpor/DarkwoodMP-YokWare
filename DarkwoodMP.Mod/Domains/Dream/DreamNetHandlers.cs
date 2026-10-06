@@ -33,14 +33,22 @@ namespace DWMPHorde.Networking
             }
 
             // Merge host completed + lvl flags before entry.
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
+            DreamRetry.HostDreamRunning = true;
+
+            // Dead in the overworld: sit it out (the host leaves dead peers off the roster).
+            if (_net.Role == NetworkRole.Client && DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                ModRuntime.LegacyInfo($"[DreamSync] Sit out DreamStarted {msg.PresetName}: local player is dead");
+                return;
+            }
 
             // Party-once: ignore stale DreamStarted for a preset the party already finished.
             if (!string.IsNullOrEmpty(msg.PresetName)
                 && DreamSession.IsPresetCompleted(msg.PresetName))
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSync] Drop DreamStarted — party already completed: " + msg.PresetName);
+                    $"[DreamSync] Drop DreamStarted — party already completed: {msg.PresetName}");
                 return;
             }
 
@@ -48,6 +56,13 @@ namespace DWMPHorde.Networking
             {
                 DreamSession.SetPendingHostPreset(msg.PresetName);
                 DreamSession.MirrorPoolRemove(msg.PresetName);
+            }
+
+            // This player is in the dream: the level slot(s) it is for are had (per player).
+            if (_net.Role == NetworkRole.Client && msg.LvlFlags != 0)
+            {
+                DreamSession.ApplyLvlFlags(msg.LvlFlags);
+                DreamRetry.OnJoinedLevelDream(msg.LvlFlags);
             }
 
             if (!DreamSession.IsActive)
@@ -72,7 +87,8 @@ namespace DWMPHorde.Networking
                     DreamSession.AdoptSessionId(msg.SessionId);
             }
 
-            DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos);
+            DreamRetry.Clear();
+            DreamSyncManager.OnRemoteDreamStarted(playerId, msg.PresetName, locPos, msg.EntryTransition);
             DreamSession.MarkActive();
         }
 
@@ -91,7 +107,8 @@ namespace DWMPHorde.Networking
             if (_net.Role == NetworkRole.Client && DreamSession.IsRejectedOutcome(msg.OutcomeName))
             {
                 ModRuntime.LegacyInfo(
-                    "[DreamSession] Host rejected story end — " + msg.OutcomeName);
+                    $"[DreamSession] Host rejected story end — {msg.OutcomeName}");
+                DreamRetry.OnRejected(msg.OutcomeName);
                 DreamSyncManager.ForceLocalDreamCleanup(msg.OutcomeName);
                 return;
             }
@@ -126,7 +143,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+                DreamSession.ApplySnapshot(msg.CompletedPresets);
 
                 if (peerState != null)
                     peerState.IsDeadInDream = false;
@@ -134,6 +151,11 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo(
                     $"[DreamSession] Host applying client story end via initiateEndDreaming: {msg.OutcomeName}");
                 Dreams.Instance.outcome = msg.OutcomeName;
+                // The initiateEndDreaming authority patch fans DreamEnded out, but it stands down
+                // inside this handler's apply guard: peers (the requester too) waited for the
+                // host's whole exit and then played theirs alone. Fan out here.
+                DreamSyncManager.NotifyPeersStoryEndBeginning(
+                    DreamSession.PresetName ?? msg.PresetName, msg.OutcomeName);
                 // Vanilla: transition video/fade then endDreaming. Do not hard-cut.
                 Dreams.Instance.initiateEndDreaming();
                 return;
@@ -151,14 +173,19 @@ namespace DWMPHorde.Networking
             }
 
             DreamSyncManager.ClearStoryEndDefer();
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
+            if (!DreamSyncManager.OutcomeChainsToNextDream(Dreams.Instance, msg.OutcomeName))
+                DreamRetry.HostDreamRunning = false;
 
             // playerDeath, spectate, and remote cleanup clear dream-death tracking.
             if (_net.TryGetRemoteState(playerId, out peerState))
                 peerState.IsDeadInDream = false;
 
-            // Avoid double-end if we already Idle.
-            if (DreamSession.IsActive)
+            // Chain outcomes: keep the session Active so host-ordered wantToSwitchDream
+            // → SetChainedPreset keeps the death roster (End would Idle then TryBegin wipe).
+            bool chains = DreamSyncManager.OutcomeChainsToNextDream(
+                Dreams.Instance, msg.OutcomeName);
+            if (DreamSession.IsActive && !chains)
                 DreamSession.End(msg.OutcomeName);
             DreamSyncManager.OnRemoteDreamEnded(playerId, msg.OutcomeName);
         }
@@ -172,6 +199,21 @@ namespace DWMPHorde.Networking
                 DeliveryMethod.ReliableOrdered);
         }
 
+        /// <summary>
+        /// A refused start request. Outside a running dream everyone also watched the requester's
+        /// entry movie (CutsceneSync) and froze for it: release them all now, the host too.
+        /// </summary>
+        private void RejectStartRequest(int requesterId, string reason)
+        {
+            SendDreamEndedRejected(requesterId, reason);
+            if (DreamSession.IsActive)
+                return;
+            _net.Broadcast(NetMessageType.CutsceneSync,
+                w => new CutsceneSyncMessage { Action = CutsceneSyncMessage.ActionDreamEntryCancel, ManagerName = "" }.Serialize(w),
+                DeliveryMethod.ReliableOrdered);
+            DreamSyncManager.CancelRefusedEntry();
+        }
+
         internal void HandleDreamStartRequest(DreamStartRequestMessage msg)
         {
             if (_net.Role != NetworkRole.Host)
@@ -179,9 +221,23 @@ namespace DWMPHorde.Networking
 
             int requesterId = _net.CurrentReceivePlayerId;
 
-            // Client may have leveled (hadDreamAtLvl*); union before prepare.
-            if (msg.LvlFlags != 0)
-                DreamSession.ApplyLvlFlags(msg.LvlFlags);
+            // The host runs every dream as a participant; dead, it cannot. The requester keeps the
+            // dream and asks again once the host is back (DreamRetry), as vanilla keeps wantToDream.
+            if (DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                ModLog.Event(LogCat.Dream, "[DreamSync] defer start request — host is dead: " + msg.PresetName);
+                RejectStartRequest(requesterId, DreamRetry.HostDeadReason);
+                return;
+            }
+
+            // The host is in its own prologue (PersonalPrologue): a party dream waits for it, as
+            // for a dead host.
+            if (PersonalPrologue.LocalInPrologue)
+            {
+                ModLog.Event(LogCat.Dream, "[DreamSync] defer start request — host is in its prologue: " + msg.PresetName);
+                RejectStartRequest(requesterId, DreamRetry.HostPrologueReason);
+                return;
+            }
 
             if (string.IsNullOrEmpty(msg.PresetName))
             {
@@ -191,7 +247,7 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — session active");
-                    SendDreamEndedRejected(requesterId, "session_active");
+                    RejectStartRequest(requesterId, "session_active");
                     return;
                 }
                 if (Singleton<Dreams>.Instance == null
@@ -200,28 +256,52 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Event(LogCat.Dream,
                         "[DreamSync] ignore empty start request — dream already prepared/active");
-                    SendDreamEndedRejected(requesterId, "already_prepared");
+                    RejectStartRequest(requesterId, "already_prepared");
                     return;
                 }
 
+                // The level slot(s) the requester's level-up wants: the dream begun for it carries
+                // them, and everyone in it gets them marked.
+                DreamSession.NextLevelBits |= msg.LvlFlags;
                 ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
-                try
+                // Next frame, outside this handler's apply guard: the host's roll hooks
+                // (pool refill, TryBegin, early bulk to clients) stand down inside it, so the
+                // roll ran untracked and a depleted pool threw.
+                Singleton<Controller>.Instance.waitFramesAndRun(() =>
                 {
-                    Singleton<Controller>.Instance.StartCoroutine(
-                        Singleton<Dreams>.Instance.prepareDream(""));
-                }
-                catch (Exception ex)
-                {
-                    ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
                     try
                     {
-                        if (Singleton<Dreams>.Instance != null)
-                            Singleton<Dreams>.Instance.dreamPrepared = false;
+                        if (DreamSession.IsActive || Singleton<Dreams>.Instance == null
+                            || Singleton<Dreams>.Instance.dreamPrepared || Singleton<Dreams>.Instance.dreaming)
+                            return;
+                        Singleton<Controller>.Instance.StartCoroutine(
+                            Singleton<Dreams>.Instance.prepareDream(""));
                     }
-                    catch { /* ignore */ }
-                    DreamSession.AbortStarting(ex.Message);
-                    SendDreamEndedRejected(requesterId, "prepare_failed");
-                }
+                    catch (Exception ex)
+                    {
+                        ModRuntime.Log?.LogError("[DreamSync] prepareDream('') failed: " + ex);
+                        try
+                        {
+                            if (Singleton<Dreams>.Instance != null)
+                                Singleton<Dreams>.Instance.dreamPrepared = false;
+                        }
+                        catch { /* ignore */ }
+                        DreamSession.AbortStarting(ex.Message);
+                        DreamSession.NextLevelBits = 0;
+                        RejectStartRequest(requesterId, "prepare_failed");
+                    }
+                }, 1);
+                return;
+            }
+
+            // A name the game has no preset for threw inside prepareDream after TryBegin, leaving
+            // the session Starting (joins refused, overworld deaths counted as dream deaths) until
+            // its 60 s timeout.
+            if (DreamSyncManager.FindDreamPreset(msg.PresetName) == null)
+            {
+                ModLog.Event(LogCat.Dream,
+                    "[DreamSync] reject start request — no such preset: " + msg.PresetName);
+                RejectStartRequest(requesterId, "unknown_preset");
                 return;
             }
 
@@ -230,7 +310,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] reject start request — party already completed: " + msg.PresetName);
-                SendDreamEndedRejected(requesterId, "already_completed");
+                RejectStartRequest(requesterId, "already_completed");
                 return;
             }
 
@@ -247,14 +327,16 @@ namespace DWMPHorde.Networking
                 ModLog.Event(LogCat.Dream,
                     "[DreamSync] ignore start request — session " + DreamSession.Current
                     + " preset=" + DreamSession.PresetName + " req=" + msg.PresetName);
-                SendDreamEndedRejected(requesterId, "session_active");
+                RejectStartRequest(requesterId, "session_active");
                 return;
             }
 
+            DreamSession.NextLevelBits |= msg.LvlFlags;
             if (!DreamSession.TryBegin(msg.PresetName))
             {
+                DreamSession.NextLevelBits = 0;
                 ModRuntime.LegacyInfo($"[DreamSync] TryBegin failed for request: {msg.PresetName}");
-                SendDreamEndedRejected(requesterId,
+                RejectStartRequest(requesterId,
                     DreamSession.IsPresetCompleted(msg.PresetName)
                         ? "already_completed"
                         : "try_begin_failed");
@@ -274,13 +356,18 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogError("[DreamSync] prepareDream failed: " + ex);
                 DreamSession.AbortStarting(ex.Message);
-                SendDreamEndedRejected(requesterId, "prepare_failed");
+                RejectStartRequest(requesterId, "prepare_failed");
             }
         }
 
         internal void HandleDreamSessionBulk(DreamSessionBulkMessage msg)
         {
-            DreamSession.ApplySnapshot(msg.CompletedPresets, msg.LvlFlags);
+            DreamSession.ApplySnapshot(msg.CompletedPresets);
+            if (_net.Role == NetworkRole.Client)
+                DreamRetry.HostDreamRunning = msg.SessionActive;
+            // Reconnected (host migration, soft reconnect) while on the dream pad: confirm or leave.
+            if (DreamSyncManager.OnSessionBulkWhileInsideDream(msg, _net))
+                return;
             if (msg.SessionId != 0)
                 DreamSession.AdoptSessionId(msg.SessionId);
             if (!string.IsNullOrEmpty(msg.ActivePreset))
@@ -293,7 +380,31 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo(
                 $"[DreamSync] Session bulk: completed={msg.CompletedPresets?.Length ?? 0} "
-                + $"active={msg.SessionActive} preset={msg.ActivePreset} session={msg.SessionId}");
+                + $"active={msg.SessionActive} preset={msg.ActivePreset} session={msg.SessionId}"
+                + (msg.HasPadPosition ? " pad" : ""));
+
+            // Late join (or a missed DreamStarted): the snapshot alone left the peer
+            // in the overworld while the party was on the pad.
+            if (_net.Role == NetworkRole.Client
+                && msg.SessionActive
+                && msg.HasPadPosition
+                && !string.IsNullOrEmpty(msg.ActivePreset)
+                && (Dreams.Instance == null || !Dreams.Instance.dreaming)
+                && !DreamSyncManager.IsLocalDreamActive
+                && !DreamSyncManager.HasPendingEntryTransition
+                && !DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                DreamSession.BeginFromHost(msg.ActivePreset, msg.SessionId);
+                int hostId = _net.CurrentReceivePlayerId > 0
+                    ? _net.CurrentReceivePlayerId
+                    : (_net.HostPlayerId > 0 ? _net.HostPlayerId : 1);
+                // They missed the entry movie. Load the live pad instead of replaying it.
+                DreamSyncManager.MarkLocalEntryTransitionPlayed();
+                DreamSyncManager.OnRemoteDreamStarted(
+                    hostId,
+                    msg.ActivePreset,
+                    new Vector3(msg.PadX, msg.PadY, msg.PadZ));
+            }
         }
 
         internal void HandleDreamChainStart(DreamChainStartMessage msg)
@@ -362,7 +473,19 @@ namespace DWMPHorde.Networking
             }
             // Peer pad ready; push collider parity (lamp trigger and bell solid).
             if (_net.Role == NetworkRole.Host)
+            {
                 WorldPhysicsSyncService.HostBroadcastDreamPropColliders();
+                // A peer arriving in a dream already under way (a joiner, a reconnect, the
+                // tutorial) loaded a fresh pad: the bunker's dialogue door shut, earlier doors
+                // closed. Replay what the pad's events and doors did so far.
+                Transform padT = DreamSyncManager.GetDreamLocationTransform();
+                Location pad = padT != null ? padT.GetComponent<Location>() : null;
+                if (pad != null && playerId > 0)
+                {
+                    _net.GameEventHandlers.SendFiredGameEventsNearLocationTo(playerId, pad);
+                    _net.WorldLateJoinHandlers.SendDoorStatesTo(playerId, pad, 128);
+                }
+            }
         }
 
         internal void HandleDreamPropCollider(DreamPropColliderMessage msg)
@@ -378,6 +501,13 @@ namespace DWMPHorde.Networking
             var bulk = DreamSessionBulkMessage.FromLocal();
             _net.SendToPlayer(playerId, NetMessageType.DreamSessionBulk,
                 w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
+            if (bulk.SessionActive && bulk.HasPadPosition)
+            {
+                DreamSyncManager.NoteRemoteInDream(playerId);
+                var proxy = _net.GetProxy(playerId);
+                if (proxy != null)
+                    proxy.FreezePosition = true;
+            }
         }
     }
 }

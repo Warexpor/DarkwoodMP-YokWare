@@ -11,7 +11,7 @@ namespace DWMPHorde.Sync
     public static class ListTracker<T> where T : Component
     {
         private static readonly List<T> _items = new List<T>(64);
-        private static float _lastCleanupTime;
+        private static float _lastCleanupTime; // process-scoped: prune throttle
         private const float CleanupInterval = 30f;
 
         /// <summary>Returns the tracked list (may contain nulls between cleanups).</summary>
@@ -32,19 +32,28 @@ namespace DWMPHorde.Sync
             _items.Remove(item);
         }
 
-        /// <summary>Finds a tracked instance within <paramref name="maxDist"/> of the given position.</summary>
+        /// <summary>
+        /// Finds a tracked instance within <paramref name="maxDist"/> of the given position.
+        /// An active one wins over an inactive one, then the nearest: vanilla scenes keep inactive
+        /// twins at the same spot (border_main_cottageTrailer_01 has two DoorSmall1 at one position,
+        /// one of them inactive), and the tracker also lists inactive instances.
+        /// </summary>
         public static T FindByPosition(Vector3 pos, float maxDist = 0.5f)
         {
             T best = null;
+            bool bestActive = false;
             float bestD = maxDist;
             for (int i = 0; i < _items.Count; i++)
             {
                 T item = _items[i];
                 if (item == null) continue;
                 float d = Vector3.Distance(item.transform.position, pos);
-                if (d < bestD)
+                if (d >= maxDist) continue;
+                bool active = item.gameObject.activeInHierarchy;
+                if (best == null || (active && !bestActive) || (active == bestActive && d < bestD))
                 {
                     bestD = d;
+                    bestActive = active;
                     best = item;
                 }
             }
@@ -64,8 +73,20 @@ namespace DWMPHorde.Sync
             _items.RemoveAll(item => item == null);
         }
 
-        /// <summary>Clears all tracked instances.</summary>
-        public static void Clear() { _items.Clear(); }
+        /// <summary>
+        /// Network-stop reset (registered with NetworkResetRegistry): drops the list, then
+        /// refills it with every scene instance including inactive ones. Doors / generators in
+        /// the live world already ran Awake / Start, so nothing would re-register them — a re-host
+        /// in the same world would otherwise iterate empty lists. Reads the scene registry once
+        /// the world is seeded (a scan otherwise, as CharacterTracker.ResetForNetworkStop does).
+        /// </summary>
+        public static void Clear()
+        {
+            _items.Clear();
+            T[] scene = WorldQueryHelper.GetCachedSceneComponents<T>();
+            for (int i = 0; i < scene.Length; i++)
+                Add(scene[i]);
+        }
     }
 
     /// <summary>Harmony patch: registers doors with the tracker on Awake.</summary>

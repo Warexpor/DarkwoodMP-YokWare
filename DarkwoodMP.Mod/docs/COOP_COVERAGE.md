@@ -3,8 +3,8 @@
 This is a compact code-coverage and runtime-verification checklist for the
 Path B Horde mod.
 
-**Current baseline:** product `0.8.31`, protocol **25**, message IDs through
-`ScenarioStateBulk` (138), host-authoritative N-player LAN. Steam uses the same
+**Current baseline:** the product version and protocol in the README, message IDs
+as listed in `NetMessageType.cs`, host-authoritative N-player LAN. Steam uses the same
 message contracts through its separate networking transport.
 
 Code coverage and runtime coverage are different:
@@ -44,14 +44,14 @@ state without changing existing players' state.
 | Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client) | Code covered; runtime pending |
 | Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths | Code covered; runtime pending |
-| Entity AI and snapshots | `EntityStateBroadcastService`, `ClientEntityInterpolationService`, `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
+| Entity AI and snapshots | `EntityStateBroadcastService` (20 Hz near remotes, host clock), `ClientEntityInterpolationService` (host-timeline interpolation), `DefenderAttackPatches` + `EnemyAttackNetHandlers` (enemy attacks judged by the defender), `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
 | Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134), ShadowArmor (`ShadowArmorState` 135), world Burn (`WorldBurnState` 137), Infection via `EntitySpawn` 86, RandomObject/Object/ObjectPool/SpawnPrefab/RandomSpawnArea/CharacterSpawnPoint host-auth, `GameEventsBulk` destroyOnFire latch, early-gen `WorldGenerator`/`WorldChunk`/`ObjectPoolSpawnerController` host-auth, EventTriggers sight `AnyInSight` | Code covered; runtime pending |
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
 | Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
-| Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
+| Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), client gasoline pour (`GasTrailSpawn`) + client torch/melee ignite (`GasIgnite`), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
-| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths | Code covered; runtime pending |
+| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate); runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |
 
@@ -72,12 +72,29 @@ reliable door, trap, or generator event.
 ### Combat authority
 
 The host derives the attacker from the receiving peer. It uses the host proxy
-for attack origin and range checks, validates finite positions and damage,
-accepts only known target types, and rejects unknown victims.
+for attack origin and range checks (melee and ranged limits, attacker drift),
+validates finite positions and damage, rate-limits each peer (hits and damage
+per second), rejects attackers that are dead, night-dead or in a dream the host
+is not in, accepts only known target types, and rejects unknown victims. A
+rejected attack is never relayed. Client authority is trust-limited co-op, not
+anti-cheat.
 
 Runtime checks still needed: host attacks client, client attacks host, client A
 attacks client B, melee and projectile paths, friendly fire on and off, and
 dead or missing targets.
+
+### Enemy attacks ("defender decides")
+
+The host fans out every enemy attack frame near a remote player (`EnemyAttack` 147:
+melee sensor, ranged `SensorType`, activity projectile). Each client re-creates it on
+its own copy of the enemy; the copy can hit only that client's player. The host
+original hits the host player, enemies and the world, and skips remote stand-ins.
+Hits are reported back (`EnemyHitConfirm` 148) for blood and sound on the stand-in.
+Client copies of enemies never fire their own attack frame (event 997). Aura,
+flier dive, `Shooter`, explosions, shadows, traps and fire stay host-decided.
+
+Runtime checks still needed: client dodge vs hit, repeated swings, ranged and thrown
+enemies, 3 players next to one enemy, blood for a third player, late attack drop.
 
 ### Client AI suppression
 
@@ -104,11 +121,15 @@ Host owns Porter NPC spawn (`PorterSpawner.Start` / `waitToSpawn`). Clients
 Prefix-skip both so independent out-of-sight timers cannot place a second
 Porter. Host `InSightOfPlayer.checkSight` uses `HostPlayerIdentity.AnyInSight`
 (local `Player.isInSight` OR each remote proxy as viewer via the same method).
-Observation: entity snapshots. No dedicated message.
+Observation: entity snapshots.
+
+Client bike-bell (`porterWhistle` → `Location.spawnPorter`): defers to host via
+existing `ItemSpawn` type sentinel `porterWhistle`. Host places
+`Events/porterSpawner`; personal consume stays on the caller. No new message id.
 
 Runtime checks still needed: client alone near the volume (host treats proxy
 FOV as in/out of sight), host-only Porter appear on peers, host near volume
-cancels client-driven spawn path.
+cancels client-driven spawn path, client rings bike bell by day at hideout.
 
 ### Dream and world scoping
 
@@ -119,14 +140,35 @@ overworld and dream copies can have the same names.
 Runtime checks still needed: dream entry, leave-door dialogue, cleanup,
 re-entry, late scene loading, and a peer remaining in the overworld.
 
-### Packet validation
+### Packet validation and relay
 
-`NetReader` bounds primitive and byte-array reads. Snapshot decoders reject
-invalid collection sizes or incomplete payloads where the message contract
-requires the data.
+`NetReader` bounds primitive and byte-array reads. Every message reads exactly
+what it writes (the handshake alone is tolerant, so a peer on another protocol
+still gets a clear mismatch); out-of-range counts are rejected as malformed, and
+a malformed packet is never relayed. `WireSymmetryTests` round-trips every
+message type.
+
+Before any handler, the host drops traffic from unknown or refused peers, all
+gameplay traffic from a peer that has not completed its handshake, and
+`[HostOnly]` message types sent by a client. Client messages of `[Forwardable]`
+types reach the other clients only after the host applied them; a handler that
+rejects one calls `SuppressRelay()`, and a handler that corrects one relays the
+host-stamped copy (`RelayStamped`). Relays keep the inbound delivery method.
 
 Runtime checks still needed: truncated and oversized payloads through both
-transports. Unit tests cover the shared reader and policy helpers.
+transports, a client sending a host-only type, and a third client observing a
+rejected request.
+
+### Session lifetime
+
+Per-peer bookkeeping lives in `LinkState` (replaced whenever the transport
+stops) inside `SessionState` (replaced on `StopNetwork`); `WorldPhysicsSyncService`
+keeps its session in one replaceable object. Every other static in the runtime
+folders is either reset through `NetworkResetRegistry` or marked process-scoped,
+which `StaticStateResetTests` enforces.
+
+Runtime checks still needed: host, leave to title and host again; join, leave
+and join a different host; host migration followed by a reconnect.
 
 ---
 
@@ -146,8 +188,9 @@ transports. Unit tests cover the shared reader and policy helpers.
   Host `InSightOfPlayer` sight considers any session avatar
   (`HostPlayerIdentity.AnyInSight`). Dual-box runtime pending.
 - Dream objects and dream cleanup are scoped to the active dream location.
-- Host migration elects the lowest positive surviving `PlayerId`; dream
-  migration remains deferred.
+- Host migration elects the lowest positive surviving `PlayerId`; a migration
+  during a dream carries the dream over (done in code, not playtested; see the
+  deferred list below).
 - **UniqueItemSpawner (TeddyBear):** host-only `spawn` (clients Prefix-skip).
   Observation: host `ContainerItem` PlaceItem when peers are connected at
   spawn time; otherwise client open → `ContainerStateRequest` /
@@ -209,17 +252,15 @@ transports. Unit tests cover the shared reader and policy helpers.
   host↔client send/apply/authority paths (or an explicit parked bullet with
   decompile citation). This soak is the Unity dual-box / three-player playtest
   that flips those rows from "runtime pending" to "runtime verified." It is
-  intentionally outside the decompile-loop objective finish bar (implement or
-  park with citations). No game processes were available during the static
-  pass. Protocol **25** unchanged.
+  a runtime activity: no static pass can mark a row verified.
 - **`AnimationPlay` — parked (DEFERRED-ok cosmetic).** Decompile
   `AnimationPlay.cs`: local RNG for `randomAnims`, `randomizeStartFrame`,
   twitch frame, and play-delay loops; optional rigidbody Push on anim events.
   No story flags / GE / shared inventory. Peers may desync decorative anim
   phase only. Do **not** sync unless playtest shows physics Push affecting
-  co-op. Protocol **25** unchanged.
+  co-op.
 - **`MagicContainer` — parked (empty stub).** Decompile `MagicContainer.cs`
-  has empty `Start`/`Update` only. No co-op surface. Protocol **25** unchanged.
+  has empty `Start`/`Update` only. No co-op surface.
 - **`DescriptionPool` / Examinable onExamine — host-auth triggers (code);
   pool draw personal.** Decompile `Examinable.examine` draws
   `DescriptionPool.getDescriptionFromPool` (removes a string) then
@@ -228,14 +269,14 @@ transports. Unit tests cover the shared reader and policy helpers.
   (HUD suppressed) for GE + broadcasts examined /
   `displayedDescriptionPool` flags (msg **110**). Shared pool depletion is
   not wire-synced (would need the drawn key on the wire). Dual-box still
-  runtime-pending. Protocol **25** unchanged.
+  runtime-pending.
 - **`SpriteRandomizer` — parked (DEFERRED-ok cosmetic).** Decompile
   `SpriteRandomizer.cs`: `init` rolls color / lightness / alpha / rotation /
   mirror / height / anim clip / sprite from local RNG, then `Destroy(this)`.
   Tooltip on `randomizeOnLoad` warns large problems when a non-circle
   collider combines with mirror / rotation randomize. Peers may diverge
   visually; do **not** sync unless a future playtest proves physics/collider
-  divergence that affects co-op. Protocol **25** unchanged.
+  divergence that affects co-op.
 - **`QuestRandomizer` — parked (unused / rare debug Bring-me-X).** Decompile
   `QuestRandomizer.cs`: `onPlayerEnter` rolls `itemAmount` 2–3 and a type from
   `allowedInvItemRequirements`, then `Core.displayMessage("Bring me {0} of
@@ -247,7 +288,6 @@ transports. Unit tests cover the shared reader and policy helpers.
   component (story “bring me” lines are Wolf/Musician dialogue, not this
   MonoBehaviour). Co-op tension if ever placed: personal HUD message + shared
   world inventory would need a deliberate design (not invent sync now).
-  Protocol **25** unchanged.
 - **`Underwater` — parked (host Character AI / ClientAIDisable).** Decompile
   `Underwater.cs`: no `Update`; submerge/emerge/teleport attack are driven from
   `Character` AI paths (`checkStuff`, attack finish, hit reactions). Clients
@@ -255,7 +295,6 @@ transports. Unit tests cover the shared reader and policy helpers.
   peers observe pose/anim via `EntityStateBroadcast`. Do **not** invent a
   dedicated Underwater message unless a future find shows client-local
   Underwater state that must diverge from host Character snapshots.
-  Protocol **25** unchanged.
 - **`Player.craftedItems` / `CraftingRecipes.timesCraftedLimit` — parked
   (personal by design, no sync).** Decompile:
   - `CraftingRecipes.reachedMaxNumberOfTimesCrafted` gates on
@@ -269,14 +308,15 @@ transports. Unit tests cover the shared reader and policy helpers.
     craft more items of this type.").
   - Shared craft progression that *is* world state is
     `Controller.workbenchLevel` (already live + late-join via `WorkbenchLevel` /
-    `WorkbenchLevelSync`); the mod `doCraft` Harmony only emits on workbench
-    upgrades (`JournalSyncPatches.WorkbenchUpgradePatch`).
+    `WorkbenchLevelSync`); the mod `doCraft` Harmony emits workbench
+    upgrades (`JournalSyncPatches.WorkbenchUpgradePatch`) and shared-pile
+    ContainerItem diffs (`CraftSharedPileSyncPatch` / repair / upgrade /
+    `ConstructSharedPileSyncPatch` / `HammerWorkSharedPileSyncPatch`).
   - `removeOnCraft` is a serialized field with **no C# readers** in the
     decompile; the live limit path is timesCraftedLimit → craftedItems.
   Host-gated craft-count sync would wrongly lock peer B out of B's personal
   limit after A crafts. World-unique story items stay on UniqueItemSpawner /
-  containers / GameEvents, not craft counts. No new msg; protocol **25**
-  unchanged.
+  containers / GameEvents, not craft counts. No new message.
 - Late-join bulk for night scenarios: **`ScenarioStateBulk` (138)** in light
   phase. Host snapshots scenario name + fired latch flags from decompile
   `CustomEvent.started`, `RandomEvent.startedToday` / `disabled`, and
@@ -297,6 +337,16 @@ transports. Unit tests cover the shared reader and policy helpers.
   Host also records one-shot `destroyOnFire` identities at live fire time
   (decompile `GameEvents.fire` destroys the GO after event delays) and merges
   them into the bulk so joiners still apply shells missing from the host scan.
+  **First-enter pad resync:** when a peer's first
+  `LocationEnter` resolves an outside pad, host
+  `ResyncOutsideLocationPadForPeer` re-sends barricades / opened doors /
+  unlocked padlocks / unlocked key Locked / pad-scoped fired GEs /
+  InteractiveItem isOn / constructed / traps / world Burn / chains /
+  ShadowArmor / saw·feeder·lure / ReputationBulk (ActorPlayerId=0; not a
+  second full join), limited to objects on that pad. Lights/gens go via
+  `ResyncWorldLightsForPeer`, also pad-scoped and batched.
+  Containers stay on-open request. Dreams still skip this path. Client settle
+  invalidates matching scene scans so SoftMatch sees virgin-pad children.
   Dual-box late-join still runtime-pending.
   (MapElement discoveries are no longer deferred — `MapStateSync` populates
   from host `isOnMap` elements; dual-box late-join still runtime-pending.)
@@ -305,7 +355,7 @@ transports. Unit tests cover the shared reader and policy helpers.
   runtime-pending.)
 - **`Resonator` / `RoadConnector` — parked (no co-op mutation).** Decompile
   `Resonator.onNightStart` is empty (dead `waitToSpawnWorm`); `RoadConnector`
-  is worldgen pathfinding only (host gen + WorldSaveShare). Protocol **25**.
+  is worldgen pathfinding only (host gen + WorldSaveShare).
 - **`RandomEvent.randomizeStartTime` — host-auth (code).** Decompile rolls
   `timeToStart` from `Events.initialize` and each `onNewDay`. Clients already
   Prefix-skip `RandomEvent.fire`; now also skip schedule rolls so early gen /
@@ -356,14 +406,13 @@ transports. Unit tests cover the shared reader and policy helpers.
   `GameEventsFired` / `GameEventsBulk` apply would no-op vine activate on
   clients. Only peer divergence is cosmetic `Core.getRandomHalfRotation()`.
   Do **not** host-auth skip Start without a separate vine-identity sync.
-  Protocol **25** unchanged.
 - **`ActionWhenTurnedOn` — parked (covered by LightState / Item.turnOn).**
   Decompile: `Item.turnOn` / `turnOff` set `ActionWhenTurnedOn.turnedOn`
   true/false; `powerDown` clears it. Live + late-join lamp sync already
   applies via `LightState` (6) → `ApplyLightState` → `item.turnOn()` /
   `turnOff()` under `NetworkApplyGuard`, which re-arms the same `turnedOn`
   latch and therefore `Action.Update` damage/refresh ticks. No dedicated
-  `ActionWhenTurnedOn` message. Protocol **25** unchanged.
+  `ActionWhenTurnedOn` message.
 - **`EventTrigger.fired` / `firedExit` late-join — parked (no dedicated msg).**
   Decompile `EventTrigger.cs` / `EventTriggers.cs`:
   - `fire(...)` early-outs on `(fired && !multipleFire)`; on success sets
@@ -393,20 +442,21 @@ transports. Unit tests cover the shared reader and policy helpers.
   Terminal share failure (`WORLD SHARE FAILED:`) unchanged. Dual-box soak
   still pending.
 - Complete interaction-lock coverage, including simultaneous container and
-  crafting races. **Workbench exclusive lock (msg 119) remains parked by
-  playtest product decision (0.7.40):** both players may open/use the same
-  bench; `WorkbenchOpenLock` is a stub; wire handler ignores traffic. Vanilla
-  `Workbench.open` has no exclusive latch — re-enable only if a future
-  playtest asks for one-crafter-at-a-time again (restore grant/deny + Harmony
-  Prefix bodies; see 0.7.x `WorkbenchLockPatches` park comment).
+  crafting races. **Workbench exclusive lock: not implemented by product
+  decision** — both players may open and use the same bench (vanilla
+  `Workbench.open` has no exclusive latch). Message id **119** (`WorkbenchLock`)
+  stays reserved and is accepted and ignored; the old stub lock class is gone.
+  Re-add a host grant/deny only if a playtest asks for one-crafter-at-a-time.
   **Container simultaneous-open:** parked as incomplete exclusive UI — loot
-  mutations are already host-validated (`ContainerItem` Take/Place/Remove +
-  `ContainerStateRequest`/`Sync` on open). Dual open only means dual UI; host
-  denies bad takes. Do not invent a container lock unless playtest shows a
+  mutations are host-validated (`ContainerItem` Take/Place/Remove checked against
+  the host's slot, amount and stack bounds, denied with an exact refund, never
+  relayed when denied; `ContainerStateRequest`/`Sync` on open). Dual open only
+  means dual UI; the host denies the losing take. Do not invent a container lock unless playtest shows a
   remaining race after host validation.
-- Host migration during an active dream: **parked.** `HostMigration` refuses
-  mid-dream authority flip and disconnects without GRANT (dream session is
-  not migratable). Dual-box mid-dream host-loss still soak-pending.
+- Host migration during an active dream: **done in code, not playtested.** The
+  dream carries over (`DreamSyncManager.Migration.cs`): the elected survivor owns
+  the session and runs the pad AI, the others rejoin while staying on their pad
+  and confirm with `DreamEntered`. A peer not yet inside the dream leaves it.
 - Exact proxy field-of-view parity for general EventTrigger sight checks:
   **done in code** — host `EventTriggers.isCurrentlyInSightOfPlayer` uses
   `HostPlayerIdentity.AnyInSight` (`Player.isInSight` + proxy `_transform`
@@ -417,14 +467,14 @@ transports. Unit tests cover the shared reader and policy helpers.
   section above.
 - Some dream, spectator, and dialogue presentation edge cases — **parked as
   presentation-only (not world-authority gaps):**
-  - Spectator dialogue UI / welcome and gossip randomness (historical 0.7.x
-    deferred notes; no shared world mutation).
-  - Portrait / dialogue overlay edge cases after world-only drains (0.7.75
-    line; live DialogOutcome + lookKeyhole drain already host-auth).
-  - Lost dream-chain packet fallback (0.7.x deferred; DreamSession /
-    DreamChainStart exist — soak missing packet recovery).
+  - Spectator dialogue UI / welcome and gossip randomness (no shared world
+    mutation).
+  - Portrait / dialogue overlay edge cases after world-only drains (live
+    DialogOutcome + lookKeyhole drain are host-auth).
+  - Lost dream-chain packet fallback (DreamSession / DreamChainStart exist —
+    soak missing packet recovery).
   Do **not** invent sync for cosmetic HUD/overlay variance unless playtest
-  shows a story latch or world object diverging. Protocol **25** unchanged.
+  shows a story latch or world object diverging.
 - **`PlayerSpawn` / `PlayerSpawnPoint` / `PossibleRespawnLocation` — parked
   (local registry / storage example).** Decompile: `PlayerSpawn` registers into
   `WorldGenerator.playerRespawnPoints` when `isRandomRespawn`; `PossibleRespawnLocation`
@@ -437,19 +487,31 @@ transports. Unit tests cover the shared reader and policy helpers.
   else `RemovePooledPrefab`. CharacterMessage / epilogue UI paths are local.
   Story side effects are EventTrigger → `GameEvents.fire` (client one-shots
   blocked by `GameEventsFiredPatch`; host fan-out live 65 / bulk 136). Do **not**
-  invent WaitAndDie sync. Protocol **25** unchanged.
+  invent WaitAndDie sync.
 - **`Broadcaster` — parked (serializer interest util).** Decompile static
   reflection helper for LevelSerializer interests — not gameplay mutation.
-  Protocol **25** unchanged.
-- **`UpgradeItemMenu` / `UpgradeItemBtn` — parked (personal item upgrades).**
-  Decompile: `tryToCraft` → `Player.startUpgrading(invItem, itemUpgrade)` on the
-  local player's workbench item UI; consumes personal inventory materials /
-  writes personal `InvItemClass` upgrades. Shared bench world state remains
-  `workbenchLevel` (synced). No upgrade-craft msg. Protocol **25** unchanged.
+- **`UpgradeItemMenu` / `UpgradeItemBtn` — personal upgrade result; pile
+  materials synced.** Decompile: progress bar →
+  `ItemUpgrade.removeIngredients` + `addUpgrade` on the local inv item.
+  Materials use `includeAdditionalInventory: true` (can drain
+  `openedItemInventory2`); `UpgradeSharedPileSyncPatch` fans ContainerItem
+  diffs. Upgrade stays personal. Shared bench world state remains
+  `workbenchLevel` (synced). No upgrade-craft msg.
+- **`Constructible.construct` — world prop already synced; pile drain.** Live+bulk `ConstructibleConstruction` (61). Manual place drains
+  via `ConstructionRequirement.removeIngredients` (`includeAdditionalInventory:
+  true`); `ConstructSharedPileSyncPatch` fans ContainerItem diffs. Remote apply
+  uses `manual: false` (no drain).
+- **`Player` HammerWork barricade finish — plank world already synced; pile
+  drain.** `BarricadeEvent` fans built/destroyed. Finish
+  (`doneBuilding`) drains via `removeItemAmountFromPlayer(...,
+  includeAdditionalInventory: true)`; `HammerWorkSharedPileSyncPatch` fans
+  ContainerItem diffs. Mid-swing hammers do not drain. The remote AI noise
+  alert stays on BarricadeEvent apply.
 - **`WhereAmI` `player_in*Hideout` flags — already local-only (code).** Decompile
   clears/sets `player_inFirstHideout` / Second / Third each 1.5s tick from local
-  `Player` position. `FlagSyncBoolPatch.IsLocalOnlyEphemeralFlag` skips any
-  `player_in*` name (playtest thrash if synced). Story flags still FlagSync.
-  Protocol **25** unchanged.
+  `Player` position. `PerPlayerFlagPolicy.IsPerPlayer` (FlagSync, join bulk, desync
+  check, host replay) skips any `player_in*` / `player_at*` / `player_entering*` name
+  (playtest thrash if synced) and the per-player experience flags (help popups, first
+  oven talk, the player's night). Story flags still FlagSync.
 
 Do not mark these items as runtime-verified from static or unit tests alone.

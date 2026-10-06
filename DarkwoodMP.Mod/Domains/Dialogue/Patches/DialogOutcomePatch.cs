@@ -29,15 +29,6 @@ namespace DWMPHorde.Patches
         }
     }
 
-    [HarmonyPatch(typeof(DialogueWindow), "displayNextBoard")]
-    public static class DialogOutcomeNextBoardPatch
-    {
-        private static void Prefix()
-        {
-            DialogOutcomeIndexPatch.ResetCounter();
-        }
-    }
-
     /// <summary>
     /// Client: after choosing a dialogue option, tell the host so story flags /
     /// items / reputation apply on the authoritative machine (even if the host
@@ -63,8 +54,7 @@ namespace DWMPHorde.Patches
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
 
-            var net = ModRuntime.Network as LanNetworkManager;
-            if (net == null || !net.IsConnected)
+            if (!NetGuard.Connected(out var net))
                 return;
             // Only client → host. Host choices apply locally; FlagSync carries world flags.
             if (net.Role != NetworkRole.Client)
@@ -92,16 +82,15 @@ namespace DWMPHorde.Patches
 
             DialogBoardCommit.NoteChoiceDest(target);
 
-            net.Send(NetMessageType.DialogOutcomeSync,
-                w => new DialogOutcomeSyncMessage
-                {
-                    NpcName = dw.npc.name,
-                    DecisionIndex = index,
-                    DialogueName = sourceDialogue,
-                    BoardIndex = boardIdx,
-                    TargetDialogueName = target
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
+            var msg = new DialogOutcomeSyncMessage
+            {
+                DecisionIndex = index,
+                DialogueName = sourceDialogue,
+                BoardIndex = boardIdx,
+                TargetDialogueName = target
+            };
+            DialogOutcomeNpc.Stamp(ref msg, NpcRef.Of(dw.npc));
+            net.Send(NetMessageType.DialogOutcomeSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] Client → host: NPC={dw.npc.name} " +
@@ -115,11 +104,25 @@ namespace DWMPHorde.Patches
         public int Index;
     }
 
+    /// <summary>Which NPC a dialogue outcome is for: name plus spot and world (NPC.name is not unique).</summary>
+    internal static class DialogOutcomeNpc
+    {
+        internal static void Stamp(ref DialogOutcomeSyncMessage msg, NpcRef npc)
+        {
+            msg.NpcName = npc.Name ?? "";
+            msg.HasPos = npc.HasPos;
+            msg.PosX = npc.Pos.x;
+            msg.PosY = npc.Pos.y;
+            msg.PosZ = npc.Pos.z;
+            msg.Dream = npc.Dream;
+        }
+    }
+
     /// <summary>Skip dest-board commits after onPress (host drain applies dest).</summary>
     internal static class DialogBoardCommit
     {
-        internal static string LastChoiceDest;
-        internal static int LastChoiceTick;
+        internal static string LastChoiceDest; // process-scoped: 2 s TickCount window, self-expiring
+        internal static int LastChoiceTick; // process-scoped: 2 s TickCount window, self-expiring
 
         internal static void NoteChoiceDest(string dest)
         {

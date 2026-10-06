@@ -18,17 +18,17 @@ namespace DWMPHorde.Items
         private const string DonorType = "junk";
         private const string EmbeddedResourceName = "DWMPHorde.Resources.walkie_talkie.png";
 
-        private static GameObject _templateGo;
-        private static InvItem _template;
-        private static CraftingRecipes _recipes;
-        private static string _donorIconName;
-        private static Texture2D _iconTexture;
-        private static bool _iconTextureFailed;
-        private static bool _langDone;
-        private static float _nextAttempt;
-        private static bool _warnedNoDb;
+        private static GameObject _templateGo; // process-scoped: injected item template
+        private static InvItem _template; // process-scoped: injected item template
+        private static CraftingRecipes _recipes; // process-scoped: injected item template
+        private static string _donorIconName; // process-scoped: injected item template
+        private static Texture2D _iconTexture; // process-scoped: loaded asset
+        private static bool _iconTextureFailed; // process-scoped: loaded asset
+        private static bool _langDone; // process-scoped: one-time injection state
+        private static float _nextAttempt; // process-scoped: one-time injection state
+        private static bool _warnedNoDb; // process-scoped: one-time injection state
         /// <summary>True after icon sprite is in a collection (or texture load failed permanently).</summary>
-        private static bool _iconSettled;
+        private static bool _iconSettled; // process-scoped: one-time injection state
 
         public static void Tick()
         {
@@ -38,6 +38,7 @@ namespace DWMPHorde.Items
             if (Time.unscaledTime < _nextAttempt)
                 return;
             _nextAttempt = Time.unscaledTime + 1f;
+            // Boot-time injection; later language switches are re-injected by LanguageSwitchPatch.
             try { InjectLocalization(); } catch { /* ignore */ }
             if (_template == null)
             {
@@ -60,13 +61,42 @@ namespace DWMPHorde.Items
                 _iconSettled = true;
         }
 
+        /// <summary>
+        /// <c>Language.DoSwitch</c> rebuilds every sheet from the language files, dropping the
+        /// injected walkie keys. Re-inject right after each switch (the settled <see cref="Tick"/>
+        /// path no longer runs).
+        /// </summary>
+        [HarmonyPatch(typeof(Language), "DoSwitch")]
+        private static class LanguageSwitchPatch
+        {
+            private static void Postfix()
+            {
+                try { InjectLocalization(); }
+                catch (Exception ex)
+                {
+                    ModLog.Warn(LogCat.Audio, "Walkie localization re-inject: " + ex.Message);
+                }
+            }
+        }
+
         [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.hasItem))]
         private static class HasItemPatch
         {
-            private static bool Prefix(string type, ref bool __result)
+            private static bool Prefix(ItemsDatabase __instance, string type, ref bool __result)
             {
                 if (type != ItemType)
                     return true;
+                // Claim the item only when getItem can actually serve it; otherwise fall through
+                // to vanilla so a database without the donor items behaves exactly as before.
+                try
+                {
+                    if (!EnsureTemplate(__instance))
+                        return true;
+                }
+                catch
+                {
+                    return true;
+                }
                 __result = true;
                 return false;
             }
@@ -105,9 +135,12 @@ namespace DWMPHorde.Items
                 {
                     if (_recipes == null && !EnsureTemplate(Singleton<ItemsDatabase>.Instance))
                         return;
+                    if (__instance.levels == null)
+                        return;
                     foreach (Workbench.Level level in __instance.levels)
                     {
-                        if (level != null && level.level == 1 && !level.recipes.Contains(_recipes))
+                        if (level != null && level.level == 1 && level.recipes != null
+                            && !level.recipes.Contains(_recipes))
                             level.recipes.Add(_recipes);
                     }
                 }
