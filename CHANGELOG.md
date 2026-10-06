@@ -3,8 +3,10 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.139**. The current Horde wire protocol is **39** (bumped in 0.8.139:
-new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
+**0.8.140**. The current Horde wire protocol is **40** (bumped in 0.8.140:
+new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
+descriptor gains the look key.
+39 held for 0.8.139, bumped there: new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
 38 held for 0.8.138, bumped there: new `DialogMirror` (160).
 37 held for 0.8.137, bumped there: new `DialogHandInGone` (159).
 36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
@@ -27,6 +29,67 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.140 — The world looks the same on every machine
+
+On top of 0.8.139. **Protocol 39 → 40.** Product **0.8.139 → 0.8.140**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Changed
+
+- **Rule: "the client must feel like the host" wins over cosmetic differences.** `HOW_COOP_WORKS.md`
+  "Cosmetic divergence is allowed" became "Cosmetic divergence is a last resort": a client sees
+  what the host sees, cosmetics included, unless it really cannot be matched, and each accepted
+  difference is written down with why. `COOP_COVERAGE.md` no longer parks cosmetic randomness.
+
+### Fixed
+
+- **Grass, debris, trees, creatures and animations looked different on every machine.** About
+  70,000 `SpriteRandomizer`s in the game roll a tint, a flip, a rotation, a height, a sprite or a
+  clip from the shared random stream, so each machine rolled its own look (a dog's tint, which way a
+  bush faced, which corpse sprite lay there). Even one machine changed: 85% of them roll again on
+  every load, and the rest fall back to the plain prefab look after a load. Now every roll runs on
+  a seed made from the object's identity and puts the random stream back afterwards, so the same
+  object rolls the same look everywhere and every time (`Sync.CosmeticRolls`).
+  - The seed comes from what every machine spawning the object live has bit for bit: the
+    location's name and placement and the authored path down to the object (names and offsets),
+    or the name and world position outside a location.
+  - Positions pick up float noise through each save and load (measured on a real save: about 1% of
+    objects sit within that noise of any rounding edge), so a seed is not made again from them. Every
+    save writes the seed of every roll under a saved object, keyed by that object's save id and the
+    names below it, to **`savcos.dat`** next to `sav.dat`; every load reads it, and the world
+    download carries it (also into a reused "same as host" slot).
+  - A roll runs when vanilla's does (a location loaded live is still at its authored spot then, the
+    same on every machine); only a parallax set up while a save object loads waits for that
+    object's save id, so it finds its stored seed.
+  - A load rolls every randomizer (vanilla skipped the ones not marked `randomizeOnLoad`) and keeps
+    a saved object's saved rotation and height (vanilla stacked another height offset on each load
+    and re-rotated colliders away from the saved pathfinding graph).
+  - A creature or prop that moved since it rolled keeps that key. A client's copy made somewhere
+    else (a creature the host spawned, which the client first sees mid-walk; a prop spawned after
+    the save) takes the host's key and rolls again: creatures through their entity descriptor,
+    props in the late-join bulk (new `CosmeticState`, 164).
+  - Runs in single player too, so a world played before hosting already looks the way its clients
+    roll it.
+- **Random animations ran differently on every machine.** `AnimationPlay` picks a clip, a start
+  frame, replay delays and twitch frames at random. Each one now draws from its own stream, seeded
+  the same way and stored with the save; its coroutines draw only from that stream.
+- **Parallax layers drifted differently** (each layer's ease was a random roll): seeded the same way.
+- **Vines turned differently.** `VineSpawner` rotations roll on the spawner's seed.
+- **Examine lines from a random pool were per machine.** A client drew its own line, and the host's
+  re-run of that examine drew a second, different one, so lines came up again for other players.
+  The pool is now one deck: the examiner draws at once and its examine carries the line, the host
+  takes that line out of its deck and tells everyone else (`ExamineObject` carries the line, and
+  whether the draw refilled the pool), and a late joiner gets every deck in its bulk
+  (`Sync.DescriptionDeck`).
+
+### Accepted differences
+
+- Two players drawing from the same examine pool in the same instant can both read the same line
+  (the decks agree right after). Ruling it out would make every client's examine text wait for a
+  round trip to the host.
 
 ---
 

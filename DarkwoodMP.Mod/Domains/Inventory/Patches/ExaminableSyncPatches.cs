@@ -128,15 +128,16 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Examinable / story onExamine:
-    /// Client keeps local HUD (<c>displayMessage</c> + local <c>DescriptionPool</c> draw)
+    /// Client keeps local HUD (<c>displayMessage</c> + its <c>DescriptionPool</c> draw)
     /// but must not fire <c>EventTrigger.onExamine</c> — one-shot GE is host-auth via
-    /// <see cref="GameEventsFiredPatch"/>. Client Prefix sends <c>ExamineObject</c> request;
-    /// host re-runs <c>examine()</c> for triggers + shared flags, with HUD suppressed so the
-    /// host does not see the client's flavor text.
+    /// <see cref="GameEventsFiredPatch"/>. Client Postfix sends <c>ExamineObject</c> request
+    /// with the pool line it drew; host re-runs <c>examine()</c> for triggers + shared flags,
+    /// with HUD suppressed so the host does not see the client's flavor text, and takes the same
+    /// line out of its deck (<see cref="DescriptionDeck"/>).
     ///
-    /// <c>DescriptionPool</c> depletion stays per-peer presentation (no protocol bump for the
-    /// drawn key). Examined / displayedDescriptionPool flags fan out so re-examine / pool
-    /// one-shots latch consistently. HidingPlace is AI cabinet hideouts — host Character AI.
+    /// Examined / displayedDescriptionPool flags and the drawn line fan out so re-examine / pool
+    /// one-shots latch consistently and the deck is one for the party. HidingPlace is AI cabinet
+    /// hideouts — host Character AI.
     /// </summary>
     internal static class ExaminableExamineSync
     {
@@ -155,61 +156,79 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            // A host re-run of a client's examine already holds that client's draw.
             if (LanNetworkManager.IsApplyingRemoteState) return;
-
-            var net = ModRuntime.Network;
-            if (net == null) return;
-
-            // Client: ask host to run authoritative examine (triggers + flags).
-            // Local examine still runs for personal HUD; onExamine triggers are blocked
-            // in Core.sendTriggerInfo (see ExaminableOnExamineTriggerPatch).
-            if (net.Role == NetworkRole.Client)
-            {
-                Vector3 p = __instance.transform.position;
-                net.Send(NetMessageType.ExamineObject,
-                    w => new ExamineObjectMessage
-                    {
-                        Action = ExamineObjectMessage.ActionRequest,
-                        PosX = p.x,
-                        PosY = p.y,
-                        PosZ = p.z,
-                        ObjectName = __instance.name ?? "",
-                        Examined = __instance.examined,
-                        DisplayedDescriptionPool = __instance.displayedDescriptionPool
-                    }.Serialize(w),
-                    DeliveryMethod.ReliableOrdered);
-                ModRuntime.LegacyInfo($"[ExamineSync] client request {__instance.name} at {p}");
-            }
+            DescriptionDeck.BeginExamine();
         }
 
         private static void Postfix(Examinable __instance)
         {
             if (__instance == null) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            // Host Apply of client ActionRequest runs examine() under RunHostWorldFanout
-            // (IsApplyingRemoteState still held by ProcessInboundMessage). Must fan
-            // ActionState so peers latch examined / displayedDescriptionPool. Prefix
-            // still blocks Request re-send under apply. ActionState apply sets fields
-            // only (no examine()), and host ignores inbound ActionState — no echo.
-            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
-                return;
+            var net = ModRuntime.Network;
 
-            if (!NetGuard.Host(out var net)) return;
-
-            // Host (local or via request): fan out examined state to all clients.
-            Vector3 p = __instance.transform.position;
-            net.Broadcast(NetMessageType.ExamineObject,
-                w => new ExamineObjectMessage
+            // Client: ask host to run authoritative examine (triggers + flags), with the pool line
+            // this examine drew so the host takes the same line out of the shared deck. The local
+            // examine ran for the personal HUD; onExamine triggers are blocked in
+            // Core.sendTriggerInfo (see ExaminableOnExamineTriggerPatch).
+            if (net.Role == NetworkRole.Client)
+            {
+                if (LanNetworkManager.IsApplyingRemoteState) return;
+                Vector3 cp = __instance.transform.position;
+                var request = new ExamineObjectMessage
                 {
-                    Action = ExamineObjectMessage.ActionState,
-                    PosX = p.x,
-                    PosY = p.y,
-                    PosZ = p.z,
+                    Action = ExamineObjectMessage.ActionRequest,
+                    PosX = cp.x,
+                    PosY = cp.y,
+                    PosZ = cp.z,
                     ObjectName = __instance.name ?? "",
                     Examined = __instance.examined,
                     DisplayedDescriptionPool = __instance.displayedDescriptionPool
-                }.Serialize(w),
-                DeliveryMethod.ReliableOrdered);
+                };
+                if (DescriptionDeck.TakeDraw(out string pool, out string line, out bool refreshed))
+                {
+                    request.HasDraw = true;
+                    request.DrawPool = pool;
+                    request.DrawLine = line;
+                    request.DrawRefreshed = refreshed;
+                    request.DrawnBy = net.LocalPlayerId;
+                }
+                net.Send(NetMessageType.ExamineObject, w => request.Serialize(w), DeliveryMethod.ReliableOrdered);
+                ModRuntime.LegacyInfo($"[ExamineSync] client request {__instance.name} at {cp}");
+                return;
+            }
+
+            // Host Apply of client ActionRequest runs examine() under RunHostWorldFanout
+            // (IsApplyingRemoteState still held by ProcessInboundMessage). Must fan
+            // ActionState so peers latch examined / displayedDescriptionPool. ActionState
+            // apply sets fields only (no examine()), and host ignores inbound ActionState — no echo.
+            if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
+                return;
+
+            if (!NetGuard.Host(out net)) return;
+
+            // Host (local or via request): fan out examined state and the pool line drawn.
+            Vector3 p = __instance.transform.position;
+            var state = new ExamineObjectMessage
+            {
+                Action = ExamineObjectMessage.ActionState,
+                PosX = p.x,
+                PosY = p.y,
+                PosZ = p.z,
+                ObjectName = __instance.name ?? "",
+                Examined = __instance.examined,
+                DisplayedDescriptionPool = __instance.displayedDescriptionPool
+            };
+            if (DescriptionDeck.TakeDraw(out string hostPool, out string hostLine, out bool hostRefreshed))
+            {
+                state.HasDraw = true;
+                state.DrawPool = hostPool;
+                state.DrawLine = hostLine;
+                state.DrawRefreshed = hostRefreshed;
+                int requester = net.CurrentReceivePlayerId;
+                state.DrawnBy = requester > 0 ? requester : net.LocalPlayerId;
+            }
+            net.Broadcast(NetMessageType.ExamineObject, w => state.Serialize(w), DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
                 $"[ExamineSync] host state {__instance.name} examined={__instance.examined} pool={__instance.displayedDescriptionPool}");
         }

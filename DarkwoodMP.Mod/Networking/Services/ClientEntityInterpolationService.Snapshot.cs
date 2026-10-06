@@ -70,7 +70,8 @@ namespace DWMPHorde.Networking
                 {
                     _descriptors[e.Index] = new EntityDescriptor
                     {
-                        Name = e.EntityName ?? "", PrefabPath = e.PrefabPath ?? "", SaveId = e.SaveId
+                        Name = e.EntityName ?? "", PrefabPath = e.PrefabPath ?? "", SaveId = e.SaveId,
+                        LookKey = e.LookKey
                     };
                     NoteSaveIdOwner(e.SaveId, e.Index);
                 }
@@ -79,6 +80,7 @@ namespace DWMPHorde.Networking
                     e.EntityName = known.Name;
                     e.PrefabPath = known.PrefabPath;
                     e.SaveId = known.SaveId;
+                    e.LookKey = known.LookKey;
                 }
                 else
                 {
@@ -362,6 +364,8 @@ namespace DWMPHorde.Networking
         private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, float hostTime, ref int applied)
         {
             EnsureEntityAwake(c);
+            // The host's look for this body (a no-op once it has it).
+            DWMPHorde.Sync.CosmeticRolls.ApplyCharacterKey(c, e.LookKey);
 
             // The host's AI owns this body's voice: its one-shots arrive as EntitySound, its loop
             // with every snapshot (EntityLoopSync, below). The component's own OnEnable /

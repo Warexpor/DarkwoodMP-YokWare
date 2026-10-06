@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.139** |
-| Wire | Horde protocol **39** |
+| Product | YokWare Branch **0.8.140** |
+| Wire | Horde protocol **40** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -28,7 +28,8 @@ the host.
 
 - **The world is shared.** Items are unique: what one player takes is gone for
   everyone, what one player opens is open for everyone. Story choices, the journal,
-  NPCs and the workbench are shared.
+  NPCs and the workbench are shared, and so is the look of the world: random tints,
+  flips and animations come out the same on every machine.
 - **Each character is personal.** Every player keeps their own bag, health, skills,
   level, recipes, home oven and trader standing.
 - **Single-player rules are adapted, not removed.** Menus no longer pause the world
@@ -247,7 +248,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 163 (`WorldPause`). Voice uses message 129.
+The highest assigned message ID is 164 (`CosmeticState`). Voice uses message 129.
 
 ---
 

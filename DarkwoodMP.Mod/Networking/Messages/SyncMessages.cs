@@ -1566,4 +1566,101 @@ namespace DWMPHorde.Networking
 
         public static WorldPauseMessage Deserialize(NetReader r) => new WorldPauseMessage { Paused = r.GetBool() };
     }
+
+    /// <summary>
+    /// Host→joiner, late-join bulk: the cosmetic state a save does not carry.
+    /// <see cref="KindMovers"/>: props that moved since their randomizers rolled (name, where they
+    /// stand, the key they rolled with); <see cref="KindDecks"/>: every examine description pool's
+    /// remaining lines. <c>Sync.CosmeticRolls</c>, <c>Sync.DescriptionDeck</c>. Protocol 40.
+    /// </summary>
+    public struct CosmeticStateMessage
+    {
+        public const byte KindMovers = 1;
+        public const byte KindDecks = 2;
+        public const int MaxEntries = 1024;
+        public const int MaxLines = 512;
+
+        public byte Kind;
+        public string[] MoverNames;
+        public float[] MoverX;
+        public float[] MoverZ;
+        public int[] MoverKeys;
+        public string[] DeckNames;
+        public string[][] DeckLines;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            if (Kind == KindMovers)
+            {
+                int n = MoverNames != null && MoverX != null && MoverZ != null && MoverKeys != null
+                    ? System.Math.Min(System.Math.Min(MoverNames.Length, MoverX.Length), System.Math.Min(MoverZ.Length, MoverKeys.Length))
+                    : 0;
+                w.Put(n);
+                for (int i = 0; i < n; i++)
+                {
+                    w.Put(MoverNames[i] ?? "");
+                    w.Put(MoverX[i]);
+                    w.Put(MoverZ[i]);
+                    w.Put(MoverKeys[i]);
+                }
+            }
+            else if (Kind == KindDecks)
+            {
+                int n = DeckNames != null && DeckLines != null ? System.Math.Min(DeckNames.Length, DeckLines.Length) : 0;
+                w.Put(n);
+                for (int i = 0; i < n; i++)
+                {
+                    w.Put(DeckNames[i] ?? "");
+                    string[] lines = DeckLines[i];
+                    int m = lines != null ? lines.Length : 0;
+                    w.Put(m);
+                    for (int j = 0; j < m; j++)
+                        w.Put(lines[j] ?? "");
+                }
+            }
+        }
+
+        public static CosmeticStateMessage Deserialize(NetReader r)
+        {
+            var msg = new CosmeticStateMessage { Kind = r.GetByte() };
+            if (msg.Kind == KindMovers)
+            {
+                int n = r.GetInt();
+                if (n < 0 || n > MaxEntries)
+                    throw new System.IO.InvalidDataException("CosmeticState mover count " + n);
+                msg.MoverNames = new string[n];
+                msg.MoverX = new float[n];
+                msg.MoverZ = new float[n];
+                msg.MoverKeys = new int[n];
+                for (int i = 0; i < n; i++)
+                {
+                    msg.MoverNames[i] = r.GetString();
+                    msg.MoverX[i] = r.GetFloat();
+                    msg.MoverZ[i] = r.GetFloat();
+                    msg.MoverKeys[i] = r.GetInt();
+                }
+            }
+            else if (msg.Kind == KindDecks)
+            {
+                int n = r.GetInt();
+                if (n < 0 || n > MaxEntries)
+                    throw new System.IO.InvalidDataException("CosmeticState deck count " + n);
+                msg.DeckNames = new string[n];
+                msg.DeckLines = new string[n][];
+                for (int i = 0; i < n; i++)
+                {
+                    msg.DeckNames[i] = r.GetString();
+                    int m = r.GetInt();
+                    if (m < 0 || m > MaxLines)
+                        throw new System.IO.InvalidDataException("CosmeticState deck line count " + m);
+                    var lines = new string[m];
+                    for (int j = 0; j < m; j++)
+                        lines[j] = r.GetString();
+                    msg.DeckLines[i] = lines;
+                }
+            }
+            return msg;
+        }
+    }
 }

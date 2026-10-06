@@ -111,6 +111,9 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "locations", () => LocationEnterExitHandlers.SyncExistingLocationsTo(playerId));
             LateJoinStep(playerId, "shadows", () => SendShadowsTo(playerId));
             LateJoinStep(playerId, "droppedItems", () => WorldObjectSendHandlers.SyncExistingDroppedItems(playerId));
+            // After the dropped items (same reliable channel): their copies exist when the keys land.
+            LateJoinStep(playerId, "cosmeticProps", () => DWMPHorde.Sync.CosmeticRolls.SendMovedTo(this, playerId));
+            LateJoinStep(playerId, "examineDecks", () => DWMPHorde.Sync.DescriptionDeck.SendBulkTo(this, playerId));
             // Night scenario name + fired latch flags (no CustomEvent/RandomEvent.fire).
             LateJoinStep(playerId, "scenario", () => BulkSyncHandlers.SendScenarioBulkSyncTo(playerId));
             // Fired GameEvents: heavy phase 11 (conservative fired && !multipleFire).
