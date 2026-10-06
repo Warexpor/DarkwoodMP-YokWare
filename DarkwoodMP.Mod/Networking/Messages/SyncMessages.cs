@@ -427,6 +427,37 @@ namespace DWMPHorde.Networking
         public static OxygenTankTierMessage Deserialize(NetReader r) => new OxygenTankTierMessage { Tier = r.GetByte() };
     }
 
+    public struct QuestHandoffMessage
+    {
+        public string[] Types;
+        public int[] Amounts;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Types != null && Amounts != null ? System.Math.Min(Types.Length, Amounts.Length) : 0;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put(Types[i] ?? "");
+                w.Put(Amounts[i]);
+            }
+        }
+
+        public static QuestHandoffMessage Deserialize(NetReader r)
+        {
+            int n = r.GetInt();
+            if (n < 0 || n > 256)
+                n = 0;
+            var msg = new QuestHandoffMessage { Types = new string[n], Amounts = new int[n] };
+            for (int i = 0; i < n; i++)
+            {
+                msg.Types[i] = r.GetString();
+                msg.Amounts[i] = r.GetInt();
+            }
+            return msg;
+        }
+    }
+
     public struct PlayerSpecialMessage
     {
         /// <summary>The Player method to run (whitelisted on receipt).</summary>

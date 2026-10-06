@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.135**. The current Horde wire protocol is **35** (bumped in 0.8.135:
-new `OxygenTankTier` (157).
+**0.8.136**. The current Horde wire protocol is **36** (bumped in 0.8.136:
+new `QuestHandoff` (158).
+35 held for 0.8.135, bumped there: new `OxygenTankTier` (157).
 34 held for 0.8.134, bumped there: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
 33 held for 0.8.133, bumped there:
 `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
@@ -23,6 +24,32 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.136 — A leaving player's story items stay in the world
+
+On top of 0.8.135. **Protocol 35 → 36.** Product **0.8.135 → 0.8.136**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Changed
+
+- **Story items no longer leave with a player.** Vanilla's quest items (Piotrek's six car parts,
+  the violin, the brother's hat, the musician's card) sit in one player's bag and are handed in by
+  whoever carries them. A client that left for good took them along and the quest stalled for
+  everyone else. Now, when a client leaves and is not back within 60 seconds (a brief drop and
+  reconnect changes nothing), the host drops that player's story items on the ground where they
+  stood. If they stood in a house interior, an outside location or a dream, the items drop by the
+  host instead (once the host is in the open world). The host keeps a record of each drop per
+  player (Steam id, or the LAN install key), written next to the host's save at the moment the
+  world is saved, so it always matches the saved world. When the player comes back, a drop still
+  lying there is taken off the ground and they keep their own. A drop someone else picked up is
+  removed from the returning player's bag (new message `QuestHandoff`, 158, both directions:
+  the list from the host, the player's confirmation back after its saved character is updated).
+  Oxygen tanks (every player has one) and journal items (shared already: keys, notes, the church
+  box, Piotrek's eggs) are not dropped. A host that leaves is not covered: the session ends with
+  it, or the host role moves to another player.
+  (`Domains/Inventory/QuestItemHandoff.cs`, `PeerItemPresence.CopyOf`, `LanNetworkManager.PeerEvents`.)
 
 ---
 

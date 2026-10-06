@@ -82,6 +82,7 @@ namespace DWMPHorde.Networking
             TickHeavyLateJoinBulk();
             TickHostWorldShareWhenReady();
             TickSaveSyncBroadcast();
+            Sync.QuestItemHandoff.Tick(this);
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
@@ -228,6 +229,7 @@ namespace DWMPHorde.Networking
             Sync.NightVillage.Tick(this);
             Sync.PeerItemPresence.Tick(this);
             Sync.OxygenTankParty.Tick(this);
+            Sync.QuestItemHandoff.TickClient(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
             Sync.DesyncCheck.Tick(this);
