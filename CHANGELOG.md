@@ -72,6 +72,17 @@ On top of 0.8.138. **Protocol 38 → 39.** Product **0.8.138 → 0.8.139**. Buil
   pass; a second claim, or the host's own talk, gets "Someone already handed that over." The
   wait is one round trip on that board (`DialogHandInArbiter`).
 
+### Docs
+
+- **`PLAYTEST.md` rebuilt.** The checklist had grown into a stack of per-release lists with
+  stale items (a refund gap closed in 0.8.127, "sleep" dreams, local-only pilot scripts presented
+  as repo tooling). It is now one check list per gameplay area, in the order of
+  `HOW_COOP_WORKS.md`, with a short "current release first" section on top, a "both arrows"
+  rule (every check also runs host↔client swapped and with a third player), and checks added for
+  areas that had none: the prologue, morning away from the host, permadeath wipes, loot sharing,
+  the oxygen tank, trade, the workbench, friendly fire off, quest items left by a leaver, the
+  ending and the desync checker.
+
 ---
 
 ## 0.8.138 — Listen in on another player's dialogue
