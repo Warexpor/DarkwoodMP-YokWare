@@ -458,6 +458,145 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>One element of a mirrored dialogue screen: an option line, an item icon, a board text.</summary>
+    public struct DialogMirrorElement
+    {
+        public const byte KindDialogueOption = 0;
+        public const byte KindExclamationMark = 1;
+        public const byte KindItemIcon = 2;
+        public const byte KindShowItemBtn = 3;
+        public const byte KindDecisionBtn = 4;
+        public const byte KindText = 5;
+        public const byte KindDescText = 6;
+
+        public byte Kind;
+        /// <summary>The shown text (a board line: the full formatted line its typewriter writes out).</summary>
+        public string Text;
+        public float X, Y, Z;
+        public float R, G, B, A;
+        public string Sprite;
+        public float WriteSpeed;
+        public float Interval;
+        /// <summary>A decision's target dialogue.</summary>
+        public string Target;
+        /// <summary>Its place in the window's menu options (-1: not an option).</summary>
+        public short Menu;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(Text ?? "");
+            w.Put(X); w.Put(Y); w.Put(Z);
+            w.Put(R); w.Put(G); w.Put(B); w.Put(A);
+            w.Put(Sprite ?? "");
+            w.Put(WriteSpeed);
+            w.Put(Interval);
+            w.Put(Target ?? "");
+            w.Put(Menu);
+        }
+
+        public static DialogMirrorElement Deserialize(NetReader r)
+        {
+            return new DialogMirrorElement
+            {
+                Kind = r.GetByte(),
+                Text = r.GetString(),
+                X = r.GetFloat(), Y = r.GetFloat(), Z = r.GetFloat(),
+                R = r.GetFloat(), G = r.GetFloat(), B = r.GetFloat(), A = r.GetFloat(),
+                Sprite = r.GetString(),
+                WriteSpeed = r.GetFloat(),
+                Interval = r.GetFloat(),
+                Target = r.GetString(),
+                Menu = r.GetShort()
+            };
+        }
+    }
+
+    /// <summary>
+    /// A dialogue another player watches (<c>Sync.DialogMirror</c>). The talking player reports each
+    /// screen and action to the host; the host keeps the latest and passes it to the players
+    /// listening in. A listener asks to join (Join) and to leave (Leave).
+    /// </summary>
+    public struct DialogMirrorMessage
+    {
+        public const byte KindOpen = 1;
+        public const byte KindBoard = 2;
+        public const byte KindOptions = 3;
+        public const byte KindItems = 4;
+        public const byte KindTrade = 5;
+        public const byte KindTextStart = 6;
+        public const byte KindSpeedup = 7;
+        public const byte KindSelect = 8;
+        public const byte KindPortrait = 9;
+        public const byte KindClose = 10;
+        public const byte KindBoardDone = 11;
+        public const byte KindJoin = 20;
+        public const byte KindLeave = 21;
+        public const byte KindRefused = 22;
+
+        public const int MaxElements = 64;
+
+        public byte Kind;
+        /// <summary>The talking player (the host stamps it).</summary>
+        public int OwnerId;
+        public string NpcName;
+        public bool HasPos;
+        public float PosX, PosY, PosZ;
+        public bool Dream;
+        /// <summary>Board index, selected option, or portrait type (by kind).</summary>
+        public int Index;
+        /// <summary>Board: its text started writing. Portrait: the white overlay variant.</summary>
+        public bool Flag;
+        public float OffsetX, OffsetY;
+        public string DialogueName;
+        public DialogMirrorElement[] Elements;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(OwnerId);
+            w.Put(NpcName ?? "");
+            w.Put(HasPos);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Dream);
+            w.Put(Index);
+            w.Put(Flag);
+            w.Put(OffsetX); w.Put(OffsetY);
+            w.Put(DialogueName ?? "");
+            int n = Elements != null ? System.Math.Min(Elements.Length, MaxElements) : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+                Elements[i].Serialize(w);
+        }
+
+        public static DialogMirrorMessage Deserialize(NetReader r)
+        {
+            var msg = new DialogMirrorMessage
+            {
+                Kind = r.GetByte(),
+                OwnerId = r.GetInt(),
+                NpcName = r.GetString(),
+                HasPos = r.GetBool(),
+                PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(),
+                Dream = r.GetBool(),
+                Index = r.GetInt(),
+                Flag = r.GetBool(),
+                OffsetX = r.GetFloat(), OffsetY = r.GetFloat(),
+                DialogueName = r.GetString()
+            };
+            int n = r.GetByte();
+            if (n > MaxElements)
+                throw new System.IO.InvalidDataException("DialogMirror element count " + n);
+            if (n > 0)
+            {
+                msg.Elements = new DialogMirrorElement[n];
+                for (int i = 0; i < n; i++)
+                    msg.Elements[i] = DialogMirrorElement.Deserialize(r);
+            }
+            return msg;
+        }
+    }
+
     public struct DialogHandInGoneMessage
     {
         /// <summary>The NPC the refused hand-in was for (NPC.name).</summary>

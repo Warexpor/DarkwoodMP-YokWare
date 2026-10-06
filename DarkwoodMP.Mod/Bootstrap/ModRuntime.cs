@@ -259,6 +259,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(OxygenTankParty.Reset);
             NetworkResetRegistry.Register(QuestItemHandoff.Reset);
             NetworkResetRegistry.Register(DialogHandInArbiter.Reset);
+            NetworkResetRegistry.Register(DialogMirror.Reset);
             NetworkResetRegistry.Register(DWMPHorde.Patches.DialogPeerTrip.Reset);
             NetworkResetRegistry.Register(StationSyncHelpers.Reset);
             // Chapter resume pending must survive StopNetwork during chapter tear;

@@ -433,7 +433,14 @@ namespace DWMPHorde.Networking
         /// <c>Sync.DialogHandInArbiter</c>. Protocol 37.
         /// </summary>
         [HostOnly] DialogHandInGone = 159,
+        /// <summary>
+        /// Listening in on another player's dialogue. Talking player→host: each screen and action
+        /// of its dialogue window. Host→listeners: the same, and a snapshot on joining. Listener→host:
+        /// join / leave. The host relays by hand (only to that talk's listeners). <c>Sync.DialogMirror</c>.
+        /// Protocol 38.
+        /// </summary>
+        DialogMirror = 160,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 159
+        _Highest = 160
     }
 }

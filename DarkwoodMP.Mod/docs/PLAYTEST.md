@@ -12,9 +12,18 @@ bug pack) on every box, same DLL everywhere.
 
 ## 0. First checks for the current release
 
-The latest `CHANGELOG.md` entry moves creature sounds to the host's actual calls and
-stops the location heartbeat from re-entering pads. Listen and watch on the client:
+The latest `CHANGELOG.md` entries add listening in on another player's dialogue and settle
+story hand-ins and dialogue trips; earlier ones moved creature sounds to the host's actual
+calls. Listen and watch on the client:
 
+- [ ] Listening in: the host talks to the Wolf, the client talks to him too and gets
+      the host's window: same portrait, same lines typing out, same highlighted option. The
+      host picks a decision: the client's view follows. Client presses Esc: its view closes,
+      the host's talk goes on. Swap roles (client talks, host listens). Join midway through a
+      board, and while the talking player is trading (portrait only).
+- [ ] Sister's key at the same time: one player shows it to the Wolf, the other to the
+      Musician: only one hand-in takes; the other gets "Someone already handed that over."
+- [ ] Client accepts the Wolf's lift to the Doctor's house: the client travels, the host stays.
 - [ ] Client hits and kills a dog / villager with an axe: one hit sound per blow, the
       pain sound and one death scream; a third player (or the host) hears them too.
 - [ ] Client shoots a creature: its hit sound plays on the client (no local prediction

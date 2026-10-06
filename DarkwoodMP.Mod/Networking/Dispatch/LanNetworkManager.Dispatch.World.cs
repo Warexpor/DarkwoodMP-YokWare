@@ -30,6 +30,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.OxygenTankTier, OxygenTankTierMessage.Deserialize, m => OxygenTankParty.HandleTier(this, m));
             On(NetMessageType.QuestHandoff, QuestHandoffMessage.Deserialize, m => QuestItemHandoff.HandleOnClient(this, m));
             On(NetMessageType.DialogHandInGone, DialogHandInGoneMessage.Deserialize, m => DialogHandInArbiter.HandleOnClient(this, m));
+            On(NetMessageType.DialogMirror, DialogMirrorMessage.Deserialize, m => DialogMirror.Handle(this, m));
             On(NetMessageType.WorldObjectRemoved, WorldObjectRemovedMessage.Deserialize, m => WorldFxHandlers.HandleWorldObjectRemoved(m));
             On(NetMessageType.SawState, SawStateMessage.Deserialize, m => StationHandlers.HandleSawState(m));
             On(NetMessageType.FeederState, FeederStateMessage.Deserialize, m => StationHandlers.HandleFeederState(m));

@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.137**. The current Horde wire protocol is **37** (bumped in 0.8.137:
-new `DialogHandInGone` (159).
+**0.8.138**. The current Horde wire protocol is **38** (bumped in 0.8.138:
+new `DialogMirror` (160).
+37 held for 0.8.137, bumped there: new `DialogHandInGone` (159).
 36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
 35 held for 0.8.135, bumped there: new `OxygenTankTier` (157).
 34 held for 0.8.134, bumped there: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
@@ -25,6 +26,47 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.138 — Listen in on another player's dialogue
+
+On top of 0.8.137. **Protocol 37 → 38.** Product **0.8.137 → 0.8.138**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Added
+
+- **A second player can join a dialogue and watch it.** Talking to an NPC someone else is already
+  talking to used to say "Someone is already talking to them…". Now it opens that player's
+  dialogue window for you, as they see it: the same portrait (and its changes and their black or
+  white fade), the same lines typing out at the same speed (skipped when they skip), the same
+  decisions, main options, "show item" list with its icons and greyed-out entries, and the option
+  they are pointing at. Only the talking player acts; your mouse, clicks and controller do nothing
+  in that window, and **Esc** leaves. When they close the talk, yours closes with it. Joining
+  midway shows the screen they are on (finished if their text already is). Choices stay one
+  player's, as before: they reach the world from the talking player only.
+  - What you see is what their window built (each line's text, place, colour, icon, typing speed),
+    not your own copy of the dialogue, so your bag, flags or location never change it, and
+    nothing you watch runs on your side (no flags, items, journal pages, trips or dreams; leaving
+    fires no "close dialogue" events and does not save).
+  - Not shown: the trading screen (you keep their portrait while they trade), the cooking
+    (oven) menu after a talk, and the journal page a talk opens (you see the talk wait for it and
+    go on when they close it).
+  - Two players starting the same talk at once: the one the host turned down is closed as it was
+    (it used to keep going while still opening, and could show the NPC's welcome and exit lines)
+    and joins the other's talk to listen.
+  - The host listening in holds back its replay of other players' talks until it leaves the view
+    (its one dialogue window is the view meanwhile).
+  - New `DialogMirror` (160): talking player → host for each screen, host → that talk's listeners
+    (and a snapshot to a player joining), listener → host to join and leave (`DialogMirror`,
+    `DialogMirrorPatches`, `DialogDisplayNextBoardPatch`, `NpcDialogueLockPatches`,
+    `DialogNpcLockNetHandlers`).
+
+### Fixed
+
+- **The host's own dialogues stopped autosaving on close after replaying a client's dialogue.** The
+  silent close of that replay sets vanilla's "don't save on exit", which vanilla only clears after
+  a save. A player's own talk now starts with it cleared.
 
 ---
 

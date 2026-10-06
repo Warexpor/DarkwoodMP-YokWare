@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -46,6 +47,12 @@ namespace DWMPHorde.Patches
             public bool HostJournalDiff;
             /// <summary>Host replaying a peer's board that moves the speaker (<see cref="DialogPeerTrip"/>).</summary>
             public bool PeerTrip;
+            /// <summary>The talking player's own board, reported to listeners (<see cref="DialogMirror"/>): the children before it.</summary>
+            public HashSet<int> MirrorBefore;
+            public CharacterDialogue.Dialogue MirrorDialogue;
+            public int MirrorBoard;
+            public int MirrorPortrait;
+            public bool MirrorOverlay;
         }
 
         private static bool InSession()
@@ -72,6 +79,10 @@ namespace DWMPHorde.Patches
             if (__instance == null || __instance.currentDialogue == null)
                 return false;
 
+            // A listener's view: the mirror draws the talking player's boards; vanilla never runs one here.
+            if (DialogMirror.SpectatorActive)
+                return false;
+
             if (!DialogHostApplyGuard.ShouldRunDisplayNextBoard())
                 return false;
 
@@ -87,8 +98,34 @@ namespace DWMPHorde.Patches
                 DialogPeerTrip.Begin();
                 __state.PeerTrip = true;
             }
+            TryBeginMirror(__instance, ref __state);
             DialogOutcomeIndexPatch.ResetCounter();
             return true;
+        }
+
+        private static void TryBeginMirror(DialogueWindow dw, ref BoardState state)
+        {
+            if (!DialogMirror.OwnerCapturing(dw))
+                return;
+            state.MirrorBefore = DialogMirror.ChildIds(dw.dialogue);
+            state.MirrorDialogue = dw.currentDialogue;
+            state.MirrorBoard = Traverse.Create(dw).Field("currentBoard").GetValue<int>() + 1;
+            state.MirrorPortrait = DialogMirror.BoardPortraitChange(dw, out int portrait, out bool overlay) ? portrait : -1;
+            state.MirrorOverlay = overlay;
+        }
+
+        /// <summary>The board just shown goes to whoever listens in (a switch inside it reported its own).</summary>
+        private static void TrySendMirror(DialogueWindow dw, BoardState state)
+        {
+            if (state.MirrorBefore == null || dw == null)
+                return;
+            if (state.MirrorPortrait >= 0)
+                DialogMirror.OwnerSimple(dw, DialogMirrorMessage.KindPortrait, state.MirrorPortrait, state.MirrorOverlay);
+            if (!dw.displayingDialogue || dw.currentDialogue == null || dw.currentDialogue != state.MirrorDialogue)
+                return;
+            if (Traverse.Create(dw).Field("currentBoard").GetValue<int>() != state.MirrorBoard)
+                return;
+            DialogMirror.OwnerBoard(dw, state.MirrorBefore);
         }
 
         /// <summary>
@@ -161,6 +198,7 @@ namespace DWMPHorde.Patches
 
             TrySendBoardCommit(__state);
             TrySuppressHostCook(__instance);
+            TrySendMirror(__instance, __state);
         }
 
         /// <summary>
