@@ -422,7 +422,12 @@ namespace DWMPHorde.Networking
         /// is topped up to it once (<c>Sync.OxygenTankParty</c>). Protocol 35.
         /// </summary>
         [HostOnly] OxygenTankTier = 157,
+        /// <summary>
+        /// Host→client: story items dropped for this player while it was away were taken by others;
+        /// remove them from its bag. Client→host: done (same lists). <c>Sync.QuestItemHandoff</c>. Protocol 36.
+        /// </summary>
+        QuestHandoff = 158,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 157
+        _Highest = 158
     }
 }

@@ -126,6 +126,8 @@ namespace DWMPHorde.Networking
             string leftLoc = null;
             _session.RemoteOutsideLocation.TryGetValue(playerId, out leftLoc);
 
+            // Before the presence and key records below are cleared.
+            Sync.QuestItemHandoff.Leaving leaving = Sync.QuestItemHandoff.Capture(this, playerId);
             Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
             Sync.PeerItemPresence.ClearPlayer(playerId);
@@ -184,6 +186,7 @@ namespace DWMPHorde.Networking
 
             if (!expectedJoinDetach && !wasLoadingOnly)
             {
+                Sync.QuestItemHandoff.HostPeerLeft(leaving, new UnityEngine.Vector3(lastX, lastY, lastZ));
                 if (DeathStateTracker.OnRemoteDisconnected(playerId))
                     DeathStateTracker.TryResolveNightMorning(reasonTag);
                 Patches.MorningHideoutHold.Forget(playerId);

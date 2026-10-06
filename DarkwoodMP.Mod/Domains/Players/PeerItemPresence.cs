@@ -137,6 +137,12 @@ namespace DWMPHorde.Sync
             return false;
         }
 
+        /// <summary>A copy of a player's last reported bag (type → amount); null when none.</summary>
+        internal static Dictionary<string, int> CopyOf(int playerId)
+            => _byPlayer.TryGetValue(playerId, out Dictionary<string, int> map) && map != null
+                ? new Dictionary<string, int>(map)
+                : null;
+
         /// <summary>Some other player's last reported bag holds <paramref name="itemType"/>.</summary>
         internal static bool AnyRemoteHas(string itemType)
         {
