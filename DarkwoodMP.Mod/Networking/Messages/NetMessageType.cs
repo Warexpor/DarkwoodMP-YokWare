@@ -134,8 +134,7 @@ namespace DWMPHorde.Networking
         [Forwardable] MapMarker = 68,
         /// <summary>Either peer: a MapElement was discovered (isOnMap set to true).</summary>
         [Forwardable] MapElementDiscovered = 69,
-        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): oxygen tanks are unique items;
-        // the compressor's convert is the user's own event step (host-run use, replayed for its actor).
+        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): replaced by OxygenTankTier (157).
         /// <summary>Either peer: a player removed a map marker.</summary>
         [Forwardable] MapMarkerRemove = 72,
         /// <summary>Host->Client: bulk-sync all journal entries on connection.</summary>
@@ -418,7 +417,12 @@ namespace DWMPHorde.Networking
         [HostOnly] DesyncDetail = 155,
         /// <summary>Client→host: what the client's check found, for the host log. Protocol 33.</summary>
         DesyncReport = 156,
+        /// <summary>
+        /// Host→clients: the best oxygen tank anyone in the party has (1 empty, 2 full); each player
+        /// is topped up to it once (<c>Sync.OxygenTankParty</c>). Protocol 35.
+        /// </summary>
+        [HostOnly] OxygenTankTier = 157,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 156
+        _Highest = 157
     }
 }

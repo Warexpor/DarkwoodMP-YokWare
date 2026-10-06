@@ -417,6 +417,16 @@ namespace DWMPHorde.Networking
         };
     }
 
+    public struct OxygenTankTierMessage
+    {
+        /// <summary>1: an empty tank, 2: a full one.</summary>
+        public byte Tier;
+
+        public void Serialize(NetWriter w) => w.Put(Tier);
+
+        public static OxygenTankTierMessage Deserialize(NetReader r) => new OxygenTankTierMessage { Tier = r.GetByte() };
+    }
+
     public struct PlayerSpecialMessage
     {
         /// <summary>The Player method to run (whitelisted on receipt).</summary>

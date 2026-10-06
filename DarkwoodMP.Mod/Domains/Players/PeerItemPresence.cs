@@ -137,6 +137,17 @@ namespace DWMPHorde.Sync
             return false;
         }
 
+        /// <summary>Some other player's last reported bag holds <paramref name="itemType"/>.</summary>
+        internal static bool AnyRemoteHas(string itemType)
+        {
+            foreach (var kvp in _byPlayer)
+            {
+                if (!IsLocal(kvp.Key) && kvp.Value != null && kvp.Value.TryGetValue(itemType, out int amt) && amt > 0)
+                    return true;
+            }
+            return false;
+        }
+
         private static bool IsLocal(int playerId)
             => ModRuntime.Network != null && playerId == ModRuntime.Network.LocalPlayerId;
 
