@@ -459,7 +459,13 @@ namespace DWMPHorde.Networking
         /// <c>Sync.CosmeticRolls</c>, <c>Sync.DescriptionDeck</c>. Protocol 40.
         /// </summary>
         [HostOnly] CosmeticState = 164,
+        /// <summary>
+        /// The shared animation clock (<c>Sync.AnimClock</c>). Client→host: ping with its send
+        /// time. Host→client: pong with the host clock and its pause total. Host→clients: the
+        /// same on each world pause or resume. Protocol 41.
+        /// </summary>
+        WorldClock = 165,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 164
+        _Highest = 165
     }
 }

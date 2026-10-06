@@ -1663,4 +1663,46 @@ namespace DWMPHorde.Networking
             return msg;
         }
     }
+
+    /// <summary>
+    /// The shared animation clock (<c>Sync.AnimClock</c>). <see cref="KindPing"/>: client→host,
+    /// <see cref="ClientSent"/> only. <see cref="KindPong"/>: host→that client, echoing
+    /// <see cref="ClientSent"/>. <see cref="KindBeat"/>: host→all on a world pause or resume.
+    /// The animation clock is <c>HostTime - PausedTotal</c>, held at <c>PauseStart -
+    /// PausedTotal</c> while the world is paused (<c>PauseStart</c> &lt; 0: running). Protocol 41.
+    /// </summary>
+    public struct WorldClockMessage
+    {
+        public const byte KindPing = 1;
+        public const byte KindPong = 2;
+        public const byte KindBeat = 3;
+
+        public byte Kind;
+        public double ClientSent;
+        public double HostTime;
+        public double PausedTotal;
+        public double PauseStart;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(ClientSent);
+            if (Kind == KindPing)
+                return;
+            w.Put(HostTime);
+            w.Put(PausedTotal);
+            w.Put(PauseStart);
+        }
+
+        public static WorldClockMessage Deserialize(NetReader r)
+        {
+            var msg = new WorldClockMessage { Kind = r.GetByte(), ClientSent = r.GetDouble() };
+            if (msg.Kind == KindPing)
+                return msg;
+            msg.HostTime = r.GetDouble();
+            msg.PausedTotal = r.GetDouble();
+            msg.PauseStart = r.GetDouble();
+            return msg;
+        }
+    }
 }

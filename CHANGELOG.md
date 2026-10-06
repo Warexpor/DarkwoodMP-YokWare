@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.140**. The current Horde wire protocol is **40** (bumped in 0.8.140:
-new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
+**0.8.141**. The current Horde wire protocol is **41** (bumped in 0.8.141:
+new `WorldClock` (165).
+40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
 descriptor gains the look key.
 39 held for 0.8.139, bumped there: new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
 38 held for 0.8.138, bumped there: new `DialogMirror` (160).
@@ -29,6 +30,49 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.141 — Animations run in step on every machine
+
+On top of 0.8.140. **Protocol 40 → 41.** Product **0.8.140 → 0.8.141**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Fixed
+
+- **The same fire, tree or twitching body was at a different point of its animation on every
+  machine.** Vanilla's `tk2dSpriteAnimator` advances a clip only while it is on screen, from the
+  moment that machine created the object, so about 44,000 world animators (trees, grass, water,
+  fire, flies, lamps) each ran at their own phase per machine, and the random choices made in
+  0.8.140 still played out at different times. Now:
+  - **A shared animation clock** (`Sync.AnimClock`): the host's uptime minus the time the world
+    stood in a shared pause, held still during one. Clients estimate it by ping/pong (new
+    `WorldClock`, 165): half the round trip of the least-queued of the last 8 pings, slewed at 1%
+    so jitter never shows, snapped on a jump (host migration). The host also sends it on every
+    pause and resume.
+  - **Looping world animations take their frame from the clock** (`Sync.AnimPhase`): loop, random
+    loop, ping-pong and the looping part of a loop section, at the phase their clip started at
+    (frame 0, or the seeded random start frame). An animator coming into view snaps to its frame
+    without firing frame events on the way; one already running is pulled toward it at most 30%
+    faster or slower. A machine in slow motion (a cutscene) runs as vanilla and is pulled back
+    afterwards. Creatures and players are left alone (their animation is the host's, sent with
+    them), and so are interface animations.
+  - **`AnimationPlay` timing is a function of the clock** (`Sync.AnimSchedule`): replays after a
+    random delay (the mimic bodies under the church) fall due at seeded times whose gaps stay within
+    vanilla's [min, max], and their one-shot clip runs from that time; twitching (the zombies in the
+    Musician's house) shows the clock's twitch frame (out to a seeded frame, back, a rest of about
+    1-5 s). Nothing is carried over time, so a late joiner and a reload agree at once.
+  - **tk2d random-frame clips** picked their first frame from the global random stream; seeded per
+    object and clip, stored with the save like the other seeds.
+
+### Accepted differences
+
+- An animation started by an event (a door, a trap, an explosion) starts on each machine when that
+  machine hears of the event, so it is behind by the network delay. Nothing can show an event
+  before it has arrived.
+- The clock estimate assumes the way to the host and back take equally long (half the round
+  trip), the limit of any clock sync without shared hardware time. On an uneven route a client's
+  animations can be a few milliseconds off, far under one animation frame.
 
 ---
 
