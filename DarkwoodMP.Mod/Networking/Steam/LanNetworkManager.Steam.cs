@@ -209,7 +209,7 @@ namespace DWMPHorde.Networking
             bool softReconnect = false;
             try
             {
-                softReconnect = !Core.mainMenu && Player.Instance != null && !Core.loadingGame;
+                softReconnect = !GameScreen.AtTitle && Player.Instance != null && !Core.loadingGame;
             }
             catch { softReconnect = false; }
 

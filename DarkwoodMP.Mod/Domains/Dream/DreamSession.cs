@@ -148,7 +148,7 @@ namespace DWMPHorde.Sync
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
-            if (Core.currentProfile == null || Core.mainMenu)
+            if (Core.currentProfile == null || GameScreen.AtTitle)
                 return;
             int pid = Core.currentProfile.id;
             if (_seededProfile == pid)

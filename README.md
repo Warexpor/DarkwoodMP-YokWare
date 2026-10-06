@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.138** |
-| Wire | Horde protocol **38** |
+| Product | YokWare Branch **0.8.139** |
+| Wire | Horde protocol **39** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -32,7 +32,8 @@ the host.
 - **Each character is personal.** Every player keeps their own bag, health, skills,
   level, recipes, home oven and trader standing.
 - **Single-player rules are adapted, not removed.** Menus no longer pause the world
-  (players in a dialogue or the level-up menu are protected instead). A night death
+  for one player (players in a dialogue, the level-up menu or the pause menu are
+  protected instead); the world pauses when everyone is in the pause menu. A night death
   makes you spectate until morning instead of skipping the night for everyone. Each
   player plays their own prologue. Dreams take the whole party.
 
@@ -246,7 +247,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 160 (`DialogMirror`). Voice uses message 129.
+The highest assigned message ID is 163 (`WorldPause`). Voice uses message 129.
 
 ---
 

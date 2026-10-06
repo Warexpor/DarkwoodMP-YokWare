@@ -138,7 +138,7 @@ namespace DWMPHorde.Sync
         {
             try
             {
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return false;
                 if (Core.loadingGame)
                     return false;
@@ -308,7 +308,7 @@ namespace DWMPHorde.Sync
             // SaveManager.Load NRE leaves loadingGame=true forever (see Player.log
             // "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"). Unstick so phase-3 can run
             // or user can quit; world may still be broken — host must re-share consistent pair.
-            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !Core.mainMenu)
+            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !GameScreen.AtTitle)
             {
                 ModLog.Warn(LogCat.Session,
                     "[ChapterResume] loadingGame stuck 45s after scene (likely failed sav/savs load) — clearing flag");

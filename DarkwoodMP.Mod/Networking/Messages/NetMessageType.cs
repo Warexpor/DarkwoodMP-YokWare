@@ -440,7 +440,20 @@ namespace DWMPHorde.Networking
         /// Protocol 38.
         /// </summary>
         DialogMirror = 160,
+        /// <summary>
+        /// Handing a shared journal item to an NPC is asked of the host first, so two players at two
+        /// NPCs cannot both hand it over (and both get the personal reward). Client→host: claim or
+        /// release; host→client: grant or deny. <c>Sync.DialogHandInArbiter</c>. Protocol 39.
+        /// </summary>
+        DialogHandInClaim = 161,
+        /// <summary>Client→host: the player's in-game pause menu (Esc) opened or closed. <c>Sync.PauseMenuSync</c>. Protocol 39.</summary>
+        PauseMenuState = 162,
+        /// <summary>
+        /// Host→clients: every player is in the pause menu, so the world pauses everywhere (or resumes).
+        /// <c>Sync.PauseMenuSync</c>. Protocol 39.
+        /// </summary>
+        [HostOnly] WorldPause = 163,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 160
+        _Highest = 163
     }
 }

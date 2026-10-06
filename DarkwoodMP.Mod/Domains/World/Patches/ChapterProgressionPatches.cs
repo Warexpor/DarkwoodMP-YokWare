@@ -351,11 +351,11 @@ namespace DWMPHorde.Patches
                 // Vanilla's chapter jump blacks the screen and locks the player while the next
                 // chapter is made; on a client that step is the host's, so the client played on
                 // through the whole share (open to death and menus) with no cue.
-                if (!Core.mainMenu && Player.Instance != null)
+                if (!GameScreen.AtTitle && Player.Instance != null)
                     ChapterWaitScreen.Hold();
                 ChapterShareExpected = true;
                 _clientChapterId = msg.ChapterId;
-                bool inGame = !Core.mainMenu && Player.Instance != null;
+                bool inGame = !GameScreen.AtTitle && Player.Instance != null;
                 _clientAckRequired = msg.AckRequired && inGame;
                 _clientAwaitingGo = false;
                 _clientGoGen++;

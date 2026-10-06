@@ -35,6 +35,8 @@ namespace DWMPHorde.Networking
             }
             PollSteamBackend();
             Sync.TestPilot.Tick(this);
+            Sync.PauseMenuSync.Tick(this);
+            Sync.DialogHandInArbiter.TickClient(this);
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
 
@@ -170,7 +172,7 @@ namespace DWMPHorde.Networking
             if (physTick)
             {
                 bool clientNotReady = _role == NetworkRole.Client
-                    && (Core.mainMenu || Core.loadingGame || !Core.coreStarted);
+                    && (GameScreen.AtTitle || Core.loadingGame || !Core.coreStarted);
                 if (!clientNotReady)
                 {
                     if (perf) ClientPerfProbe.MarkUpdateRest();
@@ -204,7 +206,7 @@ namespace DWMPHorde.Networking
             // is ready. The host waits for the first in-world packet before
             // sending heavy bulk.
             if (_role == NetworkRole.Client
-                && (Core.mainMenu || Core.loadingGame || !Core.coreStarted))
+                && (GameScreen.AtTitle || Core.loadingGame || !Core.coreStarted))
                 return;
 
             // Don't send position updates while dead in a dream (freezes proxy at death position)

@@ -46,7 +46,7 @@ namespace DWMPHorde
                 && net.Role != NetworkRole.Offline
                 && share.IsAwaitingSlotPick
                 && !share.HasTerminalShareFailure
-                && Core.mainMenu;
+                && GameScreen.AtTitle;
         }
 
         /// <summary>Drop a pending overwrite confirm / stale status (open, close, disconnect, new share).</summary>

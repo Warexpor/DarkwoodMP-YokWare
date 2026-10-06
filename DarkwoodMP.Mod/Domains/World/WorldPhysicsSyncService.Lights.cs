@@ -42,7 +42,7 @@ namespace DWMPHorde.Sync
                 _s.PendingLightQueuedAt = -1f;
                 return;
             }
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame) return;
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame) return;
 
             float now = Time.unscaledTime;
             // Immediate flush when just entered a dream (caller may invoke right after load).

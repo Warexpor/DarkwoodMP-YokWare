@@ -76,7 +76,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static bool LocalInOpenWorld()
         {
-            if (Player.Instance == null || Core.mainMenu || Core.loadingGame || Core.EnteringDream)
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame || Core.EnteringDream)
                 return false;
             var ol = Singleton<OutsideLocations>.Instance;
             if (ol == null || ol.playerInOutsideLocation || ol.loading)

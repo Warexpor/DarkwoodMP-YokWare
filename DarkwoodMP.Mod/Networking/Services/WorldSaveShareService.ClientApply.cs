@@ -28,7 +28,7 @@ namespace DWMPHorde.Networking
 
             // Already in a chapter. A join resend must not wipe the session.
             // A host chapter change is the exception: the new save has to land.
-            if (!Core.mainMenu && Player.Instance != null
+            if (!GameScreen.AtTitle && Player.Instance != null
                 && !Patches.ChapterTransitionHelpers.ChapterShareExpected)
             {
                 ModLog.Event(LogCat.Save, "Ignoring world share begin — already in game");
@@ -81,7 +81,7 @@ namespace DWMPHorde.Networking
             _pendingBegin = msg;
             Sync.PersonalPrologue.ClearJoiner();
             Sync.PersonalPrologue.NoteOffered(msg.PrologueOffered, msg.CampaignId,
-                joinFromTitle: Core.mainMenu && !Patches.ChapterTransitionHelpers.ChapterShareExpected);
+                joinFromTitle: GameScreen.AtTitle && !Patches.ChapterTransitionHelpers.ChapterShareExpected);
             Patches.ChapterTransitionHelpers.ClientNoteSharePass(msg.SharePass);
             // Host profile ID is metadata only; the client picks a permanent local slot after download.
             _hostSourceProfileId = msg.ProfileId;

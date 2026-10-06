@@ -27,7 +27,7 @@ namespace DWMPHorde.Networking
         {
             try
             {
-                if (Core.mainMenu || Core.loadingGame)
+                if (GameScreen.AtTitle || Core.loadingGame)
                     return false;
                 Player p = Player.Instance;
                 if (p == null || p.gameObject == null || !p.gameObject.activeInHierarchy)

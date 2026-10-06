@@ -158,7 +158,7 @@ namespace DWMPHorde.Networking
             {
                 StatusText = tip;
                 ModLog.Event(LogCat.Save, tip);
-                if (Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
                     try { Player.Instance.displayMessage(tip); }

@@ -12,10 +12,25 @@ bug pack) on every box, same DLL everywhere.
 
 ## 0. First checks for the current release
 
-The latest `CHANGELOG.md` entries add listening in on another player's dialogue and settle
-story hand-ins and dialogue trips; earlier ones moved creature sounds to the host's actual
-calls. Listen and watch on the client:
+The latest `CHANGELOG.md` entries change the pause menu in co-op, ask the host before a story
+hand-in, add listening in on another player's dialogue and settle dialogue trips; earlier ones
+moved creature sounds to the host's actual calls. Listen and watch on the client:
 
+- [ ] Pause menu, host: the host opens Esc next to a dog. The client's world keeps going
+      (clock, creatures), the dog ignores the host and cannot hurt it. Swap roles (client in
+      Esc, host plays on): the client's stand-in stays put and is left alone, and the
+      client's game is not frozen behind the menu (world sounds go on).
+- [ ] Pause menu, everyone: both (then all three) open Esc: the world pauses on every machine
+      (creatures, clock, flares stop; menu music plays). Any one closes it: everyone's world
+      runs again. A third player joining while two are paused unpauses the world.
+- [ ] Pause menu, session paths: the host presses F3 while the client sits in Esc (the
+      client's save still follows); the client quits to the title from Esc (its character is
+      backed up, `[Backup]` lines on both logs).
+- [ ] Egg at the same time: the client hands the egg to the Wolf and the host (or a second
+      client) to Piotrek at the same moment: the client's talk waits a moment before the
+      hand-in board, only one of them gets the pistol / outcome, the other gets "Someone
+      already handed that over." A client that backs out of the Wolf's talk before the
+      hand-in frees the egg for the others at once.
 - [ ] Listening in: the host talks to the Wolf, the client talks to him too and gets
       the host's window: same portrait, same lines typing out, same highlighted option. The
       host picks a decision: the client's view follows. Client presses Esc: its view closes,

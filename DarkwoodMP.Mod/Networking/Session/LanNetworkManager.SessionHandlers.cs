@@ -81,7 +81,7 @@ namespace DWMPHorde.Networking
                     StatusText = "Connected — waiting for host to enter world…";
                     ModLog.Event(LogCat.Network, "Handshake OK — assigned PlayerId=" + _localPlayerId
                         + " hostId=" + hostId);
-                    if (Core.mainMenu)
+                    if (GameScreen.AtTitle)
                         ModLog.Event(LogCat.Session,
                             "Join pipeline phase 1: transfer link up — waiting for host fully in-world, "
                             + "then world share / offline load.");
@@ -268,7 +268,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Client || !IsConnected || !_session.Link.HandshakeComplete)
                 return false;
-            if (!Core.mainMenu)
+            if (!GameScreen.AtTitle)
                 return false;
             if (_worldSaveShare != null && _worldSaveShare.IsClientReceivingOrApplying)
                 return false;
@@ -351,7 +351,7 @@ namespace DWMPHorde.Networking
                         + " day" + msg.DayIndex
                         + " — waiting for world package / ENTER WORLD");
                 }
-                if (Core.mainMenu
+                if (GameScreen.AtTitle
                     && (_worldSaveShare == null || !_worldSaveShare.IsClientReceivingOrApplying))
                 {
                     StatusText = "Host ready — waiting for world download…";
@@ -371,7 +371,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
                 _session.ClientHostWorldReady = false;
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     StatusText = "Connected — waiting for host to enter world…";
                 ModLog.Event(LogCat.Session,
                     "HostWorldReady Ready=false — cleared WAIT/HOST READY; waiting for host again");

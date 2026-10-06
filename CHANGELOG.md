@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.138**. The current Horde wire protocol is **38** (bumped in 0.8.138:
-new `DialogMirror` (160).
+**0.8.139**. The current Horde wire protocol is **39** (bumped in 0.8.139:
+new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
+38 held for 0.8.138, bumped there: new `DialogMirror` (160).
 37 held for 0.8.137, bumped there: new `DialogHandInGone` (159).
 36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
 35 held for 0.8.135, bumped there: new `OxygenTankTier` (157).
@@ -26,6 +27,50 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.139 — The pause menu in co-op, and one reward per story hand-in
+
+On top of 0.8.138. **Protocol 38 → 39.** Product **0.8.138 → 0.8.139**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Changed
+
+- **The pause menu (Esc) no longer stops the world for one player.** Vanilla's in-game pause menu
+  pauses the game. In co-op that froze the whole world for everyone when the host opened it, and
+  froze only a client's own game while the world went on around it. Now opening the menu pauses
+  nothing by itself: the player in it is protected the way they are in a dialogue or the level-up
+  menu (creatures ignore them, nothing hurts them). **When every player has the menu open, the
+  whole world pauses** on every machine; the first player to close it resumes at once and the host
+  resumes everyone else. A player still joining or loading keeps the world running. The menu music
+  keeps playing during the shared pause. Clients report their menu to the host (`PauseMenuState`,
+  162), the host decides and tells everyone (`WorldPause`, 163) (`PauseMenuSync`, `MenuShield`,
+  `CoopPausePolicy`).
+
+### Fixed
+
+- **A player in the pause menu counted as "not in the game" for the mod.** Vanilla's pause menu is
+  the title screen's menu opened over the chapter and sets the same flag (`Core.mainMenu`), and
+  about 45 co-op checks read that flag as "on the title screen". With the menu open: a client stopped
+  sending its position, effects and menu protection; a host save was skipped by a client (its copy
+  and character fell behind the host's); leaving through the pause menu's quit skipped the exit
+  backup of the character; a host in the menu accepted any client's "I already have this world"
+  claim unchecked; a client in the menu when the host dropped left the session instead of
+  taking part in host migration; a player in the menu stopped
+  counting as out in the open world, so the shared clock could stop; and the title join flow
+  (world request, slot picker, Steam launch lobby) could act in game. Those checks now tell the
+  title screen from the pause menu (`GameScreen.AtTitle` / `InPauseMenu`). Checks that are about
+  input (F3, F4, chat, push-to-talk) still treat the pause menu as a menu, and a dream waiting to
+  start still waits until the host closes it.
+- **Two players handing the same story item to two NPCs at once could both get the personal
+  reward** (the Wolf's pistol for the egg), even though only the first hand-in counted for the
+  story (left as is in 0.8.137). A client ran its own boards, reward included, before the host
+  replayed them. Now a client's talk asks the host before it goes on to a board that hands over a
+  shared journal item (`DialogHandInClaim`, 161). The host grants the first claim and holds the
+  item for that player until the talk hands it over, ends (the client releases it) or 20 seconds
+  pass; a second claim, or the host's own talk, gets "Someone already handed that over." The
+  wait is one round trip on that board (`DialogHandInArbiter`).
 
 ---
 

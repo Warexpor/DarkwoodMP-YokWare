@@ -1504,4 +1504,66 @@ namespace DWMPHorde.Networking
             return msg;
         }
     }
+    /// <summary>
+    /// Asking the host before handing a shared journal item to an NPC (<c>Sync.DialogHandInArbiter</c>).
+    /// Client→host: Claim (the items the talk is about to hand over) or Release (the talk ended without
+    /// handing them over). Host→client: Grant or Deny for that claim.
+    /// </summary>
+    public struct DialogHandInClaimMessage
+    {
+        public const byte KindClaim = 0;
+        public const byte KindGrant = 1;
+        public const byte KindDeny = 2;
+        public const byte KindRelease = 3;
+
+        public byte Kind;
+        public int ClaimId;
+        /// <summary>The NPC the hand-in is for (NPC.name).</summary>
+        public string NpcName;
+        /// <summary>The journal items the board takes (several variants: any one held is enough).</summary>
+        public string[] Types;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Kind);
+            w.Put(ClaimId);
+            w.Put(NpcName ?? "");
+            int n = Types != null ? Types.Length : 0;
+            w.Put(n);
+            for (int i = 0; i < n; i++)
+                w.Put(Types[i] ?? "");
+        }
+
+        public static DialogHandInClaimMessage Deserialize(NetReader r)
+        {
+            var msg = new DialogHandInClaimMessage { Kind = r.GetByte(), ClaimId = r.GetInt(), NpcName = r.GetString() };
+            int n = r.GetInt();
+            if (n < 0 || n > 64)
+                throw new System.IO.InvalidDataException("DialogHandInClaim item count " + n);
+            msg.Types = new string[n];
+            for (int i = 0; i < n; i++)
+                msg.Types[i] = r.GetString();
+            return msg;
+        }
+    }
+
+    /// <summary>Client→host: this player's in-game pause menu (Esc) is open or closed (<c>Sync.PauseMenuSync</c>).</summary>
+    public struct PauseMenuStateMessage
+    {
+        public bool Open;
+
+        public void Serialize(NetWriter w) => w.Put(Open);
+
+        public static PauseMenuStateMessage Deserialize(NetReader r) => new PauseMenuStateMessage { Open = r.GetBool() };
+    }
+
+    /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>
+    public struct WorldPauseMessage
+    {
+        public bool Paused;
+
+        public void Serialize(NetWriter w) => w.Put(Paused);
+
+        public static WorldPauseMessage Deserialize(NetReader r) => new WorldPauseMessage { Paused = r.GetBool() };
+    }
 }

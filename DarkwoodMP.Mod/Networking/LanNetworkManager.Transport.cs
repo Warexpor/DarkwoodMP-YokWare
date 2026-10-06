@@ -292,7 +292,7 @@ namespace DWMPHorde.Networking
                 // Title / cold rejoin MUST receive world share. loadedGame can linger
                 // after quit-to-menu (vanilla rarely clears it) — never treat menu as
                 // AlreadyInWorld or host skips share and bricks the session.
-                if (Core.mainMenu)
+                if (GameScreen.AtTitle)
                     return false;
                 // Preferred: fully playable after offline load (phase 3 soft reconnect).
                 if (Sync.ChapterSessionResume.IsLocalPlayableForCoopReconnect())

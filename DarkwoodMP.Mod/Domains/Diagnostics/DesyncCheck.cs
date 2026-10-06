@@ -61,7 +61,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static bool LocalWorldSettled()
         {
-            if (Core.mainMenu || Core.loadingGame || !Core.worldGenFinished() || Player.Instance == null)
+            if (GameScreen.AtTitle || Core.loadingGame || !Core.worldGenFinished() || Player.Instance == null)
                 return false;
             if (Singleton<Controller>.Instance == null || Singleton<Flags>.Instance == null)
                 return false;

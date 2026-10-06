@@ -108,7 +108,7 @@ namespace DWMPHorde.Sync
             Player p = Player.Instance;
             if (p == null || p.Inventory == null || p.Hotbar == null || !p.alive)
                 return false;
-            if (Core.mainMenu || Core.loadingGame || PersonalPrologue.LocalInPrologue)
+            if (GameScreen.AtTitle || Core.loadingGame || PersonalPrologue.LocalInPrologue)
                 return false;
             if (DreamSyncManager.IsDreamActive || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared)))
                 return false;

@@ -190,7 +190,7 @@ namespace DWMPHorde.Networking
             StatusText = status;
             try
             {
-                if (wasReconnect && Player.Instance != null && !Core.mainMenu && !Core.loadingGame)
+                if (wasReconnect && Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
                     try { Player.Instance.displayMessage(status); }

@@ -130,6 +130,8 @@ namespace DWMPHorde.Networking
             Sync.QuestItemHandoff.Leaving leaving = Sync.QuestItemHandoff.Capture(this, playerId);
             Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             Sync.DialogMirror.HostPeerLeft(this, playerId);
+            Sync.PauseMenuSync.HostPeerLeft(playerId);
+            Sync.DialogHandInArbiter.HostPeerLeft(playerId);
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
             Sync.PeerItemPresence.ClearPlayer(playerId);
             ClearStableClientKey(playerId);
