@@ -160,6 +160,7 @@ namespace DWMPHorde.Networking
             if (spawned == null)
                 return;
             CharacterTracker.AssignId(spawned, p.HostId);
+            ApplyHostLook(spawned, p.HostId);
             _hostSyncedIds.Add(p.HostId);
             _everHostSyncedIds.Add(p.HostId);
             _spawnedPhantomIds.Add(p.HostId);

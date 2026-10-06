@@ -1,6 +1,7 @@
 using DWMPHorde;
 using DWMPHorde.Patches;
 using DWMPHorde.Sync;
+using LiteNetLib;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -23,34 +24,48 @@ namespace DWMPHorde.Networking
             {
                 if (_net.Role != NetworkRole.Host) return;
 
-                Examinable best = FindExaminable(pos, msg.ObjectName);
-                if (best == null)
-                {
-                    ModRuntime.Log?.LogWarning($"[ExamineSync] host: no Examinable near {pos} name={msg.ObjectName}");
-                    return;
-                }
-
-                // Run full host examine (triggers → GameEvents). Suppress HUD so the
-                // host does not see the client's personal flavor text; client already
-                // displayed locally. World-only + actor stamp: bag/teleport land on
-                // the examiner, not the host. Postfix broadcasts ActionState flags.
-                ExaminableExamineSync.SuppressHostExamineHud++;
+                // The client's pool line leaves the host's deck (and the re-run draws it).
+                DescriptionDeck.BeginRemoteExamine(msg);
                 try
                 {
-                    DialogHostApplyGuard.RunHostWorldFanout(() => best.examine());
+                    Examinable best = FindExaminable(pos, msg.ObjectName);
+                    if (best == null)
+                    {
+                        ModRuntime.Log?.LogWarning($"[ExamineSync] host: no Examinable near {pos} name={msg.ObjectName}");
+                        BroadcastDrawOnly(msg);
+                        return;
+                    }
+
+                    // Run full host examine (triggers → GameEvents). Suppress HUD so the
+                    // host does not see the client's personal flavor text; client already
+                    // displayed locally. World-only + actor stamp: bag/teleport land on
+                    // the examiner, not the host. Postfix broadcasts ActionState flags and the line.
+                    ExaminableExamineSync.SuppressHostExamineHud++;
+                    try
+                    {
+                        DialogHostApplyGuard.RunHostWorldFanout(() => best.examine());
+                    }
+                    finally
+                    {
+                        ExaminableExamineSync.SuppressHostExamineHud--;
+                    }
                 }
                 finally
                 {
-                    ExaminableExamineSync.SuppressHostExamineHud--;
+                    DescriptionDeck.EndRemoteExamine();
                 }
                 return;
             }
 
+            if (_net.Role == NetworkRole.Host)
+                return; // host already applied locally
+
+            // Another player's pool line leaves this deck (the drawer has already taken it out).
+            if (msg.HasDraw && msg.DrawnBy != _net.LocalPlayerId)
+                DescriptionDeck.Apply(msg.DrawPool, msg.DrawLine, msg.DrawRefreshed);
+
             if (msg.Action == ExamineObjectMessage.ActionState)
             {
-                // Host already applied locally.
-                if (_net.Role == NetworkRole.Host) return;
-
                 Examinable best = FindExaminable(pos, msg.ObjectName);
                 if (best == null)
                 {
@@ -72,6 +87,27 @@ namespace DWMPHorde.Networking
                 ModRuntime.LegacyInfo(
                     $"[ExamineSync] client applied state {best.name} examined={msg.Examined}");
             }
+        }
+
+        /// <summary>Host could not re-run the examine: the other machines still take its line out of their decks.</summary>
+        private void BroadcastDrawOnly(ExamineObjectMessage request)
+        {
+            if (!request.HasDraw)
+                return;
+            var draw = new ExamineObjectMessage
+            {
+                Action = ExamineObjectMessage.ActionDraw,
+                ObjectName = request.ObjectName,
+                PosX = request.PosX,
+                PosY = request.PosY,
+                PosZ = request.PosZ,
+                HasDraw = true,
+                DrawPool = request.DrawPool,
+                DrawLine = request.DrawLine,
+                DrawRefreshed = request.DrawRefreshed,
+                DrawnBy = _net.CurrentReceivePlayerId > 0 ? _net.CurrentReceivePlayerId : request.DrawnBy
+            };
+            _net.Broadcast(NetMessageType.ExamineObject, w => draw.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
         private static Examinable FindExaminable(Vector3 pos, string name)

@@ -568,6 +568,103 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void CosmeticState_RoundTripsMovers()
+    {
+        var msg = new CosmeticStateMessage
+        {
+            Kind = CosmeticStateMessage.KindMovers,
+            MoverNames = new[] { "bench_church_a_01", "rock_movable_01" },
+            MoverX = new[] { 1200.5f, -75010f },
+            MoverZ = new[] { 300f, 42.25f },
+            MoverKeys = new[] { 123456, -98765 }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = CosmeticStateMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal(new[] { "bench_church_a_01", "rock_movable_01" }, back.MoverNames);
+        Assert.Equal(-75010f, back.MoverX[1]);
+        Assert.Equal(42.25f, back.MoverZ[1]);
+        Assert.Equal(-98765, back.MoverKeys[1]);
+    }
+
+    [Fact]
+    public void CosmeticState_RoundTripsDecks()
+    {
+        var msg = new CosmeticStateMessage
+        {
+            Kind = CosmeticStateMessage.KindDecks,
+            DeckNames = new[] { "corpses", "empty" },
+            DeckLines = new[] { new[] { "corpse_desc_01", "corpse_desc_03" }, new string[0] }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = CosmeticStateMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal("corpses", back.DeckNames[0]);
+        Assert.Equal(new[] { "corpse_desc_01", "corpse_desc_03" }, back.DeckLines[0]);
+        Assert.Empty(back.DeckLines[1]);
+    }
+
+    [Fact]
+    public void CosmeticState_RejectsTooManyMovers()
+    {
+        var w = new NetWriter();
+        w.Put(CosmeticStateMessage.KindMovers);
+        w.Put(CosmeticStateMessage.MaxEntries + 1);
+        Assert.Throws<InvalidDataException>(() => CosmeticStateMessage.Deserialize(new NetReader(w.CopyData())));
+    }
+
+    [Fact]
+    public void ExamineObject_RoundTripsAPoolDraw()
+    {
+        var msg = new ExamineObjectMessage
+        {
+            Action = ExamineObjectMessage.ActionState,
+            PosX = 1f, PosY = 2f, PosZ = 3f,
+            ObjectName = "corpse_01",
+            Examined = true,
+            DisplayedDescriptionPool = true,
+            HasDraw = true,
+            DrawPool = "corpses",
+            DrawLine = "corpse_desc_02",
+            DrawRefreshed = true,
+            DrawnBy = 3
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = ExamineObjectMessage.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.True(back.HasDraw);
+        Assert.Equal("corpses", back.DrawPool);
+        Assert.Equal("corpse_desc_02", back.DrawLine);
+        Assert.True(back.DrawRefreshed);
+        Assert.Equal(3, back.DrawnBy);
+
+        var plain = new ExamineObjectMessage { Action = ExamineObjectMessage.ActionRequest, ObjectName = "x" };
+        r = new NetReader(Bytes(plain.Serialize));
+        Assert.False(ExamineObjectMessage.Deserialize(r).HasDraw);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void EntitySnapshot_DescriptorCarriesTheLookKey()
+    {
+        var e = new EntitySnapshotNet
+        {
+            Index = 7,
+            Clip = "idle",
+            HasDescriptor = true,
+            EntityName = "Dog",
+            PrefabPath = "Characters/Dog",
+            SaveId = 55,
+            LookKey = -424242
+        };
+        var r = new NetReader(Bytes(e.Serialize));
+        var back = EntitySnapshotNet.Deserialize(r);
+        Assert.Equal(0, r.AvailableBytes);
+        Assert.Equal(-424242, back.LookKey);
+        Assert.Equal(55, back.SaveId);
+    }
+
+    [Fact]
     public void PorterTransport_RoundTrips()
     {
         var msg = new PorterTransportMessage { Source = "hideout_2", Dest = "hideout_1" };

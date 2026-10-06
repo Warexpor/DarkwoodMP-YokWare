@@ -64,6 +64,8 @@ namespace DWMPHorde.Networking
             public string Name;
             public string PrefabPath;
             public int SaveId;
+            /// <summary>The key the body's cosmetic randomizers rolled with (Sync.CosmeticRolls).</summary>
+            public int LookKey;
             public int SendsLeft;
         }
         private static readonly Dictionary<short, Descriptor> _descriptors = new Dictionary<short, Descriptor>(128);
@@ -508,8 +510,17 @@ namespace DWMPHorde.Networking
                     Name = entityName,
                     PrefabPath = prefabPath,
                     SaveId = saveId,
+                    LookKey = DWMPHorde.Sync.CosmeticRolls.KeyOfCharacter(c),
                     SendsLeft = DescriptorSends
                 };
+            }
+            // A body's randomizers can roll after its first send (held for its placement): send
+            // the descriptor again once the look key is known.
+            if (desc.LookKey == 0)
+            {
+                desc.LookKey = DWMPHorde.Sync.CosmeticRolls.KeyOfCharacter(c);
+                if (desc.LookKey != 0)
+                    desc.SendsLeft = DescriptorSends;
             }
             bool withDescriptor = _fullResyncTick || desc.SendsLeft > 0;
             if (withDescriptor && desc.SendsLeft > 0)
@@ -533,6 +544,7 @@ namespace DWMPHorde.Networking
                 EntityName = desc.Name,
                 PrefabPath = desc.PrefabPath,
                 SaveId = desc.SaveId,
+                LookKey = desc.LookKey,
                 Flags = flags,
                 Flags2 = flags2,
                 Loop = loop,

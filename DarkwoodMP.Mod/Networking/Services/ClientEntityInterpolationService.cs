@@ -48,6 +48,8 @@ namespace DWMPHorde.Networking
             public string Name;
             public string PrefabPath;
             public int SaveId;
+            /// <summary>The host's cosmetic roll key for the body (Sync.CosmeticRolls).</summary>
+            public int LookKey;
         }
 
         /// <summary>Name / prefab per host id; snapshots carry them only on first sends and the 1 s resync.</summary>

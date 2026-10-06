@@ -99,7 +99,9 @@ reliable as a backstop, and the Steam reliable backlog is capped per connection.
 
 - Patches are applied class by class. A class that fails is logged by name; if
   it is not `[OptionalPatch]`, Host and Join are refused for that run.
-- Every patch no-ops outside a session unless it is pure vanilla parity.
+- Every patch no-ops outside a session unless it is pure vanilla parity. The one
+  exception is the cosmetic seeding (`Sync.CosmeticRolls`): a world must roll its
+  looks the same way before and after it is hosted.
 - A flag set in a Prefix and cleared in a Postfix also needs a Finalizer
   (Harmony skips the Postfix when the original throws). A Prefix that skips an
   `IEnumerator` method assigns `__result`. A Finalizer that returns null must

@@ -453,7 +453,13 @@ namespace DWMPHorde.Networking
         /// <c>Sync.PauseMenuSync</c>. Protocol 39.
         /// </summary>
         [HostOnly] WorldPause = 163,
+        /// <summary>
+        /// Host→joiner, late-join bulk: cosmetic state a save does not carry (keys of props that
+        /// moved since they rolled their look, the examine description decks).
+        /// <c>Sync.CosmeticRolls</c>, <c>Sync.DescriptionDeck</c>. Protocol 40.
+        /// </summary>
+        [HostOnly] CosmeticState = 164,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 163
+        _Highest = 164
     }
 }

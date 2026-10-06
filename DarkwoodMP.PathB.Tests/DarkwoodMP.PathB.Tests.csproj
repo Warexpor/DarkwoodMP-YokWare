@@ -24,6 +24,7 @@
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.CombatDream.cs" Link="Shipped\CoopPolicy.CombatDream.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.Targeting.cs" Link="Shipped\CoopPolicy.Targeting.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\EntityTimeline.cs" Link="Shipped\EntityTimeline.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Core\CosmeticKey.cs" Link="Shipped\CosmeticKey.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\Dialogue\DialogTreeWireCodec.cs" Link="Shipped\DialogTreeWireCodec.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetWriter.cs" Link="Shipped\NetWriter.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\NetMessageType.cs" Link="Shipped\NetMessageType.cs" />
