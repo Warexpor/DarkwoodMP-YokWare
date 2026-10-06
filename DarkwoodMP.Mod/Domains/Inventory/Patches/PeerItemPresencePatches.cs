@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
     }
     /// <summary>
     /// Hotbar.addItemType does not go through Inventory.addItemTypeToPlayer
-    /// (e.g. compressor → oxygentank_full). Keep PeerItemPresence live.
+    /// (e.g. the compressor turning empty oxygen tanks full). Keep PeerItemPresence live.
     /// </summary>
     [HarmonyPatch(typeof(Inventory), "addItemType", new[] { typeof(string), typeof(int) })]
     public static class PeerHasItemHotbarGivePatch

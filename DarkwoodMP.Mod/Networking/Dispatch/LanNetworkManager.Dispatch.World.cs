@@ -63,8 +63,6 @@ namespace DWMPHorde.Networking
                 if (stamp) RelayStamped(w => marker.Serialize(w));
             });
             On(NetMessageType.MapElementDiscovered, MapElementDiscoveredMessage.Deserialize, m => MapHandlers.HandleMapElementDiscovered(m));
-            On(NetMessageType.OxygenTankStash, OxygenTankStashMessage.Deserialize, m => JournalHandlers.HandleOxygenTankStash(m));
-            On(NetMessageType.CompressorTankConvert, CompressorTankConvertMessage.Deserialize, m => JournalHandlers.HandleCompressorTankConvert(m));
             On(NetMessageType.DoorOpen, DoorOpenMessage.Deserialize, m => DoorHandlers.HandleDoorOpen(m));
             OnRaw(NetMessageType.LocationEnter, payload =>
             {

@@ -36,6 +36,11 @@ namespace DWMPHorde.Patches
             }
 
             if (!ShouldSuppressPersonal()) return true;
+            // A party dream's opening and endings: each dreamer is "the player" (PartyDreamScene).
+            if (PartyDreamScene.Owns(thisGO)) return true;
+            // The Wolfman's arena ends (wolf killed, walking out victorious) by taking the table leg
+            // from "the player": from every player still in the arena, not only the one who set it off.
+            if (WolfArena.IsTableLegDrain(__instance) && WolfArena.LocalInArena()) return true;
             if (IsPersonalPlayerTargeted(__instance))
             {
                 __result = HarmonyCoroutineUtil.Empty();
