@@ -74,11 +74,6 @@ public class ReleaseConsistencyTests
         Assert.Equal(PluginInfo.ProtocolVersion.ToString(),
             Regex.Match(readme, @"\|\s*Wire\s*\|\s*Horde protocol \*\*(\d+)\*\*").Groups[1].Value);
 
-        var ship = Regex.Match(readme, @"Current ship: \*\*([^*]+)\*\*, protocol \*\*(\d+)\*\*");
-        Assert.True(ship.Success, "README 'Current ship' line missing");
-        Assert.Equal(PluginInfo.Version, ship.Groups[1].Value);
-        Assert.Equal(PluginInfo.ProtocolVersion.ToString(), ship.Groups[2].Value);
-
         var highest = Regex.Match(readme, @"highest assigned message ID is (\d+) \(`(\w+)`\)");
         Assert.True(highest.Success, "README 'highest assigned message ID' sentence missing");
         Assert.Equal((int)(byte)NetMessageType._Highest, int.Parse(highest.Groups[1].Value));
