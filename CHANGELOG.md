@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.145**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.145, bumped in 0.8.142:
+**0.8.146**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.146, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,28 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.146 — The joiner's prologue title on black
+
+On top of 0.8.145. **Protocol 42 (unchanged).** Product **0.8.145 → 0.8.146**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **The client's "PROLOGUE" title showed over white noise with the inventory HUD on top.** The
+  intro movie itself was fine, and the host's own prologue was fine. Cause: a joiner's
+  prologue pad arrives before its opening, the reverse of a new game. The arrival's vanilla
+  `OutsideLocations.hideScreen` fires about a second after the pad is in, and it landed on the
+  opening `PrologueIntro` had just begun. It faded the black screen out and turned it off,
+  unlocked input and showed the cursor. With the world camera off for the movie (as in a new
+  game), nothing cleared the frame, so the UI's noise overlay built up into white noise behind
+  the title, with the HUD over it. Until the joiner wakes, the arrival now keeps only its audio
+  step (`PrologueJoinerArrivalScreenPatch`, log `[Prologue] pad arrival: screen stays dark for
+  the opening`), and vanilla `activatePlayer` uncovers the screen as in a new game.
+  `PrologueIntro.Play` also stops any fade still running on the black screen, and sets the
+  camera's render targets as `tweenLoading` does.
 
 ---
 

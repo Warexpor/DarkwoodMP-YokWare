@@ -5,6 +5,30 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
+    /// A joiner's prologue pad arrives before its opening, the reverse of a new game. In a new
+    /// game the pad comes up during world generation, its arrival's <c>hideScreen</c> runs, and
+    /// only then <c>tweenLoading</c> puts up the black screen for the title and the movie. Here the
+    /// arrival's <c>hideScreen</c> (about a second after the pad is in) landed on the opening
+    /// <see cref="PrologueIntro"/> had just begun. It faded the black screen out and turned it off,
+    /// unlocked input and showed the cursor. With the world camera off for the movie (as in a new
+    /// game), nothing cleared the frame: the UI's noise overlay piled up into white noise behind
+    /// the "PROLOGUE" title, with the HUD on top. Until the joiner wakes, the arrival keeps
+    /// only its audio step; vanilla <c>activatePlayer</c> uncovers the screen, as in a new game.
+    /// </summary>
+    [HarmonyPatch(typeof(OutsideLocations), "hideScreen")]
+    public static class PrologueJoinerArrivalScreenPatch
+    {
+        private static bool Prefix()
+        {
+            if (!PersonalPrologue.JoinerBeforeWake)
+                return true;
+            AudioController.UnpauseAll(1f);
+            ModLog.Event(LogCat.Session, "[Prologue] pad arrival: screen stays dark for the opening");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// A joiner new to the world loads it with a new-game character, as vanilla starts the
     /// prologue: the save's player block (position, level, skills, health, upgrades, recipes,
     /// effects) is the host's character. Without this the joiner played on as a copy of the host.
