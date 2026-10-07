@@ -36,8 +36,14 @@ namespace DWMPHorde.Sync
         // Keep only a one-tick cushion after movement stops. SoftStop and the
         // post-stop gate handle late packets.
         private const float BodyPushSoundHold = 0.05f;
-        /// <summary>Use this path only for large corrections; normal pushes interpolate.</summary>
-        private const float ClientPushSnapDistance = 8f;
+        /// <summary>
+        /// A move this long is a teleport (a pad placed, an object carried across the map), set at
+        /// once; anything shorter interpolates. It was 8 units, a fifth of a body: the copy
+        /// following a push trails it by about the 0.2 s interpolation (speed x 0.2), so a light
+        /// chair or stool shoved at walking pace was more than 8 behind and jumped to the pusher's
+        /// pose every few states on the watcher's screen. A push never covers this in one state.
+        /// </summary>
+        private const float ClientPushSnapDistance = 300f;
         // Manually-managed AudioSource for host->client body-push sound.
         // We bypass AudioController for this because its pooled one-shot
         // AudioObjects get destroyed between 10Hz PhysicsState ticks,
