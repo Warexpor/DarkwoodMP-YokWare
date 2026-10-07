@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.157**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.157, bumped in 0.8.142:
+**0.8.158**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.158, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,28 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.158 — A client's push sounds on the host (the real cause)
+
+On top of 0.8.157. **Protocol 42 (unchanged).** Product **0.8.157 → 0.8.158**. Built and
+unit-tested; **runtime is not playtested**.
+
+Playtest of 0.8.157: the host still heard a client's push start and fade at once. No exceptions in
+either log. 0.8.157's longer hold was not the cause: the host log has only two scrape starts in the
+session, one ended by `body-push skip jump d=1.272 Stool` right after it.
+
+- **An ordinary push counted as a jump.** On the host, a client state that moved the body more
+  than `BodyPushMaxArmDelta` since the last one was treated as a post-drag jump: no scrape, and
+  a running scrape stopped. That limit was 1.25 game units, written as if units were meters (a
+  body is about 40 across). A stool pushed at walking pace moves about 1.3 per 0.1 s state, so
+  nearly every state of the push stopped the scrape, and the next ones did not start it again.
+  The limit is now 30 units per state, past any push, still under a drag hand-off jump
+  (`WorldPhysicsSyncService.Apply`).
+- **The client's matching safety net** (soft-stop when no moving state for a while) was 0.15 s,
+  barely over the 0.1 s state gap, so one late state faded the host's push mid-way. It now uses
+  the same 0.3 s hold as the host (`WorldPhysicsSyncService.Interpolation`).
 
 ---
 
