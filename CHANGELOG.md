@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.144**. The current Horde wire protocol is **42** (held for 0.8.143 and 0.8.144, bumped in 0.8.142:
+**0.8.145**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.145, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -34,10 +34,42 @@ tested in the game.
 
 ---
 
+## 0.8.145 — Joining a world shared during the host's prologue
+
+On top of 0.8.144. **Protocol 42 (unchanged).** Product **0.8.144 → 0.8.145**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **The client's join load got stuck with a `NullReferenceException` in `SaveManager.Load`.**
+  Playtest: the host started a new game while hosting, and the client received the world and
+  loaded it. The load stopped at IL `0x0a9e`, which is
+  `spawnedLocations[currentLocationName].enter(force: true)`. Vanilla `ChapterResume` then cleared
+  `loadingGame` after 45 s, and the client never got in. Cause: the share's save ran while
+  the host stood in its prologue dream pad. A pad is never saved, but vanilla still writes its name
+  as the player's current location, so the load called `enter` on nothing. The same save would
+  also break the host's own reload. A load now puts a player whose saved location is not in the
+  save in the overworld. If the save resumes a dream, that dream places the player itself; if not,
+  the player goes back to the spot it left from (`OutsideLocationMissingOnLoadPatch`, log
+  `[Load] saved in location ...`).
+- **The host sent a new world twice.** The new-world share went out to the waiting client. Then
+  the host-ready gate counted that client as still waiting and shared the whole world again, with
+  another force save that froze the host. The gate now skips peers that are already loading the
+  package (`TickHostWorldShareWhenReady`). Before 0.8.144 this was hidden: the gate never opened
+  for a new world.
+
+### Confirmed in playtest (0.8.144)
+
+- A new game while hosting is a co-op world (`[Cosmetic] co-op world (in a session)`). The
+  share carries `savcos.dat` (52202 seeds), the client's copy loads as a co-op world, and it reads
+  all 52202 seeds.
+
+---
+
 ## 0.8.144 — New games hosted from the menu are co-op worlds
 
 On top of 0.8.143. **Protocol 42 (unchanged).** Product **0.8.143 → 0.8.144**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; runtime partly playtested (see 0.8.145).
 
 ### Fixed
 

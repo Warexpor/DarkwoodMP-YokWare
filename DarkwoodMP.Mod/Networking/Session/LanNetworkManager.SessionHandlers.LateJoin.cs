@@ -400,8 +400,11 @@ namespace DWMPHorde.Networking
             int waiting = 0;
             foreach (int id in _session.Link.Handshaked)
             {
-                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the world.
-                if (id > 1 && !IsPeerInWorld(id))
+                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the
+                // world; peers loading it got this world's package already (the new-world share
+                // goes out before the host is in-world, and a second one froze the host for
+                // another force save and sent the whole world again).
+                if (id > 1 && !IsPeerInWorld(id) && !_session.Link.LoadingWorld.Contains(id))
                     waiting++;
             }
             if (waiting == 0)
