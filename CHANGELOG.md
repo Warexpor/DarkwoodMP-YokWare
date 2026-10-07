@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.153**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.153, bumped in 0.8.142:
+**0.8.154**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.154, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,38 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.154 — A joiner's hideout oven is lit (second try); other players' steps a little quieter
+
+On top of 0.8.153. **Protocol 42 (unchanged).** Product **0.8.153 → 0.8.154**. Built and
+unit-tested; **runtime is not playtested**.
+
+Playtest of 0.8.153 (new world, client joined during the host's world generation):
+- The title-screen error flood is gone (client log 1,127 lines, no exceptions; it was 27,016 lines with about 6,000
+  NREs).
+- The pushed chair still snaps. The logs show it is the `Stool` (collider off-centre like
+  `Chair_1`'s), pushed by the client with the host watching, and the host pushing it with the
+  client watching. The cause is not found yet; asked which screen shows the snap.
+- The oven fix did not work: the client log has `no default oven in the hideout for the fresh
+  character` twice.
+
+- **A joiner's starting oven unlit (0.8.153's fix failed).** The lookup required the oven's
+  `isDefaultExpMachine`. The hideout a world generates comes from a location preset whose oven
+  does not carry that flag (only the hand-built scenes and `exp_machine_oven_01B` set it), so
+  both lookups found nothing. Vanilla never relies on the flag for a new game: the save names the
+  player's home oven (`Player.SaveState.expMachineId`), and on a fresh world that is the
+  hideout's. The fresh character now takes the oven in `WorldGenerator.playerBase`. Before the save
+  has named the hideout (at `loadValues2`), it takes the save's own home oven. It is set again
+  when the character is placed in the hideout, and the log line now names the hideout and how
+  many ovens it holds when none is found (`PersonalProloguePatches`).
+- **Other players' movement a little quieter (requested).** New config key
+  `Gameplay.PeerMovementVolume` (default **0.75**, 0..1). It scales the stand-in's footsteps,
+  clothes rustle, the extra wood/branch step sounds and the sender's torso-clip steps (dodge,
+  window-jump landing). Shots, hits, tools and other sounds stay at full volume
+  (`WorldProxyEffectNetHandlers.PlayProxyOneShot`, `WorldFxNetHandlers.HandlePlayerAudio`,
+  `docs/CONFIG.md`).
 
 ---
 
