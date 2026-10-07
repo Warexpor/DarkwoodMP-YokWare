@@ -41,6 +41,24 @@ namespace DWMPHorde.Patches
             };
         }
 
+        /// <summary>XZ distance under which an incoming splat is one already lying here.</summary>
+        private const float SameSplatRadius = 1f;
+
+        /// <summary>A living splat lies here, culled (inactive) ones included.</summary>
+        internal static bool HasInfectionAt(Vector3 pos)
+        {
+            Infection[] all = WorldQueryHelper.GetCachedSceneComponents<Infection>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Infection inf = all[i];
+                if (inf == null || inf.disappearing) continue;
+                Vector3 p = inf.transform.position;
+                float dx = p.x - pos.x, dz = p.z - pos.z;
+                if (dx * dx + dz * dz <= SameSplatRadius * SameSplatRadius) return true;
+            }
+            return false;
+        }
+
         internal static void BroadcastInfectionSpawn(Vector3 pos)
         {
             if (!NetGuard.Connected(out var net)) return;

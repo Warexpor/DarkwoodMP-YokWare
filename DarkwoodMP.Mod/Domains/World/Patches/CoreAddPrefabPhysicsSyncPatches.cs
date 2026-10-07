@@ -17,6 +17,11 @@ namespace DWMPHorde.Patches
                 return;
             if (__result == null)
                 return;
+            // A new world's generation and a save's load place their prefabs through here too:
+            // those are the world itself, which a joiner gets in the world package. Sent live, a
+            // joiner on the title built each into the menu scene.
+            if (Core.loadingGame || !Core.worldGenFinished())
+                return;
 
             if (string.IsNullOrEmpty(path))
                 return;

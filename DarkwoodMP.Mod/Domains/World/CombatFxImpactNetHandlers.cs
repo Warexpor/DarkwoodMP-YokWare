@@ -196,6 +196,7 @@ namespace DWMPHorde.Networking
         internal void HandleExplosionSpawnObject(ExplosionSpawnObjectMessage msg)
         {
             if (string.IsNullOrEmpty(msg.PrefabName)) return;
+            if (_net.Role == NetworkRole.Client && !LanNetworkManager.ClientCanApplyWorldBulk()) return;
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             // Local Explodes already ran spawnObjects (stomp or SpawnExplosionVisual);
             // skip host-echoed secondaries so the stomper/remote doesn't double debris.

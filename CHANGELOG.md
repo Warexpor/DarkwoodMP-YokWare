@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.151**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.151, bumped in 0.8.142:
+**0.8.152**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.152, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,38 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.152 — No world pieces built on the joiner's title; no doubled puddles or splats on a rejoin
+
+On top of 0.8.151. **Protocol 42 (unchanged).** Product **0.8.151 → 0.8.152**. Built and
+unit-tested; **runtime is not playtested**.
+
+Playtest of 0.8.151 (new world, client joined during the host's world generation): no bug
+reported by eye. The logs show a client lamp push applied on the host with its scrape
+start/stop; the host pushing after the client is not in this run. The logs did show the
+problems below.
+
+- **About 6,000 errors on a joining client while it waited on the title.** While a new world
+  generates, every prefab it places goes through `Core.AddPrefab(string)`, and the spawn sync
+  sent each one live (87 this run). A client still on the title built them into the menu scene:
+  no item database there (`No item type meat`, `InvSlot.createItem` NREs), and their sounds and
+  triggers ran without a player (`SoundArea.Update`, `LoopingAudioObject.waitToCheckPlayer`,
+  `EventTriggers.OnTriggerEnter` NREs every frame until the load). Those pieces are the world
+  itself and reach a joiner in the world package.
+  - The host no longer sends spawns while it is generating or loading a world
+    (`CoreAddPrefabPhysicsSyncPatches`).
+  - A client takes a live spawn, a gas trail or an explosion's spawned object only once it is in
+    the world (`LocationEntityTrapNetHandlers`, `CombatFxGasBurnNetHandlers`,
+    `CombatFxImpactNetHandlers`), the same gate the journal got in 0.8.150.
+- **Doubled gas puddles and infection splats after a rejoin.** The late-join state resends every
+  puddle (16 this run) and every infection splat (10). A joiner that loaded the world already
+  had them. The duplicate check was a physics search, and that sees only active colliders,
+  while the joiner's puddles and splats away from it were culled (inactive). So each one got a
+  second copy, a second fire or a second infection trap. The check now also looks through the
+  scene, culled objects included (`WorldPhysicsSyncService.HasLiquidInScene`,
+  `InfectionSyncHelpers.HasInfectionAt`).
 
 ---
 
