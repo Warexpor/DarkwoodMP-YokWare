@@ -70,6 +70,10 @@ namespace DWMPHorde.Patches
                 return;
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
+            // World generation rolls every container in the world; the world package shared after
+            // it carries them. Fanned out, they reached peers with no world yet (hundreds of misses).
+            if (!Core.worldGenFinished())
+                return;
 
             Inventory inv = __instance != null
                 ? __instance.GetComponent<Inventory>()

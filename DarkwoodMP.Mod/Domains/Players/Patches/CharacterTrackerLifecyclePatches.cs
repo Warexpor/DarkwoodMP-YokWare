@@ -39,6 +39,8 @@ namespace DWMPHorde.Sync
                 return;
             if (!CharacterTracker.TryGetStableId(c, out short id) || id == 0)
                 return;
+            if (!CharacterTracker.MarkDespawnSent(c))
+                return;
             net.SendEntityDespawn(id);
         }
     }

@@ -369,6 +369,8 @@ namespace DWMPHorde.Patches
 
             if (!CharacterTracker.TryGetStableId(__instance, out short id) || id == 0)
                 return;
+            if (!CharacterTracker.MarkDespawnSent(__instance))
+                return;
 
             ModRuntime.Network?.SendEntityDespawn(id);
         }
