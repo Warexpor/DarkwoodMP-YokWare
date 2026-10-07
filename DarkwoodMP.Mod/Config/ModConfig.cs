@@ -189,7 +189,7 @@ namespace DWMPHorde.Config
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
-            PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.75f,
+            PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");

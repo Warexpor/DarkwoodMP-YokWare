@@ -31,11 +31,15 @@ namespace DWMPHorde.Sync
         /// <summary>NonAlloc overlap into shared <see cref="_overlap3D"/>.</summary>
         private static int OverlapNear(Vector3 pos, float radius)
             => Physics.OverlapSphereNonAlloc(pos, radius, _overlap3D);
-        // Tracks rigidbodies made isKinematic on the host due to client PhysicsState
-        // updates. Key = InstanceID, value = Rigidbody + time to release.
-        // Keep only a one-tick cushion after movement stops. SoftStop and the
-        // post-stop gate handle late packets.
-        private const float BodyPushSoundHold = 0.05f;
+        /// <summary>
+        /// How long one moving state from a client pusher keeps the host's scrape going. It has to
+        /// outlast the gap to the next state (sent every 0.1 s, arriving with jitter); it was
+        /// 0.05 s, so the scrape stopped between nearly every two states, and the post-stop
+        /// suppress (0.45 s) then kept the next starts out: on the host a client's push sounded
+        /// for a moment and faded. A real stop still ends it promptly: the pusher's last states
+        /// are quiet ones (two quiet ticks stop it), or the states end and this runs out.
+        /// </summary>
+        private const float BodyPushSoundHold = 0.3f;
         /// <summary>
         /// A move this long is a teleport (a pad placed, an object carried across the map), set at
         /// once; anything shorter interpolates. It was 8 units, a fifth of a body: the copy

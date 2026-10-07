@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.156**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.156, bumped in 0.8.142:
+**0.8.157**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.157, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,27 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.157 — A client's push sounds steady on the host; peer steps a little louder
+
+On top of 0.8.156. **Protocol 42 (unchanged).** Product **0.8.156 → 0.8.157**. Built and
+unit-tested; **runtime is not playtested**.
+
+Reported after the 0.8.156 playtest: when the client pushes something, the host hears the
+scrape start and fade out at once. Requested: other players' movement a little louder, still
+under its old level.
+
+- **A client's push faded out at once on the host.** Each moving state from the client pusher
+  kept the host's scrape alive for `BodyPushSoundHold`, 0.05 s. States come every 0.1 s
+  (plus jitter), so the hold ran out between nearly every two states. The host log shows
+  `body-push start Stool` / `body-push stop Stool` alternating through each push. Each stop
+  faded the scrape, and the post-stop suppress (0.45 s) kept the next starts out. The hold is now
+  0.3 s. A real stop still ends it promptly: the pusher's last states are quiet ones (two quiet
+  ticks stop it), or the states end and the hold runs out (`WorldPhysicsSyncService`).
+- **Peer movement volume 0.75 → 0.85** (`Gameplay.PeerMovementVolume` default; both dual-box
+  config files set to 0.85, since existing files keep their old value).
 
 ---
 
