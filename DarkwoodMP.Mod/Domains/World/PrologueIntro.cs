@@ -39,8 +39,16 @@ namespace DWMPHorde.Patches
             // As in a new game (WorldGenerator turns the camera off before the movie): activatePlayer
             // turns it back on and it centres on the player. A loaded world's camera stayed on and
             // kept the rough spot the teleport onto the pad gave it.
+            // tweenLoading sets the camera's render targets first; the pad arrival's hideScreen did
+            // it here before, and it is held back now (PrologueJoinerArrivalScreenPatch).
             if (Singleton<CamMain>.Instance != null)
+            {
+                Singleton<CamMain>.Instance.setRenderTargets();
                 Singleton<CamMain>.Instance.gameObject.SetActive(false);
+            }
+            // A fade still running on it (UI.tweenBlackScreen ids its tween by the object) would
+            // take the colour back and turn the screen off when it ends.
+            DOTween.Kill(ui.blackScreen);
             ui.blackScreen.SetActive(true);
             ui.blackScreen.GetComponent<tk2dSprite>().color = new Color(0f, 0f, 0f, 1f);
             ctrl.Invoke(delegate

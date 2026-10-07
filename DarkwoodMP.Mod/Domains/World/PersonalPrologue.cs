@@ -346,6 +346,9 @@ namespace DWMPHorde.Sync
         internal static bool FreshCharacter => _freshCharacter;
 
         internal static bool JoinerActive => _joinerStage != JoinerStage.None && _joinerStage != JoinerStage.Arrived;
+
+        /// <summary>The joiner's opening is on screen or about to be: the pad arriving, or the title and movie.</summary>
+        internal static bool JoinerBeforeWake => _joinerStage == JoinerStage.Preparing || _joinerStage == JoinerStage.Intro;
         internal static bool JoinerArrived => _joinerStage == JoinerStage.Arrived;
 
         /// <summary>
