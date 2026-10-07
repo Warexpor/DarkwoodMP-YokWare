@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.149**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.149, bumped in 0.8.142:
+**0.8.150**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.150, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,26 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.150 — No journal pages on the title
+
+On top of 0.8.149. **Protocol 42 (unchanged).** Product **0.8.149 → 0.8.150**. Built and
+unit-tested; **runtime is not playtested**. Found in the 0.8.149 playtest logs.
+
+### Fixed
+
+- **A client waiting on the title threw on the host's journal pages** (`NullReferenceException`
+  in `Journal.addJournalEntry`, `Handler for JournalItem from p1 threw`). The host's load adds
+  pages before the world is shared; a peer on the title has only the menu's journal. A client
+  takes journal pages only once it is in the world (`ClientCanApplyWorldBulk`); the world
+  package carries the journal.
+
+### Playtest status (0.8.147 to 0.8.149)
+
+- The world share initialized 214 map pieces before its save (`[MapShare]`), no prologue pad
+  traffic, no duplicate despawns. Sound and push fixes: waiting on the user's report.
 
 ---
 
