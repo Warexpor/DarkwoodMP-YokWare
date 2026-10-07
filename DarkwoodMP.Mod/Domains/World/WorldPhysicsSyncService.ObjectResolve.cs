@@ -294,6 +294,15 @@ namespace DWMPHorde.Sync
                 return RememberResolved(obj.Name, candidate);
             }
 
+            // The copy this name is driving trails the sender by the interpolation, more than
+            // the resolve radii when pushed fast: its last target is where it is headed. Missed,
+            // every state failed until the rate-limited full scan, and the copy stood, then jumped.
+            if (c0 != null && IsUsableResolveCandidate(c0, obj.Name, targetPos, float.MaxValue)
+                && _s.ObjectInterp.TryGetValue(c0.GetInstanceID(), out ObjectInterpState driving)
+                && driving.Target == c0
+                && Vector3.Distance(driving.TargetPos, targetPos) <= ResolvedNameMaxDist)
+                return c0;
+
             // Strategy 1b: wider sphere before the wide resolve (client stutter when host
             // pushes objects away and can miss a small OverlapSphere query.
             {

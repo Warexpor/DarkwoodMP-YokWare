@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.154**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.154, bumped in 0.8.142:
+**0.8.155**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.155, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,31 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.155 — A pushed chair or stool no longer jumps on the watcher's screen
+
+On top of 0.8.154. **Protocol 42 (unchanged).** Product **0.8.154 → 0.8.155**. Built and
+unit-tested; **runtime is not playtested**.
+
+Reported: on the watcher's screen a pushed chair or stool makes periodic big jumps while it is
+being pushed (the pusher's own screen is fine).
+
+- **The "teleport" distance was a fifth of a body.** The watcher's copy follows each state with
+  a fixed 0.2 s interpolation that restarts at every state, so it trails the pusher by about
+  speed x 0.2. A state farther than `ClientPushSnapDistance` from the copy was set at once as a
+  teleport, and that distance was 8 units (a body is about 40 across). A light chair or stool
+  shoved at walking pace trails by more than that, so every few states it jumped to the pusher's
+  pose. The heavier lamp and wardrobe move slower and stayed under it. The distance is now 300
+  units, beyond any push in one state; pad teleports and objects carried across the map (thousands
+  of units) still snap (`WorldPhysicsSyncService`).
+- **Lost states while the copy trails far.** The receiver finds the object by name near the
+  reported spot, its last match within 25 units, or a 15-unit sphere. A full scan runs at most
+  every 2 s. A copy trailing past those radii matched nothing, every state failed until the next
+  full scan, and the copy stood still, then jumped. The copy a name is already driving now
+  matches when its interpolation target is near the reported spot (after the exact-spot match,
+  so two identical chairs still do not swap) (`WorldPhysicsSyncService.FindOrSpawnObject`).
 
 ---
 
