@@ -234,14 +234,14 @@ namespace DWMPHorde.Networking
             try
             {
                 if (!string.IsNullOrEmpty(soundID))
-                    ForceSpatialProxyOneShot(AudioController.Play(soundID, proxyT, vol), soundID);
+                    PlayProxyOneShot(soundID, proxyT, vol);
 
-                ForceSpatialProxyOneShot(AudioController.Play("walk_clothes_noises", proxyT, vol), "walk_clothes_noises");
+                PlayProxyOneShot("walk_clothes_noises", proxyT, vol);
 
                 if (UnityEngine.Random.Range(0f, 1f) > 1f - cs.footHitGroundSoundChance)
                 {
                     string addSound = gt == GroundType.wood ? "footsteps_wood_add" : "footstep_branches_add";
-                    ForceSpatialProxyOneShot(AudioController.Play(addSound, proxyT, volumeModifier), addSound);
+                    PlayProxyOneShot(addSound, proxyT, volumeModifier);
                 }
             }
             finally
@@ -267,10 +267,9 @@ namespace DWMPHorde.Networking
         /// id (its prefab's when not overridden; the peer range for a 2D-authored id), the same
         /// range the PlayerAudio hear gate uses.
         /// </summary>
-        internal static void ApplyStandInRolloff(AudioObject audioObj, string soundId)
+        internal static void ApplyStandInRolloff(AudioSource src, string soundId)
         {
-            if (audioObj == null || audioObj.primaryAudioSource == null) return;
-            AudioSource src = audioObj.primaryAudioSource;
+            if (src == null) return;
             src.spatialBlend = 1f;
             src.rolloffMode = AudioRolloffMode.Linear;
             AudioItem item = !string.IsNullOrEmpty(soundId) ? AudioController.GetAudioItem(soundId) : null;
@@ -281,11 +280,11 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Force 3D rolloff on player-authored (often 2D) clips played at a proxy.</summary>
-        internal static void ForceSpatialProxyOneShot(AudioObject audioObj, string soundId)
+        internal static void ForceSpatialProxyOneShot(AudioSource src, string soundId)
         {
-            if (audioObj == null || audioObj.primaryAudioSource == null) return;
-            audioObj.primaryAudioSource.spatialBlend = 1f;
-            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
+            if (src == null) return;
+            src.spatialBlend = 1f;
+            src.rolloffMode = AudioRolloffMode.Linear;
             AudioItem item = !string.IsNullOrEmpty(soundId) ? AudioController.GetAudioItem(soundId) : null;
             float itemMin = (item != null && item.overrideAudioSourceSettings)
                 ? item.audioSource_MinDistance : LocalAudioService.DefaultMinSpatialDistance;
@@ -293,9 +292,15 @@ namespace DWMPHorde.Networking
                 ? item.audioSource_MaxDistance : LocalAudioService.DefaultMaxSpatialDistance;
             // Closer near-field than guns so steps attenuate across a room; silence at
             // DefaultMaxSpatialDistance (same as Play gate + AudioSuppression).
-            audioObj.primaryAudioSource.minDistance = Mathf.Clamp(itemMin, 8f, 40f);
-            audioObj.primaryAudioSource.maxDistance = Mathf.Clamp(
-                itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
+            src.minDistance = Mathf.Clamp(itemMin, 8f, 40f);
+            src.maxDistance = Mathf.Clamp(itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
+        }
+
+        /// <summary>A peer's one-shot at its stand-in, 3D from its first moment (<see cref="PeerSpatialPlay"/>).</summary>
+        private static void PlayProxyOneShot(string soundId, Transform at, float volume)
+        {
+            PeerSpatialPlay.Play(() => AudioController.Play(soundId, at, volume),
+                src => ForceSpatialProxyOneShot(src, soundId));
         }
 
         internal void HandlePlayerSound(PlayerSoundMessage msg)

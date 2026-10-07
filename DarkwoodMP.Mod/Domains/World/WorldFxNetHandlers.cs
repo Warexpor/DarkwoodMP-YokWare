@@ -399,36 +399,36 @@ namespace DWMPHorde.Networking
                 // or the sound arrives with isInside=false and skips the AudioReverbFilter.
                 if (standIn != null)
                     WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
-                AudioObject audioObj = AudioController.Play(msg.SoundId, pos, standIn, Mathf.Clamp01(msg.Volume));
-
-                if (audioObj != null && audioObj.primaryAudioSource != null)
+                string id = msg.SoundId;
+                // 3D at the stand-in from the first moment (PeerSpatialPlay); the reverb / lowpass
+                // AudioController added stay.
+                Action<AudioSource> configure;
+                if (step)
                 {
-                    // 3D at the stand-in; the reverb / lowpass AudioController added stay.
-                    if (step)
-                    {
-                        // A torso-clip step (window-jump landing, dodge): the same falloff as
-                        // the stand-in's own leg steps.
-                        WorldProxyEffectNetHandlers.ForceSpatialProxyOneShot(audioObj, msg.SoundId);
-                    }
-                    else if (spatialTool)
-                    {
-                        // Flashlight/torch: Log + full peer range. Tiny minDistance buried
-                        // the soft click tail under attenuation while the attack still
-                        // read; keep near-field at DefaultMinSpatialDistance.
-                        audioObj.primaryAudioSource.spatialBlend = 1f;
-                        audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Logarithmic;
-                        audioObj.primaryAudioSource.minDistance =
-                            LocalAudioService.DefaultMinSpatialDistance;
-                        audioObj.primaryAudioSource.maxDistance =
-                            LocalAudioService.DefaultMaxSpatialDistance;
-                    }
-                    else
-                    {
-                        // Hits, equip, bag, vault and the rest: the game's own range for the id,
-                        // the same range the hear gate above used.
-                        WorldProxyEffectNetHandlers.ApplyStandInRolloff(audioObj, msg.SoundId);
-                    }
+                    // A torso-clip step (window-jump landing, dodge): the same falloff as
+                    // the stand-in's own leg steps.
+                    configure = src => WorldProxyEffectNetHandlers.ForceSpatialProxyOneShot(src, id);
                 }
+                else if (spatialTool)
+                {
+                    // Flashlight/torch: Log + full peer range. Tiny minDistance buried
+                    // the soft click tail under attenuation while the attack still
+                    // read; keep near-field at DefaultMinSpatialDistance.
+                    configure = src =>
+                    {
+                        src.spatialBlend = 1f;
+                        src.rolloffMode = AudioRolloffMode.Logarithmic;
+                        src.minDistance = LocalAudioService.DefaultMinSpatialDistance;
+                        src.maxDistance = LocalAudioService.DefaultMaxSpatialDistance;
+                    };
+                }
+                else
+                {
+                    // Hits, equip, bag, vault and the rest: the game's own range for the id,
+                    // the same range the hear gate above used.
+                    configure = src => WorldProxyEffectNetHandlers.ApplyStandInRolloff(src, id);
+                }
+                PeerSpatialPlay.Play(() => AudioController.Play(id, pos, standIn, Mathf.Clamp01(msg.Volume)), configure);
             }
             finally { TraverseHack.SetExplicitFlag(prevNet); }
         }
