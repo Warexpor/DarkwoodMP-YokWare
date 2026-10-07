@@ -27,15 +27,15 @@ namespace DWMPHorde.Sync
             try
             {
                 // Positional 3D play with no parent, matching vanilla explode().
-                AudioObject ao = AudioController.Play(id, pos, null, 1f);
+                // Fully 3D from its first moment (PeerSpatialPlay).
+                Action<AudioSource> spatial = src => src.spatialBlend = 1f;
+                AudioObject ao = PeerSpatialPlay.Play(() => AudioController.Play(id, pos, null, 1f), spatial);
                 if (ao == null && id == "mushroom_explode_01")
                 {
                     // Alternate clip id seen in decompiled assets.
-                    ao = AudioController.Play("expObj_mushroom_01", pos, null, 1f);
+                    ao = PeerSpatialPlay.Play(() => AudioController.Play("expObj_mushroom_01", pos, null, 1f), spatial);
                     if (ao != null) id = "expObj_mushroom_01";
                 }
-                if (ao != null && ao.primaryAudioSource != null)
-                    ao.primaryAudioSource.spatialBlend = 1f;
 
                 ModRuntime.LegacyInfo("[ExplosionSound] play '" + id + "' at " + pos
                     + (ao != null ? " ok" : " (AudioController returned null)"));

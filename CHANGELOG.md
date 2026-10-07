@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.147**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.147, bumped in 0.8.142:
+**0.8.148**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.148, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,30 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.148 — Peer sounds silent at the edge of their range
+
+On top of 0.8.147. **Protocol 42 (unchanged).** Product **0.8.147 → 0.8.148**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **Another player's sounds broke into sharp, chopped bits near the edge of hearing range**
+  (footsteps, shots, throws, anything a peer makes, both ways). Cause: a peer's sound is played
+  here with its own 3D falloff (many are 2D in the game, played for their owner only), and that
+  falloff was set on the source after `AudioController.Play` had already started it. The audio
+  thread mixed the first moments with the prefab's own settings, at full 2D volume. Near the
+  peer the sound itself covered that; toward the edge, where the 3D sound is silent, only those
+  first moments came through. The falloff now goes on the source inside `AudioObject`'s own
+  start, after the game has set the source up (`PeerSpatialPlay`, patches on
+  `AudioObject._PlayDelayed` / `_PlayScheduled`). Covers the stand-in's PlayerAudio sounds,
+  footsteps and clothes, shots and explosions.
+- **A pooled audio source kept a peer's falloff for later sounds.** The game's pool restores only
+  its item overrides, so a later local sound on the same source played with the peer's linear
+  falloff and ranges. The source's own settings (spatial blend and rolloff curves, rolloff mode,
+  distances) now come back when it returns to the pool.
 
 ---
 
