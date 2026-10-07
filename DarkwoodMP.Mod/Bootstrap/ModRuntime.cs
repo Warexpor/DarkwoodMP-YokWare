@@ -206,7 +206,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DefenderAttackContext.Reset);
             NetworkResetRegistry.Register(WorldPhysicsSyncService.Reset);
             NetworkResetRegistry.Register(WorldQueryHelper.InvalidateCommonSceneScanCaches);
-            NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
+            NetworkResetRegistry.Register(DreamSyncManager.OnNetworkStopped);
             NetworkResetRegistry.Register(PlayerPositionManager.Clear);
             NetworkResetRegistry.Register(() =>
                 ModRuntime.Network?.PlayerFXHandlers?.ResetConsumedDropGuids());

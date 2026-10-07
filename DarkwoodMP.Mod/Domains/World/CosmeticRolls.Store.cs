@@ -163,7 +163,7 @@ namespace DWMPHorde.Sync
             _anchors.Clear();
         }
 
-        /// <summary>A new world is generated (<c>Controller.generateChapter</c>): nothing carries over.</summary>
+        /// <summary>A new world is generated (<c>WorldGenerator.generateWorld</c>): nothing carries over.</summary>
         internal static void BeginNewWorld()
         {
             ClearWorld();

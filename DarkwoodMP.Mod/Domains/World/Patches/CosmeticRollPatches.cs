@@ -106,15 +106,16 @@ namespace DWMPHorde.Patches
         private static void Finalizer() => CosmeticRolls.ExitLoadObj();
     }
 
-    /// <summary>A new world starts with no stored keys (<see cref="CosmeticRolls.BeginNewWorld"/>).</summary>
-    [HarmonyPatch(typeof(Controller), nameof(Controller.generateChapter))]
+    /// <summary>
+    /// A new world starts with no stored keys (<see cref="CosmeticRolls.BeginNewWorld"/>).
+    /// <c>generateWorld</c> is where every generated world starts: a new game from the menu loads
+    /// the chapter scene directly, and a chapter change goes through it too. A loaded world goes
+    /// through <c>SaveManager.Load</c> instead.
+    /// </summary>
+    [HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.generateWorld))]
     public static class CosmeticKeyStoreNewWorldPatch
     {
-        private static void Postfix(bool __runOriginal)
-        {
-            if (__runOriginal)
-                CosmeticRolls.BeginNewWorld();
-        }
+        private static void Prefix() => CosmeticRolls.BeginNewWorld();
     }
 
     /// <summary>
