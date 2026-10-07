@@ -255,7 +255,7 @@ namespace DWMPHorde.Sync
         public static void SpawnGasTrail(Vector3 pos)
         {
             // Dedupe: slightly wider than host scatter step to avoid double puddles under jitter.
-            if (FindFlammableLiquidNear(pos, 1.15f) != null)
+            if (FindFlammableLiquidNear(pos, 1.15f) != null || HasLiquidInScene(pos, 1.15f, null))
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[GasTrail] skip spawn — liquid already near {pos}");
@@ -367,7 +367,27 @@ namespace DWMPHorde.Sync
         /// <summary>Late join: a puddle of this prefab already lies here (world-placed or sent twice).</summary>
         internal static bool HasFlammableLiquidAt(Vector3 pos, string prefabName, float radius)
         {
-            return FindFlammableLiquidNear(pos, radius, null, NormalizeObjectName(prefabName)) != null;
+            string name = NormalizeObjectName(prefabName);
+            return FindFlammableLiquidNear(pos, radius, null, name) != null || HasLiquidInScene(pos, radius, name);
+        }
+
+        /// <summary>
+        /// A flammable puddle lies here, culled ones included. The physics search sees only active
+        /// colliders, and a joiner's puddles away from it are culled (inactive) after the load: the
+        /// late-join gas state laid a second copy on each one it had from the save.
+        /// </summary>
+        private static bool HasLiquidInScene(Vector3 pos, float radius, string name)
+        {
+            Liquid[] all = WorldQueryHelper.GetCachedSceneComponents<Liquid>();
+            float rSq = radius * radius;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Liquid liquid = all[i];
+                if (liquid == null || !liquid.flammable) continue;
+                if (name != null && NormalizeObjectName(liquid.gameObject.name) != name) continue;
+                if (XzDistSq(liquid.transform.position, pos) <= rSq) return true;
+            }
+            return false;
         }
 
         /// <summary>
