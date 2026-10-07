@@ -445,6 +445,13 @@ namespace DWMPHorde.Sync
                             TrapNetworkId.GetOrMintHost(go);
                         }
 
+                        if (Patches.ClientOwnTrapTriggers.IsStaleArmed(go, ts.Triggered))
+                        {
+                            ModRuntime.LegacyInfo($"[TrapApply] {go.name} id={ts.TrapNetId}: armed state predates the host's answer to this player's trigger — kept sprung");
+                            trapSkipped++;
+                            continue;
+                        }
+
                         bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[TrapApply] {go.name} id={ts.TrapNetId} at {tPos} triggered={ts.Triggered} silent={silent}");

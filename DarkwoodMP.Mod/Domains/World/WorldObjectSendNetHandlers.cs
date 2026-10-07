@@ -198,6 +198,17 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            BroadcastTrapState(ts);
+        }
+
+        /// <summary>
+        /// Host: the trap state it settled from a client's TrapTriggered. That arrives while a
+        /// message is being applied, where <see cref="SendTrapState"/> sends nothing: the sprung
+        /// trap never reached the other players, and the client that stepped in never heard back.
+        /// </summary>
+        internal void BroadcastTrapState(TrapState ts)
+        {
+            if (!_net.IsConnected) return;
             var msg = WorldPhysicsSyncService.StampSnapshot(
                 new PhysicsStateMessage { Traps = new[] { ts } });
             ModLog.Event(LogCat.World, "[TrapSync] sending trap triggered id=" + ts.TrapNetId

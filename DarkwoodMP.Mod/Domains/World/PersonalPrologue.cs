@@ -159,7 +159,10 @@ namespace DWMPHorde.Sync
 
         private static int _clientHold; // reset-in: Reset
 
-        /// <summary>Client: the host's day-1 wait, shown once when it starts and when it ends.</summary>
+        /// <summary>
+        /// Client: the host's day-1 wait, logged once when it starts and when it ends. Not put in
+        /// the chat: the wait is quiet, as the clock is in a single-player prologue.
+        /// </summary>
         internal static void ClientNoteHold(byte count)
         {
             if ((count > 0) == (_clientHold > 0))
@@ -168,9 +171,9 @@ namespace DWMPHorde.Sync
                 return;
             }
             _clientHold = count;
-            ChatHud.AddLocalSystem(count > 0
-                ? "Day 1 waits: " + count + " player(s) still in the prologue."
-                : "Everyone is here — day 1 begins.");
+            ModLog.Event(LogCat.Session, count > 0
+                ? "[Prologue] Day 1 waits: " + count + " player(s) still in the prologue."
+                : "[Prologue] Everyone is here — day 1 begins.");
         }
 
         /// <summary>Host: hold the clock — day 1 starts once nobody is in the prologue.</summary>
@@ -188,16 +191,14 @@ namespace DWMPHorde.Sync
             inPrologue = HostPrologueCount();
             HoldCount = inPrologue;
             bool hold = inPrologue > 0;
-            // Told only when it is about someone else: a host alone in its prologue is not waiting.
+            // Logged only when it is about someone else: a host alone in its prologue is not waiting.
             bool tell = hold ? _pending.Count > 0 || net.IsConnected : _holdLogged;
             if (tell && hold != _holdLogged)
             {
                 _holdLogged = hold;
-                string line = hold
-                    ? "Day 1 waits: " + inPrologue + " player(s) still in the prologue."
-                    : "Everyone is here — day 1 begins.";
-                ModLog.Event(LogCat.Session, "[Prologue] " + line);
-                ChatHud.AddLocalSystem(line);
+                ModLog.Event(LogCat.Session, hold
+                    ? "[Prologue] Day 1 waits: " + inPrologue + " player(s) still in the prologue."
+                    : "[Prologue] Everyone is here — day 1 begins.");
             }
             return hold;
         }
