@@ -25,9 +25,23 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.PrefabPath))
                 return;
+            // On the title (connected, the world not downloaded yet) a spawn built the prefab into
+            // the menu scene (no item database there: thousands of NREs); the world package or the
+            // late-join state carries it.
+            if (_net.Role == NetworkRole.Client && !LanNetworkManager.ClientCanApplyWorldBulk())
+                return;
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
+
+            // The late-join infection state resends every splat; a joiner that loaded the world
+            // has them already, culled ones too (a second copy on each).
+            if (msg.PrefabPath == Patches.InfectionSyncHelpers.InfectionPrefabPath
+                && Patches.InfectionSyncHelpers.HasInfectionAt(pos))
+            {
+                ModRuntime.LegacyInfo($"[Physics] skip {msg.PrefabPath} at {pos}: already here");
+                return;
+            }
 
             try
             {
@@ -122,7 +136,7 @@ namespace DWMPHorde.Networking
                 Mathf.Round(pos.y * 10f) / 10f,
                 Mathf.Round(pos.z * 10f) / 10f);
             short occupant = WorldPhysicsSyncService.ResolveTrapOccupant(trapId, key);
-            _net.SendTrapState(new TrapState
+            _net.WorldObjectSendHandlers.BroadcastTrapState(new TrapState
             {
                 PosX = key.x,
                 PosY = key.y,

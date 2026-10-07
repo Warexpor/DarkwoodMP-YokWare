@@ -125,12 +125,19 @@ container, trades against the host's own stock. That stops bugs and casual grief
 from breaking the shared world. It is not a defence against a determined cheater;
 the mod is meant for friends.
 
-### Cosmetic divergence is allowed
+### Cosmetic divergence is a last resort
 
-Some vanilla visuals are rolled from a local random number generator (sprite
-tints, idle animation phases, the order of examine descriptions). Where that has no
-effect on gameplay, collisions or the story, peers are allowed to differ. Syncing it
-would cost bandwidth and complexity for nothing a player can act on.
+"The client must feel like the host" wins over this rule. By default a client sees
+exactly what the host sees, cosmetics included: sprite tints, idle animation
+phases, the order of examine descriptions and any other visual rolled from a local
+random number generator. Usually that only takes a shared seed or the rolled value
+on the wire.
+
+A peer may differ only when there is really no way to make it match, for example
+when the value is rolled inside engine code the mod cannot reach, or when matching
+it would break something a player can act on. Being cheaper to skip is not a
+reason. Each accepted divergence is written down with why it cannot be matched, and
+it must never touch gameplay, collisions or the story.
 
 ---
 
@@ -152,7 +159,8 @@ the rest of this document easier to read.
 | **Stand-ins fed into vanilla checks** | Vanilla only knows `Player.Instance`. Remote players exist on the host as stand-in bodies (`RemotePlayerProxy`) and are run through the same vanilla checks. | Enemy sight and targeting, "in sight of player" triggers, birds, the porter, the banshee |
 | **Scoping** | The same object name exists in two worlds (overworld and a dream, two hideouts). Lookups are scoped to the right pad or location instead of by name. | Dream pads, location pads |
 | **Rewrite** | A vanilla outcome makes no sense with a party. | A permadeath death becomes the shared death model; the enemy reset on death runs only when nobody is alive |
-| **Leave it alone** | Dead code, or purely cosmetic randomness. | Hunger, time skip, sprite randomizers |
+| **Shared seed** | Cosmetic randomness every machine rolls itself: the roll runs on a seed from the object's identity, stored with the save. | Sprite tints and flips, animation picks, vine rotations, parallax drift |
+| **Leave it alone** | Dead code, or cosmetic randomness that really cannot be matched (see "Cosmetic divergence is a last resort"). | Hunger, time skip |
 
 ---
 
@@ -262,6 +270,9 @@ movie), unless the host sets `AllowJoinDuringDream`.
   change.
 - A host that was promoted by host migration never auto-saves (its world is a
   client copy); it gets an F3 reminder instead.
+- Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
+  a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
+  of the world download.
 - A client's own single-player saves are untouched except the slot it chose for the
   co-op copy. The second install on a dual-box setup uses its own save root.
 - Each campaign carries an id. Character snapshots are tied to it, so a snapshot
@@ -331,6 +342,9 @@ code, not yet playtested).
 - **Homes are personal, buildings are shared.** Each player has their own home oven
   and respawn point. The hideout's walls, doors, barricades, generator and
   furniture are one shared world. An oven goes out only when nobody calls it home.
+- **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
+  everyone else sees the result. Other players' bodies pass through pushable things
+  on your screen, so nothing gets pushed twice.
 - **Night comes to every player.** Night monsters spawn around every living player
   who is at home, not only around the host. Players out in the forest get the worm,
   as in vanilla. Wards count for the player a monster is after. Night events play
@@ -607,8 +621,11 @@ doors, spawn creatures, move the camera, give items, teleport the player.
 ### Examinables
 
 A client examining something sees its text at once. The host re-runs the examine
-silently to fire its story triggers and marks it examined for everyone. Which
-description line a player gets from a pool of random lines is personal.
+silently to fire its story triggers and marks it examined for everyone. A pool of
+random examine lines is one deck for the party: the line one player read is gone for
+everyone until the pool refills, and a late joiner gets the decks as they stand. Two
+players drawing from one pool in the same instant can both read the same line (see
+[section 20](#20-known-gaps-and-parked-items)).
 
 ### Chapters
 
@@ -713,6 +730,21 @@ party events.
   enemies.
 - **Chains, shadow armor and burning world objects** each have their own host
   state that late joiners receive.
+- **Cosmetic randomness looks the same everywhere.** Sprite tints, flips, rotations
+  and heights (`SpriteRandomizer`), random animation clips, start frames and replay
+  delays (`AnimationPlay`), parallax drift and vine rotations are rolled by every
+  machine on a seed made from the object's identity, so the same object gets the
+  same look on every machine. The seeds of saved objects are written next to the
+  save (`savcos.dat`) and travel with the world download, so a loaded world looks
+  exactly like the host's live one, and a reload looks like the session before it. A
+  creature or prop that moved since it rolled carries the host's key to a machine
+  that got it later (a creature with its sync data, a prop in the late-join catch-up).
+  Each object still gets a random-looking roll; it is just the same one everywhere.
+  This runs in co-op worlds only: a world started in a session, and from then on its
+  slot (the `savcos.dat` file marks it), offline too. A single-player world rolls as
+  vanilla. A world loaded before hosting rolled vanilla's way, which clients cannot copy,
+  so clients get it only after the host loads the save again (HOST opens the load menu
+  for that; the host is told if it skips it).
 
 ---
 
@@ -791,6 +823,10 @@ By design:
 Explicitly parked or left as is:
 
 - A client whose chapter load failed has to rejoin by hand.
+- Two players drawing a line from the same examine pool in the same instant can both
+  read it (the decks agree again right after). Ruling it out would make every
+  client's examine text wait for a round trip to the host, which breaks "the client
+  must feel like the host".
 - A dream waiting to start (a level-up or dialogue dream the host could not take at
   once) waits while the host has the pause menu open.
 - World sounds keep playing behind the pause menu until the whole world pauses, the
@@ -799,8 +835,6 @@ Explicitly parked or left as is:
   or the host role moves).
 - The listen-in dialogue view does not show trading, the cooking menu or journal
   pages.
-- Which line a player gets from a pool of random examine descriptions is not
-  synced.
 - No exclusive lock on containers or the workbench: two players may have the same
   one open, and the host settles races.
 - Presentation-only edge cases in spectator mode, dialogue overlays and lost

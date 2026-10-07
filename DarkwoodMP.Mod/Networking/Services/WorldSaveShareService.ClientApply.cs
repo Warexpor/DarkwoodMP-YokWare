@@ -244,6 +244,9 @@ namespace DWMPHorde.Networking
                 MergeProfileIntoDiskIndexAndSave(target);
                 Core.currentProfile = target;
 
+                // The world files are the same, but the host's roll seeds must be the ones loaded.
+                InstallKeyStore(matchSlot, verified);
+
                 // Keep meta fingerprint current (same package, no rewrite).
                 var meta = CoopWorldCopyMeta.TryLoad(matchSlot) ?? new CoopWorldCopyMeta
                 {
@@ -341,6 +344,41 @@ namespace DWMPHorde.Networking
             _awaitingEnterWorld = false;
             // Mid-game chapter share: tell the host so it can re-send (no-op outside a chapter share).
             Patches.ChapterTransitionHelpers.ClientChapterShareFailed(reason);
+        }
+
+        /// <summary>
+        /// Same-world reuse keeps the slot's sav/savs but takes the package's cosmetic roll seeds
+        /// (<c>Sync.CosmeticRolls.KeyStoreFileName</c>): the slot's own file may be from an older
+        /// build or missing, and a load must roll on the host's keys. A package without one clears
+        /// the slot's.
+        /// </summary>
+        private static void InstallKeyStore(int profileId, List<VerifiedFile> files)
+        {
+            string path = Path.Combine(CoopWorldCopyMeta.ProfileDir(profileId), Sync.CosmeticRolls.KeyStoreFileName);
+            byte[] raw = null;
+            for (int i = 0; i < files.Count; i++)
+            {
+                if (string.Equals(files[i].Name, Sync.CosmeticRolls.KeyStoreFileName, StringComparison.Ordinal))
+                    raw = files[i].Raw;
+            }
+            try
+            {
+                if (raw == null)
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                    return;
+                }
+                string tmp = path + ".tmp";
+                File.WriteAllBytes(tmp, raw);
+                if (File.Exists(path))
+                    File.Delete(path);
+                File.Move(tmp, path);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Save, "Could not install the host's cosmetic roll seeds into slot " + profileId, ex);
+            }
         }
     }
 }

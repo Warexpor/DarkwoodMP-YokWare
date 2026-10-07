@@ -111,6 +111,9 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "locations", () => LocationEnterExitHandlers.SyncExistingLocationsTo(playerId));
             LateJoinStep(playerId, "shadows", () => SendShadowsTo(playerId));
             LateJoinStep(playerId, "droppedItems", () => WorldObjectSendHandlers.SyncExistingDroppedItems(playerId));
+            // After the dropped items (same reliable channel): their copies exist when the keys land.
+            LateJoinStep(playerId, "cosmeticProps", () => DWMPHorde.Sync.CosmeticRolls.SendMovedTo(this, playerId));
+            LateJoinStep(playerId, "examineDecks", () => DWMPHorde.Sync.DescriptionDeck.SendBulkTo(this, playerId));
             // Night scenario name + fired latch flags (no CustomEvent/RandomEvent.fire).
             LateJoinStep(playerId, "scenario", () => BulkSyncHandlers.SendScenarioBulkSyncTo(playerId));
             // Fired GameEvents: heavy phase 11 (conservative fired && !multipleFire).
@@ -307,7 +310,14 @@ namespace DWMPHorde.Networking
         /// player still counts (dual-box quirk that used to block share forever).
         /// Does not treat mainMenu-cleared-but-not-yet-loaded as ready (mid-transition).
         /// </summary>
-        private static bool HostHasShareableWorld()
+        /// <summary>
+        /// In a chapter, and the chapter is a co-op world (<see cref="Sync.CosmeticRolls.Active"/>).
+        /// A world loaded offline before hosting rolled its looks vanilla's way, which a client cannot
+        /// copy: it is shared only after the host loads it again (the HOST button opens the load menu).
+        /// </summary>
+        private static bool HostHasShareableWorld() => HostInChapter() && Sync.CosmeticRolls.Active;
+
+        private static bool HostInChapter()
         {
             try
             {
@@ -349,6 +359,20 @@ namespace DWMPHorde.Networking
             if (!shareable)
             {
                 _session.HostWasShareableForWaitingClients = false;
+                if (HostInChapter() && !Sync.CosmeticRolls.Active)
+                {
+                    if (!_session.HostToldToReload)
+                    {
+                        _session.HostToldToReload = true;
+                        StatusText = "Load the save again to host it (it was loaded before hosting)";
+                        ModLog.Warn(LogCat.Session,
+                            "Hosting a world loaded before hosting: clients get it after the host loads the save again");
+                    }
+                }
+                else
+                {
+                    _session.HostToldToReload = false;
+                }
                 if (_session.HostWorldReadyEmitted)
                 {
                     _session.HostWorldReadyEmitted = false;
@@ -376,8 +400,11 @@ namespace DWMPHorde.Networking
             int waiting = 0;
             foreach (int id in _session.Link.Handshaked)
             {
-                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the world.
-                if (id > 1 && !IsPeerInWorld(id))
+                // Peers already playing (phase-3 reconnect, or sending in-world PlayerState) have the
+                // world; peers loading it got this world's package already (the new-world share
+                // goes out before the host is in-world, and a second one froze the host for
+                // another force save and sent the whole world again).
+                if (id > 1 && !IsPeerInWorld(id) && !_session.Link.LoadingWorld.Contains(id))
                     waiting++;
             }
             if (waiting == 0)

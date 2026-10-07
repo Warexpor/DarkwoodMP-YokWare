@@ -27,6 +27,10 @@ version and protocol in the README table. The sections follow
 The releases since the last playtest that need a first look, newest first. Each item
 points to the section with the full check.
 
+- [ ] **Same look everywhere:** grass, trees, debris, creature tints, flickering and
+      twitching animations and vines look the same for host and client, in a fresh
+      world, after a reload, for a late joiner and after a chapter change; examine
+      lines are one deck (sections 13 and 17).
 - [ ] **Pause menu:** one player in Esc does not stop the others; everyone in Esc
       pauses the world; a paused client still saves and backs up (section 6).
 - [ ] **Story hand-ins:** the egg and the sister's key handed to two NPCs at once:
@@ -253,6 +257,9 @@ points to the section with the full check.
       everyone.
 - [ ] A client examines an object with a story trigger: the trigger fires once and the
       object is examined for everyone.
+- [ ] Examine lines from a random pool (corpses, junk): host and client examine
+      different objects of the same kind in turn; no line comes up twice until every
+      line was read. A late joiner continues the same deck.
 - [ ] A one-shot hint or recipe lesson in the hideout is given to each player once.
 
 ## 14. Dreams
@@ -310,6 +317,17 @@ points to the section with the full check.
 - [ ] Dragging a body or crate: smooth for everyone, and the scrape stops with it.
 - [ ] Traps placed by one player catch enemies for everyone; a sprung trap disappears
       for everyone.
+- [ ] Same look: stand host and client side by side in the open world, in a location
+      the client entered first, in a dream, and next to a dog or spider pack the host
+      spawned. Ground decals, bushes, tree tints and flips, dead-body twitches and
+      flickering fire animations match. Then the host reloads (F3, quit, load) and a
+      third player joins late: still the same. Each save writes `savcos.dat` next to
+      `sav.dat` (host log: `[Cosmetic] roll seeds saved: N`; a load logs
+      `[Cosmetic] roll seeds from save: N`).
+- [ ] Single player stays vanilla: load a single-player save with no session; the log says
+      `[Cosmetic] single-player world: looks roll as vanilla` and no `savcos.dat` appears.
+      Host from the pause menu without loading again: the client waits and the host log says
+      `clients get it after the host loads the save again`; loading the save shares it.
 
 ## 18. Sound, voice and chat
 

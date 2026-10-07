@@ -29,7 +29,11 @@ namespace DWMPHorde.Networking
         private const int MinProfileId = 1;
         private const int MaxProfileId = 5;
 
-        private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat" };
+        /// <summary>
+        /// The save set: static and dynamic world, chapter save, and the cosmetic roll seeds
+        /// (<c>Sync.CosmeticRolls.KeyStoreFileName</c>, optional: a save from before it has none).
+        /// </summary>
+        private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat", Sync.CosmeticRolls.KeyStoreFileName };
 
         private readonly LanNetworkManager _net;
         private bool _hostShareRunning;

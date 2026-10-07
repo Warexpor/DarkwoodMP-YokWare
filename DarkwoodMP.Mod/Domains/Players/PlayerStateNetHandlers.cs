@@ -44,6 +44,8 @@ namespace DWMPHorde.Networking
                 if (playerId > 0)
                 {
                     var hostSt = _net.GetOrCreateState(playerId);
+                    bool trapChanged = hostSt.InBearTrap != state.InBearTrap
+                        || hostSt.TrapNetId != (state.InBearTrap ? state.TrapNetId : 0);
                     hostSt.InBearTrap = state.InBearTrap;
                     hostSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
                     hostSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
@@ -52,7 +54,7 @@ namespace DWMPHorde.Networking
                     hostSt.InOpenWorld = state.InOpenWorld;
                     hostSt.SeesVillager = state.SeesVillager;
                     hostSt.Aiming = state.Aiming;
-                    if (state.InBearTrap)
+                    if (state.InBearTrap && trapChanged)
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
 
@@ -157,6 +159,8 @@ namespace DWMPHorde.Networking
                 RemotePlayerProxy proxy = _net.GetProxy(remotePlayerId);
 
                 var cliSt = _net.GetOrCreateState(remotePlayerId);
+                bool cliTrapChanged = cliSt.InBearTrap != state.InBearTrap
+                    || cliSt.TrapNetId != (state.InBearTrap ? state.TrapNetId : 0);
                 cliSt.InBearTrap = state.InBearTrap;
                 cliSt.BearTrapPos = new Vector3(state.PosX, state.PosY, state.PosZ);
                 cliSt.TrapNetId = state.InBearTrap ? state.TrapNetId : 0;
@@ -166,7 +170,7 @@ namespace DWMPHorde.Networking
                 cliSt.InOpenWorld = state.InOpenWorld;
                 cliSt.SeesVillager = state.SeesVillager;
                 cliSt.Aiming = state.Aiming;
-                if (state.InBearTrap)
+                if (state.InBearTrap && cliTrapChanged)
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");
 

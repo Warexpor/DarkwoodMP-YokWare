@@ -103,6 +103,12 @@ namespace DWMPHorde.Networking
         /// inactive grid node.
         /// </summary>
         public int SaveId;
+        /// <summary>
+        /// The key the body's cosmetic randomizers rolled with on the host (where it was born;
+        /// 0: none). A client's copy rolled where it first saw the body, or where the save left
+        /// it, and rolls again on this key (<c>Sync.CosmeticRolls</c>). Protocol 40.
+        /// </summary>
+        public int LookKey;
         /// <summary>bit0=sleeping, bit1=eating, bit2=downed, bit3=fleeing, bits4-6=behaviour.</summary>
         public byte Flags;
         /// <summary>
@@ -196,6 +202,7 @@ namespace DWMPHorde.Networking
                 w.Put(EntityName ?? "");
                 w.Put(PrefabPath ?? "");
                 w.Put(SaveId);
+                w.Put(LookKey);
             }
         }
 
@@ -227,6 +234,7 @@ namespace DWMPHorde.Networking
                 e.EntityName = r.GetString();
                 e.PrefabPath = r.GetString();
                 e.SaveId = r.GetInt();
+                e.LookKey = r.GetInt();
             }
             return e;
         }
@@ -1069,18 +1077,30 @@ namespace DWMPHorde.Networking
     /// <summary>
     /// Examinable.examine co-op (4.11).
     /// Action 0 = client→host request (run host examine + story triggers).
-    /// Action 1 = host→all state (examined / description pool flags only).
+    /// Action 1 = host→all state (examined / description pool flags, and the pool line drawn).
+    /// Action 2 = host→all, a pool line drawn by an examine the host could not re-run (deck only).
     /// </summary>
     public struct ExamineObjectMessage
     {
         public const byte ActionRequest = 0;
         public const byte ActionState = 1;
+        public const byte ActionDraw = 2;
 
         public byte Action;
         public float PosX, PosY, PosZ;
         public string ObjectName;
         public bool Examined;
         public bool DisplayedDescriptionPool;
+        /// <summary>
+        /// The examine drew a line from a description pool (<c>Sync.DescriptionDeck</c>): the pool,
+        /// the line, whether the draw refilled the empty pool first, and who drew it (the drawer
+        /// skips the host's echo). Protocol 40.
+        /// </summary>
+        public bool HasDraw;
+        public string DrawPool;
+        public string DrawLine;
+        public bool DrawRefreshed;
+        public int DrawnBy;
 
         public void Serialize(NetWriter w)
         {
@@ -1089,18 +1109,38 @@ namespace DWMPHorde.Networking
             w.Put(ObjectName ?? "");
             w.Put(Examined);
             w.Put(DisplayedDescriptionPool);
+            w.Put(HasDraw);
+            if (HasDraw)
+            {
+                w.Put(DrawPool ?? "");
+                w.Put(DrawLine ?? "");
+                w.Put(DrawRefreshed);
+                w.Put(DrawnBy);
+            }
         }
 
-        public static ExamineObjectMessage Deserialize(NetReader r) => new ExamineObjectMessage
+        public static ExamineObjectMessage Deserialize(NetReader r)
         {
-            Action = r.GetByte(),
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            ObjectName = r.GetString(),
-            Examined = r.GetBool(),
-            DisplayedDescriptionPool = r.GetBool()
-        };
+            var msg = new ExamineObjectMessage
+            {
+                Action = r.GetByte(),
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                ObjectName = r.GetString(),
+                Examined = r.GetBool(),
+                DisplayedDescriptionPool = r.GetBool(),
+                HasDraw = r.GetBool()
+            };
+            if (msg.HasDraw)
+            {
+                msg.DrawPool = r.GetString();
+                msg.DrawLine = r.GetString();
+                msg.DrawRefreshed = r.GetBool();
+                msg.DrawnBy = r.GetInt();
+            }
+            return msg;
+        }
     }
 
     /// <summary>

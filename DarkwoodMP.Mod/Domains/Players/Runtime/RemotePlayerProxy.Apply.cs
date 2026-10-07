@@ -1,6 +1,5 @@
 using System;
 using DWMPHorde.Config;
-using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Players
@@ -123,16 +122,6 @@ namespace DWMPHorde.Players
         {
             if (collision.rigidbody == null) return;
 
-            // Same item-velocity suppression as OnCollisionStay — prevents the
-            // initial impact from pushing the object and triggering ItemSounds.
-            if (collision.rigidbody.GetComponent<Item>() != null)
-            {
-                collision.rigidbody.velocity = Vector3.zero;
-                collision.rigidbody.angularVelocity = Vector3.zero;
-                StopNativeItemSound(collision.rigidbody);
-                return;
-            }
-
             var bullet = collision.gameObject.GetComponent<Bullet>();
             if (bullet == null) return;
 
@@ -203,19 +192,6 @@ namespace DWMPHorde.Players
             if (collision.rigidbody == null)
                 return;
 
-            // Prevent proxy from pushing items — the host's own physics handles
-            // all object movement.  Without this, the client's native ItemSounds
-            // plays the moving sound when the proxy collides with furniture, and
-            // the sound persists because the host stops pushing but the client's
-            // proxy keeps colliding with (or resting on) the object locally.
-            if (collision.rigidbody.GetComponent<Item>() != null)
-            {
-                collision.rigidbody.velocity = Vector3.zero;
-                collision.rigidbody.angularVelocity = Vector3.zero;
-                StopNativeItemSound(collision.rigidbody);
-                return;
-            }
-
             if (collision.rigidbody == Player.Instance?.Rigidbody)
             {
                 if (++_pushCollideCount % 60 == 0 && ModRuntime.VerboseLogging)
@@ -230,36 +206,52 @@ namespace DWMPHorde.Players
             }
         }
 
-        /// <summary>Stop the native ItemSounds moving sound the same way the original
-        /// game does: movingSoundAO.Stop(0.5f).  Also put the Rigidbody to sleep so
-        /// ItemSounds.Update() returns early (the IsSleeping() check at line 144).</summary>
-        private static void StopNativeItemSound(Rigidbody rb)
+        private static readonly Collider[] _nearBuf = new Collider[32]; // process-scoped: scratch
+        private float _ignoreRadius = -1f;
+
+        /// <summary>
+        /// The stand-in passes through pushable things (an Item on its own rigidbody: furniture,
+        /// lamps, crates, loose items). Only the pusher's own game moves them; the result comes in
+        /// as the object's state. A stand-in that still collided pushed them a second time here
+        /// and sank into them while they followed the pusher; when the push ended and they went
+        /// back to physics, they were shoved out of it (the snap), and the old guard that stopped
+        /// the scrape on every touch also stopped the remote scrape loop (silent, or its start
+        /// looping). Done ahead of contact: an ignore set on the first touch comes after that
+        /// step's push. Set again every step, as Unity drops it when a collider is disabled
+        /// (the stand-in's vault, culled chunks).
+        /// </summary>
+        private void IgnorePushablesNearby()
         {
-            var sounds = rb.GetComponent<ItemSounds>();
-            if (sounds == null) return;
-
-            // Primary: access private movingSoundAO field via Traverse
-            var ao = Traverse.Create(sounds).Field("movingSoundAO").GetValue<AudioObject>();
-            if (ao != null)
-            {
-                rb.Sleep();
-                ao.Stop(0.5f);
-                Traverse.Create(sounds).Field("movingSoundAO").SetValue(null);
+            if (_cachedColliders == null || _cachedColliders.Length == 0)
                 return;
-            }
-
-            // Fallback: use the game's own API to find and stop all playing AudioObjects
-            string soundId = sounds.movingSound;
-            if (!string.IsNullOrEmpty(soundId))
+            if (_ignoreRadius < 0f)
             {
-                var playing = AudioController.GetPlayingAudioObjects(soundId);
-                if (playing != null)
+                float r = 0f;
+                for (int i = 0; i < _cachedColliders.Length; i++)
+                    if (_cachedColliders[i] != null)
+                        r = Mathf.Max(r, _cachedColliders[i].bounds.extents.magnitude);
+                // Body size plus more than a step's travel at a run.
+                _ignoreRadius = r + 60f;
+            }
+            int n = Physics.OverlapSphereNonAlloc(_rb.position, _ignoreRadius, _nearBuf);
+            for (int i = 0; i < n; i++)
+            {
+                Collider other = _nearBuf[i];
+                if (other == null || other.isTrigger)
+                    continue;
+                Rigidbody body = other.attachedRigidbody;
+                if (body == null || body == _rb || body.GetComponent<Item>() == null)
+                    continue;
+                if (body.GetComponent<Character>() != null || body.GetComponentInParent<Door>() != null)
+                    continue;
+                // A throw in flight still meets bodies, as in vanilla.
+                if (DWMPHorde.Sync.WorldPhysicsSyncService.IsInFlightThrownItem(body.gameObject))
+                    continue;
+                for (int c = 0; c < _cachedColliders.Length; c++)
                 {
-                    foreach (var playingAo in playing)
-                    {
-                        if (playingAo != null)
-                            playingAo.Stop(0.5f);
-                    }
+                    Collider mine = _cachedColliders[c];
+                    if (mine != null && mine.enabled)
+                        Physics.IgnoreCollision(mine, other, true);
                 }
             }
         }
@@ -268,6 +260,8 @@ namespace DWMPHorde.Players
         {
             if (!_hasState || _rb == null)
                 return;
+
+            IgnorePushablesNearby();
 
             if (_isVaulting)
             {

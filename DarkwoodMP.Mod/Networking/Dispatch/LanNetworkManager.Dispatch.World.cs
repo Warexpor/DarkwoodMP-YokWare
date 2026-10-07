@@ -34,6 +34,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DialogHandInClaim, DialogHandInClaimMessage.Deserialize, m => DialogHandInArbiter.HandleClaim(this, m));
             On(NetMessageType.PauseMenuState, PauseMenuStateMessage.Deserialize, m => PauseMenuSync.HandleState(this, m));
             On(NetMessageType.WorldPause, WorldPauseMessage.Deserialize, m => PauseMenuSync.HandleWorldPause(this, m));
+            On(NetMessageType.CosmeticState, CosmeticStateMessage.Deserialize, m => CosmeticRolls.HandleState(this, m));
             On(NetMessageType.WorldObjectRemoved, WorldObjectRemovedMessage.Deserialize, m => WorldFxHandlers.HandleWorldObjectRemoved(m));
             On(NetMessageType.SawState, SawStateMessage.Deserialize, m => StationHandlers.HandleSawState(m));
             On(NetMessageType.FeederState, FeederStateMessage.Deserialize, m => StationHandlers.HandleFeederState(m));

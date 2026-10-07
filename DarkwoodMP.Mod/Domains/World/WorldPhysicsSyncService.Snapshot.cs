@@ -12,6 +12,9 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
+        /// <summary>Turn, in degrees since the last scan, that counts as a body moving.</summary>
+        private const float RotMoveThresholdDeg = 0.5f;
+
         private static void ScanPhysicsAround(Vector3 center, LanNetworkManager net)
         {
             if (_objects.Count >= 256)
@@ -52,21 +55,48 @@ namespace DWMPHorde.Sync
                 // are common in hideouts. Key by InstanceID (no name+id string alloc).
                 int trackingKey = rootId;
                 Vector3 pos = rootGo.transform.position;
+                Quaternion rotNow = rootGo.transform.rotation;
 
                 if (!_s.LastPos.TryGetValue(trackingKey, out Vector3 last))
                 {
                     _s.LastPos[trackingKey] = pos;
+                    _s.LastRot[trackingKey] = rotNow;
                     // Seed as "already quiet" so first sighting does not force a 10 Hz stream.
                     _s.LastMoveTime[trackingKey] = now - QuietConfirmWindow - 1f;
                     continue;
                 }
 
                 float distSq = Vector3.SqrMagnitude(pos - last);
-                bool reallyMoved = distSq >= 0.0009f;
+                // Turning is motion too. Furniture spins about Y as it is pushed off-centre (a
+                // light chair a lot); counted by position alone, a turn on the spot sent nothing
+                // and the peer's copy snapped round to it at the next resync.
+                bool turned = _s.LastRot.TryGetValue(trackingKey, out Quaternion lastRot)
+                    && Quaternion.Angle(lastRot, rotNow) >= RotMoveThresholdDeg;
+                bool reallyMoved = distSq >= 0.0009f || turned;
                 _s.LastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
                 bool inQuietConfirm = !reallyMoved
                     && (now - timeSinceMoved) < QuietConfirmWindow;
-                if (!reallyMoved && !inQuietConfirm && !fullResync)
+
+                // Motion this peer did not make is not sent. A copy following another player's
+                // push (interpolating to its states) was seen moving here and sent back as this
+                // peer's own push: the sender then held the object against its own push, and the
+                // echo claimed the object here, so the rest of that push was ignored (a client
+                // that had pushed the lamp before saw the host's push stop dead). Until a scan
+                // after its last pose lands.
+                if (_s.ObjectInterp.TryGetValue(trackingKey, out ObjectInterpState drive)
+                    && drive.Target != null && now <= drive.TargetTime + InterpFixedDuration)
+                {
+                    _s.LastPos[trackingKey] = pos;
+                    _s.LastRot[trackingKey] = rotNow;
+                    continue;
+                }
+
+                // The host owns the world: a client's resend is for bodies it moved itself lately
+                // (a lost last state); its copy of the rest may lag the host and would pull the
+                // host's back.
+                bool resync = fullResync && (net == null || net.Role == NetworkRole.Host
+                    || (now - timeSinceMoved) < FullResyncInterval);
+                if (!reallyMoved && !inQuietConfirm && !resync)
                     continue;
 
                 if (_s.LastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
@@ -115,6 +145,7 @@ namespace DWMPHorde.Sync
 
                 Vector3 rot = rootGo.transform.eulerAngles;
                 _s.LastPos[trackingKey] = pos;
+                _s.LastRot[trackingKey] = rotNow;
                 // Only real motion extends the quiet window.
                 if (reallyMoved)
                     _s.LastMoveTime[trackingKey] = now;
@@ -145,7 +176,10 @@ namespace DWMPHorde.Sync
                 });
                 // Client free-body send: refresh authority so host PhysicsState echo cannot
                 // arm MOS while native ItemSounds owns the scrape (round-trip latency gap).
-                if (net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
+                // Only for motion of its own: a quiet resend (every few seconds, every body
+                // in range) claimed bodies the client never touched and dropped the host's
+                // pushes of them.
+                if (reallyMoved && net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
                     ItemMovingSoundHelper.NoteClientPhysicsSent(rootName);
             }
         }
@@ -317,6 +351,7 @@ namespace DWMPHorde.Sync
                     int k = _snapStaleIntKeys[i];
                     _s.LastMoveTime.Remove(k);
                     _s.LastPos.Remove(k);
+                    _s.LastRot.Remove(k);
                 }
 
                 // Vector3-keyed "last sent state" for doors, traps and generators: forget keys

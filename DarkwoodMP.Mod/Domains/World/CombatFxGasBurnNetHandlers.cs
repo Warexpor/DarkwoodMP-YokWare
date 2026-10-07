@@ -57,6 +57,8 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            if (_net.Role == NetworkRole.Client && !LanNetworkManager.ClientCanApplyWorldBulk())
+                return;
             Sync.WorldPhysicsSyncService.SpawnGasTrail(pos);
         }
 

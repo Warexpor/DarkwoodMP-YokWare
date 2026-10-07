@@ -321,16 +321,14 @@ namespace DWMPHorde.Networking
                         // Parented to the stand-in for its indoor reverb and the wall muffle;
                         // isInside is current only after checkGround.
                         WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
-                        var audioObj = AudioController.Play(itemDef.attackSound, shotPos, proxyT, 1f);
-                        if (audioObj != null && audioObj.primaryAudioSource != null)
+                        // 3D from the shot's first moment (PeerSpatialPlay).
+                        PeerSpatialPlay.Play(() => AudioController.Play(itemDef.attackSound, shotPos, proxyT, 1f), src =>
                         {
-                            audioObj.primaryAudioSource.spatialBlend = 1f;
-                            audioObj.primaryAudioSource.minDistance =
-                                Mathf.Max(audioObj.primaryAudioSource.minDistance, LocalAudioService.DefaultMinSpatialDistance);
-                            audioObj.primaryAudioSource.maxDistance =
-                                Mathf.Max(audioObj.primaryAudioSource.maxDistance, 100f);
-                            audioObj.primaryAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                        }
+                            src.spatialBlend = 1f;
+                            src.minDistance = Mathf.Max(src.minDistance, LocalAudioService.DefaultMinSpatialDistance);
+                            src.maxDistance = Mathf.Max(src.maxDistance, 100f);
+                            src.rolloffMode = AudioRolloffMode.Linear;
+                        });
                     }
                     finally { TraverseHack.SetExplicitFlag(prevNet); }
                 }

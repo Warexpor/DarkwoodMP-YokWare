@@ -41,7 +41,7 @@ namespace DWMPHorde.Networking
                 string name = _pendingBegin.FileNames != null && i < _pendingBegin.FileNames.Length
                     ? _pendingBegin.FileNames[i] : null;
                 if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                    || (name != "sav.dat" && name != "savs.dat" && name != "savch.dat"))
+                    || Array.IndexOf(FileNames, name) < 0)
                 {
                     error = "Bad file name: " + name;
                     return false;

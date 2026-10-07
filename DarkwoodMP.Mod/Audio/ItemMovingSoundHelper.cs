@@ -69,7 +69,12 @@ namespace DWMPHorde.Audio
         /// </summary>
         private static readonly Dictionary<string, float> _clientPhysicsSentUntil =
             new Dictionary<string, float>(StringComparer.Ordinal);
-        private const float ClientPhysicsSentGrace = 4f;
+        /// <summary>
+        /// The same as the push authority's grace. The host's echo of the client's push comes
+        /// within it (the host holds the body for 0.5 s after the client's last state, then sends
+        /// where it ended); 4 s also dropped the host's own push of the body for that long.
+        /// </summary>
+        private const float ClientPhysicsSentGrace = LocalPushAuthorityGrace;
 
         private static float _playerSlowSince = -1f;
 

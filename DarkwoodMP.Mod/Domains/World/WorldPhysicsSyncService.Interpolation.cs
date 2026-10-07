@@ -146,13 +146,14 @@ namespace DWMPHorde.Sync
             // Local free-body push: ForceStop when player stops / leaves contact (T3).
             ItemMovingSoundHelper.TickLocalPushScrapeStop();
 
-            // Safety net if PhysicsState packets stop entirely: soft-stop after ~1 missed
-            // 10Hz tick + margin. Decision lag is the bug; SoftStop fade is vanilla 0.5s.
+            // Safety net if PhysicsState packets stop entirely. The same hold as the host's
+            // (BodyPushSoundHold): 0.15 s was barely over the 0.1 s state gap, and one late state
+            // faded a peer's push mid-way. A real stop comes as quiet states sooner.
             float __srcCleanupNow = Time.time;
             _stalePushSrcKeys.Clear();
             foreach (var __kv in _s.LastPushSoundTime)
             {
-                if ((__srcCleanupNow - __kv.Value) > 0.15f)
+                if ((__srcCleanupNow - __kv.Value) > BodyPushSoundHold)
                     _stalePushSrcKeys.Add(__kv.Key);
             }
             for (int __si = 0; __si < _stalePushSrcKeys.Count; __si++)

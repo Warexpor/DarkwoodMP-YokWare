@@ -47,6 +47,7 @@ test, so every bound key must be listed here.
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
 | `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (20 hits/s with a burst of 40, 1000 damage/s with a burst of 3000): bursts such as shotgun pellets apply in full, sustained spam is rejected. |
+| `PeerMovementVolume` | `0.85` | Volume of other players' movement on this machine: footsteps, clothes rustle, dodge and landing steps (0..1). Their other sounds (shots, hits, tools) are not affected. |
 
 ## Voice
 

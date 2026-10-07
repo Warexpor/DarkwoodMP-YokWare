@@ -113,6 +113,7 @@ namespace DWMPHorde.Networking
                     : "Late-join share: sav/savs inconsistent on disk — force-saving once");
                 try
                 {
+                    Patches.MapShareInitialize.BeforeShareSave();
                     LanNetworkManager.RemoteSaveInProgress = true;
                     try
                     {
@@ -187,6 +188,8 @@ namespace DWMPHorde.Networking
             }
 
             LogSavPairTimestamps(savPath, savsPath);
+            // A co-op world that has not saved since it became one has no roll seed file yet.
+            Sync.CosmeticRolls.EnsureStore(Singleton<SaveManager>.Instance);
 
             // Read the whole save set in ONE main-thread step. Save also runs on the main thread, so
             // no Save (SaveSync fan-out, sleep, F3) can land between two files and hand clients a

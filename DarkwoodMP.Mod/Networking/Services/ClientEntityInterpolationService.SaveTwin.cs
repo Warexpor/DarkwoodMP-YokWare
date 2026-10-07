@@ -90,6 +90,17 @@ namespace DWMPHorde.Networking
             _everHostSyncedIds.Add(hostId);
             _spawnedPhantomIds.Remove(hostId);
             EnsureEntityAwake(c);
+            ApplyHostLook(c, hostId);
+        }
+
+        /// <summary>
+        /// The host's cosmetic look for a body bound to <paramref name="hostId"/>: its
+        /// randomizers rolled here where this machine got the body, the host's where it was born.
+        /// </summary>
+        private static void ApplyHostLook(Character c, short hostId)
+        {
+            if (_descriptors.TryGetValue(hostId, out EntityDescriptor d))
+                DWMPHorde.Sync.CosmeticRolls.ApplyCharacterKey(c, d.LookKey);
         }
 
         /// <summary>

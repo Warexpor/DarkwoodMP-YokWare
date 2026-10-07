@@ -3,8 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.139**. The current Horde wire protocol is **39** (bumped in 0.8.139:
-new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
+**0.8.159**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.159, bumped in 0.8.142:
+`WorldClock` (165) removed with the 0.8.141 rollback.
+41 held for 0.8.141, bumped there: new `WorldClock` (165).
+40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
+descriptor gains the look key.
+39 held for 0.8.139, bumped there: new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
 38 held for 0.8.138, bumped there: new `DialogMirror` (160).
 37 held for 0.8.137, bumped there: new `DialogHandInGone` (159).
 36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
@@ -27,6 +31,579 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
+
+On top of 0.8.158. **Protocol 42 (unchanged).** Product **0.8.158 → 0.8.159**. Built and
+unit-tested; **runtime is not playtested**. Merged to `main` with 0.8.147–0.8.158, which the
+long 0.8.158 playtest confirmed.
+
+Playtest of 0.8.158 (long dual-box session): no exceptions on either side. Fixed from the logs
+and the user's report:
+
+- **"Day 1 waits: N player(s) still in the prologue." no longer shows in the top-right chat.**
+  This was the "dev info on players" text. The day-1 hold still works; the start and end of
+  the wait go to the log only, on host and client (`PersonalPrologue.HoldDayOne`,
+  `ClientNoteHold`). Its helper `ChatHud.AddLocalSystem` had no other caller and is removed.
+- **A client stepping into a bear trap: the host's sprung state reaches everyone again.** The
+  host settles a client's `TrapTriggered` and sends the sprung trap back, but that send ran
+  while the message was being applied, where `SendTrapState` sends nothing (no `[TrapSync]`
+  line in the host log). The other players never saw the trap sprung by this path, and the
+  client never heard back. The host now broadcasts it directly
+  (`WorldObjectSendNetHandlers.BroadcastTrapState`).
+- **A trap a client sprang is no longer re-armed under the caught player.** A host scan sent
+  before the host had the trigger still said "armed"; the client applied it on arrival and
+  opened the trap it was standing in (`[TrapApply] beartrap id=1 … triggered=False` right after
+  `Client sent trap triggered`). The client now keeps a trap it sprang until the host's answer
+  comes (at most 3 s) and drops older "armed" states for it (`ClientOwnTrapTriggers`).
+- **Furniture the host rebuilt is rebuilt on the client too.** A burned wardrobe the client had
+  dragged sat a unit or so apart on the two machines; the construct message matched sites
+  within 0.75 units only, so the client queued it forever (`[ConstructibleSync] queued (not
+  loaded yet)`). Sites now match within 2 units, as damaged items do
+  (`LockNetHandlers.ConstructibleMatchRadius`).
+- **Log:** `[Trap] host/client: player N trapped` is written when the trapped state changes,
+  not with every player state (a dozen lines per second while caught).
+
+Checked in the logs, working: the client's push scrape on the host (starts and stops cleanly
+with the push), the joiner's lit oven, molotov fires and burning doors and wardrobes on both
+sides, a client's day death and the death bag, the dog chase between both players.
+
+## 0.8.158 — A client's push sounds on the host (the real cause)
+
+On top of 0.8.157. **Protocol 42 (unchanged).** Product **0.8.157 → 0.8.158**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Playtest of 0.8.157: the host still heard a client's push start and fade at once. No exceptions in
+either log. 0.8.157's longer hold was not the cause: the host log has only two scrape starts in the
+session, one ended by `body-push skip jump d=1.272 Stool` right after it.
+
+- **An ordinary push counted as a jump.** On the host, a client state that moved the body more
+  than `BodyPushMaxArmDelta` since the last one was treated as a post-drag jump: no scrape, and
+  a running scrape stopped. That limit was 1.25 game units, written as if units were meters (a
+  body is about 40 across). A stool pushed at walking pace moves about 1.3 per 0.1 s state, so
+  nearly every state of the push stopped the scrape, and the next ones did not start it again.
+  The limit is now 30 units per state, past any push, still under a drag hand-off jump
+  (`WorldPhysicsSyncService.Apply`).
+- **The client's matching safety net** (soft-stop when no moving state for a while) was 0.15 s,
+  barely over the 0.1 s state gap, so one late state faded the host's push mid-way. It now uses
+  the same 0.3 s hold as the host (`WorldPhysicsSyncService.Interpolation`).
+
+---
+
+## 0.8.157 — A client's push sounds steady on the host; peer steps a little louder
+
+On top of 0.8.156. **Protocol 42 (unchanged).** Product **0.8.156 → 0.8.157**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Reported after the 0.8.156 playtest: when the client pushes something, the host hears the
+scrape start and fade out at once. Requested: other players' movement a little louder, still
+under its old level.
+
+- **A client's push faded out at once on the host.** Each moving state from the client pusher
+  kept the host's scrape alive for `BodyPushSoundHold`, 0.05 s. States come every 0.1 s
+  (plus jitter), so the hold ran out between nearly every two states. The host log shows
+  `body-push start Stool` / `body-push stop Stool` alternating through each push. Each stop
+  faded the scrape, and the post-stop suppress (0.45 s) kept the next starts out. The hold is now
+  0.3 s. A real stop still ends it promptly: the pusher's last states are quiet ones (two quiet
+  ticks stop it), or the states end and the hold runs out (`WorldPhysicsSyncService`).
+- **Peer movement volume 0.75 → 0.85** (`Gameplay.PeerMovementVolume` default; both dual-box
+  config files set to 0.85, since existing files keep their old value).
+
+---
+
+## 0.8.156 — Shared events received on the title wait for the world
+
+On top of 0.8.155. **Protocol 42 (unchanged).** Product **0.8.155 → 0.8.156**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Playtest of 0.8.155 (new world, client joined during the host's world generation): no
+exceptions in either log, and no bug reported by the playtester.
+- The joiner's hideout oven is lit: `fresh character's home oven: exp_machine_oven_01 ...
+  lit=True` at the load and again on arrival.
+- Stool pushes both ways show steady states, with no failed applies in the sampled lines.
+- The chair/stool jump and the quieter peer steps (0.8.154) were not called out by the
+  playtester; not yet confirmed by eye.
+
+- **A shared event received on the title was tried against the menu scene.** A `GameEventsFired`
+  that arrives before the world is queued, as meant, but the queue flush ran on the title too.
+  Every try found nothing (`no GameEvents near ... GainRecipes_med_cottage_tree_01` warned), and
+  the event's queue age ran down before the world arrived. The flush now waits until the client is
+  in the world (`GameEventNetHandlers.TryFlushPendingGameEvents`).
+
+---
+
+## 0.8.155 — A pushed chair or stool no longer jumps on the watcher's screen
+
+On top of 0.8.154. **Protocol 42 (unchanged).** Product **0.8.154 → 0.8.155**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Reported: on the watcher's screen a pushed chair or stool makes periodic big jumps while it is
+being pushed (the pusher's own screen is fine).
+
+- **The "teleport" distance was a fifth of a body.** The watcher's copy follows each state with
+  a fixed 0.2 s interpolation that restarts at every state, so it trails the pusher by about
+  speed x 0.2. A state farther than `ClientPushSnapDistance` from the copy was set at once as a
+  teleport, and that distance was 8 units (a body is about 40 across). A light chair or stool
+  shoved at walking pace trails by more than that, so every few states it jumped to the pusher's
+  pose. The heavier lamp and wardrobe move slower and stayed under it. The distance is now 300
+  units, beyond any push in one state; pad teleports and objects carried across the map (thousands
+  of units) still snap (`WorldPhysicsSyncService`).
+- **Lost states while the copy trails far.** The receiver finds the object by name near the
+  reported spot, its last match within 25 units, or a 15-unit sphere. A full scan runs at most
+  every 2 s. A copy trailing past those radii matched nothing, every state failed until the next
+  full scan, and the copy stood still, then jumped. The copy a name is already driving now
+  matches when its interpolation target is near the reported spot (after the exact-spot match,
+  so two identical chairs still do not swap) (`WorldPhysicsSyncService.FindOrSpawnObject`).
+
+---
+
+## 0.8.154 — A joiner's hideout oven is lit (second try); other players' steps a little quieter
+
+On top of 0.8.153. **Protocol 42 (unchanged).** Product **0.8.153 → 0.8.154**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Playtest of 0.8.153 (new world, client joined during the host's world generation):
+- The title-screen error flood is gone (client log 1,127 lines, no exceptions; it was 27,016 lines with about 6,000
+  NREs).
+- The pushed chair still snaps. The logs show it is the `Stool` (collider off-centre like
+  `Chair_1`'s), pushed by the client with the host watching, and the host pushing it with the
+  client watching. The cause is not found yet; asked which screen shows the snap.
+- The oven fix did not work: the client log has `no default oven in the hideout for the fresh
+  character` twice.
+
+- **A joiner's starting oven unlit (0.8.153's fix failed).** The lookup required the oven's
+  `isDefaultExpMachine`. The hideout a world generates comes from a location preset whose oven
+  does not carry that flag (only the hand-built scenes and `exp_machine_oven_01B` set it), so
+  both lookups found nothing. Vanilla never relies on the flag for a new game: the save names the
+  player's home oven (`Player.SaveState.expMachineId`), and on a fresh world that is the
+  hideout's. The fresh character now takes the oven in `WorldGenerator.playerBase`. Before the save
+  has named the hideout (at `loadValues2`), it takes the save's own home oven. It is set again
+  when the character is placed in the hideout, and the log line now names the hideout and how
+  many ovens it holds when none is found (`PersonalProloguePatches`).
+- **Other players' movement a little quieter (requested).** New config key
+  `Gameplay.PeerMovementVolume` (default **0.75**, 0..1). It scales the stand-in's footsteps,
+  clothes rustle, the extra wood/branch step sounds and the sender's torso-clip steps (dodge,
+  window-jump landing). Shots, hits, tools and other sounds stay at full volume
+  (`WorldProxyEffectNetHandlers.PlayProxyOneShot`, `WorldFxNetHandlers.HandlePlayerAudio`,
+  `docs/CONFIG.md`).
+
+---
+
+## 0.8.153 — A pushed chair turns smoothly; a joiner's hideout oven is lit
+
+On top of 0.8.152. **Protocol 42 (unchanged).** Product **0.8.152 → 0.8.153**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Reported after the 0.8.151 playtest: furniture pushing is fine now except the chair, which
+still snaps; on a fresh world the oven in the starting hideout was not lit.
+
+- **A pushed chair snapped.** The free-body scan counted a body as moving only when its position
+  changed. Furniture turns about Y as it is pushed off-centre, and a chair (mass 2, drag 10,
+  directional sprite) turns a lot and visibly. A turn without much travel sent nothing, so the
+  other peer's chair kept its old facing and snapped round at the next state or resync. A turn of
+  half a degree since the last scan now counts as motion too, and so does the quiet window after
+  it (`WorldPhysicsSyncService.ScanPhysicsAround`, `LastRot`).
+- **A joiner's starting oven unlit on a fresh world.** A fresh character skips the save's player
+  block. In its place `SetNewGameHome` lights the hideout's default oven (vanilla
+  `setAsDefaultExpMachine`). It looked for the oven under `WorldGenerator.playerBase`, but the
+  save sets that only after the player block (the world generator's state loads later). So
+  the lookup found nothing and returned without a word (the log had no `home oven` line), and the
+  oven stayed dark. It now finds the world's default oven directly when the hideout is not known
+  yet (not one on a prologue pad). It runs again once the fresh character is placed in the hideout
+  (`PersonalProloguePatches`, `PersonalPrologue.ArriveFresh`).
+- **The "log" text in the top right**: not found in the mod or in the game's on-screen code;
+  waiting on a screenshot from the playtester.
+
+---
+
+## 0.8.152 — No world pieces built on the joiner's title; no doubled puddles or splats on a rejoin
+
+On top of 0.8.151. **Protocol 42 (unchanged).** Product **0.8.151 → 0.8.152**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+Playtest of 0.8.151 (new world, client joined during the host's world generation): no bug
+reported by eye. The logs show a client lamp push applied on the host with its scrape
+start/stop; the host pushing after the client is not in this run. The logs did show the
+problems below.
+
+- **About 6,000 errors on a joining client while it waited on the title.** While a new world
+  generates, every prefab it places goes through `Core.AddPrefab(string)`, and the spawn sync
+  sent each one live (87 this run). A client still on the title built them into the menu scene:
+  no item database there (`No item type meat`, `InvSlot.createItem` NREs), and their sounds and
+  triggers ran without a player (`SoundArea.Update`, `LoopingAudioObject.waitToCheckPlayer`,
+  `EventTriggers.OnTriggerEnter` NREs every frame until the load). Those pieces are the world
+  itself and reach a joiner in the world package.
+  - The host no longer sends spawns while it is generating or loading a world
+    (`CoreAddPrefabPhysicsSyncPatches`).
+  - A client takes a live spawn, a gas trail or an explosion's spawned object only once it is in
+    the world (`LocationEntityTrapNetHandlers`, `CombatFxGasBurnNetHandlers`,
+    `CombatFxImpactNetHandlers`), the same gate the journal got in 0.8.150.
+- **Doubled gas puddles and infection splats after a rejoin.** The late-join state resends every
+  puddle (16 this run) and every infection splat (10). A joiner that loaded the world already
+  had them. The duplicate check was a physics search, and that sees only active colliders,
+  while the joiner's puddles and splats away from it were culled (inactive). So each one got a
+  second copy, a second fire or a second infection trap. The check now also looks through the
+  scene, culled objects included (`WorldPhysicsSyncService.HasLiquidInScene`,
+  `InfectionSyncHelpers.HasInfectionAt`).
+
+---
+
+## 0.8.151 — The host's push shows on a client that pushed before
+
+On top of 0.8.150. **Protocol 42 (unchanged).** Product **0.8.150 → 0.8.151**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+### Fixed
+
+- **After the client dragged or pushed the lamp, the host's push of it did not move it on the
+  client.** Three parts of one loop in the free-body (`PhysicsState`) sync:
+  - A peer sent motion it did not make. The client's copy following the host's push was seen
+    moving by the client's own scan and sent back as the client's push. The host then held the
+    lamp kinematic against its own push, and the echo claimed the lamp on the client, which
+    then ignored the rest of the host's push. A body still following another player's states
+    (until a scan after its last pose lands) is no longer sent.
+  - The client's full resend (every 5 s, every body within range) claimed each body for 4 s,
+    touched or not. Only bodies the client moved now count, and a client resends only bodies it
+    moved itself lately (a lost last state). The host owns the rest, and a lagging client copy
+    sent back would pull the host's body to it.
+  - The claim after the client's own push lasted 4 s, dropping a host push of the same body for
+    that long. It now lasts as long as the push authority's grace (1.25 s), which covers the
+    host's echo of the client's push.
+
+---
+
+## 0.8.150 — No journal pages on the title
+
+On top of 0.8.149. **Protocol 42 (unchanged).** Product **0.8.149 → 0.8.150**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158. Found in the 0.8.149 playtest logs.
+
+### Fixed
+
+- **A client waiting on the title threw on the host's journal pages** (`NullReferenceException`
+  in `Journal.addJournalEntry`, `Handler for JournalItem from p1 threw`). The host's load adds
+  pages before the world is shared; a peer on the title has only the menu's journal. A client
+  takes journal pages only once it is in the world (`ClientCanApplyWorldBulk`); the world
+  package carries the journal.
+
+### Playtest status (0.8.147 to 0.8.149)
+
+- The world share initialized 214 map pieces before its save (`[MapShare]`), no prologue pad
+  traffic, no duplicate despawns. Sound and push fixes: waiting on the user's report.
+
+---
+
+## 0.8.149 — Pushed furniture: no snap, a steady scrape
+
+On top of 0.8.148. **Protocol 42 (unchanged).** Product **0.8.148 → 0.8.149**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+### Fixed
+
+- **Furniture another player pushed snapped when the push ended** (client pushing, seen on the
+  host; host pushing, seen on the client). Cause: the pusher's stand-in is a physics body and
+  still collided with the object here. While the object followed the pusher's states (held
+  kinematic), the stand-in sank into it; when the push ended and the object went back to
+  physics, it was shoved out of the stand-in. The stand-in now passes through pushable things
+  (an `Item` on its own rigidbody; not doors, characters or a throw in flight), set ahead of
+  contact every physics step (`RemotePlayerProxy.IgnorePushablesNearby`). Only the pusher's game
+  moves the object, as `HOW_COOP_WORKS` now says.
+- **The scrape of furniture another player pushed was missing, or its start looped.** The old
+  guard for the stand-in touching furniture zeroed the object's velocity and stopped its scrape
+  on every physics step of contact. With no native scrape running, it stopped every playing copy
+  of that sound id, the remote scrape loop among them, which the next state restarted. The guard
+  is gone with the contact.
+
+---
+
+## 0.8.148 — Peer sounds silent at the edge of their range
+
+On top of 0.8.147. **Protocol 42 (unchanged).** Product **0.8.147 → 0.8.148**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
+
+### Fixed
+
+- **Another player's sounds broke into sharp, chopped bits near the edge of hearing range**
+  (footsteps, shots, throws, anything a peer makes, both ways). Cause: a peer's sound is played
+  here with its own 3D falloff (many are 2D in the game, played for their owner only), and that
+  falloff was set on the source after `AudioController.Play` had already started it. The audio
+  thread mixed the first moments with the prefab's own settings, at full 2D volume. Near the
+  peer the sound itself covered that; toward the edge, where the 3D sound is silent, only those
+  first moments came through. The falloff now goes on the source inside `AudioObject`'s own
+  start, after the game has set the source up (`PeerSpatialPlay`, patches on
+  `AudioObject._PlayDelayed` / `_PlayScheduled`). Covers the stand-in's PlayerAudio sounds,
+  footsteps and clothes, shots and explosions.
+- **A pooled audio source kept a peer's falloff for later sounds.** The game's pool restores only
+  its item overrides, so a later local sound on the same source played with the peer's linear
+  falloff and ranges. The source's own settings (spatial blend and rolloff curves, rolloff mode,
+  distances) now come back when it returns to the pool.
+
+---
+
+## 0.8.147 — Map pieces in the shared world, prologue pads kept to themselves
+
+On top of 0.8.146. **Protocol 42 (unchanged).** Product **0.8.146 → 0.8.147**. Built and
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158. Found in the 0.8.146 playtest logs.
+
+### Fixed
+
+- **A joiner's map lacked pieces of the new world, among them the road by the hideout.** The host's
+  discovery of `road_forest_1_7a` found no piece by that name on the client and was dropped after
+  300 s. Cause: a new world is shared before vanilla's `Map.initialize`, which runs at the wake-up
+  after the opening. That is where every map piece takes its name (a road's from its sprite) and
+  joins its map's list, and a save keeps both; a load takes them from the save and never
+  initializes again. The package carried 39 road pieces unnamed and unlisted. Before the share's
+  save the host now initializes the waiting pieces once each, as the wake-up would; vanilla's
+  later `Map.initialize` takes only the ones that start after that (`MapShareInitialize`, log
+  `[MapShare] initialized N map piece(s) before the world share save`). Worlds shared before this
+  keep the gap on the joiner's copy; start a new world to test.
+- **The host's prologue chase reached the client.** The chompers of the prologue's last pad
+  come from `CharacterSpawner.spawnCharacterAround`, under the global holder rather than the
+  pad, so they got network ids: their states, sounds, corpse loot and despawns went to a
+  client in the overworld, which had nothing to apply them to. What stands in a prologue pad's
+  slot (the 25000-unit grid vanilla places outside locations on) now counts as the pad's
+  (`PersonalPrologue.IsOnProloguePad`).
+- **Each creature's removal was announced up to three times.** `removeMe` (which can run twice)
+  and `OnDestroy` each sent it; a body is announced once now (`CharacterTracker.MarkDespawnSent`).
+- **World generation sent every rolled container to connected peers.** A peer still on the
+  title had no world and logged hundreds of misses; the world package carries the contents.
+  Rolls during world generation are no longer fanned out.
+- The host no longer logs `sent LocationEnter` once a second for its prologue pad, which the
+  prologue filter never sends.
+
+---
+
+## 0.8.146 — The joiner's prologue title on black
+
+On top of 0.8.145. **Protocol 42 (unchanged).** Product **0.8.145 → 0.8.146**. Built and
+unit-tested. **Playtest: the logs show the arrival held back (`screen stays dark for the opening`); not yet confirmed by eye.**
+
+### Fixed
+
+- **The client's "PROLOGUE" title showed over white noise with the inventory HUD on top.** The
+  intro movie itself was fine, and the host's own prologue was fine. Cause: a joiner's
+  prologue pad arrives before its opening, the reverse of a new game. The arrival's vanilla
+  `OutsideLocations.hideScreen` fires about a second after the pad is in, and it landed on the
+  opening `PrologueIntro` had just begun. It faded the black screen out and turned it off,
+  unlocked input and showed the cursor. With the world camera off for the movie (as in a new
+  game), nothing cleared the frame, so the UI's noise overlay built up into white noise behind
+  the title, with the HUD over it. Until the joiner wakes, the arrival now keeps only its audio
+  step (`PrologueJoinerArrivalScreenPatch`, log `[Prologue] pad arrival: screen stays dark for
+  the opening`), and vanilla `activatePlayer` uncovers the screen as in a new game.
+  `PrologueIntro.Play` also stops any fade still running on the black screen, and sets the
+  camera's render targets as `tweenLoading` does.
+
+---
+
+## 0.8.145 — Joining a world shared during the host's prologue
+
+On top of 0.8.144. **Protocol 42 (unchanged).** Product **0.8.144 → 0.8.145**. Built and
+unit-tested. Playtested up to the client's own prologue: the join load passes (`[Load] saved in
+location 'dream_tutorial_00' ...`), the host shares the world once, and the client's prologue
+starts. Quitting during the prologue logs no error (the 0.8.144 dream-teardown fix). Not yet
+seen: looks side by side after the prologue.
+
+### Fixed
+
+- **The client's join load got stuck with a `NullReferenceException` in `SaveManager.Load`.**
+  Playtest: the host started a new game while hosting, and the client received the world and
+  loaded it. The load stopped at IL `0x0a9e`, which is
+  `spawnedLocations[currentLocationName].enter(force: true)`. Vanilla `ChapterResume` then cleared
+  `loadingGame` after 45 s, and the client never got in. Cause: the share's save ran while
+  the host stood in its prologue dream pad. A pad is never saved, but vanilla still writes its name
+  as the player's current location, so the load called `enter` on nothing. The same save would
+  also break the host's own reload. A load now puts a player whose saved location is not in the
+  save in the overworld. If the save resumes a dream, that dream places the player itself; if not,
+  the player goes back to the spot it left from (`OutsideLocationMissingOnLoadPatch`, log
+  `[Load] saved in location ...`).
+- **The host sent a new world twice.** The new-world share went out to the waiting client. Then
+  the host-ready gate counted that client as still waiting and shared the whole world again, with
+  another force save that froze the host. The gate now skips peers that are already loading the
+  package (`TickHostWorldShareWhenReady`). Before 0.8.144 this was hidden: the gate never opened
+  for a new world.
+
+### Confirmed in playtest (0.8.144)
+
+- A new game while hosting is a co-op world (`[Cosmetic] co-op world (in a session)`). The
+  share carries `savcos.dat` (52202 seeds), the client's copy loads as a co-op world, and it reads
+  all 52202 seeds.
+
+---
+
+## 0.8.144 — New games hosted from the menu are co-op worlds
+
+On top of 0.8.143. **Protocol 42 (unchanged).** Product **0.8.143 → 0.8.144**. Built and
+unit-tested; runtime partly playtested (see 0.8.145).
+
+### Fixed
+
+- **A new game started while hosting was treated as single player.** Playtest: the host
+  hosted, started a new game from the menu, and the client joined. The host never logged
+  `[Cosmetic] co-op world`. It wrongly warned "Hosting a world loaded before hosting", then shared the
+  world without `savcos.dat`, and the client's copy loaded as `single-player world`, so the looks
+  did not match. Cause: the new-world hook sat on `Controller.generateChapter`, but a new game from
+  the menu loads the chapter scene directly and never calls it. The hook now sits on
+  `WorldGenerator.generateWorld`, where every generated world starts, both a new game and a chapter
+  change (`CosmeticKeyStoreNewWorldPatch`).
+- **Quitting during your own offline prologue logged a `NullReferenceException`**
+  (`Dreams.destroyDream` from `DreamSyncManager.ForceLocalDreamCleanup`). The network stop on quit
+  ran the session's dream teardown on the player's own offline dream while the game was already
+  destroying it. The same teardown would also have ended an offline dream when hosting from the
+  pause menu. The network-stop reset (`DreamSyncManager.OnNetworkStopped`) now leaves the world alone
+  when the game is quitting or no session was running; session dream statics still clear.
+
+---
+
+## 0.8.143 — Single player stays vanilla
+
+On top of 0.8.142. **Protocol 42 (unchanged).** Product **0.8.142 → 0.8.143**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Changed
+
+- **The matching looks of 0.8.140 run in co-op worlds only.** They also ran in a plain single-player
+  game, which then no longer rolled its looks as vanilla and gained a `savcos.dat` file. A world is a
+  co-op world when it starts in a session (host or client), or when its slot has `savcos.dat` (a
+  world hosted before, or a client's copy of the host's world), so it keeps its looks offline
+  between sessions. Anything else rolls as vanilla and writes no file (`CosmeticRolls.Active`,
+  decided when a world is generated or loaded; log `[Cosmetic] co-op world ...` or
+  `[Cosmetic] single-player world ...`).
+- **A world loaded before hosting is shared after the host loads it again.** Its looks were rolled
+  vanilla's way, and a client cannot copy them. The host share gate (`HostHasShareableWorld`) now
+  waits for a co-op world; HOST already opens the load menu, and a host who backs out of it is told
+  once (status line and log). Loading any save while hosting makes it a co-op world.
+- **A world share always carries the seed file.** A single-player save loaded in a session has no
+  `savcos.dat` until its first save; the host writes it before packing the share
+  (`CosmeticRolls.EnsureStore`), so the client's copy is a co-op world too.
+
+### Fixed
+
+- **A deleted slot kept its `savcos.dat`.** Vanilla `deleteSave` removes only its own files, so a new
+  game in that slot took seeds stored for another world's save ids (and would now count as a co-op
+  world). The seed file is deleted with the slot (`SaveManager.deleteSave` postfix).
+
+---
+
+## 0.8.142 — Animation clock dropped
+
+On top of 0.8.141. **Protocol 41 → 42.** Product **0.8.141 → 0.8.142**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Removed
+
+- **0.8.141 is rolled back in full.** It added too much always-running sync for a cosmetic gain:
+  a ping/pong clock between host and clients, a prefix on every visible `tk2dSpriteAnimator`
+  each frame (about 44,000 of them), and clock-timed twitches and replays that ran in single player
+  too. Removed: `AnimClock`, `AnimPhase`, `AnimSchedule`, `ClockSync`, `AnimTiming`, the
+  `WorldClock` message (165) and the tk2d random-frame seeding. World animations, `AnimationPlay`
+  replays and twitches run as vanilla again, so their phase can differ between machines (an
+  accepted cosmetic difference). The 0.8.140 work stays: matching looks (`savcos.dat`) and the
+  shared examine deck. The highest message ID is 164 (`CosmeticState`) again.
+
+---
+
+## 0.8.141 — Animations run in step on every machine
+
+On top of 0.8.140. **Protocol 40 → 41.** Product **0.8.140 → 0.8.141**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Fixed
+
+- **The same fire, tree or twitching body was at a different point of its animation on every
+  machine.** Vanilla's `tk2dSpriteAnimator` advances a clip only while it is on screen, from the
+  moment that machine created the object, so about 44,000 world animators (trees, grass, water,
+  fire, flies, lamps) each ran at their own phase per machine, and the random choices made in
+  0.8.140 still played out at different times. Now:
+  - **A shared animation clock** (`Sync.AnimClock`): the host's uptime minus the time the world
+    stood in a shared pause, held still during one. Clients estimate it by ping/pong (new
+    `WorldClock`, 165): half the round trip of the least-queued of the last 8 pings, slewed at 1%
+    so jitter never shows, snapped on a jump (host migration). The host also sends it on every
+    pause and resume.
+  - **Looping world animations take their frame from the clock** (`Sync.AnimPhase`): loop, random
+    loop, ping-pong and the looping part of a loop section, at the phase their clip started at
+    (frame 0, or the seeded random start frame). An animator coming into view snaps to its frame
+    without firing frame events on the way; one already running is pulled toward it at most 30%
+    faster or slower. A machine in slow motion (a cutscene) runs as vanilla and is pulled back
+    afterwards. Creatures and players are left alone (their animation is the host's, sent with
+    them), and so are interface animations.
+  - **`AnimationPlay` timing is a function of the clock** (`Sync.AnimSchedule`): replays after a
+    random delay (the mimic bodies under the church) fall due at seeded times whose gaps stay within
+    vanilla's [min, max], and their one-shot clip runs from that time; twitching (the zombies in the
+    Musician's house) shows the clock's twitch frame (out to a seeded frame, back, a rest of about
+    1-5 s). Nothing is carried over time, so a late joiner and a reload agree at once.
+  - **tk2d random-frame clips** picked their first frame from the global random stream; seeded per
+    object and clip, stored with the save like the other seeds.
+
+### Accepted differences
+
+- An animation started by an event (a door, a trap, an explosion) starts on each machine when that
+  machine hears of the event, so it is behind by the network delay. Nothing can show an event
+  before it has arrived.
+- The clock estimate assumes the way to the host and back take equally long (half the round
+  trip), the limit of any clock sync without shared hardware time. On an uneven route a client's
+  animations can be a few milliseconds off, far under one animation frame.
+
+---
+
+## 0.8.140 — The world looks the same on every machine
+
+On top of 0.8.139. **Protocol 39 → 40.** Product **0.8.139 → 0.8.140**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Changed
+
+- **Rule: "the client must feel like the host" wins over cosmetic differences.** `HOW_COOP_WORKS.md`
+  "Cosmetic divergence is allowed" became "Cosmetic divergence is a last resort": a client sees
+  what the host sees, cosmetics included, unless it really cannot be matched, and each accepted
+  difference is written down with why. `COOP_COVERAGE.md` no longer parks cosmetic randomness.
+
+### Fixed
+
+- **Grass, debris, trees, creatures and animations looked different on every machine.** About
+  70,000 `SpriteRandomizer`s in the game roll a tint, a flip, a rotation, a height, a sprite or a
+  clip from the shared random stream, so each machine rolled its own look (a dog's tint, which way a
+  bush faced, which corpse sprite lay there). Even one machine changed: 85% of them roll again on
+  every load, and the rest fall back to the plain prefab look after a load. Now every roll runs on
+  a seed made from the object's identity and puts the random stream back afterwards, so the same
+  object rolls the same look everywhere and every time (`Sync.CosmeticRolls`).
+  - The seed comes from what every machine spawning the object live has bit for bit: the
+    location's name and placement and the authored path down to the object (names and offsets),
+    or the name and world position outside a location.
+  - Positions pick up float noise through each save and load (measured on a real save: about 1% of
+    objects sit within that noise of any rounding edge), so a seed is not made again from them. Every
+    save writes the seed of every roll under a saved object, keyed by that object's save id and the
+    names below it, to **`savcos.dat`** next to `sav.dat`; every load reads it, and the world
+    download carries it (also into a reused "same as host" slot).
+  - A roll runs when vanilla's does (a location loaded live is still at its authored spot then, the
+    same on every machine); only a parallax set up while a save object loads waits for that
+    object's save id, so it finds its stored seed.
+  - A load rolls every randomizer (vanilla skipped the ones not marked `randomizeOnLoad`) and keeps
+    a saved object's saved rotation and height (vanilla stacked another height offset on each load
+    and re-rotated colliders away from the saved pathfinding graph).
+  - A creature or prop that moved since it rolled keeps that key. A client's copy made somewhere
+    else (a creature the host spawned, which the client first sees mid-walk; a prop spawned after
+    the save) takes the host's key and rolls again: creatures through their entity descriptor,
+    props in the late-join bulk (new `CosmeticState`, 164).
+  - Runs in single player too, so a world played before hosting already looks the way its clients
+    roll it.
+- **Random animations ran differently on every machine.** `AnimationPlay` picks a clip, a start
+  frame, replay delays and twitch frames at random. Each one now draws from its own stream, seeded
+  the same way and stored with the save; its coroutines draw only from that stream.
+- **Parallax layers drifted differently** (each layer's ease was a random roll): seeded the same way.
+- **Vines turned differently.** `VineSpawner` rotations roll on the spawner's seed.
+- **Examine lines from a random pool were per machine.** A client drew its own line, and the host's
+  re-run of that examine drew a second, different one, so lines came up again for other players.
+  The pool is now one deck: the examiner draws at once and its examine carries the line, the host
+  takes that line out of its deck and tells everyone else (`ExamineObject` carries the line, and
+  whether the draw refilled the pool), and a late joiner gets every deck in its bulk
+  (`Sync.DescriptionDeck`).
+
+### Accepted differences
+
+- Two players drawing from the same examine pool in the same instant can both read the same line
+  (the decks agree right after). Ruling it out would make every client's examine text wait for a
+  round trip to the host.
 
 ---
 

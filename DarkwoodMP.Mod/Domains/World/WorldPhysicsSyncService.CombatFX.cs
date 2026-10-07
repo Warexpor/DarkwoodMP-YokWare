@@ -27,15 +27,15 @@ namespace DWMPHorde.Sync
             try
             {
                 // Positional 3D play with no parent, matching vanilla explode().
-                AudioObject ao = AudioController.Play(id, pos, null, 1f);
+                // Fully 3D from its first moment (PeerSpatialPlay).
+                Action<AudioSource> spatial = src => src.spatialBlend = 1f;
+                AudioObject ao = PeerSpatialPlay.Play(() => AudioController.Play(id, pos, null, 1f), spatial);
                 if (ao == null && id == "mushroom_explode_01")
                 {
                     // Alternate clip id seen in decompiled assets.
-                    ao = AudioController.Play("expObj_mushroom_01", pos, null, 1f);
+                    ao = PeerSpatialPlay.Play(() => AudioController.Play("expObj_mushroom_01", pos, null, 1f), spatial);
                     if (ao != null) id = "expObj_mushroom_01";
                 }
-                if (ao != null && ao.primaryAudioSource != null)
-                    ao.primaryAudioSource.spatialBlend = 1f;
 
                 ModRuntime.LegacyInfo("[ExplosionSound] play '" + id + "' at " + pos
                     + (ao != null ? " ok" : " (AudioController returned null)"));
@@ -255,7 +255,7 @@ namespace DWMPHorde.Sync
         public static void SpawnGasTrail(Vector3 pos)
         {
             // Dedupe: slightly wider than host scatter step to avoid double puddles under jitter.
-            if (FindFlammableLiquidNear(pos, 1.15f) != null)
+            if (FindFlammableLiquidNear(pos, 1.15f) != null || HasLiquidInScene(pos, 1.15f, null))
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[GasTrail] skip spawn — liquid already near {pos}");
@@ -367,7 +367,27 @@ namespace DWMPHorde.Sync
         /// <summary>Late join: a puddle of this prefab already lies here (world-placed or sent twice).</summary>
         internal static bool HasFlammableLiquidAt(Vector3 pos, string prefabName, float radius)
         {
-            return FindFlammableLiquidNear(pos, radius, null, NormalizeObjectName(prefabName)) != null;
+            string name = NormalizeObjectName(prefabName);
+            return FindFlammableLiquidNear(pos, radius, null, name) != null || HasLiquidInScene(pos, radius, name);
+        }
+
+        /// <summary>
+        /// A flammable puddle lies here, culled ones included. The physics search sees only active
+        /// colliders, and a joiner's puddles away from it are culled (inactive) after the load: the
+        /// late-join gas state laid a second copy on each one it had from the save.
+        /// </summary>
+        private static bool HasLiquidInScene(Vector3 pos, float radius, string name)
+        {
+            Liquid[] all = WorldQueryHelper.GetCachedSceneComponents<Liquid>();
+            float rSq = radius * radius;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Liquid liquid = all[i];
+                if (liquid == null || !liquid.flammable) continue;
+                if (name != null && NormalizeObjectName(liquid.gameObject.name) != name) continue;
+                if (XzDistSq(liquid.transform.position, pos) <= rSq) return true;
+            }
+            return false;
         }
 
         /// <summary>

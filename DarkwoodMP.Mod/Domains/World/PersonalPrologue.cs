@@ -159,7 +159,10 @@ namespace DWMPHorde.Sync
 
         private static int _clientHold; // reset-in: Reset
 
-        /// <summary>Client: the host's day-1 wait, shown once when it starts and when it ends.</summary>
+        /// <summary>
+        /// Client: the host's day-1 wait, logged once when it starts and when it ends. Not put in
+        /// the chat: the wait is quiet, as the clock is in a single-player prologue.
+        /// </summary>
         internal static void ClientNoteHold(byte count)
         {
             if ((count > 0) == (_clientHold > 0))
@@ -168,9 +171,9 @@ namespace DWMPHorde.Sync
                 return;
             }
             _clientHold = count;
-            ChatHud.AddLocalSystem(count > 0
-                ? "Day 1 waits: " + count + " player(s) still in the prologue."
-                : "Everyone is here — day 1 begins.");
+            ModLog.Event(LogCat.Session, count > 0
+                ? "[Prologue] Day 1 waits: " + count + " player(s) still in the prologue."
+                : "[Prologue] Everyone is here — day 1 begins.");
         }
 
         /// <summary>Host: hold the clock — day 1 starts once nobody is in the prologue.</summary>
@@ -188,16 +191,14 @@ namespace DWMPHorde.Sync
             inPrologue = HostPrologueCount();
             HoldCount = inPrologue;
             bool hold = inPrologue > 0;
-            // Told only when it is about someone else: a host alone in its prologue is not waiting.
+            // Logged only when it is about someone else: a host alone in its prologue is not waiting.
             bool tell = hold ? _pending.Count > 0 || net.IsConnected : _holdLogged;
             if (tell && hold != _holdLogged)
             {
                 _holdLogged = hold;
-                string line = hold
-                    ? "Day 1 waits: " + inPrologue + " player(s) still in the prologue."
-                    : "Everyone is here — day 1 begins.";
-                ModLog.Event(LogCat.Session, "[Prologue] " + line);
-                ChatHud.AddLocalSystem(line);
+                ModLog.Event(LogCat.Session, hold
+                    ? "[Prologue] Day 1 waits: " + inPrologue + " player(s) still in the prologue."
+                    : "[Prologue] Everyone is here — day 1 begins.");
             }
             return hold;
         }
@@ -293,13 +294,26 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Under one of this machine's prologue pads (entities, GameEvents there are not the world's).</summary>
+        /// <summary>
+        /// Vanilla places outside locations on a grid of slots 25000 apart
+        /// (<c>OutsideLocations.locationPositions</c>), far from the overworld. What stands in a
+        /// pad's slot is the pad's, parented there or not: the prologue chase's chompers come from
+        /// <c>CharacterSpawner.spawnCharacterAround</c> under the global holder, beside the pad.
+        /// </summary>
+        private const float PadSlotHalf = 25000f * 0.5f;
+
+        private static bool InPadSlot(Vector3 p, Vector3 pad)
+        {
+            return Mathf.Abs(p.x - pad.x) < PadSlotHalf && Mathf.Abs(p.z - pad.z) < PadSlotHalf;
+        }
+
         internal static bool IsOnProloguePad(Transform t)
         {
             if (t == null)
                 return false;
             TrackPads();
             for (int i = 0; i < _pads.Count; i++)
-                if (_pads[i] != null && t.IsChildOf(_pads[i]))
+                if (_pads[i] != null && (t.IsChildOf(_pads[i]) || InPadSlot(t.position, _pads[i].position)))
                     return true;
             if (!LocalInPrologue)
                 return false;
@@ -346,6 +360,9 @@ namespace DWMPHorde.Sync
         internal static bool FreshCharacter => _freshCharacter;
 
         internal static bool JoinerActive => _joinerStage != JoinerStage.None && _joinerStage != JoinerStage.Arrived;
+
+        /// <summary>The joiner's opening is on screen or about to be: the pad arriving, or the title and movie.</summary>
+        internal static bool JoinerBeforeWake => _joinerStage == JoinerStage.Preparing || _joinerStage == JoinerStage.Intro;
         internal static bool JoinerArrived => _joinerStage == JoinerStage.Arrived;
 
         /// <summary>
@@ -444,6 +461,8 @@ namespace DWMPHorde.Sync
                     return;
                 }
                 p.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+                // The load set the home oven before the save named the hideout; now it is known.
+                Patches.PrologueFreshCharacterOvenPatch.SetNewGameHome(p);
                 // After the move home, as vanilla endDreaming: what does not fit drops at the bed.
                 if (playedBefore)
                     GrantPrologueReward(p);

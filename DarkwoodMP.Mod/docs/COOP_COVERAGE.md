@@ -253,30 +253,41 @@ and join a different host; host migration followed by a reconnect.
   decompile citation). This soak is the Unity dual-box / three-player playtest
   that flips those rows from "runtime pending" to "runtime verified." It is
   a runtime activity: no static pass can mark a row verified.
-- **`AnimationPlay` — parked (DEFERRED-ok cosmetic).** Decompile
-  `AnimationPlay.cs`: local RNG for `randomAnims`, `randomizeStartFrame`,
-  twitch frame, and play-delay loops; optional rigidbody Push on anim events.
-  No story flags / GE / shared inventory. Peers may desync decorative anim
-  phase only. Do **not** sync unless playtest shows physics Push affecting
-  co-op.
+- **`AnimationPlay` — shared seed (code).** Decompile
+  `AnimationPlay.cs`: `init` picks `randomAnims` / `randomizeStartFrame` /
+  twitch frame, its coroutines draw replay delays and twitch pauses. `init`
+  waits for the final placement and starts the component's own random stream
+  on the object's seed; `waitToPlayAgain` / `OnTwitch` / `waitToResumeAni`
+  draw only from it (`Sync.CosmeticRolls`, `CosmeticRollPatches`). Rigidbody
+  Push on anim events is unchanged (physics props are host-sent).
 - **`MagicContainer` — parked (empty stub).** Decompile `MagicContainer.cs`
   has empty `Start`/`Update` only. No co-op surface.
-- **`DescriptionPool` / Examinable onExamine — host-auth triggers (code);
-  pool draw personal.** Decompile `Examinable.examine` draws
-  `DescriptionPool.getDescriptionFromPool` (removes a string) then
-  `Core.sendTriggerInfo(..., onExamine)`. Clients keep local HUD + local pool
-  draw; client `onExamine` triggers are Prefix-blocked; host re-runs examine
-  (HUD suppressed) for GE + broadcasts examined /
-  `displayedDescriptionPool` flags (msg **110**). Shared pool depletion is
-  not wire-synced (would need the drawn key on the wire). Dual-box still
-  runtime-pending.
-- **`SpriteRandomizer` — parked (DEFERRED-ok cosmetic).** Decompile
-  `SpriteRandomizer.cs`: `init` rolls color / lightness / alpha / rotation /
-  mirror / height / anim clip / sprite from local RNG, then `Destroy(this)`.
-  Tooltip on `randomizeOnLoad` warns large problems when a non-circle
-  collider combines with mirror / rotation randomize. Peers may diverge
-  visually; do **not** sync unless a future playtest proves physics/collider
-  divergence that affects co-op.
+- **`DescriptionPool` / Examinable onExamine — host-auth triggers, one deck
+  (code).** Decompile `Examinable.examine` draws
+  `DescriptionPool.getDescriptionFromPool` (removes a string, refills an empty
+  pool on the next draw) then `Core.sendTriggerInfo(..., onExamine)`. Clients
+  keep the local HUD and draw at once; client `onExamine` triggers are
+  Prefix-blocked; the request (msg **110**) carries the drawn line, the host
+  takes that same line out of its deck when it re-runs the examine (HUD
+  suppressed) and its state broadcast carries the line to everyone else
+  (`Sync.DescriptionDeck`). Late join: every pool's remaining lines
+  (`CosmeticState` **164**). Dual-box still runtime-pending.
+- **`SpriteRandomizer` / `Parallax` — shared seed (code).**
+  Decompile `SpriteRandomizer.cs`: `init` rolls color / lightness / alpha /
+  rotation / mirror / height / anim clip / sprite from the global RNG, then
+  `Destroy(this)`; about 70,000 instances in the scene data, 85% with
+  `randomizeOnLoad`. `Parallax.ParallaxObject.init` rolls each layer's ease.
+  The mod's roll replays vanilla's draws on a seed from the object's place
+  (location name, root placement, authored path; world position outside a
+  location). Every roll under a saved object is stored by that object's save
+  id and the names below it in `savcos.dat` next to the save (written on every
+  save, read on every load, carried by the world share; co-op worlds only: a
+  world started in a session or a slot that has the file, single player stays vanilla), so a load rolls the
+  seed the host rolled, free of the float noise saved positions pick up. A
+  load rolls every randomizer and keeps saved rotation / height (the save's
+  A* graph was built from them). Creatures carry the host's key in their
+  entity descriptor; props that moved since they rolled get it in the
+  late-join bulk (`CosmeticState` **164**).
 - **`QuestRandomizer` — parked (unused / rare debug Bring-me-X).** Decompile
   `QuestRandomizer.cs`: `onPlayerEnter` rolls `itemAmount` 2–3 and a type from
   `allowedInvItemRequirements`, then `Core.displayMessage("Bring me {0} of
@@ -404,7 +415,8 @@ and join a different host; host migration followed by a reconnect.
   `targetGameObjects` list refs — not name/pos lookup of vine GOs. If clients
   Prefix-skipped `VineSpawner.Start`, those list slots stay null and
   `GameEventsFired` / `GameEventsBulk` apply would no-op vine activate on
-  clients. Only peer divergence is cosmetic `Core.getRandomHalfRotation()`.
+  clients. The vine rotations (`Core.getRandomHalfRotation()`) roll on the
+  spawner's seed, so every peer turns them the same way.
   Do **not** host-auth skip Start without a separate vine-identity sync.
 - **`ActionWhenTurnedOn` — parked (covered by LightState / Item.turnOn).**
   Decompile: `Item.turnOn` / `turnOff` set `ActionWhenTurnedOn.turnedOn`
@@ -467,14 +479,13 @@ and join a different host; host migration followed by a reconnect.
   section above.
 - Some dream, spectator, and dialogue presentation edge cases — **parked as
   presentation-only (not world-authority gaps):**
-  - Spectator dialogue UI / welcome and gossip randomness (no shared world
-    mutation).
   - Portrait / dialogue overlay edge cases after world-only drains (live
     DialogOutcome + lookKeyhole drain are host-auth).
   - Lost dream-chain packet fallback (DreamSession / DreamChainStart exist —
     soak missing packet recovery).
-  Do **not** invent sync for cosmetic HUD/overlay variance unless playtest
-  shows a story latch or world object diverging.
+  Cosmetic variance is not left alone by default: a client sees what the host
+  sees unless it really cannot be matched (`HOW_COOP_WORKS.md`, "Cosmetic
+  divergence is a last resort").
 - **`PlayerSpawn` / `PlayerSpawnPoint` / `PossibleRespawnLocation` — parked
   (local registry / storage example).** Decompile: `PlayerSpawn` registers into
   `WorldGenerator.playerRespawnPoints` when `isRandomRespawn`; `PossibleRespawnLocation`

@@ -133,10 +133,12 @@ namespace DWMPHorde.Sync
                             if (haveInterp)
                                 baseline = existingInterp.TargetPos;
                             float posDelta = Vector3.Distance(baseline, objPos);
-                            // After DragSync, first PhysicsState can report multi-meter jumps
-                            // (interp target versus live pose), causing MOS start/stop
-                            // thrash. Snap without sound.
-                            const float BodyPushMaxArmDelta = 1.25f;
+                            // After DragSync, the first PhysicsState can be a long jump (interp
+                            // target versus live pose): no scrape for that one. In game units, where
+                            // a body is about 40 across. It was 1.25, under one state of an ordinary
+                            // push (a stool at 13 units/s moves 1.3 per 0.1 s state), so a client's
+                            // push at walking pace stopped the host's scrape on nearly every state.
+                            const float BodyPushMaxArmDelta = 30f;
                             // Use a meaningful movement threshold so micro-jitter does not
                             // repeatedly start and stop MOS.
                             bool posChanged = posDelta >= 0.1f;
@@ -441,6 +443,13 @@ namespace DWMPHorde.Sync
                                  && n.Role == NetworkRole.Host)
                         {
                             TrapNetworkId.GetOrMintHost(go);
+                        }
+
+                        if (Patches.ClientOwnTrapTriggers.IsStaleArmed(go, ts.Triggered))
+                        {
+                            ModRuntime.LegacyInfo($"[TrapApply] {go.name} id={ts.TrapNetId}: armed state predates the host's answer to this player's trigger — kept sprung");
+                            trapSkipped++;
+                            continue;
                         }
 
                         bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;

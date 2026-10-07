@@ -23,6 +23,11 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static readonly Dictionary<short, float> _recycleGraceUntil = new Dictionary<short, float>(32);
         private const float RecycleGraceSec = 2.5f;
+        /// <summary>
+        /// Host: bodies whose removal peers were already told. A flee-despawn runs <c>removeMe</c>,
+        /// which can run again, then <c>OnDestroy</c>; each said so (three despawns per body).
+        /// </summary>
+        private static readonly HashSet<Character> _despawnSent = new HashSet<Character>();
         private static short _nextId = 1;
 
         /// <summary>Tracked count at which destroyed entries are swept from the list and every map.</summary>
@@ -252,6 +257,7 @@ namespace DWMPHorde.Sync
                 _stableIdCache.Remove(dead);
             }
             _pruneKeys.Clear();
+            _despawnSent.RemoveWhere(c => c == null);
         }
 
         /// <summary>Finds a character by its stable network ID.</summary>
@@ -386,6 +392,13 @@ namespace DWMPHorde.Sync
             }
             _characters.Remove(c);
             _stableIdCache.Remove(c);
+            _despawnSent.Remove(c);
+        }
+
+        /// <summary>Host: true the first time a body's removal is announced, false after.</summary>
+        internal static bool MarkDespawnSent(Character c)
+        {
+            return !ReferenceEquals(c, null) && _despawnSent.Add(c);
         }
 
         /// <summary>Clears all tracked characters and resets the ID counter.</summary>
@@ -396,6 +409,7 @@ namespace DWMPHorde.Sync
             _byId.Clear();
             _activeIds.Clear();
             _recycleGraceUntil.Clear();
+            _despawnSent.Clear();
             _nextId = 1;
             _pruneAtCount = PruneBaseCount;
         }
@@ -416,6 +430,7 @@ namespace DWMPHorde.Sync
             _byId.Clear();
             _activeIds.Clear();
             _recycleGraceUntil.Clear();
+            _despawnSent.Clear();
             _nextId = 1;
             _pruneAtCount = PruneBaseCount;
 

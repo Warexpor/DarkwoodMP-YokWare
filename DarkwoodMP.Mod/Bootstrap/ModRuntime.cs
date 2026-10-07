@@ -206,7 +206,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DefenderAttackContext.Reset);
             NetworkResetRegistry.Register(WorldPhysicsSyncService.Reset);
             NetworkResetRegistry.Register(WorldQueryHelper.InvalidateCommonSceneScanCaches);
-            NetworkResetRegistry.Register(DreamSyncManager.OnDisconnected);
+            NetworkResetRegistry.Register(DreamSyncManager.OnNetworkStopped);
             NetworkResetRegistry.Register(PlayerPositionManager.Clear);
             NetworkResetRegistry.Register(() =>
                 ModRuntime.Network?.PlayerFXHandlers?.ResetConsumedDropGuids());
@@ -301,6 +301,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
+            NetworkResetRegistry.Register(DescriptionDeck.Reset);
             NetworkResetRegistry.Register(DesyncCheck.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);
             NetworkResetRegistry.Register(WorkbenchUndo.Reset);
@@ -308,6 +309,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(CombatMusicSync.Reset);
             NetworkResetRegistry.Register(TrapLedger.Reset);
             NetworkResetRegistry.Register(SightViewers.Reset);
+            NetworkResetRegistry.Register(ClientOwnTrapTriggers.Reset);
             NetworkResetRegistry.Register(() => (Network as LanNetworkManager)?.WorldFxHandlers?.ClearHeldClaims());
             NetworkResetRegistry.Register(ContainerDropItemPatch.Reset);
             NetworkResetRegistry.Register(EpilogueNetHandlers.EpilogueCredits.Reset);
