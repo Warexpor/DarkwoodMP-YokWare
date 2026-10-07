@@ -74,7 +74,8 @@ yourself (see [Building from source](#building-from-source)).
 ### MelonLoader
 
 1. Install MelonLoader 0.7.x for Darkwood. BepInEx is not needed.
-2. Copy `DarkwoodMP.Mod.dll` and `LiteNetLib.dll` into `Darkwood/Mods/`.
+2. Copy `DarkwoodMP.Mod.dll` into `Darkwood/Mods/` and `LiteNetLib.dll` into
+   `Darkwood/UserLibs/`.
 3. Launch Darkwood.
 
 To check the install, press **F2** in game: the window title shows

@@ -295,7 +295,7 @@ namespace DWMPHorde
             GUILayout.Space(10f);
             GUILayout.Label(
                 PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion
-                + "  |  F2=settings F3=save  |  " + PluginInfo.Guid + ".cfg",
+                + "  |  F2=settings F3=save  |  " + ModLog.ConfigPathHint,
                 GUILayout.ExpandWidth(true));
 
             GUILayout.EndScrollView();

@@ -91,6 +91,25 @@ unit-tested; **runtime is not playtested**.
 - Checked from the logs, no change: one pistol shot killing a dog is vanilla (pistol damage 20,
   dog health 20), and dogs eating a corpse that ignore the shooter are vanilla too (very hungry
   eating dogs skip their enemy-near reaction).
+- **MelonLoader: `LiteNetLib.dll` goes to `UserLibs/`, not `Mods/`.** MelonLoader 0.7 loads
+  `UserLibs/` before any melon and treats `Mods/` as the melon folder; a plain library there
+  happened to load (it is scanned and added to the resolver) but is not where the loader
+  expects one. The Melon deploy target copies it to `UserLibs/` and removes a stale
+  `Mods/LiteNetLib.dll`; the MelonLoader release zip now mirrors the game folder
+  (`Mods/DarkwoodMP.Mod.dll`, `UserLibs/LiteNetLib.dll`) so it extracts straight into
+  `Darkwood/`; README and INSTALL.txt say so (`pack-release.sh`/`.ps1`). The BepInEx zip is
+  unchanged.
+- **Log and config hints name the running loader.** The startup banner listed BepInEx paths
+  with a Melon aside, and the F2 footer showed only the config file name. Both now show the
+  build's own paths (`ModLog.LoaderLogPath` / `ConfigPathHint`: `BepInEx/LogOutput.log` and
+  `BepInEx/config/…cfg`, or `MelonLoader/Latest.log` and `UserData/YokWare/…cfg`). Removed
+  the unused `HostLogHint`/`ClientLogHint` constants.
+- Checked, no change: the Melon build needs no counterpart to BepInEx's `DiskLogFlush`.
+  MelonLoader 0.7 writes `Latest.log` from its bootstrap through a `StreamWriter` with
+  `AutoFlush = true` (every line on disk at once), and the managed logger hands each line
+  over synchronously, so the tail before a quit or crash is not lost.
+- The MelonLoader build is still not playtested; one dual-box session on it (both boxes) is
+  needed before calling it as stable as BepInEx.
 
 ## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
 

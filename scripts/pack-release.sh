@@ -3,7 +3,9 @@
 #   DarkwoodMP-YokWare-<version>-BepInEx.zip
 #   DarkwoodMP-YokWare-<version>-MelonLoader.zip
 # Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and an INSTALL.txt generated from
-# PluginInfo.cs, so the text can never drift from the shipped version/protocol).
+# PluginInfo.cs, so the text can never drift from the shipped version/protocol). The BepInEx zip is
+# flat (both DLLs go to BepInEx/plugins); the MelonLoader zip mirrors the game folder (Mods/ for the
+# mod, UserLibs/ for LiteNetLib), so it can be extracted straight into Darkwood/.
 #
 # Usage: scripts/pack-release.sh [--no-build]
 #   --no-build  pack whatever is already in DarkwoodMP.Mod/bin/Release/{BepInEx,MelonLoader}
@@ -48,7 +50,7 @@ rm -rf "$ART"
 mkdir -p "$ART"
 
 make_zip() {
-  local loader="$1" target_dir="$2"
+  local loader="$1"
   local src="$ROOT/DarkwoodMP.Mod/bin/Release/$loader"
   local stage="$ART/stage-$loader"
   local zip="$ART/DarkwoodMP-YokWare-$VERSION-$loader.zip"
@@ -58,7 +60,17 @@ make_zip() {
   done
 
   mkdir -p "$stage"
-  cp "$src/DarkwoodMP.Mod.dll" "$src/LiteNetLib.dll" "$stage/"
+  local step2
+  if [[ "$loader" == "BepInEx" ]]; then
+    cp "$src/DarkwoodMP.Mod.dll" "$src/LiteNetLib.dll" "$stage/"
+    step2="Copy DarkwoodMP.Mod.dll and LiteNetLib.dll into Darkwood/BepInEx/plugins/"
+  else
+    mkdir -p "$stage/Mods" "$stage/UserLibs"
+    cp "$src/DarkwoodMP.Mod.dll" "$stage/Mods/"
+    cp "$src/LiteNetLib.dll" "$stage/UserLibs/"
+    step2="Extract this zip into the Darkwood folder: Mods/DarkwoodMP.Mod.dll and
+   UserLibs/LiteNetLib.dll (MelonLoader loads UserLibs before the mod)."
+  fi
   [[ -f "$ROOT/LICENSE" ]] && cp "$ROOT/LICENSE" "$stage/"
 
   local cfg
@@ -72,7 +84,7 @@ YokWare Branch $VERSION - Path B (Horde base), $loader build
 Wire protocol $PROTOCOL: every player in a session must run the same version.
 
 1. Install $( [[ "$loader" == "BepInEx" ]] && echo "BepInEx 5.x" || echo "MelonLoader 0.7.x" ) for Darkwood (one loader per game install).
-2. Copy DarkwoodMP.Mod.dll and LiteNetLib.dll into Darkwood/$target_dir/
+2. $step2
 3. Launch Darkwood. F2 opens the multiplayer window (HOST / JOIN are also on the title
    screen). F3 manual save, F4 spectate, Ctrl+C chat. The F2 title should read
    "YokWare Branch $VERSION / Path B" and the footer proto=$PROTOCOL.
@@ -81,7 +93,7 @@ License: GPLv3 (see LICENSE)
 TXT
 
   if command -v zip >/dev/null 2>&1; then
-    (cd "$stage" && zip -q -j "$zip" ./*)
+    (cd "$stage" && zip -q -r "$zip" .)
   else
     (cd "$stage" && python3 -m zipfile -c "$zip" ./*)
   fi
@@ -89,8 +101,8 @@ TXT
   echo "  $zip"
 }
 
-make_zip BepInEx "BepInEx/plugins"
-make_zip MelonLoader "Mods"
+make_zip BepInEx
+make_zip MelonLoader
 
 echo "Packed:"
 ls -l "$ART"/*.zip
