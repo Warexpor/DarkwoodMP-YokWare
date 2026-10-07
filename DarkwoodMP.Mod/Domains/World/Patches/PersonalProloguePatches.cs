@@ -103,15 +103,23 @@ namespace DWMPHorde.Patches
         /// it (light, hum, smoke) and gives it the lit portrait the oven's first dialogue needs. Left
         /// to the oven's own <c>Start</c>, a joiner met it unlit and got the unlit greeting.
         /// </summary>
-        private static void SetNewGameHome(Player p)
+        internal static void SetNewGameHome(Player p)
         {
-            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
-            if (p == null || wg == null || wg.playerBase == null)
+            if (p == null)
                 return;
+            // Not through WorldGenerator.playerBase: the save sets it only after the player block
+            // (SaveManager loads the world generator's state later), so here it was still unset
+            // and the joiner's hideout oven was left unlit. The hideout's oven is the world's one
+            // default oven; the prologue pads' copies are not the world.
+            WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+            ExperienceMachine[] ovens = wg != null && wg.playerBase != null
+                ? wg.playerBase.GetComponentsInChildren<ExperienceMachine>(true)
+                : UnityEngine.Object.FindObjectsOfType<ExperienceMachine>(true);
             ExperienceMachine home = null;
-            foreach (ExperienceMachine em in wg.playerBase.GetComponentsInChildren<ExperienceMachine>(true))
+            foreach (ExperienceMachine em in ovens)
             {
-                if (em != null && em.isDefaultExpMachine)
+                if (em != null && em.isDefaultExpMachine && em.gameObject.scene.IsValid()
+                    && !PersonalPrologue.IsOnProloguePad(em.transform))
                 {
                     home = em;
                     break;
