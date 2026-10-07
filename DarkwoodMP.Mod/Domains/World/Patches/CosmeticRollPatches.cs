@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using DWMPHorde.Sync;
@@ -41,79 +40,44 @@ namespace DWMPHorde.Patches
         private static void Finalizer(CosmeticRolls.StreamScope __state) => CosmeticRolls.ExitParallaxLayer(__state);
     }
 
-    /// <summary><c>AnimationPlay.init</c> runs on the object's seed (<see cref="CosmeticRolls.EnterAnimInit"/>).</summary>
+    /// <summary><c>AnimationPlay.init</c> seeds the component's own stream (<see cref="CosmeticRolls.EnterAnimInit"/>).</summary>
     [HarmonyPatch(typeof(AnimationPlay), "init")]
     public static class AnimationPlayInitPatch
     {
         private static void Prefix(AnimationPlay __instance, out CosmeticRolls.StreamScope __state)
             => __state = __instance != null ? CosmeticRolls.EnterAnimInit(__instance) : default;
 
-        private static void Finalizer(CosmeticRolls.StreamScope __state) => CosmeticRolls.ExitScope(__state);
-    }
-
-    /// <summary><c>AnimationPlay</c>'s replays after a random delay run on the shared clock (<see cref="AnimSchedule.Replays"/>).</summary>
-    [HarmonyPatch(typeof(AnimationPlay), "waitToPlayAgain")]
-    public static class AnimationPlayReplayPatch
-    {
-        private static bool Prefix(AnimationPlay __instance, ref IEnumerator __result)
-        {
-            __result = AnimSchedule.Replays(__instance);
-            return false;
-        }
-    }
-
-    /// <summary><c>AnimationPlay</c>'s twitching runs on the shared clock (<see cref="AnimSchedule.Twitch"/>).</summary>
-    [HarmonyPatch(typeof(AnimationPlay), "OnTwitch")]
-    public static class AnimationPlayTwitchPatch
-    {
-        private static bool Prefix(AnimationPlay __instance, ref IEnumerator __result)
-        {
-            __result = AnimSchedule.Twitch(__instance);
-            return false;
-        }
+        private static void Finalizer(AnimationPlay __instance, CosmeticRolls.StreamScope __state)
+            => CosmeticRolls.ExitAnimInit(__instance, __state);
     }
 
     /// <summary>
-    /// World animations follow the shared animation clock (<see cref="AnimPhase.BeforeUpdate"/>).
+    /// <c>AnimationPlay</c>'s coroutines (replay delays, twitch frames and pauses) draw from the
+    /// component's own stream.
     /// </summary>
-    [HarmonyPatch(typeof(tk2dSpriteAnimator), nameof(tk2dSpriteAnimator.UpdateAnimation))]
-    public static class Tk2dAnimatorClockPatch
+    [HarmonyPatch]
+    public static class AnimationPlayStepPatch
     {
-        private static void Prefix(tk2dSpriteAnimator __instance, ref float deltaTime)
-            => AnimPhase.BeforeUpdate(__instance, ref deltaTime);
-    }
+        private static readonly string[] Coroutines = { "waitToPlayAgain", "OnTwitch", "waitToResumeAni" };
 
-    /// <summary>
-    /// A clip starting: its phase on the clock is where it starts (<see cref="AnimPhase.OnStarted"/>),
-    /// and a random-frame clip's first frame is seeded (<see cref="CosmeticRolls.EnterTk2dRandom"/>).
-    /// </summary>
-    [HarmonyPatch(typeof(tk2dSpriteAnimator), nameof(tk2dSpriteAnimator.Play),
-        new[] { typeof(tk2dSpriteAnimationClip), typeof(float), typeof(float) })]
-    public static class Tk2dAnimatorPlayPatch
-    {
-        internal struct PlayState
+        private static bool Prepare() => TargetMethods().GetEnumerator().MoveNext();
+
+        private static IEnumerable<MethodBase> TargetMethods()
         {
-            public bool Starts;
-            public CosmeticRolls.StreamScope Scope;
+            foreach (string name in Coroutines)
+            {
+                MethodInfo outer = AccessTools.Method(typeof(AnimationPlay), name);
+                MethodInfo moveNext = outer != null ? AccessTools.EnumeratorMoveNext(outer) : null;
+                if (moveNext != null)
+                    yield return moveNext;
+            }
         }
 
-        private static void Prefix(tk2dSpriteAnimator __instance, tk2dSpriteAnimationClip clip, float clipStartTime,
-            out PlayState __state)
-        {
-            __state = default;
-            __state.Starts = AnimPhase.WillStart(__instance, clip, clipStartTime);
-            if (__state.Starts && (clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.RandomFrame
-                    || clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.RandomLoop))
-                __state.Scope = CosmeticRolls.EnterTk2dRandom(__instance, clip);
-        }
+        private static void Prefix(object __instance, out CosmeticRolls.StreamScope __state)
+            => __state = CosmeticRolls.EnterAnimStep(CosmeticRolls.OwnerOf(__instance));
 
-        private static void Postfix(tk2dSpriteAnimator __instance, tk2dSpriteAnimationClip clip, PlayState __state)
-        {
-            if (__state.Starts)
-                AnimPhase.OnStarted(__instance, clip);
-        }
-
-        private static void Finalizer(PlayState __state) => CosmeticRolls.ExitScope(__state.Scope);
+        private static void Finalizer(object __instance, CosmeticRolls.StreamScope __state)
+            => CosmeticRolls.ExitAnimStep(CosmeticRolls.OwnerOf(__instance), __state);
     }
 
     /// <summary>Vine rotations on the spawner's own seed (<see cref="CosmeticRolls.EnterVineSpawn"/>).</summary>

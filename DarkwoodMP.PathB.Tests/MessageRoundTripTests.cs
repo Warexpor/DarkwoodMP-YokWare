@@ -568,31 +568,6 @@ public class MessageRoundTripTests
     }
 
     [Fact]
-    public void WorldClock_RoundTripsPingAndPong()
-    {
-        var ping = new WorldClockMessage { Kind = WorldClockMessage.KindPing, ClientSent = 1234.5678 };
-        var r = new NetReader(Bytes(ping.Serialize));
-        var backPing = WorldClockMessage.Deserialize(r);
-        Assert.Equal(0, r.AvailableBytes);
-        Assert.Equal(1234.5678, backPing.ClientSent);
-
-        var pong = new WorldClockMessage
-        {
-            Kind = WorldClockMessage.KindPong,
-            ClientSent = 1234.5678,
-            HostTime = 98765.4321,
-            PausedTotal = 12.25,
-            PauseStart = -1
-        };
-        r = new NetReader(Bytes(pong.Serialize));
-        var back = WorldClockMessage.Deserialize(r);
-        Assert.Equal(0, r.AvailableBytes);
-        Assert.Equal(98765.4321, back.HostTime);
-        Assert.Equal(12.25, back.PausedTotal);
-        Assert.Equal(-1, back.PauseStart);
-    }
-
-    [Fact]
     public void CosmeticState_RoundTripsMovers()
     {
         var msg = new CosmeticStateMessage

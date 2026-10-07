@@ -32,7 +32,7 @@ namespace DWMPHorde.Sync
             public long StoreKey;
         }
 
-        /// <summary>Rolls made in this world: (instance id, kind salt) → mark.</summary>
+        /// <summary>Rolls made in this world: (instance id, kind) → mark.</summary>
         private static readonly Dictionary<long, RollMark> _marks = new Dictionary<long, RollMark>(8192); // process-scoped: cleared when a world starts; dead entries dropped at save
 
         /// <summary>Seeds the loaded save carried: store key → seed.</summary>
@@ -42,7 +42,7 @@ namespace DWMPHorde.Sync
         {
             if (go == null)
                 return;
-            long id = ((long)go.GetInstanceID() << 32) | (uint)salt;
+            long id = ((long)go.GetInstanceID() << 8) | (uint)(salt & 0xFF);
             if (_marks.TryGetValue(id, out RollMark m) && m.Go == go)
             {
                 m.Seed = seed;

@@ -67,8 +67,7 @@ public class NetMessageContractTests
         Assert.Equal(162, (byte)NetMessageType.PauseMenuState);
         Assert.Equal(163, (byte)NetMessageType.WorldPause);
         Assert.Equal(164, (byte)NetMessageType.CosmeticState);
-        Assert.Equal(165, (byte)NetMessageType.WorldClock);
-        Assert.Equal(165, (byte)NetMessageType._Highest);
+        Assert.Equal(164, (byte)NetMessageType._Highest);
     }
 
     [Fact]
