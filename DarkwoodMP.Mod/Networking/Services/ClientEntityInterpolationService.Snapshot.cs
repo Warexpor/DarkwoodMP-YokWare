@@ -652,23 +652,22 @@ namespace DWMPHorde.Networking
 
         private static void ApplyHealth(Character c, byte healthPct, bool alive, bool downed)
         {
+            float before = c.Health;
             if (!alive && !downed)
             {
                 c.Health = 0f;
-                return;
             }
-            float max = c.maxHealth > 0.01f ? c.maxHealth : 100f;
-            if (downed && healthPct == 0)
-                healthPct = 1;
-            float before = c.Health;
-            c.Health = (healthPct / 100f) * max;
-            // The enemy health bar shown after this player's hit follows the host's numbers.
-            if (!Mathf.Approximately(before, c.Health))
+            else
             {
-                var bar = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.enemyHealthBar : null;
-                if (bar != null && bar.currentObj == c.gameObject)
-                    bar.show(c.gameObject, onlyRefresh: true);
+                float max = c.maxHealth > 0.01f ? c.maxHealth : 100f;
+                if (downed && healthPct == 0)
+                    healthPct = 1;
+                c.Health = (healthPct / 100f) * max;
             }
+            // The enemy health bar shown after this player's hit follows the host's numbers,
+            // the kill included (it returned before the refresh: a killed dog kept a full bar).
+            if (!Mathf.Approximately(before, c.Health))
+                HealthBarRefresh.IfShowing(c.gameObject);
         }
 
         /// <summary>

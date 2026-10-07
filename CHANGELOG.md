@@ -34,7 +34,7 @@ tested in the game.
 
 ---
 
-## 0.8.160 — Gas bomb gas on clients, no hover labels behind the pause menu, single gunshots, whole stand-up
+## 0.8.160 — Gas bomb gas on clients, health bars after a client hit, no hover labels behind the pause menu, single gunshots, whole stand-up
 
 On top of 0.8.159. **Protocol 42 (unchanged).** Product **0.8.159 → 0.8.160**. Built and
 unit-tested; **runtime is not playtested**.
@@ -76,6 +76,21 @@ unit-tested; **runtime is not playtested**.
   (`LanNetworkManager.SendToPeersInWorld`: sent in-world PlayerState, not loading), and a
   client drops one while it has no world (`ClientCanApplyWorldBulk`). The world package carries
   the contents, and opening a container asks the host for its state as before.
+- **Health and durability bars on a client show the host's numbers after a hit.** Vanilla
+  shows the enemy health bar inside `getHit`, after the damage. A client's hit lands on the
+  host, so the client shows the bar from its own swing or shot with the health before the hit,
+  and the host's result was then written straight into the fields with no refresh: a dog the
+  client killed kept a full bar (the dead-body path returned before the refresh), a door or
+  barricade the client broke kept its pre-hit "almost broken" bar. Every place a peer's health
+  lands now refreshes the bar if it shows that object (`HealthBarRefresh.IfShowing`): creature
+  health and death, doors, barricades, windows, destructible items, chains.
+- **The host no longer gets a health bar for a client's hit.** The host applies a client's
+  attack as a player hit (`byPlayer`), and vanilla shows the bar to whoever hit, so the bar
+  popped up on the host's screen for a creature the client hit far away. The host now applies
+  it without the bar, and refreshes one it already shows for that creature.
+- Checked from the logs, no change: one pistol shot killing a dog is vanilla (pistol damage 20,
+  dog health 20), and dogs eating a corpse that ignore the shooter are vanilla too (very hungry
+  eating dogs skip their enemy-near reaction).
 
 ## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
 

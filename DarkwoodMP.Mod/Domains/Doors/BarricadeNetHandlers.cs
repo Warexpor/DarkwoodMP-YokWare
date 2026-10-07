@@ -270,6 +270,7 @@ namespace DWMPHorde.Networking
                             }
                         }
                     }
+                    HealthBarRefresh.IfShowing(door.gameObject);
                 }
                 else
                 {
@@ -317,6 +318,7 @@ namespace DWMPHorde.Networking
                         }
                         if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] window damaged/destroyed hp={msg.Health}");
                     }
+                    HealthBarRefresh.IfShowing(window.gameObject);
                 }
             }
             finally

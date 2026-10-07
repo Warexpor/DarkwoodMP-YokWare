@@ -147,7 +147,13 @@ namespace DWMPHorde.Networking
             float hpBefore = target.Health;
             HostApplyGuard.Run(() =>
             {
-                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+                // byPlayer (a player's hit: aggro, saturation, kill count) but not the bar: vanilla
+                // shows it to the player who hit, which is the client (it shows its own). Here it
+                // popped up on the host's screen for a hit far away; a bar the host already has
+                // on this target is refreshed below, as vanilla refreshes it.
+                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true,
+                    dontShowHealthBar: true);
+                HealthBarRefresh.IfShowing(target.gameObject);
                 // Vanilla MeleeSensor: after getHit, each weapon effect goes to character.effects.activate.
                 SensorEffectCodec.Apply(target.effects, msg.Effects, "HandlePlayerAttack");
             });

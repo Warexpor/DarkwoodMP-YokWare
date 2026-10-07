@@ -215,6 +215,7 @@ namespace DWMPHorde.Networking
                 if (!string.IsNullOrEmpty(item.hitSound))
                     AudioController.Play(item.hitSound, item.transform.position);
             }
+            HealthBarRefresh.IfShowing(item.gameObject);
         }
     }
 }
