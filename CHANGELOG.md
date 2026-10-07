@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.148**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.148, bumped in 0.8.142:
+**0.8.149**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.149, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,29 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.149 — Pushed furniture: no snap, a steady scrape
+
+On top of 0.8.148. **Protocol 42 (unchanged).** Product **0.8.148 → 0.8.149**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **Furniture another player pushed snapped when the push ended** (client pushing, seen on the
+  host; host pushing, seen on the client). Cause: the pusher's stand-in is a physics body and
+  still collided with the object here. While the object followed the pusher's states (held
+  kinematic), the stand-in sank into it; when the push ended and the object went back to
+  physics, it was shoved out of the stand-in. The stand-in now passes through pushable things
+  (an `Item` on its own rigidbody; not doors, characters or a throw in flight), set ahead of
+  contact every physics step (`RemotePlayerProxy.IgnorePushablesNearby`). Only the pusher's game
+  moves the object, as `HOW_COOP_WORKS` now says.
+- **The scrape of furniture another player pushed was missing, or its start looped.** The old
+  guard for the stand-in touching furniture zeroed the object's velocity and stopped its scrape
+  on every physics step of contact. With no native scrape running, it stopped every playing copy
+  of that sound id, the remote scrape loop among them, which the next state restarted. The guard
+  is gone with the contact.
 
 ---
 
