@@ -310,6 +310,23 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// The local player's gunshot: the held firearm's attack sound. Peers play it from
+        /// PlayerFiredWeapon (at the shot's pose, every shot); forwarding the shooter's own play
+        /// as well (the fire clip's Attack1Sound frame plays it on the player) doubled every
+        /// shot and its echo tail on the other screens.
+        /// </summary>
+        public static bool IsCurrentFirearmShotSound(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            Player p = Player.Instance;
+            if (p == null || InvItemClass.isNull(p.currentItem) || p.currentItem.baseClass == null)
+                return false;
+            InvItem b = p.currentItem.baseClass;
+            return b.isFirearm && IdEquals(audioID, b.attackSound);
+        }
+
+        /// <summary>
         /// True if audioID matches a non-empty SFX field on the local player's current item.
         /// Covers parentless Play(attackSound/reloadSound/…) for all weapons without a name list.
         /// </summary>

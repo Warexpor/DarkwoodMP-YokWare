@@ -51,7 +51,8 @@ namespace DWMPHorde.Players
             {
                 PlayTorso(torsoClip);
                 // Sync animation frame if provided
-                if (currentFrame >= 0 && _torsoAnimator != null && _torsoAnimator.CurrentClip != null && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
+                if (currentFrame >= 0 && !IsGetUpClip(torsoClip)
+                    && _torsoAnimator != null && _torsoAnimator.CurrentClip != null && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
                     _torsoAnimator.SetFrame(currentFrame);
             }
             else if (state == LocomotionState.Idle)
@@ -220,6 +221,11 @@ namespace DWMPHorde.Players
             if (_torsoAnimator.Playing && _torsoAnimator.CurrentClip?.name == clipName)
                 return;
 
+            // A stand-up the proxy already played through (it runs on its own clock) must not
+            // restart while the sender is still on its tail.
+            if (IsGetUpClip(clipName) && _torsoAnimator.CurrentClip?.name == clipName)
+                return;
+
             // Prevent replay of death clips once played to completion;
             // the host sends "Death1"/"Death2" every 30ms in PlayerStateMessage,
             // but the non-looping clip finishes and restarts endlessly.
@@ -232,6 +238,15 @@ namespace DWMPHorde.Players
             if (clipName == "Death1" || clipName == "Death2")
                 _deathClipPlayed = true;
         }
+
+        /// <summary>
+        /// The stand-up clips a player starts while still loading or respawning: a client sends no
+        /// state until its load ends, so the watcher's first packet is already mid-clip, and following
+        /// the sender's frame cut the clip in half. The proxy plays these from the start at the
+        /// clip's own rate instead (they are play-once clips, so a following idle lets them finish).
+        /// </summary>
+        internal static bool IsGetUpClip(string torsoClipName)
+            => torsoClipName == "Sleep" || torsoClipName == "GetUpFromBed";
 
         /// <summary>
         /// Vanilla Player.ProcessAnims (non-locomotion branch) disables legs renderer

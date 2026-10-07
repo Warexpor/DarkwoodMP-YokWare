@@ -184,6 +184,62 @@ namespace DWMPHorde.Sync
             => PauseSuppression.MultiplayerActive && Core.coreStarted && !Core.loadingGame && Player.Instance != null;
     }
 
+    /// <summary>
+    /// Vanilla reads no game input behind the pause menu: the menu pauses the game and
+    /// <c>Player.Update</c> skips its input step while paused. In co-op the world runs on, so the
+    /// input step kept running under the menu: the cursor over the menu still picked world objects
+    /// and their hover labels showed through it. While the pause menu is open the input step is
+    /// skipped here as vanilla's pause would, with the walk input zeroed (a key held when the menu
+    /// opened would otherwise keep walking), and the object under the cursor and the aim let go
+    /// once, as the menu opens. Movement and animation keep running, so the body still settles.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class PauseMenuNoInputPatch
+    {
+        private static readonly AccessTools.FieldRef<Player, Vector3> InputMovement =
+            AccessTools.FieldRefAccess<Player, Vector3>("inputMovement");
+        private static readonly AccessTools.FieldRef<Player, bool> RmbDown =
+            AccessTools.FieldRefAccess<Player, bool>("rmbDown");
+
+        private static bool _blocked; // reset-in: Reset
+
+        internal static void Reset() => _blocked = false;
+
+        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(Player), "FindInput");
+            yield return AccessTools.Method(typeof(Player), "FindInputController");
+        }
+
+        private static bool Prefix(Player __instance)
+        {
+            bool block = __instance != null && __instance == Player.Instance
+                && GameScreen.InPauseMenu && PauseMenuSync.CoopInWorld();
+            if (!block)
+            {
+                _blocked = false;
+                return true;
+            }
+            InputMovement(__instance) = Vector3.zero;
+            __instance.running = false;
+            RmbDown(__instance) = false;
+            if (!_blocked)
+            {
+                _blocked = true;
+                try
+                {
+                    __instance.deselectObject(force: true);
+                    __instance.onReleaseAim();
+                }
+                catch (System.Exception ex)
+                {
+                    ModLog.Warn(LogCat.Session, "[PauseMenu] letting go of the cursor object: " + ex.Message);
+                }
+            }
+            return false;
+        }
+    }
+
     /// <summary>The pause menu opening does not pause the game in co-op (<see cref="PauseMenuSync"/>).</summary>
     [HarmonyPatch(typeof(MainMenu), "OnEnable")]
     internal static class PauseMenuOpenNoPausePatch

@@ -138,7 +138,11 @@ namespace DWMPHorde.Patches
                 SlotCount = slots.Count,
                 Slots = slots.ToArray()
             };
-            net.Broadcast(NetMessageType.ContainerStateSync,
+            // Only to peers playing in the world. A peer on the title waiting for the host's world
+            // got every fill of the host's world generation and first location activations (hundreds,
+            // none with a container to land in); the world package carries the contents, and
+            // opening a container asks the host for its state anyway.
+            net.SendToPeersInWorld(NetMessageType.ContainerStateSync,
                 w => sync.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }

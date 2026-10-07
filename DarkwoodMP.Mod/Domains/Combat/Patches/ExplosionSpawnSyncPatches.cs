@@ -109,11 +109,48 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// The thrown item whose landing (<c>ThrownItem.onCollide</c>) is running. Vanilla spawns its
+    /// <c>prefabToSpawnOnLand</c> there, after the Explodes activation: the gas bomb's gas cloud
+    /// (Gas_flamable) comes from this, not from Explodes.spawnObjects, so the secondary send
+    /// below never saw it and the clients (whose copies are muted) had no gas at all.
+    /// </summary>
+    [HarmonyPatch(typeof(ThrownItem), "onCollide", typeof(Collider), typeof(Vector3))]
+    public static class ThrownItemLandScope
+    {
+        internal static ThrownItem Current; // process-scoped: call-scoped, unwound by the Finalizer
+
+        private static void Prefix(ThrownItem __instance, out ThrownItem __state)
+        {
+            __state = Current;
+            Current = __instance;
+        }
+
+        private static void Finalizer(ThrownItem __state)
+        {
+            Current = __state;
+        }
+    }
+
     /// <remarks>Applied from <see cref="CoreAddPrefabObjectPatch"/> (one detour for all features).</remarks>
     public static class ExplosionObjectSpawnSyncPatch
     {
         internal static void OnAddPrefab(GameObject __result, Object prefab, Vector3 position, Quaternion quaternion)
         {
+            // Host: a thrown item's land spawn (the gas bomb's gas) reaches the clients as itself.
+            ThrownItem landing = ThrownItemLandScope.Current;
+            if (landing != null && prefab != null && __result != null
+                && prefab == landing.prefabToSpawnOnLand
+                && !ExplosionSpawnFlagTracker.IsInsideSpawnObjects
+                && !TraverseHack.ApplyingFromNetwork
+                && NetGuard.Host(out var landNet)
+                && !string.IsNullOrEmpty(prefab.name))
+            {
+                landNet.SendExplosionSpawnObject(prefab.name, position, quaternion.eulerAngles);
+                ModRuntime.LegacyInfo($"[ExplosionSync] sent land spawn {prefab.name} of {landing.name} at {position}");
+                return;
+            }
+
             bool flag = ExplosionSpawnFlagTracker.IsInsideSpawnObjects;
             var log = ModRuntime.Log;
             if (flag && ModRuntime.VerboseLogging)

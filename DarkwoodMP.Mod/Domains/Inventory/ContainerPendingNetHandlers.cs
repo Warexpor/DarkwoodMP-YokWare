@@ -167,6 +167,9 @@ namespace DWMPHorde.Networking
         internal void HandleContainerStateSync(ContainerStateSyncMessage msg)
         {
             if (_net.Role != NetworkRole.Client) return;
+            // On the title or mid-load there is no container to fill: the world package carries the
+            // contents, and opening one asks the host again.
+            if (!LanNetworkManager.ClientCanApplyWorldBulk()) return;
 
             ModRuntime.LegacyInfo($"[Container] HandleContainerStateSync: hash={msg.EntityHash} pos=({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) slotCount={msg.SlotCount}");
 

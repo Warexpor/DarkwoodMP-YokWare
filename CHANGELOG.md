@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.159**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.159, bumped in 0.8.142:
+**0.8.160**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.160, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -33,6 +33,49 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.160 — Gas bomb gas on clients, no hover labels behind the pause menu, single gunshots, whole stand-up
+
+On top of 0.8.159. **Protocol 42 (unchanged).** Product **0.8.159 → 0.8.160**. Built and
+unit-tested; **runtime is not playtested**.
+
+- **A player getting up (respawn after death, loading a save) no longer starts halfway on the
+  other screens.** Vanilla starts the get-up clip (`Sleep`, also `GetUpFromBed`) while the
+  player is still loading or respawning. A client sends no state until its load ends, so the
+  watcher's first packet was already mid-clip, and the proxy jumped to the sender's frame: the
+  stand-up started late and cut in the middle. The proxy now plays these play-once clips from
+  their first frame at their own rate, and does not restart one it already finished while the
+  sender is still on its tail (`SecondPlayerAnimController.IsGetUpClip`).
+- **A gunshot sounds once on the other screens, not stacked.** Peers played the shot from
+  `PlayerFiredWeapon`, and the shooter also forwarded its own play of the same sound (the
+  fire clip's `Attack1Sound` frame plays the firearm's attack sound on the player) as
+  `PlayerAudio`, so every pistol shot and its echo tail played twice, slightly apart. The
+  shooter no longer forwards its held firearm's attack sound
+  (`LocalAudioService.IsCurrentFirearmShotSound`, checked in `PlayerAudioHelper.ForwardSound`
+  and the parentless `Play` forward); `PlayerFiredWeapon` is the one path, every shot, at the
+  shot's pose. Both directions (host shooting, client shooting) use the same send filter.
+- **A gas bomb leaves its gas on the clients too, whoever throws it.** The gas cloud
+  (`Gas_flamable`) is the bomb's `ThrownItem.prefabToSpawnOnLand`, spawned by its landing after
+  the `Explodes` activation, not one of the `Explodes` secondaries. Every peer's copy of a throw
+  is muted (no land spawn, so no second cloud), and the host sends only the secondaries spawned
+  inside `Explodes.onActivate`, so the host's cloud never went out and the clients had none.
+  The host now sends a thrown item's land spawn as `ExplosionSpawnObject` while its landing runs
+  (`ThrownItemLandScope`); the late-join gas state already carried such clouds.
+- **Hover labels no longer show through the pause menu while the world runs.** Vanilla's menu
+  pauses the game, and `Player.Update` reads no input while paused; in co-op the world keeps
+  going until every player is in the menu, so the input step went on under the menu and the
+  cursor still picked world objects. While the pause menu is open the player's input step
+  (`FindInput` / `FindInputController`) is skipped as vanilla's pause would, the walk input is
+  zeroed (a key held as the menu opened kept walking), and the object under the cursor and the
+  aim are let go as the menu opens (`PauseMenuNoInputPatch`). Movement and animation still run.
+- **A joiner waiting on the title no longer gets the host's container fills.** From the logs: a
+  client connected while the host generated a new world received every container the host's
+  world generation and first location activations filled (326 `ContainerStateSync`), with no
+  world to put them in: 328 "no inventory at" warnings, each after a full inventory scan. The
+  host now sends container fills only to peers playing in the world
+  (`LanNetworkManager.SendToPeersInWorld`: sent in-world PlayerState, not loading), and a
+  client drops one while it has no world (`ClientCanApplyWorldBulk`). The world package carries
+  the contents, and opening a container asks the host for its state as before.
 
 ## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
 

@@ -25,6 +25,8 @@ namespace DWMPHorde.Patches
             bool torsoStep = fromPlayer && PlayerTorsoFrameTriggerScope.Active
                 && LocalAudioService.IsPlayerStepSound(audioID);
             if (!torsoStep && LocalAudioService.IsPersonalOrUiSound(audioID, suppressFootsteps: fromPlayer)) return;
+            // The gunshot reaches peers with PlayerFiredWeapon.
+            if (fromPlayer && LocalAudioService.IsCurrentFirearmShotSound(audioID)) return;
             // Never network menu / BGM tracks (5.3).
             if (!allowObjectLoop && AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!allowObjectLoop && LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
@@ -323,6 +325,8 @@ namespace DWMPHorde.Patches
             if (LocalAudioService.IsPersonalOrUiSound(audioID)) return;
             if (AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!LocalAudioService.IsAllowlistedNoParentSound(audioID)) return;
+            // The gunshot reaches peers with PlayerFiredWeapon.
+            if (LocalAudioService.IsCurrentFirearmShotSound(audioID)) return;
             if (!LocalAudioService.TryAllowForward(audioID)) return;
 
             // Always stamp player pos for the hear gate on RX; peers play it on this player's
