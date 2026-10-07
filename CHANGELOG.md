@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.158**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.158, bumped in 0.8.142:
+**0.8.159**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.159, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -33,6 +33,41 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
+
+On top of 0.8.158. **Protocol 42 (unchanged).** Product **0.8.158 → 0.8.159**. Built and
+unit-tested; **runtime is not playtested**.
+
+Playtest of 0.8.158 (long dual-box session): no exceptions on either side. Fixed from the logs
+and the user's report:
+
+- **"Day 1 waits: N player(s) still in the prologue." no longer shows in the top-right chat.**
+  This was the "dev info on players" text. The day-1 hold still works; the start and end of
+  the wait go to the log only, on host and client (`PersonalPrologue.HoldDayOne`,
+  `ClientNoteHold`).
+- **A client stepping into a bear trap: the host's sprung state reaches everyone again.** The
+  host settles a client's `TrapTriggered` and sends the sprung trap back, but that send ran
+  while the message was being applied, where `SendTrapState` sends nothing (no `[TrapSync]`
+  line in the host log). The other players never saw the trap sprung by this path, and the
+  client never heard back. The host now broadcasts it directly
+  (`WorldObjectSendNetHandlers.BroadcastTrapState`).
+- **A trap a client sprang is no longer re-armed under the caught player.** A host scan sent
+  before the host had the trigger still said "armed"; the client applied it on arrival and
+  opened the trap it was standing in (`[TrapApply] beartrap id=1 … triggered=False` right after
+  `Client sent trap triggered`). The client now keeps a trap it sprang until the host's answer
+  comes (at most 3 s) and drops older "armed" states for it (`ClientOwnTrapTriggers`).
+- **Furniture the host rebuilt is rebuilt on the client too.** A burned wardrobe the client had
+  dragged sat a unit or so apart on the two machines; the construct message matched sites
+  within 0.75 units only, so the client queued it forever (`[ConstructibleSync] queued (not
+  loaded yet)`). Sites now match within 2 units, as damaged items do
+  (`LockNetHandlers.ConstructibleMatchRadius`).
+- **Log:** `[Trap] host/client: player N trapped` is written when the trapped state changes,
+  not with every player state (a dozen lines per second while caught).
+
+Checked in the logs, working: the client's push scrape on the host (starts and stops cleanly
+with the push), the joiner's lit oven, molotov fires and burning doors and wardrobes on both
+sides, a client's day death and the death bag, the dog chase between both players.
 
 ## 0.8.158 — A client's push sounds on the host (the real cause)
 

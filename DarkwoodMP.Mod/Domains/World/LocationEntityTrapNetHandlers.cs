@@ -136,7 +136,7 @@ namespace DWMPHorde.Networking
                 Mathf.Round(pos.y * 10f) / 10f,
                 Mathf.Round(pos.z * 10f) / 10f);
             short occupant = WorldPhysicsSyncService.ResolveTrapOccupant(trapId, key);
-            _net.SendTrapState(new TrapState
+            _net.WorldObjectSendHandlers.BroadcastTrapState(new TrapState
             {
                 PosX = key.x,
                 PosY = key.y,

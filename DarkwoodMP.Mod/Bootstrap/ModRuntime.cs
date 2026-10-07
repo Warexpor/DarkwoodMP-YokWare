@@ -309,6 +309,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(CombatMusicSync.Reset);
             NetworkResetRegistry.Register(TrapLedger.Reset);
             NetworkResetRegistry.Register(SightViewers.Reset);
+            NetworkResetRegistry.Register(ClientOwnTrapTriggers.Reset);
             NetworkResetRegistry.Register(() => (Network as LanNetworkManager)?.WorldFxHandlers?.ClearHeldClaims());
             NetworkResetRegistry.Register(ContainerDropItemPatch.Reset);
             NetworkResetRegistry.Register(EpilogueNetHandlers.EpilogueCredits.Reset);

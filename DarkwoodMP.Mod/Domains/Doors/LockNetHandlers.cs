@@ -14,6 +14,13 @@ namespace DWMPHorde.Networking
         private readonly LanNetworkManager _net;
 
         internal const int MaxPendingConstructibles = 64;
+
+        /// <summary>
+        /// A site is matched this close to the sender's position, as a damaged item is. Furniture
+        /// a player dragged rests a unit or so apart on each machine (a body is about 40 across):
+        /// 0.75 missed it, and a burned wardrobe the host rebuilt stayed burned on the client.
+        /// </summary>
+        private const float ConstructibleMatchRadius = BarricadeNetHandlers.ItemMatchRadius;
         private readonly Dictionary<string, ConstructibleMessage> _constructedSites =
             new Dictionary<string, ConstructibleMessage>();
         private readonly List<ConstructibleMessage> _pendingConstructibles = new List<ConstructibleMessage>();
@@ -48,7 +55,7 @@ namespace DWMPHorde.Networking
         internal void ApplyConstructible(ConstructibleMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, 0.75f);
+            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
             if (best == null)
             {
                 if (queueIfMissing)
@@ -159,7 +166,7 @@ namespace DWMPHorde.Networking
             {
                 var msg = _pendingConstructibles[i];
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, 0.75f);
+                Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
                 if (best == null) continue;
                 _pendingConstructibles.RemoveAt(i);
                 ApplyConstructible(msg, queueIfMissing: false);
