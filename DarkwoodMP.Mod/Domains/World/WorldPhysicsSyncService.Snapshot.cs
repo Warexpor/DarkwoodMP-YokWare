@@ -66,7 +66,26 @@ namespace DWMPHorde.Sync
                 _s.LastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
                 bool inQuietConfirm = !reallyMoved
                     && (now - timeSinceMoved) < QuietConfirmWindow;
-                if (!reallyMoved && !inQuietConfirm && !fullResync)
+
+                // Motion this peer did not make is not sent. A copy following another player's
+                // push (interpolating to its states) was seen moving here and sent back as this
+                // peer's own push: the sender then held the object against its own push, and the
+                // echo claimed the object here, so the rest of that push was ignored (a client
+                // that had pushed the lamp before saw the host's push stop dead). Until a scan
+                // after its last pose lands.
+                if (_s.ObjectInterp.TryGetValue(trackingKey, out ObjectInterpState drive)
+                    && drive.Target != null && now <= drive.TargetTime + InterpFixedDuration)
+                {
+                    _s.LastPos[trackingKey] = pos;
+                    continue;
+                }
+
+                // The host owns the world: a client's resend is for bodies it moved itself lately
+                // (a lost last state); its copy of the rest may lag the host and would pull the
+                // host's back.
+                bool resync = fullResync && (net == null || net.Role == NetworkRole.Host
+                    || (now - timeSinceMoved) < FullResyncInterval);
+                if (!reallyMoved && !inQuietConfirm && !resync)
                     continue;
 
                 if (_s.LastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
@@ -145,7 +164,10 @@ namespace DWMPHorde.Sync
                 });
                 // Client free-body send: refresh authority so host PhysicsState echo cannot
                 // arm MOS while native ItemSounds owns the scrape (round-trip latency gap).
-                if (net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
+                // Only for motion of its own: a quiet resend (every few seconds, every body
+                // in range) claimed bodies the client never touched and dropped the host's
+                // pushes of them.
+                if (reallyMoved && net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
                     ItemMovingSoundHelper.NoteClientPhysicsSent(rootName);
             }
         }
