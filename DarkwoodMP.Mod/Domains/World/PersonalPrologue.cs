@@ -460,6 +460,8 @@ namespace DWMPHorde.Sync
                     return;
                 }
                 p.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
+                // The load set the home oven before the save named the hideout; now it is known.
+                Patches.PrologueFreshCharacterOvenPatch.SetNewGameHome(p);
                 // After the move home, as vanilla endDreaming: what does not fit drops at the bed.
                 if (playedBefore)
                     GrantPrologueReward(p);

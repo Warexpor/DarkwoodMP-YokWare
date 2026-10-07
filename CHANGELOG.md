@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.152**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.152, bumped in 0.8.142:
+**0.8.153**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.153, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,33 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.153 — A pushed chair turns smoothly; a joiner's hideout oven is lit
+
+On top of 0.8.152. **Protocol 42 (unchanged).** Product **0.8.152 → 0.8.153**. Built and
+unit-tested; **runtime is not playtested**.
+
+Reported after the 0.8.151 playtest: furniture pushing is fine now except the chair, which
+still snaps; on a fresh world the oven in the starting hideout was not lit.
+
+- **A pushed chair snapped.** The free-body scan counted a body as moving only when its position
+  changed. Furniture turns about Y as it is pushed off-centre, and a chair (mass 2, drag 10,
+  directional sprite) turns a lot and visibly. A turn without much travel sent nothing, so the
+  other peer's chair kept its old facing and snapped round at the next state or resync. A turn of
+  half a degree since the last scan now counts as motion too, and so does the quiet window after
+  it (`WorldPhysicsSyncService.ScanPhysicsAround`, `LastRot`).
+- **A joiner's starting oven unlit on a fresh world.** A fresh character skips the save's player
+  block. In its place `SetNewGameHome` lights the hideout's default oven (vanilla
+  `setAsDefaultExpMachine`). It looked for the oven under `WorldGenerator.playerBase`, but the
+  save sets that only after the player block (the world generator's state loads later). So
+  the lookup found nothing and returned without a word (the log had no `home oven` line), and the
+  oven stayed dark. It now finds the world's default oven directly when the hideout is not known
+  yet (not one on a prologue pad). It runs again once the fresh character is placed in the hideout
+  (`PersonalProloguePatches`, `PersonalPrologue.ArriveFresh`).
+- **The "log" text in the top right**: not found in the mod or in the game's on-screen code;
+  waiting on a screenshot from the playtester.
 
 ---
 

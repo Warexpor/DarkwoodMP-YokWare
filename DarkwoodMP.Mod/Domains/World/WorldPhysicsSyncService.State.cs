@@ -44,6 +44,7 @@ namespace DWMPHorde.Sync
             public float NextPendingLightFlushTime;
             public float PendingLightQueuedAt = -1f;
             public readonly Dictionary<int, Vector3> LastPos = new Dictionary<int, Vector3>();
+            public readonly Dictionary<int, Quaternion> LastRot = new Dictionary<int, Quaternion>();
             public readonly Dictionary<int, float> LastMoveTime = new Dictionary<int, float>();
             public readonly Dictionary<int, float> LastClientUpdateTime = new Dictionary<int, float>();
             public uint NextSnapshotSequence;

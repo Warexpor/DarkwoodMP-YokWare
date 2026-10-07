@@ -12,6 +12,9 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
+        /// <summary>Turn, in degrees since the last scan, that counts as a body moving.</summary>
+        private const float RotMoveThresholdDeg = 0.5f;
+
         private static void ScanPhysicsAround(Vector3 center, LanNetworkManager net)
         {
             if (_objects.Count >= 256)
@@ -52,17 +55,24 @@ namespace DWMPHorde.Sync
                 // are common in hideouts. Key by InstanceID (no name+id string alloc).
                 int trackingKey = rootId;
                 Vector3 pos = rootGo.transform.position;
+                Quaternion rotNow = rootGo.transform.rotation;
 
                 if (!_s.LastPos.TryGetValue(trackingKey, out Vector3 last))
                 {
                     _s.LastPos[trackingKey] = pos;
+                    _s.LastRot[trackingKey] = rotNow;
                     // Seed as "already quiet" so first sighting does not force a 10 Hz stream.
                     _s.LastMoveTime[trackingKey] = now - QuietConfirmWindow - 1f;
                     continue;
                 }
 
                 float distSq = Vector3.SqrMagnitude(pos - last);
-                bool reallyMoved = distSq >= 0.0009f;
+                // Turning is motion too. Furniture spins about Y as it is pushed off-centre (a
+                // light chair a lot); counted by position alone, a turn on the spot sent nothing
+                // and the peer's copy snapped round to it at the next resync.
+                bool turned = _s.LastRot.TryGetValue(trackingKey, out Quaternion lastRot)
+                    && Quaternion.Angle(lastRot, rotNow) >= RotMoveThresholdDeg;
+                bool reallyMoved = distSq >= 0.0009f || turned;
                 _s.LastMoveTime.TryGetValue(trackingKey, out float timeSinceMoved);
                 bool inQuietConfirm = !reallyMoved
                     && (now - timeSinceMoved) < QuietConfirmWindow;
@@ -77,6 +87,7 @@ namespace DWMPHorde.Sync
                     && drive.Target != null && now <= drive.TargetTime + InterpFixedDuration)
                 {
                     _s.LastPos[trackingKey] = pos;
+                    _s.LastRot[trackingKey] = rotNow;
                     continue;
                 }
 
@@ -134,6 +145,7 @@ namespace DWMPHorde.Sync
 
                 Vector3 rot = rootGo.transform.eulerAngles;
                 _s.LastPos[trackingKey] = pos;
+                _s.LastRot[trackingKey] = rotNow;
                 // Only real motion extends the quiet window.
                 if (reallyMoved)
                     _s.LastMoveTime[trackingKey] = now;
@@ -339,6 +351,7 @@ namespace DWMPHorde.Sync
                     int k = _snapStaleIntKeys[i];
                     _s.LastMoveTime.Remove(k);
                     _s.LastPos.Remove(k);
+                    _s.LastRot.Remove(k);
                 }
 
                 // Vector3-keyed "last sent state" for doors, traps and generators: forget keys
