@@ -37,7 +37,8 @@ tested in the game.
 ## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
 
 On top of 0.8.158. **Protocol 42 (unchanged).** Product **0.8.158 → 0.8.159**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime is not playtested**. Merged to `main` with 0.8.147–0.8.158, which the
+long 0.8.158 playtest confirmed.
 
 Playtest of 0.8.158 (long dual-box session): no exceptions on either side. Fixed from the logs
 and the user's report:
@@ -45,7 +46,7 @@ and the user's report:
 - **"Day 1 waits: N player(s) still in the prologue." no longer shows in the top-right chat.**
   This was the "dev info on players" text. The day-1 hold still works; the start and end of
   the wait go to the log only, on host and client (`PersonalPrologue.HoldDayOne`,
-  `ClientNoteHold`).
+  `ClientNoteHold`). Its helper `ChatHud.AddLocalSystem` had no other caller and is removed.
 - **A client stepping into a bear trap: the host's sprung state reaches everyone again.** The
   host settles a client's `TrapTriggered` and sends the sprung trap back, but that send ran
   while the message was being applied, where `SendTrapState` sends nothing (no `[TrapSync]`
@@ -72,7 +73,7 @@ sides, a client's day death and the death bag, the dog chase between both player
 ## 0.8.158 — A client's push sounds on the host (the real cause)
 
 On top of 0.8.157. **Protocol 42 (unchanged).** Product **0.8.157 → 0.8.158**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Playtest of 0.8.157: the host still heard a client's push start and fade at once. No exceptions in
 either log. 0.8.157's longer hold was not the cause: the host log has only two scrape starts in the
@@ -94,7 +95,7 @@ session, one ended by `body-push skip jump d=1.272 Stool` right after it.
 ## 0.8.157 — A client's push sounds steady on the host; peer steps a little louder
 
 On top of 0.8.156. **Protocol 42 (unchanged).** Product **0.8.156 → 0.8.157**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Reported after the 0.8.156 playtest: when the client pushes something, the host hears the
 scrape start and fade out at once. Requested: other players' movement a little louder, still
@@ -115,7 +116,7 @@ under its old level.
 ## 0.8.156 — Shared events received on the title wait for the world
 
 On top of 0.8.155. **Protocol 42 (unchanged).** Product **0.8.155 → 0.8.156**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Playtest of 0.8.155 (new world, client joined during the host's world generation): no
 exceptions in either log, and no bug reported by the playtester.
@@ -136,7 +137,7 @@ exceptions in either log, and no bug reported by the playtester.
 ## 0.8.155 — A pushed chair or stool no longer jumps on the watcher's screen
 
 On top of 0.8.154. **Protocol 42 (unchanged).** Product **0.8.154 → 0.8.155**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Reported: on the watcher's screen a pushed chair or stool makes periodic big jumps while it is
 being pushed (the pusher's own screen is fine).
@@ -161,7 +162,7 @@ being pushed (the pusher's own screen is fine).
 ## 0.8.154 — A joiner's hideout oven is lit (second try); other players' steps a little quieter
 
 On top of 0.8.153. **Protocol 42 (unchanged).** Product **0.8.153 → 0.8.154**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Playtest of 0.8.153 (new world, client joined during the host's world generation):
 - The title-screen error flood is gone (client log 1,127 lines, no exceptions; it was 27,016 lines with about 6,000
@@ -193,7 +194,7 @@ Playtest of 0.8.153 (new world, client joined during the host's world generation
 ## 0.8.153 — A pushed chair turns smoothly; a joiner's hideout oven is lit
 
 On top of 0.8.152. **Protocol 42 (unchanged).** Product **0.8.152 → 0.8.153**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Reported after the 0.8.151 playtest: furniture pushing is fine now except the chair, which
 still snaps; on a fresh world the oven in the starting hideout was not lit.
@@ -220,7 +221,7 @@ still snaps; on a fresh world the oven in the starting hideout was not lit.
 ## 0.8.152 — No world pieces built on the joiner's title; no doubled puddles or splats on a rejoin
 
 On top of 0.8.151. **Protocol 42 (unchanged).** Product **0.8.151 → 0.8.152**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 Playtest of 0.8.151 (new world, client joined during the host's world generation): no bug
 reported by eye. The logs show a client lamp push applied on the host with its scrape
@@ -252,7 +253,7 @@ problems below.
 ## 0.8.151 — The host's push shows on a client that pushed before
 
 On top of 0.8.150. **Protocol 42 (unchanged).** Product **0.8.150 → 0.8.151**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 ### Fixed
 
@@ -276,7 +277,7 @@ unit-tested; **runtime is not playtested**.
 ## 0.8.150 — No journal pages on the title
 
 On top of 0.8.149. **Protocol 42 (unchanged).** Product **0.8.149 → 0.8.150**. Built and
-unit-tested; **runtime is not playtested**. Found in the 0.8.149 playtest logs.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158. Found in the 0.8.149 playtest logs.
 
 ### Fixed
 
@@ -296,7 +297,7 @@ unit-tested; **runtime is not playtested**. Found in the 0.8.149 playtest logs.
 ## 0.8.149 — Pushed furniture: no snap, a steady scrape
 
 On top of 0.8.148. **Protocol 42 (unchanged).** Product **0.8.148 → 0.8.149**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 ### Fixed
 
@@ -319,7 +320,7 @@ unit-tested; **runtime is not playtested**.
 ## 0.8.148 — Peer sounds silent at the edge of their range
 
 On top of 0.8.147. **Protocol 42 (unchanged).** Product **0.8.147 → 0.8.148**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158.
 
 ### Fixed
 
@@ -343,7 +344,7 @@ unit-tested; **runtime is not playtested**.
 ## 0.8.147 — Map pieces in the shared world, prologue pads kept to themselves
 
 On top of 0.8.146. **Protocol 42 (unchanged).** Product **0.8.146 → 0.8.147**. Built and
-unit-tested; **runtime is not playtested**. Found in the 0.8.146 playtest logs.
+unit-tested; **runtime confirmed** in the long dual-box playtest of 0.8.158. Found in the 0.8.146 playtest logs.
 
 ### Fixed
 

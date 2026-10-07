@@ -64,13 +64,6 @@ namespace DWMPHorde
             _instance = go.AddComponent<ChatHud>();
         }
 
-        public static void AddLocalSystem(string msg)
-        {
-            if (!Enabled) return;
-            EnsureExists();
-            _instance?.AddLine("[System] " + msg);
-        }
-
         public static void OnRemote(ChatMessagePayload msg)
         {
             if (!Enabled) return;
