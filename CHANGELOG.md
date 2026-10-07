@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.150**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.150, bumped in 0.8.142:
+**0.8.151**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.151, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,30 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.151 — The host's push shows on a client that pushed before
+
+On top of 0.8.150. **Protocol 42 (unchanged).** Product **0.8.150 → 0.8.151**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **After the client dragged or pushed the lamp, the host's push of it did not move it on the
+  client.** Three parts of one loop in the free-body (`PhysicsState`) sync:
+  - A peer sent motion it did not make. The client's copy following the host's push was seen
+    moving by the client's own scan and sent back as the client's push. The host then held the
+    lamp kinematic against its own push, and the echo claimed the lamp on the client, which
+    then ignored the rest of the host's push. A body still following another player's states
+    (until a scan after its last pose lands) is no longer sent.
+  - The client's full resend (every 5 s, every body within range) claimed each body for 4 s,
+    touched or not. Only bodies the client moved now count, and a client resends only bodies it
+    moved itself lately (a lost last state). The host owns the rest, and a lagging client copy
+    sent back would pull the host's body to it.
+  - The claim after the client's own push lasted 4 s, dropping a host push of the same body for
+    that long. It now lasts as long as the push authority's grace (1.25 s), which covers the
+    host's echo of the client's push.
 
 ---
 
