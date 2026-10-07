@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.143**. The current Horde wire protocol is **42** (held for 0.8.143, bumped in 0.8.142:
+**0.8.144**. The current Horde wire protocol is **42** (held for 0.8.143 and 0.8.144, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,30 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.144 — New games hosted from the menu are co-op worlds
+
+On top of 0.8.143. **Protocol 42 (unchanged).** Product **0.8.143 → 0.8.144**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Fixed
+
+- **A new game started while hosting was treated as single player.** Playtest: the host
+  hosted, started a new game from the menu, and the client joined. The host never logged
+  `[Cosmetic] co-op world`. It wrongly warned "Hosting a world loaded before hosting", then shared the
+  world without `savcos.dat`, and the client's copy loaded as `single-player world`, so the looks
+  did not match. Cause: the new-world hook sat on `Controller.generateChapter`, but a new game from
+  the menu loads the chapter scene directly and never calls it. The hook now sits on
+  `WorldGenerator.generateWorld`, where every generated world starts, both a new game and a chapter
+  change (`CosmeticKeyStoreNewWorldPatch`).
+- **Quitting during your own offline prologue logged a `NullReferenceException`**
+  (`Dreams.destroyDream` from `DreamSyncManager.ForceLocalDreamCleanup`). The network stop on quit
+  ran the session's dream teardown on the player's own offline dream while the game was already
+  destroying it. The same teardown would also have ended an offline dream when hosting from the
+  pause menu. The network-stop reset (`DreamSyncManager.OnNetworkStopped`) now leaves the world alone
+  when the game is quitting or no session was running; session dream statics still clear.
 
 ---
 

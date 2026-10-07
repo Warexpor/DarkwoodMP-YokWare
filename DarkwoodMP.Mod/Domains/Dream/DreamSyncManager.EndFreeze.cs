@@ -104,6 +104,28 @@ namespace DWMPHorde.Sync
             ClearRemoteDreamRoster();
         }
 
+        /// <summary>
+        /// The network stopped (<see cref="NetworkResetRegistry"/>). The game quitting, or a stop
+        /// with no session (hosting or joining from offline play), leaves the world alone: a
+        /// dream running then is this player's own (an offline prologue), and on quit its
+        /// objects are already being destroyed. Session statics are cleared either way.
+        /// </summary>
+        public static void OnNetworkStopped()
+        {
+            var net = ModRuntime.Network;
+            _leaveWorldAlone = WorldSaveGuards.IsQuitting || net == null || net.Role == NetworkRole.Offline;
+            try
+            {
+                OnDisconnected();
+            }
+            finally
+            {
+                _leaveWorldAlone = false;
+            }
+        }
+
+        private static bool _leaveWorldAlone; // process-scoped: call-scoped, set and cleared by OnNetworkStopped
+
         public static void OnDisconnected()
         {
             try
@@ -114,7 +136,10 @@ namespace DWMPHorde.Sync
             {
                 // The freeze statics must not outlive the session even when the dream cleanup
                 // above took the ApplyRemoteDreamCleanup branch or threw part-way.
-                UnfreezeWorld(restoreTime: false); // clears _worldFrozen
+                if (_leaveWorldAlone)
+                    _worldFrozen = false;
+                else
+                    UnfreezeWorld(restoreTime: false); // clears _worldFrozen
                 _savedGameTime = 0;
                 _frozenWorldCharacters.Clear();
                 _frozenByComponent.Clear();
@@ -142,7 +167,11 @@ namespace DWMPHorde.Sync
             // Tear down local dream / entry overlay before clearing session maps.
             // Without this, disconnect mid-dream leaves FreezeWorld + EnteringDream stuck.
             bool localDreaming = Dreams.Instance != null && Dreams.Instance.dreaming;
-            if (localDreaming || _localDreamActive || _earlyEntryTransitionPlayed || Core.EnteringDream
+            if (_leaveWorldAlone)
+            {
+                // No world teardown (OnNetworkStopped); the session statics below still clear.
+            }
+            else if (localDreaming || _localDreamActive || _earlyEntryTransitionPlayed || Core.EnteringDream
                 || DreamSession.IsActive)
             {
                 ForceLocalDreamCleanup("disconnected");
@@ -156,6 +185,8 @@ namespace DWMPHorde.Sync
             // Clean up any active remote dreams
             foreach (var kvp in _currentDreamPreset)
             {
+                if (_leaveWorldAlone)
+                    break;
                 CleanupDreamScene(kvp.Value);
                 RemoveDreamCameraEffects(kvp.Value);
             }
@@ -163,7 +194,7 @@ namespace DWMPHorde.Sync
             // a stale entry from an earlier, finished dream used to teleport the client back to
             // that dream's start on any disconnect.
             var localPlayer = Player.Instance;
-            if (localPlayer != null && _preDreamPosition.Count > 0
+            if (!_leaveWorldAlone && localPlayer != null && _preDreamPosition.Count > 0
                 && ClientStateBackup.IsDreamPadCoordinate(localPlayer._transform.position))
             {
                 foreach (var kvp in _preDreamPosition)
