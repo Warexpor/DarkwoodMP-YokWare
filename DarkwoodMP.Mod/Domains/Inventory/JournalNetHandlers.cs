@@ -102,6 +102,10 @@ namespace DWMPHorde.Networking
         {
             Journal journal = Singleton<UI>.Instance?.journal;
             if (journal == null) return;
+            // On the title (connected, the world not downloaded yet) the menu's journal has no
+            // pages to add to (NRE in addJournalEntry); the world package carries the journal.
+            if (_net.Role == NetworkRole.Client && !LanNetworkManager.ClientCanApplyWorldBulk())
+                return;
             // A page of a dream this player is not in (the sender's own): not this journal's.
             if (msg.InDream && !DreamSyncManager.IsDreamActive)
                 return;
