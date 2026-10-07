@@ -19,7 +19,7 @@ namespace DWMPHorde.Audio
     /// </summary>
     internal static class PeerSpatialPlay
     {
-        private static Action<AudioSource> _pending; // call-scoped: set around one Play call
+        private static Action<AudioSource> _pending; // process-scoped: call-scoped, set and restored around one Play call
 
         private struct Saved
         {
