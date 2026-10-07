@@ -435,6 +435,10 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Client || _pendingGameEvents.Count == 0)
                 return;
+            // On the title (or loading) there is no world to find them in: each try warned "no
+            // GameEvents near" and their age ran out before the world arrived.
+            if (!LanNetworkManager.ClientCanApplyWorldBulk())
+                return;
             // Throttle scans for events whose scene objects are not loaded yet.
             float now = Time.unscaledTime;
             if (now < _nextPendingGameEventsFlushTime) return;

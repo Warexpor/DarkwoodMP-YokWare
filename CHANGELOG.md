@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.155**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.155, bumped in 0.8.142:
+**0.8.156**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.156, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,27 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.156 — Shared events received on the title wait for the world
+
+On top of 0.8.155. **Protocol 42 (unchanged).** Product **0.8.155 → 0.8.156**. Built and
+unit-tested; **runtime is not playtested**.
+
+Playtest of 0.8.155 (new world, client joined during the host's world generation): no
+exceptions in either log, and no bug reported by the playtester.
+- The joiner's hideout oven is lit: `fresh character's home oven: exp_machine_oven_01 ...
+  lit=True` at the load and again on arrival.
+- Stool pushes both ways show steady states, with no failed applies in the sampled lines.
+- The chair/stool jump and the quieter peer steps (0.8.154) were not called out by the
+  playtester; not yet confirmed by eye.
+
+- **A shared event received on the title was tried against the menu scene.** A `GameEventsFired`
+  that arrives before the world is queued, as meant, but the queue flush ran on the title too.
+  Every try found nothing (`no GameEvents near ... GainRecipes_med_cottage_tree_01` warned), and
+  the event's queue age ran down before the world arrived. The flush now waits until the client is
+  in the world (`GameEventNetHandlers.TryFlushPendingGameEvents`).
 
 ---
 
