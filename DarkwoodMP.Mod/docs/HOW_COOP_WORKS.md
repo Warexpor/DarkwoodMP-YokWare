@@ -342,6 +342,9 @@ code, not yet playtested).
 - **Homes are personal, buildings are shared.** Each player has their own home oven
   and respawn point. The hideout's walls, doors, barricades, generator and
   furniture are one shared world. An oven goes out only when nobody calls it home.
+- **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
+  everyone else sees the result. Other players' bodies pass through pushable things
+  on your screen, so nothing gets pushed twice.
 - **Night comes to every player.** Night monsters spawn around every living player
   who is at home, not only around the host. Players out in the forest get the worm,
   as in vanilla. Wards count for the player a monster is after. Night events play
