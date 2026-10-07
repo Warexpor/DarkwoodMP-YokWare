@@ -160,7 +160,6 @@ the rest of this document easier to read.
 | **Scoping** | The same object name exists in two worlds (overworld and a dream, two hideouts). Lookups are scoped to the right pad or location instead of by name. | Dream pads, location pads |
 | **Rewrite** | A vanilla outcome makes no sense with a party. | A permadeath death becomes the shared death model; the enemy reset on death runs only when nobody is alive |
 | **Shared seed** | Cosmetic randomness every machine rolls itself: the roll runs on a seed from the object's identity, stored with the save. | Sprite tints and flips, animation picks, vine rotations, parallax drift |
-| **Shared clock** | Something every machine animates itself over time. It takes its time from one clock the host keeps and clients follow by ping. | Looping world animations, timed replays and twitches |
 | **Leave it alone** | Dead code, or cosmetic randomness that really cannot be matched (see "Cosmetic divergence is a last resort"). | Hunger, time skip |
 
 ---
@@ -740,12 +739,6 @@ party events.
   This runs in single player too, because a world the host played before hosting must
   already look the way its clients will roll it. Each object still gets a random-looking
   roll; it is just the same one everywhere.
-- **Animations run in step.** World animations (trees, water, fire, lamps, twitching
-  bodies) take their frame from a shared animation clock: the host's clock, held during a
-  shared pause, which clients follow by ping. A looping animation shows the same frame on
-  every machine at the same moment, however long each player has had it in view; timed
-  replays and twitches fall due at the same moment everywhere. Creatures and players
-  are not on this clock: their animation is the host's, sent with them.
 
 ---
 
@@ -824,11 +817,6 @@ By design:
 Explicitly parked or left as is:
 
 - A client whose chapter load failed has to rejoin by hand.
-- An animation started by an event (a door, a trap, an explosion) starts on each
-  machine when that machine hears of the event, so it lags by the network delay;
-  nothing can show an event before it arrives. The shared animation clock assumes the
-  way to the host and back are equally long (the limit of any clock sync), a few
-  milliseconds at most on an uneven route.
 - Two players drawing a line from the same examine pool in the same instant can both
   read it (the decks agree again right after). Ruling it out would make every
   client's examine text wait for a round trip to the host, which breaks "the client

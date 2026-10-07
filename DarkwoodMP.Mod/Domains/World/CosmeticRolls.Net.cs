@@ -136,17 +136,26 @@ namespace DWMPHorde.Sync
 
         // ---- AnimationPlay ------------------------------------------------------------------------
 
+        /// <summary>The random stream of one <c>AnimationPlay</c> (clip, start frame, delays, twitches).</summary>
+        private sealed class StreamBox
+        {
+            public Random.State State;
+        }
+
         internal struct StreamScope
         {
             public bool Active;
             public Random.State Outer;
         }
 
+        private static readonly ConditionalWeakTable<AnimationPlay, StreamBox> _animStreams = new ConditionalWeakTable<AnimationPlay, StreamBox>(); // process-scoped: weak, entries die with their component
+
         /// <summary>
-        /// <c>AnimationPlay.init</c> runs on the object's seed (<see cref="SeedFor"/>): its clip pick,
-        /// start frame and first twitch frame. Its timed behaviour is <see cref="AnimSchedule"/>'s.
-        /// The live seed leaves out where a location root stands: <c>init</c> runs from
-        /// <c>Start</c>, which can come before or after a live location is placed.
+        /// <c>AnimationPlay.init</c> starts its own stream on the object's seed (<see cref="SeedFor"/>).
+        /// Its coroutines draw from that stream only (<see cref="EnterAnimStep"/>), so every machine
+        /// picks the same clip, start frame, replay delays and twitch frames for it. The live seed
+        /// leaves out where a location root stands: <c>init</c> runs from <c>Start</c>, which can
+        /// come before or after a live location is placed.
         /// </summary>
         internal static StreamScope EnterAnimInit(AnimationPlay ap)
         {
@@ -156,25 +165,47 @@ namespace DWMPHorde.Sync
             return scope;
         }
 
-        /// <summary>
-        /// tk2d's random-frame clips pick their first frame from the global stream when they start;
-        /// seeded per object and clip instead.
-        /// </summary>
-        internal static StreamScope EnterTk2dRandom(tk2dSpriteAnimator animator, tk2dSpriteAnimationClip clip)
+        internal static void ExitAnimInit(AnimationPlay ap, StreamScope scope)
         {
-            if (animator == null || clip == null)
+            if (!scope.Active)
+                return;
+            if (ap != null)
+                _animStreams.GetOrCreateValue(ap).State = Random.state;
+            Random.state = scope.Outer;
+        }
+
+        internal static StreamScope EnterAnimStep(AnimationPlay ap)
+        {
+            if (ap == null || !_animStreams.TryGetValue(ap, out StreamBox box))
                 return default;
             var scope = new StreamScope { Active = true, Outer = Random.state };
-            int salt = CosmeticKey.Salt(SaltTk2dRandom, clip.name ?? "");
-            Random.InitState(SeedFor(animator.transform, salt,
-                CosmeticKey.Salt(PlaceKey(animator.transform, withRootPlacement: false), clip.name ?? "")));
+            Random.state = box.State;
             return scope;
         }
 
-        internal static void ExitScope(StreamScope scope)
+        internal static void ExitAnimStep(AnimationPlay ap, StreamScope scope)
         {
-            if (scope.Active)
-                Random.state = scope.Outer;
+            if (!scope.Active)
+                return;
+            if (ap != null && _animStreams.TryGetValue(ap, out StreamBox box))
+                box.State = Random.state;
+            Random.state = scope.Outer;
+        }
+
+        private static readonly Dictionary<Type, FieldInfo> _thisFields = new Dictionary<Type, FieldInfo>(4); // process-scoped: reflection cache
+
+        /// <summary>The <c>AnimationPlay</c> a compiler-generated coroutine belongs to.</summary>
+        internal static AnimationPlay OwnerOf(object enumerator)
+        {
+            if (enumerator == null)
+                return null;
+            Type t = enumerator.GetType();
+            if (!_thisFields.TryGetValue(t, out FieldInfo f))
+            {
+                f = AccessTools.Field(t, "<>4__this");
+                _thisFields[t] = f;
+            }
+            return f != null ? f.GetValue(enumerator) as AnimationPlay : null;
         }
 
         // ---- VineSpawner --------------------------------------------------------------------------
@@ -193,6 +224,10 @@ namespace DWMPHorde.Sync
             return scope;
         }
 
-        internal static void ExitVineSpawn(StreamScope scope) => ExitScope(scope);
+        internal static void ExitVineSpawn(StreamScope scope)
+        {
+            if (scope.Active)
+                Random.state = scope.Outer;
+        }
     }
 }

@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.141**. The current Horde wire protocol is **41** (bumped in 0.8.141:
-new `WorldClock` (165).
+**0.8.142**. The current Horde wire protocol is **42** (bumped in 0.8.142:
+`WorldClock` (165) removed with the 0.8.141 rollback.
+41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
 descriptor gains the look key.
 39 held for 0.8.139, bumped there: new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
@@ -30,6 +31,24 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.142 — Animation clock dropped
+
+On top of 0.8.141. **Protocol 41 → 42.** Product **0.8.141 → 0.8.142**. Built and unit-tested;
+**runtime is not playtested**.
+
+### Removed
+
+- **0.8.141 is rolled back in full.** It added too much always-running sync for a cosmetic gain:
+  a ping/pong clock between host and clients, a prefix on every visible `tk2dSpriteAnimator`
+  each frame (about 44,000 of them), and clock-timed twitches and replays that ran in single player
+  too. Removed: `AnimClock`, `AnimPhase`, `AnimSchedule`, `ClockSync`, `AnimTiming`, the
+  `WorldClock` message (165) and the tk2d random-frame seeding. World animations, `AnimationPlay`
+  replays and twitches run as vanilla again, so their phase can differ between machines (an
+  accepted cosmetic difference). The 0.8.140 work stays: matching looks (`savcos.dat`) and the
+  shared examine deck. The highest message ID is 164 (`CosmeticState`) again.
 
 ---
 

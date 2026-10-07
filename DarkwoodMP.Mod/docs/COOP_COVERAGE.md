@@ -253,16 +253,13 @@ and join a different host; host migration followed by a reconnect.
   decompile citation). This soak is the Unity dual-box / three-player playtest
   that flips those rows from "runtime pending" to "runtime verified." It is
   a runtime activity: no static pass can mark a row verified.
-- **`AnimationPlay` / `tk2dSpriteAnimator` — shared seed and shared clock
-  (code).** Decompile `AnimationPlay.cs`: `init` picks `randomAnims` /
-  `randomizeStartFrame` / twitch frame (seeded), `waitToPlayAgain` waits
-  `Random.Range(min, max)` and replays, `OnTwitch` / `waitToResumeAni` twitch
-  forward and back with 1-5 s rests. Both coroutines are replaced by pure
-  functions of the shared animation clock (`Sync.AnimSchedule`, `AnimTiming`).
-  `tk2dSpriteAnimator.UpdateAnimation` advances a clip only on screen; in a
-  session looping world clips follow the clock (`Sync.AnimPhase`), clients
-  sync it by `WorldClock` **165** (`Sync.AnimClock`). Rigidbody Push on anim
-  events is unchanged (physics props are host-sent).
+- **`AnimationPlay` — shared seed (code).** Decompile
+  `AnimationPlay.cs`: `init` picks `randomAnims` / `randomizeStartFrame` /
+  twitch frame, its coroutines draw replay delays and twitch pauses. `init`
+  waits for the final placement and starts the component's own random stream
+  on the object's seed; `waitToPlayAgain` / `OnTwitch` / `waitToResumeAni`
+  draw only from it (`Sync.CosmeticRolls`, `CosmeticRollPatches`). Rigidbody
+  Push on anim events is unchanged (physics props are host-sent).
 - **`MagicContainer` — parked (empty stub).** Decompile `MagicContainer.cs`
   has empty `Start`/`Update` only. No co-op surface.
 - **`DescriptionPool` / Examinable onExamine — host-auth triggers, one deck
