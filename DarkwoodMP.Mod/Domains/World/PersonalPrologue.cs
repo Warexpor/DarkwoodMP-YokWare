@@ -293,13 +293,26 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Under one of this machine's prologue pads (entities, GameEvents there are not the world's).</summary>
+        /// <summary>
+        /// Vanilla places outside locations on a grid of slots 25000 apart
+        /// (<c>OutsideLocations.locationPositions</c>), far from the overworld. What stands in a
+        /// pad's slot is the pad's, parented there or not: the prologue chase's chompers come from
+        /// <c>CharacterSpawner.spawnCharacterAround</c> under the global holder, beside the pad.
+        /// </summary>
+        private const float PadSlotHalf = 25000f * 0.5f;
+
+        private static bool InPadSlot(Vector3 p, Vector3 pad)
+        {
+            return Mathf.Abs(p.x - pad.x) < PadSlotHalf && Mathf.Abs(p.z - pad.z) < PadSlotHalf;
+        }
+
         internal static bool IsOnProloguePad(Transform t)
         {
             if (t == null)
                 return false;
             TrackPads();
             for (int i = 0; i < _pads.Count; i++)
-                if (_pads[i] != null && t.IsChildOf(_pads[i]))
+                if (_pads[i] != null && (t.IsChildOf(_pads[i]) || InPadSlot(t.position, _pads[i].position)))
                     return true;
             if (!LocalInPrologue)
                 return false;

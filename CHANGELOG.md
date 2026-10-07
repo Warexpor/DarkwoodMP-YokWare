@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.146**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.146, bumped in 0.8.142:
+**0.8.147**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.147, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -34,10 +34,43 @@ tested in the game.
 
 ---
 
+## 0.8.147 — Map pieces in the shared world, prologue pads kept to themselves
+
+On top of 0.8.146. **Protocol 42 (unchanged).** Product **0.8.146 → 0.8.147**. Built and
+unit-tested; **runtime is not playtested**. Found in the 0.8.146 playtest logs.
+
+### Fixed
+
+- **A joiner's map lacked pieces of the new world, among them the road by the hideout.** The host's
+  discovery of `road_forest_1_7a` found no piece by that name on the client and was dropped after
+  300 s. Cause: a new world is shared before vanilla's `Map.initialize`, which runs at the wake-up
+  after the opening. That is where every map piece takes its name (a road's from its sprite) and
+  joins its map's list, and a save keeps both; a load takes them from the save and never
+  initializes again. The package carried 39 road pieces unnamed and unlisted. Before the share's
+  save the host now initializes the waiting pieces once each, as the wake-up would; vanilla's
+  later `Map.initialize` takes only the ones that start after that (`MapShareInitialize`, log
+  `[MapShare] initialized N map piece(s) before the world share save`). Worlds shared before this
+  keep the gap on the joiner's copy; start a new world to test.
+- **The host's prologue chase reached the client.** The chompers of the prologue's last pad
+  come from `CharacterSpawner.spawnCharacterAround`, under the global holder rather than the
+  pad, so they got network ids: their states, sounds, corpse loot and despawns went to a
+  client in the overworld, which had nothing to apply them to. What stands in a prologue pad's
+  slot (the 25000-unit grid vanilla places outside locations on) now counts as the pad's
+  (`PersonalPrologue.IsOnProloguePad`).
+- **Each creature's removal was announced up to three times.** `removeMe` (which can run twice)
+  and `OnDestroy` each sent it; a body is announced once now (`CharacterTracker.MarkDespawnSent`).
+- **World generation sent every rolled container to connected peers.** A peer still on the
+  title had no world and logged hundreds of misses; the world package carries the contents.
+  Rolls during world generation are no longer fanned out.
+- The host no longer logs `sent LocationEnter` once a second for its prologue pad, which the
+  prologue filter never sends.
+
+---
+
 ## 0.8.146 — The joiner's prologue title on black
 
 On top of 0.8.145. **Protocol 42 (unchanged).** Product **0.8.145 → 0.8.146**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested. **Playtest: the logs show the arrival held back (`screen stays dark for the opening`); not yet confirmed by eye.**
 
 ### Fixed
 

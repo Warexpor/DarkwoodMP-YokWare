@@ -113,6 +113,7 @@ namespace DWMPHorde.Networking
                     : "Late-join share: sav/savs inconsistent on disk — force-saving once");
                 try
                 {
+                    Patches.MapShareInitialize.BeforeShareSave();
                     LanNetworkManager.RemoteSaveInProgress = true;
                     try
                     {
