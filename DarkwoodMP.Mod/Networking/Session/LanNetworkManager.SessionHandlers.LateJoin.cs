@@ -310,7 +310,14 @@ namespace DWMPHorde.Networking
         /// player still counts (dual-box quirk that used to block share forever).
         /// Does not treat mainMenu-cleared-but-not-yet-loaded as ready (mid-transition).
         /// </summary>
-        private static bool HostHasShareableWorld()
+        /// <summary>
+        /// In a chapter, and the chapter is a co-op world (<see cref="Sync.CosmeticRolls.Active"/>).
+        /// A world loaded offline before hosting rolled its looks vanilla's way, which a client cannot
+        /// copy: it is shared only after the host loads it again (the HOST button opens the load menu).
+        /// </summary>
+        private static bool HostHasShareableWorld() => HostInChapter() && Sync.CosmeticRolls.Active;
+
+        private static bool HostInChapter()
         {
             try
             {
@@ -352,6 +359,20 @@ namespace DWMPHorde.Networking
             if (!shareable)
             {
                 _session.HostWasShareableForWaitingClients = false;
+                if (HostInChapter() && !Sync.CosmeticRolls.Active)
+                {
+                    if (!_session.HostToldToReload)
+                    {
+                        _session.HostToldToReload = true;
+                        StatusText = "Load the save again to host it (it was loaded before hosting)";
+                        ModLog.Warn(LogCat.Session,
+                            "Hosting a world loaded before hosting: clients get it after the host loads the save again");
+                    }
+                }
+                else
+                {
+                    _session.HostToldToReload = false;
+                }
                 if (_session.HostWorldReadyEmitted)
                 {
                     _session.HostWorldReadyEmitted = false;

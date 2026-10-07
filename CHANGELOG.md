@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.142**. The current Horde wire protocol is **42** (bumped in 0.8.142:
+**0.8.143**. The current Horde wire protocol is **42** (held for 0.8.143, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -31,6 +31,36 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.143 — Single player stays vanilla
+
+On top of 0.8.142. **Protocol 42 (unchanged).** Product **0.8.142 → 0.8.143**. Built and
+unit-tested; **runtime is not playtested**.
+
+### Changed
+
+- **The matching looks of 0.8.140 run in co-op worlds only.** They also ran in a plain single-player
+  game, which then no longer rolled its looks as vanilla and gained a `savcos.dat` file. A world is a
+  co-op world when it starts in a session (host or client), or when its slot has `savcos.dat` (a
+  world hosted before, or a client's copy of the host's world), so it keeps its looks offline
+  between sessions. Anything else rolls as vanilla and writes no file (`CosmeticRolls.Active`,
+  decided when a world is generated or loaded; log `[Cosmetic] co-op world ...` or
+  `[Cosmetic] single-player world ...`).
+- **A world loaded before hosting is shared after the host loads it again.** Its looks were rolled
+  vanilla's way, and a client cannot copy them. The host share gate (`HostHasShareableWorld`) now
+  waits for a co-op world; HOST already opens the load menu, and a host who backs out of it is told
+  once (status line and log). Loading any save while hosting makes it a co-op world.
+- **A world share always carries the seed file.** A single-player save loaded in a session has no
+  `savcos.dat` until its first save; the host writes it before packing the share
+  (`CosmeticRolls.EnsureStore`), so the client's copy is a co-op world too.
+
+### Fixed
+
+- **A deleted slot kept its `savcos.dat`.** Vanilla `deleteSave` removes only its own files, so a new
+  game in that slot took seeds stored for another world's save ids (and would now count as a co-op
+  world). The seed file is deleted with the slot (`SaveManager.deleteSave` postfix).
 
 ---
 

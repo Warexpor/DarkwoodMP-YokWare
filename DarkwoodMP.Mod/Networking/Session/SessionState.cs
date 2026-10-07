@@ -64,6 +64,9 @@ namespace DWMPHorde.Networking
         /// <summary>Host: a waiting title client was told the host world is shareable.</summary>
         public bool HostWasShareableForWaitingClients;
 
+        /// <summary>Host: told that the world it hosted from the pause menu must be loaded again.</summary>
+        public bool HostToldToReload;
+
         /// <summary>Host: the HostWorldReady edge was sent for the current world.</summary>
         public bool HostWorldReadyEmitted;
 

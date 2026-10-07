@@ -324,6 +324,10 @@ points to the section with the full check.
       third player joins late: still the same. Each save writes `savcos.dat` next to
       `sav.dat` (host log: `[Cosmetic] roll seeds saved: N`; a load logs
       `[Cosmetic] roll seeds from save: N`).
+- [ ] Single player stays vanilla: load a single-player save with no session; the log says
+      `[Cosmetic] single-player world: looks roll as vanilla` and no `savcos.dat` appears.
+      Host from the pause menu without loading again: the client waits and the host log says
+      `clients get it after the host loads the save again`; loading the save shares it.
 
 ## 18. Sound, voice and chat
 

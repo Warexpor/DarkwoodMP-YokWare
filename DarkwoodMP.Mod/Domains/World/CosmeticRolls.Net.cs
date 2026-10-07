@@ -159,6 +159,8 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static StreamScope EnterAnimInit(AnimationPlay ap)
         {
+            if (!_active)
+                return default;
             var scope = new StreamScope { Active = true, Outer = Random.state };
             Random.InitState(SeedFor(ap.transform, SaltAnim,
                 CosmeticKey.Salt(PlaceKey(ap.transform, withRootPlacement: false), "AnimationPlay")));
@@ -217,7 +219,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static StreamScope EnterVineSpawn(VineSpawner vs)
         {
-            if (vs == null || vs.spawned)
+            if (vs == null || vs.spawned || !_active)
                 return default;
             var scope = new StreamScope { Active = true, Outer = Random.state };
             Random.InitState(CosmeticKey.Salt(PlaceKey(vs.transform, withRootPlacement: false), "VineSpawner"));

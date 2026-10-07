@@ -135,6 +135,13 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>A deleted slot loses its roll seed file too (<see cref="CosmeticRolls.DeleteStore"/>).</summary>
+    [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.deleteSave))]
+    public static class CosmeticKeyStoreDeletePatch
+    {
+        private static void Postfix(SaveManager __instance, int profileId) => CosmeticRolls.DeleteStore(__instance, profileId);
+    }
+
     /// <summary>The shared examine decks (<see cref="DescriptionDeck"/>).</summary>
     [HarmonyPatch(typeof(DescriptionPool), nameof(DescriptionPool.getDescriptionFromPool))]
     public static class DescriptionPoolDrawPatch
