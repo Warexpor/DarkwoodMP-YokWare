@@ -270,7 +270,7 @@ movie), unless the host sets `AllowJoinDuringDream`.
   change.
 - A host that was promoted by host migration never auto-saves (its world is a
   client copy); it gets an F3 reminder instead.
-- Each save also writes `savcos.dat` next to it: the seed of every cosmetic roll on
+- Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
   a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
   of the world download.
 - A client's own single-player saves are untouched except the slot it chose for the
@@ -736,9 +736,12 @@ party events.
   exactly like the host's live one, and a reload looks like the session before it. A
   creature or prop that moved since it rolled carries the host's key to a machine
   that got it later (a creature with its sync data, a prop in the late-join catch-up).
-  This runs in single player too, because a world the host played before hosting must
-  already look the way its clients will roll it. Each object still gets a random-looking
-  roll; it is just the same one everywhere.
+  Each object still gets a random-looking roll; it is just the same one everywhere.
+  This runs in co-op worlds only: a world started in a session, and from then on its
+  slot (the `savcos.dat` file marks it), offline too. A single-player world rolls as
+  vanilla. A world loaded before hosting rolled vanilla's way, which clients cannot copy,
+  so clients get it only after the host loads the save again (HOST opens the load menu
+  for that; the host is told if it skips it).
 
 ---
 

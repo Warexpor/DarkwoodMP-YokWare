@@ -281,7 +281,8 @@ and join a different host; host migration followed by a reconnect.
   (location name, root placement, authored path; world position outside a
   location). Every roll under a saved object is stored by that object's save
   id and the names below it in `savcos.dat` next to the save (written on every
-  save, read on every load, carried by the world share), so a load rolls the
+  save, read on every load, carried by the world share; co-op worlds only: a
+  world started in a session or a slot that has the file, single player stays vanilla), so a load rolls the
   seed the host rolled, free of the float noise saved positions pick up. A
   load rolls every randomizer and keeps saved rotation / height (the save's
   A* graph was built from them). Creatures carry the host's key in their

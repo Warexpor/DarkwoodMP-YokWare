@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DWMPHorde.Logging;
+using DWMPHorde.Networking;
 using UnityEngine;
 
 namespace DWMPHorde.Sync
@@ -131,18 +132,92 @@ namespace DWMPHorde.Sync
             return string.IsNullOrEmpty(dir) ? null : Path.Combine(dir, KeyStoreFileName);
         }
 
-        /// <summary>A new world is generated (<c>Controller.generateChapter</c>): nothing carries over.</summary>
-        internal static void BeginNewWorld()
+        private static bool _active; // process-scoped: decided per world (BeginNewWorld / BeginLoad), not per session
+
+        /// <summary>
+        /// This world is a co-op world: its rolls run on seeds and it keeps <see cref="KeyStoreFileName"/>.
+        /// Decided when a world starts: a world started in a session (host or client), or a slot
+        /// that has the seed file (a world hosted before, or a client's copy of the host's world).
+        /// Anything else is single player and runs as vanilla. The seed file is the mark, so a
+        /// co-op world stays one offline, and a vanilla world becomes one when it is loaded in a
+        /// session.
+        /// </summary>
+        internal static bool Active => _active;
+
+        private static void DecideActive(SaveManager sm)
+        {
+            LanNetworkManager net = ModRuntime.Network;
+            bool session = net != null && net.Role != NetworkRole.Offline;
+            string path = StorePath(sm);
+            bool coopSlot = path != null && File.Exists(path);
+            _active = session || coopSlot;
+            ModLog.Event(LogCat.Save, "[Cosmetic] " + (_active
+                ? "co-op world (" + (session ? "in a session" : "slot has " + KeyStoreFileName) + "): looks roll on seeds"
+                : "single-player world: looks roll as vanilla"));
+        }
+
+        private static void ClearWorld()
         {
             _storedSeeds.Clear();
             _marks.Clear();
             _anchors.Clear();
         }
 
+        /// <summary>A new world is generated (<c>Controller.generateChapter</c>): nothing carries over.</summary>
+        internal static void BeginNewWorld()
+        {
+            ClearWorld();
+            DecideActive(Singleton<SaveManager>.Instance);
+        }
+
+        /// <summary>
+        /// Vanilla <c>deleteSave</c> deletes the slot's save files (a deleted profile, a new game
+        /// over it): the seed file goes with them, or the next world in the slot would read as a
+        /// co-op world and take seeds stored for another world's save ids.
+        /// </summary>
+        internal static void DeleteStore(SaveManager sm, int profileId)
+        {
+            string dir = sm != null ? sm.baseSaveDirectory : null;
+            if (string.IsNullOrEmpty(dir))
+                return;
+            string path = Path.Combine(Path.Combine(dir, "prof" + profileId), KeyStoreFileName);
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                    ModLog.Event(LogCat.Save, "[Cosmetic] slot " + profileId + " deleted: roll seed file removed");
+                }
+            }
+            catch (IOException ex)
+            {
+                ModLog.Error(LogCat.Save, "[Cosmetic] could not remove " + path, ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                ModLog.Error(LogCat.Save, "[Cosmetic] could not remove " + path, ex);
+            }
+        }
+
+        /// <summary>
+        /// Host, before a world share reads the slot: a co-op world that has not saved since it
+        /// became one (a single-player save loaded in a session) has no seed file yet; write it,
+        /// so the copy the client loads is a co-op world too.
+        /// </summary>
+        internal static void EnsureStore(SaveManager sm)
+        {
+            string path = StorePath(sm);
+            if (_active && path != null && !File.Exists(path))
+                WriteStore(sm);
+        }
+
         /// <summary><c>SaveManager.Load</c> starts: read the seeds its save carries.</summary>
         internal static void BeginLoad(SaveManager sm)
         {
-            BeginNewWorld();
+            ClearWorld();
+            DecideActive(sm);
+            if (!_active)
+                return;
             string path = StorePath(sm);
             if (path == null || !File.Exists(path))
             {
@@ -188,7 +263,7 @@ namespace DWMPHorde.Sync
         internal static void WriteStore(SaveManager sm)
         {
             string path = StorePath(sm);
-            if (path == null || sm.uniqueIdDict == null)
+            if (!_active || path == null || sm.uniqueIdDict == null)
                 return;
             var seeds = new Dictionary<long, int>(_storedSeeds.Count + _marks.Count);
             foreach (KeyValuePair<long, int> kv in _storedSeeds)

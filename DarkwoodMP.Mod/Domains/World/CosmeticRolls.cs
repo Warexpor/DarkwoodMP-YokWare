@@ -42,8 +42,7 @@ namespace DWMPHorde.Sync
     /// descriptor (<see cref="KeyOfCharacter"/> / <see cref="ApplyCharacterKey"/>), props in the
     /// late-join bulk (<see cref="SendMovedTo"/>).
     /// </para>
-    /// Runs with or without a session: a host's world from before it hosted must already look the
-    /// way its clients will roll it.
+    /// Co-op worlds only (<see cref="Active"/>): a single-player world rolls as vanilla.
     /// </summary>
     internal static partial class CosmeticRolls
     {
@@ -416,7 +415,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static void NoteAwake(SpriteRandomizer sr)
         {
-            if (sr == null || !Core.loadingGame)
+            if (sr == null || !_active || !Core.loadingGame)
                 return;
             _loadInits.Remove(sr);
             _loadInits.Add(sr, LoadMark);
@@ -458,7 +457,7 @@ namespace DWMPHorde.Sync
         /// <summary><c>SpriteRandomizer.init</c> prefix: false (the roll is taken over, now or after its save id).</summary>
         internal static bool InitPrefix(SpriteRandomizer sr)
         {
-            if (sr == null || sr.initialized)
+            if (sr == null || sr.initialized || !_active)
                 return true;
             if (!Hold(sr))
                 RollSprite(sr);
@@ -472,7 +471,7 @@ namespace DWMPHorde.Sync
         internal static bool ParallaxInitPrefix(Parallax parallax, out bool running)
         {
             running = false;
-            if (parallax == null)
+            if (parallax == null || !_active)
                 return true;
             if (Hold(parallax))
                 return false;
@@ -493,7 +492,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static StreamScope EnterParallaxLayer(Transform layer)
         {
-            if (layer == null)
+            if (layer == null || !_active)
                 return default;
             var scope = new StreamScope { Active = true, Outer = Random.state };
             Random.InitState(SeedFor(layer, SaltParallax, CosmeticKey.Salt(PlaceKey(layer, withRootPlacement: true), "Parallax")));
