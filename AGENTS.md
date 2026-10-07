@@ -133,7 +133,7 @@ The host runs the world. A client should barely notice they are not the host: en
 - **Shared world.** Items are unique (no per-player copies); anything one player opens is open for all; 3+ players must really work.
 - **"Works" = dual-box playtest**, not a green build. Check both `LogOutput.log` files.
 - **Git:** commit locally at each deploy; push only playtest-confirmed batches (one push per confirmed set). The GitHub account was flagged before for frequent activity.
-- **Subagents:** read-only digging (surveys, decompile/log lookups, report-only audits) on Sonnet; code-writing on Opus. Worktree workers start on stale `master`: reset to `dev` first.
+- **Subagents:** read-only digging (surveys, decompile/log lookups, report-only audits) on Sonnet; code-writing on Opus. Worktree workers start on a stale base: reset to the working branch `dev` first (`main` holds merged, playtest-confirmed batches).
 - No emojis in replies.
 - **Playtest loop:** user playtests → agent reads both `LogOutput.log` files (user reports bugs, if any) → fix, build/deploy, md5-check both plugin DLLs, CHANGELOG, local commit → next playtest. The user quits the game right when something goes wrong, so the bug sits at the **end** of the logs: read the tails first. An abrupt log end is the user quitting, not a crash, unless an exception shows. BepInEx overwrites `LogOutput.log` on every launch, so read it before the next run.
 
