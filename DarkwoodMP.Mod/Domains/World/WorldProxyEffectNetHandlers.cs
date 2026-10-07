@@ -296,9 +296,17 @@ namespace DWMPHorde.Networking
             src.maxDistance = Mathf.Clamp(itemMax, 80f, LocalAudioService.DefaultMaxSpatialDistance);
         }
 
+        /// <summary>
+        /// Other players' movement (steps, clothes, dodge and landing steps) a little under their
+        /// other sounds, so this player's own steps stay in front (config PeerMovementVolume).
+        /// </summary>
+        internal static float PeerMovementVolume
+            => Config.ModConfig.PeerMovementVolume != null ? Mathf.Clamp01(Config.ModConfig.PeerMovementVolume.Value) : 1f;
+
         /// <summary>A peer's one-shot at its stand-in, 3D from its first moment (<see cref="PeerSpatialPlay"/>).</summary>
         private static void PlayProxyOneShot(string soundId, Transform at, float volume)
         {
+            volume *= PeerMovementVolume;
             PeerSpatialPlay.Play(() => AudioController.Play(soundId, at, volume),
                 src => ForceSpatialProxyOneShot(src, soundId));
         }

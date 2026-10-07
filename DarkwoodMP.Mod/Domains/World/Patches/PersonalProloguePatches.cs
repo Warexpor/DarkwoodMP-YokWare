@@ -84,57 +84,68 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Player.SaveState), nameof(Player.SaveState.loadValues2))]
     public static class PrologueFreshCharacterOvenPatch
     {
-        private static bool Prefix()
+        private static bool Prefix(Player.SaveState __instance)
         {
             if (!PersonalPrologue.FreshCharacterLoad)
                 return true;
             Dreams d = Dreams.Instance;
             if (d != null)
                 d.wantToDream = false;
+            // The save's home oven is the host's; on a world nobody has moved home in yet that is
+            // the hideout's, the one vanilla gives a new game.
+            _saveHome = Helpers.getComponentFromID<ExperienceMachine>(__instance.expMachineId);
             SetNewGameHome(Player.Instance);
             DWMPHorde.Networking.ClientStateBackup.ResetPlayerFlagsForNewCharacter();
             return false;
         }
 
+        private static ExperienceMachine _saveHome; // process-scoped: the join load's save home oven, a fallback until the hideout is known
+
         /// <summary>
         /// What vanilla's skipped <c>loadValues2</c> does for a player who never examined an oven
         /// (<c>setExperienceMachine(home, doEnable: false)</c>), with a new game's home: the
-        /// hideout's default oven (<c>isDefaultExpMachine</c>). <c>setAsDefaultExpMachine</c> lights
-        /// it (light, hum, smoke) and gives it the lit portrait the oven's first dialogue needs. Left
-        /// to the oven's own <c>Start</c>, a joiner met it unlit and got the unlit greeting.
+        /// hideout's oven. <c>setAsDefaultExpMachine</c> lights it (light, hum, smoke) and gives it
+        /// the lit portrait the oven's first dialogue needs. Left to the oven's own <c>Start</c>, a
+        /// joiner met it unlit and got the unlit greeting.
         /// </summary>
         internal static void SetNewGameHome(Player p)
         {
             if (p == null)
                 return;
-            // Not through WorldGenerator.playerBase: the save sets it only after the player block
-            // (SaveManager loads the world generator's state later), so here it was still unset
-            // and the joiner's hideout oven was left unlit. The hideout's oven is the world's one
-            // default oven; the prologue pads' copies are not the world.
+            // The hideout is WorldGenerator.playerBase, but the save sets that only after the
+            // player block (the world generator's state loads later): at loadValues2 it is unset,
+            // and the save's own home oven stands in until the fresh character is placed in the
+            // hideout. The oven's isDefaultExpMachine is not the test: the hideout a world
+            // generates is a preset whose oven does not carry it (a lookup on it found none, and
+            // the oven stayed dark); vanilla lights the save's home oven instead.
             WorldGenerator wg = Singleton<WorldGenerator>.Instance;
-            ExperienceMachine[] ovens = wg != null && wg.playerBase != null
-                ? wg.playerBase.GetComponentsInChildren<ExperienceMachine>(true)
-                : UnityEngine.Object.FindObjectsOfType<ExperienceMachine>(true);
             ExperienceMachine home = null;
-            foreach (ExperienceMachine em in ovens)
+            int found = 0;
+            if (wg != null && wg.playerBase != null)
             {
-                if (em != null && em.isDefaultExpMachine && em.gameObject.scene.IsValid()
-                    && !PersonalPrologue.IsOnProloguePad(em.transform))
+                foreach (ExperienceMachine em in wg.playerBase.GetComponentsInChildren<ExperienceMachine>(true))
                 {
-                    home = em;
-                    break;
+                    if (em == null || PersonalPrologue.IsOnProloguePad(em.transform))
+                        continue;
+                    found++;
+                    if (home == null || (em.isDefaultExpMachine && !home.isDefaultExpMachine))
+                        home = em;
                 }
             }
+            if (home == null && _saveHome != null && !PersonalPrologue.IsOnProloguePad(_saveHome.transform))
+                home = _saveHome;
             if (home == null)
             {
-                ModLog.Warn(LogCat.Session, "[Prologue] no default oven in the hideout for the fresh character");
+                ModLog.Warn(LogCat.Session, "[Prologue] no oven for the fresh character's home (hideout="
+                    + (wg != null && wg.playerBase != null ? wg.playerBase.name : "unset") + ", ovens there=" + found
+                    + ", save home=" + (_saveHome != null ? _saveHome.name : "none") + ")");
                 return;
             }
             string was = p.experienceMachine != null ? p.experienceMachine.name + " at " + p.experienceMachine.transform.position : "none";
             // Not the host's home: setExperienceMachine would put that one out.
             p.experienceMachine = null;
             p.setExperienceMachine(home, doEnable: false);
-            ModLog.Event(LogCat.Session, "[Prologue] fresh character's home oven: " + home.transform.position
+            ModLog.Event(LogCat.Session, "[Prologue] fresh character's home oven: " + home.name + " at " + home.transform.position
                 + " lit=" + (home.light2D != null && home.light2D.activeSelf) + " (was " + was + ")");
         }
     }
