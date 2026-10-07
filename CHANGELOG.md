@@ -37,7 +37,10 @@ tested in the game.
 ## 0.8.145 — Joining a world shared during the host's prologue
 
 On top of 0.8.144. **Protocol 42 (unchanged).** Product **0.8.144 → 0.8.145**. Built and
-unit-tested; **runtime is not playtested**.
+unit-tested. Playtested up to the client's own prologue: the join load passes (`[Load] saved in
+location 'dream_tutorial_00' ...`), the host shares the world once, and the client's prologue
+starts. Quitting during the prologue logs no error (the 0.8.144 dream-teardown fix). Not yet
+seen: looks side by side after the prologue.
 
 ### Fixed
 
