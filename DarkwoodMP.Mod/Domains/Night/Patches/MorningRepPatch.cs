@@ -92,12 +92,13 @@ namespace DWMPHorde.Patches
                 CharBase cb = proxy.CachedCharBase;
                 if (cb != null && !cb.alive)
                     continue;
-                // Each player is rewarded by the trader of the hideout it greets the morning in.
+                // Standing with the morning's trader, at the rate of the hideout the player greets the
+                // morning in (he came to one hideout; the others still earned it).
                 Location loc = Location.getAtPos(proxy.transform.position);
                 if (loc == null || !HostAwayMorning.HadMorning(loc))
                     continue;
 
-                NPC trader = loc.trader != null ? loc.trader.GetComponent<NPC>() : null;
+                NPC trader = HostAwayMorning.MorningTrader;
                 bool traderRep = trader != null && flags != null && !flags.isFlagTrue("talkingTree_burnt");
                 int repGain = traderRep ? MorningRewardTable.ReputationFor(loc.hideoutId, loc.chapterId) : 0;
                 string traderName = traderRep ? trader.name : string.Empty;
@@ -122,9 +123,12 @@ namespace DWMPHorde.Patches
     /// clock and several players, players greet the morning in different hideouts, or the host
     /// is out in the forest: only the host's hideout (or nobody's) got a morning. Every hideout a
     /// living player stands in now gets the world half of vanilla's morning: the end-of-night
-    /// effect, its lights, its trader (the Wolfman's visit goes to one hideout only, the first,
-    /// as he is one man), the night's creatures cleared. The host gets no reward or end-of-night
-    /// screen effect where it is not home; with the host away the morning freeze is the clock alone.
+    /// effect, its lights, the night's creatures cleared. The morning visitor (the night trader, or
+    /// the Wolfman on his mornings) is one man and comes to one hideout only, the one with the most
+    /// players (<see cref="MorningVisitorPolicy"/>): every occupied hideout spawned its own trader,
+    /// two copies of one man. The players elsewhere still get their standing and walk over to trade.
+    /// The host gets no reward or end-of-night screen effect where it is not home; with the host
+    /// away the morning freeze is the clock alone.
     /// </summary>
     internal static class HostAwayMorning
     {
@@ -132,20 +136,32 @@ namespace DWMPHorde.Patches
         private static readonly List<Location> _extra = new List<Location>(4); // reset-in: Reset
         private static Location _hostHome; // reset-in: Reset
         private static Controller _frozeClock; // reset-in: ReleaseClock (called from Reset)
+        /// <summary>The night trader who came this morning (null: the Wolfman came, or nobody).</summary>
+        private static NPC _trader; // reset-in: Reset
 
         /// <summary>This hideout had a morning (the host's own, or one run here).</summary>
         internal static bool HadMorning(Location loc)
             => loc != null && (loc == _hostHome || _extra.Contains(loc));
 
+        /// <summary>The night trader who came this morning, wherever he went.</summary>
+        internal static NPC MorningTrader => _trader != null ? _trader : null;
+
         internal static void TryRun(LanNetworkManager net, Controller ctrl)
         {
             _extra.Clear();
+            _trader = null;
             Player host = Player.Instance;
             Location hostLoc = host != null && host.whereAmI != null ? host.whereAmI.bigLocation : null;
             // Vanilla ran it where the host stands when that is a hideout (isAfterNight set).
             _hostHome = ctrl.isAfterNight && hostLoc != null && hostLoc.playerBase ? hostLoc : null;
-            bool wolfPlaced = _hostHome != null;
+            // Read before anything moves: vanilla's choice at the host's hideout already ran.
+            bool wolf = WolfComes();
 
+            var homes = new List<Location>(4);
+            var counts = new List<int>(4);
+            var lowestIds = new List<int>(4);
+            if (_hostHome != null)
+                Count(homes, counts, lowestIds, _hostHome, net.LocalPlayerId);
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
                 if (proxy == null)
@@ -154,35 +170,105 @@ namespace DWMPHorde.Patches
                 if (cb != null && !cb.alive)
                     continue;
                 Location loc = Location.getAtPos(proxy.transform.position);
-                if (loc == null || !loc.playerBase || HadMorning(loc))
-                    continue;
-                RunOn(ctrl, loc, mayGetWolf: !wolfPlaced);
-                wolfPlaced = true;
-                _extra.Add(loc);
+                if (loc != null && loc.playerBase)
+                    Count(homes, counts, lowestIds, loc, proxy.PlayerId);
             }
+            int pick = MorningVisitorPolicy.Pick(counts.ToArray(), lowestIds.ToArray(),
+                _hostHome != null ? homes.IndexOf(_hostHome) : -1);
+            Location visited = pick >= 0 ? homes[pick] : null;
+
+            for (int i = 0; i < homes.Count; i++)
+            {
+                if (homes[i] == _hostHome)
+                    continue;
+                RunOn(ctrl, homes[i], homes[i] == visited, wolf);
+                _extra.Add(homes[i]);
+            }
+            if (_hostHome != null && visited != null && visited != _hostHome)
+                MoveVisitor(_hostHome, visited);
+            if (visited != null && visited.trader != null)
+                _trader = visited.trader.GetComponent<NPC>();
         }
 
-        private static void RunOn(Controller ctrl, Location loc, bool mayGetWolf)
+        private static void Count(List<Location> homes, List<int> counts, List<int> lowestIds, Location loc, int playerId)
         {
-            ctrl.isAfterNight = true;
-            Core.AddPrefab("FX/efekt_konca_nocy", loc.transform.position, Quaternion.identity, null);
-            // Same wolf / trader choice as vanilla Controller.startAfterNight.
+            int i = homes.IndexOf(loc);
+            if (i < 0)
+            {
+                homes.Add(loc);
+                counts.Add(1);
+                lowestIds.Add(playerId);
+                return;
+            }
+            counts[i]++;
+            if (playerId < lowestIds[i])
+                lowestIds[i] = playerId;
+        }
+
+        /// <summary>Same wolf / trader choice as vanilla <c>Controller.startAfterNight</c>.</summary>
+        private static bool WolfComes()
+        {
             var flags = Singleton<Flags>.Instance;
             var wg = Singleton<WorldGenerator>.Instance;
-            bool wolf = mayGetWolf && !flags.isFlagTrue("wolf_killed")
+            return !flags.isFlagTrue("wolf_killed")
                 && (flags.isFlagTrue("wolf_inPlayerHideout")
                     || (!flags.isFlagTrue("wolf_cameToPlayerHideout")
                         && !flags.isFlagTrue("wolf_shownOpeningDialogue")
                         && (wg == null || wg.chapterID <= 1)));
-            if (wolf)
+        }
+
+        /// <summary>
+        /// Vanilla put the visitor at the host's hideout; he walks over to the fuller one. Moved, not
+        /// destroyed and respawned: vanilla's reputation popup reads that trader 3 s later.
+        /// </summary>
+        private static void MoveVisitor(Location from, Location to)
+        {
+            if (from.wolf != null && to.wolf == null && to.wolfPosition != null)
+            {
+                Transform spot = to.wolfPosition.transform;
+                Place(from.wolf, to, spot.position, Quaternion.Euler(90f, spot.rotation.eulerAngles.y, 0f));
+                to.wolf = from.wolf;
+                from.wolf = null;
+            }
+            if (from.trader != null && to.trader == null && to.traderPosition != null)
+            {
+                Transform spot = to.traderPosition.transform;
+                Vector3 euler = to.chapterId == 2 ? spot.rotation.eulerAngles : Vector3.zero;
+                euler.x = 90f;
+                Place(from.trader, to, spot.position, Quaternion.Euler(euler));
+                to.trader = from.trader;
+                from.trader = null;
+            }
+            ModRuntime.LegacyInfo($"[DayNight] morning visitor goes to '{to.name}', not the host's '{from.name}'");
+        }
+
+        private static void Place(GameObject go, Location to, Vector3 pos, Quaternion rot)
+        {
+            Transform t = go.transform;
+            t.SetParent(to.characters, worldPositionStays: true);
+            t.SetPositionAndRotation(pos, rot);
+            // Where he returns to when he strays (set from his spawn spot once he initialises).
+            Character ch = go.GetComponent<Character>();
+            if (ch != null && ch.baseLocation != null)
+            {
+                ch.baseLocation = to;
+                ch.baseCharacters = to.characters;
+                ch.spawnPoint = pos;
+            }
+        }
+
+        private static void RunOn(Controller ctrl, Location loc, bool visited, bool wolf)
+        {
+            ctrl.isAfterNight = true;
+            Core.AddPrefab("FX/efekt_konca_nocy", loc.transform.position, Quaternion.identity, null);
+            if (visited && wolf)
             {
                 loc.spawnWolf();
             }
-            else
+            else if (visited)
             {
-                if (mayGetWolf)
-                    loc.despawnWolf();
-                if (!flags.isFlagTrue("talkingTree_burnt"))
+                loc.despawnWolf();
+                if (!Singleton<Flags>.Instance.isFlagTrue("talkingTree_burnt"))
                     loc.spawnTrader();
             }
             ctrl.gaveAfterNightRewards = true;
@@ -195,7 +281,7 @@ namespace DWMPHorde.Patches
                 ctrl.DoUpdateTime = false;
                 _frozeClock = ctrl;
             }
-            ModRuntime.LegacyInfo($"[DayNight] morning at peer hideout '{loc.name}'");
+            ModRuntime.LegacyInfo($"[DayNight] morning at peer hideout '{loc.name}'{(visited ? " (visitor comes here)" : string.Empty)}");
         }
 
         /// <summary>Host endAfterNight: vanilla despawns the trader where the host stands, not at these.</summary>
@@ -209,6 +295,7 @@ namespace DWMPHorde.Patches
             }
             _extra.Clear();
             _hostHome = null;
+            _trader = null;
             ReleaseClock();
         }
 
@@ -217,6 +304,7 @@ namespace DWMPHorde.Patches
         {
             _extra.Clear();
             _hostHome = null;
+            _trader = null;
             ReleaseClock();
         }
 

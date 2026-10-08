@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.168**. The current Horde wire protocol is **44** (held for 0.8.166 to 0.8.168, bumped in 0.8.165: `ScenarioEventFired` gains the
+**0.8.169**. The current Horde wire protocol is **44** (held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167, same DLL on both installs).
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
@@ -37,6 +37,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.169 — One morning trader, at the fullest hideout
+
+On top of 0.8.168. Protocol **44** unchanged.
+
+**Fixed**
+- Players greeting the dawn in two hideouts each got a night trader: the host's hideout had
+  vanilla's, and the mod's per-hideout morning spawned another at every peer's hideout, two copies
+  of one man. The morning visitor (the night trader, or the Wolfman on his mornings) now comes to
+  one hideout only: the one with the most living players; a tie goes to the host's hideout, else
+  to the hideout of the lowest player id. If that is not the host's, vanilla's trader (or wolf) is
+  moved there, not destroyed, so vanilla's reputation popup still finds him. Every surviving
+  player at a hideout still gets the morning standing for that hideout (the others walk over to
+  trade). Files: `MorningRepPatch.cs` (`HostAwayMorning`), `CoopPolicy.NpcNight.cs`
+  (`MorningVisitorPolicy`, test added), `HOW_COOP_WORKS.md`.
 
 ## 0.8.168 — Desync check: an object on a grid line is one object
 

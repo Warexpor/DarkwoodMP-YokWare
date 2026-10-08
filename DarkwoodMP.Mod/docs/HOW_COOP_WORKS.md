@@ -374,10 +374,11 @@ code, not yet playtested).
 - **The host does not have to be home.** If the host is away, the night type is
   picked at a peer's hideout, and night events never land inside location pads.
 - **Morning is per hideout and per player.** Every hideout a living player greets
-  the dawn in gets its own morning: the screen effect, the trader, cleared night
-  creatures. Each surviving player standing in a hideout at dawn gets their own
-  reward (trader standing). A player who is not home at dawn, or who died that
-  night, gets none (as in vanilla).
+  the dawn in gets its own morning: the screen effect, cleared night creatures.
+  The trader (or the Wolfman) is one man and comes to one hideout: the one with
+  the most players, a tie going to the host's. Each surviving player standing in
+  a hideout at dawn gets their own reward (trader standing), trader there or not.
+  A player who is not home at dawn, or who died that night, gets none (as in vanilla).
 - **The morning holds until the hideout is empty.** One player walking out does not
   despawn the trader for the others. The trader restocks only when nobody is
   trading with it.

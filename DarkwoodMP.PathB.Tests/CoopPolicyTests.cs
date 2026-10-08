@@ -20,6 +20,21 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void MorningVisitor_GoesToTheFullestHideout_TieToTheHost()
+    {
+        // Most players wins, even over the host's hideout.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 2 }, new[] { 1, 2 }, hostIndex: 0));
+        // A tie goes to the host's hideout.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 1 }, new[] { 2, 1 }, hostIndex: 1));
+        Assert.Equal(0, MorningVisitorPolicy.Pick(new[] { 1, 1, 1 }, new[] { 1, 2, 3 }, hostIndex: 0));
+        // Host not home: the tie goes to the lowest player id.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 1 }, new[] { 4, 3 }, hostIndex: -1));
+        // A tie the host is not part of: lowest id among the fullest.
+        Assert.Equal(2, MorningVisitorPolicy.Pick(new[] { 1, 2, 2 }, new[] { 1, 5, 3 }, hostIndex: 0));
+        Assert.Equal(-1, MorningVisitorPolicy.Pick(new int[0], new int[0], hostIndex: -1));
+    }
+
+    [Fact]
     public void TimePolicy_ClientConnected_SuppressesClock()
     {
         // Also gates Controller.useTimeSkip on connected clients (beds / wait-until-evening).
