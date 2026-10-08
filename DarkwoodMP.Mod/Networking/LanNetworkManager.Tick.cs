@@ -55,6 +55,7 @@ namespace DWMPHorde.Networking
             Sync.MapPinBoard.Tick();
             BulkSyncHandlers?.TryFlushPendingHideoutState();
             ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();
+            ContainerPendingHandlers?.TryFlushPendingEntityStates();
             TradeHandlers.TryFlushPendingTradeInventories();
             LockHandlers.TryFlushPendingConstructibles();
             StationHandlers.TryFlushPendingSawStates();

@@ -13,6 +13,24 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(EventTriggerRequirement), "requirementsMet")]
     public static class EventTriggerRequirementAnyPeerPatch
     {
+        /// <summary>
+        /// Host out in the forest: vanilla's location check has no location of its own to read
+        /// ("No location for player found") and answers false; the postfix below answers for the
+        /// player the trigger belongs to, or any player's location.
+        /// </summary>
+        private static bool Prefix(EventTriggerRequirement __instance, ref bool __result)
+        {
+            if (__instance == null || __instance.type != EventTriggerRequirement.Type.locationState)
+                return true;
+            if (!EventTriggersAuth.IsMultiplayerConnected())
+                return true;
+            Player p = Player.Instance;
+            if (p == null || p.whereAmI == null || p.whereAmI.bigLocation != null)
+                return true;
+            __result = false;
+            return false;
+        }
+
         private static void Postfix(EventTriggerRequirement __instance, ref bool __result)
         {
             if (__instance == null) return;

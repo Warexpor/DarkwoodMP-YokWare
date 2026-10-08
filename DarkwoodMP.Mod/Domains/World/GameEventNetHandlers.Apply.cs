@@ -123,13 +123,10 @@ namespace DWMPHorde.Networking
                     return true;
                 }
 
+                // Not here yet (a just-spawned object settles its height in its Start, the frame
+                // after the spawn): queued, and the flush retries until it ages out, which warns.
                 if (queueIfMissing)
-                {
                     QueuePendingGameEvent(msg);
-                    return false;
-                }
-                ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
-                    $"[GameEventsSync] no GameEvents near {pos} name='{msg.EventName}'");
                 return false;
             }
 
@@ -458,6 +455,8 @@ namespace DWMPHorde.Networking
                 float maxAge = dreamish ? PendingDreamGameEventsMaxAge : PendingGameEventsMaxAge;
                 if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
+                    ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
+                        $"[GameEventsSync] no GameEvents near ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) name='{msg.EventName}' after {maxAge:F0}s, dropped");
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);
                     continue;

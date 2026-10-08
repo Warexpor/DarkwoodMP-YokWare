@@ -991,8 +991,13 @@ namespace DWMPHorde.Networking
         /// player's own world location). A client replays it only when it stands in one of them.
         /// </summary>
         public string Anchors;
-        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); }
-        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString() };
+        /// <summary>
+        /// The night's scenario by name: nightId is not unique (Night_h1_1 and Night_h1_2 both carry
+        /// 0), and the first scenario with the id was taken, another night's event list.
+        /// </summary>
+        public string ScenarioName;
+        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); w.Put(ScenarioName ?? string.Empty); }
+        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString(), ScenarioName = r.GetString() };
     }
 
     /// <summary>

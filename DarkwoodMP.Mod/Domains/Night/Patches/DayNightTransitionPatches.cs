@@ -22,6 +22,17 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState || TraverseHack.ApplyingFromNetwork)
                 return true;
 
+            // Host death or respawn (vanilla Player.resetState ends the morning) while a peer is
+            // still in its hideout: the morning is the hideout's, as when the host walks out
+            // (MorningHideoutExitPatch). It ended the freeze and the trader's visit for everyone.
+            if (net.Role == NetworkRole.Host && MorningResetStateScope.Active
+                && __instance != null && __instance.isAfterNight && MorningHideoutHold.SomeoneStillInside())
+            {
+                __instance.removeAfterNightEffect();
+                ModRuntime.LegacyInfo("[DayNight] host reset (death/respawn) — hideout still occupied, morning stays");
+                return false;
+            }
+
             // Client: never run SP world end (trader destroy + CurrentTime++ + refreshTime).
             // Host will end once and TimeSync IsAfterNight=false for everyone.
             if (net.Role == NetworkRole.Client)
@@ -56,6 +67,17 @@ namespace DWMPHorde.Patches
             net.SendTimeSyncTo(-1);
             ModRuntime.LegacyInfo("[DayNight] host endAfterNight → TimeSync");
         }
+    }
+
+    /// <summary>Inside vanilla <c>Player.resetState</c> (death, respawn, a wake-up).</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.resetState))]
+    public static class MorningResetStateScope
+    {
+        internal static bool Active; // process-scoped: call-scoped, set and cleared around one resetState
+
+        private static void Prefix() => Active = true;
+
+        private static void Finalizer() => Active = false;
     }
 
     /// <summary>Host day-chain edges: flush TimeSync so peers do not lag up to 2s.</summary>

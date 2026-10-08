@@ -3,7 +3,8 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.164**. The current Horde wire protocol is **43** (held for 0.8.163 and 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
+**0.8.165**. The current Horde wire protocol is **44** (bumped in 0.8.165: `ScenarioEventFired` (msg) gains the scenario name.
+43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
 42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
@@ -33,6 +34,53 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.165 — Night soak fixes: the right night on clients, creatures of a peer's hideout, the morning a host death ended
+
+On top of 0.8.164. Protocol **44** (`ScenarioEventFired` carries the scenario's name). Found by an
+unattended night soak (new world, prologue skipped, both players invulnerable, five nights with
+the players together, split between hideouts, and out in the forest). Not playtested yet.
+
+**Fixed**
+- **Clients ran another night's events.** Night scenarios share their `nightId` (Night_h1_1,
+  Night_h1_2 and the chapter's other nights all carry 0), and the client looked a fired event up
+  by that id: the first scenario with it, Night_h1_1, replaced the night the host sent at dusk.
+  From the second night on the client played the wrong event lists (index out of range), never
+  built the scenes the host's events played in (no knocking visitor, no vortex, no gore, dozens of
+  "no GameEvents near" per night), and its night state never matched. The event now names its
+  scenario; the host's resend guard goes by scenario too. Files: `SyncMessages.cs`,
+  `ScenarioRandomEventSyncPatches.cs`, `NightNetHandlers.Scenario.cs`.
+- **Night creatures of a peer's hideout went for the host's.** Vanilla gives a spawned
+  creature its door, window or barricade from `Player.Instance`'s location, and "closest to the
+  player" measures from the host. A scene the host played in a client's hideout got a target
+  across the map, or none with the host out in the forest ("Player location not found for
+  spawned character", "No activity target"), and the creature idled outside. Targets now come
+  from the player the scene plays for (the acting player, else the nearest living player in a
+  world location). File: `NightSceneTargetPatches.cs` (new).
+- **The host dying in the morning ended it for everyone.** Vanilla `Player.resetState` (death,
+  respawn) ends the morning; with a client still in its hideout that ended the freeze and the
+  trader's visit for it. It now stays while the hideout is occupied, as when the host walks out.
+- **A creature's loot could land in a nearby chest.** The host rolls a night spawn's inventory as
+  it spawns, before the creature reaches the client; the client then fell back to the nearest
+  container by position. It now waits for the creature (a story NPC the client never maps still
+  gets it where it stands). File: `ContainerPendingNetHandlers.cs`.
+- Host out in the forest: vanilla's location requirement logged "No location for player found"
+  before the co-op answer replaced it; it no longer runs there.
+- The desync check counted a night-dead host as alive (vanilla's death screen puts the body back
+  up for spectating).
+- A night event's GameEvents not loaded yet (a just-spawned mushroom settles its height the next
+  frame) warned on every retry; it now warns only when it gives up.
+
+**Tooling**
+- Pilot: `oven` (make the nearest oven home, as the first talk's Cook does), `time` sends the clock
+  at once, `status` shows the scenario, current event and home oven. `scripts/pilot/night-soak.sh`
+  (many nights over spots of the world) and `godkeep.sh`.
+
+**Seen, vanilla**
+- "Dodaję aktywność do postaci…" (a scene adds a task to a creature still running one) comes from
+  vanilla `GameEvent` and was logged with one scene per hideout; left as is.
 
 ---
 

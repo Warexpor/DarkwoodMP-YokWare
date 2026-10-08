@@ -224,7 +224,9 @@ namespace DWMPHorde.Sync
                 float maxHp = local.maxHealth > 0f ? local.maxHealth : 1f;
                 int hp = Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
                 CharBase cb = local.GetComponent<CharBase>();
-                Add(into, "p" + I(ctx.Net.LocalPlayerId), PlayerValue(local.alive, hp,
+                // Down until morning after a night death: vanilla's death screen puts the body back
+                // up (alive) for spectating, while every peer's stand-in for it lies dead.
+                Add(into, "p" + I(ctx.Net.LocalPlayerId), PlayerValue(local.alive && !DeathStateTracker.LocalNightDeath, hp,
                     cb != null && cb.poisoned, cb != null && cb.bleeding,
                     WorldProxyEffectNetHandlers.LearnedSkillNames(local)));
             }

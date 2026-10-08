@@ -314,7 +314,11 @@ namespace DWMPHorde.Sync
                     return;
                 case "time":
                     if (net.Role != NetworkRole.Host) { Out("  host only"); return; }
+                    // A jump inside the day only: the per-minute edges in between (dawn, nightfall)
+                    // are skipped, as they would be for any clock set by hand.
                     Singleton<Controller>.Instance.CurrentTime = int.Parse(a[1], CultureInfo.InvariantCulture);
+                    Singleton<Controller>.Instance.refreshTimeNoLogic();
+                    net.SendTimeSyncTo(-1);
                     Out("  time=" + Singleton<Controller>.Instance.CurrentTime);
                     return;
                 case "prologue":
@@ -601,6 +605,17 @@ namespace DWMPHorde.Sync
                     Out("  xp=" + p.experience + " recipes=" + (p.recipes != null ? p.recipes.Count : 0) + sb);
                     return;
                 }
+                case "oven":
+                {
+                    // Make the nearest oven this player's home, as picking Cook in its first talk
+                    // does (DialogueWindow.close: setExperienceMachine, which lights it).
+                    var ovens = new List<ExperienceMachine>(UnityEngine.Object.FindObjectsOfType<ExperienceMachine>());
+                    ExperienceMachine em = Nearest(ovens, a.Length > 1 ? F(a[1]) : 15f);
+                    if (em == null) { Out("  no oven near"); return; }
+                    p.setExperienceMachine(em);
+                    Out("  home " + em.name + "@" + Pos(em.transform.position) + " lit=" + em.isOn);
+                    return;
+                }
                 case "say":
                     Out("  " + string.Join(" ", a, 1, a.Length - 1));
                     return;
@@ -630,6 +645,11 @@ namespace DWMPHorde.Sync
                 .Append(" timeScale=").Append(Time.timeScale.ToString("0.##", CultureInfo.InvariantCulture))
                 .Append(" inOutsideLoc=").Append(Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.playerInOutsideLocation)
                 .Append(" afterNight=").Append(c != null && c.isAfterNight);
+            NightScenarios ns = Singleton<NightScenarios>.Instance;
+            NightScenario sc = ns != null ? ns.currentScenario : null;
+            sb.Append(" scenario=").Append(sc != null ? sc.name : "-")
+                .Append(" event=").Append(sc != null && sc.currentEvent != null ? sc.currentEvent.name : "-")
+                .Append(" home=").Append(p.experienceMachine != null ? Pos(p.experienceMachine.transform.position) + (p.experienceMachine.isOn ? " lit" : " unlit") : "-");
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
                 if (proxy != null)
                     sb.Append(" | p").Append(proxy.PlayerId).Append('@').Append(Pos(proxy.transform.position))
