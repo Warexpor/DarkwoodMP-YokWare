@@ -706,6 +706,16 @@ namespace DWMPHorde.Sync
                     Out("  " + _events.Count + (exits ? " pad exits" : " pad doors"));
                     return;
                 }
+                case "leavepad":
+                {
+                    // Back to the world from the pad the player is in (GameEvent returnToWorld).
+                    OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+                    if (outs == null || !outs.playerInOutsideLocation) { Out("  not in a pad"); return; }
+                    string from = outs.currentLocationName;
+                    outs.returnToWorld();
+                    Out("  left pad " + from);
+                    return;
+                }
                 case "talkreset":
                     _visited.Clear();
                     Out("  dialogue options forgotten");
