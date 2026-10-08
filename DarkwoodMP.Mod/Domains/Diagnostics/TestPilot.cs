@@ -44,6 +44,8 @@ namespace DWMPHorde.Sync
         private static int _talked;                 // process-scoped: talks run since the last "talkall"
         private static readonly HashSet<string> _visited = new HashSet<string>(); // process-scoped: dialogue options already picked
         private static readonly Dictionary<string, int> _decisionTurns = new Dictionary<string, int>(); // process-scoped: next branch per decision
+        private static string[] _atCmd;             // process-scoped: "at" command waiting for its moment
+        private static long _atMs;                  // process-scoped: when (Unix ms) it runs
 
         /// <summary>Each distinct Unity error or exception: the first three with their stack, then a count.</summary>
         private static void OnUnityLog(string message, string stack, LogType type)
@@ -97,6 +99,14 @@ namespace DWMPHorde.Sync
         private static void Step(LanNetworkManager net)
         {
             float now = Time.realtimeSinceStartup;
+            // "at": checked every frame, so two games told the same moment act within a frame.
+            if (_atCmd != null && _stage == Stage.InWorld && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() >= _atMs)
+            {
+                string[] cmd = _atCmd;
+                _atCmd = null;
+                Out("  at " + _atMs + ": " + string.Join(" ", cmd));
+                Run(net, cmd);
+            }
             if (now < _nextStepAt)
                 return;
             _nextStepAt = now + 0.25f;
@@ -298,6 +308,13 @@ namespace DWMPHorde.Sync
                 case "wait":
                     _waitUntil = Time.realtimeSinceStartup + F(a[1]);
                     return;
+                case "at":
+                    // "at <unix ms> <command...>": run the command at that moment (races between games).
+                    _atMs = long.Parse(a[1], CultureInfo.InvariantCulture);
+                    _atCmd = new string[a.Length - 2];
+                    Array.Copy(a, 2, _atCmd, 0, a.Length - 2);
+                    Out("  queued for " + _atMs);
+                    return;
                 case "tp":
                     p.teleportTo(new Vector3(F(a[1]), p.transform.position.y, F(a[2])), p.transform.rotation);
                     Out("  at " + Pos(p.transform.position));
@@ -321,6 +338,17 @@ namespace DWMPHorde.Sync
                     p.getHit(p.maxHealth * 2f);
                     Out("  hp=" + Mathf.RoundToInt(p.health) + " alive=" + p.alive);
                     return;
+                case "hitp":
+                {
+                    // "hitp <player id> <damage>": this player's melee hit on that player's stand-in
+                    // (what MeleeSensor does on a swing that lands: friendly fire).
+                    RemotePlayerProxy proxy = net.GetProxy(int.Parse(a[1], CultureInfo.InvariantCulture));
+                    CharBase cb = proxy != null ? proxy.CachedCharBase : null;
+                    if (cb == null) { Out("  no player " + a[1]); return; }
+                    cb.getHit(F(a[2]), p.transform, false, true, true);
+                    Out("  hit p" + a[1] + " for " + a[2] + " from " + Pos(p.transform.position));
+                    return;
+                }
                 case "hurt":
                     p.getHit(F(a[1]));
                     Out("  hp=" + Mathf.RoundToInt(p.health));
@@ -399,8 +427,7 @@ namespace DWMPHorde.Sync
                 }
                 case "endnight":
                     // What walking out of the hideout does in the morning (Location.OnTriggerExit);
-                    // a teleport fires no trigger exit.
-                    if (net.Role != NetworkRole.Host) { Out("  host only"); return; }
+                    // a teleport fires no trigger exit. On a client it asks the host, as a walk-out would.
                     Singleton<Controller>.Instance.endAfterNight();
                     Out("  afterNight=" + Singleton<Controller>.Instance.isAfterNight
                         + " clockOn=" + Singleton<Controller>.Instance.DoUpdateTime);
@@ -433,6 +460,26 @@ namespace DWMPHorde.Sync
                         CharBase cb = c.GetComponent<CharBase>();
                         return "id=" + id + " alive=" + (cb == null || cb.alive) + " active=" + c.gameObject.activeInHierarchy;
                     });
+                    return;
+                }
+                case "attached":
+                {
+                    // Characters (switched off ones too) holding objects in their attachedGameObjects, and what.
+                    int shown = 0, total = 0;
+                    foreach (CharBase cb in Resources.FindObjectsOfTypeAll<CharBase>())
+                    {
+                        if (cb == null || !cb.gameObject.scene.IsValid() || cb.attachedGameObjects == null
+                            || cb.attachedGameObjects.Count == 0)
+                            continue;
+                        total++;
+                        if (shown++ >= 30)
+                            continue;
+                        var sb = new StringBuilder();
+                        foreach (GameObject go in cb.attachedGameObjects)
+                            sb.Append(' ').Append(go == null ? "<dead>" : go.name + (go.activeSelf ? "" : "(off)"));
+                        Out("  " + cb.name + "@" + Pos(cb.transform.position) + (cb.gameObject.activeInHierarchy ? "" : "(off)") + " :" + sb);
+                    }
+                    Out("  " + total + " character(s) with attached objects");
                     return;
                 }
                 case "kill":
@@ -502,6 +549,56 @@ namespace DWMPHorde.Sync
                         Out("  " + hits[i].Value.name + "@" + Pos(hits[i].Value.position) + " d="
                             + hits[i].Key.ToString("0", CultureInfo.InvariantCulture));
                     Out("  " + hits.Count + " match(es)");
+                    return;
+                }
+                case "obj":
+                {
+                    // Scene objects named exactly so, switched off ones too: path, own and effective active.
+                    int shown = 0;
+                    foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+                    {
+                        if (t == null || !t.gameObject.scene.IsValid()
+                            || !string.Equals(t.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        var path = new StringBuilder(t.name);
+                        for (Transform q = t.parent; q != null; q = q.parent)
+                            path.Insert(0, q.name + (q.gameObject.activeSelf ? "" : "(off)") + "/");
+                        Out("  " + path + "@" + Pos(t.position) + " self=" + t.gameObject.activeSelf
+                            + " inHierarchy=" + t.gameObject.activeInHierarchy);
+                        shown++;
+                    }
+                    Out("  " + shown + " object(s)");
+                    return;
+                }
+                case "gas":
+                {
+                    // "gas [n]": pour n puddles of gasoline in a row from the player (a can's trail).
+                    int count = a.Length > 1 ? int.Parse(a[1], CultureInfo.InvariantCulture) : 1;
+                    Vector3 at = p.transform.position;
+                    for (int i = 0; i < count; i++)
+                        Core.AddPrefab("Items/GasolineTrail", at + new Vector3(20f * i, 0f, 0f), Quaternion.Euler(90f, 0f, 0f), Core.ItemContainer);
+                    Out("  poured " + count + " at " + Pos(at));
+                    return;
+                }
+                case "ignite":
+                case "liquids":
+                {
+                    // "ignite [radius]": light the nearest flammable puddle (a torch's touch).
+                    // "liquids [radius]": the flammable puddles near, culled ones too.
+                    var liquids = new List<Liquid>();
+                    foreach (Liquid l in Resources.FindObjectsOfTypeAll<Liquid>())
+                        if (l != null && l.flammable && l.gameObject.scene.IsValid())
+                            liquids.Add(l);
+                    float radius = a.Length > 1 ? F(a[1]) : 60f;
+                    if (a[0] == "liquids")
+                    {
+                        ListNear(liquids, radius, l => "burning=" + l.burning + " active=" + l.gameObject.activeInHierarchy);
+                        return;
+                    }
+                    Liquid liq = Nearest(liquids, radius);
+                    if (liq == null) { Out("  no puddle near"); return; }
+                    liq.startBurning();
+                    Out("  lit " + liq.name + "@" + Pos(liq.transform.position) + " burning=" + liq.burning);
                     return;
                 }
                 case "lightshare":
@@ -726,6 +823,70 @@ namespace DWMPHorde.Sync
                     Out("  give " + a[1] + " → " + (InvItemClass.isNull(it) ? "none" : it.type + "x" + it.amount));
                     return;
                 }
+                case "drop":
+                {
+                    // "drop <type>": throw the first stack of that item from the pack or hotbar on
+                    // the ground, as the slot menu's Drop does (InvSlot.dropItem).
+                    InvSlot slot = FindSlot(p, a[1]);
+                    if (slot == null) { Out("  no " + a[1] + " carried"); return; }
+                    string what = slot.invItem.type + "x" + slot.invItem.amount;
+                    slot.dropItem();
+                    Out("  dropped " + what + " at " + Pos(p.transform.position));
+                    return;
+                }
+                case "pickup":
+                {
+                    // Pick up the nearest item lying on the ground (Item.getDroppedItem, a click on it).
+                    var dropped = new List<Item>();
+                    foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
+                        if (it != null && it.isDroppedItem && it.GetComponent<Inventory>() != null
+                            && it.GetComponent<Inventory>().slots.Count > 0 && !InvItemClass.isNull(it.GetComponent<Inventory>().slots[0].invItem))
+                            dropped.Add(it);
+                    Item item = Nearest(dropped, a.Length > 1 ? F(a[1]) : 30f);
+                    if (item == null) { Out("  nothing on the ground near"); return; }
+                    string what = item.GetComponent<Inventory>().slots[0].invItem.type + "x" + item.GetComponent<Inventory>().slots[0].invItem.amount;
+                    Vector3 at = item.transform.position;
+                    item.getDroppedItem();
+                    Out("  picked up " + what + "@" + Pos(at));
+                    return;
+                }
+                case "ground":
+                {
+                    // Items lying on the ground near.
+                    var dropped = new List<Item>();
+                    foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
+                        if (it != null && it.isDroppedItem)
+                            dropped.Add(it);
+                    ListNear(dropped, a.Length > 1 ? F(a[1]) : 60f, it => Contents(it.GetComponent<Inventory>()));
+                    return;
+                }
+                case "cont":
+                case "loot":
+                {
+                    // "cont [radius]": the containers near and what is in them. "loot [radius]": take
+                    // everything from the nearest one that has something (InvSlot.transferItemAllToPlayer).
+                    bool take = a[0] == "loot";
+                    var conts = new List<Item>();
+                    foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
+                        if (it != null && it.hasInventory && it.GetComponent<Inventory>() != null && it.GetComponent<Inventory>().invType == Inventory.InvType.itemInv
+                            && !it.isDroppedItem
+                            && (!take || Contents(it.GetComponent<Inventory>()).Length > 0))
+                            conts.Add(it);
+                    float radius = a.Length > 1 ? F(a[1]) : 60f;
+                    if (!take)
+                    {
+                        ListNear(conts, radius, it => "[" + Contents(it.GetComponent<Inventory>()) + "]");
+                        return;
+                    }
+                    Item c = Nearest(conts, radius);
+                    if (c == null) { Out("  no container with items near"); return; }
+                    string before = Contents(c.GetComponent<Inventory>());
+                    foreach (InvSlot s in c.GetComponent<Inventory>().slots)
+                        if (s != null && !InvItemClass.isNull(s.invItem))
+                            s.transferItemAllToPlayer();
+                    Out("  looted " + c.name + "@" + Pos(c.transform.position) + " [" + before + "] → [" + Contents(c.GetComponent<Inventory>()) + "]");
+                    return;
+                }
                 case "save":
                     Singleton<SaveManager>.Instance.Save(doJson: true, doSaveProfile: true, force: true, forceSaveStatic: false,
                         showSavingIndicator: true, closeAndOpenStadiaSave: false);
@@ -762,6 +923,28 @@ namespace DWMPHorde.Sync
                     Out("  unknown command");
                     return;
             }
+        }
+
+        /// <summary>The first pack or hotbar slot holding an item of that type.</summary>
+        private static InvSlot FindSlot(Player p, string type)
+        {
+            foreach (Inventory inv in new[] { p.Inventory, p.Hotbar })
+                foreach (InvSlot s in inv.slots)
+                    if (s != null && !InvItemClass.isNull(s.invItem)
+                        && string.Equals(s.invItem.type, type, StringComparison.OrdinalIgnoreCase))
+                        return s;
+            return null;
+        }
+
+        private static string Contents(Inventory inv)
+        {
+            if (inv == null)
+                return "";
+            var sb = new StringBuilder();
+            foreach (InvSlot s in inv.slots)
+                if (s != null && !InvItemClass.isNull(s.invItem))
+                    sb.Append(sb.Length > 0 ? " " : "").Append(s.invItem.type).Append('x').Append(s.invItem.amount);
+            return sb.ToString();
         }
 
         /// <summary>Living NPCs in the loaded world that have something to say.</summary>

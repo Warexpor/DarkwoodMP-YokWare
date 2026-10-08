@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.172**. The current Horde wire protocol is **45** (held for 0.8.171 and 0.8.172, bumped in 0.8.170:
+**0.8.173**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.173, bumped in 0.8.170:
 `Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
@@ -39,6 +39,56 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.173 — Three-player runs: hidden NPCs, gas fires, a third test install
+
+On top of 0.8.172. Protocol **45** unchanged. The automated pilot now runs three players (the
+host plus two GOG clients) and covered how clients act on each other: doors, items dropped and
+picked up, containers, simultaneous pickups and loots, friendly fire, a client's day and night
+death, a client quitting and rejoining, nights with each player in a different hideout, the
+morning walk-out, a shared dialogue, chapter 2 and a full save, quit and rejoin. All of that
+matched on the three machines. Fixed:
+
+- **Hidden story NPCs showed up on clients.** When the host changed an NPC's portrait or
+  animation set (a story event does this to the act 2 Doctor, who waits switched off in every
+  location), the client's lookup for that NPC switched it on. Every client then saw and could
+  talk to a Doctor the host did not have. The same lookup ran for the host's trader stock (sent
+  for every trader, out or not) and for the NPC id remap, so a hidden trader could appear too.
+  The lookups now leave an NPC as it is. Portrait and animation changes still apply to the
+  hidden NPC, as vanilla does. Trader stock waits until that trader is out on the client.
+  `NpcAttackedIdSync.ResolveNpcNear`, `RemapHostUidToLocal`, `TradeInventorySync.FindNpcByName`,
+  `FindNpcByNameNear(wake:)`.
+- **Gas the host lit stayed unlit on a client.** When the host's ignite reached a client whose
+  copy of the puddle was culled, or not yet in physics (the join-time gas state), the client
+  found no puddle and logged `[GasIgnite] no flammable Liquid found`. The gas then sat there
+  unlit, ready to be lit a second time. That copy is now lit too and burns out on its own, as
+  on the host. `WorldPhysicsSyncService.IgniteGasAtPos`.
+
+Checked and left alone (vanilla behaviour, the same on the host):
+- `NullReferenceException` in `Core.RemovePooledPrefab` from `Character.OnDestroy` at a chapter
+  change or quit. The chapter 2 swamp's Banshees carry an authored `banshee_ambient_01`, and the
+  pool is torn down before them.
+- `FormatException` in `SaveManager.getChapterSave`. Vanilla writes the chapter save as plain
+  text but always decrypts it, then falls back to the static save.
+- `Invalid (or 0 returned) gameObjects for NightEvent_weird_moveMeWiggle_01B` in the chapter 2
+  hideout. The scene finds no waypoints of its kind there. Vanilla also parents it under the
+  big location.
+- Two bodies teleported onto one spot push apart (Unity depenetration). Only the pilot's
+  teleports do this.
+
+Tooling:
+- A third install (`ThirdDarkwood`, GOG under Proton, its own prefix) saves to
+  `LocalLow/.../Darkwood_Third`, the same isolation `SecondDarkwood` has. The build also deploys
+  to `ThirdPlugins` when `GamePath.local.props` sets it. `PersistentDataPathPatch`, csproj.
+- New pilot commands:
+  - `at <unix ms> <cmd>` runs a command at one moment on several games.
+  - `drop`, `pickup`, `ground` handle items on the ground.
+  - `cont` lists containers and `loot` empties the nearest one.
+  - `hitp` lands a friendly-fire hit on a player.
+  - `obj` finds named objects, switched-off ones included.
+  - `attached` lists the objects attached to characters.
+  - `gas`, `ignite`, `liquids` pour, light and list gasoline.
+- `endnight` now works on a client too (it asks the host, as a walk-out would).
 
 ## 0.8.172 — Vanilla parity audit: sounds, night spawns, the Shadows perk
 

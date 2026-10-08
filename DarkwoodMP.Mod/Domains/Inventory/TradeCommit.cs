@@ -85,7 +85,7 @@ namespace DWMPHorde.Patches
             };
             NpcDialogueLock.HostRenewLeaseForSender(trader, sender);
             NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                msg.NpcName, msg.InDream, trader.Pos, TradeInventorySync.SameTraderRadius);
+                msg.NpcName, msg.InDream, trader.Pos, TradeInventorySync.SameTraderRadius, wake: false);
             Inventory stock = npc != null ? npc.inventory : null;
             string why = null;
             if (stock == null)

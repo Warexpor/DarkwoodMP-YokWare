@@ -396,3 +396,5 @@ The maintainers' machine has an unattended dual-box test pilot (the `TestPilot`
 commands in the mod, driven by scripts under `scripts/pilot/` that are not part of
 this repository). It plays on real profiles: back up both save trees first and
 restore them after. Read its `[Pilot]`, `[Desync]` and Unity error lines in both logs.
+A third install (`ThirdDarkwood`, saves in `Darkwood_Third`) adds a second client for
+three-player runs; then read all three logs.

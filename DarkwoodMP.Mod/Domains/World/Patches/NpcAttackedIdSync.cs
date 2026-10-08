@@ -53,7 +53,9 @@ namespace DWMPHorde.Patches
         /// </summary>
         private static int RemapHostUidToLocal(string npcName, int hostUid)
         {
-            NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName);
+            // Read only: an inactive NPC keeps its id and stays as it is.
+            NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByName(npcName,
+                preferDreamPad: DreamSyncManager.IsDreamActive, strictPad: false, lookupOnly: true);
             if (npc != null)
             {
                 SaveableObject so = npc.GetComponent<SaveableObject>();

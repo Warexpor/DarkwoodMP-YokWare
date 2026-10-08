@@ -71,15 +71,19 @@ namespace DWMPHorde.Patches
                     return _cached;
                 }
 
-                // Auto: SecondDarkwood install path → sibling LocalLow product folder.
+                // Auto: a SecondDarkwood / ThirdDarkwood install path → sibling LocalLow product
+                // folder (Darkwood_Second / Darkwood_Third).
                 string dataPath = Application.dataPath ?? "";
-                if (dataPath.IndexOf("SecondDarkwood", StringComparison.OrdinalIgnoreCase) >= 0)
+                string suffix = dataPath.IndexOf("SecondDarkwood", StringComparison.OrdinalIgnoreCase) >= 0 ? "Second"
+                    : dataPath.IndexOf("ThirdDarkwood", StringComparison.OrdinalIgnoreCase) >= 0 ? "Third"
+                    : null;
+                if (suffix != null)
                 {
                     // unityDefault = .../Acid Wizard Studio/Darkwood
                     string parent = Path.GetDirectoryName(unityDefault);
                     if (!string.IsNullOrEmpty(parent))
                     {
-                        _cached = Path.Combine(parent, "Darkwood_Second");
+                        _cached = Path.Combine(parent, "Darkwood_" + suffix);
                         return _cached;
                     }
                 }

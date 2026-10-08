@@ -334,9 +334,10 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(msg.NpcName)) return;
 
             NPC npc = FindNpcByName(msg);
-            if (npc == null)
+            if (npc == null || !npc.gameObject.activeInHierarchy)
             {
-                // NPC may not be streamed yet — queue for flush.
+                // Not here yet, or switched off (a trader the story keeps hidden; the host sends
+                // every trader's stock, out or not): queued, applied once it is out.
                 ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }
@@ -445,17 +446,18 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal const float SameTraderRadius = 400f;
 
+        /// <summary>The trader the stock is for, out or not. A lookup never switches it on.</summary>
         public static NPC FindNpcByName(TradeInventorySyncMessage msg)
         {
             if (msg.HasPos)
                 return DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                    msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ), SameTraderRadius);
-            return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream);
+                    msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ), SameTraderRadius, wake: false);
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream, strictPad: false, lookupOnly: true);
         }
 
         public static NPC FindNpcByName(string name)
         {
-            return DialogOutcomeCloseNetHandlers.FindNpcByName(name, preferDreamPad: false);
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(name, preferDreamPad: false, strictPad: false, lookupOnly: true);
         }
     }
 
@@ -471,9 +473,9 @@ namespace DWMPHorde.Patches
             if (msg.ItemCount <= 0 || msg.ItemTypes == null) return;
 
             NPC npc = TradeInventorySync.FindNpcByName(msg.NpcName);
-            if (npc == null)
+            if (npc == null || !npc.gameObject.activeInHierarchy)
             {
-                ModRuntime.Log?.LogWarning($"[TradeSync] NPC '{msg.NpcName}' not found locally");
+                ModRuntime.Log?.LogWarning($"[TradeSync] NPC '{msg.NpcName}' not out here");
                 return;
             }
 

@@ -18,8 +18,8 @@ namespace DWMPHorde.Config
         /// <summary>Steam lobby visibility: friends | public | private.</summary>
         public static ModSetting<string> SteamLobbyType { get; private set; }
         /// <summary>
-        /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
-        /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
+        /// Override Unity LocalLow save root. Empty = default, except a SecondDarkwood / ThirdDarkwood install
+        /// auto-uses sibling folder Darkwood_Second / Darkwood_Third (multi-box isolation).
         /// </summary>
         public static ModSetting<string> SaveRootOverride { get; private set; }
         /// <summary>Last profile slot used for a permanent co-op world copy (1-5). 0 means none.</summary>
@@ -166,7 +166,7 @@ namespace DWMPHorde.Config
                 "Steam host lobby visibility: friends | public | private.");
             SaveRootOverride = config.Bind("Saves", "SaveRootOverride", "",
                 "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
-                + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
+                + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty (ThirdDarkwood to Darkwood_Third). "
                 + "Set manually if dual-box still shares a tree.");
             PreferredCoopCopySlot = config.Bind("Saves", "PreferredCoopCopySlot", 0,
                 "Last local profile slot (1-5) used for a permanent co-op world copy. 0 = none. "

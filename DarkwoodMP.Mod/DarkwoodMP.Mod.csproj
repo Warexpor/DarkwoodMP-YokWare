@@ -203,6 +203,9 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)')" ContinueOnError="true" />
+    <!-- Optional third install (a second client for 3-player runs): ThirdPlugins in GamePath.local.props. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ThirdPlugins)" Condition="'$(ThirdPlugins)' != '' and Exists('$(ThirdPlugins)')" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(ThirdPlugins)" Condition="'$(ThirdPlugins)' != '' and Exists('$(ThirdPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Delete Files="$(SteamPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SteamPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
     <Delete Files="$(SecondPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SecondPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />

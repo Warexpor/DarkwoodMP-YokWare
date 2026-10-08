@@ -34,7 +34,7 @@ test, so every bound key must be listed here.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `SaveRootOverride` | empty | Absolute path for save data (`1_4Save/profs`). Empty means the Unity default; a SecondDarkwood install auto-isolates to `LocalLow/.../Darkwood_Second`. Set it manually if a dual-box setup still shares a save tree. |
+| `SaveRootOverride` | empty | Absolute path for save data (`1_4Save/profs`). Empty means the Unity default; a SecondDarkwood install auto-isolates to `LocalLow/.../Darkwood_Second` (a ThirdDarkwood one to `Darkwood_Third`). Set it manually if a dual-box setup still shares a save tree. |
 | `PreferredCoopCopySlot` | `0` | Last local profile slot (1-5) used for a permanent co-op world copy; 0 means none. The join slot picker highlights it; empty slots are still preferred when free. |
 
 ## Gameplay
