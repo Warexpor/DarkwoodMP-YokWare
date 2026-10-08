@@ -3,8 +3,8 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.170**. The current Horde wire protocol is **45** (bumped in 0.8.170: `Handshake` gains
-`WorldGeneratedLocally`, same DLL on both installs).
+**0.8.171**. The current Horde wire protocol is **45** (held for 0.8.171, bumped in 0.8.170:
+`Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
@@ -39,6 +39,32 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.171 — Desync check false alarms from the story run
+
+On top of 0.8.170. Protocol **45** unchanged. The full story run (new world, chapter 1 crawl
+through every location and its pads, save and rejoin, chapter 2, chapter 2 crawl, rejoin) ran on
+0.8.170 in an omabox: chapter 2 came out the same map on both (the client's own build was
+replaced by the host's, player id kept), the hideout unlock no longer differed, and the client's
+slow-load path stayed clean. What the check still reported were its own misreadings:
+
+**Fixed**
+- An NPC state nobody has touched (alive, no standing) is made when the NPC first loads on a
+  machine, so the side that had been near it listed it and the other did not
+  ("chickenLady: host=dead=0|rep=0 client=<none>", "Doctor_act2", "snail"). It now reads as none,
+  as an unset flag does.
+- A culled (switched off) creature's own inventory was listed as a loose container on the side
+  that had it switched off ("Villager_infected1b_ch2"): the body check now looks through inactive
+  parents.
+- Creatures switched off on both machines were listed by the host only (a swamp camp's villagers,
+  inactive on both at night, read "host=alive client=<none>"). Switched off on both is now the
+  same; switched off on one side still shows.
+- A ground pickup that had woken and was then culled on the host (the host culls away from its own
+  player) read as missing there; pickups are compared culled or not.
+
+**Tooling**
+- `leavepad` (back to the world from a pad), pilot scripts use absolute paths so they run inside an
+  omabox, and `story-run.sh` waits for the client's chapter 2 re-send before comparing the maps.
 
 ## 0.8.170 — Chapter 2 is the host's map; story crawl findings
 
