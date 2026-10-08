@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.173**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.173, bumped in 0.8.170:
+**0.8.174**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.174, bumped in 0.8.170:
 `Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
@@ -39,6 +39,40 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.174 — The ending with three players
+
+On top of 0.8.173. Protocol **45** unchanged. A pass over how the game ends in co-op, run with
+three players in the pilot (new `epilogue` and `credits` commands start the ending and finish its
+pages). How it works: the ending is a party dream, so everyone alive goes; the story's choice is
+made by whoever makes it first; the credits wait for every reader (2 minutes at most); the
+session ends at the credits and everyone returns to the title. Fixed:
+
+- **Players outside the ending lost the host like a crash.** A player dead at night when the
+  ending began stays in the world. When the others left for the credits, the host simply
+  stopped, and the players left behind ran crash recovery and elected a new host among
+  everyone, including players already on their way to the credits. The host now hands the world
+  over properly to one of the players who stay (`EpilogueNetHandlers.HandWorldToPlayersOutside`,
+  `TryGracefulHostLeave` takes who may be chosen). Players going to the credits no longer try to
+  take the host when the old one stops during the fade (`MarkLeavingSession`). Tested: host and
+  one client to the credits, the dead client took the host and woke at home in the morning.
+- **A host outside the ending was dragged into the credits** when the clients in it finished.
+  It now stays in the world, as a client outside it does.
+- **A client stepping into the ending while the host was dead got stuck in ending mode.** The
+  host waits for its morning before starting a dream, so it refused the start. The client had
+  already loaded the ending's area and switched to ending mode (no UI, no items), and stayed
+  that way: its world view, location and lighting were left on the unused area, and the host
+  kept hearing that it had entered it. A refused start now removes that area and puts the
+  player back where it was (`DreamSyncManager.DropUnstartedLocalPad`), for any dream a client
+  starts straight from a story step.
+- **That refused ending was never asked for again.** Only dreams started through the dream
+  movie were retried; one started straight from a story step (the road home's ending) was
+  dropped. It is now asked for again the same way once the host can take it (`DreamRetry`
+  story-step retry). Tested: the client's ending started for all three at the host's morning.
+
+Not covered by a run: reading the real ending pages, the crawl and the bed/crater choice (the
+pilot skips straight to the last page). Reloading a finished game replays the ending, as in
+vanilla; the host starts inside it and friends cannot join (joins are refused during a dream).
 
 ## 0.8.173 — Three-player runs: hidden NPCs, gas fires, a third test install
 

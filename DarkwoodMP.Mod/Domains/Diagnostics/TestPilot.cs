@@ -425,6 +425,28 @@ namespace DWMPHorde.Sync
                     Out("  ending " + (d.preset != null ? d.preset.name : "-") + " with " + d.outcome);
                     return;
                 }
+                case "epilogue":
+                {
+                    // The road home's step into the ending (GameEvent startDream epilog_part1a_dream).
+                    Dreams d = Dreams.Instance;
+                    if (d == null || d.dreaming) { Out("  already dreaming"); return; }
+                    Core.forbidInputs = true;
+                    p.halt();
+                    d.wantToDream = true;
+                    d.StartCoroutine(d.prepareDream("epilog_part1a_dream"));
+                    Out("  epilogue started");
+                    return;
+                }
+                case "credits":
+                {
+                    // The last ending page done (EpilogueOutcomes.goToCredits, on a holder that never Starts).
+                    var holder = new GameObject("pilot_epilogue_outcomes");
+                    holder.SetActive(false);
+                    EpilogueOutcomes eo = holder.AddComponent<EpilogueOutcomes>();
+                    AccessTools.Method(typeof(EpilogueOutcomes), "goToCredits").Invoke(eo, null);
+                    Out("  pages done inEpilogue=" + p.inEpilogue + " ending=" + EpilogueNetHandlers.IsLocalInEpilogue());
+                    return;
+                }
                 case "endnight":
                     // What walking out of the hideout does in the morning (Location.OnTriggerExit);
                     // a teleport fires no trigger exit. On a client it asks the host, as a walk-out would.
@@ -1108,7 +1130,10 @@ namespace DWMPHorde.Sync
                 .Append(" clockOn=").Append(c != null && c.DoUpdateTime)
                 .Append(" timeScale=").Append(Time.timeScale.ToString("0.##", CultureInfo.InvariantCulture))
                 .Append(" inOutsideLoc=").Append(Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.playerInOutsideLocation)
-                .Append(" afterNight=").Append(c != null && c.isAfterNight);
+                .Append(" afterNight=").Append(c != null && c.isAfterNight)
+                .Append(" scene=").Append(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name)
+                .Append(" ending=").Append(EpilogueNetHandlers.IsLocalInEpilogue())
+                .Append(" grid=").Append(Singleton<WorldGrid>.Instance != null && Singleton<WorldGrid>.Instance.currentGrid != null ? Singleton<WorldGrid>.Instance.currentGrid.name : "-");
             NightScenarios ns = Singleton<NightScenarios>.Instance;
             NightScenario sc = ns != null ? ns.currentScenario : null;
             sb.Append(" scenario=").Append(sc != null ? sc.name : "-")
@@ -1117,7 +1142,8 @@ namespace DWMPHorde.Sync
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
                 if (proxy != null)
                     sb.Append(" | p").Append(proxy.PlayerId).Append('@').Append(Pos(proxy.transform.position))
-                        .Append(" hp%=").Append(proxy.RemoteHealthPct);
+                        .Append(" hp%=").Append(proxy.RemoteHealthPct)
+                        .Append(proxy.RemoteInEpilogue ? " ending" : "");
             Out(sb.ToString());
         }
 

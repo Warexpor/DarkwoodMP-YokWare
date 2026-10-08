@@ -317,6 +317,11 @@ points to the section with the full check.
 
 - [ ] Every player in the ending reads their pages; the credits start when all are
       done (or after 2 minutes), and only for players in the ending.
+- [ ] A player dead at night when the ending starts stays in the world: when the others
+      go to the credits, that player takes the host and wakes at home in the morning.
+- [ ] A client walking into the road home while the host is dead at night: no ending
+      yet, the client plays on normally (UI, items, map); at morning the ending starts
+      for everyone.
 
 ## 17. World objects
 

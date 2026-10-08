@@ -78,12 +78,15 @@ namespace DWMPHorde.Patches
 
                     // Host owns begin: request only. Freeze world until DreamStarted remote path.
                     ModRuntime.LegacyInfo($"[DreamSync] Client-initiated dream — requesting host to start: {preset}");
+                    byte bits = DreamSession.TakePendingRequestBits();
                     net.Send(NetMessageType.DreamStartRequest, w => new DreamStartRequestMessage
                     {
                         PresetName = preset,
                         RequestId = (int)(Time.realtimeSinceStartup * 1000f),
-                        LvlFlags = DreamSession.TakePendingRequestBits()
+                        LvlFlags = bits
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    // A refused start (host dead, another dream on) is asked for again later.
+                    DreamRetry.NoteRequest(preset, bits, direct: true);
                     // Local empty roll already consumed pool; keep aligned with host named prepare.
                     DreamSession.MirrorPoolRemove(preset);
                     DreamSession.SetPendingHostPreset(preset);

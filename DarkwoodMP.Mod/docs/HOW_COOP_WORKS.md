@@ -732,8 +732,12 @@ party events.
 - **Nothing in a prologue reaches the others,** apart from journal pages it wrote,
   which go to the shared journal afterwards. No saves happen during a prologue.
 - **Day 1 waits** for everyone's prologue (at most 45 minutes).
-- **The ending.** The credits start when every player in the ending has finished
-  reading, or after 2 minutes. Party dream openings and endings run their
+- **The ending.** It is a party dream: everyone alive goes, and the first player to
+  make the final choice (the bed or the crater) makes it for all. The credits start
+  when every player in the ending has finished reading, or after 2 minutes. Players
+  outside it (dead at night when it began) stay in the world, and one of them takes
+  the host when the others leave for the credits. An ending asked for while the host
+  is dead starts when the host is back, in the morning. Party dream openings and endings run their
   player-body steps (clothes, positions) for every dreamer.
 
 ---
