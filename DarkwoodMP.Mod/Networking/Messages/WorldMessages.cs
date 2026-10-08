@@ -740,12 +740,19 @@ namespace DWMPHorde.Networking
         /// 0 = late-join bulk / unknown → world effects only.
         /// </summary>
         public int ActorPlayerId;
+        /// <summary>
+        /// Part of a night scene copy (NightEventAnchor): each machine placed its own copy (a scene
+        /// moves to its player, the host by that player's synced stand-in), so the receiver's copy
+        /// can stand a few dozen units off the host's.
+        /// </summary>
+        public bool ScenePiece;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(EventName ?? "");
             w.Put(ActorPlayerId);
+            w.Put(ScenePiece);
         }
         public static GameEventsFiredMessage Deserialize(NetReader r) => new GameEventsFiredMessage
         {
@@ -753,7 +760,8 @@ namespace DWMPHorde.Networking
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
             EventName = r.GetString(),
-            ActorPlayerId = r.GetInt()
+            ActorPlayerId = r.GetInt(),
+            ScenePiece = r.GetBool()
         };
     }
 

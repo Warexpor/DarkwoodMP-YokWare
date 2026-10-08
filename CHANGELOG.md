@@ -3,7 +3,8 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.166**. The current Horde wire protocol is **44** (held for 0.8.166, bumped in 0.8.165: `ScenarioEventFired` gains the scenario name.
+**0.8.167**. The current Horde wire protocol is **44** (held for 0.8.166 and 0.8.167, bumped in 0.8.165: `ScenarioEventFired` gains the
+scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167, same DLL on both installs).
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
 42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
@@ -34,6 +35,27 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.167 — Night scene pieces stay with their players and are found where each machine put them
+
+On top of 0.8.166. Protocol **44** (`GameEventsFired` gains a trailing `ScenePiece` flag; both
+installs run the same DLL). From a third soak (new world, five nights on 0.8.166: none of
+0.8.165's or 0.8.166's problems came back). Not playtested yet.
+
+**Fixed**
+- **Pieces a night scene spawns still went to every client.** 0.8.166 sent a scene copy's later
+  fires only to the peers who replayed it, but the pieces its steps spawn sit elsewhere (the
+  knocking visitor at a door, the run-away order at the location): those still went to everyone,
+  and a client in another hideout searched for them a minute. Pieces are now filed with their
+  scene's peers as they spawn. Files: `ScriptedSpawnSync.cs`, `NightEventAnchorPatches.cs`.
+- **A client missed its own copy of a scene piece.** A scene moves to its player; the host
+  places its copy by that player's synced stand-in, the client by its own body, a few dozen units
+  apart, and the client's search for the piece reached 8 units (goreFloor, its check and its
+  removal never ran there). A scene piece's fire is flagged, and the client looks for it within
+  the hideout (150 units). Files: `WorldMessages.cs`, `GameEventsFiredPatch.cs`,
+  `GameEventNetHandlers.Apply.cs`.
 
 ---
 

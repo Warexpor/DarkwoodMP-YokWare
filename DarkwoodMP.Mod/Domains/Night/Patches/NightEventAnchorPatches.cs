@@ -57,6 +57,13 @@ namespace DWMPHorde.Patches
             _sceneAnchors[scene] = peers;
         }
 
+        /// <summary>A piece a scene's step spawned (parented at a door, a waypoint): same peers as its scene.</summary>
+        internal static void NoteScenePiece(Transform piece, List<int> peers)
+        {
+            if (piece != null && peers != null)
+                _sceneAnchors[piece] = peers;
+        }
+
         /// <summary>
         /// Host: the peers who have the scene copy <paramref name="t"/> belongs to, or null when it is
         /// not a scene copy. A later fire inside a copy (its own timers and triggers) concerns them

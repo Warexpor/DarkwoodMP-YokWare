@@ -111,6 +111,7 @@ namespace DWMPHorde.Patches
             System.Collections.Generic.List<int> scenePeers = NightEventAnchor.ScenePeersOf(__instance.transform);
             if (scenePeers != null)
             {
+                firedMsg.ScenePiece = true;
                 foreach (int id in scenePeers)
                     net.SendToPlayer(id, NetMessageType.GameEventsFired, w => firedMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
             }

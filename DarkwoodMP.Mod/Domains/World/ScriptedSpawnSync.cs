@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using DWMPHorde.Networking;
 using DWMPHorde.Patches;
 using LiteNetLib;
@@ -18,6 +19,7 @@ namespace DWMPHorde.Sync
     internal static class ScriptedSpawnSync
     {
         private static GameEvent _current; // process-scoped: call-scoped, set and restored around one MoveNext
+        private static List<int> _currentScenePeers; // process-scoped: call-scoped, set and restored around one MoveNext
 
         /// <summary>
         /// EntitySpawn path prefix for a prefab loaded from the Resources root (vanilla
@@ -92,9 +94,14 @@ namespace DWMPHorde.Sync
         {
             if (inner == null || !NetGuard.ConnectedHost(out _))
                 return inner;
-            if (!IsWorldObjectSpawn(ge) && !IsCreatureSubeventSpawn(ge, owner))
+            // A night scene's own spawn (the knocking visitor at a door): the piece belongs to the
+            // peers who have the scene (NightEventAnchor.ScenePeersOf), wherever it is parented.
+            List<int> scenePeers = ge != null && owner != null && ge.type == GameEvent.Type.gameObject
+                && ge.gameObjectModifyType == GameEvent.GameObjectModify.spawn
+                ? NightEventAnchor.ScenePeersOf(owner.transform) : null;
+            if (scenePeers == null && !IsWorldObjectSpawn(ge) && !IsCreatureSubeventSpawn(ge, owner))
                 return inner;
-            return new Scoped(inner, ge);
+            return new Scoped(inner, ge, scenePeers);
         }
 
         /// <summary>Core.AddPrefab(Object) postfix: the host's spawn step just placed its object.</summary>
@@ -103,6 +110,12 @@ namespace DWMPHorde.Sync
             GameEvent ge = _current;
             if (ge == null || result == null || prefab == null || ge.targetTransform == null
                 || prefab != ge.targetTransform.gameObject)
+                return;
+            // A scene piece's own later fires go to the scene's peers. A world object a scene spawns
+            // (the night mushroom) is still sent below: it is the world's, and a replay skips it.
+            if (_currentScenePeers != null)
+                NightEventAnchor.NoteScenePiece(result.transform, _currentScenePeers);
+            if (!IsWorldObject(ge.targetTransform) && !(prefab is GameObject g && SubeventPath(g) != null && _currentScenePeers == null))
                 return;
             if (TraverseHack.ApplyingFromNetwork || Core.loadingGame || !Core.worldGenFinished())
                 return;
@@ -149,11 +162,13 @@ namespace DWMPHorde.Sync
         {
             private readonly IEnumerator _inner;
             private readonly GameEvent _ge;
+            private readonly List<int> _scenePeers;
 
-            internal Scoped(IEnumerator inner, GameEvent ge)
+            internal Scoped(IEnumerator inner, GameEvent ge, List<int> scenePeers)
             {
                 _inner = inner;
                 _ge = ge;
+                _scenePeers = scenePeers;
             }
 
             public object Current => _inner.Current;
@@ -163,9 +178,15 @@ namespace DWMPHorde.Sync
             public bool MoveNext()
             {
                 GameEvent prev = _current;
+                List<int> prevPeers = _currentScenePeers;
                 _current = _ge;
+                _currentScenePeers = _scenePeers;
                 try { return _inner.MoveNext(); }
-                finally { _current = prev; }
+                finally
+                {
+                    _current = prev;
+                    _currentScenePeers = prevPeers;
+                }
             }
         }
     }
