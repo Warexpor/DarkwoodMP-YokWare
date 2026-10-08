@@ -128,8 +128,54 @@ namespace DWMPHorde.Sync
                         diffs.Add(new Diff { Key = kv.Key, Host = null, Client = kv.Value });
                 }
             }
+            PairNeighbours(diffs, same);
             diffs.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
             return diffs;
+        }
+
+        /// <summary>
+        /// An object right on a grid line is keyed one step apart on the two machines
+        /// ("Wardrobe@12056,11,11370" here, "...,11371" there): a host-only and a client-only entry
+        /// of the same name one step apart that agree are one object, not two missing ones.
+        /// </summary>
+        private static void PairNeighbours(List<Diff> diffs, SameFn same)
+        {
+            for (int i = 0; i < diffs.Count; i++)
+            {
+                if (diffs[i].Client != null || diffs[i].Host == null)
+                    continue;
+                for (int j = 0; j < diffs.Count; j++)
+                {
+                    if (diffs[j].Host != null || diffs[j].Client == null)
+                        continue;
+                    if (!Neighbours(diffs[i].Key, diffs[j].Key) || !same(diffs[i].Key, diffs[i].Host, diffs[j].Client))
+                        continue;
+                    int hi = Math.Max(i, j), lo = Math.Min(i, j);
+                    diffs.RemoveAt(hi);
+                    diffs.RemoveAt(lo);
+                    i = -1;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>"Name@x,y,z" keys with the same name, each coordinate at most one grid step apart.</summary>
+        internal static bool Neighbours(string a, string b)
+        {
+            int ia = a.LastIndexOf('@'), ib = b.LastIndexOf('@');
+            if (ia <= 0 || ib <= 0 || ia != ib || string.CompareOrdinal(a, 0, b, 0, ia) != 0)
+                return false;
+            string[] pa = a.Substring(ia + 1).Split(','), pb = b.Substring(ib + 1).Split(',');
+            if (pa.Length != pb.Length || pa.Length == 0)
+                return false;
+            for (int k = 0; k < pa.Length; k++)
+            {
+                if (!int.TryParse(pa[k], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int x)
+                    || !int.TryParse(pb[k], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int y)
+                    || Math.Abs(x - y) > 1)
+                    return false;
+            }
+            return true;
         }
     }
 

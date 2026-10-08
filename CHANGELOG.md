@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.167**. The current Horde wire protocol is **44** (held for 0.8.166 and 0.8.167, bumped in 0.8.165: `ScenarioEventFired` gains the
+**0.8.168**. The current Horde wire protocol is **44** (held for 0.8.166 to 0.8.168, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167, same DLL on both installs).
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
@@ -35,6 +35,27 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.168 — Desync check: an object on a grid line is one object
+
+On top of 0.8.167. Protocol **44** unchanged. The fourth soak (new world, four nights on 0.8.167:
+both at home, split between two hideouts, both in the second, the musician's house and home)
+showed no missing scene pieces on the client any more and no night state differences. Its only
+report was this.
+
+**Fixed**
+- The desync check keys objects on a half-unit grid; a wardrobe standing right on a grid line was
+  keyed one step apart on the two machines and reported as missing on both sides, then resolved
+  a check later. A host-only and a client-only entry of the same name one step apart that agree
+  are now one object. File: `DesyncEntries.cs` (test added).
+
+**Night soak totals (0.8.165 to 0.8.168)**
+- 24 nights on four new worlds, players together, split between hideouts, in non-hideout
+  locations and out in the forest, with a host death, the banshee's pull and morning walk-outs.
+  Remaining logged errors are vanilla's own for nights spent outside a hideout (no event spots
+  there) and creatures outside any location.
 
 ---
 
