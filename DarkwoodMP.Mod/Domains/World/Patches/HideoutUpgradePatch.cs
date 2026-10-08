@@ -108,6 +108,23 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Lighting an oven unlocks its hideout for the porter (<c>player_unlockedHideout_2/3</c>, set
+    /// in <c>enable()</c>). A client lights it itself when its dialogue closes, and that close runs
+    /// inside the last board, where shared flags wait for the host's replay of the board. The host
+    /// does not replay the lighting (it is the speaker's own move; the host lights its copy from
+    /// the oven message, a remote apply that does not fan flags out), so the speaker never got the
+    /// unlock: desync check "player_unlockedHideout_3: host=1 client=none". The speaker's own
+    /// lighting writes it, and its flag sync carries it to the others.
+    /// </summary>
+    [HarmonyPatch(typeof(ExperienceMachine), "enable")]
+    public static class OvenEnableWritesUnlockPatch
+    {
+        private static void Prefix(out int __state) => __state = Sync.DialogClientWorldDefer.Suspend();
+
+        private static void Finalizer(int __state) => Sync.DialogClientWorldDefer.Resume(__state);
+    }
+
     [HarmonyPatch(typeof(ExperienceMachine), "enable")]
     public static class HideoutUpgradeEnablePatch
     {

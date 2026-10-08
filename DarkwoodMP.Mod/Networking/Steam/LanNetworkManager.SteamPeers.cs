@@ -157,6 +157,7 @@ namespace DWMPHorde.Networking
                     CampaignId = worldCampaignId,
                     ChapterId = worldChapterId,
                     ConnectionKey = IsSteamSession ? Config.ModConfig.GetConnectionKey() : string.Empty,
+                    WorldGeneratedLocally = alreadyInWorld && Patches.ClientChapterWorld.GeneratedLocally,
                 }.Serialize(w);
             }, DeliveryMethod.ReliableOrdered);
 

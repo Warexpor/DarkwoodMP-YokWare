@@ -34,6 +34,12 @@ namespace DWMPHorde.Networking
         /// Empty on LAN and host→client.
         /// </summary>
         public string ConnectionKey;
+        /// <summary>
+        /// Client→host: the chapter world this client has loaded was generated here, not received
+        /// from the host (a chapter start shares the empty chapter save, and each machine's vanilla
+        /// load then builds its own random map). The host re-shares its world.
+        /// </summary>
+        public bool WorldGeneratedLocally;
 
         public void Serialize(NetWriter writer)
         {
@@ -45,6 +51,7 @@ namespace DWMPHorde.Networking
             writer.Put(CampaignId ?? string.Empty);
             writer.Put(ChapterId);
             writer.Put(ConnectionKey ?? string.Empty);
+            writer.Put(WorldGeneratedLocally);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -71,6 +78,8 @@ namespace DWMPHorde.Networking
                 msg.ChapterId = reader.GetInt();
             if (reader.AvailableBytes >= 2)
                 msg.ConnectionKey = reader.GetString();
+            if (reader.AvailableBytes >= 1)
+                msg.WorldGeneratedLocally = reader.GetBool();
             return msg;
         }
     }

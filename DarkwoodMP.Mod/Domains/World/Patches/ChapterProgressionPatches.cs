@@ -24,7 +24,17 @@ namespace DWMPHorde.Patches
         private static bool Prefix(int _chapterId, bool generateSave, bool loadChapterSave)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            {
+                // A client's offline chapter load (between the share and the reconnect): the shared
+                // chapter save had no world yet, and vanilla is about to build one here.
+                if (ChapterSessionResume.IsPending && !ChapterSessionResume.WasHost)
+                {
+                    ClientChapterWorld.GeneratedLocally = true;
+                    ModLog.Event(LogCat.Session,
+                        $"[Chapter] client builds chapter{_chapterId} from the empty chapter save — the host's world is fetched on reconnect");
+                }
                 return true;
+            }
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 
@@ -61,6 +71,19 @@ namespace DWMPHorde.Patches
             PermadeathStartOverPatch.Requested = false;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Client: the chapter world loaded here was generated on this machine. Vanilla makes a new
+    /// chapter's map at random when the chapter save is first loaded, and the host shares that save
+    /// before its own map exists, so every machine got a different chapter 2 (the hideout, the
+    /// locations, all elsewhere). The reconnect handshake reports it and the host sends its world.
+    /// </summary>
+    internal static class ClientChapterWorld
+    {
+        internal static bool GeneratedLocally; // reset-in: Reset
+
+        internal static void Reset() => GeneratedLocally = false;
     }
 
     internal static partial class ChapterTransitionHelpers

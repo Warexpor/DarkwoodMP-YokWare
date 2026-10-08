@@ -37,6 +37,13 @@ namespace DWMPHorde.Sync
         private static bool _hooked;                // process-scoped: log hook installed once
         private static readonly Dictionary<string, int> _errorCounts = new Dictionary<string, int>(); // process-scoped: pilot run error tally
         private static readonly List<GameEvents> _events = new List<GameEvents>(); // process-scoped: last "events" listing
+        private static readonly List<NPC> _talkQueue = new List<NPC>(); // process-scoped: "talkall" queue
+        private static NPC _talking;                // process-scoped: the NPC "talk" is walking through
+        private static float _talkAt;               // process-scoped: when that talk began
+        private static int _talkSteps;              // process-scoped: clicks in that talk
+        private static int _talked;                 // process-scoped: talks run since the last "talkall"
+        private static readonly HashSet<string> _visited = new HashSet<string>(); // process-scoped: dialogue options already picked
+        private static readonly Dictionary<string, int> _decisionTurns = new Dictionary<string, int>(); // process-scoped: next branch per decision
 
         /// <summary>Each distinct Unity error or exception: the first three with their stack, then a count.</summary>
         private static void OnUnityLog(string message, string stack, LogType type)
@@ -143,6 +150,12 @@ namespace DWMPHorde.Sync
 
                 case Stage.InWorld:
                     _nextStepAt = now + 0.5f;
+                    if (_talking != null || _talkQueue.Count > 0)
+                    {
+                        _nextStepAt = now + 0.35f;
+                        TalkTick(now);
+                        return;
+                    }
                     if (now >= _waitUntil)
                         RunCommands(net);
                     return;
@@ -616,6 +629,118 @@ namespace DWMPHorde.Sync
                     Out("  home " + em.name + "@" + Pos(em.transform.position) + " lit=" + em.isOn);
                     return;
                 }
+                case "locs":
+                {
+                    // Every location of the world, loaded or not ("locs" for the crawl's route).
+                    WorldGenerator wg = Singleton<WorldGenerator>.Instance;
+                    int n = 0;
+                    if (wg != null && wg.locations != null)
+                        foreach (Location l in wg.locations)
+                        {
+                            if (l == null)
+                                continue;
+                            Out("  loc " + Core.getTrueLocationName(l.name) + "@" + Pos(l.transform.position)
+                                + " base=" + l.playerBase + " outside=" + l.isOutsideLocation);
+                            n++;
+                        }
+                    Out("  " + n + " locations chapter=" + (wg != null ? wg.chapterID : -1));
+                    return;
+                }
+                case "npcs":
+                    ListNear(Talkable(), a.Length > 1 ? F(a[1]) : 300f,
+                        n => "dialogues=" + n.characterDialogue.dialogues.Count);
+                    return;
+                case "talk":
+                case "talkall":
+                {
+                    // Walk through NPC dialogues as a player would: every option once (show each
+                    // asked-for item, gossip, special options), a different branch at each decision on
+                    // each talk. "talk <name> [radius]" one NPC, "talkall [radius]" every one near.
+                    bool all = a[0] == "talkall";
+                    float radius = a.Length > (all ? 1 : 2) ? F(a[all ? 1 : 2]) : 300f;
+                    List<NPC> near = Talkable();
+                    Vector3 at = p.transform.position;
+                    _talkQueue.Clear();
+                    _talked = 0;
+                    foreach (NPC n in near)
+                        if (Flat(at, n.transform.position) <= radius
+                            && (all || string.Equals(n.name, a[1], StringComparison.OrdinalIgnoreCase)))
+                            _talkQueue.Add(n);
+                    _talkQueue.Sort((x, y) => Flat(at, x.transform.position).CompareTo(Flat(at, y.transform.position)));
+                    if (!all && _talkQueue.Count > 1)
+                        _talkQueue.RemoveRange(1, _talkQueue.Count - 1);
+                    Out("  talk queue " + _talkQueue.Count + (_talkQueue.Count == 0 ? " (talkall done n=0)" : ""));
+                    return;
+                }
+                case "pads":
+                case "padexits":
+                {
+                    // "pads [radius]": the doors into location pads near (GameEvents with a
+                    // transportToOutsideLocation step), numbered for "fire". "padexits": the ways
+                    // out of the pad the player is in (returnToWorld steps).
+                    bool exits = a[0] == "padexits";
+                    OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+                    Transform pad = null;
+                    if (exits && outs != null && outs.playerInOutsideLocation
+                        && outs.spawnedLocations.TryGetValue(outs.currentLocationName, out Location cur) && cur != null)
+                        pad = cur.transform;
+                    if (exits && pad == null) { Out("  not in a pad"); return; }
+                    float radius = a.Length > 1 ? F(a[1]) : 700f;
+                    GameEvent.Type want = exits ? GameEvent.Type.returnToWorld : GameEvent.Type.transportToOutsideLocation;
+                    _events.Clear();
+                    foreach (GameEvents ge in UnityEngine.Object.FindObjectsOfType<GameEvents>(true))
+                    {
+                        if (ge == null || ge.events == null)
+                            continue;
+                        if (exits ? !ge.transform.IsChildOf(pad) : Flat(p.transform.position, ge.transform.position) > radius)
+                            continue;
+                        string to = null;
+                        foreach (GameEvent e in ge.events)
+                            if (e != null && e.type == want)
+                                to = e.Value ?? "";
+                        if (to == null)
+                            continue;
+                        Out("  #" + _events.Count + " " + ge.name + "@" + Pos(ge.transform.position) + " → " + to);
+                        _events.Add(ge);
+                    }
+                    Out("  " + _events.Count + (exits ? " pad exits" : " pad doors"));
+                    return;
+                }
+                case "talkreset":
+                    _visited.Clear();
+                    Out("  dialogue options forgotten");
+                    return;
+                case "give":
+                {
+                    InvItemClass it = p.Inventory.addItemTypeToPlayer(a[1], a.Length > 2 ? int.Parse(a[2], CultureInfo.InvariantCulture) : 1, dropIfNoRoom: true);
+                    Out("  give " + a[1] + " → " + (InvItemClass.isNull(it) ? "none" : it.type + "x" + it.amount));
+                    return;
+                }
+                case "save":
+                    Singleton<SaveManager>.Instance.Save(doJson: true, doSaveProfile: true, force: true, forceSaveStatic: false,
+                        showSavingIndicator: true, closeAndOpenStadiaSave: false);
+                    Out("  saved day " + Singleton<Controller>.Instance.day);
+                    return;
+                case "chapter":
+                {
+                    // The bunker's leave event: save, then the next chapter (GameEvent transportPlayerToObject).
+                    int ch = int.Parse(a[1], CultureInfo.InvariantCulture);
+                    Singleton<SaveManager>.Instance.Save(doJson: true, doSaveProfile: true, force: true, forceSaveStatic: false,
+                        showSavingIndicator: true, closeAndOpenStadiaSave: false);
+                    Singleton<Controller>.Instance.generateChapter(ch, generateSave: true, loadChapterSave: true);
+                    Out("  generateChapter " + ch);
+                    return;
+                }
+                case "vsync":
+                {
+                    // A window parked on a hidden workspace gets no frame callbacks: with vsync on, a
+                    // Wine client presents once a second. "vsync 0" frees it, capped at 60.
+                    int v = int.Parse(a[1], CultureInfo.InvariantCulture);
+                    QualitySettings.vSyncCount = v;
+                    Application.targetFrameRate = v == 0 ? 60 : -1;
+                    Out("  vSyncCount=" + QualitySettings.vSyncCount + " targetFrameRate=" + Application.targetFrameRate);
+                    return;
+                }
                 case "say":
                     Out("  " + string.Join(" ", a, 1, a.Length - 1));
                     return;
@@ -626,6 +751,152 @@ namespace DWMPHorde.Sync
                 default:
                     Out("  unknown command");
                     return;
+            }
+        }
+
+        /// <summary>Living NPCs in the loaded world that have something to say.</summary>
+        private static List<NPC> Talkable()
+        {
+            var list = new List<NPC>();
+            foreach (NPC n in UnityEngine.Object.FindObjectsOfType<NPC>())
+            {
+                if (n == null || n.characterDialogue == null || !n.wantsToTalk || !n.gameObject.activeInHierarchy)
+                    continue;
+                CharBase cb = n.GetComponent<CharBase>();
+                if (cb != null && !cb.alive)
+                    continue;
+                list.Add(n);
+            }
+            return list;
+        }
+
+        /// <summary>One click of the running talk ("talk" / "talkall"), every 0.35 s.</summary>
+        private static void TalkTick(float now)
+        {
+            Player p = Player.Instance;
+            DialogueWindow w = Singleton<UI>.Instance.dialogueWindow;
+            if (_talking == null)
+            {
+                if (w.opened)
+                    return; // someone else's dialogue (a cutscene's) still up
+                while (_talkQueue.Count > 0 && _talking == null)
+                {
+                    NPC next = _talkQueue[0];
+                    _talkQueue.RemoveAt(0);
+                    if (next != null && next.wantsToTalk && next.gameObject.activeInHierarchy)
+                        _talking = next;
+                }
+                if (_talking == null)
+                {
+                    TalkDone();
+                    return;
+                }
+                p.teleportTo(_talking.transform.position + new Vector3(12f, 0f, 0f), p.transform.rotation);
+                GiveAsked(p, _talking);
+                _talkAt = now;
+                _talkSteps = 0;
+                _talked++;
+                Out("  talk " + _talking.name + "@" + Pos(_talking.transform.position));
+                _talking.talkTo();
+                return;
+            }
+            if (!w.opened)
+            {
+                if (_talkSteps == 0 && now - _talkAt < 4f)
+                    return; // the window tweens open
+                Out("  talk " + (_talking != null ? _talking.name : "?") + " ended after " + _talkSteps + " clicks");
+                _talking = null;
+                if (_talkQueue.Count == 0)
+                    TalkDone();
+                return;
+            }
+            _talkSteps++;
+            if (_talkSteps > 200 || now - _talkAt > 150f)
+            {
+                Out("  talk " + _talking.name + " stuck in " + (w.currentDialogue != null ? w.currentDialogue.name : "menu") + ", closing");
+                w.close();
+                _talking = null;
+                if (_talkQueue.Count == 0)
+                    TalkDone();
+                return;
+            }
+            if (p.inShop)
+            {
+                w.closeTrade();
+                return;
+            }
+            if (w.displayingDialogue)
+            {
+                if (w.needsDecision && w.boardFinished && w.menuOptions.Count > 0)
+                {
+                    string key = _talking.name + "|" + (w.currentDialogue != null ? w.currentDialogue.name : "?");
+                    _decisionTurns.TryGetValue(key, out int turn);
+                    _decisionTurns[key] = turn + 1;
+                    int pick = turn % w.menuOptions.Count;
+                    Out("  decision " + key + " → " + pick + "/" + w.menuOptions.Count + " " + Label(w.menuOptions[pick]));
+                    w.menuOptions[pick].getClicked(force: true);
+                    return;
+                }
+                AccessTools.Method(typeof(DialogueWindow), "onInstantClick").Invoke(w, null);
+                return;
+            }
+            // The options menu, or the "show item" list.
+            Button exit = null;
+            foreach (Button b in w.menuOptions)
+            {
+                if (b == null)
+                    continue;
+                string fn = b.function ?? "";
+                if (fn == "exitDialogue" || fn == "exitItemsDialogue")
+                {
+                    exit = b;
+                    continue;
+                }
+                if (fn == "showTrading")
+                    continue;
+                string key = _talking.name + "|" + fn + "|" + Label(b);
+                if (!_visited.Add(key))
+                    continue;
+                Out("  option " + key);
+                b.getClicked(force: true);
+                return;
+            }
+            if (exit != null)
+                exit.getClicked(force: true);
+            else
+                w.close();
+        }
+
+        private static void TalkDone() => Out("  talkall done n=" + _talked);
+
+        private static string Label(Button b)
+        {
+            DialogueButton db = b.GetComponent<DialogueButton>();
+            if (db != null && !string.IsNullOrEmpty(db.destDialogueName))
+                return db.destDialogueName;
+            return b.textMesh != null ? b.textMesh.text : b.name;
+        }
+
+        /// <summary>Hand the speaker one of every item the NPC's "show item" dialogues ask for.</summary>
+        private static void GiveAsked(Player p, NPC n)
+        {
+            foreach (CharacterDialogue.Dialogue d in n.characterDialogue.dialogues)
+            {
+                if (d == null || d.type != CharacterDialogue.Dialogue.Type.item || d.disabled || string.IsNullOrEmpty(d.itemType))
+                    continue;
+                if (p.Inventory.getItemInPlayer(d.itemType) != null)
+                    continue;
+                if (Singleton<ItemsDatabase>.Instance.getItem(d.itemType, instantiate: false) == null)
+                    continue;
+                try
+                {
+                    p.Inventory.addItemTypeToPlayer(d.itemType, 1, dropIfNoRoom: true);
+                    Out("  gave " + d.itemType + " for " + n.name);
+                }
+                catch (Exception ex)
+                {
+                    Out("  give " + d.itemType + " failed: " + ex.Message);
+                }
             }
         }
 

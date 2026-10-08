@@ -3,8 +3,10 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.169**. The current Horde wire protocol is **44** (held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
-scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167, same DLL on both installs).
+**0.8.170**. The current Horde wire protocol is **45** (bumped in 0.8.170: `Handshake` gains
+`WorldGeneratedLocally`, same DLL on both installs).
+44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
+scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
 42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
@@ -37,6 +39,43 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.170 — Chapter 2 is the host's map; story crawl findings
+
+On top of 0.8.169. Protocol **45** (`Handshake` gains `WorldGeneratedLocally`). Found by a new
+unattended story run: a new world, both players walking every NPC dialogue at every location (every
+option, a new branch at each decision, the items an NPC asks for handed over), save and rejoin,
+then chapter 2.
+
+**Fixed**
+- **Chapter 2 was a different map on the client.** A chapter start shares the chapter save before
+  the chapter exists (vanilla makes the new chapter's map at random the first time that save
+  loads), so the host and every client each built their own chapter 2: hideout 5, the locations,
+  all in other places (host 85 locations, client 87). The client now notes that its chapter world
+  was built on its own machine; its reconnect handshake says so and the host re-sends its real
+  chapter world through the existing chapter resync, which the client loads (about 20 s more).
+  The client keeps its player id across that reload (it came back as a new player, p3 to p5).
+  Files: `ChapterProgressionPatches.cs` (`ClientChapterWorld`), `PlayerMessages.cs`,
+  `LanNetworkManager.WorldIdentity.cs`, `LanNetworkManager.SteamPeers.cs`,
+  `WorldSaveShareService.SlotCommit.cs`, `ChapterSessionResume.cs`.
+- **A client who lit a hideout's oven never got that hideout unlocked** (the porter's routes,
+  `player_unlockedHideout_2/3`; desync check: host=1 client=none). The oven is lit when the
+  dialogue closes, inside the last board, where shared flags wait for the host's replay; the host
+  does not replay the lighting (it lights its copy from the oven message, which does not fan flags
+  out). The lighting now writes the unlock on the speaker, and its flag sync carries it to the
+  others. File: `HideoutUpgradePatch.cs`.
+- **A slow client join was cut short.** At 45 s the client forced its loading flag off "as a
+  failed load" while the world was still loading (a busy machine, a Wine window presenting once a
+  second); the rest of the load ran with the flag off ("UniqueIDDict does not contain key" errors,
+  the fresh character's home oven not found). The flag is now cleared only when the save load
+  actually failed (vanilla's "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE", or an exception from
+  `SaveManager`). File: `ChapterSessionResume.cs`.
+
+**Tooling**
+- Pilot commands: `locs`, `npcs`, `talk`/`talkall` (walks dialogues), `talkreset`, `give`, `save`,
+  `chapter N`, `pads`/`padexits` (location pad doors in and out), `vsync 0` (a Wine window on a
+  hidden workspace otherwise runs at one frame a second). Scripts `scripts/pilot/story-soak.sh`
+  (the crawl) and `story-run.sh` (new world, chapter 1 crawl, rejoin, chapter 2, crawl, rejoin).
 
 ## 0.8.169 — One morning trader, at the fullest hideout
 

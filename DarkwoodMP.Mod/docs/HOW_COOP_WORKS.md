@@ -318,7 +318,10 @@ movie), unless the host sets `AllowJoinDuringDream`.
 ### Chapter change
 
 The host runs the chapter transition. Clients go black, locked and unhurt, receive
-the new chapter's world, confirm it, and load together. A client that never gets the
+the new chapter's world, confirm it, and load together. The new chapter's map does
+not exist yet at that point (vanilla makes it at random on the first load), so a
+client's first load builds a map of its own; on reconnect it says so and the host
+sends its real map, which the client loads. A client that never gets the
 world shows an error and leaves cleanly (it rejoins by hand; see
 [section 20](#20-known-gaps-and-parked-items)).
 
