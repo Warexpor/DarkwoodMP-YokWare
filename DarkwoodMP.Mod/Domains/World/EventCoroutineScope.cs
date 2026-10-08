@@ -180,17 +180,29 @@ namespace DWMPHorde.Sync
             // reaches this peer through its own sync; a second local one was a phantom creature
             // or an extra pickup. Plain props and decor still spawn here.
             Transform spawned = __instance.targetTransform;
+            // A world object the save keeps (the night mushroom) is the host's too: it sends the
+            // one it spawned at its own spot (ScriptedSpawnSync).
             bool scriptedSpawn = __instance.type == GameEvent.Type.gameObject
                 && __instance.gameObjectModifyType == GameEvent.GameObjectModify.spawn
                 && spawned != null
-                && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null);
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn)
+                && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null
+                    || ScriptedSpawnSync.IsWorldObject(spawned));
+            // The night scene's door step ("a door opens by itself") picks a random door of the
+            // location: the replay opened a different door here. The host's open reaches this
+            // peer as DoorOpen. Only the night scene: elsewhere (the dialogue doors) the replay
+            // is the door's own path.
+            bool sceneDoor = ClientRandomEventGate.PlayingHostLocationEvent
+                && __instance.type == GameEvent.Type.modifyDoor
+                && (__instance.doorModifyType == GameEvent.DoorModify.open
+                    || __instance.doorModifyType == GameEvent.DoorModify.close);
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn && !sceneDoor)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;
         }
 
-        private static void Postfix(ref IEnumerator __result) => __result = EventCoroutineScope.Wrap(__result);
+        private static void Postfix(GameEvent __instance, ref IEnumerator __result)
+            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance, __result));
     }
 
     [HarmonyPatch(typeof(EventTrigger), nameof(EventTrigger.fire))]

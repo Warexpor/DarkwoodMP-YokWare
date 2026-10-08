@@ -109,17 +109,25 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>The trading screen: the listener is told, not shown it.</summary>
+    /// <summary>
+    /// The trading screen: the talking player's opening is reported (its listeners open their
+    /// own). A listener's own trade is its own (no report: OwnerSimple skips listeners).
+    /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.openTrade))]
     public static class DialogMirrorTradePatch
     {
-        private static bool Prefix() => !DialogMirror.SpectatorActive;
-
-        private static void Postfix(DialogueWindow __instance, bool __runOriginal)
+        private static void Postfix(DialogueWindow __instance)
         {
-            if (__runOriginal)
+            if (Player.Instance != null && Player.Instance.inShop)
                 DialogMirror.OwnerSimple(__instance, DialogMirrorMessage.KindTrade);
         }
+    }
+
+    /// <summary>A listener closed its own trade: back to the talking player's screen.</summary>
+    [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.closeTrade))]
+    public static class DialogMirrorCloseTradePatch
+    {
+        private static void Postfix(DialogueWindow __instance) => DialogMirror.AfterOwnTradeClosed(__instance);
     }
 
     /// <summary>A journal page shown mid-board closed: the board's text starts writing.</summary>
@@ -157,13 +165,13 @@ namespace DWMPHorde.Patches
         private static bool Prefix() => !DialogMirror.SpectatorActive;
     }
 
-    /// <summary>Esc: the listener leaves.</summary>
+    /// <summary>Esc: the listener leaves (in its own trade: vanilla closes the trade first).</summary>
     [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.escPress))]
     public static class DialogMirrorEscPatch
     {
         private static bool Prefix()
         {
-            if (!DialogMirror.SpectatorActive)
+            if (!DialogMirror.SpectatorActive || DialogMirror.InOwnTrade)
                 return true;
             DialogMirror.StopView(sendLeave: true);
             return false;
@@ -181,7 +189,8 @@ namespace DWMPHorde.Patches
     public static class DialogMirrorButtonClickPatch
     {
         private static bool Prefix(Button __instance)
-            => !(DialogMirror.SpectatorActive && DialogMirror.IsViewButton(__instance));
+            => !(DialogMirror.SpectatorActive && DialogMirror.IsViewButton(__instance)
+                 && !DialogMirror.IsListenerAction(__instance));
     }
 
     /// <summary>
@@ -194,7 +203,8 @@ namespace DWMPHorde.Patches
         private static bool Prefix(Button __instance, out bool __state)
         {
             __state = __instance != null && __instance.rolledOver;
-            return !(DialogMirror.SpectatorActive && !DialogMirror.Driving && DialogMirror.IsViewButton(__instance));
+            return !(DialogMirror.SpectatorActive && !DialogMirror.Driving && DialogMirror.IsViewButton(__instance)
+                     && !DialogMirror.IsListenerAction(__instance));
         }
 
         private static void Postfix(Button __instance, bool __state, bool __runOriginal)
@@ -210,7 +220,8 @@ namespace DWMPHorde.Patches
         private static bool Prefix(Button __instance, out bool __state)
         {
             __state = __instance != null && __instance.rolledOver;
-            return !(DialogMirror.SpectatorActive && !DialogMirror.Driving && DialogMirror.IsViewButton(__instance));
+            return !(DialogMirror.SpectatorActive && !DialogMirror.Driving && DialogMirror.IsViewButton(__instance)
+                     && !DialogMirror.IsListenerAction(__instance));
         }
 
         private static void Postfix(Button __instance, bool __state, bool __runOriginal)
@@ -244,6 +255,13 @@ namespace DWMPHorde.Patches
             };
             if (__state.Listener && __instance != null)
                 DialogMirror.PrepareClose(__instance);
+            // Host leaving a talk someone listens in on: it goes on with them, so the NPC's
+            // close events wait for the last player in it (DialogMirror hands it over).
+            else if (__instance != null && __instance.npc != null && !__instance.tweening
+                     && !DialogHostApplyGuard.DialogueApplyActive
+                     && NetGuard.ConnectedHost(out LanNetworkManager net)
+                     && DialogMirror.HostHasListeners(net.LocalPlayerId))
+                DialogMirror.HandingOver = true;
         }
 
         [HarmonyPriority(Priority.Last)]
@@ -262,7 +280,11 @@ namespace DWMPHorde.Patches
         }
 
         [HarmonyFinalizer]
-        private static void Finalizer() => DialogMirror.Closing = false;
+        private static void Finalizer()
+        {
+            DialogMirror.Closing = false;
+            DialogMirror.HandingOver = false;
+        }
     }
 
     /// <summary>A listener closing never shows the NPC's exit dialogue.</summary>
@@ -284,7 +306,7 @@ namespace DWMPHorde.Patches
     public static class DialogMirrorCloseTriggerPatch
     {
         private static bool Prefix(EventTrigger.Type triggerType)
-            => !(DialogMirror.Closing && triggerType == EventTrigger.Type.onCloseDialogue);
+            => !((DialogMirror.Closing || DialogMirror.HandingOver) && triggerType == EventTrigger.Type.onCloseDialogue);
     }
 
     [HarmonyPatch(typeof(Core), nameof(Core.sendTriggerInfo),
@@ -292,6 +314,6 @@ namespace DWMPHorde.Patches
     public static class DialogMirrorCloseTriggerValuePatch
     {
         private static bool Prefix(EventTrigger.Type triggerType)
-            => !(DialogMirror.Closing && triggerType == EventTrigger.Type.onCloseDialogue);
+            => !((DialogMirror.Closing || DialogMirror.HandingOver) && triggerType == EventTrigger.Type.onCloseDialogue);
     }
 }

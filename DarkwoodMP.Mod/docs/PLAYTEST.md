@@ -112,6 +112,17 @@ points to the section with the full check.
       reward. Kill it during the entry video instead: both are back in their world
       with no reward, and migration still completes.
 
+- [ ] **Party map board (3 players if possible):** each player right-clicks a pin on
+      the world map: it shows for everyone at the clicked spot (also on a screen above
+      1080p), each owner in their own colour. The wheel changes the stamp before
+      placing and restyles a hovered pin; a double click labels it (typing M or J in
+      the label does not close the map; Esc cancels the label, not the map). Right
+      click erases a pin for everyone, also two pins placed close together (the right
+      one goes). Middle click pings: pulses on every open map, "pinged the map" over
+      the head of players with the map closed. A pin over a location still shows the
+      location's name on hover. A late joiner gets the whole board; the host quits and
+      hosts again: the pins are back; a client rejoins: its pins are not doubled.
+
 ## 6. Time, menus and the pause menu
 
 - [ ] The host goes into a location while the client stays in the forest: the clock

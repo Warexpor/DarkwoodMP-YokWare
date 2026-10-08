@@ -140,7 +140,6 @@ namespace DWMPHorde.Networking
             }
 
             data.ActiveEffects = inDream ? CollectSavedEffects(dreams.effectsCopy) : CollectActiveEffects(player);
-            data.LocalMapMarkers = CollectLocalMapMarkers();
 
             var controller = Singleton<Controller>.Instance;
             if (controller != null)
@@ -216,19 +215,6 @@ namespace DWMPHorde.Networking
                     Interval = fx.interval,
                     TimeElapsed = fx.timeElapsed
                 });
-            }
-            return list;
-        }
-
-        private static List<MarkerEntry> CollectLocalMapMarkers()
-        {
-            var list = new List<MarkerEntry>();
-            var markers = Sync.MultiplayerMapManager.LocalMarkers;
-            if (markers == null || markers.Count == 0) return list;
-            for (int i = 0; i < markers.Count; i++)
-            {
-                Vector3 p = markers[i];
-                list.Add(new MarkerEntry { X = p.x, Y = p.y, Z = p.z });
             }
             return list;
         }

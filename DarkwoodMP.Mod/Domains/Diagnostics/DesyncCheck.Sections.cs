@@ -205,8 +205,8 @@ namespace DWMPHorde.Sync
             {
                 if (n == null || string.IsNullOrEmpty(n.name))
                     continue;
-                // Night traders keep a standing per player (ReputationSyncUtil); their death is shared.
-                bool own = nightTrader.TryGetValue(n.name, out bool nt) ? nt : DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
+                // Traders keep a standing per player (ReputationSyncUtil); their death is shared.
+                bool own = (nightTrader.TryGetValue(n.name, out bool nt) && nt) || DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
                 string rep = own ? "own" : I(n.reputation);
                 Add(into, n.name, "dead=" + B(n.dead) + "|rep=" + rep);
             }

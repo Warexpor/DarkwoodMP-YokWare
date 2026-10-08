@@ -36,6 +36,8 @@ namespace DWMPHorde.Networking
             PollSteamBackend();
             Sync.TestPilot.Tick(this);
             Sync.PauseMenuSync.Tick(this);
+            StackedLightProbe.Tick(this);
+            BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
@@ -50,6 +52,7 @@ namespace DWMPHorde.Networking
             LocationEnterExitHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
             Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
+            Sync.MapPinBoard.Tick();
             BulkSyncHandlers?.TryFlushPendingHideoutState();
             ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();
             TradeHandlers.TryFlushPendingTradeInventories();

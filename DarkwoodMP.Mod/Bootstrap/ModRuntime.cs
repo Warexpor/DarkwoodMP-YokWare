@@ -302,6 +302,8 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
             NetworkResetRegistry.Register(PauseMenuNoInputPatch.Reset);
+            NetworkResetRegistry.Register(StackedLightProbe.Reset);
+            NetworkResetRegistry.Register(BackgroundFrameRate.Reset);
             NetworkResetRegistry.Register(DescriptionDeck.Reset);
             NetworkResetRegistry.Register(DesyncCheck.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);

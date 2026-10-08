@@ -67,7 +67,13 @@ public class NetMessageContractTests
         Assert.Equal(162, (byte)NetMessageType.PauseMenuState);
         Assert.Equal(163, (byte)NetMessageType.WorldPause);
         Assert.Equal(164, (byte)NetMessageType.CosmeticState);
-        Assert.Equal(164, (byte)NetMessageType._Highest);
+        Assert.Equal(166, (byte)NetMessageType.MapPinRequest);
+        Assert.Equal(167, (byte)NetMessageType.MapPinEvent);
+        Assert.Equal(167, (byte)NetMessageType._Highest);
+        // 68 / 72 (MapMarker / MapMarkerRemove) and 165 (WorldClock) are retired.
+        Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)68));
+        Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)72));
+        Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)165));
     }
 
     [Fact]

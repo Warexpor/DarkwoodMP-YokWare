@@ -86,7 +86,7 @@ clients.
   what one player takes is gone for everyone. Story flags, NPC states, the journal,
   the workbench level and the clock are shared.
 - **Personal:** the player character. Each player has their own bag and hotbar,
-  health, skills, level, recipes, home oven and respawn point, map pins and trader
+  health, skills, level, recipes, home oven and respawn point, and trader
   standing. A player's progress is not overwritten by the host's.
 
 When a rule is unclear, the first question is: "is this a fact about the world, or a
@@ -177,7 +177,9 @@ the rest of this document easier to read.
 - Trader stock.
 - Doors, barricades, windows, generators and their fuel, lamps, fires.
 - The clock and weather.
-- The map's discovered locations (map pins a player places are personal).
+- The map's discovered locations.
+- The party map board: every pin and ping any player puts on the world map (see
+  "Party map board" below).
 - Game settings that affect balance: difficulty, friendly fire, loot sharing.
 
 ### Personal (each player has their own)
@@ -186,13 +188,32 @@ the rest of this document easier to read.
 - Health, darkness, status effects, burning.
 - Skills, level, level-up dream slots, recipes, craft-limit counters.
 - Home oven and respawn point.
-- Night-trader and morning-trader standing.
-- Personal map pins.
+- Trader standing (night and morning traders, the Wolf, Piotrek; not the Doctor).
 - Per-player flags: anything named `player_in*`, `player_at*` or
   `player_entering*`, help popups, the first oven talk, "survived the night".
 - Hints, thought lines and one-shot "lessons" (recipes or journal pages taught by
   a hideout event): each player gets them once.
 - The prologue.
+
+### Party map board
+
+The world map carries one board of pins for the whole party, kept by the host and
+saved with the host's world (`dwmp_map_pins.json` next to the save; every player
+keeps a copy, so a player promoted by host migration still has it). A pin has a
+stamp (Mark, Danger, Loot, Shelter, Camp, Grave, drawn in the map's own ink), a
+glow in its owner's colour, the day it was placed and an optional label.
+
+- Right click places the chosen stamp, or erases the pin under the cursor (any
+  player may erase any pin: it is one shared map).
+- The mouse wheel picks the stamp, or restyles the pin under the cursor.
+- A double click on a pin writes a label on it.
+- Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
+  for 25 seconds, and players with the map closed see "<name> pinged the map".
+- New pins and pings from others show as a `[Map]` line in the chat.
+- Only the world map of the current chapter has pins (not the prologue map).
+  Clients ask the host, the host numbers each pin and tells everyone, so two pins
+  on one spot are never mixed up. An owner is a hash of their install key: the
+  same player keeps their pins and colour across sessions.
 - Camera, field of view, audio listener.
 
 Each client's personal state is saved as a character snapshot on its own disk and
@@ -567,7 +588,11 @@ again.
 Trader stock is shared and owned by the host. A client's trade is sent as "what I
 bought and what I sold"; if the host's stock no longer has the goods, the trade is
 refused and reversed on the client. A trader restocks only when nobody is trading
-with it. Standing with the night trader is personal.
+with it. Several players can trade with the same trader at once, each from their own
+screen; goods sitting in one player's buy tray are held back from that player's view
+of the stock, and the first accepted trade wins. Standing with a trader is personal:
+the night and morning traders, the Wolf and Piotrek. The Doctor's standing is shared,
+because his chapter 2 story keeps its state in it.
 
 ### Crafting, upgrades and the workbench
 
@@ -642,8 +667,13 @@ The chapter transition is a world event that only the host runs. See
 - **Listening in.** Talking to an NPC someone else is already talking to opens a
   read-only copy of their dialogue window: the same portrait, the same lines typing
   out at the same speed, the same options and the option they are pointing at. Only
-  the speaker chooses; Esc leaves. The trading screen, the cooking menu after a talk
-  and journal pages opened by a talk are not shown to listeners.
+  the speaker chooses; a listener leaves with Esc or the Exit option without touching
+  the talk. While the speaker trades, each listener gets its own trading screen on
+  the same trader (and can open it from Trade). The cooking menu after a talk and
+  journal pages opened by a talk are not shown to listeners.
+- **Leaving a shared talk.** When the speaker leaves while others listen in, the
+  talk is handed to the next of them (its own options from there); the NPC's close
+  events wait until the last player in the talk leaves.
 - **Who gets what.** Items a dialogue gives are personal to the speaker. Story
   flags, world events and NPC reputation the dialogue changes are world outcomes:
   the host replays the client's finished conversation in order and applies them

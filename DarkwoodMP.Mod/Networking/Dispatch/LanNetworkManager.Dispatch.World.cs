@@ -52,24 +52,8 @@ namespace DWMPHorde.Networking
             On(NetMessageType.InteractiveItemSwitch, InteractiveItemSwitchMessage.Deserialize, m => LockHandlers.HandleInteractiveItemSwitch(m));
             On(NetMessageType.PadlockUnlock, PadlockUnlockMessage.Deserialize, m => LockHandlers.HandlePadlockUnlock(m));
             On(NetMessageType.LockedUnlock, LockedUnlockMessage.Deserialize, m => LockHandlers.HandleLockedUnlock(m));
-            OnRaw(NetMessageType.MapMarker, payload =>
-            {
-                // Host stamps the real sender and relays that body; the generic
-                // Forwardable relay would pass a client-claimed PlayerId to the others.
-                var marker = MapMarkerMessage.Deserialize(new NetReader(payload));
-                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
-                if (stamp) marker.PlayerId = _currentReceivePlayerId;
-                MapHandlers.HandleMapMarker(marker);
-                if (stamp) RelayStamped(w => marker.Serialize(w));
-            });
-            OnRaw(NetMessageType.MapMarkerRemove, payload =>
-            {
-                var marker = MapMarkerRemoveMessage.Deserialize(new NetReader(payload));
-                bool stamp = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
-                if (stamp) marker.PlayerId = _currentReceivePlayerId;
-                MapHandlers.HandleMapMarkerRemove(marker);
-                if (stamp) RelayStamped(w => marker.Serialize(w));
-            });
+            On(NetMessageType.MapPinRequest, MapPinRequestMessage.Deserialize, m => MapHandlers.HandleMapPinRequest(m));
+            On(NetMessageType.MapPinEvent, MapPinEventMessage.Deserialize, m => MapHandlers.HandleMapPinEvent(m));
             On(NetMessageType.MapElementDiscovered, MapElementDiscoveredMessage.Deserialize, m => MapHandlers.HandleMapElementDiscovered(m));
             On(NetMessageType.DoorOpen, DoorOpenMessage.Deserialize, m => DoorHandlers.HandleDoorOpen(m));
             OnRaw(NetMessageType.LocationEnter, payload =>

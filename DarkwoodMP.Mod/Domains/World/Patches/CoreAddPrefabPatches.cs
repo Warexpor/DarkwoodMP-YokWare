@@ -52,6 +52,7 @@ namespace DWMPHorde.Patches
         {
             GasolineTrailObjectSpawnPatch.OnAddPrefab(__result, __0, __1);
             ExplosionObjectSpawnSyncPatch.OnAddPrefab(__result, __0, __1, __2);
+            ScriptedSpawnSync.OnAddPrefab(__result, __0);
             DefenderAttackContext.NoteSpawned(__result);
         }
     }

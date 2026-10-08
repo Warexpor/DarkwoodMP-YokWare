@@ -169,4 +169,20 @@ namespace DWMPHorde
     {
         private static bool Prefix() => !UiInputLock.SwallowEsc;
     }
+
+    /// <summary>
+    /// The Map and Journal keys are read by <c>InputScript</c> whatever <c>Core.forbidInputs</c> says,
+    /// so a letter typed into chat or a map pin label opened or closed the map or the journal.
+    /// </summary>
+    [HarmonyPatch(typeof(Map), nameof(Map.tryOpenClose))]
+    internal static class UiInputLockMapKeyPatch
+    {
+        private static bool Prefix() => !UiInputLock.IsHeld;
+    }
+
+    [HarmonyPatch(typeof(Journal), nameof(Journal.tryOpenClose))]
+    internal static class UiInputLockJournalKeyPatch
+    {
+        private static bool Prefix() => !UiInputLock.IsHeld;
+    }
 }

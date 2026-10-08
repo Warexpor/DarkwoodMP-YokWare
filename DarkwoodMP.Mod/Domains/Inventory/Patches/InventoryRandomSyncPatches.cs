@@ -78,11 +78,17 @@ namespace DWMPHorde.Patches
             Inventory inv = __instance != null
                 ? __instance.GetComponent<Inventory>()
                 : null;
-            // Empty world chests: open-state request is enough. Trader new-day
-            // clear+reroll must push even when the roll yields nothing so peers
-            // that cleared locally stay aligned (and any stale fill is wiped).
-            bool isNpc = __instance != null && __instance.GetComponent<NPC>() != null;
-            ContainerStateFanout.Broadcast(net, inv, evenIfEmpty: isNpc);
+            // A trader's roll is its stock: TradeRestockHostPatch sends it as TradeInventorySync,
+            // which finds the trader by name and spot. Sent here too it went by position alone, and
+            // a client missing that trader filled the closest container instead (Piotrek's death
+            // bag got his shop's 22 items).
+            NPC npc = __instance != null ? __instance.GetComponent<NPC>() : null;
+            if (npc != null && npc.trader)
+                return;
+            // Empty world chests: open-state request is enough. A non-trader NPC's clear+reroll
+            // must push even when the roll yields nothing so peers that cleared locally stay
+            // aligned (and any stale fill is wiped).
+            ContainerStateFanout.Broadcast(net, inv, evenIfEmpty: npc != null);
         }
     }
 

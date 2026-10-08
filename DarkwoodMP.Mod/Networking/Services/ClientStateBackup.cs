@@ -71,8 +71,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         public List<EffectEntry> ActiveEffects;
         /// <summary>
-        /// Personal blue map pins (MultiplayerMapManager.LocalMarkers). Mod-only;
-        /// NetworkReset clears them on disconnect so cold rejoin needs backup.
+        /// Legacy: this player's map pins from before the party map board (read once and handed to
+        /// the host's board on restore; new backups leave it empty, the host's world keeps the board).
         /// </summary>
         public List<MarkerEntry> LocalMapMarkers;
         /// <summary>

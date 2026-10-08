@@ -74,6 +74,15 @@ namespace DWMPHorde
             TrySpeechBubble(msg.SenderId, msg.Message);
         }
 
+        /// <summary>A line from the mod itself (map pins and pings), shown with the chat history.</summary>
+        public static void AddSystemLine(string line)
+        {
+            if (!Enabled || string.IsNullOrEmpty(line)) return;
+            EnsureExists();
+            if (_instance == null) return;
+            _instance.AddLine(line);
+        }
+
         private void Update()
         {
             if (!Enabled)

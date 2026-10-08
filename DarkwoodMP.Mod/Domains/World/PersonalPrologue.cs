@@ -226,7 +226,6 @@ namespace DWMPHorde.Sync
                 case NetMessageType.ExplosionSpawnObject:
                 case NetMessageType.GasTrailSpawn:
                 case NetMessageType.MapElementDiscovered:
-                case NetMessageType.MapMarker:
                 case NetMessageType.DialogTreeState:
                 case NetMessageType.DialogNpcLock:
                 case NetMessageType.DialogOutcomeSync:

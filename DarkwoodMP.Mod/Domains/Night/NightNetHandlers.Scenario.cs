@@ -75,6 +75,9 @@ namespace DWMPHorde.Networking
             }
 
             ns.currentScenario = scenario;
+            // Start from a clean night (vanilla setMe at nightfall): this copy may still carry
+            // events started in an earlier night or session, which the list below never clears.
+            scenario.setMe();
 
             if (msg.EventIndices != null && msg.FiredCount > 0)
             {

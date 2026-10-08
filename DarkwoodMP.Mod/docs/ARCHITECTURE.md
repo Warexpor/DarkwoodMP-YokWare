@@ -50,7 +50,7 @@ Each message type registers exactly one handler, once, in `Awake`:
 
 ```csharp
 On(NetMessageType.DoorOpen, DoorOpenMessage.Deserialize, m => DoorHandlers.HandleDoorOpen(m));
-OnRaw(NetMessageType.MapMarker, payload => { /* stamp sender, then RelayStamped(...) */ });
+OnRaw(NetMessageType.LocationEnter, payload => { /* stamp sender, then RelayStamped(...) */ });
 ```
 
 `ProcessInboundMessage` then, for every packet:

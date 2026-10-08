@@ -356,34 +356,14 @@ namespace DWMPHorde.Networking
             _net.JournalHandlers.ApplyWorkbenchLevel(msg.Level);
         }
 
-        /// <summary>Send map markers and discoveries to all clients.</summary>
+        /// <summary>Send the party map board and map discoveries to all clients.</summary>
         internal void SendMapStateSync() => SendMapStateSyncTo(-1);
 
         internal void SendMapStateSyncTo(int targetPlayerId)
         {
             if (_net.Role != NetworkRole.Host) return;
 
-            // Host local markers keyed by current LocalPlayerId (migration-safe; not hardcoded 1)
-            // + all known remote markers keyed by owner.
-            var positions = new List<Vector3>(64);
-            var owners = new List<int>(64);
-            int hostPid = _net.LocalPlayerId > 0 ? _net.LocalPlayerId : 1;
-
-            foreach (var p in Sync.MultiplayerMapManager.LocalMarkers)
-            {
-                positions.Add(p);
-                owners.Add(hostPid);
-            }
-            foreach (var kvp in Sync.MultiplayerMapManager.RemoteMarkers)
-            {
-                int pid = kvp.Key;
-                if (pid <= 0) continue;
-                foreach (var p in kvp.Value)
-                {
-                    positions.Add(p);
-                    owners.Add(pid);
-                }
-            }
+            MapPinWire[] pins = Sync.MapPinBoard.Snapshot();
 
             // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69.
             var discoveries = new List<string>(256);
@@ -397,44 +377,22 @@ namespace DWMPHorde.Networking
                 discoveries.Add(el.elementName);
             }
 
-            int mc = Mathf.Min(positions.Count, 4096);
             int dc = discoveries.Count;
             var msg = new MapStateSyncMessage
             {
-                MarkerCount = mc,
-                MarkerPosX = new float[mc],
-                MarkerPosY = new float[mc],
-                MarkerPosZ = new float[mc],
-                MarkerPlayerIds = new int[mc],
-                MarkerTexts = new string[mc],
+                PinCount = Mathf.Min(pins.Length, 4096),
+                Pins = pins,
                 DiscoveryCount = dc,
                 DiscoveryElementNames = discoveries.ToArray()
             };
-            for (int i = 0; i < mc; i++)
-            {
-                msg.MarkerPosX[i] = positions[i].x;
-                msg.MarkerPosY[i] = positions[i].y;
-                msg.MarkerPosZ[i] = positions[i].z;
-                msg.MarkerPlayerIds[i] = owners[i];
-                msg.MarkerTexts[i] = "";
-            }
             _net.SendBulkOrAll(NetMessageType.MapStateSync, w => msg.Serialize(w), targetPlayerId);
         }
 
         internal void HandleMapStateSync(MapStateSyncMessage msg)
         {
             if (_net.Role != NetworkRole.Client) return;
-            // Full snapshot: replace remotes so phase-3 soft-reconnect late-join bulk
-            // cannot stack duplicate green pins on every AlreadyInWorld.
-            Sync.MultiplayerMapManager.ClearRemoteMarkers();
-            for (int i = 0; i < msg.MarkerCount; i++)
-            {
-                Vector3 pos = new Vector3(msg.MarkerPosX[i], msg.MarkerPosY[i], msg.MarkerPosZ[i]);
-                int pid = msg.MarkerPlayerIds != null && i < msg.MarkerPlayerIds.Length
-                    ? msg.MarkerPlayerIds[i] : 0;
-                if (pid <= 0 || pid == _net.LocalPlayerId) continue;
-                Sync.MultiplayerMapManager.AddRemoteMarker(pid, pos);
-            }
+            // Full snapshot: the host's board replaces this one (a soft-reconnect resend cannot stack pins).
+            Sync.MapPinBoard.ApplySnapshot(msg.Pins, msg.PinCount);
             // Discoveries: apply when in-world; otherwise queue (MapElements may not exist yet).
             // OnRemoteElementDiscovered also queues when the named MapElement is missing /
             // still OutsideLocation-bound via the old string path.

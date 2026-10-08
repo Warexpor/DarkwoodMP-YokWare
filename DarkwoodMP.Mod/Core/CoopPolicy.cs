@@ -273,13 +273,26 @@ namespace DWMPHorde
         /// </summary>
         private static readonly string[] NightTraderNpcNames = { "nightTrader", "theThree", "soldier_underground" };
 
-        /// <summary>Morning traders keep per-player standing.</summary>
+        /// <summary>
+        /// <c>NPC.name</c> of the other traders whose standing is only what a player has to spend
+        /// with them (trades and quest rewards): the Wolf (every "wolfman": the camps, the hideout
+        /// mornings, the Doctor's house) and Piotrek. The Doctor trades too but is left out: his
+        /// chapter 2 story keeps its state in his reputation (setDoctorState_A/B/C_act2).
+        /// </summary>
+        private static readonly string[] OwnStandingTraderNpcNames = { "wolfman", "piotrek" };
+
+        /// <summary>Traders whose standing is each player's own (night and morning traders, the Wolf, Piotrek).</summary>
         public static bool IsPerPlayerReputationNpcName(string npcName)
         {
             if (string.IsNullOrEmpty(npcName)) return false;
             for (int i = 0; i < NightTraderNpcNames.Length; i++)
             {
                 if (string.Equals(npcName, NightTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            for (int i = 0; i < OwnStandingTraderNpcNames.Length; i++)
+            {
+                if (string.Equals(npcName, OwnStandingTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             return false;

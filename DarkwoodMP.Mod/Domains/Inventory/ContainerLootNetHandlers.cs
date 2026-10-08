@@ -107,10 +107,29 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>The shop of the trader standing at <paramref name="pos"/> (its own spot), or null.</summary>
+        private static Inventory FindTraderShop(Vector3 pos)
+        {
+            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                NPC npc = all[i];
+                if (npc == null || !npc.trader || npc.inventory == null)
+                    continue;
+                if (Vector3.Distance(npc.inventory.transform.position, pos) <= 2.5f)
+                    return npc.inventory;
+            }
+            return null;
+        }
+
         internal void HandleContainerItem(ContainerItemMessage msg)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Inventory inv = WorldQueryHelper.FindInventoryByPos(pos);
+            // A closed trade window closes the trader's shop, which the container lookup (chests,
+            // bodies, bags) never finds: its story trigger was dropped with a warning.
+            Inventory inv = msg.Action == ContainerAction.CloseContainer ? FindTraderShop(pos) : null;
+            if (inv == null)
+                inv = WorldQueryHelper.FindInventoryByPos(pos);
             if (inv == null)
             {
                 ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: no inventory at {pos} for {msg.Action} slot={msg.SlotIndex} type={msg.ItemType}");

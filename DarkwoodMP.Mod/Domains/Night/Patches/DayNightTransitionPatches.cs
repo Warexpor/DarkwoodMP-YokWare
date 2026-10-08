@@ -88,6 +88,27 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Host dawn minute: the clients play their own white fade when their clock crosses it
+    /// (WorldWeatherTimeNetHandlers.ClientNightCycle); a 2 s periodic sync left it late.
+    /// </summary>
+    [HarmonyPatch(typeof(Controller), "startBeforeDay")]
+    public static class StartBeforeDayTimeSyncPatch
+    {
+        private static void Postfix() => StartDayTimeSyncPatch.FlushHostTime("startBeforeDay");
+    }
+
+    /// <summary>
+    /// Host nightfall: tonight's scenario was just set (ScenarioSync went out) and reset. The
+    /// clock goes out now, ahead of any event of the night on the same ordered channel, so a
+    /// client resets its copy before the first ScenarioEventFired arrives, never after.
+    /// </summary>
+    [HarmonyPatch(typeof(NightScenario), nameof(NightScenario.setMe))]
+    public static class NightStartTimeSyncPatch
+    {
+        private static void Postfix() => StartDayTimeSyncPatch.FlushHostTime("night start");
+    }
+
     [HarmonyPatch(typeof(Controller), "skipDay")]
     public static class SkipDayTimeSyncPatch
     {

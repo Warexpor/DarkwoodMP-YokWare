@@ -46,6 +46,8 @@ namespace DWMPHorde.Networking
             try
             {
                 GameObject go = Core.AddPrefab(msg.PrefabPath, pos, rot, null);
+                if (go != null && _net.Role == NetworkRole.Client)
+                    ScriptedSpawnSync.OnClientSpawned(go, msg.PrefabPath);
                 if (go != null)
                 {
                     if (ModRuntime.VerboseLogging)

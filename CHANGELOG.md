@@ -3,7 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.160**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.160, bumped in 0.8.142:
+**0.8.163**. The current Horde wire protocol is **43** (held for 0.8.163, bumped in 0.8.162: new `MapPinRequest` (166) and
+`MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
+42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -33,6 +35,162 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.163 — Night mushrooms and dawn on clients, shared trading, leaving a shared talk, one trader stock
+
+On top of 0.8.162. Protocol **43** unchanged (the dialogue mirror gains a message kind,
+`KindPromote`, inside `DialogMirror` (160); both installs run the same DLL). Built, 434 unit
+tests pass, deployed for the next playtest; not playtested yet.
+
+**Fixed (from the night playtest logs, 0.8.160)**
+- **Night mushrooms in the hideout were missing on the client.** The night scene's spawn step
+  picks a random waypoint; a client replaying the scene skips item spawns as the host's, and the
+  host never sent the one it spawned. The host now sends every world object a scripted event
+  spawns (prefab path from the save's own prefab table, exact spot) on `EntitySpawn`; the client
+  files it under its location like vanilla, and a client replay skips any such spawn
+  (`ScriptedSpawnSync`).
+- **No dawn on the client.** The client never ran the edges of vanilla `refreshTime`: no white
+  fade, no "Day N" screen, last night's scenario never cleared, its night events never reset at
+  nightfall nor ended on the clock. The client now runs them from the host's clock
+  (`WorldWeatherTimeNetHandlers.ClientNightCycle`): nightfall resets tonight's scenario, a night
+  event ends on the shared clock, dawn plays vanilla's white fade (sound faded, inputs held,
+  invulnerable for its seconds, the host's karma step mirrored) and the "Day N" screen, and the
+  new day clears the scenario. The host flushes its clock at the dawn minute and at nightfall
+  (ordered ahead of the night's events); a late joiner's scenario starts from a clean night.
+- **The trader's stock was not shared.** The morning Wolf at the hideout is spawned by the host
+  and reaches a client a moment after his stock; that stock went to the closest other "wolfman"
+  (another camp) and the hideout one kept a roll of its own, so a client's purchase came out of a
+  different shelf than the host's. Trader stock now only lands on the trader at the host's spot
+  (400 units) and waits until he is there. The host's trader restocks also went out as plain
+  container fills by position, and a client that did not find the trader filled the nearest
+  container: Piotrek's death bag got his 22-item shop. Trader rolls now go only as trader stock.
+- **Closing a trade lost its story trigger** (the host's container lookup never matched a shop):
+  the host now finds the trader's shop and replays `onCloseContainer`.
+- **Joining a talk took two tries.** The listener's view opened from a coroutine on the dialogue
+  window, inactive until a talk opens; Unity dropped it ("Coroutine couldn't be started …
+  DialogueWindow is inactive"). The mirror's waits now run on the controller.
+- **The night "door opens by itself" event opened a different door on the client** (its replay
+  picked its own random door). The client's night-scene replay no longer runs door open/close
+  steps; the host's door change arrives as `DoorOpen`.
+- **The new day's weather roll** (rain today, fog) only reached clients when rain or fog next
+  changed; the host now sends it on the new day.
+- **A hidden game window ran at one frame a second** (vsync on a window the desktop does not
+  present; Hyprland/XWayland here), and Unity's frame-time cap then slowed that game to a third
+  of real time. On the host that was the whole world while the player was on the client window.
+  In a session an unfocused game now runs with vsync off at a 60 fps cap; focus back restores the
+  player's setting (`BackgroundFrameRate`).
+
+**Changed (requested)**
+- **Trading together.** While the talking player is in the trade screen, a player who joins the
+  talk (or is listening when the trade opens) gets its own trading screen on the same trader:
+  its own standing, its own bag, the host's stock. Closing it leaves Trade / Exit options; the
+  mirrored Trade option works too. The host accepts trades from anyone in the talk; goods in a
+  player's own buy tray are held back from its copy of the stock when a snapshot arrives
+  mid-trade, the host resends its stock after closing its own trade with goods in the tray, and
+  the first accepted trade wins (a later one for the same goods is refused and reversed).
+- **Trader standing is personal for the Wolf ("wolfman") and Piotrek**, as for the night and
+  morning traders. The Doctor stays shared (his chapter 2 story state is his reputation). The
+  host replaying a peer's dialogue no longer moves its own standing, and a scripted standing
+  change goes to the player the event is about.
+- **Leaving a shared talk.** A listener leaves with Esc or the mirrored Exit option without
+  touching the talk. When the talking player leaves while others listen, the talk is handed to
+  the next of them (lock, its own main options, or its own trade goes on), the rest listen to
+  it, and the NPC's close events wait for the last player in the talk.
+
+**Diagnostics** (0.8.161, `[LightStack]`) ship in this build too.
+
+**Not changed:** vanilla's own "Uwaga, próbuję usunąć element boarda" (a typing line finishing
+in the frame its board was replaced) is vanilla's.
+
+---
+
+## 0.8.162 — Party map board: shared map pins with stamps, colours, labels and pings
+
+On top of 0.8.161. **Protocol 42 → 43.** Product **0.8.161 → 0.8.162**. Built and unit-tested,
+**not deployed, not playtested**.
+
+The co-op map pins are rebuilt as one board for the whole party, owned by the host.
+
+**New for players** (world map, any chapter; not the prologue map):
+
+- **Stamps.** Six pin types drawn in the map's own ink: Mark (X), Danger (skull), Loot
+  (rifle), Shelter (house in a ring), Camp (campfire), Grave (cross). The mouse wheel picks
+  the stamp; a faint preview follows the cursor. The wheel over a pin restyles it.
+- **Owner colours.** Each pin sits on a glow in its owner's colour (8 colours, no red, which
+  vanilla uses for "you are here" and death bags). A player keeps the same colour.
+- **Hover card.** Stamp, label, who placed it ("you" for your own) and the in-game day.
+- **Labels.** Double-click a pin to write a label (up to 40 characters), shown under it.
+  Enter saves, Esc cancels the label without closing the map.
+- **Pings.** Middle click (or Shift + right click) pulses a red crosshair on everyone's map
+  for 25 s; a player with the map closed gets "<name> pinged the map" over their head.
+- **Chat lines.** `[Map] <name> marked Danger "label" on the map.` / `[Map] <name> pinged the map.`
+- **Kept with the world.** The host's board is saved next to its save
+  (`prof{n}/dwmp_map_pins.json`, stamped with the campaign id) and comes back when the world
+  is hosted again. Every player keeps a copy, so a player promoted by host migration (or later
+  hosting that copy) still has the pins. Right click on any pin erases it for everyone.
+- A strip at the bottom of the open map lists the controls.
+
+**Bugs fixed in the old pins:**
+
+- **Pins landed off the click on screens above 1080p** (and drifted further toward the map's
+  edges). The click was turned into a map spot without the map's resolution scale. It now goes
+  through the icon holder's own transform.
+- **Erasing a pin could erase the wrong one on the other machines.** Removal matched the first
+  pin within a radius computed from the receiver's map scale, so with two pins close together a
+  peer erased its neighbour; the drawn sprites were also matched by list index and fell out of
+  step when a sprite failed to build (and could throw). Pins now have host-assigned ids.
+- **Pins doubled after a rejoin.** Pins were filed under the player id; a rejoin with a new id
+  re-sent the backup's pins under it while the old copies stayed under the old id (on the host
+  and in every late-join sync). Owners are now a hash of the install key; the host refuses a pin
+  of the same owner on the same spot.
+- **Every peer's pins were the same green** (a tint over dark ink), so with 3+ players nobody
+  could tell whose was whose.
+- **The host's pins were lost when the game closed** (memory only); a client's lived in its
+  backup only.
+- **Pins were not filed per map.** A pin placed on the prologue map and the world map's pins were
+  drawn on each other's map, and chapter 1 pins on chapter 2's. Pins are world-map only now and
+  filed per chapter.
+- New pins draw above vanilla's icons and carry no collider: vanilla's hover takes the topmost map
+  element, so a pin with one would hide the name of a location under it. Hover over pins is by
+  screen distance (nearest pin wins).
+- **Typing in chat (or a pin label) opened the map or the journal.** `InputScript` reads the Map
+  and Journal keys whatever `Core.forbidInputs` says. `Map.tryOpenClose` and
+  `Journal.tryOpenClose` are skipped while an overlay holds the keyboard (`UiInputLock`).
+
+**Wire / code:**
+
+- `MapPinRequest` (166, client→host: place, erase, restyle, label, ping; the sender is the
+  socket's) and `MapPinEvent` (167, host-only: put, remove, ping with the full pin).
+  `MapStateSync` carries the whole board (pins replace the old position/owner arrays).
+  `MapMarker` (68) and `MapMarkerRemove` (72) retired.
+- `Domains/Map/Pins/`: `MapPinBoard` (board, host authority, seeding), `MapPinStore` (world file,
+  written 2 s after a change: by the host into the world it loaded the board from, by a client only
+  while it plays in the host's world), `MapPinView` (drawing and input), `MapPinOverlay` (labels,
+  hover card, controls strip, label field). The marker code in `MultiplayerMapManager` is gone;
+  discoveries are unchanged.
+- Client backups no longer store pins. An older backup's pins are sent to the host's board once
+  on restore (as Mark pins).
+- `ChatHud.AddSystemLine` for mod lines; `UiInputLockMapKeyPatch` / `UiInputLockJournalKeyPatch`.
+- Docs: `HOW_COOP_WORKS.md` (pins moved from personal to shared, new "Party map board" section),
+  `PLAYTEST.md` (board checklist), `COOP_COVERAGE.md`, `ARCHITECTURE.md` example.
+
+## 0.8.161 — Stacked light check (diagnostic)
+
+On top of 0.8.160. **Protocol 42 (unchanged).** Product **0.8.160 → 0.8.161**. Built, not deployed,
+not playtested.
+
+- **Why:** a playtest suspicion that every light looks too bright. A code review found no global
+  cause: both installs run gamma 0.7 and light quality 1, the mod never touches gamma, brightness
+  or the light camera, and the client's ambient colour follows the host clock through vanilla's
+  `updateAmbientLight` with the same night table. Darkwood draws each `Light2D` as its own mesh,
+  added into the light buffer, so a spot only gets brighter when two lights draw there: a light
+  spawned twice, or two lights sharing one mesh (a live light copied by `Instantiate`).
+- **New:** `Logging/StackedLightProbe.cs`, ticked from the network update on both peers while in
+  the world. Every 5 s it scans the drawn lights. Each new stack is logged once as a warning:
+  `[LightStack] <role> N lights drawn on one spot` (same position, radius, cone and facing) or
+  `N lights share one mesh`, with each light's path, radius, intensity, colour and position.
+  Every 60 s it logs a `[LightStack]` summary of total and drawn lights at the player's position,
+  so host and client counts in the same place can be compared. Reset on session end.
 
 ## 0.8.160 — Gas bomb gas on clients, health bars after a client hit, no hover labels behind the pause menu, single gunshots, whole stand-up
 
