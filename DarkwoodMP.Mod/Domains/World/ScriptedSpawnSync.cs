@@ -19,6 +19,17 @@ namespace DWMPHorde.Sync
     {
         private static GameEvent _current; // process-scoped: call-scoped, set and restored around one MoveNext
 
+        /// <summary>
+        /// EntitySpawn path prefix for a prefab loaded from the Resources root (vanilla
+        /// <c>Core.AddPrefab(string)</c> reads under <c>Prefabs/</c> only).
+        /// </summary>
+        internal const string ResourcesRootMark = "res:";
+
+        private const string SubeventFolder = "events/subevents/";
+
+        // Resolved once per prefab name: the subevent's Resources path, or null.
+        private static readonly System.Collections.Generic.Dictionary<string, string> _subeventPaths = new System.Collections.Generic.Dictionary<string, string>(); // process-scoped: immutable asset lookup
+
         /// <summary>Paths CoreAddPrefabPhysicsSyncPatch sends; anything else on EntitySpawn is a scripted spawn.</summary>
         private static bool IsGenericPath(string path)
             => path.StartsWith("Items/") || path.StartsWith("Traps/") || path.StartsWith("Objects/") || path.StartsWith("FX/");
@@ -49,10 +60,39 @@ namespace DWMPHorde.Sync
                && ge.gameObjectModifyType == GameEvent.GameObjectModify.spawn
                && IsWorldObject(ge.targetTransform);
 
-        /// <summary>Host: run this spawn step with itself as the current one (its AddPrefab is sent).</summary>
-        internal static IEnumerator WrapHost(GameEvent ge, IEnumerator inner)
+        /// <summary>
+        /// A creature's own scripted step spawning an event object (the banshee's attack spawns
+        /// Banshee_attack_event_01: its sound, a run-away order, more spawns). A client's copy of the
+        /// creature runs none of its own events, so the object was never there: the host's fire of
+        /// it found nothing ("no GameEvents near ... dropped") and the client missed its sound.
+        /// </summary>
+        internal static bool IsCreatureSubeventSpawn(GameEvent ge, GameObject owner)
+            => ge != null && owner != null && ge.type == GameEvent.Type.gameObject
+               && ge.gameObjectModifyType == GameEvent.GameObjectModify.spawn
+               && ge.targetTransform != null && ge.targetTransform.GetComponent<GameEvents>() != null
+               && owner.GetComponentInParent<Character>() != null
+               && SubeventPath(ge.targetTransform.gameObject) != null;
+
+        /// <summary>The Resources path of a subevent prefab, or null.</summary>
+        internal static string SubeventPath(GameObject prefab)
         {
-            if (inner == null || !IsWorldObjectSpawn(ge) || !NetGuard.ConnectedHost(out _))
+            if (prefab == null)
+                return null;
+            if (_subeventPaths.TryGetValue(prefab.name, out string known))
+                return known;
+            string path = SubeventFolder + prefab.name;
+            Object loaded = Resources.Load(path);
+            string result = loaded == prefab ? path : null;
+            _subeventPaths[prefab.name] = result;
+            return result;
+        }
+
+        /// <summary>Host: run this spawn step with itself as the current one (its AddPrefab is sent).</summary>
+        internal static IEnumerator WrapHost(GameEvent ge, IEnumerator inner, GameObject owner)
+        {
+            if (inner == null || !NetGuard.ConnectedHost(out _))
+                return inner;
+            if (!IsWorldObjectSpawn(ge) && !IsCreatureSubeventSpawn(ge, owner))
                 return inner;
             return new Scoped(inner, ge);
         }
@@ -72,7 +112,12 @@ namespace DWMPHorde.Sync
                 return;
             string path = PathOf(prefab.name);
             if (string.IsNullOrEmpty(path))
-                return;
+            {
+                string sub = SubeventPath(prefab as GameObject);
+                if (sub == null)
+                    return;
+                path = ResourcesRootMark + sub;
+            }
             Vector3 pos = result.transform.position;
             Vector3 rot = result.transform.rotation.eulerAngles;
             var msg = new EntitySpawnMessage

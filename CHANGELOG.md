@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.165**. The current Horde wire protocol is **44** (bumped in 0.8.165: `ScenarioEventFired` (msg) gains the scenario name.
+**0.8.166**. The current Horde wire protocol is **44** (held for 0.8.166, bumped in 0.8.165: `ScenarioEventFired` gains the scenario name.
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
 42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
@@ -34,6 +34,49 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.166 — Second night soak: a hideout's scene stays with its players, creature event pieces on clients, sprung traps kept
+
+On top of 0.8.165. Protocol **44** unchanged (`EntitySpawn` paths may start with `res:`, a
+prefab under the Resources root; both installs run the same DLL). Found by a second unattended
+soak: a new world, ten nights over six spots (both in the first hideout, split between two
+hideouts, both in the second, the musician's house and home, the host in the forest, both at the
+Wolfman's camp, home and the hunter's house, both far hideouts, home and the forest), on 0.8.165.
+Its first two nights were clean on both sides. Not playtested yet.
+
+**Fixed**
+- **A client replaying the host's night scene gave orders to creatures.** The scene's "go for
+  the window / barricade / into the house" steps ran on the client's copy, found none of its own
+  creatures ("Invalid (or 0 returned) gameObjects ... Type character"), or gave a creature copy a
+  second set of orders. The host runs the creatures; the replay now skips those steps
+  (aggressiveness, wake-up, behaviour, add/remove activities). File: `EventCoroutineScope.cs`.
+- **A hideout's scene fired at every client.** A scene copy's later fires (its timers and
+  triggers: knocking, the vortex, gore) went to all clients; those in another hideout had no copy
+  and searched for it a minute ("no GameEvents near ... dropped"). They now go only to the peers
+  who replayed that scene. Files: `NightEventAnchorPatches.cs`, `GameEventsFiredPatch.cs`.
+- **Creature event pieces never reached clients.** A creature's own scripted step spawning an
+  event object (the banshee's attack spawns Banshee_attack_event_01: a sound, a run-away order,
+  more spawns) ran on the host only; a client's copy runs none of its own events, so the host's
+  fire of the piece found nothing and the client missed its sound. The host now sends the spawn
+  (`res:events/subevents/...` on `EntitySpawn`), and its fire lands on the client's copy. Files:
+  `ScriptedSpawnSync.cs`, `LocationEntityTrapNetHandlers.cs`.
+- **A trap the host sprang far away stayed armed on a client.** A trap's state for a location
+  the client had not loaded waited 30 s, then was dropped: a bear trap sprung at the home hideout
+  while the client spent the night elsewhere was still armed there afterwards. A trap's latest
+  state now waits until its location loads (one entry per trap). File: `TrapNetworkId.cs`.
+- **A client's dying creature became a corpse mid-animation.** The client added the corpse item
+  as the death clip started; vanilla does it when the clip ends. The rest of the clip ran its
+  frame events as an item's: the banshee's death-scream frame tried to play a clip "MeleeAttack1"
+  it does not have. It now waits for the clip (at most 10 s). File:
+  `ClientEntityInterpolationService.cs`.
+
+**Seen, vanilla**
+- A night spent outside a hideout (the musician's house, the hunter's house, the Wolfman's camp)
+  logs "Invalid (or 0 returned) gameObjects ... Type waypoint/door/item" and "No activity target":
+  vanilla plays a night's scenes in any location the player is in, and those places lack the
+  hideouts' event spots. The same as single player there.
 
 ---
 

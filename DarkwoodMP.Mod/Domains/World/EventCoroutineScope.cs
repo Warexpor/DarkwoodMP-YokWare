@@ -195,14 +195,26 @@ namespace DWMPHorde.Sync
                 && __instance.type == GameEvent.Type.modifyDoor
                 && (__instance.doorModifyType == GameEvent.DoorModify.open
                     || __instance.doorModifyType == GameEvent.DoorModify.close);
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn && !sceneDoor)
+            // The night scene's orders to its creatures (go for the window, wake up, attack): the
+            // creatures are the host's, which runs their AI and sends where they go. The replay
+            // found none of its own in the location ("Invalid (or 0 returned) gameObjects ...
+            // Type character") or gave a copy a second set of orders.
+            bool sceneCreatureOrder = ClientRandomEventGate.PlayingHostLocationEvent
+                && __instance.type == GameEvent.Type.modifyCharacter
+                && (__instance.characterModifyType == GameEvent.CharacterModify.aggressiveness
+                    || __instance.characterModifyType == GameEvent.CharacterModify.wakeup
+                    || __instance.characterModifyType == GameEvent.CharacterModify.behaviour
+                    || __instance.characterModifyType == GameEvent.CharacterModify.addActivity
+                    || __instance.characterModifyType == GameEvent.CharacterModify.removeActivities);
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn && !sceneDoor
+                && !sceneCreatureOrder)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;
         }
 
-        private static void Postfix(GameEvent __instance, ref IEnumerator __result)
-            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance, __result));
+        private static void Postfix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result)
+            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance, __result, thisGO));
     }
 
     [HarmonyPatch(typeof(EventTrigger), nameof(EventTrigger.fire))]

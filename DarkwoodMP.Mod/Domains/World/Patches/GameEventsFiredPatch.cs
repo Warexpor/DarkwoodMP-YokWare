@@ -108,7 +108,14 @@ namespace DWMPHorde.Patches
                 EventName = eventName,
                 ActorPlayerId = GeFireActorContext.PeekOr(net.LocalPlayerId)
             };
-            net.SendGameEventsFired(firedMsg);
+            System.Collections.Generic.List<int> scenePeers = NightEventAnchor.ScenePeersOf(__instance.transform);
+            if (scenePeers != null)
+            {
+                foreach (int id in scenePeers)
+                    net.SendToPlayer(id, NetMessageType.GameEventsFired, w => firedMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            else
+                net.SendGameEventsFired(firedMsg);
             // destroyOnFire schedules Destroy(gameObject) after event delays — gone
             // from late-join FindObjectsOfType scan; keep identity for GameEventsBulk.
             if (__instance.destroyOnFire && net.GameEventHandlers != null)

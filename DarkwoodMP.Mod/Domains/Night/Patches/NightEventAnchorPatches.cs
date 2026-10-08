@@ -34,6 +34,61 @@ namespace DWMPHorde.Patches
         {
             _firedAnchors = null;
             PlayingScene = false;
+            _sceneAnchors.Clear();
+        }
+
+        /// <summary>Host: each scene copy played tonight → the peers who replayed it (in its location then).</summary>
+        private static readonly Dictionary<Transform, List<int>> _sceneAnchors = new Dictionary<Transform, List<int>>(); // reset-in: Reset
+        private static readonly List<Transform> _sceneScratch = new List<Transform>(8); // process-scoped: filled and emptied within one call
+
+        internal static void NoteScene(Transform scene, Location loc)
+        {
+            if (scene == null || loc == null)
+                return;
+            // Copies are destroyed when their night ends: drop the dead keys first.
+            _sceneScratch.Clear();
+            foreach (Transform t in _sceneAnchors.Keys)
+                if (t == null)
+                    _sceneScratch.Add(t);
+            foreach (Transform t in _sceneScratch)
+                _sceneAnchors.Remove(t);
+            var peers = new List<int>(2);
+            PeersIn(loc, peers);
+            _sceneAnchors[scene] = peers;
+        }
+
+        /// <summary>
+        /// Host: the peers who have the scene copy <paramref name="t"/> belongs to, or null when it is
+        /// not a scene copy. A later fire inside a copy (its own timers and triggers) concerns them
+        /// only: they replayed the scene where they stood, the others have no copy and searched for
+        /// it a minute ("no GameEvents near ... dropped").
+        /// </summary>
+        internal static List<int> ScenePeersOf(Transform t)
+        {
+            if (_sceneAnchors.Count == 0)
+                return null;
+            for (Transform cur = t; cur != null; cur = cur.parent)
+                if (_sceneAnchors.TryGetValue(cur, out List<int> peers))
+                    return peers;
+            return null;
+        }
+
+        /// <summary>Peers standing in <paramref name="loc"/>.</summary>
+        internal static void PeersIn(Location loc, List<int> into)
+        {
+            into.Clear();
+            var net = ModRuntime.Network;
+            if (net == null || loc == null)
+                return;
+            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+            {
+                if (proxy == null || proxy.PlayerId <= 0)
+                    continue;
+                Location at = Location.getAtPos(proxy.transform.position);
+                Location big = at != null && at.bigLocation != null ? at.bigLocation : at;
+                if (big == loc)
+                    into.Add(proxy.PlayerId);
+            }
         }
 
         /// <summary>Host checkFrequencies postfix: the locations the event that just started played in.</summary>
@@ -261,6 +316,7 @@ namespace DWMPHorde.Patches
                             continue;
                         GameEvents scene = Core.AddPrefab(e.gameEvents[i].gameObject, Vector3.zero,
                             Quaternion.identity, loc.gameObject).GetComponent<GameEvents>();
+                        NightEventAnchor.NoteScene(scene.transform, loc);
                         NightEventAnchor.PlayingScene = true;
                         try { scene.fire(); }
                         finally { NightEventAnchor.PlayingScene = false; }
