@@ -282,10 +282,11 @@ namespace DWMPHorde.Networking
                 if (!matched)
                     unmatched.Add(i);
             }
+            // Own home is never put out above. Unlit here means not examined yet (vanilla's new
+            // game oven only glows until its first examine lights it and offers Cook); relighting
+            // it gave a fresh world Cook from the start, on every peer.
             if (local != null)
                 local.experienceMachine = ownHome;
-            if (ownHome != null && !ownHome.isOn)
-                Patches.OvenHomes.RelightOwnHomeNextFrame();
             // Keep only the ovens not matched yet (a pad not spawned here). Keeping the whole
             // snapshot replayed it every frame over ovens that had changed since, undoing a
             // relit oven and broadcasting that.

@@ -53,8 +53,9 @@ namespace DWMPHorde.Patches
         private const float SameOvenSq = 1f;
 
         /// <summary>
-        /// The local player's home oven is out (a world bulk or the host's world save put it out):
-        /// light it again next frame, outside any apply scope, so peers hear it.
+        /// The local player's lit home oven is out (the host's world save, which holds the host's
+        /// home): light it again next frame, outside any apply scope, so peers hear it. Only for a
+        /// home this player already lit: an oven never examined stays unlit, as in vanilla.
         /// </summary>
         internal static void RelightOwnHomeNextFrame()
         {

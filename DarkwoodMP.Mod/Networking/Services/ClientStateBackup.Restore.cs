@@ -380,10 +380,28 @@ namespace DWMPHorde.Networking
             }
             if (home == null)
                 return;
-            player.experienceMachine = home;
-            if (!home.isOn)
-                Patches.OvenHomes.RelightOwnHomeNextFrame();
-            ModRuntime.LegacyInfo("[ClientBackup] restored home oven at " + pos);
+            // Lit only once this player examined it (vanilla examinedExpMachine): lighting a home
+            // never examined offered Cook from the start, and told every peer the oven was lit.
+            bool lit = data.HomeOvenLit > 0
+                || (data.HomeOvenLit < 0 && Singleton<Flags>.Instance != null
+                    && Singleton<Flags>.Instance.isFlagTrue("player_firstOvenInteraction"));
+            ExperienceMachine prev = player.experienceMachine;
+            // The join's stand-in home only glows (vanilla setAsDefaultExpMachine); vanilla moving
+            // home puts it out. One a peer lit stays lit (its isOn is the world's).
+            if (prev != null && prev != home && !prev.isOn)
+                prev.disable();
+            if (lit || home.isOn)
+            {
+                player.experienceMachine = home;
+                if (!home.isOn)
+                    Patches.OvenHomes.RelightOwnHomeNextFrame();
+            }
+            else
+            {
+                player.experienceMachine = null;
+                home.setAsDefaultExpMachine();
+            }
+            ModRuntime.LegacyInfo("[ClientBackup] restored home oven at " + pos + " lit=" + lit);
         }
 
         private static void RestorePosition(ClientStateBackupData data)

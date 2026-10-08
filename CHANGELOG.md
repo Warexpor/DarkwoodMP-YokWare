@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.163**. The current Horde wire protocol is **43** (held for 0.8.163, bumped in 0.8.162: new `MapPinRequest` (166) and
+**0.8.164**. The current Horde wire protocol is **43** (held for 0.8.163 and 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
 `MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
 42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
@@ -33,6 +33,25 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.164 — Hideout oven offers Cook only after its first examine
+
+On top of 0.8.163. Protocol **43** unchanged. Not playtested yet.
+
+**Fixed**
+- A new world's hideout oven offered Cook from the start, for every player. Vanilla's new-game
+  oven only glows (`setAsDefaultExpMachine`, `isOn` false) until its first examine lights it and
+  offers Cook. On join the client's hideout-oven bulk "relit" its own home whenever it was unlit,
+  which turned the unexamined oven fully on (`enable`), and sent that to the host and every peer.
+  The bulk no longer relights; the client's own backup puts back a lit home only if this player
+  had lit it (new backup field `HomeOvenLit`, vanilla's `examinedExpMachine`; older backups go by
+  the per-player `player_firstOvenInteraction` flag). An unexamined home comes back glowing, as
+  in vanilla, and the join's stand-in oven no longer keeps glowing when the home is elsewhere.
+  Files: `BulkSyncNetHandlers.cs`, `ClientStateBackup*.cs`, `HideoutUpgradePatch.cs`.
+- A world played on 0.8.163 or earlier may already have that oven saved as lit; start a new
+  world to check.
 
 ---
 

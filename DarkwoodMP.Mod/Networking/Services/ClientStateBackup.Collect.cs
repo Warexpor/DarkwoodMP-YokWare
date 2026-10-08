@@ -53,6 +53,7 @@ namespace DWMPHorde.Networking
                 data.HomeOvenX = home.x;
                 data.HomeOvenY = home.y;
                 data.HomeOvenZ = home.z;
+                data.HomeOvenLit = player.experienceMachine.isOn ? 1 : 0;
             }
             data.Stamina = player.stamina;
             data.Experience = player.experience;
