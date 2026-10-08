@@ -369,11 +369,14 @@ code, not yet playtested).
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice.
-- **Night comes to every player.** Night monsters spawn around every living player
-  who is at home, not only around the host. Players out in the forest get the worm,
-  as in vanilla. Wards count for the player a monster is after. Night events play
-  in every hideout a living player stands in, and a shadow wave is the curse of the
-  one player it targets.
+- **Night comes to every player, at vanilla's rate.** Each hideout a living player
+  is home in gets the night's monsters at vanilla's pace and count, around a player
+  there. Each living, unwarded player gets its own worm, as in vanilla. Wards count
+  for the player a monster is after. Night events play in every hideout a living
+  player stands in; an event that asks about "the player" (the Shadows perk, being
+  attacked) plays only where its player qualifies, and a shadow wave is the curse
+  of that one player. A scripted spawn "around the player" comes around the player
+  the scene is for.
 - **The host does not have to be home.** If the host is away, the night type is
   picked at a peer's hideout, and night events never land inside location pads.
 - **Morning is per hideout and per player.** Every hideout a living player greets
@@ -791,8 +794,9 @@ party events.
   their own skills.
 - **Sounds.** Every sound has one owner, so nothing plays twice. A peer's sounds play
   in 3D on their stand-in (with indoor reverb and wall muffling) within the sound's
-  own range, never less than 650 units. Creature sounds come from the host within
-  their range of a player.
+  own range, never less than 650 units. World sounds play as in vanilla: a 3D one
+  within its own range, a flat (2D) one from anything awake around you, at full
+  volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
   name cannot be faked. Messages also appear as a speech bubble over the sender.
 - **Voice chat** (needs a logged-in Steam client, works over LAN too):

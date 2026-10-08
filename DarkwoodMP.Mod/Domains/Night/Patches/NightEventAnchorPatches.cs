@@ -175,6 +175,59 @@ namespace DWMPHorde.Patches
             }
         }
 
+        /// <summary>The event asks about "the player" (a perk, its health, the creatures after it).</summary>
+        internal static bool HasPlayerRequirement(RandomEvent e)
+        {
+            if (e == null || e.requirements == null)
+                return false;
+            for (int i = 0; i < e.requirements.Count; i++)
+            {
+                EventTriggerRequirement r = e.requirements[i];
+                if (r != null && r.type == EventTriggerRequirement.Type.playerState)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The player a scene would play for meets the event's player requirements on its own body,
+        /// as "the player" does in its own game: the Shadows perk's night waves come to the player
+        /// with the perk, a knock at the door waits while that player is being attacked.
+        /// </summary>
+        internal static bool AnchorPasses(RandomEvent e, int actor)
+        {
+            bool pushed = actor > 0;
+            if (pushed)
+                GeFireActorContext.Push(actor);
+            try
+            {
+                for (int i = 0; i < e.requirements.Count; i++)
+                {
+                    EventTriggerRequirement r = e.requirements[i];
+                    if (r != null && r.type == EventTriggerRequirement.Type.playerState && !r.requirementsMet())
+                        return false;
+                }
+                return true;
+            }
+            finally
+            {
+                if (pushed)
+                    GeFireActorContext.Pop();
+            }
+        }
+
+        /// <summary>Drops the anchors whose player does not meet the event's player requirements.</summary>
+        internal static void KeepPassing(RandomEvent e, List<KeyValuePair<Location, int>> anchors)
+        {
+            if (!HasPlayerRequirement(e))
+                return;
+            for (int i = anchors.Count - 1; i >= 0; i--)
+            {
+                if (!AnchorPasses(e, anchors[i].Value))
+                    anchors.RemoveAt(i);
+            }
+        }
+
         internal static void NoteFired(List<KeyValuePair<Location, int>> anchors)
         {
             var names = new List<string>(anchors.Count);
@@ -310,6 +363,9 @@ namespace DWMPHorde.Patches
                 return false;
 
             NightEventAnchor.Collect(_anchors);
+            // A forced (fixed-time) event ignores its requirements, as vanilla's force does.
+            if (!force)
+                NightEventAnchor.KeepPassing(e, _anchors);
             bool fired = false;
             for (int a = 0; a < _anchors.Count; a++)
             {
@@ -344,6 +400,61 @@ namespace DWMPHorde.Patches
                 e.startedToday = true;
                 if (e.removeOnFire)
                     RemoveMe(e);
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Host with peers: a location event's player requirements (the Shadows perk, the player's
+    /// health, nobody attacking it) are about the player the scene plays for. Vanilla reads them off
+    /// the one player; the host's body alone decided for everyone, so a client with the Shadows perk
+    /// never got its night waves (and a host with it got them in a peer's hideout). The event is
+    /// eligible when some player in a world location meets them; the chance roll and every other
+    /// requirement run once, as vanilla's. <see cref="HostLocationEventAnchorsPatch"/> then plays the
+    /// scene only where its player meets them.
+    /// </summary>
+    [HarmonyPatch(typeof(RandomEvent), nameof(RandomEvent.requirementsMet))]
+    public static class HostLocationEventPlayerRequirementsPatch
+    {
+        // Filled and emptied within one call.
+        private static readonly List<KeyValuePair<Location, int>> _anchors = new List<KeyValuePair<Location, int>>(4); // process-scoped
+
+        private static bool Prefix(RandomEvent __instance, ref bool __result)
+        {
+            RandomEvent e = __instance;
+            if (e == null || e.type != RandomEvent.Type.locationEvent || !NightEventAnchor.HasPlayerRequirement(e))
+                return true;
+            if (!NetGuard.ConnectedHost(out _) || LanNetworkManager.IsApplyingRemoteState || !PlayerPositionManager.HasRemotePlayer)
+                return true;
+
+            // Vanilla requirementsMet, with the player requirements asked per player.
+            __result = false;
+            if (e.disabled)
+                return false;
+            if (Random.Range(0f, 1f) > e.chance)
+                return false;
+            for (int i = 0; i < e.requirements.Count; i++)
+            {
+                EventTriggerRequirement r = e.requirements[i];
+                if (r != null && r.type != EventTriggerRequirement.Type.playerState && !r.requirementsMet())
+                    return false;
+            }
+            NightEventAnchor.Collect(_anchors);
+            try
+            {
+                for (int a = 0; a < _anchors.Count; a++)
+                {
+                    if (NightEventAnchor.AnchorPasses(e, _anchors[a].Value))
+                    {
+                        __result = true;
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                _anchors.Clear();
             }
             return false;
         }

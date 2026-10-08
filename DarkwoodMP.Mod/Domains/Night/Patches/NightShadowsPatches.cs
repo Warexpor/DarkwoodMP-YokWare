@@ -24,46 +24,6 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Vanilla <c>Player.updateVars</c> leaves the darknessCounter &gt; 0.4 branch empty and
-    /// nothing else calls <c>tryToSpawnShadow</c>, so a single player never gets the perk
-    /// wave. The per-owner perk wave is therefore a co-op-only addition: it runs only while
-    /// connected (host runs full tryToSpawnShadow; client requests a host wave) and
-    /// single-player / an unconnected host keep vanilla behaviour.
-    /// </summary>
-    [HarmonyPatch(typeof(Player), "updateVars")]
-    public static class NightShadowsThresholdPatch
-    {
-        private static float _lastLocalWaveRealtime;
-
-        public static void Reset() => _lastLocalWaveRealtime = 0f;
-
-        private static void Postfix(Player __instance)
-        {
-            if (__instance == null || __instance.skills == null || !__instance.skills.NightShadows)
-                return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                return;
-            if (Core.isDay()) return;
-            if (Singleton<Controller>.Instance == null || !Singleton<Controller>.Instance.isHardNight)
-                return;
-            if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
-                return;
-            if (!__instance.alive || __instance.endingSleep)
-                return;
-            if (__instance.darknessCounter <= 0.4f)
-                return;
-
-            // Belt: avoid multi-call same frame / stuck counter edge cases
-            float now = Time.realtimeSinceStartup;
-            if (now - _lastLocalWaveRealtime < 1f)
-                return;
-            _lastLocalWaveRealtime = now;
-
-            __instance.tryToSpawnShadow();
-        }
-    }
-
-    /// <summary>
     /// Client: do not spawn shadows locally (AI is host-driven). Request a host wave instead.
     /// Host: vanilla tryToSpawnShadow continues (Postfix sends ShadowEvent).
     /// </summary>

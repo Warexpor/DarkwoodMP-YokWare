@@ -269,7 +269,6 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ChatHud.Reset);
             NetworkResetRegistry.Register(HostCheckFrequenciesPostfix.Reset);
             NetworkResetRegistry.Register(NightShadowsRateLimit.Reset);
-            NetworkResetRegistry.Register(NightShadowsThresholdPatch.Reset);
             NetworkResetRegistry.Register(SessionSettings.ResetToLocal);
             NetworkResetRegistry.Register(PlayerAnimLibraryPatch.Reset);
             NetworkResetRegistry.Register(ClientRandomEventGate.Reset);
@@ -319,6 +318,7 @@ namespace DWMPHorde
             // A host lost mid-share must not leave the client black and locked.
             NetworkResetRegistry.Register(ChapterWaitScreen.Release);
             NetworkResetRegistry.Register(NightEventAnchor.Reset);
+            NetworkResetRegistry.Register(NightHideoutQuota.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);
             NetworkResetRegistry.Register(ResetStaticSessionFlags);

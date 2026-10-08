@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.171**. The current Horde wire protocol is **45** (held for 0.8.171, bumped in 0.8.170:
+**0.8.172**. The current Horde wire protocol is **45** (held for 0.8.171 and 0.8.172, bumped in 0.8.170:
 `Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
@@ -37,6 +37,56 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.172 — Vanilla parity audit: sounds, night spawns, the Shadows perk
+
+On top of 0.8.171. Protocol **45** unchanged. An audit of where the mod blocks or thins out
+vanilla content. Text (thought lines, hints, speech bubbles), the daytime random events, the
+redneck ambush, night location events, weather and the random world sounds were checked and
+already match vanilla per player. Fixed:
+
+- **Far flat sounds were muted.** In a session every world sound past 650 units was cut unless
+  it was 3D. Fully 2D sounds (a redneck's idle mutter, a dog's whimper, spider deaths) have no
+  falloff: vanilla plays them at full volume from anything it keeps awake around the player
+  (the `WorldGrid` node box, about 2400 x 1600 at 1080p). They now play within that box; only
+  what is awake for a far peer alone is cut. The host also sends a creature's 2D sound across
+  the whole client interest range (was 650). `AudioSuppressionPatch`,
+  `LocalAudioService.WorldSoundAudible`, `EntitySoundSyncHelper.Send`, the world-sound and dream
+  sound receive gates.
+- **Hard-night worms came at half rate.** The party worm loop picked one exposed player per
+  5-second tick, so two exposed players each met half of vanilla's worms. It also only took over
+  if a client was already connected when the world loaded; a client joining later got the
+  vanilla loop plus a coin flip that moved half the host's worms to the client. Every living,
+  unwarded player now gets its own worm each tick, and the host's loop is the party one from
+  the start (vanilla's own tick while nobody else is there). `HardNightPartySpawn`.
+- **Hideout night monsters were split between hideouts.** The night's count of each monster
+  (how many may be out at once) was one for the whole party, so players home in two different
+  hideouts each met about half. Each occupied hideout now has its own count at vanilla's pace;
+  a monster that dies or leaves frees its own hideout's slot. Players in the same hideout share
+  it, as one player would. `NightHideoutQuota`, `NightSpawnFlagPatch`.
+- **Scripted spawns "around the player" went to the wrong player.** A scene step spawning a
+  creature around the player body went around the host, or on a coin flip around some far
+  peer. It now goes around the player the scene is for (the host's own scenes keep the host).
+  `SpawnCharacterAroundRedirectPatch`.
+- **The Shadows perk.** Vanilla's perk works through the night event `CEvent_shadowsX4` (needs
+  the perk, 80% chance), whose scene calls `tryToSpawnShadow`. Its requirements read the host's
+  body only, so a client with the perk never got its waves, and the host's copy of a peer's
+  scene spawned a wave around the host. The mod also added a darkness-triggered wave in co-op
+  that vanilla never has (it read `Player.updateVars`' empty branch as the perk's trigger and
+  missed the night event). Now a location event's player requirements (perk, health, attackers)
+  are checked per player: the event is eligible when a player in a world location meets them,
+  and its scene plays only where they are met. The wave is the scene player's own (a client's
+  replay asks the host for it); the host no longer rejects that request for light, hard night
+  or perk, which vanilla's `tryToSpawnShadow` never checks. The darkness wave is removed.
+  `HostLocationEventPlayerRequirementsPatch`, `NightEventAnchor.AnchorPasses`,
+  `CoopStoryPolicy.IsWorldPlayerFunction`, `HandleNightShadowSpawnRequest`.
+- Removed dead redirects for `CharacterSpawner.spawnForestSpirit` (vanilla never calls it).
+
+Kept on purpose (co-op needs them): no world pause while others play; another player's thought
+lines and hints show only on that player's screen; examine description pools are one shared
+deck, so each line is seen once by the party.
 
 ---
 

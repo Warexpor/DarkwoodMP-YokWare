@@ -77,7 +77,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client→host: NightShadows perk wave for the requester only (per-owner curse).
+        /// Client→host: a Shadows wave for the requester only (its own vanilla tryToSpawnShadow).
         /// </summary>
         internal void HandleNightShadowSpawnRequest(NightShadowSpawnRequestMessage msg)
         {
@@ -90,24 +90,12 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (Core.isDay()
-                || Singleton<Controller>.Instance == null
-                || !Singleton<Controller>.Instance.isHardNight
-                || (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming))
+            // The client's own vanilla tryToSpawnShadow (a Shadows night scene it replayed): vanilla
+            // spawns the wave at night only, with no other check (the scene's requirements chose
+            // the player). Its spawns stop at day on their own, below.
+            if (Core.isDay())
             {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: not hard night / day / dream");
-                return;
-            }
-
-            if (!_net.RemotePlayers.TryGetValue(requesterId, out var st) || !st.HasNightShadows)
-            {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: no NightShadows perk");
-                return;
-            }
-
-            if (st.HasLightProtection)
-            {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: in light");
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: day");
                 return;
             }
 

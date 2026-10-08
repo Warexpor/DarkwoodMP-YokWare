@@ -174,7 +174,7 @@ public class CoopPolicyTests
     // Every Player function vanilla scenes call with targetUniqueObjects "player" (AssetRipper
     // export scan): world ones run on every peer, the rest only on the scene's own player.
     [Theory]
-    [InlineData("tryToSpawnShadow", true)]
+    [InlineData("tryToSpawnShadow", false)]
     [InlineData("pauseShadows", true)]
     [InlineData("unpauseShadows", true)]
     [InlineData("removeShadows", true)]

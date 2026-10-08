@@ -387,7 +387,7 @@ namespace DWMPHorde.Networking
                 if (!LocalAudioService.IsPeerAudioInRange(playerId, pos, range))
                     return;
             }
-            else if (!LocalAudioService.IsNearListenerPeerBand(pos, range))
+            else if (!LocalAudioService.WorldSoundAudible(msg.SoundId, pos))
                 return;
 
             // Explicit flag saved and restored: an outer apply scope must survive this replay.

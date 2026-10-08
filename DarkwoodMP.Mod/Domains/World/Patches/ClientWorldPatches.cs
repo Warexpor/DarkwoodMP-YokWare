@@ -36,31 +36,21 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Blocks client-side worm spawn. Host with peers uses a party-aware loop.</summary>
+    /// <summary>
+    /// Worms: a client spawns none (the host spawns them and sends them). The host's loop is the
+    /// party one from the start (<see cref="HardNightPartySpawn"/>), vanilla's own while no peer is
+    /// there, since a client usually joins after the world loaded.
+    /// </summary>
     [HarmonyPatch(typeof(CharacterSpawner), "waitToSpawnWorm")]
     public static class ClientDisableWormSpawnPatch
     {
         // IEnumerator — CharacterSpawner.init StartCoroutines this; null __result NREs.
         private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
         {
-            if (ClientWorldHelper.IsClient)
-            {
-                __result = HarmonyCoroutineUtil.Empty();
-                return false;
-            }
-
-            // Vanilla only looks at Player.Instance. A warded host suppressed the
-            // worm for an unwarned client, and attackPlayer() always hit the host.
-            if (ModRuntime.Network != null
-                && ModRuntime.Network.Role == NetworkRole.Host
-                && ModRuntime.Network.IsConnected
-                && PlayerPositionManager.HasRemotePlayer)
-            {
-                __result = HardNightPartySpawn.WormLoop(__instance);
-                return false;
-            }
-
-            return true;
+            __result = ClientWorldHelper.IsClient
+                ? HarmonyCoroutineUtil.Empty()
+                : HardNightPartySpawn.WormLoop(__instance);
+            return false;
         }
     }
 
@@ -71,20 +61,6 @@ namespace DWMPHorde.Patches
         private static bool Prefix()
         {
             return !ClientWorldHelper.IsClient;
-        }
-    }
-
-    /// <summary>Blocks client-side forest spirit spawn (host-authoritative).</summary>
-    [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
-    public static class ClientDisableForestSpiritPatch
-    {
-        // IEnumerator — same StartCoroutine(null) class as GameEvent.fire / HelpMessage.
-        private static bool Prefix(ref IEnumerator __result)
-        {
-            if (!ClientWorldHelper.IsClient)
-                return true;
-            __result = HarmonyCoroutineUtil.Empty();
-            return false;
         }
     }
 

@@ -65,7 +65,8 @@ namespace DWMPHorde.Patches
                 return false;
 
             // Match suppression: do not ship far dream SFX to spectators/peers.
-            if (worldPosition != Vector3.zero
+            // A fully 2D one carries across the area each peer has awake: the receiver judges it.
+            if (worldPosition != Vector3.zero && LocalAudioService.IsSpatial(audioID)
                 && !LocalAudioService.IsNearAnyListener(worldPosition, LocalAudioService.AudibleRange(audioID)))
                 return false;
 

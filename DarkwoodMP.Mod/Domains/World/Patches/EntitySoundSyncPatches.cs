@@ -68,9 +68,12 @@ namespace DWMPHorde.Patches
             if (!CharacterTracker.TryGetStableId(c, out short hostId) || hostId == 0)
                 return false;
             // Within this sound's own carry of some player (a spectator listens at the one it follows),
-            // and within client interest: a copy past it is not driven and drops the sound.
-            float range = Mathf.Min(LocalAudioService.AudibleRange(soundId),
-                ClientEntityInterpolationService.ClientInterestDistance);
+            // and within client interest: a copy past it is not driven and drops the sound. A fully
+            // 2D one has no carry of its own (vanilla plays it from anything awake around the
+            // player): all of client interest, and the client judges it against its own area.
+            float range = LocalAudioService.IsSpatial(soundId)
+                ? Mathf.Min(LocalAudioService.AudibleRange(soundId), ClientEntityInterpolationService.ClientInterestDistance)
+                : ClientEntityInterpolationService.ClientInterestDistance;
             if (!LocalAudioService.IsNearAnyListener(c.transform.position, range))
                 return true;
 

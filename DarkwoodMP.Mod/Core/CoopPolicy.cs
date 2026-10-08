@@ -343,9 +343,10 @@ namespace DWMPHorde
         {
             switch (fn)
             {
-                // Night shadow event: CharacterSpawner flags, shadow spawns and the generator
-                // lights of the location (host-run wave, see the night shadow patches).
-                case "tryToSpawnShadow":
+                // Night shadow event: CharacterSpawner flags and the generator lights of the
+                // location. Its wave (tryToSpawnShadow) is the player's own: it comes around the
+                // player the scene plays for (a client's replay asks the host for it), so the host
+                // running a peer's scene does not get one around its own body.
                 case "pauseShadows":
                 case "unpauseShadows":
                 case "removeShadows":

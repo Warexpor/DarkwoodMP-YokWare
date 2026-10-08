@@ -84,24 +84,29 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            // Each sound is culled only beyond its own range (LocalAudioService.AudibleRange):
-            // a 3D sound as far as the game lets it carry, a 2D one at the peer range. The host
+            // Each sound is culled only where vanilla would not reach this listener. The host
             // keeps areas around remote players awake, so far sounds there are not played.
             if (LocalAudioService.IsSpatialLoop(audioID))
                 return true;
 
             // Peer proxy SFX: the stand-in's position, XZ + exit band so spatial rolloff can fade
             // without Play flicker at the edge.
-            if (parentObj != null
-                && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null)
+            bool peerSound = parentObj != null
+                && parentObj.GetComponentInParent<DWMPHorde.Players.RemotePlayerProxy>() != null;
+            if (peerSound)
                 pos = parentObj.position;
-
             // Spectator: listen pos is follow target (LocalAudioService.GetListenPosition).
-            float range = LocalAudioService.AudibleRange(audioID);
-            if (LocalAudioService.IsNearListenerPeerBand(pos, range))
+            // A world sound: a 3D one within its own carry; a fully 2D one (a redneck's idle mutter,
+            // a dog's whimper) from anything vanilla keeps awake around the player, at full volume.
+            // Capping 2D at the peer range muted these past 650 units, which vanilla never does.
+            // A peer's own sound keeps the peer range.
+            bool audible = peerSound
+                ? LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.AudibleRange(audioID))
+                : LocalAudioService.WorldSoundAudible(audioID, pos);
+            if (audible)
                 return true;
 
-            LogCreatureCull(audioID, pos, range, parentObj);
+            LogCreatureCull(audioID, pos, LocalAudioService.AudibleRange(audioID), parentObj);
             __result = null;
             return false;
         }

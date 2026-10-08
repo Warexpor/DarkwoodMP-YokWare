@@ -30,7 +30,6 @@ namespace DWMPHorde.Patches
             CoreAddPrefabPhysicsSyncPatch.OnAddPrefab(__result, prefab, position, quaternion);
             AddPrefabRecordPathPatch.OnAddPrefab(__result, prefab);
             ShadowCaptureOnSpawnPatch.OnAddPrefab(__result, prefab);
-            NightWormPostSpawnPatch.OnAddPrefab(__result, prefab);
         }
     }
 
