@@ -89,3 +89,7 @@ CLAUDE_old.md
 .cursor/
 .vscode/
 *.DotSettings.user
+
+# Co-op skin painter + preview (local work in progress)
+scripts/skins/
+DarkwoodMP.Mod/docs/skins/
